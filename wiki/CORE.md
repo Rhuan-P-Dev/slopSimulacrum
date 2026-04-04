@@ -19,6 +19,12 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - Check the `subMDs` folder for more detailed guides.
 
 ### 📢 Note for Future Agents
-The project employs a middleware architecture: `Client` $\rightarrow$ `Server` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend`.
+The project employs a middleware architecture with two primary flows:
+- **LLM Interaction:** `Client` $\rightarrow$ `Server` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend`.
+- **World State Management:** `Client` $\rightarrow$ `Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `SubControllers` (e.g., `RoomsController`).
 
-When implementing or modifying any feature that requires the use of a Large Language Model, you **must** use the `LLMController` located in `src/controllers/LLMController.js`. The server in `src/server.js` acts as the gateway for clients to access this controller. Do not implement new HTTP calls to the LLM directly in other controllers or the client; instead, extend or utilize the `LLMController` to maintain a single source of truth for LLM communication.
+When implementing or modifying any feature that requires the use of a Large Language Model, you **must** use the `LLMController` located in `src/controllers/LLMController.js`. 
+
+When implementing or modifying the game world, environment, or spatial state, you **must** use the `WorldStateController` located in `src/controllers/WorldStateController.js` and its associated sub-controllers.
+
+The server in `src/server.js` acts as the gateway for clients to access these controllers. Do not implement new HTTP calls to the LLM or direct state modifications in the client; instead, extend or utilize the respective controllers to maintain a single source of truth.

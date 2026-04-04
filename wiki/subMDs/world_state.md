@@ -1,0 +1,52 @@
+# 🌍 World State Management
+
+## 1. Overview
+The World State Management system is responsible for maintaining the "physical" state of the simulation, including locations, spatial relationships, and environmental data. It follows a hierarchical controller pattern to ensure that state is centralized and accessible.
+
+## 2. Architecture
+The system is structured as a coordinator-subcontroller hierarchy:
+
+`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `[Sub-Controllers]`
+
+### 2.1. WorldStateController (`src/controllers/WorldStateController.js`)
+The `WorldStateController` acts as the primary entry point for all state-related queries. 
+- **Role**: Coordinator.
+- **Primary Method**: `getAll()` - Aggregates the state from all registered sub-controllers into a single JSON object.
+- **Extensibility**: New sub-controllers (e.g., `InventoryController`, `NPCController`) should be registered in the `subControllers` map within the constructor.
+
+### 2.2. RoomsController (`src/controllers/RoomsController.js`)
+The `RoomsController` manages the spatial layout of the world.
+- **Role**: Spatial Data Provider.
+- **Data Structure**: Uses a keyed object (map) where each key is a unique `roomId`.
+- **Connections**: Each room defines its exits via a `connections` object:
+  - **Key**: The identifier of the door or path (e.g., `"north_door"`).
+  - **Value**: The `roomId` of the destination room.
+
+## 3. Implementation Guidelines for Agents
+
+### 3.1. Adding New Rooms
+When adding rooms to the `RoomsController`, ensure that:
+1. Each room has a unique `id`.
+2. Connections are bidirectional if the path is meant to be two-way (e.g., if Room A north leads to Room B, Room B south should lead to Room A).
+3. Room descriptions are descriptive and maintain the atmosphere of the simulation.
+
+### 3.2. Adding New State Categories
+If you need to track a new type of global state (e.g., Global Weather, Game Time, Quest Progress):
+1. Create a new controller in `src/controllers/` (e.g., `QuestController.js`).
+2. Implement a `getAll()` method in the new controller.
+3. Instantiate and add the new controller to the `subControllers` map in `WorldStateController.js`.
+
+## 4. Data Schema Example
+```json
+{
+  "rooms": {
+    "room_id": {
+      "id": "room_id",
+      "name": "Room Name",
+      "description": "Detailed description of the room.",
+      "connections": {
+        "door_id": "destination_room_id"
+      }
+    }
+  }
+}

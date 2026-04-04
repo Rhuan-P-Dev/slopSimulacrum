@@ -6,7 +6,8 @@ This document describes the communication layer between the end-user and the LLM
 The project follows a middleware architecture to decouple the client interface from the LLM provider logic.
 
 **Flow:**
-`Client (CLI/UI)` $\rightarrow$ `Node.js Server (Express)` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend API`
+- **LLM Interaction:** `Client (CLI/UI)` $\rightarrow$ `Node.js Server (Express)` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend API`
+- **World State Interaction:** `Browser/Client` $\rightarrow$ `Node.js Server (Express)` $\rightarrow$ `WorldStateController` $\rightarrow$ `Sub-Controllers`
 
 ### 1.1. Why this design?
 *   **Security**: API keys and endpoints are kept on the server, not exposed to the client.
@@ -18,7 +19,7 @@ The project follows a middleware architecture to decouple the client interface f
 ## 2. Communication Protocol
 
 ### 2.1. Server API
-The server exposes a REST API for chat interactions.
+The server exposes a REST API for chat interactions and world state retrieval.
 
 **Endpoint:** `POST /chat`
 **Payload:**
@@ -47,15 +48,31 @@ The server exposes a REST API for chat interactions.
 }
 ```
 
+**Endpoint:** `GET /world-state`
+**Description:** Retrieves the full world state.
+**Successful Response (200 OK):**
+```json
+{
+  "state": {
+    "rooms": { ... },
+    "others": { ... }
+  }
+}
+```
+
 ---
 
 ## 3. Components
 
 ### 3.1. Server (`src/server.js`)
-A Node.js Express server that validates the request format and delegates the LLM call to the `LLMController`.
+A Node.js Express server that:
+- Validates request formats and delegates LLM calls to the `LLMController`.
+- Coordinates world state requests via the `WorldStateController`.
+- Serves a static front-end from the `/public` directory.
 
-### 3.2. Client (`src/client.js`)
-A CLI-based interface that manages conversation history and communicates with the server via HTTP.
+### 3.2. Clients
+- **CLI Client (`src/client.js`)**: A command-line interface that manages conversation history and communicates with the server via HTTP.
+- **Web Front-end (`public/index.html`)**: A simple web page that visualizes the current world state in plain text.
 
 ---
 

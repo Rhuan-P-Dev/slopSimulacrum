@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SlopSimulacrum World State</title>
+    <style>
+        body {
+            font-family: monospace;
+            background-color: #121212;
+            color: #00ff00;
+            padding: 20px;
+            line-height: 1.4;
+        }
+        h1 {
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word-break;
+            background: #1e1e1e;
+            padding: 15px;
+            border: 1px solid #333;
+        }
+        .loading {
+            font-style: italic;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌍 SlopSimulacrum World State</h1>
+    <div id="status" class="loading">Fetching world state...</div>
+    <pre id="output"></pre>
+
+    <script>
+        async function fetchWorldState() {
+            const statusDiv = document.getElementById('status');
+            const outputPre = document.getElementById('output');
+
+            try {
+                const response = await fetch('/world-state');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                statusDiv.style.display = 'none';
+                // Display the state as formatted plain text JSON
+                outputPre.textContent = JSON.stringify(data.state, null, 2);
+            } catch (error) {
+                statusDiv.textContent = 'Error loading world state: ' + error.message;
+                statusDiv.style.color = 'red';
+                console.error('Fetch error:', error);
+            }
+        }
+
+        fetchWorldState();
+    </script>
+</body>
+</html>
