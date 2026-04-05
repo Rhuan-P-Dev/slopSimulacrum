@@ -17,10 +17,14 @@ The `WorldStateController` acts as the primary entry point for all state-related
 ### 2.2. RoomsController (`src/controllers/RoomsController.js`)
 The `RoomsController` manages the spatial layout of the world.
 - **Role**: Spatial Data Provider.
-- **Data Structure**: Uses a keyed object (map) where each key is a unique `roomId`.
+- **Data Structure**: Uses a keyed object (map) where each key is a unique `roomId` (UUID v4).
+- **IDs**: Room IDs are dynamically generated using `generateUID()` upon initialization to ensure global uniqueness.
 - **Connections**: Each room defines its exits via a `connections` object:
   - **Key**: The identifier of the door or path (e.g., `"north_door"`).
-  - **Value**: The `roomId` of the destination room.
+  - **Value**: The `roomId` (UUID) of the destination room.
+- **Containment**: Rooms track the IDs of elements within them via:
+  - `objects`: An array of unique IDs for items/objects in the room.
+  - `entities`: An array of unique IDs for NPCs or players in the room.
 
 ## 3. Implementation Guidelines for Agents
 
@@ -40,13 +44,15 @@ If you need to track a new type of global state (e.g., Global Weather, Game Time
 ```json
 {
   "rooms": {
-    "room_id": {
-      "id": "room_id",
+    "uuid-1234-5678": {
+      "id": "uuid-1234-5678",
       "name": "Room Name",
       "description": "Detailed description of the room.",
       "connections": {
-        "door_id": "destination_room_id"
-      }
+        "door_id": "uuid-8765-4321"
+      },
+      "objects": ["obj_uuid_1", "obj_uuid_2"],
+      "entities": ["ent_uuid_1"]
     }
   }
 }
