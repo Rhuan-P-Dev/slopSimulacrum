@@ -72,3 +72,9 @@ const response = await llm.chat([
 - **Prompt Engineering**: System prompts should be clearly defined in separate configuration files or constants, not hard-coded in the `LLMController`.
 - **Timeout Handling**: Always implement a timeout for LLM calls to prevent the system from hanging.
 - **Validation**: Always validate that the response contains `choices[0].message.content` before accessing it.
+
+---
+
+### 📢 Notice for Future Agents
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

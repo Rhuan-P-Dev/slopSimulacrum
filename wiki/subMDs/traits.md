@@ -55,3 +55,9 @@ The system supports `addGlobalProperty(trait_id, property_key, default_value)`. 
 ## 4. Performance and Caching
 - **Cache on Creation**: The merge process happens once during `initializeComponent`.
 - **Invalidation**: The cache is only recalculated if the `Global_Traits` are modified or the component's blueprint changes.
+
+---
+
+### 📢 Notice for Future Agents
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

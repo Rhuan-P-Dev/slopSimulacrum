@@ -11,12 +11,14 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ## Table of Contents
 - [About the Project](#)
+- [System Architecture Map](subMDs/system_map.md)
 - [LLM Integration](subMDs/llm_integration.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)
+- [System Architecture Map](subMDs/system_map.md)
 - [LLM Integration](subMDs/llm_integration.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)

@@ -88,3 +88,10 @@ The server will start by default on `http://localhost:3000`.
 In a new terminal:
 ```bash
 node src/client.js
+```
+
+---
+
+### 📢 Notice for Future Agents
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

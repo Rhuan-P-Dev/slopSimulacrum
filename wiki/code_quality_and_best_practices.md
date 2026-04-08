@@ -27,7 +27,7 @@ The primary objective is **Maintainability**. The code must be written so that a
 *   **Consistency:** Use `snake_case` for functions/variables and `PascalCase` for classes (or the standard of the chosen language).
 
 ### 2.2. Strong Typing and Validation
-*   **Type Hinting:** Use strong typing wherever possible (e.g., in Python: `def move(entity: Entity, direction: Vector2D) -> bool:`).
+*   **Type Hinting:** While JavaScript is dynamically typed, use JSDoc for type hinting to ensure clarity (e.g., `/** @param {Entity} entity @param {Vector2D} direction @returns {boolean} */`).
 *   **Input Validation:** Never assume that data coming from an LLM or another controller is correct. Validate types, ranges, and formats before processing.
 
 ### 2.3. Avoid "Magic Numbers"
@@ -41,7 +41,7 @@ The primary objective is **Maintainability**. The code must be written so that a
 
 ### 3.1. Graceful Degradation (Fail-Safe)
 *   The system must not crash due to an error in a non-essential module.
-*   Use `try-except` (or equivalent) blocks at critical integration points, especially when dealing with LLM responses.
+*   Use `try...catch` blocks at critical integration points, especially when dealing with LLM responses.
 *   **Error Logging:** Implement a detailed logging system (`INFO`, `WARNING`, `ERROR`, `CRITICAL`) to track runtime failures.
 
 ### 3.2. Schema Validation
@@ -88,3 +88,9 @@ The primary objective is **Maintainability**. The code must be written so that a
 ---
 
 **Signed:** *Software Governance Systems - Gemma 4*
+
+---
+
+### 📢 Notice for Future Agents
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

@@ -51,3 +51,9 @@ Controllers must not use the `new` keyword to create their dependencies. Instead
 `WorldStateController` $\rightarrow$ passes `entityController` $\rightarrow$ `stateEntityController` $\rightarrow$ passes `componentController` $\rightarrow$ `entityController` $\rightarrow$ passes `componentStatsController` $\rightarrow$ `componentController`.
 
 This ensures that every controller in the chain is referencing the exact same instance of the `componentStatsController` data store.
+
+---
+
+### 📢 Notice for Future Agents
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.
