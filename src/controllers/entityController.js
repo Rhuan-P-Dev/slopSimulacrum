@@ -45,20 +45,26 @@ class EntityController {
         for (const item of blueprint) {
             if (Array.isArray(item)) {
                 const [compName, identifier] = item;
-                // If the component itself is a blueprint, expand it
+                // Always add the component itself
+                components.push([compName, identifier]);
+                
+                // If the component itself is also a blueprint, expand it to add its children
                 if (this.blueprints[compName]) {
                     components.push(...this.expandBlueprint(compName).map(c => 
                         Array.isArray(c) ? [c[0], `${c[1]}_${identifier}`] : [c, identifier]
                     ));
-                } else {
-                    components.push([compName, identifier]);
                 }
             } else {
                 // If it's a string, it might be a blueprint or a leaf component
-                if (this.blueprints[item]) {
-                    components.push(...this.expandBlueprint(item));
-                } else {
-                    components.push([item, "default"]);
+                const compName = item;
+                const identifier = "default";
+                
+                // Always add the component itself
+                components.push([compName, identifier]);
+                
+                // If the component itself is also a blueprint, expand it to add its children
+                if (this.blueprints[compName]) {
+                    components.push(...this.expandBlueprint(compName));
                 }
             }
         }

@@ -92,6 +92,42 @@
             font-size: 0.9em;
             margin-left: 10px;
         }
+        .component-container {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+        .component-item {
+            font-size: 0.85em;
+            margin-bottom: 8px;
+            padding: 5px;
+            background: #111;
+            border-left: 3px solid #00ff00;
+        }
+        .component-name {
+            color: #fff;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .component-id {
+            color: #666;
+            font-size: 0.8em;
+        }
+        .trait-group {
+            margin-left: 10px;
+            margin-top: 3px;
+        }
+        .trait-name {
+            color: #00ff00;
+            font-weight: bold;
+            font-size: 0.8em;
+            text-transform: uppercase;
+        }
+        .trait-stat {
+            color: #aaa;
+            font-size: 0.8em;
+            margin-left: 5px;
+        }
         .loading {
             font-style: italic;
             color: #888;
@@ -240,10 +276,46 @@
                 for (const [id, entity] of Object.entries(state.entities)) {
                     const card = document.createElement('div');
                     card.className = 'entity-card';
+                    
+                    let componentsHtml = '';
+                    if (entity.components && state.components && state.components.instances) {
+                        componentsHtml = '<div class="component-container"><strong>Components:</strong><br>';
+                        
+                        entity.components.forEach(comp => {
+                            const stats = state.components.instances[comp.id];
+                            let statsHtml = '';
+                            
+                            if (stats) {
+                                for (const [traitId, properties] of Object.entries(stats)) {
+                                    let propsHtml = '';
+                                    for (const [propKey, propVal] of Object.entries(properties)) {
+                                        propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
+                                    }
+                                    statsHtml += `
+                                        <div class="trait-group">
+                                            <span class="trait-name">${traitId}</span>: ${propsHtml}
+                                        </div>`;
+                                }
+                            } else {
+                                statsHtml = '<div class="trait-group" style="color: #666">No stats found</div>';
+                            }
+
+                            componentsHtml += `
+                                <div class="component-item">
+                                    <span class="component-name">${comp.type}</span> 
+                                    <span class="component-id">(${comp.identifier})</span>
+                                    ${statsHtml}
+                                </div>`;
+                        });
+                        
+                        componentsHtml += '</div>';
+                    }
+
                     card.innerHTML = `
                         <strong style="color: #fff">ID:</strong> ${id}<br>
                         <strong style="color: #fff">Blueprint:</strong> ${entity.blueprint}<br>
                         <strong style="color: #fff">Location:</strong> ${entity.location}
+                        ${componentsHtml}
                     `;
                     entitiesDiv.appendChild(card);
                 }
