@@ -6,13 +6,16 @@ The World State Management system is responsible for maintaining the "physical" 
 ## 2. Architecture
 The system is structured as a coordinator-subcontroller hierarchy:
 
-`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `[Sub-Controllers]`
+`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `[Sub-Controllers]` (e.g., `RoomsController`, `stateEntityController`)
 
 ### 2.1. WorldStateController (`src/controllers/WorldStateController.js`)
-The `WorldStateController` acts as the primary entry point for all state-related queries. 
-- **Role**: Coordinator.
+The `WorldStateController` acts as the primary entry point for all state-related queries and the **Root Injector** for the system.
+- **Role**: Coordinator and Root Injector.
 - **Primary Method**: `getAll()` - Aggregates the state from all registered sub-controllers into a single JSON object.
-- **Extensibility**: New sub-controllers (e.g., `InventoryController`, `NPCController`) should be registered in the `subControllers` map within the constructor.
+- **Extensibility**: New sub-controllers (e.g., `InventoryController`, `NPCController`) should be registered in the `subControllers` map within the constructor. 
+- **Dependency Injection**: As the Root Injector, `WorldStateController` is responsible for instantiating all sub-controllers in the correct order (bottom-up) and passing dependencies via constructors to ensure a single source of truth.
+- **Maintenance Responsibility**: Because it is the Root Injector, `WorldStateController` is the **only** place where the `new` keyword is used for controller instantiation. If a sub-controller's dependencies change, the wiring must be updated here, not within the sub-controller itself.
+- **Entity Integration**: The `stateEntityController` handles the current state of all entities in memory, delegating blueprint and component logic to the Entity-Component-Stats hierarchy.
 
 ### 2.2. RoomsController (`src/controllers/RoomsController.js`)
 The `RoomsController` manages the spatial layout of the world.

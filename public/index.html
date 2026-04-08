@@ -6,7 +6,7 @@
     <title>SlopSimulacrum World State</title>
     <style>
         body {
-            font-family: monospace;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #121212;
             color: #00ff00;
             padding: 20px;
@@ -15,16 +15,48 @@
         h1 {
             border-bottom: 1px solid #00ff00;
             padding-bottom: 10px;
+            font-family: monospace;
         }
-        pre {
-            white-space: pre-wrap;
-            word-wrap: break-word-break;
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .section {
+            flex: 1;
             background: #1e1e1e;
             padding: 15px;
             border: 1px solid #333;
+            border-radius: 5px;
+        }
+        .entity-card {
+            border: 1px solid #00ff00;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #252525;
+        }
+        .component-list {
+            margin-left: 20px;
+            list-style: none;
+            padding-left: 0;
+        }
+        .component-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: #333;
+            border-left: 3px solid #00ff00;
+            font-family: monospace;
+        }
+        .stat {
+            color: #aaa;
+            font-size: 0.9em;
+            margin-left: 10px;
         }
         .loading {
             font-style: italic;
+            color: #888;
+        }
+        pre {
+            font-size: 0.8em;
             color: #888;
         }
     </style>
@@ -32,12 +64,22 @@
 <body>
     <h1>🌍 SlopSimulacrum World State</h1>
     <div id="status" class="loading">Fetching world state...</div>
-    <pre id="output"></pre>
+    <div class="container">
+        <div class="section">
+            <h2>🤖 Active Entities</h2>
+            <div id="entities-list"></div>
+        </div>
+        <div class="section">
+            <h2>📦 Raw State</h2>
+            <pre id="output"></pre>
+        }
+    </div>
 
     <script>
         async function fetchWorldState() {
             const statusDiv = document.getElementById('status');
             const outputPre = document.getElementById('output');
+            const entitiesDiv = document.getElementById('entities-list');
 
             try {
                 const response = await fetch('/world-state');
@@ -45,10 +87,43 @@
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
+                const state = data.state;
                 
                 statusDiv.style.display = 'none';
-                // Display the state as formatted plain text JSON
-                outputPre.textContent = JSON.stringify(data.state, null, 2);
+                outputPre.textContent = JSON.stringify(state, null, 2);
+
+                // Render Entities
+                entitiesDiv.innerHTML = '';
+                if (state.entities && Object.keys(state.entities).length > 0) {
+                    for (const [id, entity] of Object.entries(state.entities)) {
+                        const card = document.createElement('div');
+                        card.className = 'entity-card';
+                        card.innerHTML = `
+                            <strong>ID:</strong> ${id}<br>
+                            <strong>Blueprint:</strong> ${entity.blueprint}<br>
+                            <strong>Location:</strong> ${entity.location}
+                            <ul class="component-list">
+                                ${entity.components.map(c => {
+                                    const stats = state.components?.instances?.[c.id] || {};
+                                    const physical = stats.Physical || {};
+                                    const durability = physical.durability !== undefined ? physical.durability : 'N/A';
+                                    
+                                    return `
+                                        <li class="component-item">
+                                            <strong>${c.type}</strong> (${c.identifier}) 
+                                            <span class="stat">Durability: ${durability}</span>
+                                            <span class="stat">ID: ${c.id}</span>
+                                        </li>
+                                    `;
+                                }).join('')}
+                            </ul>
+                        `;
+                        entitiesDiv.appendChild(card);
+                    }
+                } else {
+                    entitiesDiv.innerHTML = 'No active entities found.';
+                }
+
             } catch (error) {
                 statusDiv.textContent = 'Error loading world state: ' + error.message;
                 statusDiv.style.color = 'red';

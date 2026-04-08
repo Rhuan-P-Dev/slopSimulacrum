@@ -1,19 +1,54 @@
 const RoomsController = require('./RoomsController');
+const stateEntityController = require('./stateEntityController');
+const ComponentController = require('./componentController');
+const EntityController = require('./entityController');
+const ComponentStatsController = require('./componentStatsController');
+const TraitsController = require('./traitsController');
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
  * It manages various sub-controllers and provides a unified interface to access
  * the current state of the simulated world.
+ * 
+ * This class acts as the Root Injector, ensuring all controllers share the same
+ * state instances to prevent desynchronization.
  */
 class WorldStateController {
     constructor() {
-        // Initialize sub-controllers
-        this.roomsController = new RoomsController();
+        // 1. Instantiate Data Stores (Bottom level)
+        const statsController = new ComponentStatsController();
+        const traitsController = new TraitsController();
+        
+        // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores)
+        const componentController = new ComponentController(statsController, traitsController);
+        const entityController = new EntityController(componentController);
+        
+        // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
+        const stateEntityControllerInstance = new stateEntityController(entityController);
+        const roomsController = new RoomsController();
+
+        // Assign to the WorldStateController for coordination and the getAll() method
+        this.roomsController = roomsController;
+        this.stateEntityController = stateEntityControllerInstance;
+        this.componentController = componentController;
         
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
-            rooms: this.roomsController
+            rooms: this.roomsController,
+            entities: this.stateEntityController,
+            components: this.componentController
         };
+
+        // Initialize world with a sample droid as requested
+        this.initializeWorld();
+    }
+
+    /**
+     * Sets up initial world state, including default entities.
+     */
+    initializeWorld() {
+        // Spawn the small ball droid in the start room
+        this.stateEntityController.spawnEntity('smallBallDroid', 'start_room');
     }
 
     /**
