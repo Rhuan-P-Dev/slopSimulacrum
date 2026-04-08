@@ -5,196 +5,337 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SlopSimulacrum - Droid Simulation</title>
     <style>
+        :root {
+            --neon-green: #00ff00;
+            --dark-green: #004400;
+            --bg-black: #0a0a0a;
+            --panel-bg: #161616;
+            --text-main: #fff;
+            --text-dim: #aaa;
+            --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+        }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0a0a0a;
-            color: #00ff00;
-            padding: 20px;
-            line-height: 1.6;
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-black);
+            color: var(--neon-green);
             margin: 0;
+            padding: 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            overflow-x: hidden;
         }
+
         h1 {
-            border-bottom: 2px solid #00ff00;
-            padding-bottom: 10px;
-            font-family: 'Courier New', Courier, monospace;
             text-transform: uppercase;
-            letter-spacing: 3px;
-            text-align: center;
+            letter-spacing: 5px;
+            border-bottom: 2px solid var(--neon-green);
+            padding-bottom: 10px;
+            text-shadow: var(--glow);
+            margin-bottom: 30px;
         }
-        .container {
+
+        .main-layout {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 350px;
             gap: 20px;
             width: 100%;
-            max-width: 1200px;
+            max-width: 1300px;
         }
+
         .section {
-            background: #161616;
+            background: var(--panel-bg);
+            border: 1px solid var(--neon-green);
+            border-radius: 4px;
             padding: 20px;
-            border: 1px solid #00ff00;
-            border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0, 255, 0, 0.1);
+            box-shadow: inset 0 0 15px rgba(0, 255, 0, 0.1), 0 0 10px rgba(0, 0, 0, 0.5);
         }
-        .simulation-panel {
-            text-align: center;
+
+        /* Map Styles */
+        .map-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+            border: 1px inset var(--neon-green);
+            border-radius: 4px;
+            height: 500px;
+            overflow: hidden;
+        }
+
+        #world-map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .room-node {
+            fill: var(--bg-black);
+            stroke: var(--neon-green);
+            stroke-width: 2;
+            transition: all 0.3s;
+        }
+
+        .room-node.active {
+            fill: var(--dark-green);
+            stroke-width: 4;
+            filter: drop-shadow(0 0 5px var(--neon-green));
+        }
+
+        .connection-line {
+            stroke: var(--neon-green);
+            stroke-width: 1;
+            stroke-dasharray: 5,5;
+            opacity: 0.6;
+        }
+
+        .room-label {
+            fill: var(--text-dim);
+            font-size: 12px;
+            text-anchor: middle;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        #droid-marker {
+            cursor: pointer;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            filter: drop-shadow(0 0 8px var(--neon-green));
+        }
+
+        #droid-marker:hover {
+            r: 8;
+            fill: #fff;
+        }
+
+        /* Control Panel Styles */
+        .control-panel {
             display: flex;
             flex-direction: column;
             gap: 20px;
         }
-        .room-display {
-            background: #000;
-            padding: 20px;
-            border-radius: 5px;
-            border: 1px inset #00ff00;
+
+        .room-info {
+            text-align: center;
         }
+
         .room-name {
-            font-size: 1.5em;
-            font-weight: bold;
+            font-size: 1.4em;
+            color: var(--text-main);
             margin-bottom: 10px;
-            color: #fff;
-        }
-        .room-desc {
-            font-style: italic;
-            color: #aaa;
-            margin-bottom: 20px;
-        }
-        .nav-buttons {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .nav-btn {
-            background: #004400;
-            color: #00ff00;
-            border: 1px solid #00ff00;
-            padding: 10px 20px;
-            cursor: pointer;
-            font-family: 'Courier New', Courier, monospace;
-            font-weight: bold;
-            transition: all 0.2s;
-        }
-        .nav-btn:hover {
-            background: #00ff00;
-            color: #000;
-        }
-        .entity-card {
-            border: 1px solid #00ff00;
-            padding: 10px;
-            margin-bottom: 10px;
-            background: #1e1e1e;
-        }
-        .stat {
-            color: #aaa;
-            font-size: 0.9em;
-            margin-left: 10px;
-        }
-        .component-container {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #333;
-        }
-        .component-item {
-            font-size: 0.85em;
-            margin-bottom: 8px;
-            padding: 5px;
-            background: #111;
-            border-left: 3px solid #00ff00;
-        }
-        .component-name {
-            color: #fff;
-            font-weight: bold;
-            margin-right: 5px;
-        }
-        .component-id {
-            color: #666;
-            font-size: 0.8em;
-        }
-        .trait-group {
-            margin-left: 10px;
-            margin-top: 3px;
-        }
-        .trait-name {
-            color: #00ff00;
-            font-weight: bold;
-            font-size: 0.8em;
             text-transform: uppercase;
         }
-        .trait-stat {
-            color: #aaa;
-            font-size: 0.8em;
-            margin-left: 5px;
+
+        .room-desc {
+            font-style: italic;
+            color: var(--text-dim);
+            margin-bottom: 20px;
+            min-height: 60px;
         }
+
+        .nav-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            background: var(--dark-green);
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+            padding: 8px 16px;
+            cursor: pointer;
+            font-family: inherit;
+            text-transform: uppercase;
+            transition: all 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: var(--neon-green);
+            color: var(--bg-black);
+            box-shadow: var(--glow);
+        }
+
+        /* Detail Panel Overlay */
+        #detail-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(4px);
+        }
+
+        .detail-card {
+            background: var(--panel-bg);
+            border: 2px solid var(--neon-green);
+            width: 600px;
+            max-height: 80vh;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            cursor: pointer;
+            padding: 5px 10px;
+            font-family: inherit;
+        }
+
+        .detail-header {
+            border-bottom: 1px solid var(--neon-green);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+        }
+
+        .entity-stat {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .stat-label {
+            color: var(--neon-green);
+            font-weight: bold;
+            min-width: 120px;
+        }
+
+        .stat-value {
+            color: var(--text-main);
+        }
+
+        .component-section {
+            margin-top: 20px;
+        }
+
+        .component-item {
+            background: rgba(0, 255, 0, 0.05);
+            border-left: 3px solid var(--neon-green);
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .component-title {
+            color: var(--text-main);
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .trait-row {
+            font-size: 0.9em;
+            margin-left: 10px;
+            color: var(--text-dim);
+        }
+
+        .trait-name {
+            color: var(--neon-green);
+        }
+
         .loading {
             font-style: italic;
-            color: #888;
+            color: var(--text-dim);
             text-align: center;
             margin: 20px;
-        }
-        pre {
-            font-size: 0.8em;
-            color: #888;
-            overflow-x: auto;
-            max-height: 600px;
         }
     </style>
 </head>
 <body>
-    <h1>🤖 SlopSimulacrum Simulation</h1>
-    <div id="status" class="loading">Initializing simulation...</div>
+    <h1>🤖 SlopSimulacrum Terminal</h1>
+    <div id="status" class="loading">Connecting to world state...</div>
     
-    <div class="container">
-        <!-- Left: Interactive Simulation -->
-        <div class="section simulation-panel">
-            <h2>🛰️ Droid Control</h2>
-            <div id="simulation-ui" style="display: none;">
-                <div class="room-display">
-                    <div id="current-room-name" class="room-name">Unknown Location</div>
-                    <div id="current-room-desc" class="room-desc">No description available.</div>
-                    <div id="nav-buttons" class="nav-buttons"></div>
-                </div>
-                <p style="margin-top: 20px; font-size: 0.9em; color: #888;">
-                    Active Droid: <span id="active-droid-id">None</span>
-                </p>
+    <div class="main-layout">
+        <!-- Left: Visual Map -->
+        <div class="section">
+            <h2 style="text-align: center; margin-top: 0;">🛰️ Spatial Map</h2>
+            <div class="map-container">
+                <svg id="world-map" viewBox="0 0 800 500">
+                    <defs>
+                        <filter id="glow">
+                            <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                            <feMerge>
+                                <feMergeNode in="coloredBlur"/>
+                                <feMergeNode in="SourceGraphic"/>
+                            </feMerge>
+                        </filter>
+                    </defs>
+                    <g id="connections-layer"></g>
+                    <g id="rooms-layer"></g>
+                    <circle id="droid-marker" r="6" fill="#00ff00" filter="url(#glow)" style="display: none;"></circle>
+                </svg>
             </div>
         </div>
 
-        <!-- Right: Technical State -->
-        <div class="section">
-            <h2>⚙️ System State</h2>
-            <div id="entities-list"></div>
-            <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
-            <h3>Raw JSON</h3>
-            <pre id="output"></pre>
+        <!-- Right: Control Console -->
+        <div class="section control-panel">
+            <div>
+                <h2 style="margin-top: 0;">🕹️ Navigation</h2>
+                <div class="room-info">
+                    <div id="current-room-name" class="room-name">Scanning...</div>
+                    <div id="current-room-desc" class="room-desc">Awaiting data...</div>
+                    <div id="nav-buttons" class="nav-buttons"></div>
+                </div>
+            </div>
+            <div style="border-top: 1px solid #333; padding-top: 20px; font-size: 0.8em; color: var(--text-dim);">
+                SYSTEM STATUS: <span style="color: var(--neon-green)">ONLINE</span><br>
+                ACTIVE UNIT: <span id="active-droid-id">None</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Droid Detail Overlay -->
+    <div id="detail-overlay">
+        <div class="detail-card">
+            <button class="close-btn" onclick="closeDetails()">CLOSE [X]</button>
+            <div id="detail-content">
+                <!-- Populated by JS -->
+            </div>
         </div>
     </div>
 
     <script>
+        // Room layout map for visual representation
+        const roomLayout = {
+            "The Entrance Hall": { x: 150, y: 250 },
+            "The Eastern Corridor": { x: 400, y: 250 },
+            "The Deep Vault": { x: 650, y: 250 }
+        };
+
+        let currentWorldState = null;
+        let activeDroid = null;
+
         async function fetchWorldState() {
             const statusDiv = document.getElementById('status');
-            const outputPre = document.getElementById('output');
-            const entitiesDiv = document.getElementById('entities-list');
-            const simulationUI = document.getElementById('simulation-ui');
-
             try {
                 const response = await fetch('/world-state');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
                 const data = await response.json();
-                const state = data.state;
+                currentWorldState = data.state;
                 
                 statusDiv.style.display = 'none';
-                simulationUI.style.display = 'block';
-                outputPre.textContent = JSON.stringify(state, null, 2);
 
-                // 1. Find the Droid
-                const droid = Object.values(state.entities || {}).find(e => e.blueprint === 'smallBallDroid');
+                // 1. Identify Droid
+                activeDroid = Object.values(currentWorldState.entities || {}).find(e => e.blueprint === 'smallBallDroid');
                 
-                if (droid) {
-                    updateSimulationUI(droid, state);
+                if (activeDroid) {
+                    updateUI();
                 } else {
                     document.getElementById('current-room-name').textContent = "No Droid Found";
                     document.getElementById('current-room-desc').textContent = "The simulation is empty.";
@@ -202,50 +343,179 @@
                     document.getElementById('active-droid-id').textContent = "None";
                 }
 
-                // 2. Render Entities List
-                renderEntitiesList(state);
-
             } catch (error) {
-                statusDiv.textContent = 'Error loading world state: ' + error.message;
+                statusDiv.textContent = 'Connection Error: ' + error.message;
                 statusDiv.style.color = 'red';
-                console.error('Fetch error:', error);
             }
         }
 
-        function updateSimulationUI(droid, state) {
+        function updateUI() {
+            const state = currentWorldState;
+            const droid = activeDroid;
             const room = state.rooms[droid.location];
-            const nameEl = document.getElementById('current-room-name');
-            const descEl = document.getElementById('current-room-desc');
-            const navEl = document.getElementById('nav-buttons');
-            const idEl = document.getElementById('active-droid-id');
 
-            idEl.textContent = droid.id;
-
-            if (!room) {
-                nameEl.textContent = "Void";
-                descEl.textContent = "The droid is in an undefined spatial zone.";
-                navEl.innerHTML = "";
-                return;
+            // 1. Update Text Info
+            document.getElementById('active-droid-id').textContent = droid.id;
+            if (room) {
+                document.getElementById('current-room-name').textContent = room.name;
+                document.getElementById('current-room-desc').textContent = room.description;
+                
+                renderNavButtons(room, droid.id);
             }
 
-            nameEl.textContent = room.name;
-            descEl.textContent = room.description;
+            // 2. Update Visuals
+            renderMap(state.rooms);
+            updateDroidMarker(droid, state.rooms);
+        }
 
-            // Render Navigation Buttons
+        function renderNavButtons(room, entityId) {
+            const navEl = document.getElementById('nav-buttons');
             navEl.innerHTML = '';
             const connections = room.connections || {};
             
             if (Object.keys(connections).length === 0) {
-                navEl.innerHTML = '<em>No exits found in this room.</em>';
+                navEl.innerHTML = '<em style="color: #666">No exits available.</em>';
             } else {
                 for (const [door, targetId] of Object.entries(connections)) {
                     const btn = document.createElement('button');
                     btn.className = 'nav-btn';
                     btn.textContent = `Go ${door.replace('_', ' ')}`;
-                    btn.onclick = () => moveDroid(droid.id, targetId);
+                    btn.onclick = () => moveDroid(entityId, targetId);
                     navEl.appendChild(btn);
                 }
             }
+        }
+
+        function renderMap(rooms) {
+            const roomsLayer = document.getElementById('rooms-layer');
+            const connLayer = document.getElementById('connections-layer');
+            roomsLayer.innerHTML = '';
+            connLayer.innerHTML = '';
+
+            const roomNodes = {};
+
+            // Create Nodes
+            for (const [id, room] of Object.entries(rooms)) {
+                const coords = roomLayout[room.name] || { x: Math.random() * 600 + 100, y: Math.random() * 300 + 100 };
+                roomNodes[id] = coords;
+
+                const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", coords.x);
+                circle.setAttribute("cy", coords.y);
+                circle.setAttribute("r", 20);
+                circle.setAttribute("class", `room-node ${activeDroid && activeDroid.location === id ? 'active' : ''}`);
+                
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", coords.x);
+                text.setAttribute("y", coords.y + 35);
+                text.setAttribute("class", "room-label");
+                text.textContent = room.name;
+
+                group.appendChild(circle);
+                group.appendChild(text);
+                roomsLayer.appendChild(group);
+            }
+
+            // Create Edges
+            for (const [id, room] of Object.entries(rooms)) {
+                const start = roomNodes[id];
+                const connections = room.connections || {};
+                for (const [door, targetId] of Object.entries(connections)) {
+                    const end = roomNodes[targetId];
+                    if (start && end) {
+                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        line.setAttribute("x1", start.x);
+                        line.setAttribute("y1", start.y);
+                        line.setAttribute("x2", end.x);
+                        line.setAttribute("y2", end.y);
+                        line.setAttribute("class", "connection-line");
+                        connLayer.appendChild(line);
+                    }
+                }
+            }
+        }
+
+        function updateDroidMarker(droid, rooms) {
+            const marker = document.getElementById('droid-marker');
+            const room = rooms[droid.location];
+            
+            if (!room) {
+                marker.style.display = 'none';
+                return;
+            }
+
+            const coords = roomLayout[room.name] || { x: 0, y: 0 };
+            marker.setAttribute("cx", coords.x);
+            marker.setAttribute("cy", coords.y);
+            marker.style.display = 'block';
+            
+            marker.onclick = () => showDroidDetails(droid, currentWorldState);
+        }
+
+        function showDroidDetails(droid, state) {
+            const overlay = document.getElementById('detail-overlay');
+            const content = document.getElementById('detail-content');
+            
+            let componentsHtml = '';
+            if (droid.components && state.components && state.components.instances) {
+                componentsHtml = '<div class="component-section"><h3>🛠️ Installed Components</h3>';
+                
+                droid.components.forEach(comp => {
+                    const stats = state.components.instances[comp.id];
+                    let statsHtml = '';
+                    
+                    if (stats) {
+                        for (const [traitId, properties] of Object.entries(stats)) {
+                            let propsHtml = '';
+                            for (const [propKey, propVal] of Object.entries(properties)) {
+                                propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
+                            }
+                            statsHtml += `
+                                <div class="trait-row">
+                                    <span class="trait-name">${traitId}</span>: ${propsHtml}
+                                </div>`;
+                        }
+                    }
+
+                    componentsHtml += `
+                        <div class="component-item">
+                            <div class="component-title">
+                                <span>${comp.type}</span>
+                                <span style="font-size: 0.7em; color: #666;">ID: ${comp.identifier}</span>
+                            </div>
+                            ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
+                        </div>`;
+                });
+                componentsHtml += '</div>';
+            }
+
+            content.innerHTML = `
+                <div class="detail-header">
+                    <h2 style="margin:0; color: var(--neon-green);">Droid Unit Analysis</h2>
+                    <p style="color: var(--text-dim); margin: 5px 0 0 0;">Analyzing internal systems...</p>
+                </div>
+                <div class="entity-stat">
+                    <span class="stat-label">Unit ID:</span>
+                    <span class="stat-value">${droid.id}</span>
+                </div>
+                <div class="entity-stat">
+                    <span class="stat-label">Blueprint:</span>
+                    <span class="stat-value">${droid.blueprint}</span>
+                </div>
+                <div class="entity-stat">
+                    <span class="stat-label">Current Zone:</span>
+                    <span class="stat-value">${state.rooms[droid.location]?.name || 'Unknown'}</span>
+                </div>
+                ${componentsHtml}
+            `;
+
+            overlay.style.display = 'flex';
+        }
+
+        function closeDetails() {
+            document.getElementById('detail-overlay').style.display = 'none';
         }
 
         async function moveDroid(entityId, targetRoomId) {
@@ -261,71 +531,16 @@
                     throw new Error(err.error || 'Failed to move droid');
                 }
 
-                // Refresh state after successful move
                 fetchWorldState();
             } catch (error) {
-                alert('Movement Error: ' + error.message);
-            }
-        }
-
-        function renderEntitiesList(state) {
-            const entitiesDiv = document.getElementById('entities-list');
-            entitiesDiv.innerHTML = '';
-            
-            if (state.entities && Object.keys(state.entities).length > 0) {
-                for (const [id, entity] of Object.entries(state.entities)) {
-                    const card = document.createElement('div');
-                    card.className = 'entity-card';
-                    
-                    let componentsHtml = '';
-                    if (entity.components && state.components && state.components.instances) {
-                        componentsHtml = '<div class="component-container"><strong>Components:</strong><br>';
-                        
-                        entity.components.forEach(comp => {
-                            const stats = state.components.instances[comp.id];
-                            let statsHtml = '';
-                            
-                            if (stats) {
-                                for (const [traitId, properties] of Object.entries(stats)) {
-                                    let propsHtml = '';
-                                    for (const [propKey, propVal] of Object.entries(properties)) {
-                                        propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
-                                    }
-                                    statsHtml += `
-                                        <div class="trait-group">
-                                            <span class="trait-name">${traitId}</span>: ${propsHtml}
-                                        </div>`;
-                                }
-                            } else {
-                                statsHtml = '<div class="trait-group" style="color: #666">No stats found</div>';
-                            }
-
-                            componentsHtml += `
-                                <div class="component-item">
-                                    <span class="component-name">${comp.type}</span> 
-                                    <span class="component-id">(${comp.identifier})</span>
-                                    ${statsHtml}
-                                </div>`;
-                        });
-                        
-                        componentsHtml += '</div>';
-                    }
-
-                    card.innerHTML = `
-                        <strong style="color: #fff">ID:</strong> ${id}<br>
-                        <strong style="color: #fff">Blueprint:</strong> ${entity.blueprint}<br>
-                        <strong style="color: #fff">Location:</strong> ${entity.location}
-                        ${componentsHtml}
-                    `;
-                    entitiesDiv.appendChild(card);
-                }
-            } else {
-                entitiesDiv.innerHTML = 'No active entities found.';
+                alert('System Error: ' + error.message);
             }
         }
 
         // Initial load
         fetchWorldState();
+        // Poll for updates every 3 seconds to keep map synced
+        setInterval(fetchWorldState, 3000);
     </script>
 </body>
 </html>
