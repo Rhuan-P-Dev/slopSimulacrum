@@ -37,6 +37,8 @@ When adding rooms to the `RoomsController`, ensure that:
 2. Connections are bidirectional if the path is meant to be two-way (e.g., if Room A north leads to Room B, Room B south should lead to Room A).
 3. Room descriptions are descriptive and maintain the atmosphere of the simulation.
 
+**Logical ID Resolution**: To maintain synchronization between controllers (e.g., spawning an entity in a specific room during initialization), use `RoomsController.getUidByLogicalId(logicalId)` to resolve human-readable room names to their generated UUIDs.
+
 ### 3.2. Adding New State Categories
 If you need to track a new type of global state (e.g., Global Weather, Game Time, Quest Progress):
 1. Create a new controller in `src/controllers/` (e.g., `QuestController.js`).

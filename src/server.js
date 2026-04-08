@@ -42,6 +42,36 @@ app.post('/chat', async (req, res) => {
 });
 
 /**
+ * POST /move-entity
+ * Endpoint to move an entity to a different room.
+ * Expects: { "entityId": "...", "targetRoomId": "..." }
+ */
+app.post('/move-entity', (req, res) => {
+    const { entityId, targetRoomId } = req.body;
+
+    if (!entityId || !targetRoomId) {
+        return res.status(400).json({
+            error: 'Invalid request. "entityId" and "targetRoomId" are required.'
+        });
+    }
+
+    try {
+        const success = worldStateController.stateEntityController.moveEntity(entityId, targetRoomId);
+        if (success) {
+            res.json({ message: 'Entity moved successfully.' });
+        } else {
+            res.status(404).json({ error: 'Entity not found.' });
+        }
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
  * GET /world-state
  * Endpoint to retrieve the current state of the world.
  */

@@ -60,6 +60,22 @@ The server exposes a REST API for chat interactions and world state retrieval.
 }
 ```
 
+**Endpoint:** `POST /move-entity`
+**Description:** Moves a specific entity to a target room.
+**Payload:**
+```json
+{
+  "entityId": "uuid-entity",
+  "targetRoomId": "uuid-room"
+}
+```
+**Successful Response (200 OK):**
+```json
+{
+  "message": "Entity moved successfully."
+}
+```
+
 ---
 
 ## 3. Components

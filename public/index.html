@@ -3,48 +3,89 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SlopSimulacrum World State</title>
+    <title>SlopSimulacrum - Droid Simulation</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #121212;
+            background-color: #0a0a0a;
             color: #00ff00;
             padding: 20px;
-            line-height: 1.4;
+            line-height: 1.6;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         h1 {
-            border-bottom: 1px solid #00ff00;
+            border-bottom: 2px solid #00ff00;
             padding-bottom: 10px;
-            font-family: monospace;
+            font-family: 'Courier New', Courier, monospace;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            text-align: center;
         }
         .container {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 20px;
+            width: 100%;
+            max-width: 1200px;
         }
         .section {
-            flex: 1;
-            background: #1e1e1e;
-            padding: 15px;
-            border: 1px solid #333;
+            background: #161616;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.1);
+        }
+        .simulation-panel {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .room-display {
+            background: #000;
+            padding: 20px;
             border-radius: 5px;
+            border: 1px inset #00ff00;
+        }
+        .room-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+        .room-desc {
+            font-style: italic;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .nav-btn {
+            background: #004400;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover {
+            background: #00ff00;
+            color: #000;
         }
         .entity-card {
             border: 1px solid #00ff00;
             padding: 10px;
             margin-bottom: 10px;
-            background: #252525;
-        }
-        .component-list {
-            margin-left: 20px;
-            list-style: none;
-            padding-left: 0;
-        }
-        .component-item {
-            margin: 5px 0;
-            padding: 5px;
-            background: #333;
-            border-left: 3px solid #00ff00;
-            font-family: monospace;
+            background: #1e1e1e;
         }
         .stat {
             color: #aaa;
@@ -54,25 +95,45 @@
         .loading {
             font-style: italic;
             color: #888;
+            text-align: center;
+            margin: 20px;
         }
         pre {
             font-size: 0.8em;
             color: #888;
+            overflow-x: auto;
+            max-height: 600px;
         }
     </style>
 </head>
 <body>
-    <h1>🌍 SlopSimulacrum World State</h1>
-    <div id="status" class="loading">Fetching world state...</div>
+    <h1>🤖 SlopSimulacrum Simulation</h1>
+    <div id="status" class="loading">Initializing simulation...</div>
+    
     <div class="container">
-        <div class="section">
-            <h2>🤖 Active Entities</h2>
-            <div id="entities-list"></div>
+        <!-- Left: Interactive Simulation -->
+        <div class="section simulation-panel">
+            <h2>🛰️ Droid Control</h2>
+            <div id="simulation-ui" style="display: none;">
+                <div class="room-display">
+                    <div id="current-room-name" class="room-name">Unknown Location</div>
+                    <div id="current-room-desc" class="room-desc">No description available.</div>
+                    <div id="nav-buttons" class="nav-buttons"></div>
+                </div>
+                <p style="margin-top: 20px; font-size: 0.9em; color: #888;">
+                    Active Droid: <span id="active-droid-id">None</span>
+                </p>
+            </div>
         </div>
+
+        <!-- Right: Technical State -->
         <div class="section">
-            <h2>📦 Raw State</h2>
+            <h2>⚙️ System State</h2>
+            <div id="entities-list"></div>
+            <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+            <h3>Raw JSON</h3>
             <pre id="output"></pre>
-        }
+        </div>
     </div>
 
     <script>
@@ -80,49 +141,33 @@
             const statusDiv = document.getElementById('status');
             const outputPre = document.getElementById('output');
             const entitiesDiv = document.getElementById('entities-list');
+            const simulationUI = document.getElementById('simulation-ui');
 
             try {
                 const response = await fetch('/world-state');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
                 const data = await response.json();
                 const state = data.state;
                 
                 statusDiv.style.display = 'none';
+                simulationUI.style.display = 'block';
                 outputPre.textContent = JSON.stringify(state, null, 2);
 
-                // Render Entities
-                entitiesDiv.innerHTML = '';
-                if (state.entities && Object.keys(state.entities).length > 0) {
-                    for (const [id, entity] of Object.entries(state.entities)) {
-                        const card = document.createElement('div');
-                        card.className = 'entity-card';
-                        card.innerHTML = `
-                            <strong>ID:</strong> ${id}<br>
-                            <strong>Blueprint:</strong> ${entity.blueprint}<br>
-                            <strong>Location:</strong> ${entity.location}
-                            <ul class="component-list">
-                                ${entity.components.map(c => {
-                                    const stats = state.components?.instances?.[c.id] || {};
-                                    const physical = stats.Physical || {};
-                                    const durability = physical.durability !== undefined ? physical.durability : 'N/A';
-                                    
-                                    return `
-                                        <li class="component-item">
-                                            <strong>${c.type}</strong> (${c.identifier}) 
-                                            <span class="stat">Durability: ${durability}</span>
-                                            <span class="stat">ID: ${c.id}</span>
-                                        </li>
-                                    `;
-                                }).join('')}
-                            </ul>
-                        `;
-                        entitiesDiv.appendChild(card);
-                    }
+                // 1. Find the Droid
+                const droid = Object.values(state.entities || {}).find(e => e.blueprint === 'smallBallDroid');
+                
+                if (droid) {
+                    updateSimulationUI(droid, state);
                 } else {
-                    entitiesDiv.innerHTML = 'No active entities found.';
+                    document.getElementById('current-room-name').textContent = "No Droid Found";
+                    document.getElementById('current-room-desc').textContent = "The simulation is empty.";
+                    document.getElementById('nav-buttons').innerHTML = "";
+                    document.getElementById('active-droid-id').textContent = "None";
                 }
+
+                // 2. Render Entities List
+                renderEntitiesList(state);
 
             } catch (error) {
                 statusDiv.textContent = 'Error loading world state: ' + error.message;
@@ -131,6 +176,83 @@
             }
         }
 
+        function updateSimulationUI(droid, state) {
+            const room = state.rooms[droid.location];
+            const nameEl = document.getElementById('current-room-name');
+            const descEl = document.getElementById('current-room-desc');
+            const navEl = document.getElementById('nav-buttons');
+            const idEl = document.getElementById('active-droid-id');
+
+            idEl.textContent = droid.id;
+
+            if (!room) {
+                nameEl.textContent = "Void";
+                descEl.textContent = "The droid is in an undefined spatial zone.";
+                navEl.innerHTML = "";
+                return;
+            }
+
+            nameEl.textContent = room.name;
+            descEl.textContent = room.description;
+
+            // Render Navigation Buttons
+            navEl.innerHTML = '';
+            const connections = room.connections || {};
+            
+            if (Object.keys(connections).length === 0) {
+                navEl.innerHTML = '<em>No exits found in this room.</em>';
+            } else {
+                for (const [door, targetId] of Object.entries(connections)) {
+                    const btn = document.createElement('button');
+                    btn.className = 'nav-btn';
+                    btn.textContent = `Go ${door.replace('_', ' ')}`;
+                    btn.onclick = () => moveDroid(droid.id, targetId);
+                    navEl.appendChild(btn);
+                }
+            }
+        }
+
+        async function moveDroid(entityId, targetRoomId) {
+            try {
+                const response = await fetch('/move-entity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entityId, targetRoomId })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Failed to move droid');
+                }
+
+                // Refresh state after successful move
+                fetchWorldState();
+            } catch (error) {
+                alert('Movement Error: ' + error.message);
+            }
+        }
+
+        function renderEntitiesList(state) {
+            const entitiesDiv = document.getElementById('entities-list');
+            entitiesDiv.innerHTML = '';
+            
+            if (state.entities && Object.keys(state.entities).length > 0) {
+                for (const [id, entity] of Object.entries(state.entities)) {
+                    const card = document.createElement('div');
+                    card.className = 'entity-card';
+                    card.innerHTML = `
+                        <strong style="color: #fff">ID:</strong> ${id}<br>
+                        <strong style="color: #fff">Blueprint:</strong> ${entity.blueprint}<br>
+                        <strong style="color: #fff">Location:</strong> ${entity.location}
+                    `;
+                    entitiesDiv.appendChild(card);
+                }
+            } else {
+                entitiesDiv.innerHTML = 'No active entities found.';
+            }
+        }
+
+        // Initial load
         fetchWorldState();
     </script>
 </body>

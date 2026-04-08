@@ -47,8 +47,11 @@ class WorldStateController {
      * Sets up initial world state, including default entities.
      */
     initializeWorld() {
-        // Spawn the small ball droid in the start room
-        this.stateEntityController.spawnEntity('smallBallDroid', 'start_room');
+        // Resolve the UUID for the start room to maintain spatial synchronization
+        const startRoomId = this.roomsController.getUidByLogicalId('start_room');
+        
+        // Spawn the small ball droid in the resolved start room UUID
+        this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
     }
 
     /**
