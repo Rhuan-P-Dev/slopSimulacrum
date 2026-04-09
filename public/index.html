@@ -277,7 +277,7 @@
                     </defs>
                     <g id="connections-layer"></g>
                     <g id="rooms-layer"></g>
-                    <circle id="droid-marker" r="6" fill="#00ff00" filter="url(#glow)" style="display: none;"></circle>
+                    <g id="entities-layer"></g>
                 </svg>
             </div>
         </div>
@@ -331,10 +331,10 @@
                 
                 statusDiv.style.display = 'none';
 
-                // 1. Identify Droid
+                // 1. Identify Primary Droid for Navigation
                 activeDroid = Object.values(currentWorldState.entities || {}).find(e => e.blueprint === 'smallBallDroid');
                 
-                if (activeDroid) {
+                if (currentWorldState.entities && Object.keys(currentWorldState.entities).length > 0) {
                     updateUI();
                 } else {
                     document.getElementById('current-room-name').textContent = "No Droid Found";
@@ -365,7 +365,7 @@
 
             // 2. Update Visuals
             renderMap(state.rooms);
-            updateDroidMarker(droid, state.rooms);
+            renderEntities(state.entities, state.rooms);
         }
 
         function renderNavButtons(room, entityId) {
@@ -437,22 +437,29 @@
             }
         }
 
-        function updateDroidMarker(droid, rooms) {
-            const marker = document.getElementById('droid-marker');
-            const room = rooms[droid.location];
-            
-            if (!room) {
-                marker.style.display = 'none';
-                return;
-            }
+function renderEntities(entities, rooms) {
+    const entitiesLayer = document.getElementById('entities-layer');
+    entitiesLayer.innerHTML = '';
 
-            const coords = roomLayout[room.name] || { x: 0, y: 0 };
-            marker.setAttribute("cx", coords.x);
-            marker.setAttribute("cy", coords.y);
-            marker.style.display = 'block';
-            
-            marker.onclick = () => showDroidDetails(droid, currentWorldState);
-        }
+    for (const [id, droid] of Object.entries(entities)) {
+        const room = rooms[droid.location];
+        if (!room) continue;
+
+        const coords = roomLayout[room.name] || { x: 0, y: 0 };
+        
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        marker.setAttribute("cx", coords.x);
+        marker.setAttribute("cy", coords.y);
+        marker.setAttribute("r", 6);
+        marker.setAttribute("fill", "#00ff00");
+        marker.setAttribute("cursor", "pointer");
+        marker.setAttribute("filter", "url(#glow)");
+        
+        marker.onclick = () => showDroidDetails(droid, currentWorldState);
+        
+        entitiesLayer.appendChild(marker);
+    }
+}
 
         function showDroidDetails(droid, state) {
             const overlay = document.getElementById('detail-overlay');

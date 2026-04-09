@@ -52,6 +52,10 @@ class WorldStateController {
         
         // Spawn the small ball droid in the resolved start room UUID
         this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+
+        // Spawn the vault guardian droid in the Deep Vault
+        const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
+        this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
     }
 
     /**

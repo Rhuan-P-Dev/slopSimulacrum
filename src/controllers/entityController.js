@@ -25,7 +25,7 @@ class EntityController {
                 ["humanoidDroidFinger", "left"], 
                 ["humanoidDroidFinger", "middle"], 
                 ["humanoidDroidFinger", "right"]
-            ]
+            ],
         };
     }
 

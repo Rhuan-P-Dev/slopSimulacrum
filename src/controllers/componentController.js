@@ -44,7 +44,7 @@ class ComponentController {
                 traits: { 
                     "Physical": { "durability": 120 } 
                 } 
-            }
+            },
         };
     }
 

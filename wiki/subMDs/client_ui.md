@@ -27,8 +27,8 @@ The client implements a polling mechanism to stay synchronized with the server:
 1. **Fetch**: Calls `GET /world-state`.
 2. **Parse**: Extracts `rooms` and `entities` from the response.
 3. **Update**: 
-    - Re-renders the droid's position on the SVG map.
-    - Updates the active room description.
+    - Dynamically renders markers for all entities present in the world on the SVG map.
+    - Updates the active room description based on the primary navigation unit.
     - Refreshes the available navigation buttons.
 
 ### 3.2. Map Layout Engine
@@ -36,7 +36,7 @@ Since the server does not provide coordinates, the client uses a predefined coor
 
 ### 3.3. Interaction Flow
 - **Movement**: Clicking a navigation button sends a `POST /move-entity` request $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Client polls new state $\rightarrow$ Map updates.
-- **Inspection**: Clicking the Droid Marker $\rightarrow$ Client filters `state.entities` for the droid $\rightarrow$ Renders component data in the Detail Panel.
+- **Inspection**: Clicking any Entity Marker $\rightarrow$ Client retrieves the specific entity data from `state.entities` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 
 ## 4. Styling Guide (Cyber-Terminal Aesthetic)
 - **Color Palette**:
