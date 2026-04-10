@@ -70,68 +70,63 @@
             height: 100%;
         }
 
-        .room-node {
-            fill: var(--bg-black);
+        .room-boundary {
+            fill: rgba(0, 68, 0, 0.3);
             stroke: var(--neon-green);
             stroke-width: 2;
-            transition: all 0.3s;
         }
 
-        .room-node.active {
-            fill: var(--dark-green);
-            stroke-width: 4;
-            filter: drop-shadow(0 0 5px var(--neon-green));
-        }
-
-        .connection-line {
-            stroke: var(--neon-green);
-            stroke-width: 1;
-            stroke-dasharray: 5,5;
-            opacity: 0.6;
+        .room-boundary.active {
+            fill: rgba(0, 68, 0, 0.5);
+            stroke-width: 3;
+            filter: drop-shadow(0 0 8px var(--neon-green));
         }
 
         .room-label {
             fill: var(--text-dim);
-            font-size: 12px;
+            font-size: 14px;
             text-anchor: middle;
-            pointer-events: none;
-            user-select: none;
+            font-weight: bold;
         }
 
-        #droid-marker {
+        .room-coords {
+            fill: #666;
+            font-size: 10px;
+            text-anchor: middle;
+        }
+
+        .entity-marker {
             cursor: pointer;
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-            filter: drop-shadow(0 0 8px var(--neon-green));
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 0 6px var(--neon-green));
         }
 
-        #droid-marker:hover {
-            r: 8;
+        .entity-marker:hover {
+            r: 10;
+            fill: #fff;
+            filter: drop-shadow(0 0 10px #fff);
+        }
+
+        .entity-marker.active {
+            fill: #fff;
+            r: 12;
+        }
+
+        .component-marker {
+            cursor: pointer;
+            opacity: 0.8;
+            transition: all 0.3s ease;
+        }
+
+        .component-marker:hover {
+            opacity: 1;
             fill: #fff;
         }
 
-        /* Control Panel Styles */
-        .control-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .room-info {
-            text-align: center;
-        }
-
-        .room-name {
-            font-size: 1.4em;
-            color: var(--text-main);
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }
-
-        .room-desc {
-            font-style: italic;
-            color: var(--text-dim);
-            margin-bottom: 20px;
-            min-height: 60px;
+        .component-connection {
+            stroke: rgba(0, 255, 0, 0.3);
+            stroke-width: 1;
+            stroke-dasharray: 2,2;
         }
 
         .nav-buttons {
@@ -158,8 +153,25 @@
             box-shadow: var(--glow);
         }
 
-        /* Detail Panel Overlay */
-        #detail-overlay {
+        .room-info {
+            text-align: center;
+        }
+
+        .room-name {
+            font-size: 1.4em;
+            color: var(--text-main);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .room-desc {
+            font-style: italic;
+            color: var(--text-dim);
+            margin-bottom: 20px;
+            min-height: 60px;
+        }
+
+        .detail-overlay {
             position: fixed;
             top: 0;
             left: 0;
@@ -254,6 +266,13 @@
             text-align: center;
             margin: 20px;
         }
+
+        .room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
@@ -263,7 +282,10 @@
     <div class="main-layout">
         <!-- Left: Visual Map -->
         <div class="section">
-            <h2 style="text-align: center; margin-top: 0;">🛰️ Spatial Map</h2>
+            <div class="room-header">
+                <h2 style="margin: 0;">🛰️ Spatial Map</h2>
+                <span id="current-room-coords" style="color: #666; font-size: 0.8em;"></span>
+            </div>
             <div class="map-container">
                 <svg id="world-map" viewBox="0 0 800 500">
                     <defs>
@@ -275,9 +297,9 @@
                             </feMerge>
                         </filter>
                     </defs>
-                    <g id="connections-layer"></g>
-                    <g id="rooms-layer"></g>
+                    <g id="room-layer"></g>
                     <g id="entities-layer"></g>
+                    <g id="components-layer"></g>
                 </svg>
             </div>
         </div>
@@ -300,7 +322,7 @@
     </div>
 
     <!-- Droid Detail Overlay -->
-    <div id="detail-overlay">
+    <div id="detail-overlay" class="detail-overlay">
         <div class="detail-card">
             <button class="close-btn" onclick="closeDetails()">CLOSE [X]</button>
             <div id="detail-content">
@@ -310,15 +332,12 @@
     </div>
 
     <script>
-        // Room layout map for visual representation
-        const roomLayout = {
-            "The Entrance Hall": { x: 150, y: 250 },
-            "The Eastern Corridor": { x: 400, y: 250 },
-            "The Deep Vault": { x: 650, y: 250 }
-        };
-
         let currentWorldState = null;
         let activeDroid = null;
+        const VIEW_WIDTH = 800;
+        const VIEW_HEIGHT = 500;
+        const CENTER_X = VIEW_WIDTH / 2;
+        const CENTER_Y = VIEW_HEIGHT / 2;
 
         async function fetchWorldState() {
             const statusDiv = document.getElementById('status');
@@ -341,6 +360,7 @@
                     document.getElementById('current-room-desc').textContent = "The simulation is empty.";
                     document.getElementById('nav-buttons').innerHTML = "";
                     document.getElementById('active-droid-id').textContent = "None";
+                    document.getElementById('current-room-coords').textContent = "";
                 }
 
             } catch (error) {
@@ -359,13 +379,15 @@
             if (room) {
                 document.getElementById('current-room-name').textContent = room.name;
                 document.getElementById('current-room-desc').textContent = room.description;
+                document.getElementById('current-room-coords').textContent = `Room Size: ${room.width}x${room.height}`;
                 
                 renderNavButtons(room, droid.id);
             }
 
-            // 2. Update Visuals
-            renderMap(state.rooms);
-            renderEntities(state.entities, state.rooms);
+            // 2. Update Visuals - Render current room view
+            renderCurrentRoom(room);
+            renderEntitiesInRoom(room, state.entities);
+            renderDroidComponents(droid, state);
         }
 
         function renderNavButtons(room, entityId) {
@@ -386,90 +408,127 @@
             }
         }
 
-        function renderMap(rooms) {
-            const roomsLayer = document.getElementById('rooms-layer');
-            const connLayer = document.getElementById('connections-layer');
-            roomsLayer.innerHTML = '';
-            connLayer.innerHTML = '';
+        function renderCurrentRoom(room) {
+            const roomLayer = document.getElementById('room-layer');
+            roomLayer.innerHTML = '';
 
-            const roomNodes = {};
+            // Calculate room position to center it in the view
+            const roomX = CENTER_X - room.width / 2;
+            const roomY = CENTER_Y - room.height / 2;
 
-            // Create Nodes
-            for (const [id, room] of Object.entries(rooms)) {
-                const coords = roomLayout[room.name] || { x: Math.random() * 600 + 100, y: Math.random() * 300 + 100 };
-                roomNodes[id] = coords;
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            
+            // Draw room boundary
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("x", roomX);
+            rect.setAttribute("y", roomY);
+            rect.setAttribute("width", room.width);
+            rect.setAttribute("height", room.height);
+            rect.setAttribute("class", `room-boundary ${activeDroid && activeDroid.location === room.id ? 'active' : ''}`);
+            
+            // Room label (centered above the room)
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", CENTER_X);
+            label.setAttribute("y", roomY - 15);
+            label.setAttribute("class", "room-label");
+            label.textContent = room.name;
 
-                const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            // Room coordinates
+            const coords = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            coords.setAttribute("x", CENTER_X);
+            coords.setAttribute("y", roomY - 35);
+            coords.setAttribute("class", "room-coords");
+            coords.textContent = `Room Coords: (${room.x}, ${room.y})`;
+
+            group.appendChild(rect);
+            group.appendChild(label);
+            group.appendChild(coords);
+            roomLayer.appendChild(group);
+        }
+
+        function renderEntitiesInRoom(room, entities) {
+            const entitiesLayer = document.getElementById('entities-layer');
+            entitiesLayer.innerHTML = '';
+
+            // Find all entities in the current room
+            const roomEntities = Object.values(entities || {}).filter(e => e.location === room.id);
+
+            for (const [id, entity] of Object.entries(roomEntities)) {
+                // Calculate entity position relative to room center
+                // Entity spatial.x/y are offsets from room center (0,0)
+                const entityX = CENTER_X + (entity.spatial?.x || 0);
+                const entityY = CENTER_Y + (entity.spatial?.y || 0);
                 
-                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                circle.setAttribute("cx", coords.x);
-                circle.setAttribute("cy", coords.y);
-                circle.setAttribute("r", 20);
-                circle.setAttribute("class", `room-node ${activeDroid && activeDroid.location === id ? 'active' : ''}`);
+                const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                marker.setAttribute("cx", entityX);
+                marker.setAttribute("cy", entityY);
+                marker.setAttribute("r", 12);
+                marker.setAttribute("fill", entity.id === activeDroid?.id ? "#fff" : "#00ff00");
+                marker.setAttribute("class", `entity-marker ${entity.id === activeDroid?.id ? 'active' : ''}`);
+                marker.setAttribute("filter", "url(#glow)");
                 
-                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                text.setAttribute("x", coords.x);
-                text.setAttribute("y", coords.y + 35);
-                text.setAttribute("class", "room-label");
-                text.textContent = room.name;
-
-                group.appendChild(circle);
-                group.appendChild(text);
-                roomsLayer.appendChild(group);
-            }
-
-            // Create Edges
-            for (const [id, room] of Object.entries(rooms)) {
-                const start = roomNodes[id];
-                const connections = room.connections || {};
-                for (const [door, targetId] of Object.entries(connections)) {
-                    const end = roomNodes[targetId];
-                    if (start && end) {
-                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                        line.setAttribute("x1", start.x);
-                        line.setAttribute("y1", start.y);
-                        line.setAttribute("x2", end.x);
-                        line.setAttribute("y2", end.y);
-                        line.setAttribute("class", "connection-line");
-                        connLayer.appendChild(line);
-                    }
-                }
+                marker.onclick = () => showEntityDetails(entity, currentWorldState);
+                
+                entitiesLayer.appendChild(marker);
             }
         }
 
-function renderEntities(entities, rooms) {
-    const entitiesLayer = document.getElementById('entities-layer');
-    entitiesLayer.innerHTML = '';
+        function renderDroidComponents(droid, state) {
+            const componentsLayer = document.getElementById('components-layer');
+            componentsLayer.innerHTML = '';
 
-    for (const [id, droid] of Object.entries(entities)) {
-        const room = rooms[droid.location];
-        if (!room) continue;
+            if (!droid || !droid.components || !state.components || !state.components.instances) {
+                return;
+            }
 
-        const coords = roomLayout[room.name] || { x: 0, y: 0 };
-        
-        const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        marker.setAttribute("cx", coords.x);
-        marker.setAttribute("cy", coords.y);
-        marker.setAttribute("r", 6);
-        marker.setAttribute("fill", "#00ff00");
-        marker.setAttribute("cursor", "pointer");
-        marker.setAttribute("filter", "url(#glow)");
-        
-        marker.onclick = () => showDroidDetails(droid, currentWorldState);
-        
-        entitiesLayer.appendChild(marker);
-    }
-}
+            // Get room to calculate offsets
+            const room = state.rooms[droid.location];
+            if (!room) return;
 
-        function showDroidDetails(droid, state) {
+            // Entity center position
+            const entityX = CENTER_X + (droid.spatial?.x || 0);
+            const entityY = CENTER_Y + (droid.spatial?.y || 0);
+
+            droid.components.forEach(comp => {
+                const stats = state.components.instances[comp.id];
+                if (!stats || !stats.Spatial) return;
+
+                const compX = entityX + stats.Spatial.x;
+                const compY = entityY + stats.Spatial.y;
+
+                // Draw connection line from entity to component
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", entityX);
+                line.setAttribute("y1", entityY);
+                line.setAttribute("x2", compX);
+                line.setAttribute("y2", compY);
+                line.setAttribute("class", "component-connection");
+                componentsLayer.appendChild(line);
+
+                // Draw component marker
+                const marker = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                marker.setAttribute("cx", compX);
+                marker.setAttribute("cy", compY);
+                marker.setAttribute("r", 5);
+                marker.setAttribute("fill", "#66ff66");
+                marker.setAttribute("class", "component-marker");
+                marker.setAttribute("title", `${comp.type}: ${comp.identifier}`);
+                
+                marker.onclick = () => showComponentDetails(comp, stats, state);
+                
+                componentsLayer.appendChild(marker);
+            });
+        }
+
+        function showEntityDetails(entity, state) {
             const overlay = document.getElementById('detail-overlay');
             const content = document.getElementById('detail-content');
             
             let componentsHtml = '';
-            if (droid.components && state.components && state.components.instances) {
+            if (entity.components && state.components && state.components.instances) {
                 componentsHtml = '<div class="component-section"><h3>🛠️ Installed Components</h3>';
                 
-                droid.components.forEach(comp => {
+                entity.components.forEach(comp => {
                     const stats = state.components.instances[comp.id];
                     let statsHtml = '';
                     
@@ -500,22 +559,61 @@ function renderEntities(entities, rooms) {
 
             content.innerHTML = `
                 <div class="detail-header">
-                    <h2 style="margin:0; color: var(--neon-green);">Droid Unit Analysis</h2>
-                    <p style="color: var(--text-dim); margin: 5px 0 0 0;">Analyzing internal systems...</p>
+                    <h2 style="margin:0; color: var(--neon-green);">Entity Analysis</h2>
+                    <p style="color: var(--text-dim); margin: 5px 0 0 0;">Unit: ${entity.id}</p>
                 </div>
                 <div class="entity-stat">
                     <span class="stat-label">Unit ID:</span>
-                    <span class="stat-value">${droid.id}</span>
+                    <span class="stat-value">${entity.id}</span>
                 </div>
                 <div class="entity-stat">
                     <span class="stat-label">Blueprint:</span>
-                    <span class="stat-value">${droid.blueprint}</span>
+                    <span class="stat-value">${entity.blueprint}</span>
                 </div>
                 <div class="entity-stat">
                     <span class="stat-label">Current Zone:</span>
-                    <span class="stat-value">${state.rooms[droid.location]?.name || 'Unknown'}</span>
+                    <span class="stat-value">${state.rooms[entity.location]?.name || 'Unknown'}</span>
                 </div>
                 ${componentsHtml}
+            `;
+
+            overlay.style.display = 'flex';
+        }
+
+        function showComponentDetails(component, stats, state) {
+            const overlay = document.getElementById('detail-overlay');
+            const content = document.getElementById('detail-content');
+            
+            let statsHtml = '';
+            if (stats) {
+                for (const [traitId, properties] of Object.entries(stats)) {
+                    let propsHtml = '';
+                    for (const [propKey, propVal] of Object.entries(properties)) {
+                        propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
+                    }
+                    statsHtml += `
+                        <div class="trait-row">
+                            <span class="trait-name">${traitId}</span>: ${propsHtml}
+                        </div>`;
+                }
+            }
+
+            content.innerHTML = `
+                <div class="detail-header">
+                    <h2 style="margin:0; color: var(--neon-green);">Component Analysis</h2>
+                    <p style="color: var(--text-dim); margin: 5px 0 0 0;">Type: ${component.type}</p>
+                </div>
+                <div class="entity-stat">
+                    <span class="stat-label">Component ID:</span>
+                    <span class="stat-value">${component.id}</span>
+                </div>
+                <div class="entity-stat">
+                    <span class="stat-label">Identifier:</span>
+                    <span class="stat-value">${component.identifier}</span>
+                </div>
+                <div class="component-section">
+                    ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
+                </div>
             `;
 
             overlay.style.display = 'flex';

@@ -74,11 +74,29 @@ app.post('/move-entity', (req, res) => {
 /**
  * GET /world-state
  * Endpoint to retrieve the current state of the world.
+ * Returns rooms with coordinates, entities with spatial data, and components.
  */
 app.get('/world-state', (req, res) => {
     try {
         const state = worldStateController.getAll();
         res.json({ state });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /rooms
+ * Endpoint to retrieve all rooms with their coordinates.
+ */
+app.get('/rooms', (req, res) => {
+    try {
+        const rooms = worldStateController.roomsController.getAll();
+        res.json({ rooms });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
         res.status(500).json({

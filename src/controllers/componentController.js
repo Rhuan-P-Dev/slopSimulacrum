@@ -16,33 +16,40 @@ class ComponentController {
         this.componentRegistry = {
             "centralBall": { 
                 traits: { 
-                    "Physical": { "mass": 20, "durability": 100 } 
+                    "Physical": { "mass": 20, "durability": 100 },
+                    "Spatial": { "x": 0, "y": 0 }
                 } 
             },
             "droidHead": { 
                 traits: { 
                     "Physical": { "durability": 80 },
-                    "Electronic": { "processing_speed": 20 }
+                    "Mind": { "think_level": 5},
+                    "Spatial": { "x": 0, "y": -20 }
                 } 
             },
             "droidArm": { 
                 traits: { 
-                    "Physical": { "durability": 50 } 
+                    "Physical": { "durability": 50 },
+                    "Spatial": { "x": 20, "y": 10 }
                 } 
             },
             "droidHand": { 
                 traits: { 
-                    "Physical": { "durability": 40 } 
+                    "Physical": { "durability": 40 },
+                    "Spatial": { "x": 30, "y": 0 }
                 } 
             },
             "humanoidDroidFinger": { 
                 traits: { 
-                    "Physical": { "durability": 30 } 
+                    "Physical": { "durability": 30 },
+                    "Spatial": { "x": 40, "y": 0 }
                 } 
             },
             "droidRollingBall": { 
                 traits: { 
-                    "Physical": { "durability": 120 } 
+                    "Physical": { "durability": 120 },
+                    "Spatial": { "x": 0, "y": 20 },
+                    "Movimentation": { "move": 20 },
                 } 
             },
         };

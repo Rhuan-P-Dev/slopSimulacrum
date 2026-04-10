@@ -10,7 +10,7 @@ class stateEntityController {
         this.entityController = entityController;
         
         // Active entities in the game
-        // Format: { [entityId]: { id: string, blueprint: string, components: Array, location: string, ... } }
+        // Format: { [entityId]: { id: string, blueprint: string, components: Array, location: string, spatial: { x, y }, status: string } }
         this.entities = {};
     }
 
@@ -28,6 +28,7 @@ class stateEntityController {
             id: entityId,
             ...entityData,
             location: roomId,
+            spatial: { x: 0, y: 0 },
             status: 'active'
         };
 

@@ -13,10 +13,16 @@ class TraitsController {
                 "volume": 1,
                 "temperature": 20
             },
-            "Electronic": {
-                "energy_capacity": 100,
-                "processing_speed": 10,
-                "connectivity": 1
+            "Mind": {
+                "think_level": 10,
+            },
+            "Spatial": {
+                "x": 0,
+                "y": 0,
+                "position": "0,0"
+            },
+            "Movimentation": {
+                "move": 10
             }
         };
     }

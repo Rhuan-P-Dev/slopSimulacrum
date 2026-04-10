@@ -7,7 +7,7 @@ const { generateUID }= require('../utils/idGenerator');
 class RoomsController {
     constructor() {
         // Internal storage for rooms. 
-        // Format: { roomId: { id, name, description, connections: { doorId: destinationRoomId }, objects: [], entities: [] } }
+        // Format: { roomId: { id, name, description, connections: { doorId: destinationRoomId }, x, y, width, height, objects: [], entities: [] } }
         this.rooms = {};
         this.idMap = {}; // Maps logical names to generated UIDs
 
@@ -16,17 +16,29 @@ class RoomsController {
             'start_room': {
                 name: 'The Entrance Hall',
                 description: 'A dimly lit hall. To your right, there is an open corridor.',
-                connections: { 'right_door': 'right_room' }
+                connections: { 'right_door': 'right_room' },
+                x: 200,
+                y: 250,
+                width: 300,
+                height: 200
             },
             'right_room': {
                 name: 'The Eastern Corridor',
                 description: 'A narrow corridor with flickering lights. To your left is the Entrance Hall, and to your right, another door leads deeper into the complex.',
-                connections: { 'left_door': 'start_room', 'right_door': 'far_right_room' }
+                connections: { 'left_door': 'start_room', 'right_door': 'far_right_room' },
+                x: 400,
+                y: 250,
+                width: 250,
+                height: 150
             },
             'far_right_room': {
                 name: 'The Deep Vault',
                 description: 'A cold, metallic chamber echoing with the hum of ancient machinery. To your left is the Eastern Corridor.',
-                connections: { 'left_door': 'right_room' }
+                connections: { 'left_door': 'right_room' },
+                x: 600,
+                y: 250,
+                width: 320,
+                height: 220
             }
         };
 
@@ -43,6 +55,10 @@ class RoomsController {
                 name: data.name,
                 description: data.description,
                 connections: {}, // Will be filled in next step
+                x: data.x,
+                y: data.y,
+                width: data.width,
+                height: data.height,
                 objects: [],
                 entities: []
             };

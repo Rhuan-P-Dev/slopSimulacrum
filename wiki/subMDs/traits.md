@@ -17,6 +17,11 @@ The `Global_Traits` object defines the "mold" for various trait categories.
       "mass": 10,
       "volume": 1,
       "temperature": 20
+    },
+    "Spatial": {
+      "x": 0,
+      "y": 0,
+      "position": "0,0"
     }
   }
   ```
@@ -25,15 +30,31 @@ The `Global_Traits` object defines the "mold" for various trait categories.
 Component blueprints specify which Traits they possess and the values they override.
 - **Role**: Customization.
 - **Location**: `src/controllers/componentController.js` (Component Registry).
-- **Example**:
-  ```json
-  "droidArm": {
-    "traits": {
-      "Physical": { "durability": 50 }
-    }
+
+#### 2.2.1. Standard Traits Example
+```json
+"droidArm": {
+  "traits": {
+    "Physical": { "durability": 50 }
   }
-  ```
-  *In this case, `mass`, `volume`, and `temperature` are inherited from the Global Physical trait.*
+}
+```
+*In this case, `mass`, `volume`, and `temperature` are inherited from the Global Physical trait.*
+
+#### 2.2.2. Spatial Trait Example
+Components can also have a `Spatial` trait to define their position relative to their parent entity:
+```json
+"droidArm": {
+  "traits": {
+    "Physical": { "durability": 50 },
+    "Spatial": { "x": 20, "y": 10 }
+  }
+}
+```
+- `x`: Horizontal offset from entity center (positive = right, negative = left)
+- `y`: Vertical offset from entity center (positive = down, negative = up)
+- Position is calculated as: `screenX = entity.screenX + component.spatial.x`
+- Position is calculated as: `screenY = entity.screenY + component.spatial.y`
 
 ### 2.3. The Merge Process (Instantiation)
 When a component is instantiated, the system performs a merge to create the final stat object:

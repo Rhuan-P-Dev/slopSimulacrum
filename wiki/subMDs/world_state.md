@@ -22,12 +22,21 @@ The `RoomsController` manages the spatial layout of the world.
 - **Role**: Spatial Data Provider.
 - **Data Structure**: Uses a keyed object (map) where each key is a unique `roomId` (UUID v4).
 - **IDs**: Room IDs are dynamically generated using `generateUID()` upon initialization to ensure global uniqueness.
+- **Spatial Coordinates**: Each room has position and size data for rendering:
+  - `x`, `y`: Screen coordinates for the room center.
+  - `width`, `height`: Room dimensions in pixels.
 - **Connections**: Each room defines its exits via a `connections` object:
   - **Key**: The identifier of the door or path (e.g., `"north_door"`).
   - **Value**: The `roomId` (UUID) of the destination room.
 - **Containment**: Rooms track the IDs of elements within them via:
   - `objects`: An array of unique IDs for items/objects in the room.
   - `entities`: An array of unique IDs for NPCs or players in the room.
+
+### 2.3. stateEntityController (`src/controllers/stateEntityController.js`)
+The `stateEntityController` manages active entity instances in memory.
+- **Role**: Instance Manager.
+- **Spatial Data**: Each entity stores position relative to its room via `spatial: { x, y }`.
+- **Entity Lifecycle**: Methods include `spawnEntity()`, `moveEntity()`, `despawnEntity()`, and `getEntity()`.
 
 ## 3. Implementation Guidelines for Agents
 

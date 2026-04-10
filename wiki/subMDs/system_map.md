@@ -26,11 +26,51 @@ graph TD
 | Controller | Role | Key Responsibility | Primary Data Managed |
 | :--- | :--- | :--- | :--- |
 | **WorldStateController** | Root Coordinator | Root Injection & Global State Aggregation | `subControllers` map |
-| **stateEntityController** | Instance Manager | Lifecycle (Spawn/Move/Despawn) of active entities | `entities` (active instances) |
+| **RoomsController** | Room Manager | Room definitions, coordinates, and connections | `rooms` (with x, y, width, height) |
+| **stateEntityController** | Instance Manager | Lifecycle (Spawn/Move/Despawn) of active entities | `entities` (active instances with spatial) |
 | **entityController** | Blueprint Registry | Defining entity "DNA" and composition | `blueprints` (entity types) |
 | **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging | `componentRegistry` (blueprint traits) |
 | **componentStatsController** | Data Store | Persisting raw stats for every component instance | `componentStats` (instance IDs $\rightarrow$ values) |
-| **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds) |
+| **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
+
+---
+
+## 2.1. Spatial Data Schema
+
+### Rooms
+Rooms now include spatial information for rendering:
+```json
+{
+  "x": 200,
+  "y": 250,
+  "width": 300,
+  "height": 200
+}
+```
+
+### Entities
+Entities store position relative to their room:
+```json
+{
+  "spatial": {
+    "x": 0,
+    "y": 0
+  }
+}
+```
+
+### Components
+Components have Spatial trait with position offsets:
+```json
+{
+  "traits": {
+    "Spatial": {
+      "x": 20,
+      "y": 10
+    }
+  }
+}
+```
 
 ---
 

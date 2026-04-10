@@ -49,13 +49,57 @@ The server exposes a REST API for chat interactions and world state retrieval.
 ```
 
 **Endpoint:** `GET /world-state`
-**Description:** Retrieves the full world state.
+**Description:** Retrieves the full world state including spatial data.
 **Successful Response (200 OK):**
 ```json
 {
   "state": {
-    "rooms": { ... },
-    "others": { ... }
+    "rooms": {
+      "uuid-1234-5678": {
+        "id": "uuid-1234-5678",
+        "name": "Room Name",
+        "description": "Room description",
+        "x": 200,
+        "y": 250,
+        "width": 300,
+        "height": 200,
+        "connections": { ... },
+        "entities": [ ... ],
+        "objects": [ ... ]
+      }
+    },
+    "entities": {
+      "uuid-entity-1": {
+        "id": "uuid-entity-1",
+        "blueprint": "smallBallDroid",
+        "location": "uuid-room",
+        "spatial": {
+          "x": 0,
+          "y": 0
+        },
+        "components": [ ... ]
+      }
+    },
+    "components": { ... }
+  }
+}
+```
+
+**Endpoint:** `GET /rooms`
+**Description:** Retrieves all rooms with their coordinates and dimensions.
+**Successful Response (200 OK):**
+```json
+{
+  "rooms": {
+    "uuid-1234-5678": {
+      "id": "uuid-1234-5678",
+      "name": "The Entrance Hall",
+      "x": 200,
+      "y": 250,
+      "width": 300,
+      "height": 200,
+      "connections": { ... }
+    }
   }
 }
 ```

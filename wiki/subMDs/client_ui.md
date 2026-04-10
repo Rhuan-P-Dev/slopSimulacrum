@@ -31,12 +31,33 @@ The client implements a polling mechanism to stay synchronized with the server:
     - Updates the active room description based on the primary navigation unit.
     - Refreshes the available navigation buttons.
 
-### 3.2. Map Layout Engine
-Since the server does not provide coordinates, the client uses a predefined coordinate map for known logical rooms. If a room is not in the coordinate map, a basic auto-layout (randomized or grid-based) is used to ensure visibility.
+### 3.2. Map Layout Engine (Spatial Coordinates)
+The server now provides room coordinates in the `/world-state` response. Room positions are defined in `RoomsController.js`:
+- **Entrance Hall**: x=200, y=250
+- **Eastern Corridor**: x=400, y=250
+- **Deep Vault**: x=600, y=250
 
-### 3.3. Interaction Flow
+Entity positions are calculated relative to room origins:
+- **Entity Position**: `screenX = room.x + entity.spatial.x`
+- **Entity Position**: `screenY = room.y + entity.spatial.y`
+
+Component positions are calculated relative to entity positions:
+- **Component Position**: `screenX = entity.screenX + component.spatial.x`
+- **Component Position**: `screenY = entity.screenY + component.spatial.y`
+
+### 3.3. Entity Rendering
+Entities are rendered as circular markers with the following characteristics:
+- **Size**: 8px radius (10px on hover)
+- **Color**: Neon green (#00ff00)
+- **Effect**: Glowing shadow filter
+- **Interactivity**: Click to show droid details overlay
+
+### 3.4. Interaction Flow
 - **Movement**: Clicking a navigation button sends a `POST /move-entity` request $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Client polls new state $\rightarrow$ Map updates.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ Client retrieves the specific entity data from `state.entities` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
+
+### 3.5. Room Coordinates Display
+The UI shows current room coordinates in the format: `(x, y)` on the map header.
 
 ## 4. Styling Guide (Cyber-Terminal Aesthetic)
 - **Color Palette**:
