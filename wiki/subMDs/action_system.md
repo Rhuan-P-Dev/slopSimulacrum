@@ -424,7 +424,7 @@ Use `:traitValue` for the trait value. Combine with arithmetic in strings for ca
 
 ```javascript
 this.actionRegistry = {
-    "move": {
+    "move - up": {
         requirements: {
             trait: "Movimentation",
             stat: "move",
@@ -433,19 +433,74 @@ this.actionRegistry = {
         consequences: [
             {
                 type: "deltaSpatial",
-                params: { y: -":traitValue" }  // Use deltaSpatial for relative movement
-            },
-            {
-                type: "triggerEvent",
-                eventType: "entity_moved",
-                data: { yChange: -":traitValue" }
+                params: { y: "-:traitValue" }  // Move upward by move value pixels
             }
         ],
         consequencesDeFalha: [
             {
                 type: "log",
                 level: "warn",
-                message: "Move action failed - requirement not met"
+                message: "Action 'move - up' failed - requirement not met"
+            }
+        ]
+    },
+    "move - down": {
+        requirements: {
+            trait: "Movimentation",
+            stat: "move",
+            minValue: 5
+        },
+        consequences: [
+            {
+                type: "deltaSpatial",
+                params: { y: ":traitValue" }  // Move downward by move value pixels
+            }
+        ],
+        consequencesDeFalha: [
+            {
+                type: "log",
+                level: "warn",
+                message: "Action 'move - down' failed - requirement not met"
+            }
+        ]
+    },
+    "move - left": {
+        requirements: {
+            trait: "Movimentation",
+            stat: "move",
+            minValue: 5
+        },
+        consequences: [
+            {
+                type: "deltaSpatial",
+                params: { x: "-:traitValue" }  // Move left by move value pixels
+            }
+        ],
+        consequencesDeFalha: [
+            {
+                type: "log",
+                level: "warn",
+                message: "Action 'move - left' failed - requirement not met"
+            }
+        ]
+    },
+    "move - right": {
+        requirements: {
+            trait: "Movimentation",
+            stat: "move",
+            minValue: 5
+        },
+        consequences: [
+            {
+                type: "deltaSpatial",
+                params: { x: ":traitValue" }  // Move right by move value pixels
+            }
+        ],
+        consequencesDeFalha: [
+            {
+                type: "log",
+                level: "warn",
+                message: "Action 'move - right' failed - requirement not met"
             }
         ]
     },
@@ -542,7 +597,10 @@ Executes an action on an entity.
 
 | Action | Requirements | Success Consequences | Failure Consequences |
 |--------|-------------|---------------------|---------------------|
-| move | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - up | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - down | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | attack | ⚠️ Ready to add | ⚠️ Ready to add | ⚠️ Ready to add |
 
 ---
@@ -557,3 +615,48 @@ Executes an action on an entity.
 1. Add a handler method `_handle<Type>()`
 2. Register it in `_dispatchConsequence()` handlers object
 3. Document it in this wiki
+
+---
+
+## 12. Placeholder Substitution Bug Fix
+
+### 12.1. The Bug
+
+The `_resolvePlaceholders` method had a bug with negative values. The original regex-based implementation returned a **string** instead of a **number**:
+
+**Before (buggy):**
+```javascript
+const match = params.match(/^(.*):traitValue(.*)$/);
+if (match) {
+    const prefix = match[1] || '';
+    const suffix = match[2] || '';
+    const value = parseInt(traitValue, 10) || 0;
+    return prefix + value + suffix;  // Returns string!
+}
+```
+
+When `params = "-:traitValue"` and `traitValue = 20`:
+- Result: `"-20"` (a string, not a number)
+- In `deltaSpatial`, `entity.spatial.y + "-20"` produces `"100-20"` (string concatenation) instead of `80` (numeric calculation)
+
+### 12.2. The Fix
+
+Use exact string matching to return proper numeric values:
+
+```javascript
+if (params === ':traitValue') {
+    return traitValue;  // Returns number
+}
+if (params === '-:traitValue') {
+    return -traitValue;  // Returns negative number
+}
+```
+
+### 12.3. Correct Usage
+
+| Placeholder | Returns | Example (traitValue=20) |
+|-------------|---------|------------------------|
+| `":traitValue"` | `number` | `20` |
+| `" -:traitValue"` | `number` (negative) | `-20` |
+
+**Never use:** `"-:traitValue"` in object keys - use the exact match pattern instead.

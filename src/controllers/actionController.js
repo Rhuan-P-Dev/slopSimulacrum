@@ -33,6 +33,66 @@ class ActionController {
                         message: "Action 'move - up' failed - requirement not met"
                     }
                 ]
+            },
+            "move - down": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { y: ":traitValue" }  // Move downward by move value pixels
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - down' failed - requirement not met"
+                    }
+                ]
+            },
+            "move - left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue" }  // Move left by move value pixels
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - left' failed - requirement not met"
+                    }
+                ]
+            },
+            "move - right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue" }  // Move right by move value pixels
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - right' failed - requirement not met"
+                    }
+                ]
             }
         };
     }
@@ -211,13 +271,8 @@ class ActionController {
             if (params === ':traitValue') {
                 return traitValue;
             }
-            // Replace :traitValue (e.g., "-:traitValue" or "+:traitValue")
-            const match = params.match(/^(.*):traitValue(.*)$/);
-            if (match) {
-                const prefix = match[1] || '';
-                const suffix = match[2] || '';
-                const value = parseInt(traitValue, 10) || 0;
-                return prefix + value + suffix;
+            if (params === '-:traitValue') {
+                return -traitValue;
             }
             return params;
         }
