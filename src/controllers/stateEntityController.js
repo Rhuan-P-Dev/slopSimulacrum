@@ -72,6 +72,25 @@ class stateEntityController {
     }
 
     /**
+     * Updates an entity's spatial coordinates.
+     * @param {string} entityId - The ID of the entity.
+     * @param {Object} spatialUpdate - Object with x and/or y values to update.
+     * @returns {boolean} True if update was successful.
+     */
+    updateEntitySpatial(entityId, spatialUpdate) {
+        if (this.entities[entityId]) {
+            if (spatialUpdate.x !== undefined) {
+                this.entities[entityId].spatial.x = spatialUpdate.x;
+            }
+            if (spatialUpdate.y !== undefined) {
+                this.entities[entityId].spatial.y = spatialUpdate.y;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Returns the current state of all active entities.
      * This is called by WorldStateController.getAll().
      * @returns {Object}

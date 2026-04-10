@@ -4,6 +4,7 @@ const ComponentController = require('./componentController');
 const EntityController = require('./entityController');
 const ComponentStatsController = require('./componentStatsController');
 const TraitsController = require('./traitsController');
+const ActionController = require('./actionController');
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -26,17 +27,22 @@ class WorldStateController {
         // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
         const stateEntityControllerInstance = new stateEntityController(entityController);
         const roomsController = new RoomsController();
+        
+        // 4. Instantiate ActionController (Top level - Injected with WorldStateController reference)
+        const actionController = new ActionController(this);
 
         // Assign to the WorldStateController for coordination and the getAll() method
         this.roomsController = roomsController;
         this.stateEntityController = stateEntityControllerInstance;
         this.componentController = componentController;
+        this.actionController = actionController;
         
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
             rooms: this.roomsController,
             entities: this.stateEntityController,
-            components: this.componentController
+            components: this.componentController,
+            actions: this.actionController
         };
 
         // Initialize world with a sample droid as requested

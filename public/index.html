@@ -273,6 +273,77 @@
             align-items: center;
             margin-bottom: 15px;
         }
+
+        /* Action List Styles */
+        .action-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--neon-green);
+        }
+
+        .action-list {
+            max-height: 250px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+
+        .action-item {
+            background: rgba(0, 255, 0, 0.05);
+            border-left: 3px solid var(--neon-green);
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .action-name {
+            color: var(--neon-green);
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 0.9em;
+        }
+
+        .action-req {
+            font-size: 0.8em;
+            color: var(--text-dim);
+            margin: 5px 0;
+        }
+
+        .action-capabilities {
+            margin-top: 5px;
+        }
+
+        .action-capable {
+            font-size: 0.8em;
+            margin: 3px 0;
+        }
+
+        .component-name {
+            color: #ffff00;
+        }
+
+        .status-ok {
+            color: var(--neon-green);
+        }
+
+        .status-req {
+            color: #ffaa00;
+        }
+
+        .status-fail {
+            color: #888;
+        }
+
+        /* Action List Hover Effects - Original is in .status-fail section */
+        .action-capable.clickable {
+            cursor: pointer;
+            transition: all 0.2s;
+            padding: 2px 5px;
+            border-radius: 2px;
+        }
+
+        .action-capable.clickable:hover {
+            background-color: rgba(0, 255, 0, 0.15);
+            transform: translateX(3px);
+        }
     </style>
 </head>
 <body>
@@ -317,6 +388,12 @@
             <div style="border-top: 1px solid #333; padding-top: 20px; font-size: 0.8em; color: var(--text-dim);">
                 SYSTEM STATUS: <span style="color: var(--neon-green)">ONLINE</span><br>
                 ACTIVE UNIT: <span id="active-droid-id">None</span>
+            </div>
+            <div class="action-section">
+                <h2 style="margin-top: 0;">⚔️ Action Registry</h2>
+                <div class="action-list" id="action-list">
+                    <em style="color: #666;">Loading action data...</em>
+                </div>
             </div>
         </div>
     </div>
@@ -642,10 +719,101 @@
             }
         }
 
+        async function fetchActions() {
+            try {
+                const response = await fetch('/actions');
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                renderActionList(data.actions);
+            } catch (error) {
+                console.error('Failed to fetch actions:', error);
+            }
+        }
+
+        function renderActionList(actions) {
+            const actionListEl = document.getElementById('action-list');
+            
+            if (!actions || Object.keys(actions).length === 0) {
+                actionListEl.innerHTML = '<em style="color: #666;">No actions available.</em>';
+                return;
+            }
+            
+            let html = '';
+            
+            for (const [actionName, actionData] of Object.entries(actions)) {
+                // Requirements display
+                const req = actionData.requirements;
+                const reqDisplay = `${req.trait}.${req.stat} > ${req.minValue}`;
+                
+                // Capable entities - make them clickable to trigger the action
+                const capableHtml = (actionData.canExecute || []).map(entity => `
+                    <div class="action-capable clickable" onclick="executeAction('${actionName}', '${entity.entityId}', '${entity.componentName}', '${entity.componentIdentifier}')">
+                        <span class="component-name">${entity.componentName} (${entity.componentIdentifier})</span>
+                        <span class="status-ok">Current: ${entity.currentValue}</span> / 
+                        <span class="status-req">Req: ${entity.requiredValue}</span>
+                    </div>
+                `).join('');
+                
+                // In capable entities count
+                const incapableCount = (actionData.cannotExecute || []).length;
+                
+                html += `
+                    <div class="action-item">
+                        <div class="action-name">${actionName}</div>
+                        <div class="action-req">
+                            <span class="trait-name">${req.trait}</span>.<span class="stat-name">${req.stat}</span> 
+                            <span class="status-req">(${req.minValue})</span>
+                        </div>
+                        <div class="action-capabilities">
+                            ${capableHtml || '<em style="color: #888;">No capable components found</em>'}
+                        </div>
+                        ${incapableCount > 0 ? `<div class="action-req" style="color: #666;">${incapableCount} entity/entities cannot execute</div>` : ''}
+                    </div>
+                `;
+            }
+            
+            actionListEl.innerHTML = html;
+        }
+
+        async function executeAction(actionName, entityId, componentName, componentIdentifier) {
+            try {
+                const response = await fetch('/execute-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        actionName: actionName,
+                        entityId: entityId,
+                        params: { componentName, componentIdentifier }
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.result?.error || 'Failed to execute action');
+                }
+
+                const result = await response.json();
+                
+                // Refresh world state to show updated position
+                fetchWorldState();
+                
+                // Optional: Show success feedback
+                console.log('Action executed:', result);
+                
+            } catch (error) {
+                alert('Action failed: ' + error.message);
+            }
+        }
+
         // Initial load
         fetchWorldState();
+        // Fetch actions on initial load
+        fetchActions();
         // Poll for updates every 3 seconds to keep map synced
         setInterval(fetchWorldState, 3000);
+        // Poll for actions every 3 seconds
+        setInterval(fetchActions, 3000);
     </script>
 </body>
 </html>

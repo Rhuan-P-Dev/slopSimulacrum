@@ -42,6 +42,94 @@ app.post('/chat', async (req, res) => {
 });
 
 /**
+ * GET /actions
+ * Returns all actions with current entity status for each requirement.
+ */
+app.get('/actions', (req, res) => {
+    try {
+        const state = worldStateController.getAll();
+        const actions = worldStateController.actionController.getRegistry();
+        
+        // For each action, check each entity's components
+        const actionStatus = {};
+        
+        for (const [actionName, actionData] of Object.entries(actions)) {
+            const entitiesWithAbility = [];
+            
+            for (const [entityId, entity] of Object.entries(state.entities || {})) {
+                const capableComponents = [];
+                
+                // Check each component for the requirement
+                if (entity.components && actionData.requirements) {
+                    for (const comp of entity.components) {
+                        const stats = state.components.instances[comp.id];
+                        if (stats && stats[actionData.requirements.trait]) {
+                            const value = stats[actionData.requirements.trait][actionData.requirements.stat];
+                            if (value > actionData.requirements.minValue) {
+                                capableComponents.push({
+                                    type: comp.type,
+                                    identifier: comp.identifier,
+                                    statValue: value
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                if (capableComponents.length > 0) {
+                    entitiesWithAbility.push({
+                        entityId,
+                        componentName: capableComponents[0].type,
+                        componentIdentifier: capableComponents[0].identifier,
+                        currentValue: capableComponents[0].statValue,
+                        requiredValue: actionData.requirements.minValue
+                    });
+                }
+            }
+            
+            actionStatus[actionName] = {
+                requirements: actionData.requirements,
+                canExecute: entitiesWithAbility,
+                cannotExecute: Object.keys(state.entities || {}).filter(
+                    eId => !entitiesWithAbility.some(ent => ent.entityId === eId)
+                ).map(eId => ({ entityId: eId }))
+            };
+        }
+        
+        res.json({ actions: actionStatus });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
+/**
+ * POST /execute-action
+ * Endpoint to execute an action on an entity.
+ * Expects: { "actionName": "move", "entityId": "...", "params": {} }
+ */
+app.post('/execute-action', (req, res) => {
+    const { actionName, entityId, params } = req.body;
+
+    if (!actionName || !entityId) {
+        return res.status(400).json({
+            error: 'Invalid request. "actionName" and "entityId" are required.'
+        });
+    }
+
+    try {
+        const result = worldStateController.actionController.executeAction(actionName, entityId, params);
+        res.json({ result });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
  * POST /move-entity
  * Endpoint to move an entity to a different room.
  * Expects: { "entityId": "...", "targetRoomId": "..." }

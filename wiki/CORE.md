@@ -40,3 +40,30 @@ When implementing or modifying any feature that requires the use of a Large Lang
 When implementing or modifying the game world, environment, or spatial state, you **must** use the `WorldStateController` located in `src/controllers/WorldStateController.js` and its associated sub-controllers.
 
 The server in `src/server.js` acts as the gateway for clients to access these controllers. Do not implement new HTTP calls to the LLM or direct state modifications in the client; instead, extend or utilize the respective controllers to maintain a single source of truth.
+
+## 🎮 Action System Architecture
+
+### ActionController
+
+The `ActionController` handles game actions on entities, providing a centralized registry for action definitions and execution:
+
+**Architecture Flow:**
+`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `ActionController`
+
+**Key Responsibilities:**
+- Action registry management (requirements, consequences, failure consequences)
+- Requirement validation for actions (e.g., Movimentation.move > 5)
+- Consequence execution through appropriate sub-controllers
+- HTTP API endpoint for action execution (`POST /execute-action`)
+
+**Dependency Chain:**
+`WorldStateController` $\rightarrow$ `ActionController`
+- `ActionController` receives `WorldStateController` via constructor injection
+- Never creates its own controller instances
+
+**Sub-Controllers Accessed:**
+- `stateEntityController`: Spatial updates via `updateEntitySpatial()`
+- `componentController`: Component stats retrieval via `getComponentStats()`
+- `RoomsController`: Room data and connections
+
+**Documentation:** See `wiki/subMDs/action_system.md` for complete guide.

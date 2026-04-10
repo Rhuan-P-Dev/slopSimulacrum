@@ -52,7 +52,49 @@ To maintain the Single Responsibility Principle (SRP):
 - **No Direct Access**: One controller must never directly modify the internal variables (e.g., `this.entities` or `this.componentStats`) of another controller.
 - **Flow**: `WorldStateController` $\rightarrow$ `Sub-Controller` $\rightarrow$ `Dependency Controller`.
 
-## 6. Maintaining the Root Injector
+## 6. ActionController Pattern
+
+### 6.1. Specialized Action Coordinator
+
+The `ActionController` follows the same Dependency Injection pattern but with a unique role:
+
+- **Role**: Specialized Action Coordinator
+- **Dependency**: Receives `WorldStateController` reference via constructor injection
+- **Responsibility**: Execute game actions through the action registry pattern
+- **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`
+
+### 6.2. Constructor Injection Pattern
+
+**❌ Prohibited Pattern (Internal Instantiation):**
+```javascript
+class ActionController {
+    constructor() {
+        // BAD: Creates new instances that might not share state
+        this.worldStateController = new WorldStateController();
+    }
+}
+```
+
+**✅ Mandatory Pattern (Constructor Injection):**
+```javascript
+class ActionController {
+    constructor(worldStateController) {
+        // GOOD: Uses the shared instance from WorldStateController
+        this.worldStateController = worldStateController;
+    }
+}
+```
+
+### 6.3. Root Injector Updates
+
+When adding `ActionController`:
+
+1. Import: `const ActionController = require('./actionController');`
+2. Instantiate: `const actionController = new ActionController(this);`
+3. Assign: `this.actionController = actionController;`
+4. Register: Add to `subControllers` map: `actions: this.actionController`
+
+## 7. Maintaining the Root Injector
 The `WorldStateController` constructor is the **only** place in the entire system where the `new` keyword should be used to instantiate controllers.
 
 ### Dependency Changes
