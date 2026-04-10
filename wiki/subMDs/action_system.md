@@ -601,6 +601,10 @@ Executes an action on an entity.
 | move - down | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | move - left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | move - right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - up-left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - up-right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - down-left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| move - down-right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | attack | ⚠️ Ready to add | ⚠️ Ready to add | ⚠️ Ready to add |
 
 ---

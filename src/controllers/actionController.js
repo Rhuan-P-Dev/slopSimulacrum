@@ -93,6 +93,86 @@ class ActionController {
                         message: "Action 'move - right' failed - requirement not met"
                     }
                 ]
+            },
+            "move - up-left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue", y: "-:traitValue" }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - up-left' failed - requirement not met"
+                    }
+                ]
+            },
+            "move - up-right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue", y: "-:traitValue" }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - up-right' failed - requirement not met"
+                    }
+                ]
+            },
+            "move - down-left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue", y: ":traitValue" }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - down-left' failed - requirement not met"
+                    }
+                ]
+            },
+            "move - down-right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue", y: ":traitValue" }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'move - down-right' failed - requirement not met"
+                    }
+                ]
             }
         };
     }
