@@ -59,19 +59,31 @@ app.get('/actions', (req, res) => {
             for (const [entityId, entity] of Object.entries(state.entities || {})) {
                 const capableComponents = [];
                 
-                // Check each component for the requirement
-                if (entity.components && actionData.requirements) {
+                // Check each component for the requirements
+                if (entity.components && Array.isArray(actionData.requirements) && actionData.requirements.length > 0) {
                     for (const comp of entity.components) {
                         const stats = state.components.instances[comp.id];
-                        if (stats && stats[actionData.requirements.trait]) {
-                            const value = stats[actionData.requirements.trait][actionData.requirements.stat];
-                            if (value > actionData.requirements.minValue) {
-                                capableComponents.push({
-                                    type: comp.type,
-                                    identifier: comp.identifier,
-                                    statValue: value
-                                });
+                        if (!stats) continue;
+
+                        let allMet = true;
+                        let firstStatValue = 0;
+
+                        for (const req of actionData.requirements) {
+                            if (stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
+                                firstStatValue = stats[req.trait][req.stat];
+                            } else {
+                                allMet = false;
+                                break;
                             }
+                        }
+
+                        if (allMet) {
+                            capableComponents.push({
+                                type: comp.type,
+                                identifier: comp.identifier,
+                                statValue: firstStatValue
+                            });
+                            break; // Found a component that satisfies all requirements for this entity
                         }
                     }
                 }
@@ -82,7 +94,7 @@ app.get('/actions', (req, res) => {
                         componentName: capableComponents[0].type,
                         componentIdentifier: capableComponents[0].identifier,
                         currentValue: capableComponents[0].statValue,
-                        requiredValue: actionData.requirements.minValue
+                        requiredValue: actionData.requirements[0].minValue
                     });
                 }
             }

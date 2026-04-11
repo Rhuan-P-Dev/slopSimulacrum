@@ -27,11 +27,13 @@ Each action is defined with three main components:
 ```javascript
 {
     "actionName": {
-        requirements: {
-            trait: "TraitName",
-            stat: "statName",
-            minValue: 5
-        },
+        requirements: [
+            {
+                trait: "TraitName",
+                stat: "statName",
+                minValue: 5
+            }
+        ],
         consequences: [
             {
                 type: "consequenceType",
@@ -54,19 +56,19 @@ Each action is defined with three main components:
 
 ### 3.1. Requirement Structure
 
-Requirements define what an entity must have to perform an action:
+Requirements define what an entity must have to perform an action. An action can have multiple requirements, which must all be satisfied.
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `trait` | string | The trait category (e.g., "Movimentation") |
-| `stat` | string | The specific stat within the trait (e.g., "move") |
+| `stat` | string | The specific stat within the trait (ee.g., "move") |
 | `minValue` | number | The minimum value required (exclusive >) |
 
 ### 3.2. Requirement Checking
 
-The `ActionController` checks each entity's components for the required trait and stat. The action only executes if at least one component meets the requirement.
+The `ActionController` checks each entity's components for the required traits and stats. The action only executes if there is at least one component that satisfies **all** the listed requirements.
 
-**Example:** Move action requires `Movimentation.move > 5`
+**Example:** Move action requires `Movimentation.move > 5`. Droid dash requires both `Movimentation.move > 5` AND `Physical.durability > 30`.
 
 ---
 
@@ -98,7 +100,7 @@ When requirements are met, the action executes its success consequences. Consequ
 consequences: [
     {
         type: "deltaSpatial",
-        params: { y: -":traitValue" }  // Moves relative to current position
+        params: { y: "-:traitValue" }  // Moves relative to current position
     }
 ]
 ```
@@ -115,7 +117,7 @@ consequences: [
 consequences: [
     {
         type: "deltaSpatial",
-        params: { y: -":traitValue" }  // Moves relative to current position
+        params: { y: "-:traitValue" }  // Moves relative to current position
     }
 ]
 ```
@@ -175,17 +177,17 @@ Executes an action on an entity.
 ```
 
 **Returns (Failure):**
-```javascript
+```j
 {
-    success: false,
-    error: "Requirement failed: No component has \"Movimentation.move\" > 5",
-    executedFailureConsequences: 1,
-    results: [
+    "success": false,
+    "error": "Requirement failed: No component has \"Movimentation.move\" > 5",
+    "executedFailureConsequences": 1,
+    "results": [
         {
-            success: true,
-            type: "log",
-            message: "Logged: Action 'move' failed - requirement not met",
-            level: "warn"
+            "success": true,
+            "type": "log",
+            "message": "Logged: Action 'move' failed - requirement not met",
+            "level": "warn"
         }
     ]
 }
@@ -198,7 +200,7 @@ Executes success consequences by reading from the action registry and dispatchin
 ```javascript
 /**
  * @param {string} actionName - The name of the action.
- * @param {string} entityId - The entity ID.
+ * @param {string} entityId - The ID of the entity.
  * @param {number} traitValue - The trait value for placeholder substitution.
  * @param {Object} params - Additional action parameters.
  * @returns {Object} Result of consequence execution.
@@ -211,8 +213,8 @@ Executes failure consequences using the same dispatcher pattern.
 
 ```javascript
 /**
- * @param {string} actionName - The action name.
- * @param {string} entityId - The entity ID.
+ * @param {string} actionName - The name of the action.
+ * @param {string} entityId - The ID of the entity.
  * @returns {Object} Result of failure consequence execution.
  */
 ```
@@ -224,7 +226,7 @@ Dispatches a consequence to the appropriate handler based on its type.
 ```javascript
 /**
  * @param {string} type - The consequence type (e.g., "updateSpatial", "log").
- * @param {string} entityId - The entity ID.
+ * @param {string} entityId - The ID of the entity.
  * @param {Object} params - The consequence parameters.
  * @param {number} traitValue - The trait value for parameter substitution.
  * @param {Object} actionParams - Additional action parameters.
@@ -360,11 +362,13 @@ Add to `ActionController.actionRegistry`:
 
 ```javascript
 "attack": {
-    requirements: {
-        trait: "Physical",
-        stat: "strength",
-        minValue: 10
-    },
+    requirements: [
+        {
+            trait: "Physical",
+            stat: "strength",
+            minValue: 10
+        }
+    ],
     consequences: [
         {
             type: "log",
@@ -442,11 +446,13 @@ Use `:traitValue` for the trait value. Combine with arithmetic in strings for ca
 ```javascript
 this.actionRegistry = {
     "move - up": {
-        requirements: {
-            trait: "Movimentation",
-            stat: "move",
-            minValue: 5
-        },
+        requirements: [
+            {
+                trait: "Movimentation",
+                stat: "move",
+                minValue: 5
+            }
+        ],
         consequences: [
             {
                 type: "deltaSpatial",
@@ -462,11 +468,13 @@ this.actionRegistry = {
         ]
     },
     "move - down": {
-        requirements: {
-            trait: "Movimentation",
-            stat: "move",
-            minValue: 5
-        },
+        requirements: [
+            {
+                trait: "Movimentation",
+                stat: "move",
+                minValue: 5
+            }
+        ],
         consequences: [
             {
                 type: "deltaSpatial",
@@ -482,11 +490,13 @@ this.actionRegistry = {
         ]
     },
     "move - left": {
-        requirements: {
-            trait: "Movimentation",
-            stat: "move",
-            minValue: 5
-        },
+        requirements: [
+            {
+                trait: "Movimentation",
+                stat: "move",
+                minValue: 5
+            }
+        ],
         consequences: [
             {
                 type: "deltaSpatial",
@@ -502,11 +512,13 @@ this.actionRegistry = {
         ]
     },
     "move - right": {
-        requirements: {
-            trait: "Movimentation",
-            stat: "move",
-            minValue: 5
-        },
+        requirements: [
+            {
+                trait: "Movimentation",
+                stat: "move",
+                minValue: 5
+            }
+        ],
         consequences: [
             {
                 type: "deltaSpatial",
@@ -522,11 +534,13 @@ this.actionRegistry = {
         ]
     },
     "attack": {
-        requirements: {
-            trait: "Physical",
-            stat: "strength",
-            minValue: 10
-        },
+        requirements: [
+            {
+                trait: "Physical",
+                stat: "strength",
+                minValue: 10
+            }
+        ],
         consequences: [
             {
                 type: "log",

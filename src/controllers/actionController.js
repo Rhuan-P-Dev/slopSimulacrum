@@ -10,7 +10,6 @@ class ActionController {
         'ENTITY_NOT_FOUND': { message: 'Entity "{entityId}" not found.', level: 'ERROR' },
         'ACTION_NOT_FOUND': { message: 'Action "{actionName}" not found.', level: 'ERROR' },
         'MISSING_TRAIT_STAT': { message: 'No component possesses the required {trait}.{stat} (> {minValue})', level: 'WARN' },
-        'INSUFFICIENT_DURABILITY': { message: 'Components with required movement were found, but none have sufficient durability (min {min})', level: 'WARN' },
         'UNKNOWN_REQUIREMENT_FAILURE': { message: 'Action requirements were not met.', level: 'WARN' },
         'CONSEQUENCE_EXECUTION_FAILED': { message: 'Failed to execute consequence {type}: {error}', level: 'ERROR' },
         'SYSTEM_RUNTIME_ERROR': { message: 'An unexpected system error occurred: {error}', level: 'CRITICAL' },
@@ -25,11 +24,13 @@ class ActionController {
         // Use updateSpatial for absolute coordinate setting.
         this.actionRegistry = {
             "move - up": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -45,11 +46,13 @@ class ActionController {
                 ]
             },
             "move - down": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -65,11 +68,13 @@ class ActionController {
                 ]
             },
             "move - left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -85,11 +90,13 @@ class ActionController {
                 ]
             },
             "move - right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -105,11 +112,13 @@ class ActionController {
                 ]
             },
             "move - up-left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -125,11 +134,13 @@ class ActionController {
                 ]
             },
             "move - up-right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -145,11 +156,13 @@ class ActionController {
                 ]
             },
             "move - down-left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -165,11 +178,13 @@ class ActionController {
                 ]
             },
             "move - down-right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -185,12 +200,18 @@ class ActionController {
                 ]
             },
             "droid dash - up": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -210,12 +231,18 @@ class ActionController {
                 ]
             },
             "droid dash - down": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -235,12 +262,18 @@ class ActionController {
                 ]
             },
             "droid dash - left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -260,12 +293,18 @@ class ActionController {
                 ]
             },
             "droid dash - right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -285,12 +324,18 @@ class ActionController {
                 ]
             },
             "droid dash - up-left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -310,12 +355,18 @@ class ActionController {
                 ]
             },
             "droid dash - up-right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -335,12 +386,18 @@ class ActionController {
                 ]
             },
             "droid dash - down-left": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -360,12 +417,18 @@ class ActionController {
                 ]
             },
             "droid dash - down-right": {
-                requirements: {
-                    trait: "Movimentation",
-                    stat: "move",
-                    minValue: 5,
-                    minDurability: 30
-                },
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 5
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 30
+                    }
+                ],
                 consequences: [
                     {
                         type: "deltaSpatial",
@@ -449,15 +512,9 @@ class ActionController {
     
     /**
      * Checks if an entity meets the requirements for an action.
-     * @param {Object} requirements - The action requirements.
+     * @param {Array<Object>} requirements - An array of requirement objects.
      * @param {string} entityId - The entity ID to check.
-     * @returns {Object} { passed: boolean, reason: string, traitValue: number }
-     */
-    /**
-     * Checks if an entity meets the requirements for an action.
-     * @param {Object} requirements - The action requirements.
-     * @param {string} entityId - The entity ID to check.
-     * @returns {Object} { passed: boolean, reason: string, traitValue: number, error: {code, details} }
+     * @returns {Object} { passed: boolean, traitValue: number, error: {code, details}, componentId: string }
      */
     _checkRequirements(requirements, entityId) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
@@ -468,52 +525,60 @@ class ActionController {
             };
         }
 
-        let traitFound = false;
+        // If requirements is a single object (for backward compatibility), wrap it in an array
+        const reqList = Array.isArray(requirements) ? requirements : [requirements];
+
+        // We need to satisfy ALL requirements in the list.
+        // However, requirements might be satisfied by different components.
+        // For the sake of this implementation, we will find the first component that satisfies ALL requirements.
+        // If requirements are split across components, this logic might need adjustment depending on game design.
         
-        // Check each component for the required trait
         for (const component of entity.components) {
             const stats = this.worldStateController.componentController.getComponentStats(component.id);
-            if (stats && stats[requirements.trait]) {
-                const traitValue = stats[requirements.trait][requirements.stat];
-                if (traitValue > requirements.minValue) {
-                    traitFound = true;
-                    
-                    // Check for minimum durability on the same component
-                    if (requirements.minDurability !== undefined) {
-                        const durability = stats.Physical ? stats.Physical.durability : 0;
-                        if (durability >= requirements.minDurability) {
-                            return { passed: true, traitValue, componentId: component.id };
-                        }
-                    } else {
-                        return { passed: true, traitValue, componentId: component.id };
-                    }
+            if (!stats) continue;
+
+            let allMet = true;
+            let firstTraitValue = 0;
+
+            for (const req of reqList) {
+                if (stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
+                    firstTraitValue = stats[req.trait][req.stat];
+                } else {
+                    allMet = false;
+                    break;
                 }
+            }
+
+            if (allMet) {
+                return { passed: true, traitValue: firstTraitValue, componentId: component.id };
             }
         }
 
-        // Return structured error instead of formatted string
-        if (!traitFound) {
-            return { 
-                passed: false, 
-                error: { 
-                    code: 'MISSING_TRAIT_STAT', 
-                    details: { 
-                        trait: requirements.trait, 
-                        stat: requirements.stat, 
-                        minValue: requirements.minValue 
-                    } 
-                } 
-            };
-        }
+        // If we reach here, one or more requirements were not met.
+        // Find the first requirement that failed to provide a specific error.
+        for (const req of reqList) {
+            let requirementSatisfied = false;
+            for (const component of entity.components) {
+                const stats = this.worldStateController.componentController.getComponentStats(component.id);
+                if (stats && stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
+                    requirementSatisfied = true;
+                    break;
+                }
+            }
 
-        if (requirements.minDurability !== undefined) {
-            return { 
-                passed: false, 
-                error: { 
-                    code: 'INSUFFICIENT_DURABILITY', 
-                    details: { min: requirements.minDurability } 
-                } 
-            };
+            if (!requirementSatisfied) {
+                return { 
+                    passed: false, 
+                    error: { 
+                        code: 'MISSING_TRAIT_STAT', 
+                        details: { 
+                            trait: req.trait, 
+                            stat: req.stat, 
+                            minValue: req.minValue 
+                        } 
+                    } 
+                };
+            }
         }
 
         return { 

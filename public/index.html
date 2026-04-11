@@ -742,9 +742,9 @@
             let html = '';
             
             for (const [actionName, actionData] of Object.entries(actions)) {
-                // Requirements display
-                const req = actionData.requirements;
-                const reqDisplay = `${req.trait}.${req.stat} > ${req.minValue}`;
+                // Requirements display - use the first requirement for simplified UI
+                const reqList = actionData.requirements;
+                const req = Array.isArray(reqList) ? reqList[0] : reqList;
                 
                 // Capable entities - make them clickable to trigger the action
                 const capableHtml = (actionData.canExecute || []).map(entity => `
@@ -755,15 +755,15 @@
                     </div>
                 `).join('');
                 
-                // In capable entities count
+                // In incapable entities count
                 const incapableCount = (actionData.cannotExecute || []).length;
                 
                 html += `
                     <div class="action-item">
                         <div class="action-name">${actionName}</div>
                         <div class="action-req">
-                            <span class="trait-name">${req.trait}</span>.<span class="stat-name">${req.stat}</span> 
-                            <span class="status-req">(${req.minValue})</span>
+                            <span class="trait-name">${req?.trait || 'N/A'}</span>.<span class="stat-name">${req?.stat || 'N/A'}</span> 
+                            <span class="status-req">(${req?.minValue ?? 'N/A'})</span>
                         </div>
                         <div class="action-capabilities">
                             ${capableHtml || '<em style="color: #888;">No capable components found</em>'}
