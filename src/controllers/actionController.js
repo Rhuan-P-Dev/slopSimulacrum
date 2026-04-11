@@ -9,7 +9,7 @@ class ActionController {
     static ERROR_REGISTRY = {
         'ENTITY_NOT_FOUND': { message: 'Entity "{entityId}" not found.', level: 'ERROR' },
         'ACTION_NOT_FOUND': { message: 'Action "{actionName}" not found.', level: 'ERROR' },
-        'MISSING_TRAIT_STAT': { message: 'No component possesses the required {trait}.{stat} (> {minValue})', level: 'WARN' },
+        'MISSING_TRAIT_STAT': { message: 'No component possesses the required {trait}.{stat} (>= {minValue})', level: 'WARN' },
         'UNKNOWN_REQUIREMENT_FAILURE': { message: 'Action requirements were not met.', level: 'WARN' },
         'CONSEQUENCE_EXECUTION_FAILED': { message: 'Failed to execute consequence {type}: {error}', level: 'ERROR' },
         'SYSTEM_RUNTIME_ERROR': { message: 'An unexpected system error occurred: {error}', level: 'CRITICAL' },
@@ -451,6 +451,23 @@ class ActionController {
     }
     
     /**
+     * Checks if an entity meets the requirements for an action.
+     * @param {string} actionName - The name of the action to check.
+     * @param {string} entityId - The entity ID to check.
+     * @returns {Object} { passed: boolean, traitValue: number, error: {code, details}, componentId: string }
+     */
+    checkRequirements(actionName, entityId) {
+        const action = this.actionRegistry[actionName];
+        if (!action) {
+            return { 
+                passed: false, 
+                error: { code: 'ACTION_NOT_FOUND', details: { actionName } } 
+            };
+        }
+        return this._checkRequirements(action.requirements, entityId);
+    }
+
+    /**
      * Executes an action on an entity.
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity to perform the action.
@@ -541,7 +558,7 @@ class ActionController {
             let firstTraitValue = 0;
 
             for (const req of reqList) {
-                if (stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
+                if (stats[req.trait] && stats[req.trait][req.stat] >= req.minValue) {
                     firstTraitValue = stats[req.trait][req.stat];
                 } else {
                     allMet = false;
@@ -560,7 +577,7 @@ class ActionController {
             let requirementSatisfied = false;
             for (const component of entity.components) {
                 const stats = this.worldStateController.componentController.getComponentStats(component.id);
-                if (stats && stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
+                if (stats && stats[req.trait] && stats[req.trait][req.stat] >= req.minValue) {
                     requirementSatisfied = true;
                     break;
                 }

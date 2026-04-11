@@ -59,32 +59,16 @@ app.get('/actions', (req, res) => {
             for (const [entityId, entity] of Object.entries(state.entities || {})) {
                 const capableComponents = [];
                 
-                // Check each component for the requirements
-                if (entity.components && Array.isArray(actionData.requirements) && actionData.requirements.length > 0) {
-                    for (const comp of entity.components) {
-                        const stats = state.components.instances[comp.id];
-                        if (!stats) continue;
-
-                        let allMet = true;
-                        let firstStatValue = 0;
-
-                        for (const req of actionData.requirements) {
-                            if (stats[req.trait] && stats[req.trait][req.stat] > req.minValue) {
-                                firstStatValue = stats[req.trait][req.stat];
-                            } else {
-                                allMet = false;
-                                break;
-                            }
-                        }
-
-                        if (allMet) {
-                            capableComponents.push({
-                                type: comp.type,
-                                identifier: comp.identifier,
-                                statValue: firstStatValue
-                            });
-                            break; // Found a component that satisfies all requirements for this entity
-                        }
+                // Check if the entity meets action requirements via ActionController
+                const requirementCheck = worldStateController.actionController.checkRequirements(actionName, entityId);
+                if (requirementCheck.passed) {
+                    const component = entity.components.find(c => c.id === requirementCheck.componentId);
+                    if (component) {
+                        capableComponents.push({
+                            type: component.type,
+                            identifier: component.identifier,
+                            currentValue: requirementCheck.traitValue
+                        });
                     }
                 }
                 
@@ -93,7 +77,7 @@ app.get('/actions', (req, res) => {
                         entityId,
                         componentName: capableComponents[0].type,
                         componentIdentifier: capableComponents[0].identifier,
-                        currentValue: capableComponents[0].statValue,
+                        currentValue: capableComponents[0].currentValue,
                         requiredValue: actionData.requirements[0].minValue
                     });
                 }
