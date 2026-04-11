@@ -3,6 +3,12 @@
 ## 1. Overview
 The Client UI provides a visual representation of the SlopSimulacrum world state, allowing users to track the droid's position and inspect its internal technical state. It is a single-page application (SPA) built with HTML5, CSS3, and vanilla JavaScript.
 
+### 1.1. File Structure
+To ensure maintainability and separation of concerns, the frontend is split into three dedicated files:
+- `public/index.html`: Defines the structural layout and DOM elements.
+- `public/styles.css`: Contains all visual styling and the "Cyber-Terminal" aesthetic.
+- `public/app.js`: Contains the client-side logic, API communication, and UI rendering engine.
+
 ## 2. Visual Components
 
 ### 2.1. The World Map (SVG)

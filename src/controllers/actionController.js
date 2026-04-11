@@ -15,10 +15,13 @@ class ActionController {
         'SYSTEM_RUNTIME_ERROR': { message: 'An unexpected system error occurred: {error}', level: 'CRITICAL' },
     };
 
+    /**
+     * @param {WorldStateController} worldStateController - The main world state controller.
+     */
     constructor(worldStateController) {
         this.worldStateController = worldStateController;
         
-        // Action Registry - format: "actionName": { requirements, consequences[], consequencesDeFalha[] }
+        // Action Registry - format: "actionName": { requirements, consequences[], failureConsequences[] }
         // Consequences are defined as arrays of objects with type and params properties.
         // Use deltaSpatial for relative movements (adds to current position).
         // Use updateSpatial for absolute coordinate setting.
@@ -37,7 +40,7 @@ class ActionController {
                         params: { y: "-:traitValue" }  // Move upward by move value pixels
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -59,7 +62,7 @@ class ActionController {
                         params: { y: ":traitValue" }  // Move downward by move value pixels
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -81,7 +84,7 @@ class ActionController {
                         params: { x: "-:traitValue" }  // Move left by move value pixels
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -103,7 +106,7 @@ class ActionController {
                         params: { x: ":traitValue" }  // Move right by move value pixels
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -125,7 +128,7 @@ class ActionController {
                         params: { x: "-:traitValue", y: "-:traitValue" }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -147,7 +150,7 @@ class ActionController {
                         params: { x: ":traitValue", y: "-:traitValue" }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -169,7 +172,7 @@ class ActionController {
                         params: { x: "-:traitValue", y: ":traitValue" }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -191,7 +194,7 @@ class ActionController {
                         params: { x: ":traitValue", y: ":traitValue" }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -222,7 +225,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -253,7 +256,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -284,7 +287,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -315,7 +318,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -346,7 +349,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -377,7 +380,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -408,7 +411,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -439,7 +442,7 @@ class ActionController {
                         params: { trait: "Physical", stat: "durability", value: -5 }
                     }
                 ],
-                consequencesDeFalha: [
+                failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
@@ -468,6 +471,81 @@ class ActionController {
     }
 
     /**
+     * Calculates which entities are capable of executing which actions based on the current world state.
+     * @param {Object} state - The current world state.
+     * @returns {Object} Map of actions and their capability status.
+     */
+    getActionCapabilities(state) {
+        const actions = this.getRegistry();
+        const actionStatus = {};
+        const entities = state.entities || {};
+
+        for (const [actionName, actionData] of Object.entries(actions)) {
+            const entitiesWithAbility = [];
+            
+            for (const [entityId, entity] of Object.entries(entities)) {
+                const requirementCheck = this.checkRequirements(actionName, entityId);
+                if (requirementCheck.passed) {
+                    const component = entity.components.find(c => c.id === requirementCheck.componentId);
+                    if (component) {
+                        const stats = this.worldStateController.componentController.getComponentStats(component.id);
+                        
+                        const requirementsStatus = actionData.requirements.map(req => ({
+                            trait: req.trait,
+                            stat: req.stat,
+                            current: stats[req.trait]?.[req.stat] ?? 0,
+                            required: req.minValue
+                        }));
+
+                        entitiesWithAbility.push({
+                            entityId,
+                            componentName: component.type,
+                            componentIdentifier: component.identifier,
+                            requirementsStatus
+                        });
+                    }
+                }
+            }
+            
+            actionStatus[actionName] = {
+                requirements: actionData.requirements,
+                canExecute: entitiesWithAbility,
+                cannotExecute: Object.keys(entities).filter(
+                    eId => !entitiesWithAbility.some(ent => ent.entityId === eId)
+                ).map(eId => {
+                    const entity = entities[eId];
+                    let componentData = null;
+
+                    if (actionData.requirements && actionData.requirements.length > 0) {
+                        const firstReq = actionData.requirements[0];
+                        const matchingComponent = entity.components.find(c => {
+                            const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                            return stats && stats[firstReq.trait];
+                        });
+                        
+                        if (matchingComponent) {
+                            const stats = this.worldStateController.componentController.getComponentStats(matchingComponent.id);
+                            componentData = {
+                                type: matchingComponent.type,
+                                identifier: matchingComponent.identifier,
+                                stats: stats
+                            };
+                        }
+                    }
+
+                    return { 
+                        entityId: eId,
+                        componentName: componentData?.type || "Unknown",
+                        componentIdentifier: componentData?.identifier || "N/A",
+                        stats: componentData?.stats || null
+                    };
+                })
+            };
+        }
+        return actionStatus;
+    }
+
+    /**
      * Executes an action on an entity.
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity to perform the action.
@@ -493,7 +571,7 @@ class ActionController {
             if (!requirementCheck.passed) {
                 const errorMessage = this._resolveError(requirementCheck.error);
                 // Execute failure consequences
-                const failureResults = this._executeConsequencesDeFalha(actionName, entityId);
+                const failureResults = this._executeFailureConsequences(actionName, entityId);
                 return {
                     success: false,
                     error: `Requirement failed: ${errorMessage}`,
@@ -965,18 +1043,18 @@ class ActionController {
      * @param {string} entityId - The entity ID.
      * @returns {Object} Result of failure consequence execution.
      */
-    _executeConsequencesDeFalha(actionName, entityId) {
+    _executeFailureConsequences(actionName, entityId) {
         const action = this.actionRegistry[actionName];
-        if (!action || !action.consequencesDeFalha) {
+        if (!action || !action.failureConsequences) {
             return { 
-                success: false,
+                success: false, 
                 error: `Action "${actionName}" has no failure consequences defined.` 
             };
         }
         
         const results = [];
         
-        for (const consequence of action.consequencesDeFalha) {
+        for (const consequence of action.failureConsequences) {
             const result = this._dispatchConsequence(
                 consequence.type,
                 entityId,

@@ -40,7 +40,7 @@ Each action is defined with three main components:
                 params: { /* parameters */ }
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "consequenceType",
                 params: { /* parameters */ }
@@ -122,12 +122,12 @@ consequences: [
 ]
 ```
 
-### 4.2. Failure Consequences (consequencesDeFalha)
+### 4.2. Failure Consequences (failureConsequences)
 
 When requirements fail, the failure consequences are executed using the same dispatcher pattern:
 
 ```javascript
-consequencesDeFalha: [
+failureConsequences: [
     {
         type: "log",
         level: "warn",
@@ -207,7 +207,18 @@ Executes success consequences by reading from the action registry and dispatchin
  */
 ```
 
-### 5.3. ActionController._executeConsequencesDeFalha()
+### 5.2.1. ActionController.getActionCapabilities()
+
+Calculates which entities are capable of executing which actions based on the current world state.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @returns {Object} Map of actions and their capability status.
+ */
+```
+
+### 5.3. ActionController._executeFailureConsequences()
 
 Executes failure consequences using the same dispatcher pattern.
 
@@ -382,7 +393,7 @@ Add to `ActionController.actionRegistry`:
             value: ":traitValue"
         }
     ],
-    consequencesDeFalha: [
+    failureConsequences: [
         {
             type: "log",
             level: "warn",
@@ -459,7 +470,7 @@ this.actionRegistry = {
                 params: { y: "-:traitValue" }  // Move upward by move value pixels
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "log",
                 level: "warn",
@@ -481,7 +492,7 @@ this.actionRegistry = {
                 params: { y: ":traitValue" }  // Move downward by move value pixels
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "log",
                 level: "warn",
@@ -503,7 +514,7 @@ this.actionRegistry = {
                 params: { x: "-:traitValue" }  // Move left by move value pixels
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "log",
                 level: "warn",
@@ -525,7 +536,7 @@ this.actionRegistry = {
                 params: { x: ":traitValue" }  // Move right by move value pixels
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "log",
                 level: "warn",
@@ -554,7 +565,7 @@ this.actionRegistry = {
                 value: -":traitValue"
             }
         ],
-        consequencesDeFalha: [
+        failureConsequences: [
             {
                 type: "log",
                 level: "warn",

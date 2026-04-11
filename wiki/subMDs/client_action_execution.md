@@ -68,7 +68,7 @@ To provide clear feedback, the client renders requirements in the following way:
 
 ### 4.1. Rendering Logic (`renderActionList`)
 
-The `renderActionList` function in `public/index.html` is responsible for:
+The `renderActionList` function in `public/app.js` is responsible for:
 1.  Iterating through the `actions` object.
 2.  Looping through the `requirements` array for **each** action to build a complete requirement list.
 3.  Mapping the `canExecute` array to clickable HTML elements.
@@ -76,7 +76,7 @@ The `renderActionList` function in `public/index.html` is responsible for:
 
 ### 4.2. Execution Logic (`executeAction`)
 
-When a user clicks a capable component, the `executeAction` function is called with:
+When a user clicks a capable component, the `executeAction` function in `public/app.js` is called with:
 *   `actionName`
 *   `entityId`
 *   `componentName` (extracted from the clicked element)

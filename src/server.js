@@ -44,95 +44,12 @@ app.post('/chat', async (req, res) => {
 /**
  * GET /actions
  * Returns all actions with current entity status for each requirement.
+ * Logic is decoupled into ActionController.getActionCapabilities.
  */
 app.get('/actions', (req, res) => {
     try {
         const state = worldStateController.getAll();
-        const actions = worldStateController.actionController.getRegistry();
-        
-        // For each action, check each entity's components
-        const actionStatus = {};
-        
-        for (const [actionName, actionData] of Object.entries(actions)) {
-            const entitiesWithAbility = [];
-            
-            for (const [entityId, entity] of Object.entries(state.entities || {})) {
-                const capableComponents = [];
-                
-                // Check if the entity meets action requirements via ActionController
-                const requirementCheck = worldStateController.actionController.checkRequirements(actionName, entityId);
-                if (requirementCheck.passed) {
-                    const component = entity.components.find(c => c.id === requirementCheck.componentId);
-                    if (component) {
-                        capableComponents.push({
-                            type: component.type,
-                            identifier: component.identifier,
-                            currentValue: requirementCheck.traitValue
-                        });
-                    }
-                }
-                
-                if (capableComponents.length > 0) {
-                    // Map all requirements to their current and required values for this entity
-                    const requirementsStatus = actionData.requirements.map(req => {
-                        // Find the value for this specific requirement from the component's stats
-                        // Note: This assumes the component that satisfied the requirements also contains all required stats
-                        const component = entity.components.find(c => c.id === requirementCheck.componentId);
-                        const stats = worldStateController.componentController.getComponentStats(component.id);
-                        
-                        return {
-                            trait: req.trait,
-                            stat: req.stat,
-                            current: stats[req.trait]?.[req.stat] ?? 0,
-                            required: req.minValue
-                        };
-                    });
-
-                    entitiesWithAbility.push({
-                        entityId,
-                        componentName: capableComponents[0].type,
-                        componentIdentifier: capableComponents[0].identifier,
-                        requirementsStatus
-                    });
-                }
-            }
-            
-            actionStatus[actionName] = {
-                requirements: actionData.requirements,
-                canExecute: entitiesWithAbility,
-                cannotExecute: Object.keys(state.entities || {}).filter(
-                    eId => !entitiesWithAbility.some(ent => ent.entityId === eId)
-                ).map(eId => {
-                    const entity = state.entities[eId];
-                    let componentData = null;
-
-                    if (actionData.requirements && actionData.requirements.length > 0) {
-                        const firstReq = actionData.requirements[0];
-                        const matchingComponent = entity.components.find(c => {
-                            const stats = worldStateController.componentController.getComponentStats(c.id);
-                            return stats && stats[firstReq.trait];
-                        });
-                        
-                        if (matchingComponent) {
-                            const stats = worldStateController.componentController.getComponentStats(matchingComponent.id);
-                            componentData = {
-                                type: matchingComponent.type,
-                                identifier: matchingComponent.identifier,
-                                stats: stats
-                            };
-                        }
-                    }
-
-                    return { 
-                        entityId: eId,
-                        componentName: componentData?.type || "Unknown",
-                        componentIdentifier: componentData?.identifier || "N/A",
-                        stats: componentData?.stats || null
-                    };
-                })
-            };
-        }
-        
+        const actionStatus = worldStateController.actionController.getActionCapabilities(state);
         res.json({ actions: actionStatus });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);

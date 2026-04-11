@@ -127,12 +127,12 @@ The server exposes a REST API for chat interactions and world state retrieval.
 ### 3.1. Server (`src/server.js`)
 A Node.js Express server that:
 - Validates request formats and delegates LLM calls to the `LLMController`.
-- Coordinates world state requests via the `WorldStateController`.
+- Coordinates world state and action requests via the `WorldStateController` and `ActionController`.
 - Serves a static front-end from the `/public` directory.
 
 ### 3.2. Clients
 - **CLI Client (`src/client.js`)**: A command-line interface that manages conversation history and communicates with the server via HTTP.
-- **Web Front-end (`public/index.html`)**: A simple web page that visualizes the current world state in plain text.
+- **Web Front-end (`public/`)**: A cyber-terminal interface split into `index.html` (structure), `styles.css` (styling), and `app.js` (logic) that visualizes the world state and allows action execution.
 
 ---
 
