@@ -59,12 +59,16 @@ Entities are rendered as circular markers with the following characteristics:
 ### 3.5. Room Coordinates Display
 The UI shows current room coordinates in the format: `(x, y)` on the map header.
 
+### 3.6. Action Execution
+For detailed information on how the client handles action requests and requirement visualization, see the [Client-Side Action Execution](./client_action_execution.md) documentation.
+
 ## 4. Styling Guide (Cyber-Terminal Aesthetic)
 - **Color Palette**:
     - Background: `#0a0a0a` (Deep Black)
     - Primary Accent: `#00ff00` (Matrix Green)
     - Text: `#fff` (White) and `#aaa` (Grey)
     - Highlights: Glowing neon effects using `box-shadow` and `filter: drop-shadow`.
+    - Error: `#ff4444` (Red, used via `status-fail`)
 - **Typography**: Monospaced fonts (e.g., 'Courier New') to simulate a retro-futuristic terminal.
 
 ---

@@ -301,12 +301,6 @@
             font-size: 0.9em;
         }
 
-        .action-req {
-            font-size: 0.8em;
-            color: var(--text-dim);
-            margin: 5px 0;
-        }
-
         .action-capabilities {
             margin-top: 5px;
         }
@@ -314,6 +308,7 @@
         .action-capable {
             font-size: 0.8em;
             margin: 3px 0;
+            line-height: 1.4;
         }
 
         .component-name {
@@ -329,7 +324,7 @@
         }
 
         .status-fail {
-            color: #888;
+            color: #ff4444;
         }
 
         /* Action List Hover Effects - Original is in .status-fail section */
@@ -603,7 +598,7 @@
             
             let componentsHtml = '';
             if (entity.components && state.components && state.components.instances) {
-                componentsHtml = '<div class="component-section"><h3>🛠️ Installed Components</h3>';
+                componentsHtml = '<div class="component-section"><h3>🛠️ Installed Components</h3></div>';
                 
                 entity.components.forEach(comp => {
                     const stats = state.components.instances[comp.id];
@@ -742,33 +737,50 @@
             let html = '';
             
             for (const [actionName, actionData] of Object.entries(actions)) {
-                // Requirements display - use the first requirement for simplified UI
-                const reqList = actionData.requirements;
-                const req = Array.isArray(reqList) ? reqList[0] : reqList;
-                
                 // Capable entities - make them clickable to trigger the action
-                const capableHtml = (actionData.canExecute || []).map(entity => `
-                    <div class="action-capable clickable" onclick="executeAction('${actionName}', '${entity.entityId}', '${entity.componentName}', '${entity.componentIdentifier}')">
-                        <span class="component-name">${entity.componentName} (${entity.componentIdentifier})</span>
-                        <span class="status-ok">Current: ${entity.currentValue}</span> / 
-                        <span class="status-req">Req: ${entity.requiredValue}</span>
-                    </div>
-                `).join('');
+                const capableHtml = (actionData.canExecute || []).map(entity => {
+                    // Generate a string showing all requirement statuses for this entity
+                    const reqStatusText = entity.requirementsStatus
+                        .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
+                        .join('<br>');
+
+                    return `
+                        <div class="action-capable clickable" onclick="executeAction('${actionName}', '${entity.entityId}', '${entity.componentName}', '${entity.componentIdentifier}')">
+                            <span class="component-name">${entity.componentName} (${entity.componentIdentifier})</span>
+                            <span class="${entity.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
+                        </div>
+                    `;
+                }).join('');
                 
-                // In incapable entities count
-                const incapableCount = (actionData.cannotExecute || []).length;
+                // In incapable entities list
+                const incapableHtml = (actionData.cannotExecute || []).map(entity => {
+                    let statusText = `${entity.componentName} (${entity.componentIdentifier}) cannot execute`;
+                    
+                    if (entity.stats) {
+                        const statStrings = [];
+                        // Filter stats to only show those required by the action
+                        (actionData.requirements || []).forEach(req => {
+                            const traitStats = entity.stats[req.trait];
+                            if (traitStats && traitStats[req.stat] !== undefined) {
+                                statStrings.push(`${req.trait}.${req.stat}=${traitStats[req.stat]}`);
+                            }
+                        });
+
+                        if (statStrings.length > 0) {
+                            statusText = `${entity.componentName} (${entity.componentIdentifier}): ${statStrings.join(', ')} cannot execute`;
+                        }
+                    }
+
+                    return `<div class="action-req status-fail">${statusText}</div>`;
+                }).join('');
                 
                 html += `
                     <div class="action-item">
                         <div class="action-name">${actionName}</div>
-                        <div class="action-req">
-                            <span class="trait-name">${req?.trait || 'N/A'}</span>.<span class="stat-name">${req?.stat || 'N/A'}</span> 
-                            <span class="status-req">(${req?.minValue ?? 'N/A'})</span>
-                        </div>
                         <div class="action-capabilities">
                             ${capableHtml || '<em style="color: #888;">No capable components found</em>'}
                         </div>
-                        ${incapableCount > 0 ? `<div class="action-req" style="color: #666;">${incapableCount} entity/entities cannot execute</div>` : ''}
+                        ${incapableHtml}
                     </div>
                 `;
             }
