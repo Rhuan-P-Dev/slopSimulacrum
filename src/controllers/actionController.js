@@ -6,6 +6,16 @@
  * reference rather than creating its own instances.
  */
 class ActionController {
+    static ERROR_REGISTRY = {
+        'ENTITY_NOT_FOUND': { message: 'Entity "{entityId}" not found.', level: 'ERROR' },
+        'ACTION_NOT_FOUND': { message: 'Action "{actionName}" not found.', level: 'ERROR' },
+        'MISSING_TRAIT_STAT': { message: 'No component possesses the required {trait}.{stat} (> {minValue})', level: 'WARN' },
+        'INSUFFICIENT_DURABILITY': { message: 'Components with required movement were found, but none have sufficient durability (min {min})', level: 'WARN' },
+        'UNKNOWN_REQUIREMENT_FAILURE': { message: 'Action requirements were not met.', level: 'WARN' },
+        'CONSEQUENCE_EXECUTION_FAILED': { message: 'Failed to execute consequence {type}: {error}', level: 'ERROR' },
+        'SYSTEM_RUNTIME_ERROR': { message: 'An unexpected system error occurred: {error}', level: 'CRITICAL' },
+    };
+
     constructor(worldStateController) {
         this.worldStateController = worldStateController;
         
@@ -173,6 +183,206 @@ class ActionController {
                         message: "Action 'move - down-right' failed - requirement not met"
                     }
                 ]
+            },
+            "droid dash - up": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { y: "-:traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - up' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - down": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { y: ":traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - down' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - left' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - right' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - up-left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue*2", y: "-:traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - up-left' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - up-right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue*2", y: "-:traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - up-right' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - down-left": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: "-:traitValue*2", y: ":traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - down-left' failed - requirement not met"
+                    }
+                ]
+            },
+            "droid dash - down-right": {
+                requirements: {
+                    trait: "Movimentation",
+                    stat: "move",
+                    minValue: 5,
+                    minDurability: 30
+                },
+                consequences: [
+                    {
+                        type: "deltaSpatial",
+                        params: { x: ":traitValue*2", y: ":traitValue*2" }
+                    },
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: -5 }
+                    }
+                ],
+                consequencesDeFalha: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'droid dash - down-right' failed - requirement not met"
+                    }
+                ]
             }
         };
     }
@@ -185,37 +395,56 @@ class ActionController {
      * @returns {Object} Result of the action execution.
      */
     executeAction(actionName, entityId, params = {}) {
-        const action = this.actionRegistry[actionName];
-        
-        if (!action) {
-            return { success: false, error: `Action "${actionName}" not found.` };
-        }
-        
-        // Check requirements
-        const requirementCheck = this._checkRequirements(action.requirements, entityId);
-        if (!requirementCheck.passed) {
-            // Execute failure consequences
+        try {
+            const action = this.actionRegistry[actionName];
+            
+            if (!action) {
+                return { 
+                    success: false, 
+                    error: this._resolveError({ 
+                        code: 'ACTION_NOT_FOUND', 
+                        details: { actionName } 
+                    }) 
+                };
+            }
+            
+            // Check requirements
+            const requirementCheck = this._checkRequirements(action.requirements, entityId);
+            if (!requirementCheck.passed) {
+                const errorMessage = this._resolveError(requirementCheck.error);
+                // Execute failure consequences
+                const failureResults = this._executeConsequencesDeFalha(actionName, entityId);
+                return {
+                    success: false,
+                    error: `Requirement failed: ${errorMessage}`,
+                    ...failureResults
+                };
+            }
+            
+            // Execute success consequences
+            const consequenceResult = this._executeConsequences(
+                actionName, 
+                entityId, 
+                requirementCheck.traitValue,
+                params,
+                requirementCheck.componentId
+            );
+            
+            return {
+                success: true,
+                action: actionName,
+                entityId,
+                ...consequenceResult
+            };
+        } catch (error) {
             return {
                 success: false,
-                error: `Requirement failed: ${requirementCheck.reason}`,
-                ...this._executeConsequencesDeFalha(actionName, entityId)
+                error: this._resolveError({ 
+                    code: 'SYSTEM_RUNTIME_ERROR', 
+                    details: { error: error.message } 
+                })
             };
         }
-        
-        // Execute success consequences
-        const consequenceResult = this._executeConsequences(
-            actionName, 
-            entityId, 
-            requirementCheck.traitValue,
-            params
-        );
-        
-        return {
-            success: true,
-            action: actionName,
-            entityId,
-            ...consequenceResult
-        };
     }
     
     /**
@@ -224,11 +453,22 @@ class ActionController {
      * @param {string} entityId - The entity ID to check.
      * @returns {Object} { passed: boolean, reason: string, traitValue: number }
      */
+    /**
+     * Checks if an entity meets the requirements for an action.
+     * @param {Object} requirements - The action requirements.
+     * @param {string} entityId - The entity ID to check.
+     * @returns {Object} { passed: boolean, reason: string, traitValue: number, error: {code, details} }
+     */
     _checkRequirements(requirements, entityId) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) {
-            return { passed: false, reason: `Entity "${entityId}" not found.` };
+            return { 
+                passed: false, 
+                error: { code: 'ENTITY_NOT_FOUND', details: { entityId } } 
+            };
         }
+
+        let traitFound = false;
         
         // Check each component for the required trait
         for (const component of entity.components) {
@@ -236,15 +476,70 @@ class ActionController {
             if (stats && stats[requirements.trait]) {
                 const traitValue = stats[requirements.trait][requirements.stat];
                 if (traitValue > requirements.minValue) {
-                    return { passed: true, reason: null, traitValue };
+                    traitFound = true;
+                    
+                    // Check for minimum durability on the same component
+                    if (requirements.minDurability !== undefined) {
+                        const durability = stats.Physical ? stats.Physical.durability : 0;
+                        if (durability >= requirements.minDurability) {
+                            return { passed: true, traitValue, componentId: component.id };
+                        }
+                    } else {
+                        return { passed: true, traitValue, componentId: component.id };
+                    }
                 }
             }
         }
-        
+
+        // Return structured error instead of formatted string
+        if (!traitFound) {
+            return { 
+                passed: false, 
+                error: { 
+                    code: 'MISSING_TRAIT_STAT', 
+                    details: { 
+                        trait: requirements.trait, 
+                        stat: requirements.stat, 
+                        minValue: requirements.minValue 
+                    } 
+                } 
+            };
+        }
+
+        if (requirements.minDurability !== undefined) {
+            return { 
+                passed: false, 
+                error: { 
+                    code: 'INSUFFICIENT_DURABILITY', 
+                    details: { min: requirements.minDurability } 
+                } 
+            };
+        }
+
         return { 
             passed: false, 
-            reason: `No component has "${requirements.trait}.${requirements.stat}" > ${requirements.minValue}` 
+            error: { code: 'UNKNOWN_REQUIREMENT_FAILURE' } 
         };
+    }
+
+    /**
+     * Resolves a structured error into a human-readable message using the ERROR_REGISTRY.
+     * @param {Object} error - The error object { code, details }.
+     * @returns {string} Formatted error message.
+     */
+    _resolveError(error) {
+        if (!error || !error.code) return "An unknown error occurred.";
+        
+        const registryEntry = ActionController.ERROR_REGISTRY[error.code];
+        if (!registryEntry) return "An undefined error occurred.";
+
+        let message = registryEntry.message;
+        if (error.details) {
+            for (const [key, value] of Object.entries(error.details)) {
+                message = message.replace(`{${key}}`, value);
+            }
+        }
+        return message;
     }
     
     /**
@@ -255,9 +550,10 @@ class ActionController {
      * @param {string} entityId - The ID of the entity performing the action.
      * @param {number} traitValue - The trait value used for parameter substitution.
      * @param {Object} params - Additional action parameters.
+     * @param {string} [componentId] - The ID of the component that satisfied the requirements.
      * @returns {Object} Result of consequence execution.
      */
-    _executeConsequences(actionName, entityId, traitValue, params) {
+    _executeConsequences(actionName, entityId, traitValue, params, componentId) {
         const action = this.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { 
@@ -274,7 +570,8 @@ class ActionController {
                 entityId,
                 consequence.params,
                 traitValue,
-                params
+                params,
+                componentId
             );
             results.push(result);
         }
@@ -295,9 +592,10 @@ class ActionController {
      * @param {Object} params - The consequence parameters.
      * @param {number} traitValue - The trait value for parameter substitution.
      * @param {Object} actionParams - Additional action parameters.
+     * @param {string} [componentId] - The ID of the component that satisfied the requirements.
      * @returns {Object} Result from the handler.
      */
-    _dispatchConsequence(type, entityId, params, traitValue, actionParams) {
+    _dispatchConsequence(type, entityId, params, traitValue, actionParams, componentId) {
         // Replace placeholders in params with actual values
         const resolvedParams = this._resolvePlaceholders(params, traitValue, actionParams);
         
@@ -306,6 +604,7 @@ class ActionController {
             deltaSpatial: () => this._handleDeltaSpatial(entityId, resolvedParams),
             log: () => this._handleLog(resolvedParams),
             updateStat: () => this._handleUpdateStat(entityId, resolvedParams),
+            updateComponentStatDelta: () => this._handleUpdateComponentStatDelta(componentId, resolvedParams),
             triggerEvent: () => this._handleTriggerEvent(entityId, resolvedParams)
         };
         
@@ -327,7 +626,10 @@ class ActionController {
         } catch (error) {
             return {
                 success: false,
-                error: error.message,
+                error: this._resolveError({ 
+                    code: 'CONSEQUENCE_EXECUTION_FAILED', 
+                    details: { type, error: error.message } 
+                }),
                 type: type
             };
         }
@@ -347,12 +649,13 @@ class ActionController {
         }
         
         if (typeof params === 'string') {
-            // Replace :traitValue placeholder
-            if (params === ':traitValue') {
-                return traitValue;
-            }
-            if (params === '-:traitValue') {
-                return -traitValue;
+            // Replace :traitValue placeholder with optional sign and multiplier
+            // Matches: :traitValue, -:traitValue, :traitValue*2, -:traitValue*2, etc.
+            const match = params.match(/^(-)?(:traitValue)(?:\*(-?\d+))?$/);
+            if (match) {
+                const sign = match[1] === '-' ? -1 : 1;
+                const multiplier = match[3] ? parseInt(match[3], 10) : 1;
+                return sign * traitValue * multiplier;
             }
             return params;
         }
@@ -413,7 +716,16 @@ class ActionController {
      * @returns {Object} Result of the log operation.
      */
     _handleLog(logParams) {
-        const { message, level = "info" } = logParams;
+        // Safety guard against undefined or null parameters
+        if (!logParams) {
+            console.log(`[INFO] Log action triggered without parameters`);
+            return {
+                message: "Logged empty action",
+                level: "info"
+            };
+        }
+
+        const { message = "No message provided", level = "info" } = logParams;
         
         // Log to console with level prefix
         const prefix = `[${level.toUpperCase()}]`;
@@ -425,6 +737,38 @@ class ActionController {
         };
     }
     
+    /**
+     * Handler for updateComponentStatDelta consequence type.
+     * Updates a specific stat for a specific component by adding a delta.
+     * 
+     * @param {string} componentId - The ID of the component to update.
+     * @param {Object} deltaParams - Object with trait, stat, and value (delta) properties.
+     * @returns {Object} Result of the stat delta update.
+     */
+    _handleUpdateComponentStatDelta(componentId, deltaParams) {
+        if (!componentId) {
+            return {
+                success: false,
+                message: "No componentId provided for targeted update"
+            };
+        }
+
+        const { trait, stat, value } = deltaParams;
+        const success = this.worldStateController.componentController.updateComponentStatDelta(
+            componentId,
+            trait,
+            stat,
+            value
+        );
+
+        return {
+            success: success,
+            message: success 
+                ? `Updated component ${componentId} with ${trait}.${stat} by delta ${value}`
+                : `Failed to update component ${componentId}`
+        };
+    }
+
     /**
      * Handler for updateStat consequence type.
      * Updates a specific stat for an entity's component.

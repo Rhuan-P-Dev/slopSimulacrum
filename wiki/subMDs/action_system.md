@@ -85,7 +85,8 @@ When requirements are met, the action executes its success consequences. Consequ
 - `updateSpatial` - Sets absolute spatial coordinates
 - `deltaSpatial` - Adds delta values to current position (relative movement)
 - `log` - Logs a message to console
-- `updateStat` - Updates a component stat
+- `updateStat` - Updates a component stat for all components with the trait
+- `updateComponentStatDelta` - Updates a specific stat for the specific component that satisfied the action's requirements
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**
@@ -318,7 +319,23 @@ Updates a specific stat for all components with the specified trait.
 { type: "updateStat", trait: "Physical", stat: "durability", value: 50 }
 ```
 
-### 6.5. triggerEvent
+### 6.5. updateComponentStatDelta
+
+Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific equipment (e.g., durability loss on legs during a dash).
+
+**Parameters:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `trait` | string | The trait category (e.g., "Physical") |
+| `stat` | string | The stat name to modify |
+| `value` | number | The delta value to add (use negative for reduction) |
+
+**Example:**
+```javascript
+{ type: "updateComponentStatDelta", params: { trait: "Physical", stat: "durability", value: -5 } }
+```
+
+### 6.6. triggerEvent
 
 Triggers a server event for client notifications.
 
@@ -577,7 +594,7 @@ Executes an action on an entity.
 {
     "result": {
         "success": false,
-        "error": "Requirement failed: No component has \"Movimentation.move\" > 5",
+        "error": "Requirement failed: No component possesses the required Movimentation.move (> 5)",
         "executedFailureConsequences": 1,
         "results": [
             {
@@ -590,6 +607,7 @@ Executes an action on an entity.
     }
 }
 ```
+*Note: Error messages are now generated using a centralized `ERROR_REGISTRY` for consistency.*
 
 ---
 
@@ -622,45 +640,30 @@ Executes an action on an entity.
 
 ---
 
-## 12. Placeholder Substitution Bug Fix
+## 12. Placeholder Substitution Logic
 
-### 12.1. The Bug
+### 12.1. Implementation
+The `_resolvePlaceholders` method uses a regular expression to identify and resolve `:traitValue` markers within strings. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
 
-The `_resolvePlaceholders` method had a bug with negative values. The original regex-based implementation returned a **string** instead of a **number**:
-
-**Before (buggy):**
+**Current Logic:**
 ```javascript
-const match = params.match(/^(.*):traitValue(.*)$/);
+const match = params.match(/^(-)?(:traitValue)(?:\*(-?\d+))?$/);
 if (match) {
-    const prefix = match[1] || '';
-    const suffix = match[2] || '';
-    const value = parseInt(traitValue, 10) || 0;
-    return prefix + value + suffix;  // Returns string!
+    const sign = match[1] === '-' ? -1 : 1;
+    const multiplier = match[3] ? parseInt(match[3], 10) : 1;
+    return sign * traitValue * multiplier;
 }
 ```
 
-When `params = "-:traitValue"` and `traitValue = 20`:
-- Result: `"-20"` (a string, not a number)
-- In `deltaSpatial`, `entity.spatial.y + "-20"` produces `"100-20"` (string concatenation) instead of `80` (numeric calculation)
+### 12.2. Supported Patterns
+The system supports signs and multipliers, allowing for flexible action definitions:
 
-### 12.2. The Fix
+| Pattern | Description | Example (traitValue=20) | Result |
+|---------|-------------|-------------------------|--------|
+| `:traitValue` | Base value | `":traitValue"` | `20` |
+| `-:traitValue` | Negative value | `"-:traitValue"` | `-20` |
+| `:traitValue*2` | Multiplied value | `":traitValue*2"` | `40` |
+| `-:traitValue*2` | Negative multiplied | `"-:traitValue*2"` | `-40` |
 
-Use exact string matching to return proper numeric values:
-
-```javascript
-if (params === ':traitValue') {
-    return traitValue;  // Returns number
-}
-if (params === '-:traitValue') {
-    return -traitValue;  // Returns negative number
-}
-```
-
-### 12.3. Correct Usage
-
-| Placeholder | Returns | Example (traitValue=20) |
-|-------------|---------|------------------------|
-| `":traitValue"` | `number` | `20` |
-| `" -:traitValue"` | `number` (negative) | `-20` |
-
-**Never use:** `"-:traitValue"` in object keys - use the exact match pattern instead.
+### 12.3. Integration
+These resolved values are passed directly to consequence handlers (like `deltaSpatial`), ensuring correct mathematical operations on the entity's state.

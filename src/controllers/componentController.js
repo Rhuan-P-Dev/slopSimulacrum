@@ -102,6 +102,24 @@ class ComponentController {
     }
 
     /**
+     * Updates a specific stat for a component instance by adding a delta.
+     * @param {string} instanceId - The unique ID of the component instance.
+     * @param {string} traitId - The trait category (e.g., "Physical").
+     * @param {string} statName - The stat to modify.
+     * @param {number} delta - The value to add to the current stat.
+     * @returns {boolean}
+     */
+    updateComponentStatDelta(instanceId, traitId, statName, delta) {
+        const stats = this.statsController.getStats(instanceId);
+        if (stats && stats[traitId] && typeof stats[traitId][statName] === 'number') {
+            stats[traitId][statName] += delta;
+            this.statsController.setStats(instanceId, stats);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Retrieves the stats for a specific component.
      * @param {string} instanceId - The unique ID of the component instance.
      * @returns {Object|null}
