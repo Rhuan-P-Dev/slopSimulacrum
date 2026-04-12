@@ -9,7 +9,7 @@ To prevent accidental movement and allow for different movement types (e.g., nor
 1.  **Action Selection:** The user selects a movement action (`move` or `dash`) from the Action Registry.
     - **Visual Feedback:** The selected action is highlighted in the UI using the `.action-selected` class.
     - **Toggling:** Clicking the same movement action again will deselect it, clearing the pending state.
-2.  **Target Selection:** The user clicks a location on the spatial map. The movement only executes if an action was previously selected.
+2.  **Target Selection:** The user clicks a location on the spatial map. The movement only executes if an action was previously selected. Upon successful execution, the server broadcasts a `world-state-update` signal, triggering the client to immediately refresh its state and update the map.
 
 ### 2.1. Client State Management
 The `public/app.js` maintains a `pendingMovementAction` state:

@@ -29,11 +29,12 @@ A dedicated area for room navigation buttons. These buttons are dynamically gene
 ## 3. Technical Logic
 
 ### 3.1. State Synchronization
-The client implements a hybrid synchronization model:
+The client implements a hybrid synchronization model to ensure real-time responsiveness without the overhead of continuous polling:
 
 1. **Identity Establishment (Event-Driven)**: Upon connection, the client establishes a WebSocket connection. The server sends an `incarnate` event containing a unique `entityId`. This ID becomes the client's identity for the session.
-2. **State Polling**: The client continuously polls `GET /world-state` to synchronize the visual world state.
-3. **Update**: 
+2. **Real-Time Trigger (WebSocket)**: Instead of continuous polling, the client listens for a `world-state-update` event emitted by the server whenever a world state change occurs (e.g., after a successful action execution).
+3. **State Retrieval (REST)**: Upon receiving the WebSocket trigger, the client immediately performs a targeted fetch of the latest world state (`GET /world-state`) and available actions (`GET /actions`).
+4. **UI Update**:
     - Dynamically renders markers for all entities present in the world on the SVG map.
     - Updates the active room description and navigation buttons based on the `entityId` assigned during incarnation.
 
@@ -61,7 +62,7 @@ Entities are rendered as circular markers with the following characteristics:
 ### 3.4. Interaction Flow
 - **Movement (Target-Based)**: 
     1. User selects a movement action (e.g., `move` or `dash`) from the Action Registry $\rightarrow$ Action is highlighted using the `.action-selected` class.
-    2. User clicks a location on the World Map $\rightarrow$ Client sends `POST /execute-action` with relative target coordinates $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Client polls new state $\rightarrow$ Map updates.
+    2. User clicks a location on the World Map $\rightarrow$ Client sends `POST /execute-action` with relative target coordinates $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client fetches latest state $\rightarrow$ Map updates instantly.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ Client retrieves the specific entity data from `state.entities` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 
 ### 3.5. Room Coordinates Display

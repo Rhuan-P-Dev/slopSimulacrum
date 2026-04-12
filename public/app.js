@@ -46,6 +46,19 @@ socket.on('incarnate', (data) => {
     fetchActions();
 });
 
+socket.on('world-state-update', (data) => {
+    console.log('%c[Socket] ⚡ WORLD STATE UPDATE SIGNAL RECEIVED', 'color: #00ff00; font-weight: bold; font-size: 14px;');
+    
+    try {
+        // Instead of using the pushed state, we trigger an immediate fetch to ensure 
+        // the client has the most up-to-date and consistent data from the server.
+        fetchWorldState();
+        fetchActions();
+    } catch (error) {
+        console.error('[Socket Error] Crash during world-state-update processing:', error);
+    }
+});
+
 socket.on('error', (data) => {
     console.error('[Socket Error]:', data.message);
     document.getElementById('status').textContent = data.message;
@@ -53,9 +66,22 @@ socket.on('error', (data) => {
 });
 
 function updateUI() {
+    console.log('%c[UI] 🛠️ updateUI started', 'color: #aaa; font-style: italic;');
     const state = currentWorldState;
     const droid = activeDroid;
+    
+    if (!droid) {
+        console.warn('[UI] updateUI skipped: activeDroid is null');
+        return;
+    }
+
+    if (!state || !state.rooms || !state.rooms[droid.location]) {
+        console.warn(`[UI] updateUI skipped: Room ${droid.location} not found in state`, { droidLocation: droid.location });
+        return;
+    }
+    
     const room = state.rooms[droid.location];
+    console.log(`[UI] Rendering room: ${room.name} (ID: ${room.id}) for Droid ${droid.id}`);
 
     // 1. Update Text Info
     document.getElementById('active-droid-id').textContent = droid.id;
@@ -71,6 +97,8 @@ function updateUI() {
     renderCurrentRoom(room);
     renderEntitiesInRoom(room, state.entities);
     renderDroidComponents(droid, state);
+    
+    console.log('%c[UI] ✅ updateUI completed successfully', 'color: #00ff00; font-weight: bold;');
 }
 
 function renderNavButtons(room, entityId) {
@@ -319,7 +347,6 @@ async function moveDroid(entityId, targetRoomId) {
             throw new Error(err.error || 'Failed to move droid');
         }
 
-        fetchWorldState();
     } catch (error) {
         alert('System Error: ' + error.message);
     }
@@ -445,9 +472,6 @@ async function executeAction(actionName, entityId, componentName, componentIdent
 
         const result = await response.json();
         
-        // Refresh world state to show updated position
-        fetchWorldState();
-        
         // Optional: Show success feedback
         console.log('Action executed:', result);
         
@@ -473,7 +497,6 @@ async function moveDroidToTarget(actionName, entityId, targetX, targetY) {
             throw new Error(err.result?.error || 'Failed to move droid');
         }
 
-        fetchWorldState();
     } catch (error) {
         console.error('Movement failed:', error.message);
     }
@@ -518,7 +541,3 @@ function setupMapClickListener() {
 // Initial load
 fetchWorldState();
 setupMapClickListener();
-// Poll for updates every 3 seconds to keep map synced
-setInterval(fetchWorldState, 3000);
-// Poll for actions every 3 seconds
-setInterval(fetchActions, 3000);

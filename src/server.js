@@ -17,6 +17,25 @@ app.use(express.static('public'));
 const llmController = new LLMController();
 const worldStateController = new WorldStateController();
 
+/**
+ * Broadcasts the current world state to all connected clients via Socket.io.
+ */
+function broadcastWorldState() {
+    try {
+        const state = worldStateController.getAll();
+        if (!state) {
+            console.warn('[Socket] Warning: Attempted to broadcast null/undefined world state');
+            return;
+        }
+        
+        const clientCount = io.engine.clientsCount;
+        io.emit('world-state-update', { state });
+        console.log(`[Socket] World state broadcasted to ${clientCount} connected clients at ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+        console.error(`[Server Error] Failed to broadcast world state: ${error.message}`);
+    }
+}
+
 // Socket.io state management
 const socketToEntityMap = new Map();
 
@@ -132,6 +151,7 @@ app.post('/execute-action', (req, res) => {
 
     try {
         const result = worldStateController.actionController.executeAction(actionName, entityId, params);
+        broadcastWorldState();
         res.json({ result });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -159,6 +179,7 @@ app.post('/move-entity', (req, res) => {
     try {
         const success = worldStateController.stateEntityController.moveEntity(entityId, targetRoomId);
         if (success) {
+            broadcastWorldState();
             res.json({ message: 'Entity moved successfully.' });
         } else {
             res.status(404).json({ error: 'Entity not found.' });

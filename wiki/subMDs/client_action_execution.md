@@ -12,7 +12,7 @@ The process of performing an action follows a request-response cycle, which vari
 
 ### 2.1. Standard Actions (Direct Execution)
 For non-movement actions, the flow is immediate:
-1.  **Polling**: The client continuously polls the `/actions` endpoint (every 3 seconds).
+1.  **Trigger**: The client maintains a WebSocket connection to the server.
 2.  **User Interaction**: The user clicks on a "capable" component within an action item.
 3.  **Request Dispatch**: The client sends a `POST /execute-action` request with `actionName`, `entityId`, and `params` (component details).
 4.  **Response**: The server executes the action, and the client updates the UI.
@@ -27,11 +27,8 @@ Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for ta
     *   `params`: The `targetX` and `targetY` coordinates relative to the room center.
 4.  **Execution**: The server calculates the movement based on the action's speed (e.g., `:traitValue` or `:traitValue*2`) and updates the entity's position.
 5.  **Reset**: The `pendingMovementAction` is cleared.
-    *   `params`: 
-        - For standard actions: `componentName` and `componentIdentifier`.
-        - For movement actions: `targetX` and `targetY` (relative coordinates).
-5.  **Server Processing**: The server validates requirements and executes consequences.
-6.  **Response & UI Update**: The client receives the result (Success or Failure) and triggers a world state refresh to reflect any changes (like spatial movement).
+6.  **Server Processing**: The server validates requirements and executes consequences.
+7.  **Response & UI Update**: Upon successful execution, the server emits a `world-state-update` event via WebSockets. The client receives this signal and immediately triggers `fetchWorldState()` and `fetchActions()` to refresh the UI.
 
 ---
 
@@ -113,4 +110,4 @@ The client handles two main types of errors:
 
 ### 📢 Notice for Future Agents
 **Language Requirement:** All frontend logic is written in **Vanilla JavaScript**.
-**Single Source of Truth:** The client always synchronizes its view with the server via polling to ensure the UI accurately reflects the simulation state.
+**Single Source of Truth:** The client synchronizes its view with the server using a hybrid model (WebSocket triggers $\rightarrow$ REST fetch) to ensure the UI reflects the simulation state in real-time.

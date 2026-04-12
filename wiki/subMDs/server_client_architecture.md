@@ -32,6 +32,15 @@ The server exposes a REST API for chat interactions and world state retrieval, a
 ```
 **Description:** Triggered upon connection. The server spawns a new entity for the client and notifies them of their identity.
 
+**Event:** `world-state-update` (Server $\rightarrow$ Client)
+**Payload:**
+```json
+{
+  "state": { ... }
+}
+```
+**Description:** Broadcasted to all connected clients whenever a world state change occurs (e.g., after an action execution or entity movement).
+
 #### 2.1.2. REST Endpoints
 The server exposes the following REST API:
 
