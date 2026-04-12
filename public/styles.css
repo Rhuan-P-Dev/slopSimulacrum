@@ -332,3 +332,17 @@ h1 {
     background-color: rgba(0, 255, 0, 0.15);
     transform: translateX(3px);
 }
+
+.action-selected {
+    background-color: var(--neon-green) !important;
+    color: var(--bg-black) !important;
+    font-weight: bold;
+    box-shadow: var(--glow);
+    border: 1px solid #fff;
+}
+
+.action-selected .component-name,
+.action-selected .status-ok,
+.action-selected .status-fail {
+    color: var(--bg-black) !important;
+}

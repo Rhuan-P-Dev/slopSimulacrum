@@ -1,8 +1,12 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const LLMController = require('./controllers/LLMController');
 const WorldStateController = require('./controllers/WorldStateController');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const port = process.env.PORT || 3000;
 
 // Middleware to parse JSON bodies
@@ -12,6 +16,53 @@ app.use(express.static('public'));
 // Initialize Controllers
 const llmController = new LLMController();
 const worldStateController = new WorldStateController();
+
+// Socket.io state management
+const socketToEntityMap = new Map();
+
+/**
+ * Handle WebSocket connections and "Incarnation"
+ */
+io.on('connection', (socket) => {
+    console.log(`[Socket] New connection: ${socket.id}`);
+
+    // 1. Determine a starting room
+    let startRoomId = worldStateController.roomsController.getUidByLogicalId('start_room');
+    
+    // Fallback if start_room is not found
+    if (!startRoomId) {
+        const rooms = worldStateController.roomsController.getAll();
+        const roomIds = Object.keys(rooms);
+        if (roomIds.length > 0) {
+            startRoomId = roomIds[0];
+        }
+    }
+
+    if (!startRoomId) {
+        console.error('[Socket Error] No valid room found for incarnation.');
+        socket.emit('error', { message: 'World initialization error: No rooms available.' });
+        return;
+    }
+
+    // 2. Incarnate the player: Spawn an entity
+    const entityId = worldStateController.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    socketToEntityMap.set(socket.id, entityId);
+
+    console.log(`[Socket] Player ${socket.id} incarnated as entity ${entityId} in room ${startRoomId}`);
+
+    // 3. Notify the client of its incarnation
+    socket.emit('incarnate', { entityId });
+
+    // 4. Handle disconnection
+    socket.on('disconnect', () => {
+        const entityIdToRemove = socketToEntityMap.get(socket.id);
+        if (entityIdToRemove) {
+            console.log(`[Socket] Player ${socket.id} disconnected. Despawning entity ${entityIdToRemove}`);
+            worldStateController.stateEntityController.despawnEntity(entityIdToRemove);
+            socketToEntityMap.delete(socket.id);
+        }
+    });
+});
 
 /**
  * POST /chat
@@ -43,13 +94,21 @@ app.post('/chat', async (req, res) => {
 
 /**
  * GET /actions
- * Returns all actions with current entity status for each requirement.
- * Logic is decoupled into ActionController.getActionCapabilities.
+ * Returns actions. If entityId is provided, returns only actions relevant to that entity.
+ * Logic is decoupled into ActionController.getActionCapabilities/getActionsForEntity.
  */
 app.get('/actions', (req, res) => {
     try {
         const state = worldStateController.getAll();
-        const actionStatus = worldStateController.actionController.getActionCapabilities(state);
+        const { entityId } = req.query;
+
+        let actionStatus;
+        if (entityId) {
+            actionStatus = worldStateController.actionController.getActionsForEntity(state, entityId);
+        } else {
+            actionStatus = worldStateController.actionController.getActionCapabilities(state);
+        }
+        
         res.json({ actions: actionStatus });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -148,6 +207,6 @@ app.get('/rooms', (req, res) => {
     }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`SlopSimulacrum Server running at http://localhost:${port}`);
 });

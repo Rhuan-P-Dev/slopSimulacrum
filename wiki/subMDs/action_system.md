@@ -144,7 +144,19 @@ failureConsequences: [
 
 ## 5. Controller Methods
 
-### 5.1. ActionController.executeAction()
+### 5.1. ActionController.getActionsForEntity()
+
+Retrieves only the actions that are relevant to a specific entity.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} entityId - The ID of the entity to filter for.
+ * @returns {Object} Map of actions relevant to the entity.
+ */
+```
+
+### 5.2. ActionController.executeAction()
 
 Executes an action on an entity.
 
@@ -193,7 +205,7 @@ Executes an action on an entity.
 }
 ```
 
-### 5.2. ActionController._executeConsequences()
+### 5.3. ActionController._executeConsequences()
 
 Executes success consequences by reading from the action registry and dispatching to handlers.
 
@@ -218,7 +230,7 @@ Calculates which entities are capable of executing which actions based on the cu
  */
 ```
 
-### 5.3. ActionController._executeFailureConsequences()
+### 5.4. ActionController._executeFailureConsequences()
 
 Executes failure consequences using the same dispatcher pattern.
 
@@ -230,7 +242,7 @@ Executes failure consequences using the same dispatcher pattern.
  */
 ```
 
-### 5.4. ActionController._dispatchConsequence()
+### 5.5. ActionController._dispatchConsequence()
 
 Dispatches a consequence to the appropriate handler based on its type.
 
@@ -245,7 +257,7 @@ Dispatches a consequence to the appropriate handler based on its type.
  */
 ```
 
-### 5.5. stateEntityController.updateEntitySpatial()
+### 5.6. stateEntityController.updateEntitySpatial()
 
 Updates an entity's spatial coordinates.
 
@@ -456,7 +468,7 @@ Use `:traitValue` for the trait value. Combine with arithmetic in strings for ca
 
 ```javascript
 this.actionRegistry = {
-    "move - up": {
+    "move": {
         requirements: [
             {
                 trait: "Movimentation",
@@ -467,80 +479,45 @@ this.actionRegistry = {
         consequences: [
             {
                 type: "deltaSpatial",
-                params: { y: "-:traitValue" }  // Move upward by move value pixels
+                params: { speed: ":traitValue" }
             }
         ],
         failureConsequences: [
             {
                 type: "log",
                 level: "warn",
-                message: "Action 'move - up' failed - requirement not met"
+                message: "Action 'move' failed - requirement not met"
             }
         ]
     },
-    "move - down": {
+    "dash": {
         requirements: [
             {
                 trait: "Movimentation",
                 stat: "move",
                 minValue: 5
+            },
+            {
+                trait: "Physical",
+                stat: "durability",
+                minValue: 30
             }
         ],
         consequences: [
             {
                 type: "deltaSpatial",
-                params: { y: ":traitValue" }  // Move downward by move value pixels
+                params: { speed: ":traitValue*2" }
+            },
+            {
+                type: "updateComponentStatDelta",
+                params: { trait: "Physical", stat: "durability", value: -5 }
             }
         ],
         failureConsequences: [
             {
                 type: "log",
                 level: "warn",
-                message: "Action 'move - down' failed - requirement not met"
-            }
-        ]
-    },
-    "move - left": {
-        requirements: [
-            {
-                trait: "Movimentation",
-                stat: "move",
-                minValue: 5
-            }
-        ],
-        consequences: [
-            {
-                type: "deltaSpatial",
-                params: { x: "-:traitValue" }  // Move left by move value pixels
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Action 'move - left' failed - requirement not met"
-            }
-        ]
-    },
-    "move - right": {
-        requirements: [
-            {
-                trait: "Movimentation",
-                stat: "move",
-                minValue: 5
-            }
-        ],
-        consequences: [
-            {
-                type: "deltaSpatial",
-                params: { x: ":traitValue" }  // Move right by move value pixels
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Action 'move - right' failed - requirement not met"
+                message: "Action 'dash' failed - requirement not met"
             }
         ]
     },

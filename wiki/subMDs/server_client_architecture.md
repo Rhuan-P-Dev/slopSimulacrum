@@ -3,11 +3,12 @@
 This document describes the communication layer between the end-user and the LLM backend in the SlopSimulacrum project.
 
 ## 1. Architectural Overview
-The project follows a middleware architecture to decouple the client interface from the LLM provider logic.
+The project follows a middleware architecture to decouple the client interface from the LLM provider logic. It employs a hybrid communication model using both REST for state retrieval/actions and WebSockets for identity management.
 
 **Flow:**
 - **LLM Interaction:** `Client (CLI/UI)` $\rightarrow$ `Node.js Server (Express)` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend API`
 - **World State Interaction:** `Browser/Client` $\rightarrow$ `Node.js Server (Express)` $\rightarrow$ `WorldStateController` $\rightarrow$ `Sub-Controllers`
+- **Identity & Incarnation:** `Browser/Client` $\xleftrightarrow{\text{WebSocket}}$ `Node.js Server (Socket.io)` $\rightarrow$ `WorldStateController`
 
 ### 1.1. Why this design?
 *   **Security**: API keys and endpoints are kept on the server, not exposed to the client.
@@ -19,7 +20,20 @@ The project follows a middleware architecture to decouple the client interface f
 ## 2. Communication Protocol
 
 ### 2.1. Server API
-The server exposes a REST API for chat interactions and world state retrieval.
+The server exposes a REST API for chat interactions and world state retrieval, and a WebSocket layer for identity management.
+
+#### 2.1.1. WebSocket Events
+**Event:** `incarnate` (Server $\rightarrow$ Client)
+**Payload:**
+```json
+{
+  "entityId": "uuid-entity-123"
+}
+```
+**Description:** Triggered upon connection. The server spawns a new entity for the client and notifies them of their identity.
+
+#### 2.1.2. REST Endpoints
+The server exposes the following REST API:
 
 **Endpoint:** `POST /chat`
 **Payload:**
@@ -104,6 +118,18 @@ The server exposes a REST API for chat interactions and world state retrieval.
 }
 ```
 
+**Endpoint:** `GET /actions`
+**Description:** Retrieves the action registry. If `entityId` is passed as a query parameter, the list is filtered to only show actions relevant to that entity.
+**Query Parameter:** `entityId` (Optional)
+**Successful Response (200 OK):**
+```json
+{
+  "actions": {
+    "actionName": { ... }
+  }
+}
+```
+
 **Endpoint:** `POST /move-entity`
 **Description:** Moves a specific entity to a target room.
 **Payload:**
@@ -125,9 +151,10 @@ The server exposes a REST API for chat interactions and world state retrieval.
 ## 3. Components
 
 ### 3.1. Server (`src/server.js`)
-A Node.js Express server that:
+A Node.js Express server integrated with Socket.io that:
 - Validates request formats and delegates LLM calls to the `LLMController`.
 - Coordinates world state and action requests via the `WorldStateController` and `ActionController`.
+- Manages "Incarnation": maps WebSocket IDs to spawned entities and handles automatic despawning on disconnect.
 - Serves a static front-end from the `/public` directory.
 
 ### 3.2. Clients

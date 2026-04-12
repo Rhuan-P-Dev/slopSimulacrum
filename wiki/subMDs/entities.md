@@ -85,7 +85,7 @@ The system operates through a chain of specialized controllers:
 ### 2.1. stateEntityController (`src/controllers/stateEntityController.js`)
 - **Role**: Instance Manager.
 - **Responsibility**: Manages all active entity instances currently present in the game world.
-- **Functions**: Tracking entity positions (via `RoomsController`), handling entity lifecycles, and providing the current state of all active entities to the `WorldStateController`.
+- **Functions**: Tracking entity positions (via `RoomsController`), handling entity lifecycles (including dynamic "Incarnation" upon client connection), and providing the current state of all active entities to the `WorldStateController`.
 
 ### 2.2. entityController (`src/controllers/entityController.js`)
 - **Role**: Blueprint Registry.

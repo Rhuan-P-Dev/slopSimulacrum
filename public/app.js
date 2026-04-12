@@ -1,9 +1,13 @@
 let currentWorldState = null;
 let activeDroid = null;
+let myEntityId = null;
+let pendingMovementAction = null;
 const VIEW_WIDTH = 800;
 const VIEW_HEIGHT = 500;
 const CENTER_X = VIEW_WIDTH / 2;
 const CENTER_Y = VIEW_HEIGHT / 2;
+
+const socket = io();
 
 async function fetchWorldState() {
     const statusDiv = document.getElementById('status');
@@ -17,7 +21,7 @@ async function fetchWorldState() {
         statusDiv.style.display = 'none';
 
         // 1. Identify Primary Droid for Navigation
-        activeDroid = Object.values(currentWorldState.entities || {}).find(e => e.blueprint === 'smallBallDroid');
+        activeDroid = currentWorldState.entities[myEntityId] || Object.values(currentWorldState.entities || {}).find(e => e.blueprint === 'smallBallDroid');
         
         if (currentWorldState.entities && Object.keys(currentWorldState.entities).length > 0) {
             updateUI();
@@ -34,6 +38,19 @@ async function fetchWorldState() {
         statusDiv.style.color = 'red';
     }
 }
+
+socket.on('incarnate', (data) => {
+    console.log('[Socket] Incarnated as:', data.entityId);
+    myEntityId = data.entityId;
+    fetchWorldState();
+    fetchActions();
+});
+
+socket.on('error', (data) => {
+    console.error('[Socket Error]:', data.message);
+    document.getElementById('status').textContent = data.message;
+    document.getElementById('status').style.display = 'block';
+});
 
 function updateUI() {
     const state = currentWorldState;
@@ -310,7 +327,8 @@ async function moveDroid(entityId, targetRoomId) {
 
 async function fetchActions() {
     try {
-        const response = await fetch('/actions');
+        const url = myEntityId ? `/actions?entityId=${myEntityId}` : '/actions';
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
         const data = await response.json();
@@ -333,13 +351,18 @@ function renderActionList(actions) {
     for (const [actionName, actionData] of Object.entries(actions)) {
         // Capable entities - make them clickable to trigger the action
         const capableHtml = (actionData.canExecute || []).map(entity => {
+            // Determine if this specific action/entity combo is currently selected
+            const isSelected = pendingMovementAction && 
+                               pendingMovementAction.actionName === actionName && 
+                               pendingMovementAction.entityId === entity.entityId;
+
             // Generate a string showing all requirement statuses for this entity
             const reqStatusText = entity.requirementsStatus
                 .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
                 .join('<br>');
 
             return `
-                <div class="action-capable clickable" onclick="executeAction('${actionName}', '${entity.entityId}', '${entity.componentName}', '${entity.componentIdentifier}')">
+                <div class="action-capable clickable ${isSelected ? 'action-selected' : ''}" onclick="executeAction('${actionName}', '${entity.entityId}', '${entity.componentName}', '${entity.componentIdentifier}')">
                     <span class="component-name">${entity.componentName} (${entity.componentIdentifier})</span>
                     <span class="${entity.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
                 </div>
@@ -383,6 +406,27 @@ function renderActionList(actions) {
 }
 
 async function executeAction(actionName, entityId, componentName, componentIdentifier) {
+    // Intercept movement actions to require target selection on map
+    if (actionName === 'move' || actionName === 'dash') {
+        // Toggle selection: if same action is selected, deselect it
+        if (pendingMovementAction && pendingMovementAction.actionName === actionName) {
+            pendingMovementAction = null;
+            console.log(`Action ${actionName} deselected.`);
+        } else {
+            pendingMovementAction = {
+                actionName: actionName,
+                entityId: entityId,
+                componentName: componentName,
+                componentIdentifier: componentIdentifier
+            };
+            console.log(`Action ${actionName} selected. Please click on the map to set the target.`);
+        }
+        
+        // Refresh action list immediately to show highlight
+        fetchActions();
+        return;
+    }
+
     try {
         const response = await fetch('/execute-action', {
             method: 'POST',
@@ -412,10 +456,68 @@ async function executeAction(actionName, entityId, componentName, componentIdent
     }
 }
 
+async function moveDroidToTarget(actionName, entityId, targetX, targetY) {
+    try {
+        const response = await fetch('/execute-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                actionName: actionName,
+                entityId: entityId,
+                params: { targetX, targetY }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.result?.error || 'Failed to move droid');
+        }
+
+        fetchWorldState();
+    } catch (error) {
+        console.error('Movement failed:', error.message);
+    }
+}
+
+function setupMapClickListener() {
+    const map = document.getElementById('world-map');
+    if (!map) return;
+
+    map.addEventListener('click', (event) => {
+        if (!myEntityId) return;
+
+        // Only move if a movement action was previously selected
+        if (!pendingMovementAction) {
+            console.log("No movement action selected. Please select 'move' or 'dash' from the Action Registry first.");
+            return;
+        }
+
+        // Get SVG coordinates
+        const pt = map.createSVGPoint();
+        pt.x = event.clientX;
+        pt.y = event.clientY;
+        const svgP = pt.matrixTransform(map.getScreenCTM().inverse());
+
+        // Translate to room-relative coordinates (offset from center)
+        const targetX = svgP.x - CENTER_X;
+        const targetY = svgP.y - CENTER_Y;
+
+        // Execute the pending action
+        moveDroidToTarget(
+            pendingMovementAction.actionName, 
+            pendingMovementAction.entityId, 
+            targetX, 
+            targetY
+        );
+
+        // Reset pending action
+        pendingMovementAction = null;
+    });
+}
+
 // Initial load
 fetchWorldState();
-// Fetch actions on initial load
-fetchActions();
+setupMapClickListener();
 // Poll for updates every 3 seconds to keep map synced
 setInterval(fetchWorldState, 3000);
 // Poll for actions every 3 seconds

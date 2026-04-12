@@ -26,7 +26,7 @@ class ActionController {
         // Use deltaSpatial for relative movements (adds to current position).
         // Use updateSpatial for absolute coordinate setting.
         this.actionRegistry = {
-            "move - up": {
+            "move": {
                 requirements: [
                     {
                         trait: "Movimentation",
@@ -37,172 +37,18 @@ class ActionController {
                 consequences: [
                     {
                         type: "deltaSpatial",
-                        params: { y: "-:traitValue" }  // Move upward by move value pixels
+                        params: { speed: ":traitValue" }
                     }
                 ],
                 failureConsequences: [
                     {
                         type: "log",
                         level: "warn",
-                        message: "Action 'move - up' failed - requirement not met"
+                        message: "Action 'move' failed - requirement not met"
                     }
                 ]
             },
-            "move - down": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { y: ":traitValue" }  // Move downward by move value pixels
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - down' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue" }  // Move left by move value pixels
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - left' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue" }  // Move right by move value pixels
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - right' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - up-left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue", y: "-:traitValue" }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - up-left' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - up-right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue", y: "-:traitValue" }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - up-right' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - down-left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue", y: ":traitValue" }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - down-left' failed - requirement not met"
-                    }
-                ]
-            },
-            "move - down-right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue", y: ":traitValue" }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'move - down-right' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - up": {
+            "dash": {
                 requirements: [
                     {
                         trait: "Movimentation",
@@ -218,7 +64,7 @@ class ActionController {
                 consequences: [
                     {
                         type: "deltaSpatial",
-                        params: { y: "-:traitValue*2" }
+                        params: { speed: ":traitValue*2" }
                     },
                     {
                         type: "updateComponentStatDelta",
@@ -229,224 +75,7 @@ class ActionController {
                     {
                         type: "log",
                         level: "warn",
-                        message: "Action 'droid dash - up' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - down": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { y: ":traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - down' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - left' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - right' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - up-left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue*2", y: "-:traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - up-left' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - up-right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue*2", y: "-:traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - up-right' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - down-left": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: "-:traitValue*2", y: ":traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - down-left' failed - requirement not met"
-                    }
-                ]
-            },
-            "droid dash - down-right": {
-                requirements: [
-                    {
-                        trait: "Movimentation",
-                        stat: "move",
-                        minValue: 5
-                    },
-                    {
-                        trait: "Physical",
-                        stat: "durability",
-                        minValue: 30
-                    }
-                ],
-                consequences: [
-                    {
-                        type: "deltaSpatial",
-                        params: { x: ":traitValue*2", y: ":traitValue*2" }
-                    },
-                    {
-                        type: "updateComponentStatDelta",
-                        params: { trait: "Physical", stat: "durability", value: -5 }
-                    }
-                ],
-                failureConsequences: [
-                    {
-                        type: "log",
-                        level: "warn",
-                        message: "Action 'droid dash - down-right' failed - requirement not met"
+                        message: "Action 'dash' failed - requirement not met"
                     }
                 ]
             },
@@ -570,6 +199,38 @@ class ActionController {
             };
         }
         return actionStatus;
+    }
+
+    /**
+     * Retrieves only the actions that are relevant to a specific entity.
+     * @param {Object} state - The current world state.
+     * @param {string} entityId - The ID of the entity to filter for.
+     * @returns {Object} Map of actions relevant to the entity.
+     */
+    getActionsForEntity(state, entityId) {
+        const allActions = this.getActionCapabilities(state);
+        const filteredActions = {};
+
+        for (const [actionName, actionData] of Object.entries(allActions)) {
+            const capableEntity = actionData.canExecute?.find(e => e.entityId === entityId);
+            const incapableEntity = actionData.cannotExecute?.find(e => e.entityId === entityId);
+
+            if (capableEntity) {
+                filteredActions[actionName] = {
+                    ...actionData,
+                    canExecute: [capableEntity],
+                    cannotExecute: []
+                };
+            } else if (incapableEntity) {
+                filteredActions[actionName] = {
+                    ...actionData,
+                    canExecute: [],
+                    cannotExecute: [incapableEntity]
+                };
+            }
+        }
+
+        return filteredActions;
     }
 
     /**
@@ -788,7 +449,7 @@ class ActionController {
         
         const handlers = {
             updateSpatial: () => this._handleUpdateSpatial(entityId, resolvedParams),
-            deltaSpatial: () => this._handleDeltaSpatial(entityId, resolvedParams),
+            deltaSpatial: () => this._handleDeltaSpatial(entityId, resolvedParams, traitValue, actionParams),
             log: () => this._handleLog(resolvedParams),
             updateStat: () => this._handleUpdateStat(entityId, resolvedParams),
             updateComponentStatDelta: () => this._handleUpdateComponentStatDelta(componentId, resolvedParams),
@@ -1020,14 +681,16 @@ class ActionController {
     
     /**
      * Handler for deltaSpatial consequence type.
-     * Updates an entity's spatial coordinates by adding delta values to current position.
-     * This enables relative movement (e.g., move up by 20 pixels from current position).
+     * Updates an entity's spatial coordinates. Supports both explicit deltas 
+     * and target-based movement.
      * 
      * @param {string} entityId - The ID of the entity.
      * @param {Object} deltaUpdate - Object with x and/or y values to add to current position.
+     * @param {number} traitValue - The movement speed (trait value).
+     * @param {Object} actionParams - Additional parameters (e.g., targetX, targetY).
      * @returns {Object} Result of the spatial update.
      */
-    _handleDeltaSpatial(entityId, deltaUpdate) {
+    _handleDeltaSpatial(entityId, deltaUpdate, traitValue, actionParams) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         
         if (!entity) {
@@ -1037,9 +700,30 @@ class ActionController {
             };
         }
         
-        // Calculate new coordinates by adding deltas to current position
-        const newX = entity.spatial.x + (deltaUpdate.x || 0);
-        const newY = entity.spatial.y + (deltaUpdate.y || 0);
+        // Use resolved speed from deltaUpdate if available, else fallback to base traitValue
+        const speed = (typeof deltaUpdate.speed === 'number') ? deltaUpdate.speed : traitValue;
+        
+        let moveX = deltaUpdate.x || 0;
+        let moveY = deltaUpdate.y || 0;
+
+        // Target-based movement: calculate direction and scale by the resolved speed
+        if (actionParams && actionParams.targetX !== undefined && actionParams.targetY !== undefined) {
+            const dx = actionParams.targetX - entity.spatial.x;
+            const dy = actionParams.targetY - entity.spatial.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 0) {
+                moveX = (dx / distance) * speed;
+                moveY = (dy / distance) * speed;
+            } else {
+                moveX = 0;
+                moveY = 0;
+            }
+        }
+        
+        // Calculate new coordinates
+        const newX = entity.spatial.x + moveX;
+        const newY = entity.spatial.y + moveY;
         
         // Update the entity's spatial coordinates
         const success = this.worldStateController.stateEntityController.updateEntitySpatial(
@@ -1050,8 +734,8 @@ class ActionController {
         if (success) {
             const updatedEntity = this.worldStateController.stateEntityController.getEntity(entityId);
             return {
-                message: "Entity moved relative",
-                deltaUpdate: deltaUpdate,
+                message: "Entity moved",
+                deltaUpdate: { x: moveX, y: moveY },
                 newSpatial: updatedEntity ? updatedEntity.spatial : null
             };
         }

@@ -15,7 +15,7 @@ To ensure maintainability and separation of concerns, the frontend is split into
 The map is rendered using a Scalable Vector Graphics (SVG) element to ensure clarity and flexibility.
 - **Rooms (Nodes)**: Each room is represented as a circular node. The color changes based on whether the droid is currently present.
 - **Connections (Edges)**: Lines connecting room nodes represent doors or paths.
-- **Droid Marker**: A distinct, glowing point that moves between room nodes as the droid changes location.
+- **Droid Marker**: A distinct, glowing point that moves between room nodes as the droid changes location. The marker for the player's own incarnated entity is highlighted to distinguish it from other entities.
 
 ### 2.2. Droid Detail Panel
 A toggleable overlay or side panel that appears when the droid marker is clicked. It displays:
@@ -29,13 +29,13 @@ A dedicated area for room navigation buttons. These buttons are dynamically gene
 ## 3. Technical Logic
 
 ### 3.1. State Synchronization
-The client implements a polling mechanism to stay synchronized with the server:
-1. **Fetch**: Calls `GET /world-state`.
-2. **Parse**: Extracts `rooms` and `entities` from the response.
+The client implements a hybrid synchronization model:
+
+1. **Identity Establishment (Event-Driven)**: Upon connection, the client establishes a WebSocket connection. The server sends an `incarnate` event containing a unique `entityId`. This ID becomes the client's identity for the session.
+2. **State Polling**: The client continuously polls `GET /world-state` to synchronize the visual world state.
 3. **Update**: 
     - Dynamically renders markers for all entities present in the world on the SVG map.
-    - Updates the active room description based on the primary navigation unit.
-    - Refreshes the available navigation buttons.
+    - Updates the active room description and navigation buttons based on the `entityId` assigned during incarnation.
 
 ### 3.2. Map Layout Engine (Spatial Coordinates)
 The server now provides room coordinates in the `/world-state` response. Room positions are defined in `RoomsController.js`:
@@ -59,7 +59,9 @@ Entities are rendered as circular markers with the following characteristics:
 - **Interactivity**: Click to show droid details overlay
 
 ### 3.4. Interaction Flow
-- **Movement**: Clicking a navigation button sends a `POST /move-entity` request $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Client polls new state $\rightarrow$ Map updates.
+- **Movement (Target-Based)**: 
+    1. User selects a movement action (e.g., `move` or `dash`) from the Action Registry $\rightarrow$ Action is highlighted using the `.action-selected` class.
+    2. User clicks a location on the World Map $\rightarrow$ Client sends `POST /execute-action` with relative target coordinates $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Client polls new state $\rightarrow$ Map updates.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ Client retrieves the specific entity data from `state.entities` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 
 ### 3.5. Room Coordinates Display

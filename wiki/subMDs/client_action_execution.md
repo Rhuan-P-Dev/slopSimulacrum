@@ -8,15 +8,28 @@ This document details the technical implementation and lifecycle of executing ac
 
 ## 2. Action Execution Lifecycle
 
-The process of performing an action follows a strict request-response cycle:
+The process of performing an action follows a request-response cycle, which varies depending on the action type:
 
-1.  **Polling**: The client continuously polls the `/actions` endpoint (every 3 seconds) to synchronize the "Action Registry" with the current server state.
-2.  **Capability Check**: The client receives a list of actions, including which entities/components are currently capable of performing them and which are not.
-3.  **User Interaction**: The user clicks on a "capable" component within an action item in the Action Registry.
-4.  **Request Dispatch**: The client sends a `POST /execute-action` request containing:
-    *   `actionName`: The unique name of the action.
-    *   `entityId`: The ID of the entity performing the action.
-    *   `params`: Specifically, the `componentName` and `componentIdentifier` of the component that satisfied the requirements.
+### 2.1. Standard Actions (Direct Execution)
+For non-movement actions, the flow is immediate:
+1.  **Polling**: The client continuously polls the `/actions` endpoint (every 3 seconds).
+2.  **User Interaction**: The user clicks on a "capable" component within an action item.
+3.  **Request Dispatch**: The client sends a `POST /execute-action` request with `actionName`, `entityId`, and `params` (component details).
+4.  **Response**: The server executes the action, and the client updates the UI.
+
+### 2.2. Movement Actions (Deferred Execution)
+Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for target selection on the map:
+1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state and highlights the action in the UI.
+2.  **Target Selection**: The user clicks a location on the spatial map.
+3.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
+    *   `actionName`: (e.g., "move" or "dash").
+    *   `entityId`: The ID of the entity.
+    *   `params`: The `targetX` and `targetY` coordinates relative to the room center.
+4.  **Execution**: The server calculates the movement based on the action's speed (e.g., `:traitValue` or `:traitValue*2`) and updates the entity's position.
+5.  **Reset**: The `pendingMovementAction` is cleared.
+    *   `params`: 
+        - For standard actions: `componentName` and `componentIdentifier`.
+        - For movement actions: `targetX` and `targetY` (relative coordinates).
 5.  **Server Processing**: The server validates requirements and executes consequences.
 6.  **Response & UI Update**: The client receives the result (Success or Failure) and triggers a world state refresh to reflect any changes (like spatial movement).
 
@@ -26,7 +39,8 @@ The process of performing an action follows a strict request-response cycle:
 
 ### 3.1. The `/actions` Response
 
-The client relies on the following data structure returned by the server to populate the UI:
+The client relies on the following data structure returned by the server to populate the UI. When requested with an `entityId`, the server returns only the actions relevant to that specific entity.
+
 
 ```json
 {
