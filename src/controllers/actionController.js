@@ -449,6 +449,33 @@ class ActionController {
                         message: "Action 'droid dash - down-right' failed - requirement not met"
                     }
                 ]
+            },
+            "selfHeal": {
+                requirements: [
+                    {
+                        trait: "Movimentation",
+                        stat: "move",
+                        minValue: 1
+                    },
+                    {
+                        trait: "Physical",
+                        stat: "durability",
+                        minValue: 1
+                    }
+                ],
+                consequences: [
+                    {
+                        type: "updateComponentStatDelta",
+                        params: { trait: "Physical", stat: "durability", value: 10 }
+                    }
+                ],
+                failureConsequences: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Action 'selfHeal' failed - requirement not met"
+                    }
+                ]
             }
         };
     }
