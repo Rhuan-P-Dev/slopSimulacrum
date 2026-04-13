@@ -4,10 +4,15 @@
 The Client UI provides a visual representation of the SlopSimulacrum world state, allowing users to track the droid's position and inspect its internal technical state. It is a single-page application (SPA) built with HTML5, CSS3, and vanilla JavaScript.
 
 ### 1.1. File Structure
-To ensure maintainability and separation of concerns, the frontend is split into three dedicated files:
+To ensure maintainability and separation of concerns, the frontend utilizes a modular architecture:
 - `public/index.html`: Defines the structural layout and DOM elements.
 - `public/styles.css`: Contains all visual styling and the "Cyber-Terminal" aesthetic.
-- `public/app.js`: Contains the client-side logic, API communication, and UI rendering engine.
+- `public/js/`: Contains the modular logic split into specialized managers:
+    - `App.js`: The main orchestrator (ClientApp) that coordinates all managers.
+    - `Config.js`: Centralized configuration and constants.
+    - `WorldStateManager.js`: Manages state synchronization and the "Single Source of Truth".
+    - `UIManager.js`: Handles all DOM/SVG rendering and user interface interactions.
+    - `ActionManager.js`: Manages action execution and the movement target-selection flow.
 
 ## 2. Visual Components
 
@@ -29,14 +34,16 @@ A dedicated area for room navigation buttons. These buttons are dynamically gene
 ## 3. Technical Logic
 
 ### 3.1. State Synchronization
-The client implements a hybrid synchronization model to ensure real-time responsiveness without the overhead of continuous polling:
+The client implements a hybrid synchronization model coordinated by the `ClientApp` orchestrator:
 
-1. **Identity Establishment (Event-Driven)**: Upon connection, the client establishes a WebSocket connection. The server sends an `incarnate` event containing a unique `entityId`. This ID becomes the client's identity for the session.
-2. **Real-Time Trigger (WebSocket)**: Instead of continuous polling, the client listens for a `world-state-update` event emitted by the server whenever a world state change occurs (e.g., after a successful action execution).
-3. **State Retrieval (REST)**: Upon receiving the WebSocket trigger, the client immediately performs a targeted fetch of the latest world state (`GET /world-state`) and available actions (`GET /actions`).
+1. **Identity Establishment (Event-Driven)**: Upon connection, the client establishes a WebSocket connection. The server sends an `incarnate` event; `ClientApp` updates the `WorldStateManager` with the assigned `entityId`.
+2. **Real-Time Trigger (WebSocket)**: The client listens for a `world-state-update` event. When received, `ClientApp` triggers a full refresh of both world state and actions.
+3. **State Retrieval (REST)**:
+    - `WorldStateManager.fetchState()` retrieves the latest world state via `GET /world-state`.
+    - `ActionManager.fetchActions()` retrieves the action registry via `GET /actions`.
 4. **UI Update**:
-    - Dynamically renders markers for all entities present in the world on the SVG map.
-    - Updates the active room description and navigation buttons based on the `entityId` assigned during incarnation.
+    - `UIManager.updateWorldView()` renders the room and active droid.
+    - `UIManager.renderActionList()` updates the control panel with available actions.
 
 ### 3.2. Map Layout Engine (Spatial Coordinates)
 The server now provides room coordinates in the `/world-state` response. Room positions are defined in `RoomsController.js`:
@@ -61,9 +68,9 @@ Entities are rendered as circular markers with the following characteristics:
 
 ### 3.4. Interaction Flow
 - **Movement (Target-Based)**: 
-    1. User selects a movement action (e.g., `move` or `dash`) from the Action Registry $\rightarrow$ Action is highlighted using the `.action-selected` class.
-    2. User clicks a location on the World Map $\rightarrow$ Client sends `POST /execute-action` with relative target coordinates $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client fetches latest state $\rightarrow$ Map updates instantly.
-- **Inspection**: Clicking any Entity Marker $\rightarrow$ Client retrieves the specific entity data from `state.entities` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
+    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction` and `UIManager` highlights it using the `.action-selected` class.
+    2. User clicks a location on the World Map $\rightarrow$ `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` $\rightarrow$ Client sends `POST /execute-action` $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state $\rightarrow$ Map updates.
+- **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 
 ### 3.5. Room Coordinates Display
 The UI shows current room coordinates in the format: `(x, y)` on the map header.

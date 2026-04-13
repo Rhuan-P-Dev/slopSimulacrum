@@ -77,23 +77,23 @@ To provide clear feedback, the client renders requirements in the following way:
 
 ## 4. Implementation Details (Frontend)
 
-### 4.1. Rendering Logic (`renderActionList`)
+### 4.1. Rendering Logic (`UIManager.renderActionList`)
 
-The `renderActionList` function in `public/app.js` is responsible for:
+The `renderActionList` method in the `UIManager` class is responsible for:
 1.  Iterating through the `actions` object.
-2.  Looping through the `requirements` array for **each** action to build a complete requirement list.
-3.  Mapping the `canExecute` array to clickable HTML elements.
-4.  Filtering and listing incapable components' required stats in red.
+2.  Mapping the `canExecute` array to clickable HTML elements, utilizing data attributes to store action and component identifiers.
+3.  Filtering and listing incapable components' required stats in red.
+4.  Attaching click listeners that trigger the `onActionClick` callback provided by the orchestrator.
 
-### 4.2. Execution Logic (`executeAction`)
+### 4.2. Execution Logic (`ActionManager.executeAction`)
 
-When a user clicks a capable component, the `executeAction` function in `public/app.js` is called with:
+When a user clicks a capable component, the `ActionManager.executeAction` method is called via the `ClientApp` orchestrator. It receives:
 *   `actionName`
 *   `entityId`
-*   `componentName` (extracted from the clicked element)
-*   `componentIdentifier` (extracted from the clicked element)
+*   `componentName`
+*   `componentIdentifier`
 
-The function sends these via `fetch` and handles both successful executions and error responses (using `alert` for user feedback).
+The manager then determines if the action is a movement type (which triggers a "Pending" state for target selection) or a standard action (which is dispatched immediately via a `POST` request to `/execute-action`).
 
 ---
 

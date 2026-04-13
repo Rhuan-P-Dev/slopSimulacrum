@@ -19,6 +19,9 @@ graph TD
 **Injection Order (Root Injector):**
 `ComponentStatsController` $\rightarrow$ `TraitsController` $\rightarrow$ `ComponentController` $\rightarrow$ `EntityController` $\rightarrow$ `stateEntityController` $\rightarrow$ `WorldStateController`
 
+**Client-Side Architecture (Modular JS):**
+`Config.js` $\rightarrow$ `WorldStateManager` $\rightarrow$ `UIManager` $\rightarrow$ `ActionManager` $\rightarrow$ `ClientApp` (Orchestrator)
+
 ---
 
 ## 2. Responsibility Matrix

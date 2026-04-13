@@ -168,7 +168,7 @@ A Node.js Express server integrated with Socket.io that:
 
 ### 3.2. Clients
 - **CLI Client (`src/client.js`)**: A command-line interface that manages conversation history and communicates with the server via HTTP.
-- **Web Front-end (`public/`)**: A cyber-terminal interface split into `index.html` (structure), `styles.css` (styling), and `app.js` (logic) that visualizes the world state and allows action execution.
+- **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, and `ActionManager.js`) that visualize the world state and handle action execution.
 
 ---
 

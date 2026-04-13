@@ -61,7 +61,7 @@
     <!-- Droid Detail Overlay -->
     <div id="detail-overlay" class="detail-overlay">
         <div class="detail-card">
-            <button class="close-btn" onclick="closeDetails()">CLOSE [X]</button>
+            <button id="close-details-btn" class="close-btn">CLOSE [X]</button>
             <div id="detail-content">
                 <!-- Populated by JS -->
             </div>
@@ -69,6 +69,6 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="js/App.js"></script>
 </body>
 </html>
