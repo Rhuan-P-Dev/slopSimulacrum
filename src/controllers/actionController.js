@@ -37,7 +37,7 @@ class ActionController {
                 consequences: [
                     {
                         type: "deltaSpatial",
-                        params: { speed: ":traitValue" }
+                        params: { speed: ":Movimentation.move" }
                     }
                 ],
                 failureConsequences: [
@@ -64,7 +64,7 @@ class ActionController {
                 consequences: [
                     {
                         type: "deltaSpatial",
-                        params: { speed: ":traitValue*2" }
+                        params: { speed: ":Movimentation.move*2" }
                     },
                     {
                         type: "updateComponentStatDelta",
@@ -271,7 +271,7 @@ class ActionController {
             const consequenceResult = this._executeConsequences(
                 actionName, 
                 entityId, 
-                requirementCheck.traitValue,
+                requirementCheck.requirementValues,
                 params,
                 requirementCheck.componentId
             );
@@ -297,7 +297,7 @@ class ActionController {
      * Checks if an entity meets the requirements for an action.
      * @param {Array<Object>} requirements - An array of requirement objects.
      * @param {string} entityId - The entity ID to check.
-     * @returns {Object} { passed: boolean, traitValue: number, error: {code, details}, componentId: string }
+     * @returns {Object} { passed: boolean, requirementValues: Object, error: {code, details}, componentId: string }
      */
     _checkRequirements(requirements, entityId) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
@@ -321,11 +321,11 @@ class ActionController {
             if (!stats) continue;
 
             let allMet = true;
-            let firstTraitValue = 0;
+            const requirementValues = {};
 
             for (const req of reqList) {
                 if (stats[req.trait] && stats[req.trait][req.stat] >= req.minValue) {
-                    firstTraitValue = stats[req.trait][req.stat];
+                    requirementValues[`${req.trait}.${req.stat}`] = stats[req.trait][req.stat];
                 } else {
                     allMet = false;
                     break;
@@ -333,7 +333,7 @@ class ActionController {
             }
 
             if (allMet) {
-                return { passed: true, traitValue: firstTraitValue, componentId: component.id };
+                return { passed: true, requirementValues, componentId: component.id };
             }
         }
 
@@ -396,12 +396,12 @@ class ActionController {
      * 
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity performing the action.
-     * @param {number} traitValue - The trait value used for parameter substitution.
+     * @param {Object} requirementValues - Map of trait.stat values used for parameter substitution.
      * @param {Object} params - Additional action parameters.
      * @param {string} [componentId] - The ID of the component that satisfied the requirements.
      * @returns {Object} Result of consequence execution.
      */
-    _executeConsequences(actionName, entityId, traitValue, params, componentId) {
+    _executeConsequences(actionName, entityId, requirementValues, params, componentId) {
         const action = this.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { 
@@ -417,7 +417,7 @@ class ActionController {
                 consequence.type,
                 entityId,
                 consequence.params,
-                traitValue,
+                requirementValues,
                 params,
                 componentId
             );
@@ -438,18 +438,18 @@ class ActionController {
      * @param {string} type - The consequence type (e.g., "updateSpatial", "deltaSpatial", "log", "updateStat").
      * @param {string} entityId - The ID of the entity.
      * @param {Object} params - The consequence parameters.
-     * @param {number} traitValue - The trait value for parameter substitution.
+     * @param {Object} requirementValues - Map of trait.stat values for parameter substitution.
      * @param {Object} actionParams - Additional action parameters.
      * @param {string} [componentId] - The ID of the component that satisfied the requirements.
      * @returns {Object} Result from the handler.
      */
-    _dispatchConsequence(type, entityId, params, traitValue, actionParams, componentId) {
+    _dispatchConsequence(type, entityId, params, requirementValues, actionParams, componentId) {
         // Replace placeholders in params with actual values
-        const resolvedParams = this._resolvePlaceholders(params, traitValue, actionParams);
+        const resolvedParams = this._resolvePlaceholders(params, requirementValues, actionParams);
         
         const handlers = {
             updateSpatial: () => this._handleUpdateSpatial(entityId, resolvedParams),
-            deltaSpatial: () => this._handleDeltaSpatial(entityId, resolvedParams, traitValue, actionParams),
+            deltaSpatial: () => this._handleDeltaSpatial(entityId, resolvedParams, requirementValues, actionParams),
             log: () => this._handleLog(resolvedParams),
             updateStat: () => this._handleUpdateStat(entityId, resolvedParams),
             updateComponentStatDelta: () => this._handleUpdateComponentStatDelta(componentId, resolvedParams),
@@ -484,26 +484,31 @@ class ActionController {
     }
     
     /**
-     * Resolves placeholders in params (e.g., ":traitValue" -> actual value).
+     * Resolves placeholders in params (e.g., ":Movimentation.move" -> actual value).
      * 
      * @param {Object} params - The parameters containing placeholders.
-     * @param {number} traitValue - The trait value to substitute.
+     * @param {Object} requirementValues - Map of satisfied trait.stat values.
      * @param {Object} actionParams - Additional action parameters.
      * @returns {Object} Params with placeholders resolved.
      */
-    _resolvePlaceholders(params, traitValue, actionParams) {
+    _resolvePlaceholders(params, requirementValues, actionParams) {
         if (params === null || params === undefined) {
             return params;
         }
         
         if (typeof params === 'string') {
-            // Replace :traitValue placeholder with optional sign and multiplier
-            // Matches: :traitValue, -:traitValue, :traitValue*2, -:traitValue*2, etc.
-            const match = params.match(/^(-)?(:traitValue)(?:\*(-?\d+))?$/);
+            // Replace :trait.stat placeholder with optional sign and multiplier
+            // Matches: :Trait.Stat, -:Trait.Stat, :Trait.Stat*2, -:Trait.Stat*2, etc.
+            const match = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
             if (match) {
                 const sign = match[1] === '-' ? -1 : 1;
+                const placeholder = match[2].substring(1); // Remove the leading ':'
                 const multiplier = match[3] ? parseInt(match[3], 10) : 1;
-                return sign * traitValue * multiplier;
+                
+                const value = requirementValues[placeholder];
+                if (value !== undefined) {
+                    return sign * value * multiplier;
+                }
             }
             return params;
         }
@@ -513,13 +518,13 @@ class ActionController {
         }
         
         if (Array.isArray(params)) {
-            return params.map(p => this._resolvePlaceholders(p, traitValue, actionParams));
+            return params.map(p => this._resolvePlaceholders(p, requirementValues, actionParams));
         }
         
         if (typeof params === 'object') {
             const result = {};
             for (const [key, value] of Object.entries(params)) {
-                result[key] = this._resolvePlaceholders(value, traitValue, actionParams);
+                result[key] = this._resolvePlaceholders(value, requirementValues, actionParams);
             }
             return result;
         }
@@ -690,7 +695,7 @@ class ActionController {
      * @param {Object} actionParams - Additional parameters (e.g., targetX, targetY).
      * @returns {Object} Result of the spatial update.
      */
-    _handleDeltaSpatial(entityId, deltaUpdate, traitValue, actionParams) {
+    _handleDeltaSpatial(entityId, deltaUpdate, requirementValues, actionParams) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         
         if (!entity) {
@@ -700,8 +705,8 @@ class ActionController {
             };
         }
         
-        // Use resolved speed from deltaUpdate if available, else fallback to base traitValue
-        const speed = (typeof deltaUpdate.speed === 'number') ? deltaUpdate.speed : traitValue;
+        // Use resolved speed from deltaUpdate if available, else fallback to 0 (no default traitValue anymore)
+        const speed = (typeof deltaUpdate.speed === 'number') ? deltaUpdate.speed : 0;
         
         let moveX = deltaUpdate.x || 0;
         let moveY = deltaUpdate.y || 0;

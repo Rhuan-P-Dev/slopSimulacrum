@@ -92,15 +92,15 @@ When requirements are met, the action executes its success consequences. Consequ
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**
-- `:traitValue` - Replaced with the actual trait value
-- `" -:traitValue"` - Replaced with negative trait value (e.g., "-20")
+- `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movimentation.move`)
+- `" -:trait.stat"` - Replaced with the negative value of the specified trait and stat (e.g., "-:Movimentation.move")
 
 **Example:** Move upward by the move value (using deltaSpatial for relative movement):
 ```javascript
 consequences: [
     {
         type: "deltaSpatial",
-        params: { y: "-:traitValue" }  // Moves relative to current position
+        params: { y: "-:Movimentation.move" }  // Moves relative to current position
     }
 ]
 ```
@@ -117,7 +117,7 @@ consequences: [
 consequences: [
     {
         type: "deltaSpatial",
-        params: { y: "-:traitValue" }  // Moves relative to current position
+        params: { y: "-:Movimentation.move" }  // Moves relative to current position
     }
 ]
 ```
@@ -308,7 +308,7 @@ Adds delta values to current spatial position for relative movement.
 
 **Example:**
 ```javascript
-{ type: "deltaSpatial", params: { y: -":traitValue" } }  // Move up by trait value
+{ type: "deltaSpatial", params: { y: "-:Movimentation.move" } }  // Move up by trait value
 ```
 
 **Note:** This handler is used for actions like `move` where the movement should be relative to the current position, not an absolute coordinate.
@@ -457,10 +457,10 @@ Always validate inputs and return descriptive error messages when actions fail.
 
 ### 8.6. Placeholder Naming
 
-Use `:traitValue` for the trait value. Combine with arithmetic in strings for calculations:
-- `" -:traitValue"` - Negative value
-- `"+:traitValue"` - Positive value
-- `"x:traitValue"` - Prefix with 'x'
+Use the `:trait.stat` syntax (e.g., `:Movimentation.move`) to reference specific requirement values. Combine with arithmetic in strings for calculations:
+- `" -:trait.stat"` - Negative value
+- `"+:trait.stat"` - Positive value
+- `"x:trait.stat"` - Prefix with 'x'
 
 ---
 
@@ -479,7 +479,7 @@ this.actionRegistry = {
         consequences: [
             {
                 type: "deltaSpatial",
-                params: { speed: ":traitValue" }
+                params: { speed: ":Movimentation.move" }
             }
         ],
         failureConsequences: [
@@ -506,7 +506,7 @@ this.actionRegistry = {
         consequences: [
             {
                 type: "deltaSpatial",
-                params: { speed: ":traitValue*2" }
+                params: { speed: ":Movimentation.move*2" }
             },
             {
                 type: "updateComponentStatDelta",
@@ -533,13 +533,13 @@ this.actionRegistry = {
             {
                 type: "log",
                 level: "info",
-                message: "Attack successful with strength :traitValue"
+                message: "Entity attacked with strength :Physical.strength"
             },
             {
                 type: "updateStat",
                 trait: "Physical",
                 stat: "durability",
-                value: -":traitValue"
+                value: ":Physical.strength"
             }
         ],
         failureConsequences: [
@@ -645,27 +645,31 @@ Executes an action on an entity.
 ## 12. Placeholder Substitution Logic
 
 ### 12.1. Implementation
-The `_resolvePlaceholders` method uses a regular expression to identify and resolve `:traitValue` markers within strings. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
+The `_resolvePlaceholders` method uses a regular expression to identify and resolve `:trait.stat` markers within strings. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
 
 **Current Logic:**
 ```javascript
-const match = params.match(/^(-)?(:traitValue)(?:\*(-?\d+))?$/);
+const match = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
 if (match) {
     const sign = match[1] === '-' ? -1 : 1;
+    const placeholder = match[2].substring(1);
     const multiplier = match[3] ? parseInt(match[3], 10) : 1;
-    return sign * traitValue * multiplier;
+    const value = requirementValues[placeholder];
+    if (value !== undefined) {
+        return sign * value * multiplier;
+    }
 }
 ```
 
 ### 12.2. Supported Patterns
 The system supports signs and multipliers, allowing for flexible action definitions:
 
-| Pattern | Description | Example (traitValue=20) | Result |
-|---------|-------------|-------------------------|--------|
-| `:traitValue` | Base value | `":traitValue"` | `20` |
-| `-:traitValue` | Negative value | `"-:traitValue"` | `-20` |
-| `:traitValue*2` | Multiplied value | `":traitValue*2"` | `40` |
-| `-:traitValue*2` | Negative multiplied | `"-:traitValue*2"` | `-40` |
+| Pattern | Description | Example (Movimentation.move=20) | Result |
+|---------|-------------|--------------------------------|-------------------|
+| `:trait.stat` | Base value | `":Movimentation.move"` | `20` |
+| `-:trait.stat` | Negative value | `"-:Movimentation.move"` | `-20` |
+| `:trait.stat*2` | Multiplied value | `":Movimentation.move*2"` | `40` |
+| `-:trait.stat*2` | Negative multiplied | `"-:Movimentation.move*2"` | `-40` |
 
 ### 12.3. Integration
 These resolved values are passed directly to consequence handlers (like `deltaSpatial`), ensuring correct mathematical operations on the entity's state.
