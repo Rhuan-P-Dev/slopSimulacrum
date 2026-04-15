@@ -13,6 +13,7 @@ export class ClientApp {
         this.worldState = new WorldStateManager();
         this.ui = new UIManager();
         this.actions = new ActionManager(this.ui);
+        this.availableActions = {};
         
         this.socket = io();
         this._setupSocketListeners();
@@ -65,10 +66,22 @@ export class ClientApp {
     async updateActionList() {
         try {
             const entityId = this.worldState.getMyEntityId();
-            const actions = await this.actions.fetchActions(entityId);
+            this.availableActions = await this.actions.fetchActions(entityId);
+            
+            const pending = this.actions.getPendingAction();
+            if (pending && this.availableActions[pending.actionName]) {
+                const actionData = this.availableActions[pending.actionName];
+                if (actionData.range) {
+                    const droid = this.worldState.getActiveDroid();
+                    if (droid) {
+                        this.ui.renderRangeIndicator(droid, actionData.range);
+                    }
+                }
+            }
+
             this.ui.renderActionList(
-                actions, 
-                this.actions.getPendingAction(), 
+                this.availableActions, 
+                pending, 
                 (name, eid, cname, cid) => this.handleActionSelection(name, eid, cname, cid)
             );
         } catch (error) {
@@ -110,9 +123,55 @@ export class ClientApp {
             const targetX = svgP.x - AppConfig.VIEW.CENTER_X;
             const targetY = svgP.y - AppConfig.VIEW.CENTER_Y;
 
-            this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
-            this.actions.clearPendingAction();
-            this.updateActionList();
+            if (pending.actionName === 'move' || pending.actionName === 'dash') {
+                this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
+                this.actions.clearPendingAction();
+                this.updateActionList();
+            } else if (pending.actionName === 'droid punch') {
+                this.handlePunchTarget(pending, targetX, targetY);
+            }
+        });
+    }
+
+    async handlePunchTarget(pending, targetX, targetY) {
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        if (!droid || !state) return;
+
+        const actionData = this.availableActions[pending.actionName];
+        const range = actionData?.range || 0;
+
+        const dx = targetX - droid.spatial.x;
+        const dy = targetY - droid.spatial.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > range) {
+            this.ui.setStatus(`Target out of range (${Math.round(distance)}px > ${range}px)`, true);
+            return;
+        }
+
+        // Find entity at target location (with a small tolerance)
+        const tolerance = 20;
+        const targetEntity = Object.values(state.entities).find(e => {
+            const edx = targetX - e.spatial.x;
+            const edy = targetY - e.spatial.y;
+            return Math.sqrt(edx * edx + edy * edy) < tolerance;
+        });
+
+        if (!targetEntity) {
+            this.ui.setStatus("No target entity found at this location", true);
+            return;
+        }
+
+        this.ui.showComponentSelection(targetEntity, state, async (compId) => {
+            try {
+                await this.actions.executePunch(pending.actionName, pending.entityId, compId);
+                this.ui.closeDetails();
+                this.actions.clearPendingAction();
+                await this.refreshWorldAndActions();
+            } catch (error) {
+                this.ui.setStatus(`Punch failed: ${error.message}`, true);
+            }
         });
     }
 

@@ -16,7 +16,8 @@ The `Global_Traits` object defines the "mold" for various trait categories.
       "durability": 100,
       "mass": 10,
       "volume": 1,
-      "temperature": 20
+      "temperature": 20,
+      "strength": 10
     },
     "Spatial": {
       "x": 0,

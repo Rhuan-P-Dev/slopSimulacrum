@@ -105,6 +105,38 @@ class ActionController {
                         message: "Action 'selfHeal' failed - requirement not met"
                     }
                 ]
+            },
+            "droid punch": {
+                range: 100,
+                requirements: [
+                    {
+                        trait: "Physical",
+                        stat: "strength",
+                        minValue: 15
+                    }
+                ],
+                consequences: [
+                    {
+                        type: "damageComponent",
+                        params: { 
+                            trait: "Physical", 
+                            stat: "durability", 
+                            value: "-:Physical.strength" 
+                        }
+                    },
+                    {
+                        type: "log",
+                        level: "info",
+                        message: "Droid performed a punch dealing :Physical.strength damage!"
+                    }
+                ],
+                failureConsequences: [
+                    {
+                        type: "log",
+                        level: "warn",
+                        message: "Punch failed - strength too low"
+                    }
+                ]
             }
         };
     }
@@ -164,6 +196,7 @@ class ActionController {
             }
             
             actionStatus[actionName] = {
+                ...actionData,
                 requirements: actionData.requirements,
                 canExecute: entitiesWithAbility,
                 cannotExecute: Object.keys(entities).filter(
@@ -453,7 +486,8 @@ class ActionController {
             log: () => this._handleLog(resolvedParams),
             updateStat: () => this._handleUpdateStat(entityId, resolvedParams),
             updateComponentStatDelta: () => this._handleUpdateComponentStatDelta(componentId, resolvedParams),
-            triggerEvent: () => this._handleTriggerEvent(entityId, resolvedParams)
+            triggerEvent: () => this._handleTriggerEvent(entityId, resolvedParams),
+            damageComponent: () => this._handleDamageComponent(entityId, resolvedParams, actionParams)
         };
         
         const handler = handlers[type];
@@ -663,12 +697,47 @@ class ActionController {
     }
     
     /**
+     * Handler for damageComponent consequence type.
+     * Deals damage to a specific component of a target entity.
+     * 
+     * @param {string} entityId - The ID of the attacker entity.
+     * @param {Object} resolvedParams - Params containing trait, stat, and value.
+     * @param {Object} actionParams - Params containing targetComponentId.
+     * @returns {Object} Result from the handler.
+     */
+    _handleDamageComponent(entityId, resolvedParams, actionParams) {
+        const { trait, stat, value } = resolvedParams;
+        const targetComponentId = actionParams.targetComponentId;
+
+        if (!targetComponentId) {
+            return {
+                success: false,
+                message: "No target component specified for damage"
+            };
+        }
+
+        const success = this.worldStateController.componentController.updateComponentStatDelta(
+            targetComponentId,
+            trait,
+            stat,
+            value
+        );
+
+        return {
+            success: success,
+            message: success 
+                ? `Dealt ${Math.abs(value)} damage to component ${targetComponentId}`
+                : `Failed to deal damage to component ${targetComponentId}`
+        };
+    }
+
+    /**
      * Handler for triggerEvent consequence type.
-     * Triggers a server event (can be extended for client notifications).
+     * Triggers a server event for client notifications.
      * 
      * @param {string} entityId - The ID of the entity.
      * @param {Object} eventParams - Object with eventType and data properties.
-     * @returns {Object} Result of the event trigger.
+     * @returns {Object} Result from the handler.
      */
     _handleTriggerEvent(entityId, eventParams) {
         const { eventType, data } = eventParams;

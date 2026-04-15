@@ -11,7 +11,8 @@ class TraitsController {
                 "durability": 100,
                 "mass": 10,
                 "volume": 1,
-                "temperature": 20
+                "temperature": 20,
+                "strength": 10
             },
             "Mind": {
                 "think_level": 10,

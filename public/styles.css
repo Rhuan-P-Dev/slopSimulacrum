@@ -235,6 +235,95 @@ h1 {
     margin-bottom: 10px;
 }
 
+/* Tactical Targeting HUD Styles */
+.component-selection-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.component-select-item {
+    background: rgba(0, 255, 0, 0.08);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-left: 4px solid var(--neon-green);
+    padding: 12px 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: 'Courier New', Courier, monospace;
+    position: relative;
+    overflow: hidden;
+}
+
+.component-select-item:hover {
+    background: rgba(0, 255, 0, 0.15);
+    border-color: var(--neon-green);
+    transform: translateX(8px);
+    box-shadow: -5px 0 15px rgba(0, 255, 0, 0.3);
+}
+
+.component-select-item:hover::before {
+    content: '[TARGET_LOCKED]';
+    position: absolute;
+    left: -100px;
+    font-size: 0.7em;
+    color: #fff;
+    animation: slideIn 0.2s forwards;
+}
+
+@keyframes slideIn {
+    to { left: 10px; }
+}
+
+.comp-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.comp-type {
+    color: var(--text-main);
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.comp-id {
+    color: var(--text-dim);
+    font-size: 0.8em;
+}
+
+.comp-stats-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.durability-bar-bg {
+    width: 80px;
+    height: 6px;
+    background: #222;
+    border: 1px solid var(--neon-green);
+    position: relative;
+}
+
+.durability-bar-fill {
+    height: 100%;
+    background: var(--neon-green);
+    box-shadow: 0 0 5px var(--neon-green);
+    transition: width 0.4s ease-out;
+}
+
+.comp-dur-text {
+    font-size: 0.8em;
+    color: var(--neon-green);
+    min-width: 40px;
+    text-align: right;
+}
+
 .component-title {
     color: var(--text-main);
     font-weight: bold;

@@ -33,7 +33,7 @@ export class ActionManager {
 
     /**
      * Handles the logic for executing an action.
-     * Movement actions are intercepted to trigger target selection.
+     * Movement and attack actions are intercepted to trigger target selection.
      * @param {string} actionName 
      * @param {string} entityId 
      * @param {string} componentName 
@@ -41,8 +41,8 @@ export class ActionManager {
      * @param {Function} onActionStateChange Callback to refresh UI when pending action changes.
      */
     async executeAction(actionName, entityId, componentName, componentIdentifier, onActionStateChange) {
-        if (actionName === 'move' || actionName === 'dash') {
-            this._handleMovementSelection(actionName, entityId, componentName, componentIdentifier);
+        if (actionName === 'move' || actionName === 'dash' || actionName === 'droid punch') {
+            this._handleTargetingSelection(actionName, entityId, componentName, componentIdentifier);
             if (onActionStateChange) onActionStateChange();
             return;
         }
@@ -71,9 +71,9 @@ export class ActionManager {
     }
 
     /**
-     * Internal helper to toggle the pending movement action state.
+     * Internal helper to toggle the pending targeting action state.
      */
-    _handleMovementSelection(actionName, entityId, componentName, componentIdentifier) {
+    _handleTargetingSelection(actionName, entityId, componentName, componentIdentifier) {
         if (this.pendingMovementAction && 
             this.pendingMovementAction.actionName === actionName && 
             this.pendingMovementAction.entityId === entityId) {
@@ -86,7 +86,7 @@ export class ActionManager {
                 componentName,
                 componentIdentifier
             };
-            console.log(`[ActionManager] Action ${actionName} selected. Awaiting map target.`);
+            console.log(`[ActionManager] Action ${actionName} selected. Awaiting target.`);
         }
     }
 
@@ -115,6 +115,37 @@ export class ActionManager {
             }
         } catch (error) {
             console.error('[ActionManager] Movement failed:', error.message);
+        }
+    }
+
+    /**
+     * Executes a punch action on a specific component of a target entity.
+     * @param {string} actionName 
+     * @param {string} entityId 
+     * @param {string} targetComponentId 
+     */
+    async executePunch(actionName, entityId, targetComponentId) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    actionName: actionName,
+                    entityId: entityId,
+                    params: { targetComponentId }
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.result?.error || 'Failed to execute punch');
+            }
+            const result = await response.json();
+            console.log('[ActionManager] Punch executed successfully:', result);
+            return result;
+        } catch (error) {
+            console.error('[ActionManager] Punch failed:', error.message);
+            throw error;
         }
     }
 

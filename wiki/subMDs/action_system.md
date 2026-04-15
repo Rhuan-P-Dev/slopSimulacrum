@@ -330,9 +330,9 @@ Logs a message to console with optional level.
 
 ### 6.4. updateStat
 
-Updates a specific stat for all components with the specified trait.
+Updates a specific stat for an entity's component.
 
-**Parameters:**
+**Parameters**
 | Property | Type | Description |
 |----------|------|-------------|
 | `trait` | string | The trait category (e.g., "Physical") |
@@ -344,7 +344,25 @@ Updates a specific stat for all components with the specified trait.
 { type: "updateStat", trait: "Physical", stat: "durability", value: 50 }
 ```
 
-### 6.5. updateComponentStatDelta
+### 6.5. damageComponent
+
+Deals damage to a specific component of a target entity.
+
+**Parameters**
+| Property | Type | Description |
+|----------|------|-------------|
+| `trait` | string | The trait to modify (e.g., "Physical") |
+| `stat` | string | The stat to reduce (e.g., "durability") |
+| `value` | number | The delta value (usually negative) |
+
+**Note:** This handler requires `targetComponentId` to be passed in the `actionParams` from the client.
+
+**Example:**
+```javascript
+{ type: "damageComponent", params: { trait: "Physical", stat: "durability", value: -25 } }
+```
+
+### 6.6. updateComponentStatDelta
 
 Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific equipment (e.g., durability loss on legs during a dash).
 
@@ -360,7 +378,7 @@ Updates a specific stat for the component that triggered the action (the "callin
 { type: "updateComponentStatDelta", params: { trait: "Physical", stat: "durability", value: -5 } }
 ```
 
-### 6.6. triggerEvent
+### 6.7. triggerEvent
 
 Triggers a server event for client notifications.
 
@@ -384,35 +402,67 @@ Triggers a server event for client notifications.
 Add to `ActionController.actionRegistry`:
 
 ```javascript
-"attack": {
-    requirements: [
-        {
-            trait: "Physical",
-            stat: "strength",
-            minValue: 10
-        }
-    ],
-    consequences: [
-        {
-            type: "log",
-            level: "info",
-            message: "Entity attacked with strength :traitValue"
-        },
-        {
-            type: "updateStat",
-            trait: "Physical",
-            stat: "durability",
-            value: ":traitValue"
-        }
-    ],
-    failureConsequences: [
-        {
-            type: "log",
-            level: "warn",
-            message: "Attack failed - strength too low"
-        }
-    ]
-}
+    "attack": {
+        requirements: [
+            {
+                trait: "Physical",
+                stat: "strength",
+                minValue: 10
+            }
+        ],
+        consequences: [
+            {
+                type: "log",
+                level: "info",
+                message: "Entity attacked with strength :traitValue"
+            },
+            {
+                type: "updateStat",
+                trait: "Physical",
+                stat: "durability",
+                value: ":traitValue"
+            }
+        ],
+        failureConsequences: [
+            {
+                type: "log",
+                level: "warn",
+                message: "Attack failed - strength too low"
+            }
+        ]
+    },
+    "droid punch": {
+        range: 100,
+        requirements: [
+            {
+                trait: "Physical",
+                stat: "strength",
+                minValue: 15
+            }
+        ],
+        consequences: [
+            {
+                type: "damageComponent",
+                params: { 
+                    trait: "Physical", 
+                    stat: "durability", 
+                    value: "-:Physical.strength" 
+                }
+            },
+            {
+                type: "log",
+                level: "info",
+                message: "Droid performed a punch dealing :Physical.strength damage!"
+            }
+        ],
+        failureConsequences: [
+            {
+                type: "log",
+                level: "warn",
+                message: "Punch failed - strength too low"
+            }
+        ]
+    }
 ```
 
 ### 7.2. Adding New Consequence Types
@@ -626,6 +676,7 @@ Executes an action on an entity.
 | move - down-left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | move - down-right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | attack | ⚠️ Ready to add | ⚠️ Ready to add | ⚠️ Ready to add |
+| droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 
 ---
 

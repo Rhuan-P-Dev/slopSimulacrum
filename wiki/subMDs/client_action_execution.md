@@ -30,6 +30,18 @@ Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for ta
 6.  **Server Processing**: The server validates requirements and executes consequences.
 7.  **Response & UI Update**: Upon successful execution, the server emits a `world-state-update` event via WebSockets. The client receives this signal and immediately triggers `fetchWorldState()` and `fetchActions()` to refresh the UI.
 
+### 2.3. Component-Targeted Actions (Deferred Execution)
+Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow for precision targeting:
+1.  **Action Selection**: The user clicks an attack action. The client stores it as a pending action and `UIManager` renders a red range indicator around the droid.
+2.  **Target Entity Selection**: The user clicks an entity on the map. `ClientApp` validates if the entity is within the action's `range`.
+3.  **Component Selection**: If valid, `UIManager.showComponentSelection()` opens the Tactical Targeting HUD, allowing the user to pick a specific component of the target entity.
+4.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
+    *   `actionName`: (e.g., "droid punch").
+    *   `entityId`: The ID of the attacker.
+    *   `params`: The `targetComponentId` of the selected component.
+5.  **Execution**: The server applies damage to the specific component's durability.
+6.  **Reset**: The pending action is cleared and the UI is refreshed via the standard `world-state-update` flow.
+
 ---
 
 ## 3. Data Structures & Requirements
@@ -93,7 +105,7 @@ When a user clicks a capable component, the `ActionManager.executeAction` method
 *   `componentName`
 *   `componentIdentifier`
 
-The manager then determines if the action is a movement type (which triggers a "Pending" state for target selection) or a standard action (which is dispatched immediately via a `POST` request to `/execute-action`).
+The manager then determines if the action is a deferred type (movement or targeted attack, which trigger a "Pending" state for target selection) or a standard action (which is dispatched immediately via a `POST` request to `/execute-action`).
 
 ---
 

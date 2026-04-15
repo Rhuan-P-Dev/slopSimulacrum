@@ -91,6 +91,30 @@ export class UIManager {
         }
     }
 
+    renderRangeIndicator(droid, range, color = 'red') {
+        const entitiesLayer = this.elements.entitiesLayer;
+        
+        // Remove existing range indicators if any
+        const existing = entitiesLayer.querySelector('.range-indicator');
+        if (existing) existing.remove();
+
+        const entityX = AppConfig.VIEW.CENTER_X + (droid.spatial?.x || 0);
+        const entityY = AppConfig.VIEW.CENTER_Y + (droid.spatial?.y || 0);
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", entityX);
+        circle.setAttribute("cy", entityY);
+        circle.setAttribute("r", range);
+        circle.setAttribute("fill", "none");
+        circle.setAttribute("stroke", color);
+        circle.setAttribute("stroke-width", "2");
+        circle.setAttribute("stroke-dasharray", "5,5");
+        circle.setAttribute("class", "range-indicator");
+        circle.setAttribute("style", "pointer-events: none; opacity: 0.6;");
+
+        entitiesLayer.appendChild(circle);
+    }
+
     _renderRoom(room) {
         const roomLayer = this.elements.roomLayer;
         roomLayer.innerHTML = '';
@@ -342,6 +366,57 @@ export class UIManager {
             </div>
         `;
         this.elements.detailOverlay.style.display = 'flex';
+    }
+
+    showComponentSelection(entity, state, onComponentSelect) {
+        let componentsHtml = '';
+        if (entity.components && state.components && state.components.instances) {
+            componentsHtml = `
+                <div class="component-section">
+                    <h3 style="color: var(--neon-green); text-align: center; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px;">
+                        📡 Targeting Protocol Active
+                    </h3>
+                    <div class="component-selection-list">`;
+            
+            entity.components.forEach(comp => {
+                const stats = state.components.instances[comp.id];
+                const durability = stats?.Physical?.durability ?? 0;
+                const durPercent = Math.min(Math.max((durability / 100) * 100, 0), 100);
+
+                componentsHtml += `
+                    <div class="component-select-item clickable" data-comp-id="${comp.id}">
+                        <div class="comp-info">
+                            <span class="comp-type">${comp.type}</span>
+                            <span class="comp-id">ID: ${comp.identifier}</span>
+                        </div>
+                        <div class="comp-stats-container">
+                            <div class="durability-bar-bg">
+                                <div class="durability-bar-fill" style="width: ${durPercent}%"></div>
+                            </div>
+                            <span class="comp-dur-text">${durability} HP</span>
+                        </div>
+                    </div>`;
+            });
+            
+            componentsHtml += `</div></div>`;
+        }
+
+        this.elements.detailContent.innerHTML = `
+            <div class="detail-header">
+                <h2 style="margin:0; color: var(--neon-green); font-family: monospace;">SYSTEM: TARGET_ACQUISITION</h2>
+                <p style="color: var(--text-dim); margin: 5px 0 0 0; font-size: 0.8em;">
+                    SCANNING ENTITY: ${entity.id} | STATUS: <span style="color: var(--neon-green)">LOCKED</span>
+                </p>
+            </div>
+            ${componentsHtml || '<div class="trait-row" style="text-align:center">NO TARGETABLE COMPONENTS DETECTED</div>'}
+        `;
+        
+        this.elements.detailOverlay.style.display = 'flex';
+
+        // Attach click events to components
+        this.elements.detailContent.querySelectorAll('.component-select-item').forEach(el => {
+            el.onclick = () => onComponentSelect(el.dataset.compId);
+        });
     }
 
     closeDetails() {

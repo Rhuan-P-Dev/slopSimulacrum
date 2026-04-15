@@ -21,12 +21,14 @@ The map is rendered using a Scalable Vector Graphics (SVG) element to ensure cla
 - **Rooms (Nodes)**: Each room is represented as a circular node. The color changes based on whether the droid is currently present.
 - **Connections (Edges)**: Lines connecting room nodes represent doors or paths.
 - **Droid Marker**: A distinct, glowing point that moves between room nodes as the droid changes location. The marker for the player's own incarnated entity is highlighted to distinguish it from other entities.
+- **Range Indicators**: When a targeted action is selected, a red dashed circle is rendered around the active droid, indicating the maximum effective range of the action.
 
 ### 2.2. Droid Detail Panel
 A toggleable overlay or side panel that appears when the droid marker is clicked. It displays:
 - **Basic Info**: Entity ID, Blueprint, and Current Location.
 - **Component Tree**: A detailed list of all installed components.
 - **Stat Breakdown**: Real-time values for traits and properties associated with each component.
+- **Tactical Targeting HUD**: A specialized overlay for target acquisition. It displays a list of the target entity's components as "Target Cards," including visual health bars (durability) and a lock-on aesthetic.
 
 ### 2.3. Navigation Console
 A dedicated area for room navigation buttons. These buttons are dynamically generated based on the `connections` object of the current room in the world state.
@@ -71,6 +73,11 @@ Entities are rendered as circular markers with the following characteristics:
     1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction` and `UIManager` highlights it using the `.action-selected` class.
     2. User clicks a location on the World Map $\rightarrow$ `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` $\rightarrow$ Client sends `POST /execute-action` $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state $\rightarrow$ Map updates.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
+- **Attack (Component-Targeted)**: 
+    1. User selects an attack action (e.g., `droid punch`) $\rightarrow$ `ActionManager` stores it as a pending action $\rightarrow$ `UIManager` renders a red range indicator.
+    2. User clicks an entity within the range $\rightarrow$ `ClientApp` validates distance and identifies the target entity.
+    3. `UIManager.showComponentSelection()` displays the Tactical Targeting HUD $\rightarrow$ User selects a specific component to attack.
+    4. `ActionManager.executePunch()` sends the `targetComponentId` to the server $\rightarrow$ Server updates the target component's stats $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state.
 
 ### 3.5. Room Coordinates Display
 The UI shows current room coordinates in the format: `(x, y)` on the map header.

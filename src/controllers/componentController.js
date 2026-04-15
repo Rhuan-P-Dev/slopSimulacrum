@@ -35,7 +35,7 @@ class ComponentController {
             },
             "droidHand": { 
                 traits: { 
-                    "Physical": { "durability": 40 },
+                    "Physical": { "durability": 40, "strength": 25 },
                     "Spatial": { "x": 30, "y": 0 }
                 } 
             },
