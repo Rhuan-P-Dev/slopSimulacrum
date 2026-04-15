@@ -30,9 +30,11 @@ class EntityController {
 The `WorldStateController` acts as the **Root Injector** for the entire system. It is the only controller responsible for the `new` keyword during the system initialization phase.
 
 ### Initialization Sequence
-The Root Injector must instantiate controllers from the "bottom" (data stores) to the "top" (coordinators):
+The Root Injector must follow this strict sequence to ensure all dependencies are available before they are injected:
+
+0. **Data Loading**: Use `DataLoader` to load JSON registries (e.g., `actions.json`, `components.json`).
 1. **Data Store**: `ComponentStatsController`
-2. **Leaf Logic**: `ComponentController` (Injected with `ComponentStatsController`)
+2. **Leaf Logic**: `ComponentController` (Injected with `ComponentStatsController` and `componentRegistry`)
 3. **Mid-Level Logic**: `EntityController` (Injected with `ComponentController`)
 4. **Instance Manager**: `stateEntityController` (Injected with `EntityController`)
 5. **Coordinator**: `WorldStateController` (Owns all the above)
@@ -69,8 +71,9 @@ The `ActionController` follows the same Dependency Injection pattern but with a 
 ```javascript
 class ActionController {
     constructor() {
-        // BAD: Creates new instances that might not share state
+        // BAD: Creates new instances or loads files internally
         this.worldStateController = new WorldStateController();
+        this._loadActionRegistry(); 
     }
 }
 ```
@@ -78,9 +81,11 @@ class ActionController {
 **✅ Mandatory Pattern (Constructor Injection):**
 ```javascript
 class ActionController {
-    constructor(worldStateController) {
-        // GOOD: Uses the shared instance from WorldStateController
+    constructor(worldStateController, consequenceHandlers, actionRegistry) {
+        // GOOD: All dependencies are injected from the Root Injector
         this.worldStateController = worldStateController;
+        this.consequenceHandlers = consequenceHandlers;
+        this.actionRegistry = actionRegistry;
     }
 }
 ```
@@ -90,9 +95,11 @@ class ActionController {
 When adding `ActionController`:
 
 1. Import: `const ActionController = require('./actionController');`
-2. Instantiate: `const actionController = new ActionController(this);`
-3. Assign: `this.actionController = actionController;`
-4. Register: Add to `subControllers` map: `actions: this.actionController`
+2. Load Data: `const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');`
+3. Instantiate Handlers: `const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });`
+4. Instantiate: `const actionController = new ActionController(this, consequenceHandlers, actionRegistry);`
+5. Assign: `this.actionController = actionController;`
+6. Register: Add to `subControllers` map: `actions: this.actionController`
 
 ## 7. Maintaining the Root Injector
 The `WorldStateController` constructor is the **only** place in the entire system where the `new` keyword should be used to instantiate controllers.

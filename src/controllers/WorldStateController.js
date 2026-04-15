@@ -5,6 +5,8 @@ const EntityController = require('./entityController');
 const ComponentStatsController = require('./componentStatsController');
 const TraitsController = require('./traitsController');
 const ActionController = require('./actionController');
+const ConsequenceHandlers = require('./consequenceHandlers');
+const DataLoader = require('../utils/DataLoader');
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -16,20 +18,25 @@ const ActionController = require('./actionController');
  */
 class WorldStateController {
     constructor() {
+        // 0. Load Configuration Data
+        const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');
+        const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
+
         // 1. Instantiate Data Stores (Bottom level)
         const statsController = new ComponentStatsController();
         const traitsController = new TraitsController();
         
-        // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores)
-        const componentController = new ComponentController(statsController, traitsController);
+        // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
+        const componentController = new ComponentController(statsController, traitsController, componentRegistry);
         const entityController = new EntityController(componentController);
         
         // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
         const stateEntityControllerInstance = new stateEntityController(entityController);
         const roomsController = new RoomsController();
         
-        // 4. Instantiate ActionController (Top level - Injected with WorldStateController reference)
-        const actionController = new ActionController(this);
+        // 4. Instantiate ActionController (Top level - Injected with Dependencies)
+        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
+        const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
 
         // Assign to the WorldStateController for coordination and the getAll() method
         this.roomsController = roomsController;

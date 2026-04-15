@@ -7,52 +7,10 @@ const TraitsController = require('./traitsController');
  * Now implemented with a Default-Override Traits System.
  */
 class ComponentController {
-    constructor(statsController, traitsController) {
+    constructor(statsController, traitsController, componentRegistry) {
         this.statsController = statsController;
         this.traitsController = traitsController;
-        
-        // Component Registry using Trait-based Blueprints
-        // format: "component_id": { traits: { "TraitId": { "property": override_value } } }
-        this.componentRegistry = {
-            "centralBall": { 
-                traits: { 
-                    "Physical": { "mass": 20, "durability": 100 },
-                    "Spatial": { "x": 0, "y": 0 }
-                } 
-            },
-            "droidHead": { 
-                traits: { 
-                    "Physical": { "durability": 80 },
-                    "Mind": { "think_level": 5},
-                    "Spatial": { "x": 0, "y": -20 }
-                } 
-            },
-            "droidArm": { 
-                traits: { 
-                    "Physical": { "durability": 50 },
-                    "Spatial": { "x": 20, "y": 10 }
-                } 
-            },
-            "droidHand": { 
-                traits: { 
-                    "Physical": { "durability": 40, "strength": 25 },
-                    "Spatial": { "x": 30, "y": 0 }
-                } 
-            },
-            "humanoidDroidFinger": { 
-                traits: { 
-                    "Physical": { "durability": 30 },
-                    "Spatial": { "x": 40, "y": 0 }
-                } 
-            },
-            "droidRollingBall": { 
-                traits: { 
-                    "Physical": { "durability": 120 },
-                    "Spatial": { "x": 0, "y": 20 },
-                    "Movimentation": { "move": 20 },
-                } 
-            },
-        };
+        this.componentRegistry = componentRegistry || {};
     }
 
     /**

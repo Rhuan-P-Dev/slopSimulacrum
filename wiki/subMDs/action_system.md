@@ -15,10 +15,13 @@ The Action System provides a centralized, extensible mechanism for executing gam
 ### 2.1. Dependency Injection Chain
 
 ```
-Server → WorldStateController → ActionController
+Server → WorldStateController → (ConsequenceHandlers, actionRegistry) → ActionController
 ```
 
-The `ActionController` receives a reference to `WorldStateController` via constructor injection, enabling it to access all other sub-controllers (entities, components, rooms) without creating its own instances.
+The `ActionController` is fully decoupled from data loading and handler instantiation. It receives the following via constructor injection from the `WorldStateController`:
+- `WorldStateController`: Reference to the root controller for accessing sub-controllers.
+- `ConsequenceHandlers`: The system responsible for executing action effects.
+- `actionRegistry`: The parsed JSON configuration of available actions.
 
 ### 2.2. Action Registry Structure
 
@@ -68,6 +71,8 @@ Requirements define what an entity must have to perform an action. An action can
 
 The `ActionController` checks each entity's components for the required traits and stats. The action only executes if there is at least one component that satisfies **all** the listed requirements.
 
+**Component Tracking:** When requirements are met, the system now identifies and tracks the `primaryComponentId` (the first component found that satisfies the requirements). This ID is used to provide technical context to the UI and to target self-updates.
+
 **Example:** Move action requires `Movimentation.move > 5`. Droid dash requires both `Movimentation.move > 5` AND `Physical.durability > 30`.
 
 ---
@@ -88,7 +93,9 @@ When requirements are met, the action executes its success consequences. Consequ
 - `deltaSpatial` - Adds delta values to current position (relative movement)
 - `log` - Logs a message to console
 - `updateStat` - Updates a component stat for all components with the trait
-- `updateComponentStatDelta` - Updates a specific stat for the specific component that satisfied the action's requirements
+- `updateComponentStatDelta` - Updates a specific stat for a component. 
+    - If `targetComponentId` is provided, it updates that component.
+    - If no target is provided (self-targeting), the system automatically resolves the target by finding the first component on the entity that possesses the required trait/stat.
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**
@@ -178,11 +185,10 @@ Executes an action on an entity.
     executedConsequences: 1,
     results: [
         {
-            success: true,
-            type: "updateSpatial",
-            message: "Spatial coordinates updated",
-            spatialUpdate: { y: -20 },
-            newSpatial: { x: 0, y: -20 }
+            success: true, 
+            type: "updateSpatial", 
+            message: "Spatial coordinates updated", 
+            data: { spatialUpdate: { y: -20 }, newSpatial: { x: 0, y: -20 } }
         }
     ]
 }
@@ -207,13 +213,13 @@ Executes an action on an entity.
 
 ### 5.3. ActionController._executeConsequences()
 
-Executes success consequences by reading from the action registry and dispatching to handlers.
+Executes success consequences by reading from the action registry and dispatching to the injected `ConsequenceHandlers`.
 
 ```javascript
 /**
  * @param {string} actionName - The name of the action.
  * @param {string} entityId - The ID of the entity.
- * @param {number} traitValue - The trait value for placeholder substitution.
+ * @param {Object} requirementValues - Map of trait.stat values for substitution.
  * @param {Object} params - Additional action parameters.
  * @returns {Object} Result of consequence execution.
  */
@@ -227,6 +233,9 @@ Calculates which entities are capable of executing which actions based on the cu
 /**
  * @param {Object} state - The current world state.
  * @returns {Object} Map of actions and their capability status.
+ * Each entry in canExecute now includes:
+ * - componentName: The type of the satisfying component.
+ * - componentIdentifier: The identifier of the satisfying component.
  */
 ```
 
@@ -242,20 +251,9 @@ Executes failure consequences using the same dispatcher pattern.
  */
 ```
 
-### 5.5. ActionController._dispatchConsequence()
+### 5.5. ConsequenceHandlers.handlers
 
-Dispatches a consequence to the appropriate handler based on its type.
-
-```javascript
-/**
- * @param {string} type - The consequence type (e.g., "updateSpatial", "log").
- * @param {string} entityId - The ID of the entity.
- * @param {Object} params - The consequence parameters.
- * @param {number} traitValue - The trait value for parameter substitution.
- * @param {Object} actionParams - Additional action parameters.
- * @returns {Object} Result from the handler.
- */
-```
+Instead of an internal dispatcher, the `ActionController` now uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
 
 ### 5.6. stateEntityController.updateEntitySpatial()
 
@@ -355,7 +353,7 @@ Deals damage to a specific component of a target entity.
 | `stat` | string | The stat to reduce (e.g., "durability") |
 | `value` | number | The delta value (usually negative) |
 
-**Note:** This handler requires `targetComponentId` to be passed in the `actionParams` from the client.
+**Note:** This handler requires `targetComponentId` to be passed in the `actionParams` from the client. The `ConsequenceHandlers` wrapper ensures that the 4th argument (`actionParams`) from `ActionController` is correctly mapped to the handler.
 
 **Example:**
 ```javascript

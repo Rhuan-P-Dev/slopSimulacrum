@@ -1,0 +1,118 @@
+{
+  "move": {
+    "targetingType": "spatial",
+    "requirements": [
+      {
+        "trait": "Movimentation",
+        "stat": "move",
+        "minValue": 5
+      }
+    ],
+    "consequences": [
+      {
+        "type": "deltaSpatial",
+        "params": { "speed": ":Movimentation.move" }
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Action 'move' failed - requirement not met"
+      }
+    ]
+  },
+  "dash": {
+    "targetingType": "spatial",
+    "requirements": [
+      {
+        "trait": "Movimentation",
+        "stat": "move",
+        "minValue": 5
+      },
+      {
+        "trait": "Physical",
+        "stat": "durability",
+        "minValue": 30
+      }
+    ],
+    "consequences": [
+      {
+        "type": "deltaSpatial",
+        "params": { "speed": ":Movimentation.move*2" }
+      },
+      {
+        "type": "updateComponentStatDelta",
+        "params": { "trait": "Physical", "stat": "durability", "value": -5 }
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Action 'dash' failed - requirement not met"
+      }
+    ]
+  },
+  "selfHeal": {
+    "targetingType": "none",
+    "requirements": [
+      {
+        "trait": "Movimentation",
+        "stat": "move",
+        "minValue": 1
+      },
+      {
+        "trait": "Physical",
+        "stat": "durability",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "updateComponentStatDelta",
+        "params": { "trait": "Physical", "stat": "durability", "value": 10 }
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Action 'selfHeal' failed - requirement not met"
+      }
+    ]
+  },
+  "droid punch": {
+    "targetingType": "component",
+    "range": 100,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 15
+      }
+    ],
+    "consequences": [
+      {
+        "type": "damageComponent",
+        "params": { 
+          "trait": "Physical", 
+          "stat": "durability", 
+          "value": "-:Physical.strength" 
+        }
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "Droid performed a punch dealing :Physical.strength damage!"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Punch failed - strength too low"
+      }
+    ]
+  }
+}

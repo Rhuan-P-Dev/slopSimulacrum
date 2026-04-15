@@ -33,16 +33,17 @@ export class ActionManager {
 
     /**
      * Handles the logic for executing an action.
-     * Movement and attack actions are intercepted to trigger target selection.
+     * Actions with targeting requirements are intercepted to trigger target selection.
      * @param {string} actionName 
      * @param {string} entityId 
      * @param {string} componentName 
      * @param {string} componentIdentifier 
+     * @param {Object} actionData - Metadata about the action (including targetingType).
      * @param {Function} onActionStateChange Callback to refresh UI when pending action changes.
      */
-    async executeAction(actionName, entityId, componentName, componentIdentifier, onActionStateChange) {
-        if (actionName === 'move' || actionName === 'dash' || actionName === 'droid punch') {
-            this._handleTargetingSelection(actionName, entityId, componentName, componentIdentifier);
+    async executeAction(actionName, entityId, componentName, componentIdentifier, actionData, onActionStateChange) {
+        if (actionData?.targetingType && actionData.targetingType !== 'none') {
+            this._handleTargetingSelection(actionName, entityId, componentName, componentIdentifier, actionData.targetingType);
             if (onActionStateChange) onActionStateChange();
             return;
         }
@@ -66,14 +67,14 @@ export class ActionManager {
             const result = await response.json();
             console.log('[ActionManager] Action executed successfully:', result);
         } catch (error) {
-            alert('Action failed: ' + error.message);
+            this.uiManager.setStatus('Action failed: ' + error.message, true);
         }
     }
 
     /**
      * Internal helper to toggle the pending targeting action state.
      */
-    _handleTargetingSelection(actionName, entityId, componentName, componentIdentifier) {
+    _handleTargetingSelection(actionName, entityId, componentName, componentIdentifier, targetingType) {
         if (this.pendingMovementAction && 
             this.pendingMovementAction.actionName === actionName && 
             this.pendingMovementAction.entityId === entityId) {
@@ -84,9 +85,10 @@ export class ActionManager {
                 actionName,
                 entityId,
                 componentName,
-                componentIdentifier
+                componentIdentifier,
+                targetingType
             };
-            console.log(`[ActionManager] Action ${actionName} selected. Awaiting target.`);
+            console.log(`[ActionManager] Action ${actionName} selected. Awaiting target (${targetingType}).`);
         }
     }
 

@@ -31,7 +31,7 @@ A toggleable overlay or side panel that appears when the droid marker is clicked
 - **Tactical Targeting HUD**: A specialized overlay for target acquisition. It displays a list of the target entity's components as "Target Cards," including visual health bars (durability) and a lock-on aesthetic.
 
 ### 2.3. Navigation Console
-A dedicated area for room navigation buttons. These buttons are dynamically generated based on the `connections` object of the current room in the world state.
+A dedicated area for room navigation buttons. These buttons are dynamically generated based on the `connections` object of the current room in the world state. The action list in this console now dynamically displays the component responsible for each available action (e.g., "Legs (leg_01)"), providing better technical clarity on which part of the droid is performing the action.
 
 ## 3. Technical Logic
 

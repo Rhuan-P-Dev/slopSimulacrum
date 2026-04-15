@@ -2,30 +2,31 @@
  * TraitsController implements the Default-Override architecture for component attributes.
  * It serves as the Source of Truth for global attribute molds (Global_Traits).
  */
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * TraitsController implements the Default-Override architecture for component attributes.
+ * It serves as the Source of Truth for global attribute molds (Global_Traits).
+ */
 class TraitsController {
     constructor() {
-        // Global Traits (Source of Truth)
-        // Defines the default molds for different categories of attributes.
-        this.globalTraits = {
-            "Physical": {
-                "durability": 100,
-                "mass": 10,
-                "volume": 1,
-                "temperature": 20,
-                "strength": 10
-            },
-            "Mind": {
-                "think_level": 10,
-            },
-            "Spatial": {
-                "x": 0,
-                "y": 0,
-                "position": "0,0"
-            },
-            "Movimentation": {
-                "move": 10
-            }
-        };
+        this._loadGlobalTraits();
+    }
+
+    /**
+     * Loads global traits from the data configuration file.
+     * @private
+     */
+    _loadGlobalTraits() {
+        try {
+            const filePath = path.join(__dirname, '../../data/traits.json');
+            const data = fs.readFileSync(filePath, 'utf8');
+            this.globalTraits = JSON.parse(data);
+        } catch (error) {
+            console.error('[TraitsController] Failed to load traits.json, using empty defaults:', error);
+            this.globalTraits = {};
+        }
     }
 
     /**

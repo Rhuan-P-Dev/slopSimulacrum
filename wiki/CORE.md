@@ -48,10 +48,9 @@ The server in `src/server.js` acts as the gateway for clients to access these co
 The `ActionController` handles game actions on entities, providing a centralized registry for action definitions and execution:
 
 **Architecture Flow:**
-`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `ActionController`
+`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `ActionController` (Injected with `ConsequenceHandlers` and `actionRegistry`)
 
 **Key Responsibilities:**
-- Action registry management (requirements, consequences, failure consequences)
 - Requirement validation for actions (e.g., Movimentation.move > 5)
 - Consequence execution through appropriate sub-controllers
 - HTTP API endpoint for action execution (`POST /execute-action`)

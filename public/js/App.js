@@ -123,11 +123,11 @@ export class ClientApp {
             const targetX = svgP.x - AppConfig.VIEW.CENTER_X;
             const targetY = svgP.y - AppConfig.VIEW.CENTER_Y;
 
-            if (pending.actionName === 'move' || pending.actionName === 'dash') {
+            if (pending.targetingType === 'spatial') {
                 this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
                 this.actions.clearPendingAction();
                 this.updateActionList();
-            } else if (pending.actionName === 'droid punch') {
+            } else if (pending.targetingType === 'component') {
                 this.handlePunchTarget(pending, targetX, targetY);
             }
         });
@@ -189,16 +189,18 @@ export class ClientApp {
             }
             this.refreshWorldAndActions();
         } catch (error) {
-            alert('System Error: ' + error.message);
+            this.ui.setStatus('System Error: ' + error.message, true);
         }
     }
 
     async handleActionSelection(actionName, entityId, componentName, componentIdentifier) {
+        const actionData = this.availableActions[actionName];
         await this.actions.executeAction(
             actionName, 
             entityId, 
             componentName, 
             componentIdentifier, 
+            actionData,
             () => this.updateActionList()
         );
     }
