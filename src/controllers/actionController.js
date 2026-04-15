@@ -1,3 +1,5 @@
+const Logger = require('../utils/Logger');
+
 /**
  * ActionController handles game actions, checking requirements and
  * executing consequences through a decoupled handler system.
@@ -27,7 +29,8 @@ class ActionController {
      * Checks if an entity meets the requirements for an action.
      * @param {string} actionName - The name of the action to check.
      * @param {string} entityId - The entity ID to check.
-     * @returns {Object} { passed: boolean, traitValue: number, error: {code, details}, componentId: string }
+     * @returns {{passed: boolean, error?: {code: string, details: Object}, componentId?: string, requirementValues?: Object, fulfillingComponents?: Object}} 
+     * Result indicating if requirements were passed and which components fulfilled them.
      */
     checkRequirements(actionName, entityId) {
         const action = this.actionRegistry[actionName];
@@ -44,7 +47,8 @@ class ActionController {
      * Calculates which entities are capable of executing which actions based on the current world state.
      * Optimized to reduce redundant iterations.
      * @param {Object} state - The current world state.
-     * @returns {Object} Map of actions and their capability status.
+     * @returns {Object.<string, {requirements: Array, canExecute: Array, cannotExecute: Array}>} 
+     * Map of actions and their capability status.
      */
     getActionCapabilities(state) {
         const actions = this.getRegistry();
@@ -95,7 +99,7 @@ class ActionController {
      * Retrieves only the actions that are relevant to a specific entity.
      * @param {Object} state - The current world state.
      * @param {string} entityId - The ID of the entity to filter for.
-     * @returns {Object} Map of actions relevant to the entity.
+     * @returns {Object.<string, Object>} Map of actions relevant to the entity.
      */
     getActionsForEntity(state, entityId) {
         const allActions = this.getActionCapabilities(state);
@@ -187,7 +191,7 @@ class ActionController {
      * Fixed: Requirements can now be satisfied by multiple components.
      * @param {Array<Object>} requirements - An array of requirement objects.
      * @param {string} entityId - The entity ID to check.
-     * @returns {Object} { passed: boolean, requirementValues: Object, error: {code, details} }
+     * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, componentId?: string, error?: {code: string, details: Object}}}
      */
     _checkRequirements(requirements, entityId) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
@@ -250,14 +254,20 @@ class ActionController {
     }
 
     /**
-     * Resolves a structured error into a human-readable message.
+     * Resolves a structured error into a human-readable message and logs it.
      * @param {Object} error - The error object { code, details }.
      * @returns {string} Formatted error message.
      */
     _resolveError(error) {
-        if (!error || !error.code) return "An unknown error occurred.";
+        if (!error || !error.code) {
+            Logger.error("An unknown error occurred.");
+            return "An unknown error occurred.";
+        }
         const registryEntry = ActionController.ERROR_REGISTRY[error.code];
-        if (!registryEntry) return "An undefined error occurred.";
+        if (!registryEntry) {
+            Logger.error(`An undefined error occurred: ${error.code}`);
+            return "An undefined error occurred.";
+        }
 
         let message = registryEntry.message;
         if (error.details) {
@@ -265,15 +275,20 @@ class ActionController {
                 message = message.replace(`{${key}}`, value);
             }
         }
+
+        const logLevel = registryEntry.level || 'ERROR';
+        Logger[logLevel.toLowerCase()](message, error.details);
+        
         return message;
     }
     
     /**
-     * Executes the success consequences of an action.
+     * Executes the success consequences of an action using the normalized handler interface.
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity performing the action.
      * @param {Object} requirementValues - Map of trait.stat values for substitution.
      * @param {Object} params - Additional action parameters.
+     * @param {Object} fulfillingComponents - Map of requirements to the components that satisfied them.
      * @returns {Object} Result of consequence execution.
      */
     _executeConsequences(actionName, entityId, requirementValues, params, fulfillingComponents = {}) {
@@ -283,6 +298,12 @@ class ActionController {
         }
         
         const results = [];
+        const context = {
+            requirementValues,
+            actionParams: params,
+            fulfillingComponents
+        };
+
         for (const consequence of action.consequences) {
             const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, params);
             
@@ -293,39 +314,9 @@ class ActionController {
             }
 
             try {
-                // Special handling for component-targeted consequences
-                let targetId = params.targetComponentId;
-                
-                if (consequence.type === 'updateComponentStatDelta' && !targetId) {
-                    // For self-updates, first check if a component fulfilled a requirement for this trait/stat
-                    const trait = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.trait : null;
-                    const stat = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.stat : null;
-                    
-                    if (trait && stat) {
-                        const key = `${trait}.${stat}`;
-                        if (fulfillingComponents[key]) {
-                            targetId = fulfillingComponents[key];
-                        } else {
-                            // Fallback: find the first component that possesses the trait/stat being modified
-                            const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-                            if (entity) {
-                                const component = entity.components.find(comp => {
-                                    const s = this.worldStateController.componentController.getComponentStats(comp.id);
-                                    return s && s[trait] && s[trait][stat] !== undefined;
-                                });
-                                targetId = component ? component.id : entityId;
-                            } else {
-                                targetId = entityId;
-                            }
-                        }
-                    } else {
-                        targetId = entityId;
-                    }
-                }
-
-                const result = (consequence.type === 'updateComponentStatDelta') 
-                    ? handler(targetId, resolvedParams)
-                    : handler(entityId, resolvedParams, requirementValues, params);
+                // The handler now manages its own targetId resolution (entity vs component) using the context
+                const targetId = params.targetComponentId || entityId;
+                const result = handler(targetId, resolvedParams, context);
                 
                 results.push({ success: true, type: consequence.type, ...result });
             } catch (error) {
@@ -345,21 +336,37 @@ class ActionController {
     
     /**
      * Resolves placeholders in params (e.g., ":Movimentation.move" -> actual value).
+     * Now supports embedded placeholders within strings.
      * @private
+     * @param {any} params - The value to resolve.
+     * @param {Object} requirementValues - Map of trait.stat values.
+     * @param {Object} actionParams - Parameters passed from the client.
+     * @returns {any} The resolved value.
      */
     _resolvePlaceholders(params, requirementValues, actionParams) {
         if (params === null || params === undefined) return params;
         
         if (typeof params === 'string') {
-            const match = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
-            if (match) {
-                const sign = match[1] === '-' ? -1 : 1;
-                const placeholder = match[2].substring(1);
-                const multiplier = match[3] ? parseInt(match[3], 10) : 1;
+            // If the string is EXACTLY a placeholder (with optional sign/multiplier), return as number
+            const exactMatch = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
+            if (exactMatch) {
+                const sign = exactMatch[1] === '-' ? -1 : 1;
+                const placeholder = exactMatch[2].substring(1);
+                const multiplier = exactMatch[3] ? parseInt(exactMatch[3], 10) : 1;
                 const value = requirementValues[placeholder];
                 if (value !== undefined) return sign * value * multiplier;
             }
-            return params;
+
+            // Otherwise, treat as a template string and replace all embedded placeholders
+            return params.replace(/(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(\*(-?\d+))?/g, (match, sign, placeholder, multiplier) => {
+                const pName = placeholder.substring(1);
+                const val = requirementValues[pName];
+                if (val === undefined) return match;
+                
+                const s = sign === '-' ? -1 : 1;
+                const m = multiplier ? parseInt(multiplier.substring(1), 10) : 1;
+                return s * val * m;
+            });
         }
         
         if (typeof params === 'number') return params;
@@ -391,7 +398,8 @@ class ActionController {
             const resolvedParams = this._resolvePlaceholders(consequence.params, {}, {});
             const handler = this.consequenceHandlers.handlers[consequence.type];
             if (handler) {
-                results.push({ success: true, type: consequence.type, ...handler(entityId, resolvedParams) });
+                // Pass an empty context for failure consequences
+                results.push({ success: true, type: consequence.type, ...handler(entityId, resolvedParams, {}) });
             }
         }
         

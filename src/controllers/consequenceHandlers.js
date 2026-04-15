@@ -1,3 +1,5 @@
+const Logger = require('../utils/Logger');
+
 /**
  * ConsequenceHandlers provides a set of strategy functions to execute
  * game consequences. This decouples the execution logic from the ActionController.
@@ -11,17 +13,19 @@ class ConsequenceHandlers {
     }
 
     /**
-     * Map of handler functions.
+     * Map of handler functions. 
+     * All handlers now follow a normalized signature: (targetId, params, context)
+     * @returns {Object} Map of handler functions.
      */
     get handlers() {
         return {
-            updateSpatial: (entityId, params) => this._handleUpdateSpatial(entityId, params),
-            deltaSpatial: (entityId, params, requirementValues, actionParams) => this._handleDeltaSpatial(entityId, params, requirementValues, actionParams),
-            log: (entityId, params) => this._handleLog(params),
-            updateStat: (entityId, params) => this._handleUpdateStat(entityId, params),
-            updateComponentStatDelta: (componentId, params) => this._handleUpdateComponentStatDelta(componentId, params),
-            triggerEvent: (entityId, params) => this._handleTriggerEvent(entityId, params),
-            damageComponent: (entityId, params, reqValues, actionParams) => this._handleDamageComponent(entityId, params, actionParams),
+            updateSpatial: (targetId, params, context) => this._handleUpdateSpatial(targetId, params),
+            deltaSpatial: (targetId, params, context) => this._handleDeltaSpatial(targetId, params, context),
+            log: (targetId, params, context) => this._handleLog(params),
+            updateStat: (targetId, params, context) => this._handleUpdateStat(targetId, params),
+            updateComponentStatDelta: (targetId, params, context) => this._handleUpdateComponentStatDelta(targetId, params, context),
+            triggerEvent: (targetId, params, context) => this._handleTriggerEvent(targetId, params),
+            damageComponent: (targetId, params, context) => this._handleDamageComponent(targetId, params, context),
         };
     }
 
@@ -46,11 +50,10 @@ class ConsequenceHandlers {
     /**
      * @param {string} entityId
      * @param {Object} deltaUpdate
-     * @param {Object} requirementValues
-     * @param {Object} actionParams
+     * @param {Object} context - Context containing actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleDeltaSpatial(entityId, deltaUpdate, requirementValues, actionParams) {
+    _handleDeltaSpatial(entityId, deltaUpdate, context) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return { success: false, message: `Entity "${entityId}" not found`, data: null };
         if (!entity.spatial) return { success: false, message: `Entity "${entityId}" has no spatial data`, data: null };
@@ -59,6 +62,7 @@ class ConsequenceHandlers {
         let moveX = deltaUpdate.x || 0;
         let moveY = deltaUpdate.y || 0;
 
+        const actionParams = context?.actionParams;
         if (actionParams && actionParams.targetX !== undefined && actionParams.targetY !== undefined) {
             const dx = actionParams.targetX - entity.spatial.x;
             const dy = actionParams.targetY - entity.spatial.y;
@@ -93,18 +97,51 @@ class ConsequenceHandlers {
     _handleLog(params) {
         if (!params) return { success: true, message: "Logged empty action", data: { level: "info" } };
         const { message = "No message provided", level = "info" } = params;
-        console.log(`[${level.toUpperCase()}] ${message}`);
+        
+        const logMethod = Logger[level.toLowerCase()] || Logger.info;
+        logMethod(message);
+        
         return { success: true, message: `Logged: ${message}`, data: { level } };
     }
 
     /**
-     * @param {string} componentId
-     * @param {Object} deltaParams
+     * @param {string} targetId - Entity ID or Component ID.
+     * @param {Object} deltaParams - Parameters containing trait, stat, and value.
+     * @param {Object} context - Context containing fulfillingComponents and actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateComponentStatDelta(componentId, deltaParams) {
-        if (!componentId) return { success: false, message: "No componentId provided", data: null };
+    _handleUpdateComponentStatDelta(targetId, deltaParams, context) {
+        let componentId = targetId;
         const { trait, stat, value } = deltaParams;
+
+        // 1. Priority: Explicit targetComponentId from actionParams
+        if (context && context.actionParams && context.actionParams.targetComponentId) {
+            componentId = context.actionParams.targetComponentId;
+        } 
+        // 2. Priority: Component that fulfilled the requirement for this trait/stat
+        else if (context && context.fulfillingComponents) {
+            const key = `${trait}.${stat}`;
+            if (context.fulfillingComponents[key]) {
+                componentId = context.fulfillingComponents[key];
+            } 
+            // 3. Priority: Fallback to first component on entity possessing the trait/stat
+            else {
+                const entity = this.worldStateController.stateEntityController.getEntity(targetId);
+                if (entity) {
+                    const component = entity.components.find(comp => {
+                        const s = this.worldStateController.componentController.getComponentStats(comp.id);
+                        return s && s[trait] && s[trait][stat] !== undefined;
+                    });
+                    if (component) componentId = component.id;
+                }
+            }
+        }
+
+        if (!componentId || componentId === targetId && !this.worldStateController.componentController.getComponentStats(componentId)) {
+            // If we still have an entityId instead of a componentId
+            return { success: false, message: "No valid component identified for stat update", data: null };
+        }
+
         const success = this.worldStateController.componentController.updateComponentStatDelta(componentId, trait, stat, value);
         return { 
             success, 
@@ -137,12 +174,12 @@ class ConsequenceHandlers {
     /**
      * @param {string} entityId
      * @param {Object} resolvedParams
-     * @param {Object} actionParams
+     * @param {Object} context - Context containing actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleDamageComponent(entityId, resolvedParams, actionParams) {
+    _handleDamageComponent(entityId, resolvedParams, context) {
         const { trait, stat, value } = resolvedParams;
-        const targetComponentId = actionParams.targetComponentId;
+        const targetComponentId = context?.actionParams?.targetComponentId;
         if (!targetComponentId) return { success: false, message: "No target component specified", data: null };
         const success = this.worldStateController.componentController.updateComponentStatDelta(targetComponentId, trait, stat, value);
         return { 
@@ -159,7 +196,7 @@ class ConsequenceHandlers {
      */
     _handleTriggerEvent(entityId, eventParams) {
         const { eventType, data } = eventParams;
-        console.log(`[EVENT] ${eventType} for entity ${entityId}`, data || {});
+        Logger.info(`Event triggered: ${eventType} for entity ${entityId}`, data || {});
         return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, entityId } };
     }
 }

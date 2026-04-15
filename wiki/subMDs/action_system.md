@@ -23,6 +23,8 @@ The `ActionController` is fully decoupled from data loading and handler instanti
 - `ConsequenceHandlers`: The system responsible for executing action effects.
 - `actionRegistry`: The parsed JSON configuration of available actions.
 
+**Logging:** The system utilizes a centralized `Logger` utility (`src/utils/Logger.js`) for all system events, ensuring standardized severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
+
 ### 2.2. Action Registry Structure
 
 Each action is defined with three main components:
@@ -71,7 +73,7 @@ Requirements define what an entity must have to perform an action. An action can
 
 The `ActionController` checks each entity's components for the required traits and stats. The action only executes if there is at least one component that satisfies **all** the listed requirements.
 
-**Component Tracking:** When requirements are met, the system identifies and tracks which specific components satisfied each requirement using a `fulfillingComponents` map (e.g., `{"Physical.durability": "component_id"}`). 
+**Component Tracking:** When requirements are met, the system identifies and tracks which specific components satisfied each requirement using a `fulfillingComponents` map (e.g., `{"Physical.durability": "component_id"}`). This map is passed to consequence handlers via a `context` object.
 
 To ensure the "most capable" component is prioritized (e.g., avoiding the case where a general-purpose body component takes a penalty for an action performed by a specialized limb), the system uses a **Priority Scoring Mechanism**:
 1. **Scoring**: Every component is scored based on how many of the action's total requirements it satisfies.
@@ -106,8 +108,9 @@ When requirements are met, the action executes its success consequences. Consequ
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**
-- `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movimentation.move`)
-- `" -:trait.stat"` - Replaced with the negative value of the specified trait and stat (e.g., "-:Movimentation.move")
+- `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movimentation.move`).
+- **Embedded Support**: Placeholders can now be embedded within strings (e.g., `"Power is :Physical.strength"`) and will be automatically resolved.
+- **Arithmetic**: Supports signs and multipliers (e.g., `"-:Movimentation.move*2"`).
 
 **Example:** Move upward by the move value (using deltaSpatial for relative movement):
 ```javascript
