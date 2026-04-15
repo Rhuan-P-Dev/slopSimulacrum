@@ -8,7 +8,7 @@ The Traits System is a data-driven approach to component attributes. Instead of 
 ### 2.1. Global Traits (Source of Truth)
 The `Global_Traits` object defines the "mold" for various trait categories. 
 - **Role**: Base Definition.
-- **Location**: `src/controllers/traitsController.js`.
+- **Location**: Defined in `data/traits.json` and injected into `src/controllers/traitsController.js` via the Root Injector.
 - **Example**:
   ```json
   {

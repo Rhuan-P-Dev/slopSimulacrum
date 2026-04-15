@@ -21,10 +21,11 @@ class WorldStateController {
         // 0. Load Configuration Data
         const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');
         const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
+        const traitsRegistry = DataLoader.loadJsonSafe('data/traits.json');
 
         // 1. Instantiate Data Stores (Bottom level)
         const statsController = new ComponentStatsController();
-        const traitsController = new TraitsController();
+        const traitsController = new TraitsController(traitsRegistry);
         
         // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
         const componentController = new ComponentController(statsController, traitsController, componentRegistry);
