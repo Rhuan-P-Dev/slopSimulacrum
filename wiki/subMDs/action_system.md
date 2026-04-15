@@ -71,7 +71,14 @@ Requirements define what an entity must have to perform an action. An action can
 
 The `ActionController` checks each entity's components for the required traits and stats. The action only executes if there is at least one component that satisfies **all** the listed requirements.
 
-**Component Tracking:** When requirements are met, the system now identifies and tracks the `primaryComponentId` (the first component found that satisfies the requirements). This ID is used to provide technical context to the UI and to target self-updates.
+**Component Tracking:** When requirements are met, the system identifies and tracks which specific components satisfied each requirement using a `fulfillingComponents` map (e.g., `{"Physical.durability": "component_id"}`). 
+
+To ensure the "most capable" component is prioritized (e.g., avoiding the case where a general-purpose body component takes a penalty for an action performed by a specialized limb), the system uses a **Priority Scoring Mechanism**:
+1. **Scoring**: Every component is scored based on how many of the action's total requirements it satisfies.
+2. **Prioritization**: Components are sorted by score in descending order.
+3. **Assignment**: Requirements are assigned to the highest-scoring compatible component.
+
+This ensures that consequences targeting a trait/stat (like durability loss) are applied to the actual component that drove the action's success, rather than simply the first component found possessing that trait.
 
 **Example:** Move action requires `Movimentation.move > 5`. Droid dash requires both `Movimentation.move > 5` AND `Physical.durability > 30`.
 
@@ -95,7 +102,7 @@ When requirements are met, the action executes its success consequences. Consequ
 - `updateStat` - Updates a component stat for all components with the trait
 - `updateComponentStatDelta` - Updates a specific stat for a component. 
     - If `targetComponentId` is provided, it updates that component.
-    - If no target is provided (self-targeting), the system automatically resolves the target by finding the first component on the entity that possesses the required trait/stat. This resolution logic includes safety checks to ensure that parameter resolution doesn't fail when placeholders are resolved to primitive values.
+    - If no target is provided (self-targeting), the system first checks if a specific component fulfilled a requirement for the trait/stat being modified. If so, that component is targeted. Otherwise, it falls back to finding the first component on the entity that possesses the required trait/stat.
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**

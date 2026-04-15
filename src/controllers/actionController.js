@@ -161,7 +161,8 @@ class ActionController {
                 actionName, 
                 entityId, 
                 requirementCheck.requirementValues,
-                params
+                params,
+                requirementCheck.fulfillingComponents
             );
             
             return {
@@ -198,22 +199,36 @@ class ActionController {
         }
 
         const reqList = Array.isArray(requirements) ? requirements : [requirements];
-        const requirementValues = {};
-        let primaryComponentId = null;
-
-        for (const req of reqList) {
-            let satisfied = false;
-            for (const component of entity.components) {
-                const stats = this.worldStateController.componentController.getComponentStats(component.id);
+        
+        // 1. Score components based on how many requirements they satisfy
+        const componentScores = entity.components.map(component => {
+            const stats = this.worldStateController.componentController.getComponentStats(component.id);
+            let score = 0;
+            const satisfiedReqs = [];
+            
+            for (const req of reqList) {
                 if (stats && stats[req.trait] && stats[req.trait][req.stat] >= req.minValue) {
-                    requirementValues[`${req.trait}.${req.stat}`] = stats[req.trait][req.stat];
-                    satisfied = true;
-                    if (!primaryComponentId) primaryComponentId = component.id;
-                    break;
+                    score++;
+                    satisfiedReqs.push(req);
                 }
             }
+            return { id: component.id, score, satisfiedReqs };
+        });
 
-            if (!satisfied) {
+        // 2. Sort components by score descending to prioritize the most capable ones
+        componentScores.sort((a, b) => b.score - a.score);
+
+        const requirementValues = {};
+        const fulfillingComponents = {};
+        let primaryComponentId = null;
+
+        // 3. Assign the best available component for each requirement
+        for (const req of reqList) {
+            const bestComponent = componentScores.find(cs => 
+                cs.satisfiedReqs.some(r => r === req)
+            );
+
+            if (!bestComponent) {
                 return { 
                     passed: false, 
                     error: { 
@@ -222,9 +237,16 @@ class ActionController {
                     } 
                 };
             }
+
+            const stats = this.worldStateController.componentController.getComponentStats(bestComponent.id);
+            const key = `${req.trait}.${req.stat}`;
+            requirementValues[key] = stats[req.trait][req.stat];
+            fulfillingComponents[key] = bestComponent.id;
+            
+            if (!primaryComponentId) primaryComponentId = bestComponent.id;
         }
 
-        return { passed: true, requirementValues, componentId: primaryComponentId };
+        return { passed: true, requirementValues, fulfillingComponents, componentId: primaryComponentId };
     }
 
     /**
@@ -254,7 +276,7 @@ class ActionController {
      * @param {Object} params - Additional action parameters.
      * @returns {Object} Result of consequence execution.
      */
-    _executeConsequences(actionName, entityId, requirementValues, params) {
+    _executeConsequences(actionName, entityId, requirementValues, params, fulfillingComponents = {}) {
         const action = this.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
@@ -275,19 +297,27 @@ class ActionController {
                 let targetId = params.targetComponentId;
                 
                 if (consequence.type === 'updateComponentStatDelta' && !targetId) {
-                    // For self-updates, find the first component that possesses the trait/stat being modified
-                    const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-                    
-                    // Ensure resolvedParams is an object before accessing trait/stat
+                    // For self-updates, first check if a component fulfilled a requirement for this trait/stat
                     const trait = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.trait : null;
                     const stat = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.stat : null;
                     
-                    if (entity && trait && stat) {
-                        const component = entity.components.find(comp => {
-                            const s = this.worldStateController.componentController.getComponentStats(comp.id);
-                            return s && s[trait] && s[trait][stat] !== undefined;
-                        });
-                        targetId = component ? component.id : entityId;
+                    if (trait && stat) {
+                        const key = `${trait}.${stat}`;
+                        if (fulfillingComponents[key]) {
+                            targetId = fulfillingComponents[key];
+                        } else {
+                            // Fallback: find the first component that possesses the trait/stat being modified
+                            const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+                            if (entity) {
+                                const component = entity.components.find(comp => {
+                                    const s = this.worldStateController.componentController.getComponentStats(comp.id);
+                                    return s && s[trait] && s[trait][stat] !== undefined;
+                                });
+                                targetId = component ? component.id : entityId;
+                            } else {
+                                targetId = entityId;
+                            }
+                        }
                     } else {
                         targetId = entityId;
                     }
