@@ -435,3 +435,54 @@ h1 {
 .action-selected .status-fail {
     color: var(--bg-black) !important;
 }
+
+/* Error Popup Styles */
+.error-popup {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #ff4444;
+    color: #fff;
+    padding: 15px 25px;
+    border: 2px solid #fff;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    box-shadow: 0 0 20px rgba(255, 68, 68, 0.5), inset 0 0 10px rgba(0,0,0,0.3);
+    z-index: 1000;
+    animation: slideInRight 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
+    pointer-events: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(110%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+/* UI Utility Classes */
+.text-muted { color: #666; }
+.text-muted-light { color: #888; }
+.text-neon { color: var(--neon-green); }
+.text-center { text-align: center; }
+.detail-header-main { margin: 0; color: var(--neon-green); }
+.detail-subheader { color: var(--text-dim); margin: 5px 0 0 0; }
+.id-text { font-size: 0.7em; color: #666; }
+.targeting-protocol-header { 
+    color: var(--neon-green); 
+    text-align: center; 
+    text-transform: uppercase; 
+    letter-spacing: 2px; 
+    margin-bottom: 20px; 
+}
+.system-header { 
+    margin: 0; 
+    color: var(--neon-green); 
+    font-family: monospace; 
+}

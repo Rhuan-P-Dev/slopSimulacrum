@@ -1,3 +1,5 @@
+import { AppConfig } from './Config.js';
+
 /**
  * WorldStateManager
  * Handles the synchronization and storage of the world state on the client.
@@ -44,7 +46,7 @@ export class WorldStateManager {
 
     /**
      * Determines the primary droid to be used for navigation and rendering.
-     * Priority: 1. The incarnated entity, 2. Any droid with blueprint 'smallBallDroid'.
+     * Priority: 1. The incarnated entity, 2. Any droid with the default blueprint.
      * @returns {Object|null} The active droid entity or null.
      */
     getActiveDroid() {
@@ -54,7 +56,7 @@ export class WorldStateManager {
             return this.state.entities[this.myEntityId];
         }
 
-        return Object.values(this.state.entities).find(e => e.blueprint === 'smallBallDroid') || null;
+        return Object.values(this.state.entities).find(e => e.blueprint === AppConfig.DEFAULTS.DROID_BLUEPRINT) || null;
     }
 
     /**

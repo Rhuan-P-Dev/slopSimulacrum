@@ -18,7 +18,7 @@ For non-movement actions, the flow is immediate:
 4.  **Response**: The server executes the action, and the client updates the UI.
 
 ### 2.2. Movement Actions (Deferred Execution)
-Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for target selection on the map:
+Movement actions (defined in `AppConfig.ACTIONS`, e.g., `MOVE`, `DASH`) use a two-step "Pending" state to allow for target selection on the map:
 1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state, highlights the action in the UI, and renders a **white range indicator** around the droid to visualize the possible movement distance.
 2.  **Target Selection**: The user clicks a location on the spatial map.
 3.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
@@ -99,6 +99,8 @@ The `renderActionList` method in the `UIManager` class is responsible for:
 
 ### 4.2. Execution Logic (`ActionManager.executeAction`)
 
+**Registry Pattern**: To avoid "magic strings" and ensure consistency, all action type checks (e.g., identifying movement actions) must use constants defined in `AppConfig.ACTIONS`.
+
 When a user clicks a capable component, the `ActionManager.executeAction` method is called via the `ClientApp` orchestrator. It receives:
 *   `actionName`
 *   `entityId`
@@ -111,12 +113,19 @@ The manager then determines if the action is a deferred type (movement or target
 
 ## 5. Error Handling
 
-The client handles two main types of errors:
+The client handles errors through a structured pipeline that decouples detection from visual presentation, utilizing the `ClientErrorController`.
+
+### 5.1. Error Reporting Flow
+When an error occurs (e.g., a failed HTTP request or a targeting validation failure), the following flow is triggered:
+`ActionManager` / `ClientApp` $\rightarrow$ `ClientErrorController` $\rightarrow$ `UIManager.showErrorPopup()`
+
+### 5.2. Error Types and Behavior
 
 | Error Type | Source | Client Behavior |
 |------------|--------|-----------------|
-| **Network/HTTP Error** | Connectivity or Server Down | Displays a red error message in the "Status" bar. |
-| **Action Failure** | Requirements not met or System Error | Displays a red error message in the "Status" bar via `UIManager.setStatus` (e.g., *"Requirement failed: No component possesses the required Physical.durability (>= 30)"*). |
+| **Network/HTTP Error** | Connectivity or Server Down | Structured error passed to `ClientErrorController` $\rightarrow$ Red Pop-up. |
+| **Action Failure** | Requirements not met or System Error | Structured error (with `code` and `details`) passed to `ClientErrorController` $\rightarrow$ Template resolution $\rightarrow$ Red Pop-up. |
+| **Validation Error** | Client-side check (e.g., Range) | Immediate structured error dispatch to `ClientErrorController` $\rightarrow$ Red Pop-up (e.g., *"Target out of range (219px > 100px)"*). |
 
 ---
 

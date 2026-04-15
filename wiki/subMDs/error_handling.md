@@ -43,3 +43,18 @@ Common codes used in `ActionController`:
 ## 5. Template Syntax
 Templates use curly braces for variable injection:
 `"Entity {entityId} not found."` $\rightarrow$ `details: { entityId: "uuid-123" }`
+
+## 6. Client-Side Implementation
+
+The client implements the Error Handling Standard through the `ClientErrorController`.
+
+### 6.1. The ClientErrorController
+This controller acts as the **Formatting** layer for the frontend. Its primary responsibilities are:
+- **Template Resolution**: Mapping structured error codes (e.g., `TARGET_OUT_OF_RANGE`) to human-readable templates.
+- **Variable Injection**: Replacing placeholders in templates (e.g., `{distance}`) with values from the `details` object.
+- **UI Coordination**: Triggering the visual display of the error via the `UIManager`.
+
+**Mandatory Routing**: To prevent silent failures in the user experience, all critical paths in the client orchestrator (`ClientApp`) and managers (`ActionManager`) must explicitly route caught exceptions to the `ClientErrorController`. No critical failure should be swallowed by a `console.error` without also triggering a user-facing error notification.
+
+### 6.2. Visual Representation
+Errors are presented to the player as **Red Pop-ups** in the bottom-right corner of the screen. This ensures that critical feedback is immediately visible without interrupting the main game flow or being lost in the status bar.

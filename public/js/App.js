@@ -2,6 +2,7 @@ import { AppConfig } from './Config.js';
 import { WorldStateManager } from './WorldStateManager.js';
 import { UIManager } from './UIManager.js';
 import { ActionManager } from './ActionManager.js';
+import { ClientErrorController } from './ClientErrorController.js';
 
 /**
  * ClientApp
@@ -12,7 +13,8 @@ export class ClientApp {
     constructor() {
         this.worldState = new WorldStateManager();
         this.ui = new UIManager();
-        this.actions = new ActionManager(this.ui);
+        this.errorController = new ClientErrorController(this.ui);
+        this.actions = new ActionManager(this.ui, this.errorController);
         this.availableActions = {};
         
         this.socket = io();
@@ -28,7 +30,10 @@ export class ClientApp {
         try {
             await this.refreshWorldAndActions();
         } catch (error) {
-            this.ui.setStatus(`Initialization Error: ${error.message}`, true);
+            this.errorController.handleError({
+                code: 'INITIALIZATION_ERROR',
+                message: error.message
+            });
         }
     }
 
@@ -65,10 +70,17 @@ export class ClientApp {
             this.ui.hideStatus();
         } catch (error) {
             console.error('[ClientApp] Refresh failed:', error);
-            this.ui.setStatus(`Connection Error: ${error.message}`, true);
+            this.errorController.handleError({
+                code: 'CONNECTION_ERROR',
+                message: error.message
+            });
         }
     }
 
+    /**
+     * Updates the list of available actions and renders range indicators if a movement action is pending.
+     * @returns {Promise<void>}
+     */
     async updateActionList() {
         try {
             const entityId = this.worldState.getMyEntityId();
@@ -81,7 +93,8 @@ export class ClientApp {
                 if (droid && state) {
                     const range = this._calculateActionRange(pending.actionName, droid, state);
                     if (range !== null) {
-                        const color = (pending.actionName === 'move' || pending.actionName === 'dash') ? 'white' : 'red';
+                        const isMovement = pending.actionName === AppConfig.ACTIONS.MOVE || pending.actionName === AppConfig.ACTIONS.DASH;
+                        const color = isMovement ? 'white' : 'red';
                         this.ui.renderRangeIndicator(droid, range, color);
                     }
                 }
@@ -94,6 +107,10 @@ export class ClientApp {
             );
         } catch (error) {
             console.error('[ClientApp] Action list update failed:', error);
+            this.errorController.handleError({
+                code: 'ACTION_LIST_UPDATE_FAILED',
+                message: error.message
+            });
         }
     }
 
@@ -114,7 +131,10 @@ export class ClientApp {
         if (actionData.range) return actionData.range;
 
         // Dynamic movement range
-        if (actionName === 'move' || actionName === 'dash') {
+        const isMove = actionName === AppConfig.ACTIONS.MOVE;
+        const isDash = actionName === AppConfig.ACTIONS.DASH;
+
+        if (isMove || isDash) {
             if (!droid || !droid.components || !state || !state.components || !state.components.instances) return null;
 
             // Find a component that possesses the Movimentation trait
@@ -128,12 +148,16 @@ export class ClientApp {
             }
 
             if (moveStat === null) return null;
-            return actionName === 'dash' ? moveStat * 2 : moveStat;
+            return isDash ? moveStat * AppConfig.MULTIPLIERS.DASH_RANGE : moveStat;
         }
 
         return null;
     }
 
+    /**
+     * Sets up socket.io listeners for real-time server communication.
+     * @returns {void}
+     */
     _setupSocketListeners() {
         this.socket.on('incarnate', (data) => {
             console.log('[Socket] Incarnated as:', data.entityId);
@@ -148,10 +172,17 @@ export class ClientApp {
 
         this.socket.on('error', (data) => {
             console.error('[Socket Error]:', data.message);
-            this.ui.setStatus(data.message, true);
+            this.errorController.handleError({
+                code: 'SOCKET_ERROR',
+                message: data.message
+            });
         });
     }
 
+    /**
+     * Configures the map click handler to process spatial and component targeting.
+     * @returns {void}
+     */
     _setupMapClickListener() {
         const map = document.getElementById('world-map');
         if (!map) return;
@@ -178,6 +209,13 @@ export class ClientApp {
         });
     }
 
+    /**
+     * Handles targeting for "punch" style actions by finding the closest entity to the clicked coordinates.
+     * @param {Object} pending The pending action data.
+     * @param {number} targetX The clicked X coordinate.
+     * @param {number} targetY The clicked Y coordinate.
+     * @returns {Promise<void>}
+     */
     async handlePunchTarget(pending, targetX, targetY) {
         const droid = this.worldState.getActiveDroid();
         const state = this.worldState.getState();
@@ -186,40 +224,52 @@ export class ClientApp {
         const actionData = this.availableActions[pending.actionName];
         const range = actionData?.range || 0;
 
-        const dx = targetX - droid.spatial.x;
-        const dy = targetY - droid.spatial.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        const distance = this.actions.calculateDistance(targetX, targetY, droid.spatial.x, droid.spatial.y);
 
         if (distance > range) {
-            this.ui.setStatus(`Target out of range (${Math.round(distance)}px > ${range}px)`, true);
+            this.errorController.handleError({
+                code: 'TARGET_OUT_OF_RANGE',
+                details: { 
+                    distance: Math.round(distance), 
+                    range: range 
+                }
+            });
             return;
         }
 
-        // Find entity at target location (with a small tolerance)
-        const tolerance = AppConfig.TARGETING.PUNCH_TOLERANCE;
-        const targetEntity = Object.values(state.entities).find(e => {
-            const edx = targetX - e.spatial.x;
-            const edy = targetY - e.spatial.y;
-            return Math.sqrt(edx * edx + edy * edy) < tolerance;
-        });
+        // Find closest entity within tolerance to avoid ambiguous selection
+        const closestEntity = this.actions.findClosestEntity(
+            state.entities, 
+            targetX, 
+            targetY, 
+            AppConfig.TARGETING.PUNCH_TOLERANCE
+        );
 
-        if (!targetEntity) {
-            this.ui.setStatus("No target entity found at this location", true);
+        if (!closestEntity) {
+            this.errorController.handleError({
+                code: 'NO_TARGET_FOUND'
+            });
             return;
         }
 
-        this.ui.showComponentSelection(targetEntity, state, async (compId) => {
+        this.ui.showComponentSelection(closestEntity, state, async (compId) => {
             try {
                 await this.actions.executePunch(pending.actionName, pending.entityId, compId);
                 this.ui.closeDetails();
                 this.actions.clearPendingAction();
                 await this.refreshWorldAndActions();
             } catch (error) {
-                this.ui.setStatus(`Punch failed: ${error.message}`, true);
+                // ActionManager already handles the error reporting via errorController
             }
         });
     }
 
+    /**
+     * Executes a movement request for an entity to a specific room.
+     * @param {string} entityId The ID of the entity to move.
+     * @param {string} targetRoomId The ID of the target room.
+     * @returns {Promise<void>}
+     */
     async handleMoveDroid(entityId, targetRoomId) {
         try {
             const response = await fetch(AppConfig.ENDPOINTS.MOVE_ENTITY, {
@@ -234,10 +284,21 @@ export class ClientApp {
             }
             this.refreshWorldAndActions();
         } catch (error) {
-            this.ui.setStatus('System Error: ' + error.message, true);
+            this.errorController.handleError({
+                code: 'MOVEMENT_FAILED',
+                message: error.message
+            });
         }
     }
 
+    /**
+     * Handles the selection of an action from the UI list.
+     * @param {string} actionName The name of the selected action.
+     * @param {string} entityId The entity performing the action.
+     * @param {string} componentName The name of the target component.
+     * @param {string} componentIdentifier The unique ID of the target component.
+     * @returns {Promise<void>}
+     */
     async handleActionSelection(actionName, entityId, componentName, componentIdentifier) {
         const actionData = this.availableActions[actionName];
         await this.actions.executeAction(

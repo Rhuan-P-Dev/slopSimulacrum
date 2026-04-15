@@ -20,7 +20,7 @@ graph TD
 `ComponentStatsController` $\rightarrow$ `TraitsController` $\rightarrow$ `ComponentController` $\rightarrow$ `EntityController` $\rightarrow$ `stateEntityController` $\rightarrow$ `WorldStateController`
 
 **Client-Side Architecture (Modular JS):**
-`Config.js` $\rightarrow$ `WorldStateManager` $\rightarrow$ `UIManager` $\rightarrow$ `ActionManager` $\rightarrow$ `ClientApp` (Orchestrator)
+`Config.js` $\rightarrow$ `WorldStateManager` $\rightarrow$ `UIManager` $\rightarrow$ `ClientErrorController` $\rightarrow$ `ActionManager` $\rightarrow$ `ClientApp` (Orchestrator)
 
 ---
 

@@ -13,6 +13,7 @@ To ensure maintainability and separation of concerns, the frontend utilizes a mo
     - `WorldStateManager.js`: Manages state synchronization and the "Single Source of Truth".
     - `UIManager.js`: Handles all DOM/SVG rendering and user interface interactions.
     - `ActionManager.js`: Manages action execution and the movement target-selection flow.
+    - `ClientErrorController.js`: Handles the resolution and formatting of system errors into human-readable messages.
 
 ## 2. Visual Components
 
@@ -78,7 +79,7 @@ Entities are rendered as circular markers with the following characteristics:
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 - **Attack (Component-Targeted)**: 
     1. User selects an attack action (e.g., `droid punch`) $\rightarrow$ `ActionManager` stores it as a pending action $\rightarrow$ `UIManager` renders a red range indicator.
-    2. User clicks an entity within the range $\rightarrow$ `ClientApp` validates distance and identifies the target entity.
+    2. User clicks an entity within the range $\rightarrow$ `ClientApp` validates distance and identifies the **closest entity** within the `AppConfig.TARGETING.PUNCH_TOLERANCE` to prevent ambiguous target selection when multiple entities are clustered.
     3. `UIManager.showComponentSelection()` displays the Tactical Targeting HUD $\rightarrow$ User selects a specific component to attack.
     4. `ActionManager.executePunch()` sends the `targetComponentId` to the server $\rightarrow$ Server updates the target component's stats $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state.
 
@@ -87,6 +88,10 @@ The UI shows current room coordinates in the format: `(x, y)` on the map header.
 
 ### 3.6. Action Execution
 For detailed information on how the client handles action requests and requirement visualization, see the [Client-Side Action Execution](./client_action_execution.md) documentation.
+
+### 3.7. Error Handling
+The client utilizes a `ClientErrorController` to decouple error detection from visual presentation. 
+- **Logic**: It uses a template-based system to convert error codes (e.g., `TARGET_OUT_OF_RANGE`) and details into human-readable strings.
 
 ## 4. Styling Guide (Cyber-Terminal Aesthetic)
 - **Color Palette**:

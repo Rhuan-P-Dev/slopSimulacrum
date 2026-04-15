@@ -9,6 +9,10 @@ export const AppConfig = {
         CENTER_X: 800 / 2,
         CENTER_Y: 500 / 2,
     },
+    ACTIONS: {
+        MOVE: 'move',
+        DASH: 'dash',
+    },
     COLORS: {
         ENTITY_ACTIVE: "#fff",
         ENTITY_DEFAULT: "#00ff00",
@@ -22,10 +26,16 @@ export const AppConfig = {
     TARGETING: {
         PUNCH_TOLERANCE: 20,
     },
+    MULTIPLIERS: {
+        DASH_RANGE: 2,
+    },
     ENDPOINTS: {
         WORLD_STATE: '/world-state',
         ACTIONS: '/actions',
         EXECUTE_ACTION: '/execute-action',
         MOVE_ENTITY: '/move-entity',
+    },
+    DEFAULTS: {
+        DROID_BLUEPRINT: 'smallBallDroid',
     }
 };

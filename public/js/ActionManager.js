@@ -5,9 +5,11 @@ import { AppConfig } from './Config.js';
  * Coordinates the execution of game actions and handles the target selection flow for movement.
  */
 export class ActionManager {
-    constructor(uiManager) {
+    constructor(uiManager, errorController) {
         /** @type {UIManager} */
         this.uiManager = uiManager;
+        /** @type {ClientErrorController} */
+        this.errorController = errorController;
         /** @type {Object|null} The action currently awaiting a target click on the map */
         this.pendingMovementAction = null;
     }
@@ -32,6 +34,36 @@ export class ActionManager {
     }
 
     /**
+     * Centralized method to send action requests to the server.
+     * @param {Object} payload The request body.
+     * @param {string} errorCode The error code to use if the request fails.
+     * @returns {Promise<Object>} The server response.
+     * @throws {Error} If the response is not OK.
+     */
+    async _sendActionRequest(payload, errorCode) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.result?.error || err.error || 'Action execution failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            this.errorController.handleError({ 
+                code: errorCode, 
+                message: error.message 
+            });
+            throw error;
+        }
+    }
+
+    /**
      * Handles the logic for executing an action.
      * Actions with targeting requirements are intercepted to trigger target selection.
      * @param {string} actionName 
@@ -49,25 +81,14 @@ export class ActionManager {
         }
 
         try {
-            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    actionName: actionName,
-                    entityId: entityId,
-                    params: { componentName, componentIdentifier }
-                })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.result?.error || 'Failed to execute action');
-            }
-
-            const result = await response.json();
+            const result = await this._sendActionRequest({ 
+                actionName: actionName,
+                entityId: entityId,
+                params: { componentName, componentIdentifier }
+            }, 'ACTION_FAILED');
             console.log('[ActionManager] Action executed successfully:', result);
         } catch (error) {
-            this.uiManager.setStatus(`Action failed: ${error.message}`, true);
+            // Error already handled by _sendActionRequest
         }
     }
 
@@ -101,22 +122,13 @@ export class ActionManager {
      */
     async moveToTarget(actionName, entityId, targetX, targetY) {
         try {
-            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    actionName: actionName,
-                    entityId: entityId,
-                    params: { targetX, targetY }
-                })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.result?.error || 'Failed to move droid');
-            }
+            await this._sendActionRequest({ 
+                actionName: actionName,
+                entityId: entityId,
+                params: { targetX, targetY }
+            }, 'MOVEMENT_FAILED');
         } catch (error) {
-            this.uiManager.setStatus(`Movement failed: ${error.message}`, true);
+            // Error already handled by _sendActionRequest
         }
     }
 
@@ -128,27 +140,51 @@ export class ActionManager {
      */
     async executePunch(actionName, entityId, targetComponentId) {
         try {
-            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    actionName: actionName,
-                    entityId: entityId,
-                    params: { targetComponentId }
-                })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.result?.error || 'Failed to execute punch');
-            }
-            const result = await response.json();
+            const result = await this._sendActionRequest({ 
+                actionName: actionName,
+                entityId: entityId,
+                params: { targetComponentId }
+            }, 'PUNCH_FAILED');
             console.log('[ActionManager] Punch executed successfully:', result);
             return result;
         } catch (error) {
-            this.uiManager.setStatus(`Punch failed: ${error.message}`, true);
             throw error;
         }
+    }
+
+    /**
+     * Calculates the Euclidean distance between two points.
+     * @param {number} x1 
+     * @param {number} y1 
+     * @param {number} x2 
+     * @param {number} y2 
+     * @returns {number}
+     */
+    calculateDistance(x1, y1, x2, y2) {
+        return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    }
+
+    /**
+     * Finds the closest entity to the given coordinates within a specific tolerance.
+     * @param {Object} entities The entities map.
+     * @param {number} x The target X coordinate.
+     * @param {number} y The target Y coordinate.
+     * @param {number} tolerance The maximum distance to consider.
+     * @returns {Object|null} The closest entity or null.
+     */
+    findClosestEntity(entities, x, y, tolerance) {
+        let closestEntity = null;
+        let minDistance = tolerance;
+
+        Object.values(entities).forEach(e => {
+            const dist = this.calculateDistance(x, y, e.spatial.x, e.spatial.y);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestEntity = e;
+            }
+        });
+
+        return closestEntity;
     }
 
     /**

@@ -94,7 +94,7 @@ export class UIManager {
         const connections = room.connections || {};
 
         if (Object.keys(connections).length === 0) {
-            navEl.innerHTML = '<em style="color: #666">No exits available.</em>';
+            navEl.innerHTML = '<em class="text-muted">No exits available.</em>';
         } else {
             for (const [door, targetId] of Object.entries(connections)) {
                 const btn = document.createElement('button');
@@ -239,7 +239,7 @@ export class UIManager {
     renderActionList(actions, pendingAction, onActionClick) {
         const actionListEl = this.elements.actionList;
         if (!actions || Object.keys(actions).length === 0) {
-            actionListEl.innerHTML = '<em style="color: #666;">No actions available.</em>';
+            actionListEl.innerHTML = '<em class="text-muted">No actions available.</em>';
             return;
         }
 
@@ -283,7 +283,7 @@ export class UIManager {
                 <div class="action-item">
                     <div class="action-name">${actionName}</div>
                     <div class="action-capabilities">
-                        ${capableHtml || '<em style="color: #888;">No capable components found</em>'}
+                        ${capableHtml || '<em class="text-muted-light">No capable components found</em>'}
                     </div>
                     ${incapableHtml}
                 </div>`;
@@ -304,7 +304,7 @@ export class UIManager {
     showEntityDetails(entity, state) {
         let componentsHtml = '';
         if (entity.components && state.components && state.components.instances) {
-            componentsHtml = '<div class="component-section"><h3 style="color: var(--neon-green)">🛠️ Installed Components</h3></div>';
+            componentsHtml = '<div class="component-section"><h3 class="text-neon">🛠️ Installed Components</h3></div>';
             entity.components.forEach(comp => {
                 const stats = state.components.instances[comp.id];
                 let statsHtml = '';
@@ -321,7 +321,7 @@ export class UIManager {
                     <div class="component-item">
                         <div class="component-title">
                             <span>${comp.type}</span>
-                            <span style="font-size: 0.7em; color: #666;">ID: ${comp.identifier}</span>
+                            <span class="id-text">ID: ${comp.identifier}</span>
                         </div>
                         ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
                     </div>`;
@@ -331,8 +331,8 @@ export class UIManager {
 
         this.elements.detailContent.innerHTML = `
             <div class="detail-header">
-                <h2 style="margin:0; color: var(--neon-green);">Entity Analysis</h2>
-                <p style="color: var(--text-dim); margin: 5px 0 0 0;">Unit: ${entity.id}</p>
+                <h2 class="detail-header-main">Entity Analysis</h2>
+                <p class="detail-subheader">Unit: ${entity.id}</p>
             </div>
             <div class="entity-stat">
                 <span class="stat-label">Unit ID:</span>
@@ -365,8 +365,8 @@ export class UIManager {
 
         this.elements.detailContent.innerHTML = `
             <div class="detail-header">
-                <h2 style="margin:0; color: var(--neon-green);">Component Analysis</h2>
-                <p style="color: var(--text-dim); margin: 5px 0 0 0;">Type: ${component.type}</p>
+                <h2 class="detail-header-main">Component Analysis</h2>
+                <p class="detail-subheader">Type: ${component.type}</p>
             </div>
             <div class="entity-stat">
                 <span class="stat-label">Component ID:</span>
@@ -388,7 +388,7 @@ export class UIManager {
         if (entity.components && state.components && state.components.instances) {
             componentsHtml = `
                 <div class="component-section">
-                    <h3 style="color: var(--neon-green); text-align: center; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px;">
+                    <h3 class="targeting-protocol-header">
                         📡 Targeting Protocol Active
                     </h3>
                     <div class="component-selection-list">`;
@@ -418,12 +418,12 @@ export class UIManager {
 
         this.elements.detailContent.innerHTML = `
             <div class="detail-header">
-                <h2 style="margin:0; color: var(--neon-green); font-family: monospace;">SYSTEM: TARGET_ACQUISITION</h2>
-                <p style="color: var(--text-dim); margin: 5px 0 0 0; font-size: 0.8em;">
-                    SCANNING ENTITY: ${entity.id} | STATUS: <span style="color: var(--neon-green)">LOCKED</span>
+                <h2 class="system-header">SYSTEM: TARGET_ACQUISITION</h2>
+                <p class="detail-subheader" style="font-size: 0.8em;">
+                    SCANNING ENTITY: ${entity.id} | STATUS: <span class="text-neon">LOCKED</span>
                 </p>
             </div>
-            ${componentsHtml || '<div class="trait-row" style="text-align:center">NO TARGETABLE COMPONENTS DETECTED</div>'}
+            ${componentsHtml || '<div class="trait-row text-center">NO TARGETABLE COMPONENTS DETECTED</div>'}
         `;
         
         this.elements.detailOverlay.style.display = 'flex';
@@ -446,5 +446,22 @@ export class UIManager {
 
     hideStatus() {
         this.elements.status.style.display = 'none';
+    }
+
+    /**
+     * Displays a red error pop-up in the bottom-right corner.
+     * @param {string} message The error message to display.
+     * @param {number} duration Duration in ms before the popup is removed from DOM.
+     */
+    showErrorPopup(message, duration = 5000) {
+        const popup = document.createElement('div');
+        popup.className = 'error-popup';
+        popup.textContent = message;
+        document.body.appendChild(popup);
+
+        // Remove the element after the animation duration to keep DOM clean
+        setTimeout(() => {
+            popup.remove();
+        }, duration);
     }
 }
