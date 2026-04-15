@@ -277,8 +277,10 @@ class ActionController {
                 if (consequence.type === 'updateComponentStatDelta' && !targetId) {
                     // For self-updates, find the first component that possesses the trait/stat being modified
                     const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-                    const trait = resolvedParams?.trait;
-                    const stat = resolvedParams?.stat;
+                    
+                    // Ensure resolvedParams is an object before accessing trait/stat
+                    const trait = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.trait : null;
+                    const stat = (resolvedParams && typeof resolvedParams === 'object') ? resolvedParams.stat : null;
                     
                     if (entity && trait && stat) {
                         const component = entity.components.find(comp => {

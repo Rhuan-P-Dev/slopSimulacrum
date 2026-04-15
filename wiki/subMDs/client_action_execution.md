@@ -33,7 +33,7 @@ Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for ta
 ### 2.3. Component-Targeted Actions (Deferred Execution)
 Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow for precision targeting:
 1.  **Action Selection**: The user clicks an attack action. The client stores it as a pending action and `UIManager` renders a red range indicator around the droid.
-2.  **Target Entity Selection**: The user clicks an entity on the map. `ClientApp` validates if the entity is within the action's `range`.
+2.  **Target Entity Selection**: The user clicks an entity on the map. `ClientApp` validates if the entity is within the action's `range` and uses `AppConfig.TARGETING.PUNCH_TOLERANCE` to determine if a click is close enough to an entity to count as a hit.
 3.  **Component Selection**: If valid, `UIManager.showComponentSelection()` opens the Tactical Targeting HUD, allowing the user to pick a specific component of the target entity.
 4.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
     *   `actionName`: (e.g., "droid punch").
@@ -116,7 +116,7 @@ The client handles two main types of errors:
 | Error Type | Source | Client Behavior |
 |------------|--------|-----------------|
 | **Network/HTTP Error** | Connectivity or Server Down | Displays a red error message in the "Status" bar. |
-| **Action Failure** | Requirements not met or System Error | Displays an alert box with the descriptive error message provided by the server (e.g., *"Requirement failed: No component possesses the required Physical.durability (>= 30)"*). |
+| **Action Failure** | Requirements not met or System Error | Displays a red error message in the "Status" bar via `UIManager.setStatus` (e.g., *"Requirement failed: No component possesses the required Physical.durability (>= 30)"*). |
 
 ---
 

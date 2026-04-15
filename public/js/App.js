@@ -51,8 +51,14 @@ export class ClientApp {
             if (droid) {
                 const state = this.worldState.getState();
                 const room = state.rooms[droid.location];
-                this.ui._renderEntities(room, state.entities, (entity) => this.ui.showEntityDetails(entity, state));
-                this.ui._renderDroidComponents(droid, state, (comp, stats) => this.ui.showComponentDetails(comp, stats));
+                this.ui.updateEntityAndComponentViews(
+                    room, 
+                    state.entities, 
+                    droid, 
+                    state, 
+                    (entity) => this.ui.showEntityDetails(entity, state), 
+                    (comp, stats) => this.ui.showComponentDetails(comp, stats)
+                );
             }
 
             await this.updateActionList();
@@ -151,7 +157,7 @@ export class ClientApp {
         }
 
         // Find entity at target location (with a small tolerance)
-        const tolerance = 20;
+        const tolerance = AppConfig.TARGETING.PUNCH_TOLERANCE;
         const targetEntity = Object.values(state.entities).find(e => {
             const edx = targetX - e.spatial.x;
             const edy = targetY - e.spatial.y;

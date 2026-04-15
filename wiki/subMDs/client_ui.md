@@ -45,6 +45,7 @@ The client implements a hybrid synchronization model coordinated by the `ClientA
     - `ActionManager.fetchActions()` retrieves the action registry via `GET /actions`.
 4. **UI Update**:
     - `UIManager.updateWorldView()` renders the room and active droid.
+    - `UIManager.updateEntityAndComponentViews()` is the public interface for updating entity and component layers with custom callbacks.
     - `UIManager.renderActionList()` updates the control panel with available actions.
 
 ### 3.2. Map Layout Engine (Spatial Coordinates)

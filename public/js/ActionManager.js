@@ -67,7 +67,7 @@ export class ActionManager {
             const result = await response.json();
             console.log('[ActionManager] Action executed successfully:', result);
         } catch (error) {
-            this.uiManager.setStatus('Action failed: ' + error.message, true);
+            this.uiManager.setStatus(`Action failed: ${error.message}`, true);
         }
     }
 
@@ -116,7 +116,7 @@ export class ActionManager {
                 throw new Error(err.result?.error || 'Failed to move droid');
             }
         } catch (error) {
-            console.error('[ActionManager] Movement failed:', error.message);
+            this.uiManager.setStatus(`Movement failed: ${error.message}`, true);
         }
     }
 
@@ -146,7 +146,7 @@ export class ActionManager {
             console.log('[ActionManager] Punch executed successfully:', result);
             return result;
         } catch (error) {
-            console.error('[ActionManager] Punch failed:', error.message);
+            this.uiManager.setStatus(`Punch failed: ${error.message}`, true);
             throw error;
         }
     }

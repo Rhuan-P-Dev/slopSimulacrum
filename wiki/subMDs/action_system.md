@@ -95,7 +95,7 @@ When requirements are met, the action executes its success consequences. Consequ
 - `updateStat` - Updates a component stat for all components with the trait
 - `updateComponentStatDelta` - Updates a specific stat for a component. 
     - If `targetComponentId` is provided, it updates that component.
-    - If no target is provided (self-targeting), the system automatically resolves the target by finding the first component on the entity that possesses the required trait/stat.
+    - If no target is provided (self-targeting), the system automatically resolves the target by finding the first component on the entity that possesses the required trait/stat. This resolution logic includes safety checks to ensure that parameter resolution doesn't fail when placeholders are resolved to primitive values.
 - `triggerEvent` - Triggers a server event
 
 **Placeholder Substitution:**

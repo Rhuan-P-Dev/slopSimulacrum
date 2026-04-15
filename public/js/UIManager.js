@@ -32,6 +32,21 @@ export class UIManager {
     }
 
     /**
+     * Updates the entity and component layers.
+     * This provides a public interface for App.js to trigger re-renders.
+     * @param {Object} room 
+     * @param {Object} entities 
+     * @param {Object} droid 
+     * @param {Object} state 
+     * @param {Function} onEntityClick 
+     * @param {Function} onComponentClick 
+     */
+    updateEntityAndComponentViews(room, entities, droid, state, onEntityClick, onComponentClick) {
+        this._renderEntities(room, entities, onEntityClick);
+        this._renderDroidComponents(droid, state, onComponentClick);
+    }
+
+    /**
      * Main update loop for the UI.
      * @param {Object} state The current world state.
      * @param {Object} droid The active droid entity.

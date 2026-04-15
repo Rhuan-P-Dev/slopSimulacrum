@@ -19,6 +19,9 @@ export const AppConfig = {
         ENTITY_RADIUS: 12,
         COMPONENT_RADIUS: 5,
     },
+    TARGETING: {
+        PUNCH_TOLERANCE: 20,
+    },
     ENDPOINTS: {
         WORLD_STATE: '/world-state',
         ACTIONS: '/actions',
