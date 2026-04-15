@@ -19,7 +19,7 @@ For non-movement actions, the flow is immediate:
 
 ### 2.2. Movement Actions (Deferred Execution)
 Movement actions (`move`, `dash`) use a two-step "Pending" state to allow for target selection on the map:
-1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state and highlights the action in the UI.
+1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state, highlights the action in the UI, and renders a **white range indicator** around the droid to visualize the possible movement distance.
 2.  **Target Selection**: The user clicks a location on the spatial map.
 3.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
     *   `actionName`: (e.g., "move" or "dash").

@@ -76,11 +76,13 @@ export class ClientApp {
             
             const pending = this.actions.getPendingAction();
             if (pending && this.availableActions[pending.actionName]) {
-                const actionData = this.availableActions[pending.actionName];
-                if (actionData.range) {
-                    const droid = this.worldState.getActiveDroid();
-                    if (droid) {
-                        this.ui.renderRangeIndicator(droid, actionData.range);
+                const droid = this.worldState.getActiveDroid();
+                const state = this.worldState.getState();
+                if (droid && state) {
+                    const range = this._calculateActionRange(pending.actionName, droid, state);
+                    if (range !== null) {
+                        const color = (pending.actionName === 'move' || pending.actionName === 'dash') ? 'white' : 'red';
+                        this.ui.renderRangeIndicator(droid, range, color);
                     }
                 }
             }
@@ -93,6 +95,43 @@ export class ClientApp {
         } catch (error) {
             console.error('[ClientApp] Action list update failed:', error);
         }
+    }
+
+    /**
+     * Calculates the effective range of an action.
+     * If the action has a static range, it uses that.
+     * If it's a movement action, it calculates range based on the droid's stats.
+     * @param {string} actionName The name of the action.
+     * @param {Object} droid The active droid entity.
+     * @param {Object} state The current world state.
+     * @returns {number|null} The calculated range or null if cannot be determined.
+     */
+    _calculateActionRange(actionName, droid, state) {
+        const actionData = this.availableActions[actionName];
+        if (!actionData) return null;
+
+        // Static range check
+        if (actionData.range) return actionData.range;
+
+        // Dynamic movement range
+        if (actionName === 'move' || actionName === 'dash') {
+            if (!droid || !droid.components || !state || !state.components || !state.components.instances) return null;
+
+            // Find a component that possesses the Movimentation trait
+            let moveStat = null;
+            for (const comp of droid.components) {
+                const stats = state.components.instances[comp.id];
+                if (stats && stats.Movimentation && stats.Movimentation.move !== undefined) {
+                    moveStat = stats.Movimentation.move;
+                    break;
+                }
+            }
+
+            if (moveStat === null) return null;
+            return actionName === 'dash' ? moveStat * 2 : moveStat;
+        }
+
+        return null;
     }
 
     _setupSocketListeners() {

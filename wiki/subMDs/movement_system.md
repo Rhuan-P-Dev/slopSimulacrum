@@ -7,8 +7,8 @@ The movement system allows entities to navigate the spatial map of a room. It us
 To prevent accidental movement and allow for different movement types (e.g., normal move vs. dash), the system employs a two-step interaction process:
 
 1.  **Action Selection:** The user selects a movement action (`move` or `dash`) from the Action Registry.
-    - **Visual Feedback:** The selected action is highlighted in the UI using the `.action-selected` class.
-    - **Toggling:** Clicking the same movement action again will deselect it, clearing the pending state.
+    - **Visual Feedback:** The selected action is highlighted in the UI using the `.action-selected` class, and a **white range indicator** is rendered around the droid to visualize the effective movement distance.
+    - **Toggling:** Clicking the same movement action again will deselect it, clearing the pending state and removing the range indicator.
 2.  **Target Selection:** The user clicks a location on the spatial map. The movement only executes if an action was previously selected. Upon successful execution, the server broadcasts a `world-state-update` signal, triggering the client to immediately refresh its state and update the map.
 
 ### 2.1. Client State Management

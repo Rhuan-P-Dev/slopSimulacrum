@@ -21,7 +21,9 @@ The map is rendered using a Scalable Vector Graphics (SVG) element to ensure cla
 - **Rooms (Nodes)**: Each room is represented as a circular node. The color changes based on whether the droid is currently present.
 - **Connections (Edges)**: Lines connecting room nodes represent doors or paths.
 - **Droid Marker**: A distinct, glowing point that moves between room nodes as the droid changes location. The marker for the player's own incarnated entity is highlighted to distinguish it from other entities.
-- **Range Indicators**: When a targeted action is selected, a red dashed circle is rendered around the active droid, indicating the maximum effective range of the action.
+- **Range Indicators**: When a targeted action is selected, a dashed circle is rendered around the active droid, indicating the maximum effective range. 
+    - **Red**: Used for attack actions.
+    - **White**: Used for movement actions (`move`, `dash`).
 
 ### 2.2. Droid Detail Panel
 A toggleable overlay or side panel that appears when the droid marker is clicked. It displays:
@@ -71,7 +73,7 @@ Entities are rendered as circular markers with the following characteristics:
 
 ### 3.4. Interaction Flow
 - **Movement (Target-Based)**: 
-    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction` and `UIManager` highlights it using the `.action-selected` class.
+    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction`, `UIManager` highlights it using the `.action-selected` class, and a **white range indicator** is rendered based on the droid's `Movimentation` stats.
     2. User clicks a location on the World Map $\rightarrow$ `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` $\rightarrow$ Client sends `POST /execute-action` $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state $\rightarrow$ Map updates.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 - **Attack (Component-Targeted)**: 
