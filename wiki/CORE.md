@@ -15,6 +15,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [LLM Integration](subMDs/llm_integration.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
+- [Controller Relationship Map](map.md)
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)
@@ -22,6 +23,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [LLM Integration](subMDs/llm_integration.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
+- [Controller Relationship Map](map.md)
 - Check the `subMDs` folder for more detailed guides.
 
 ### 📢 Note for Future Agents
