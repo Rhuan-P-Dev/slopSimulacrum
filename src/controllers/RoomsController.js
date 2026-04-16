@@ -1,4 +1,4 @@
-const { generateUID }= require('../utils/idGenerator');
+import { generateUID } from '../utils/idGenerator.js';
 
 /**
  * RoomsController handles the storage and management of rooms and their connections.
@@ -100,4 +100,4 @@ class RoomsController {
     }
 }
 
-module.exports = RoomsController;
+export default RoomsController;

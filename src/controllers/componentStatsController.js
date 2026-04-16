@@ -55,4 +55,4 @@ class ComponentStatsController {
     }
 }
 
-module.exports = ComponentStatsController;
+export default ComponentStatsController;

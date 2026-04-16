@@ -1,8 +1,8 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const LLMController = require('./controllers/LLMController');
-const WorldStateController = require('./controllers/WorldStateController');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import LLMController from './controllers/LLMController.js';
+import WorldStateController from './controllers/WorldStateController.js';
 
 const app = express();
 const server = http.createServer(app);

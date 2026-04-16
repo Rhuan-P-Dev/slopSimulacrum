@@ -1,5 +1,5 @@
-const ComponentStatsController = require('./componentStatsController');
-const TraitsController = require('./traitsController');
+import ComponentStatsController from './componentStatsController.js';
+import TraitsController from './traitsController.js';
 
 /**
  * ComponentController is responsible for communicating with all subcontrollers
@@ -99,4 +99,4 @@ class ComponentController {
     }
 }
 
-module.exports = ComponentController;
+export default ComponentController;

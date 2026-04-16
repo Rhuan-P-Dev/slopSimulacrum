@@ -1,12 +1,12 @@
-const RoomsController = require('./RoomsController');
-const stateEntityController = require('./stateEntityController');
-const ComponentController = require('./componentController');
-const EntityController = require('./entityController');
-const ComponentStatsController = require('./componentStatsController');
-const TraitsController = require('./traitsController');
-const ActionController = require('./actionController');
-const ConsequenceHandlers = require('./consequenceHandlers');
-const DataLoader = require('../utils/DataLoader');
+import RoomsController from './RoomsController.js';
+import stateEntityController from './stateEntityController.js';
+import ComponentController from './componentController.js';
+import EntityController from './entityController.js';
+import ComponentStatsController from './componentStatsController.js';
+import TraitsController from './traitsController.js';
+import ActionController from './actionController.js';
+import ConsequenceHandlers from './consequenceHandlers.js';
+import DataLoader from '../utils/DataLoader.js';
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -97,4 +97,4 @@ class WorldStateController {
     }
 }
 
-module.exports = WorldStateController;
+export default WorldStateController;

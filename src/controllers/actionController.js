@@ -1,4 +1,4 @@
-const Logger = require('../utils/Logger');
+import Logger from '../utils/Logger.js';
 
 /**
  * ActionController handles game actions, checking requirements and
@@ -415,4 +415,4 @@ class ActionController {
     }
 }
 
-module.exports = ActionController;
+export default ActionController;

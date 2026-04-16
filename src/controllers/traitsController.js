@@ -58,4 +58,4 @@ class TraitsController {
     }
 }
 
-module.exports = TraitsController;
+export default TraitsController;

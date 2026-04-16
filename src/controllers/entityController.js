@@ -1,5 +1,5 @@
-const ComponentController = require('./componentController');
-const { generateUID } = require('../utils/idGenerator');
+import ComponentController from './componentController.js';
+import { generateUID } from '../utils/idGenerator.js';
 
 /**
  * EntityController is responsible for storing entity blueprints and
@@ -105,4 +105,4 @@ class EntityController {
     }
 }
 
-module.exports = EntityController;
+export default EntityController;

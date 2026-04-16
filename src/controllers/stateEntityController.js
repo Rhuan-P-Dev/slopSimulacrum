@@ -1,5 +1,5 @@
-const EntityController = require('./entityController');
-const { generateUID } = require('../utils/idGenerator');
+import EntityController from './entityController.js';
+import { generateUID } from '../utils/idGenerator.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -100,4 +100,4 @@ class stateEntityController {
     }
 }
 
-module.exports = stateEntityController;
+export default stateEntityController;

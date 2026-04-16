@@ -1,4 +1,4 @@
-const Logger = require('../utils/Logger');
+import Logger from '../utils/Logger.js';
 
 /**
  * ConsequenceHandlers provides a set of strategy functions to execute
@@ -201,4 +201,4 @@ class ConsequenceHandlers {
     }
 }
 
-module.exports = ConsequenceHandlers;
+export default ConsequenceHandlers;

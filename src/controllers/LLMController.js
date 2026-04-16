@@ -116,4 +116,4 @@ class LLMController {
     }
 }
 
-module.exports = LLMController;
+export default LLMController;
