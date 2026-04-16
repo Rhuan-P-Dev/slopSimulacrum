@@ -19,7 +19,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)
-- [System Architecture Map](subMDs/system_map.md)
+- [System Architecture Map](subMDs/system_map.md) (Deep Version)
 - [LLM Integration](subMDs/llm_integration.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
@@ -28,6 +28,8 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ### 📢 Note for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.
+
+**Map Maintenance:** The architecture maps (`map.md` and `subMDs/system_map.md`) must be kept up-to-date. If you modify the controller hierarchy, add new controllers, or change the data flow, you are **required** to update the corresponding maps to maintain the "Single Source of Truth".
 
 The project employs a middleware architecture with two primary flows:
 - **LLM Interaction:** `Client` $\rightarrow$ `Server` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend`.
