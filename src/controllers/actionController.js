@@ -335,7 +335,7 @@ class ActionController {
     }
     
     /**
-     * Resolves placeholders in params (e.g., ":Movimentation.move" -> actual value).
+     * Resolves placeholders in params (e.g., ":Movement.move" -> actual value).
      * Now supports embedded placeholders within strings.
      * @private
      * @param {any} params - The value to resolve.

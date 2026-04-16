@@ -31,7 +31,7 @@ Movement is handled by the `ActionController._handleDeltaSpatial` method. Instea
 
 ### 3.2. Speed and Multipliers
 The movement speed is determined by the action definition in the registry:
-- **Move:** Uses `:traitValue` (the base `Movimentation.move` stat).
+- **Move:** Uses `:traitValue` (the base `Movement.move` stat).
 - **Dash:** Uses `:traitValue*2` (double the base move stat), but consumes 5 durability.
 
 ## 4. Coordinate Translation

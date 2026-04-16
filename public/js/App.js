@@ -137,12 +137,12 @@ export class ClientApp {
         if (isMove || isDash) {
             if (!droid || !droid.components || !state || !state.components || !state.components.instances) return null;
 
-            // Find a component that possesses the Movimentation trait
+            // Find a component that possesses the Movement trait
             let moveStat = null;
             for (const comp of droid.components) {
                 const stats = state.components.instances[comp.id];
-                if (stats && stats.Movimentation && stats.Movimentation.move !== undefined) {
-                    moveStat = stats.Movimentation.move;
+                if (stats && stats.Movement && stats.Movement.move !== undefined) {
+                    moveStat = stats.Movement.move;
                     break;
                 }
             }

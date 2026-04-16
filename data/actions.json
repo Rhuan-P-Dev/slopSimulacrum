@@ -3,7 +3,7 @@
     "targetingType": "spatial",
     "requirements": [
       {
-        "trait": "Movimentation",
+        "trait": "Movement",
         "stat": "move",
         "minValue": 5
       }
@@ -11,7 +11,7 @@
     "consequences": [
       {
         "type": "deltaSpatial",
-        "params": { "speed": ":Movimentation.move" }
+        "params": { "speed": ":Movement.move" }
       }
     ],
     "failureConsequences": [
@@ -26,7 +26,7 @@
     "targetingType": "spatial",
     "requirements": [
       {
-        "trait": "Movimentation",
+        "trait": "Movement",
         "stat": "move",
         "minValue": 5
       },
@@ -39,7 +39,7 @@
     "consequences": [
       {
         "type": "deltaSpatial",
-        "params": { "speed": ":Movimentation.move*2" }
+        "params": { "speed": ":Movement.move*2" }
       },
       {
         "type": "updateComponentStatDelta",
@@ -58,7 +58,7 @@
     "targetingType": "none",
     "requirements": [
       {
-        "trait": "Movimentation",
+        "trait": "Movement",
         "stat": "move",
         "minValue": 1
       },

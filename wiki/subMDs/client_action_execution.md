@@ -56,7 +56,7 @@ The client relies on the following data structure returned by the server to popu
   "actions": {
     "droid dash - up": {
       "requirements": [
-        { "trait": "Movimentation", "stat": "move", "minValue": 5 },
+        { "trait": "Movement", "stat": "move", "minValue": 5 },
         { "trait": "Physical", "stat": "durability", "minValue": 30 }
       ],
       "canExecute": [

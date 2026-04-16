@@ -74,7 +74,7 @@ Entities are rendered as circular markers with the following characteristics:
 
 ### 3.4. Interaction Flow
 - **Movement (Target-Based)**: 
-    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction`, `UIManager` highlights it using the `.action-selected` class, and a **white range indicator** is rendered based on the droid's `Movimentation` stats.
+    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction`, `UIManager` highlights it using the `.action-selected` class, and a **white range indicator** is rendered based on the droid's `Movement` stats.
     2. User clicks a location on the World Map $\rightarrow$ `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` $\rightarrow$ Client sends `POST /execute-action` $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state $\rightarrow$ Map updates.
 - **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
 - **Attack (Component-Targeted)**: 

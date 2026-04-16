@@ -65,8 +65,8 @@ Requirements define what an entity must have to perform an action. An action can
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `trait` | string | The trait category (e.g., "Movimentation") |
-| `stat` | string | The specific stat within the trait (ee.g., "move") |
+| `trait` | string | The trait category (e.g., "Movement") |
+| `stat` | string | The specific stat within the trait (e.g., "move") |
 | `minValue` | number | The minimum value required (exclusive >) |
 
 ### 3.2. Requirement Checking
@@ -82,7 +82,7 @@ To ensure the "most capable" component is prioritized (e.g., avoiding the case w
 
 This ensures that consequences targeting a trait/stat (like durability loss) are applied to the actual component that drove the action's success, rather than simply the first component found possessing that trait.
 
-**Example:** Move action requires `Movimentation.move > 5`. Droid dash requires both `Movimentation.move > 5` AND `Physical.durability > 30`.
+**Example:** Move action requires `Movement.move > 5`. Droid dash requires both `Movement.move > 5` AND `Physical.durability > 30`.
 
 ---
 
@@ -94,11 +94,10 @@ When requirements are met, the action executes its success consequences. Consequ
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | string | The consequence type (e.g., "updateSpatial", "log") |
+| `type` | string | The consequence type (e.g., "deltaSpatial", "log") |
 | `params` | object | Parameters for the consequence, supports placeholder substitution |
 
 **Consequence Types:**
-- `updateSpatial` - Sets absolute spatial coordinates
 - `deltaSpatial` - Adds delta values to current position (relative movement)
 - `log` - Logs a message to console
 - `updateStat` - Updates a component stat for all components with the trait
@@ -106,35 +105,19 @@ When requirements are met, the action executes its success consequences. Consequ
     - If `targetComponentId` is provided, it updates that component.
     - If no target is provided (self-targeting), the system first checks if a specific component fulfilled a requirement for the trait/stat being modified. If so, that component is targeted. Otherwise, it falls back to finding the first component on the entity that possesses the required trait/stat.
 - `triggerEvent` - Triggers a server event
+- `damageComponent` - Deals damage to a specific target component
 
 **Placeholder Substitution:**
-- `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movimentation.move`).
+- `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movement.move`).
 - **Embedded Support**: Placeholders can now be embedded within strings (e.g., `"Power is :Physical.strength"`) and will be automatically resolved.
-- **Arithmetic**: Supports signs and multipliers (e.g., `"-:Movimentation.move*2"`).
+- **Arithmetic**: Supports signs and multipliers (e.g., `"-:Movement.move*2"`).
 
-**Example:** Move upward by the move value (using deltaSpatial for relative movement):
+**Example:** Move using deltaSpatial for relative movement:
 ```javascript
 consequences: [
     {
         type: "deltaSpatial",
-        params: { y: "-:Movimentation.move" }  // Moves relative to current position
-    }
-]
-```
-
-### 4.1.1. Choosing the Right Spatial Handler
-
-| Handler | Use Case | Example |
-|---------|----------|---------|
-| `updateSpatial` | Set absolute coordinates | `{ y: 100 }` sets y to exactly 100 |
-| `deltaSpatial` | Move relative to current | `{ y: -20 }` moves up by 20 pixels |
-
-**Example:** Move upward by the move value (using deltaSpatial for relative movement):
-```javascript
-consequences: [
-    {
-        type: "deltaSpatial",
-        params: { y: "-:Movimentation.move" }  // Moves relative to current position
+        params: { speed: ":Movement.move" }  // Moves relative to current position
     }
 ]
 ```
@@ -196,19 +179,19 @@ Executes an action on an entity.
     results: [
         {
             success: true, 
-            type: "updateSpatial", 
-            message: "Spatial coordinates updated", 
-            data: { spatialUpdate: { y: -20 }, newSpatial: { x: 0, y: -20 } }
+            type: "deltaSpatial", 
+            message: "Entity moved", 
+            data: { deltaUpdate: { x: 0, y: -20 }, newSpatial: { x: 0, y: -20 } }
         }
     ]
 }
 ```
 
 **Returns (Failure):**
-```j
+```javascript
 {
     "success": false,
-    "error": "Requirement failed: No component has \"Movimentation.move\" > 5",
+    "error": "Requirement failed: No component possesses the required Movement.move (>= 5)",
     "executedFailureConsequences": 1,
     "results": [
         {
@@ -235,7 +218,7 @@ Executes success consequences by reading from the action registry and dispatchin
  */
 ```
 
-### 5.2.1. ActionController.getActionCapabilities()
+### 5.4. ActionController.getActionCapabilities()
 
 Calculates which entities are capable of executing which actions based on the current world state.
 
@@ -249,23 +232,23 @@ Calculates which entities are capable of executing which actions based on the cu
  */
 ```
 
-### 5.4. ActionController._executeFailureConsequences()
+### 5.5. ActionController._executeFailureConsequences()
 
 Executes failure consequences using the same dispatcher pattern.
 
 ```javascript
 /**
- * @param {string} actionName - The name of the action.
- * @param {string} entityId - The ID of the entity.
+ * @param {string} actionName - The action name.
+ * @param {string} entityId - The entity ID.
  * @returns {Object} Result of failure consequence execution.
  */
 ```
 
-### 5.5. ConsequenceHandlers.handlers
+### 5.6. ConsequenceHandlers.handlers
 
 Instead of an internal dispatcher, the `ActionController` now uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
 
-### 5.6. stateEntityController.updateEntitySpatial()
+### 5.7. stateEntityController.updateEntitySpatial()
 
 Updates an entity's spatial coordinates.
 
@@ -289,39 +272,25 @@ worldStateController.stateEntityController.updateEntitySpatial(
 
 ## 6. Built-in Consequence Handlers
 
-### 6.1. updateSpatial
-
-Sets an entity's spatial coordinates to absolute values.
-
-**Parameters:**
-| Property | Type | Description |
-|----------|------|-------------|
-| `x` | number | Optional. New absolute x coordinate |
-| `y` | number | Optional. New absolute y coordinate |
-
-**Example:**
-```javascript
-{ type: "updateSpatial", params: { y: 100 } }  // Sets y to exactly 100
-```
-
-### 6.2. deltaSpatial
+### 6.1. deltaSpatial
 
 Adds delta values to current spatial position for relative movement.
 
 **Parameters:**
 | Property | Type | Description |
 |----------|------|-------------|
+| `speed` | number | Optional. Speed/distance to move towards target |
 | `x` | number | Optional. Delta x to add to current position |
 | `y` | number | Optional. Delta y to add to current position |
 
 **Example:**
 ```javascript
-{ type: "deltaSpatial", params: { y: "-:Movimentation.move" } }  // Move up by trait value
+{ type: "deltaSpatial", params: { speed: ":Movement.move" } }  // Move by trait value
 ```
 
-**Note:** This handler is used for actions like `move` where the movement should be relative to the current position, not an absolute coordinate.
+**Note:** This handler is used for actions like `move` where the movement should be relative to the current position, not an absolute coordinate. When `targetX` and `targetY` are provided in `actionParams`, the handler calculates the direction and moves the entity towards the target by `speed` distance.
 
-### 6.3. log
+### 6.2. log
 
 Logs a message to console with optional level.
 
@@ -336,7 +305,7 @@ Logs a message to console with optional level.
 { type: "log", level: "warn", message: "Action failed" }
 ```
 
-### 6.4. updateStat
+### 6.3. updateStat
 
 Updates a specific stat for an entity's component.
 
@@ -352,7 +321,7 @@ Updates a specific stat for an entity's component.
 { type: "updateStat", trait: "Physical", stat: "durability", value: 50 }
 ```
 
-### 6.5. damageComponent
+### 6.4. damageComponent
 
 Deals damage to a specific component of a target entity.
 
@@ -363,14 +332,14 @@ Deals damage to a specific component of a target entity.
 | `stat` | string | The stat to reduce (e.g., "durability") |
 | `value` | number | The delta value (usually negative) |
 
-**Note:** This handler requires `targetComponentId` to be passed in the `actionParams` from the client. The `ConsequenceHandlers` wrapper ensures that the 4th argument (`actionParams`) from `ActionController` is correctly mapped to the handler.
+**Note:** This handler requires `targetComponentId` to be passed in the `actionParams` from the client.
 
 **Example:**
 ```javascript
 { type: "damageComponent", params: { trait: "Physical", stat: "durability", value: -25 } }
 ```
 
-### 6.6. updateComponentStatDelta
+### 6.5. updateComponentStatDelta
 
 Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific equipment (e.g., durability loss on legs during a dash).
 
@@ -386,7 +355,7 @@ Updates a specific stat for the component that triggered the action (the "callin
 { type: "updateComponentStatDelta", params: { trait: "Physical", stat: "durability", value: -5 } }
 ```
 
-### 6.7. triggerEvent
+### 6.6. triggerEvent
 
 Triggers a server event for client notifications.
 
@@ -407,86 +376,48 @@ Triggers a server event for client notifications.
 
 ### 7.1. Register a New Action
 
-Add to `ActionController.actionRegistry`:
+Add to `data/actions.json`:
 
-```javascript
-    "attack": {
-        requirements: [
-            {
-                trait: "Physical",
-                stat: "strength",
-                minValue: 10
-            }
-        ],
-        consequences: [
-            {
-                type: "log",
-                level: "info",
-                message: "Entity attacked with strength :traitValue"
-            },
-            {
-                type: "updateStat",
-                trait: "Physical",
-                stat: "durability",
-                value: ":traitValue"
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Attack failed - strength too low"
-            }
-        ]
-    },
-    "droid punch": {
-        range: 100,
-        requirements: [
-            {
-                trait: "Physical",
-                stat: "strength",
-                minValue: 15
-            }
-        ],
-        consequences: [
-            {
-                type: "damageComponent",
-                params: { 
-                    trait: "Physical", 
-                    stat: "durability", 
-                    value: "-:Physical.strength" 
-                }
-            },
-            {
-                type: "log",
-                level: "info",
-                message: "Droid performed a punch dealing :Physical.strength damage!"
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Punch failed - strength too low"
-            }
-        ]
-    }
+```json
+"attack": {
+    "requirements": [
+        {
+            "trait": "Physical",
+            "stat": "strength",
+            "minValue": 10
+        }
+    ],
+    "consequences": [
+        {
+            "type": "log",
+            "level": "info",
+            "message": "Entity attacked with strength :Physical.strength"
+        }
+    ],
+    "failureConsequences": [
+        {
+            "type": "log",
+            "level": "warn",
+            "message": "Attack failed - strength too low"
+        }
+    ]
+}
 ```
 
 ### 7.2. Adding New Consequence Types
 
 To add a new consequence type:
 
-1. Add a new handler method: `_handleNewType(entityId, params)`
-2. Add the handler to the dispatchers in `_dispatchConsequence()`:
+1. Add a new handler method in `ConsequenceHandlers` class
+2. Add the handler to the `handlers` getter in `ConsequenceHandlers`
 
 ```javascript
-const handlers = {
-    updateSpatial: () => this._handleUpdateSpatial(entityId, resolvedParams),
-    log: () => this._handleLog(resolvedParams),
-    // ... existing handlers
-    newType: () => this._handleNewType(entityId, resolvedParams)
-};
+get handlers() {
+    return {
+        // ... existing handlers
+        newType: (targetId, params, context) => this._handleNewType(targetId, params, context)
+    };
+}
 ```
 
 ---
@@ -515,101 +446,21 @@ Always validate inputs and return descriptive error messages when actions fail.
 
 ### 8.6. Placeholder Naming
 
-Use the `:trait.stat` syntax (e.g., `:Movimentation.move`) to reference specific requirement values. Combine with arithmetic in strings for calculations:
+Use the `:trait.stat` syntax (e.g., `:Movement.move`) to reference specific requirement values. Combine with arithmetic in strings for calculations:
+- `":trait.stat"` - Positive value
 - `" -:trait.stat"` - Negative value
-- `"+:trait.stat"` - Positive value
-- `"x:trait.stat"` - Prefix with 'x'
+- `":trait.stat*2"` - Multiplied value
 
 ---
 
-## 9. Complete Action Registry Example
+## 9. Current Implementation Status
 
-```javascript
-this.actionRegistry = {
-    "move": {
-        requirements: [
-            {
-                trait: "Movimentation",
-                stat: "move",
-                minValue: 5
-            }
-        ],
-        consequences: [
-            {
-                type: "deltaSpatial",
-                params: { speed: ":Movimentation.move" }
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Action 'move' failed - requirement not met"
-            }
-        ]
-    },
-    "dash": {
-        requirements: [
-            {
-                trait: "Movimentation",
-                stat: "move",
-                minValue: 5
-            },
-            {
-                trait: "Physical",
-                stat: "durability",
-                minValue: 30
-            }
-        ],
-        consequences: [
-            {
-                type: "deltaSpatial",
-                params: { speed: ":Movimentation.move*2" }
-            },
-            {
-                type: "updateComponentStatDelta",
-                params: { trait: "Physical", stat: "durability", value: -5 }
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Action 'dash' failed - requirement not met"
-            }
-        ]
-    },
-    "attack": {
-        requirements: [
-            {
-                trait: "Physical",
-                stat: "strength",
-                minValue: 10
-            }
-        ],
-        consequences: [
-            {
-                type: "log",
-                level: "info",
-                message: "Entity attacked with strength :Physical.strength"
-            },
-            {
-                type: "updateStat",
-                trait: "Physical",
-                stat: "durability",
-                value: ":Physical.strength"
-            }
-        ],
-        failureConsequences: [
-            {
-                type: "log",
-                level: "warn",
-                message: "Attack failed - strength too low"
-            }
-        ]
-    }
-};
-```
+| Action | Requirements | Success Consequences | Failure Consequences |
+|--------|-------------|---------------------|---------------------|
+| move | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| dash | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| selfHeal | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 
 ---
 
@@ -624,7 +475,7 @@ Executes an action on an entity.
 {
     "actionName": "move",
     "entityId": "uuid-entity-123",
-    "params": {}
+    "params": { "targetX": 50, "targetY": -30 }
 }
 ```
 
@@ -639,10 +490,9 @@ Executes an action on an entity.
         "results": [
             {
                 "success": true,
-                "type": "updateSpatial",
-                "message": "Spatial coordinates updated",
-                "spatialUpdate": { "y": -20 },
-                "newSpatial": { "x": 0, "y": -20 }
+                "type": "deltaSpatial",
+                "message": "Entity moved",
+                "data": { "deltaUpdate": { "x": 10, "y": -20 }, "newSpatial": { "x": 10, "y": -20 } }
             }
         ]
     }
@@ -654,7 +504,7 @@ Executes an action on an entity.
 {
     "result": {
         "success": false,
-        "error": "Requirement failed: No component possesses the required Movimentation.move (> 5)",
+        "error": "Requirement failed: No component possesses the required Movement.move (>= 5)",
         "executedFailureConsequences": 1,
         "results": [
             {
@@ -667,43 +517,12 @@ Executes an action on an entity.
     }
 }
 ```
-*Note: Error messages are now generated using a centralized `ERROR_REGISTRY` for consistency.*
 
 ---
 
-## 11. Current Implementation Status
+## 11. Placeholder Substitution Logic
 
-| Action | Requirements | Success Consequences | Failure Consequences |
-|--------|-------------|---------------------|---------------------|
-| move - up | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - down | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - up-left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - up-right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - down-left | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| move - down-right | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| attack | ⚠️ Ready to add | ⚠️ Ready to add | ⚠️ Ready to add |
-| droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-
----
-
-### 📢 Notice for Future Agents
-
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-
-**Controller Pattern:** The `ActionController` follows the Dependency Injection pattern and should never instantiate its own controllers.
-
-**Consequence Dispatcher:** All consequences are handled through the dispatcher pattern. To add a new consequence type:
-1. Add a handler method `_handle<Type>()`
-2. Register it in `_dispatchConsequence()` handlers object
-3. Document it in this wiki
-
----
-
-## 12. Placeholder Substitution Logic
-
-### 12.1. Implementation
+### 11.1. Implementation
 The `_resolvePlaceholders` method uses a regular expression to identify and resolve `:trait.stat` markers within strings. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
 
 **Current Logic:**
@@ -720,15 +539,28 @@ if (match) {
 }
 ```
 
-### 12.2. Supported Patterns
+### 11.2. Supported Patterns
 The system supports signs and multipliers, allowing for flexible action definitions:
 
-| Pattern | Description | Example (Movimentation.move=20) | Result |
-|---------|-------------|--------------------------------|-------------------|
-| `:trait.stat` | Base value | `":Movimentation.move"` | `20` |
-| `-:trait.stat` | Negative value | `"-:Movimentation.move"` | `-20` |
-| `:trait.stat*2` | Multiplied value | `":Movimentation.move*2"` | `40` |
-| `-:trait.stat*2` | Negative multiplied | `"-:Movimentation.move*2"` | `-40` |
+| Pattern | Description | Example (Movement.move=20) | Result |
+|---------|-------------|---------------------------|--------|
+| `:trait.stat` | Base value | `":Movement.move"` | `20` |
+| `-:trait.stat` | Negative value | `"-:Movement.move"` | `-20` |
+| `:trait.stat*2` | Multiplied value | `":Movement.move*2"` | `40` |
+| `-:trait.stat*2` | Negative multiplied | `"-:Movement.move*2"` | `-40` |
 
-### 12.3. Integration
+### 11.3. Integration
 These resolved values are passed directly to consequence handlers (like `deltaSpatial`), ensuring correct mathematical operations on the entity's state.
+
+---
+
+### 📢 Notice for Future Agents
+
+**Language Requirement:** All source code in this project must be written in **JavaScript**.
+
+**Controller Pattern:** The `ActionController` follows the Dependency Injection pattern and should never instantiate its own controllers.
+
+**Consequence Dispatcher:** All consequences are handled through the `ConsequenceHandlers` class. To add a new consequence type:
+1. Add a handler method `_handle<Type>()` in `ConsequenceHandlers`
+2. Register it in the `handlers` getter
+3. Document it in this wiki

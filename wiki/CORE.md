@@ -55,7 +55,7 @@ The `ActionController` handles game actions on entities, providing a centralized
 `Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `ActionController` (Injected with `ConsequenceHandlers` and `actionRegistry`)
 
 **Key Responsibilities:**
-- Requirement validation for actions (e.g., Movimentation.move > 5)
+- Requirement validation for actions (e.g., Movement.move > 5)
 - Consequence execution through appropriate sub-controllers
 - HTTP API endpoint for action execution (`POST /execute-action`)
 

@@ -11,10 +11,9 @@
   },
   "Spatial": {
     "x": 0,
-    "y": 0,
-    "position": "0,0"
+    "y": 0
   },
-  "Movimentation": {
+  "Movement": {
     "move": 10
   }
 }

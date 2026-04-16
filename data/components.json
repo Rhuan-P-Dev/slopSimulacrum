@@ -34,7 +34,7 @@
     "traits": { 
       "Physical": { "durability": 120 },
       "Spatial": { "x": 0, "y": 20 },
-      "Movimentation": { "move": 20 }
+      "Movement": { "move": 20 }
     } 
   }
 }

@@ -23,6 +23,11 @@ class WorldStateController {
         const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
         const traitsRegistry = DataLoader.loadJsonSafe('data/traits.json');
 
+        // Warn if action registry is empty or missing
+        if (!actionRegistry || Object.keys(actionRegistry).length === 0) {
+            console.warn('[WorldStateController] Action registry is empty or missing. Actions will not be available.');
+        }
+
         // 1. Instantiate Data Stores (Bottom level)
         const statsController = new ComponentStatsController();
         const traitsController = new TraitsController(traitsRegistry);
@@ -35,14 +40,15 @@ class WorldStateController {
         const stateEntityControllerInstance = new stateEntityController(entityController);
         const roomsController = new RoomsController();
         
-        // 4. Instantiate ActionController (Top level - Injected with Dependencies)
-        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
-        const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
-
         // Assign to the WorldStateController for coordination and the getAll() method
         this.roomsController = roomsController;
         this.stateEntityController = stateEntityControllerInstance;
         this.componentController = componentController;
+        
+        // 4. Instantiate ActionController (Top level - Injected with Dependencies)
+        // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
+        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
+        const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
         this.actionController = actionController;
         
         // Map of sub-controllers for easy iteration/extension
