@@ -18,7 +18,8 @@ class EntityController {
                 "droidHead", 
                 ["droidArm", "left"], 
                 ["droidArm", "right"], 
-                "droidRollingBall"
+                ["droidRollingBall", "left"], 
+                ["droidRollingBall", "right"], 
             ],
             "droidArm": ["droidHand"],
             "droidHand": [
