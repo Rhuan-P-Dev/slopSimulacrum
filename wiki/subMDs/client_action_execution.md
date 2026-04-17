@@ -32,15 +32,19 @@ Movement actions (defined in `AppConfig.ACTIONS`, e.g., `MOVE`, `DASH`) use a tw
 
 ### 2.3. Component-Targeted Actions (Deferred Execution)
 Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow for precision targeting:
-1.  **Action Selection**: The user clicks an attack action. The client stores it as a pending action and `UIManager` renders a red range indicator around the droid.
+1.  **Action Selection**: The user clicks an attack action. The client stores it as a pending action and `UIManager` renders a red range indicator around the droid. The selected attacker component ID (from the action list) is stored in `pendingMovementAction.componentId`.
 2.  **Target Entity Selection**: The user clicks an entity on the map. `ClientApp` validates if the entity is within the action's `range` and uses `AppConfig.TARGETING.PUNCH_TOLERANCE` to determine if a click is close enough to an entity to count as a hit.
 3.  **Component Selection**: If valid, `UIManager.showComponentSelection()` opens the Tactical Targeting HUD, allowing the user to pick a specific component of the target entity.
 4.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
     *   `actionName`: (e.g., "droid punch").
     *   `entityId`: The ID of the attacker.
-    *   `params`: The `targetComponentId` of the selected component.
-5.  **Execution**: The server applies damage to the specific component's durability.
+    *   `params`:
+        *   `attackerComponentId`: The component performing the attack (e.g., `droidHand`). Its stats are used for **requirement value resolution** (e.g., `Physical.strength` determines damage).
+        *   `targetComponentId`: The component being targeted. Its stats are used for **consequence application** (e.g., reducing durability).
+5.  **Execution**: The server resolves damage values from the attacker's stats and applies them to the target's durability.
 6.  **Reset**: The pending action is cleared and the UI is refreshed via the standard `world-state-update` flow.
+
+**Important**: The `attackerComponentId` must be used for resolving action parameter values (like damage). Using the target's component stats would result in incorrect values (e.g., using global defaults instead of the attacker's actual strength).
 
 ---
 

@@ -8,13 +8,39 @@ The Action System provides a centralized, extensible mechanism for executing gam
 - `ActionController`: Main coordinator for all actions
 - `WorldStateController`: Root injector providing access to all sub-controllers
 
-## 1.1. Action Capability Cache
+### 1.1. Action Capability Cache
 
-The `ActionController` maintains a **capability cache** that maps each action to the best fulfilling component across all entities. This enables:
+The `ActionController` maintains a **capability cache** that maps each action to an **array of all component capability entries** that qualify for that action. Every component that meets an action's requirements gets its own entry, sorted by score (best first).
 
-- **Real-time UI updates**: When component stats change (e.g., durability loss), actions are automatically re-evaluated
-- **Efficient queries**: Cached data avoids redundant computation on every request
-- **Component-level tracking**: Each action entry identifies the specific component responsible for fulfilling requirements
+**Cache Structure:**
+```javascript
+_capabilityCache: {
+  "pierce": [
+    { entityId: "e1", componentId: "knife-comp", componentType: "knife", score: 95, ... },
+    { entityId: "e1", componentId: "hand-comp", componentType: "droidHand", score: 30, ... }
+  ],
+  "move": [
+    { entityId: "e1", componentId: "wheel-comp", componentType: "droidRollingBall", score: 100, ... }
+  ]
+}
+```
+
+**Key Methods:**
+- `scanAllCapabilities(state)` — Full bottom-up scan of all entities/components
+- `reEvaluateActionForComponent(state, actionName, componentId)` — Update single entry in array
+- `reEvaluateEntityCapabilities(state, entityId)` — Re-scan all components for an entity
+- `removeEntityFromCache(entityId)` — Remove all entries for an entity
+- `getActionsForEntity(state, entityId)` — Get actions for a specific entity (auto-scans if entity not in cache)
+- `getActionCapabilities(state)` — Get all capabilities (auto-scans if cache empty)
+- `getCachedCapabilities()` — Return cached data
+- `getBestComponentForAction(actionName)` — Get best entry (highest score) for an action
+- `getAllCapabilitiesForAction(actionName)` — Get all entries for an action
+- `getCapabilitiesForEntity(entityId)` — Get all entries for an entity
+- `on(actionName, callback)` / `off(actionName, callback)` — Event subscription
+
+**Auto-Scan Behavior:**
+- `getActionsForEntity()` triggers a scan if cache is empty OR entity not in cache
+- `getActionCapabilities()` triggers a scan if cache is empty
 
 **See also:** [Action Capability Cache Sub-Wiki](action_capability_cache.md)
 
@@ -27,10 +53,18 @@ The `ActionController` maintains a **capability cache** that maps each action to
 ```
 ComponentStatChange → ComponentController → ActionController.onStatChange()
     → _getActionsForTraitStat() → reEvaluateActionForComponent()
-    → _notifySubscribers() → Event emission
+    → find entry in array → update/remove → re-sort → _notifySubscribers()
+
+EntitySpawn → stateEntityController.spawnEntity()
+    → ActionController.reEvaluateEntityCapabilities()
+    → remove all entries for entity → re-scan all components → re-sort → notify
+
+EntityDespawn → stateEntityController.despawnEntity()
+    → ActionController.removeEntityFromCache()
+    → remove all entries for entity from all actions
 ```
 
-The capability cache uses a **reverse index** (`_componentActionIndex`) to efficiently determine which actions depend on a specific trait.stat combination, enabling targeted re-evaluation instead of full rescans.
+The capability cache uses a **reverse index** (`_traitStatActionIndex`) to efficiently determine which actions depend on a specific trait.stat combination, enabling targeted re-evaluation instead of full rescans.
 
 ### 2.2. Dependency Injection Chain
 
@@ -91,7 +125,7 @@ Requirements define what an entity must have to perform an action. An action can
 
 ### 3.2. Requirement Checking
 
-The `ActionController` checks each entity's components for the required traits and stats. The action only executes if there is at least one component that satisfies **all** the listed requirements.
+The `ActionController` checks each entity's components for the required traits and stats. Requirements can be satisfied by **multiple components** — each requirement is independently assigned to the best available component.
 
 **Component Tracking:** When requirements are met, the system identifies and tracks which specific components satisfied each requirement using a `fulfillingComponents` map (e.g., `{"Physical.durability": "component_id"}`). This map is passed to consequence handlers via a `context` object.
 
@@ -121,11 +155,41 @@ When requirements are met, the action executes its success consequences. Consequ
 - `deltaSpatial` - Adds delta values to current position (relative movement)
 - `log` - Logs a message to console
 - `updateStat` - Updates a component stat for all components with the trait
-- `updateComponentStatDelta` - Updates a specific stat for a component. 
+- `updateComponentStatDelta` - Updates a specific stat for a component.
     - If `targetComponentId` is provided, it updates that component.
     - If no target is provided (self-targeting), the system first checks if a specific component fulfilled a requirement for the trait/stat being modified. If so, that component is targeted. Otherwise, it falls back to finding the first component on the entity that possesses the required trait/stat.
+    - **Deep Trait-Level Merge**: When updating a stat, the `ComponentStatsController.setStats()` method merges within the trait category, preserving all other stats in the same trait (e.g., updating `Physical.durability` does not erase `Physical.mass`, `Physical.strength`, etc.). See `wiki/subMDs/traits.md` Section 5 for details.
 - `triggerEvent` - Triggers a server event
 - `damageComponent` - Deals damage to a specific target component
+
+**Attacker vs. Target Component Resolution:**
+For actions that involve both an attacker and a target (e.g., punch/attack actions), the system uses two distinct component IDs:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `attackerComponentId` | The component performing the action. Its stats are used for **requirement value resolution** (e.g., determining damage based on `Physical.strength`). |
+| `targetComponentId` | The component being affected. Its stats are used for **consequence application** (e.g., reducing durability). |
+
+**Priority order for requirement value resolution in `executeAction()`:**
+1. `attackerComponentId` (if provided) - Used for actions like punch where the attacker's stats determine the outcome
+2. `targetComponentId` (if provided) - Legacy behavior, used for single-component actions
+3. Entity-wide check - Falls back to entity-wide requirement checking
+
+**Example - Punch Action:**
+```javascript
+// Client sends:
+{
+    actionName: "droid punch",
+    entityId: "attacker-entity-uuid",
+    params: {
+        attackerComponentId: "droidHand-uuid",   // Determines damage (= 25 strength)
+        targetComponentId: "enemy-centralBall"    // Receives damage
+    }
+}
+
+// The consequence "-:Physical.strength" resolves to -25 (from attacker),
+// not -10 (from target's global defaults).
+```
 
 **Placeholder Substitution:**
 - `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movement.move`).
@@ -166,13 +230,14 @@ failureConsequences: [
 
 ### 5.1. ActionController.getActionsForEntity()
 
-Retrieves only the actions that are relevant to a specific entity.
+Retrieves only the actions that are relevant to a specific entity. Filters the cache by entityId to show only this entity's component capabilities.
 
 ```javascript
 /**
  * @param {Object} state - The current world state.
  * @param {string} entityId - The ID of the entity to filter for.
- * @returns {Object} Map of actions relevant to the entity.
+ * @returns {Object} Map of actions and their capability status for the entity.
+ * Each action has: { ...actionData, canExecute: [entries], cannotExecute: [...] }
  */
 ```
 
@@ -198,9 +263,9 @@ Executes an action on an entity.
     executedConsequences: 1,
     results: [
         {
-            success: true, 
-            type: "deltaSpatial", 
-            message: "Entity moved", 
+            success: true,
+            type: "deltaSpatial",
+            message: "Entity moved",
             data: { deltaUpdate: { x: 0, y: -20 }, newSpatial: { x: 0, y: -20 } }
         }
     ]
@@ -247,35 +312,32 @@ Uses the cached capability data. If cache is empty, performs a full scan.
 /**
  * @param {Object} state - The current world state.
  * @returns {Object} Map of actions and their capability status.
- * Each entry in canExecute now includes:
- * - componentName: The type of the satisfying component.
- * - componentIdentifier: The identifier of the satisfying component.
+ * Each action entry has: { ...actionData, canExecute: [all entries], cannotExecute: [...] }
  */
 ```
 
 ### 5.5. ActionController.scanAllCapabilities(state)
 
 Performs a full bottom-up scan of all entities and their components against all registered actions.
-Updates the capability cache with the best component for each action-entity pair.
+Updates the capability cache with ALL qualifying component entries (not just the best one).
 
 ```javascript
 /**
  * @param {Object} state - The current world state (contains entities).
- * @returns {Object<string, Object<string, ActionCapabilityEntry>>} The updated capability cache.
+ * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
  */
 ```
 
 ### 5.6. ActionController.reEvaluateActionForComponent(state, actionName, componentId)
 
-Re-evaluates a specific action for a specific component. Called when a component stat changes.
-Only updates the affected action entry.
+Re-evaluates a specific action for a specific component. Finds the entry in the action's array and updates or removes it. Called when a component stat changes.
 
 ```javascript
 /**
  * @param {Object} state - The current world state.
  * @param {string} actionName - The action to re-evaluate.
  * @param {string} componentId - The component whose stats changed.
- * @returns {ActionCapabilityEntry|null} The updated capability entry, or null.
+ * @returns {ComponentCapabilityEntry|null} The updated capability entry, or null.
  */
 ```
 
@@ -288,43 +350,76 @@ Uses the reverse index for efficient lookup.
 /**
  * @param {Object} state - The current world state.
  * @param {string} componentId - The component whose stats changed.
- * @returns {Array<ActionCapabilityEntry>} List of updated capability entries.
+ * @returns {Array<ComponentCapabilityEntry>} List of updated capability entries.
  */
 ```
 
-### 5.8. ActionController.getCachedCapabilities()
+### 5.8. ActionController.reEvaluateEntityCapabilities(state, entityId)
+
+Re-evaluates ALL actions for a specific entity. Removes all entries for this entity from all actions, then re-scans all components against all actions. Called when an entity's component set changes (e.g., picks up/drops an item, spawns).
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} entityId - The entity to re-evaluate.
+ * @returns {Array<ComponentCapabilityEntry>} List of updated capability entries.
+ */
+```
+
+### 5.9. ActionController.removeEntityFromCache(entityId)
+
+Removes all capability entries for an entity from all action arrays. Called when an entity is despawned.
+
+```javascript
+/**
+ * @param {string} entityId - The entity ID to remove.
+ */
+```
+
+### 5.10. ActionController.getCachedCapabilities()
 
 Returns the cached capability entries for all actions without recomputation.
 
 ```javascript
 /**
- * @returns {Object<string, Object<string, ActionCapabilityEntry>>} The capability cache.
+ * @returns {Object<string, Array<ComponentCapabilityEntry>>} The capability cache.
  */
 ```
 
-### 5.9. ActionController.getBestComponentForAction(actionName)
+### 5.11. ActionController.getBestComponentForAction(actionName)
 
-Returns the best component for a specific action across all entities.
+Returns the best entry for a specific action (highest score, first in array).
 
 ```javascript
 /**
  * @param {string} actionName - The action name.
- * @returns {ActionCapabilityEntry|null} The best capability entry, or null.
+ * @returns {ComponentCapabilityEntry|null} The best capability entry, or null.
  */
 ```
 
-### 5.10. ActionController.getCapabilitiesForEntity(entityId)
+### 5.12. ActionController.getAllCapabilitiesForAction(actionName)
 
-Returns capability entries for a specific entity across all actions.
+Returns all capability entries for a specific action (sorted by score).
+
+```javascript
+/**
+ * @param {string} actionName - The action name.
+ * @returns {Array<ComponentCapabilityEntry>} Array of capability entries.
+ */
+```
+
+### 5.13. ActionController.getCapabilitiesForEntity(entityId)
+
+Returns capability entries for a specific entity across all actions. Filters the cache by entityId.
 
 ```javascript
 /**
  * @param {string} entityId - The entity ID.
- * @returns {Object<string, ActionCapabilityEntry>} Map of actionName → capability entry.
+ * @returns {Array<ComponentCapabilityEntry>} Array of capability entries for this entity.
  */
 ```
 
-### 5.11. ActionController.onStatChange(componentId, traitId, statName, newValue, oldValue)
+### 5.14. ActionController.onStatChange(componentId, traitId, statName, newValue, oldValue)
 
 Called when a component stat changes. Re-evaluates all dependent actions.
 Registered as a stat change listener on ComponentController.
@@ -339,7 +434,7 @@ Registered as a stat change listener on ComponentController.
  */
 ```
 
-### 5.12. ActionController.on(actionName, callback) / off(actionName, callback)
+### 5.15. ActionController.on(actionName, callback) / off(actionName, callback)
 
 Subscribe/unsubscribe to capability change events for a specific action.
 
@@ -350,7 +445,7 @@ Subscribe/unsubscribe to capability change events for a specific action.
  */
 ```
 
-### 5.13. ActionController._executeFailureConsequences()
+### 5.16. ActionController._executeFailureConsequences()
 
 Executes failure consequences using the same dispatcher pattern.
 
@@ -362,11 +457,11 @@ Executes failure consequences using the same dispatcher pattern.
  */
 ```
 
-### 5.14. ConsequenceHandlers.handlers
+### 5.17. ConsequenceHandlers.handlers
 
 Instead of an internal dispatcher, the `ActionController` now uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
 
-### 5.15. stateEntityController.updateEntitySpatial()
+### 5.18. stateEntityController.updateEntitySpatial()
 
 Updates an entity's spatial coordinates.
 
@@ -461,12 +556,21 @@ Deals damage to a specific component of a target entity.
 
 Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific equipment (e.g., durability loss on legs during a dash).
 
+**Component Resolution Priority:**
+1. **Explicit `targetComponentId`** from `actionParams` — Used for targeted actions like damage (e.g., punching an enemy's component)
+2. **Fulfilling component** from `context.fulfillingComponents` — The component that satisfied the specific `trait.stat` requirement (e.g., the component with `Physical.durability` for self-heal)
+3. **Fallback to entity-wide update** — If no component can be resolved, the handler falls back to `_handleUpdateStat` for entity-wide updates
+
+**⚠️ Important:** Unlike previous behavior, this handler no longer falls back to "first component with the trait." If you need entity-wide stat updates, use the `updateStat` consequence type instead.
+
 **Parameters:**
 | Property | Type | Description |
 |----------|------|-------------|
 | `trait` | string | The trait category (e.g., "Physical") |
 | `stat` | string | The stat name to modify |
 | `value` | number | The delta value to add (use negative for reduction) |
+
+**Deep Trait-Level Merge**: The underlying `ComponentStatsController.setStats()` method performs a deep trait-level merge, ensuring that updating one stat does not erase other stats in the same trait category. For example, updating `Physical.durability` via dash will not erase `Physical.mass`, `Physical.strength`, etc. See `wiki/subMDs/traits.md` Section 5 for details.
 
 **Example:**
 ```javascript
@@ -571,14 +675,44 @@ Use the `:trait.stat` syntax (e.g., `:Movement.move`) to reference specific requ
 
 ---
 
-## 9. Current Implementation Status
+## 9. Entity Lifecycle and Cache Updates
 
-| Action | Requirements | Success Consequences | Failure Consequences |
-|--------|-------------|---------------------|---------------------|
-| move | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| dash | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| selfHeal | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+### 9.1. Entity Spawn
+
+When a new entity spawns, its capabilities are automatically evaluated:
+
+```javascript
+// In stateEntityController.spawnEntity():
+const entityId = generateUID();
+// ... create entity ...
+if (this.actionController) {
+    const state = this.actionController.worldStateController.getAll();
+    this.actionController.reEvaluateEntityCapabilities(state, entityId);
+}
+```
+
+### 9.2. Entity Despawn
+
+When an entity is removed, its capabilities are cleaned up:
+
+```javascript
+// In stateEntityController.despawnEntity():
+if (this.actionController) {
+    this.actionController.removeEntityFromCache(entityId);
+}
+delete this.entities[entityId];
+```
+
+### 9.3. Component Addition/Removal
+
+When an entity picks up or drops an item (component set changes):
+
+```javascript
+// Via API: POST /refresh-entity-capabilities
+// Body: { "entityId": "entity-uuid" }
+const state = worldStateController.getAll();
+const updatedEntries = worldStateController.actionController.reEvaluateEntityCapabilities(state, entityId);
+```
 
 ---
 
@@ -636,6 +770,26 @@ Executes an action on an entity.
 }
 ```
 
+### 10.2. POST /refresh-entity-capabilities
+
+Re-evaluates all action capabilities for a specific entity.
+
+**Request:**
+```json
+{ "entityId": "entity-uuid-1" }
+```
+
+**Response:**
+```json
+{
+    "entityId": "entity-uuid-1",
+    "updatedEntries": [
+        { "componentId": "knife-comp", "score": 95, ... },
+        { "componentId": "hand-comp", "score": 30, ... }
+    ]
+}
+```
+
 ---
 
 ## 11. Placeholder Substitution Logic
@@ -672,6 +826,17 @@ These resolved values are passed directly to consequence handlers (like `deltaSp
 
 ---
 
+## 12. Current Implementation Status
+
+| Action | Requirements | Success Consequences | Failure Consequences |
+|--------|-------------|---------------------|---------------------|
+| move | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| dash | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| selfHeal | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+
+---
+
 ### 📢 Notice for Future Agents
 
 **Language Requirement:** All source code in this project must be written in **JavaScript**.
@@ -682,3 +847,5 @@ These resolved values are passed directly to consequence handlers (like `deltaSp
 1. Add a handler method `_handle<Type>()` in `ConsequenceHandlers`
 2. Register it in the `handlers` getter
 3. Document it in this wiki
+
+**Capability Cache:** The cache maps each action to an **array of all qualifying component entries** (not just the best one). See [Action Capability Cache Sub-Wiki](action_capability_cache.md) for details.

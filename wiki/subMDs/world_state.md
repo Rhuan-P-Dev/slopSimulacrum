@@ -6,7 +6,14 @@ The World State Management system is responsible for maintaining the "physical" 
 ## 2. Architecture
 The system is structured as a coordinator-subcontroller hierarchy:
 
-`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `[Sub-Controllers]` (e.g., `RoomsController`, `stateEntityController`)
+`Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `[Sub-Controllers]` (e.g., `RoomsController`, `stateEntityController`, `componentController`, `componentStatsController`)
+
+### 2.0. ComponentStatsController (`src/controllers/componentStatsController.js`)
+The `ComponentStatsController` stores and manages the statistics of all component instances.
+- **Role**: Persistent Data Store for component stats.
+- **Data Structure**: `{ [componentInstanceId]: { [traitId]: { [statName]: value, ... }, ... }, ... }`
+- **Deep Trait-Level Merge**: The `setStats()` method merges incoming updates within each trait category, ensuring that updating a single stat (e.g., `Physical.durability`) does not erase other stats in the same trait (e.g., `Physical.mass`, `Physical.strength`). See `wiki/subMDs/traits.md` Section 5 for details.
+- **Defensive Copying**: `getStats()` and `getAll()` return deep clones to prevent external mutation of internal state.
 
 ### 2.1. WorldStateController (`src/controllers/WorldStateController.js`)
 The `WorldStateController` acts as the primary entry point for all state-related queries and the **Root Injector** for the system.

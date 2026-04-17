@@ -44,12 +44,16 @@ class WorldStateController {
         this.roomsController = roomsController;
         this.stateEntityController = stateEntityControllerInstance;
         this.componentController = componentController;
-        
+
         // 4. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
         const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
         this.actionController = actionController;
+
+        // Wire the actionController reference into stateEntityController for spawn/despawn hooks
+        // Must be done AFTER actionController is instantiated (forward reference)
+        this.stateEntityController.actionController = actionController;
 
         // 5. Wire up stat change notifications from ComponentController to ActionController
         // This enables automatic capability re-evaluation when component stats change
@@ -103,6 +107,48 @@ class WorldStateController {
         }
 
         return globalState;
+    }
+
+    // =========================================================================
+    // PUBLIC API WRAPPERS (for server.js access)
+    // =========================================================================
+
+    /**
+     * Spawns an entity from a blueprint into a room.
+     * @param {string} blueprintName - The blueprint to use.
+     * @param {string} roomId - The room to spawn into.
+     * @returns {string} The new entity ID.
+     */
+    spawnEntity(blueprintName, roomId) {
+        return this.stateEntityController.spawnEntity(blueprintName, roomId);
+    }
+
+    /**
+     * Despawns an entity and cleans up its capabilities.
+     * @param {string} entityId - The entity to despawn.
+     * @returns {boolean} True if successful.
+     */
+    despawnEntity(entityId) {
+        return this.stateEntityController.despawnEntity(entityId);
+    }
+
+    /**
+     * Moves an entity to a different room.
+     * @param {string} entityId - The entity to move.
+     * @param {string} targetRoomId - The destination room.
+     * @returns {boolean} True if successful.
+     */
+    moveEntity(entityId, targetRoomId) {
+        return this.stateEntityController.moveEntity(entityId, targetRoomId);
+    }
+
+    /**
+     * Resolves a logical room name to its UUID.
+     * @param {string} logicalId - The logical room name.
+     * @returns {string|null} The room UUID or null.
+     */
+    getRoomUidByLogicalId(logicalId) {
+        return this.roomsController.getUidByLogicalId(logicalId);
     }
 }
 

@@ -245,23 +245,25 @@ export class UIManager {
 
         let html = '';
         for (const [actionName, actionData] of Object.entries(actions)) {
-            const capableHtml = (actionData.canExecute || []).map(entity => {
+            const capableHtml = (actionData.canExecute || []).map(entry => {
                 const isSelected = pendingAction && 
                                    pendingAction.actionName === actionName && 
-                                   pendingAction.entityId === entity.entityId;
+                                   pendingAction.entityId === entry.entityId &&
+                                   pendingAction.componentId === entry.componentId;
 
-                const reqStatusText = entity.requirementsStatus
+                const reqStatusText = entry.requirementsStatus
                     .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
                     .join('<br>');
 
                 return `
                     <div class="action-capable clickable ${isSelected ? 'action-selected' : ''}" 
                          data-action="${actionName}" 
-                         data-entity="${entity.entityId}" 
-                         data-comp-name="${entity.componentType}" 
-                         data-comp-id="${entity.componentIdentifier}">
-                        <span class="component-name">${entity.componentType} (${entity.componentIdentifier})</span>
-                        <span class="${entity.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
+                         data-entity="${entry.entityId}" 
+                         data-comp-id="${entry.componentId}" 
+                         data-comp-name="${entry.componentType}" 
+                         data-comp-identifier="${entry.componentIdentifier}">
+                        <span class="component-name">${entry.componentType} (${entry.componentIdentifier})</span>
+                        <span class="${entry.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
                     </div>`;
             }).join('');
 
@@ -295,8 +297,8 @@ export class UIManager {
             el.onclick = () => onActionClick(
                 el.dataset.action, 
                 el.dataset.entity, 
-                el.dataset.compName, 
-                el.dataset.compId
+                el.dataset.compId,
+                el.dataset.compIdentifier
             );
         });
     }

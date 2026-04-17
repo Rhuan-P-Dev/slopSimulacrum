@@ -54,6 +54,35 @@ To maintain the Single Responsibility Principle (SRP):
 - **No Direct Access**: One controller must never directly modify the internal variables (e.g., `this.entities` or `this.componentStats`) of another controller.
 - **Flow**: `WorldStateController` $\rightarrow$ `Sub-Controller` $\rightarrow$ `Dependency Controller`.
 
+## 5.1. WorldStateController Public API
+
+The `WorldStateController` provides public API wrapper methods that the server (`server.js`) should use instead of directly accessing sub-controllers. This maintains loose coupling and the Single Source of Truth principle.
+
+**Available Public Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `spawnEntity(blueprintName, roomId)` | `string`, `string` | `string` | Spawns an entity from a blueprint into a room |
+| `despawnEntity(entityId)` | `string` | `boolean` | Despawns an entity and cleans up capabilities |
+| `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` | Moves an entity to a different room |
+| `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` | Resolves a logical room name to its UUID |
+
+**❌ Prohibited — Direct sub-controller access:**
+```javascript
+// BAD: Direct sub-controller access
+worldStateController.stateEntityController.spawnEntity('droid', roomId);
+worldStateController.roomsController.getUidByLogicalId('start_room');
+```
+
+**✅ Mandatory — Use public API:**
+```javascript
+// GOOD: Use public API wrappers
+worldStateController.spawnEntity('droid', roomId);
+worldStateController.getRoomUidByLogicalId('start_room');
+```
+
+---
+
 ## 6. ActionController Pattern
 
 ### 6.1. Specialized Action Coordinator
@@ -64,6 +93,8 @@ The `ActionController` follows the same Dependency Injection pattern but with a 
 - **Dependency**: Receives `WorldStateController` reference via constructor injection
 - **Responsibility**: Execute game actions through the action registry pattern
 - **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`
+- **Event System**: `on(actionName, callback)` / `off(actionName, callback)` for capability change notifications
+- **Removal Markers**: When capabilities are removed, subscribers receive `{ _type: 'REMOVAL', componentId, entityId }` objects
 
 ### 6.2. Constructor Injection Pattern
 
@@ -104,7 +135,7 @@ this.componentController.registerStatChangeListener((componentId, traitId, statN
 **How it works:**
 1. `ComponentController.updateComponentStat()` / `updateComponentStatDelta()` notifies registered listeners
 2. `ActionController.onStatChange()` receives the change notification
-3. A reverse index (`_componentActionIndex`) maps `trait.stat` → dependent actions
+3. A reverse index (`_traitStatActionIndex`) maps `trait.stat` → dependent actions
 4. Only dependent actions are re-evaluated via `reEvaluateActionForComponent()`
 5. Subscribers are notified via `on(actionName, callback)` / `off(actionName, callback)`
 
@@ -123,7 +154,7 @@ componentController.unregisterStatChangeListener(listener);
 ```javascript
 // Subscribe to capability changes
 actionController.on(actionName, (actionName, capabilityEntry) => {
-    // capabilityEntry is an ActionCapabilityEntry or null
+    // capabilityEntry is an ActionCapabilityEntry, RemovalMarker, or null
 });
 
 // Unsubscribe

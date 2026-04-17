@@ -2,11 +2,11 @@
 
 ## 1. Overview
 
-The **Action Capability Cache** is a core feature of the `ActionController` that maintains a persistent mapping of each action to its best fulfilling component across all entities. This enables real-time UI updates and efficient capability queries without redundant computation.
+The **Action Capability Cache** is a core feature of the `ActionController` that maintains a mapping of each action to an array of component capability entries. Every component in the world that qualifies for an action gets its own entry, sorted by score (best first).
 
 **Key Features:**
-- **Persistent Cache**: Stores the best component for each action-entity pair
-- **Automatic Re-evaluation**: Triggered when component stats change
+- **All-Component Tracking**: Every qualifying component gets its own entry (not just the best one)
+- **Automatic Re-evaluation**: Triggered when component stats change, entities spawn/despawn
 - **Event-driven Notifications**: Subscribers are notified of capability changes
 - **Reverse Index**: Efficient lookup of which actions depend on specific traits
 
@@ -18,17 +18,17 @@ The **Action Capability Cache** is a core feature of the `ActionController` that
 
 ```javascript
 /**
- * @type {Object<string, Object<string, ActionCapabilityEntry>>}
- * Format: { [actionName]: { [entityId]: ActionCapabilityEntry } }
+ * @type {Object<string, Array<ComponentCapabilityEntry>>}
+ * Format: { [actionName]: [ComponentCapabilityEntry, ...] }
  */
 this._capabilityCache = {};
 ```
 
-### 2.2. ActionCapabilityEntry Structure
+### 2.2. ComponentCapabilityEntry Structure
 
 ```javascript
 /**
- * @typedef {Object} ActionCapabilityEntry
+ * @typedef {Object} ComponentCapabilityEntry
  * @property {string} entityId - The entity ID.
  * @property {string} componentId - The component instance ID.
  * @property {string} componentType - The component type (e.g., "droidArm").
@@ -40,35 +40,73 @@ this._capabilityCache = {};
  */
 ```
 
-### 2.3. Example Cache Entry
+### 2.3. Example Cache State
 
 ```json
 {
-  "move": {
-    "entity-uuid-123": {
-      "entityId": "entity-uuid-123",
-      "componentId": "comp-uuid-456",
-      "componentType": "droidRollingBall",
-      "componentIdentifier": "default",
-      "score": 1.0,
-      "requirementValues": {
-        "Movement.move": 20
+  "_capabilityCache": {
+    "pierce": [
+      {
+        "entityId": "entity-uuid-1",
+        "componentId": "knife-comp-123",
+        "componentType": "knife",
+        "componentIdentifier": "kitchen-knife",
+        "score": 95,
+        "requirementValues": { "Physical.strength": 15, "Manipulation.dexterity": 12 },
+        "fulfillingComponents": { "Physical.strength": "knife-comp-123", "Manipulation.dexterity": "knife-comp-123" },
+        "requirementsStatus": [
+          { "trait": "Physical", "stat": "strength", "current": 15, "required": 5 },
+          { "trait": "Manipulation", "stat": "dexterity", "current": 12, "required": 8 }
+        ]
       },
-      "fulfillingComponents": {
-        "Movement.move": "comp-uuid-456"
-      },
-      "requirementsStatus": [
-        {
-          "trait": "Movement",
-          "stat": "move",
-          "current": 20,
-          "required": 5
-        }
-      ]
-    }
+      {
+        "entityId": "entity-uuid-1",
+        "componentId": "hand-comp-456",
+        "componentType": "droidHand",
+        "componentIdentifier": "right",
+        "score": 30,
+        "requirementValues": { "Manipulation.dexterity": 8 },
+        "fulfillingComponents": { "Manipulation.dexterity": "hand-comp-456" },
+        "requirementsStatus": [
+          { "trait": "Manipulation", "stat": "dexterity", "current": 8, "required": 8 }
+        ]
+      }
+    ],
+    "move": [
+      {
+        "entityId": "entity-uuid-1",
+        "componentId": "wheel-comp-001",
+        "componentType": "droidRollingBall",
+        "componentIdentifier": "default",
+        "score": 100,
+        "requirementValues": { "Movement.move": 20 },
+        "fulfillingComponents": { "Movement.move": "wheel-comp-001" },
+        "requirementsStatus": [
+          { "trait": "Movement", "stat": "move", "current": 20, "required": 5 }
+        ]
+      }
+    ]
   }
 }
 ```
+
+### 2.4. Entity-Specific View
+
+When querying `getActionsForEntity(state, entityId)`, entries are **filtered by entityId**:
+
+```json
+{
+  "pierce": {
+    "canExecute": [
+      { "componentId": "knife-comp-123", "score": 95, "entityId": "entity-uuid-1", ... },
+      { "componentId": "hand-comp-456", "score": 30, "entityId": "entity-uuid-1", ... }
+    ],
+    "cannotExecute": []
+  }
+}
+```
+
+Entity-uuid-2's components are stored in the cache but **never shown** when querying entity-uuid-1's actions.
 
 ---
 
@@ -87,7 +125,7 @@ Each component receives a score based on how well it satisfies an action's requi
 
 ### 3.2. Scoring Constants
 
-Defined in `src/controllers/actionController.js`:
+Defined in `src/utils/ActionScoring.js`:
 
 ```javascript
 const ACTION_SCORING = {
@@ -112,7 +150,7 @@ const ACTION_SCORING = {
 
 ### 4.1. Purpose
 
-The reverse index (`_componentActionIndex`) maps `trait.stat` combinations to the set of action names that depend on them. This enables efficient lookup when a stat changes.
+The reverse index (`_traitStatActionIndex`) maps `trait.stat` combinations to the set of action names that depend on them. This enables efficient lookup when a stat changes.
 
 ### 4.2. Structure
 
@@ -121,7 +159,7 @@ The reverse index (`_componentActionIndex`) maps `trait.stat` combinations to th
  * @type {Map<string, Set<string>>}
  * Format: { "Movement.move": Set{"move", "dash"}, "Physical.durability": Set{"dash", "selfHeal"} }
  */
-this._componentActionIndex = new Map();
+this._traitStatActionIndex = new Map();
 ```
 
 ### 4.3. Building the Index
@@ -129,14 +167,14 @@ this._componentActionIndex = new Map();
 The index is built automatically from the action registry during controller construction:
 
 ```javascript
-_buildComponentActionIndex() {
+_buildTraitStatActionIndex() {
     for (const [actionName, actionData] of Object.entries(this.actionRegistry)) {
         for (const req of actionData.requirements) {
             const indexKey = `${req.trait}.${req.stat}`;
-            if (!this._componentActionIndex.has(indexKey)) {
-                this._componentActionIndex.set(indexKey, new Set());
+            if (!this._traitStatActionIndex.has(indexKey)) {
+                this._traitStatActionIndex.set(indexKey, new Set());
             }
-            this._componentActionIndex.get(indexKey).add(actionName);
+            this._traitStatActionIndex.get(indexKey).add(actionName);
         }
     }
 }
@@ -167,16 +205,43 @@ actionController.off('move', callbackFunction);
 ```javascript
 /**
  * @param {string} actionName - The action name that changed.
- * @param {ActionCapabilityEntry|null} capability - The new capability entry, or null if removed.
+ * @param {ComponentCapabilityEntry|RemovalMarker|null} capability - The new capability entry, a RemovalMarker if removed, or null.
  */
 ```
 
-### 5.4. When Notifications Fire
+### 5.4. Removal Marker
+
+When a capability entry is removed from the cache, subscribers receive a `RemovalMarker` object instead of `null`:
+
+```javascript
+/**
+ * @typedef {Object} RemovalMarker
+ * @property {string} _type - Always 'REMOVAL'.
+ * @property {string} componentId - The removed component's ID (or 'multiple' for entity-wide removal).
+ * @property {string} entityId - The removed entity's ID.
+ */
+```
+
+Subscribers should check for removal markers:
+
+```javascript
+actionController.on('dash', (actionName, capability) => {
+    if (capability && capability._type === 'REMOVAL') {
+        console.log(`Component ${capability.componentId} removed from ${actionName}`);
+        disableDashButton();
+    } else if (capability) {
+        enableDashButton();
+    }
+});
+```
+
+### 5.5. When Notifications Fire
 
 Notifications are triggered when:
 1. A component stat changes (via `onStatChange`)
-2. The re-evaluated component becomes the new best for an action
-3. A component is removed from the cache (no longer qualifies)
+2. An entity is spawned or its components change (via `reEvaluateEntityCapabilities`)
+3. An entity is despawned (via `removeEntityFromCache`)
+4. A component is removed from the cache (no longer qualifies)
 
 ---
 
@@ -190,6 +255,7 @@ ComponentController.updateComponentStatDelta()
         → ActionController.onStatChange()
             → _getActionsForTraitStat()
                 → reEvaluateActionForComponent()
+                    → find entry in array → update/remove → re-sort
                     → _notifySubscribers()
 ```
 
@@ -212,14 +278,63 @@ When a component's durability decreases:
 3. `ActionController.onStatChange(compId, "Physical", "durability", 75, 80)` is called
 4. `_getActionsForTraitStat("Physical", "durability")` returns `["dash", "selfHeal"]`
 5. Each action is re-evaluated: `reEvaluateActionForComponent(state, "dash", compId)`
-6. If the component no longer qualifies (durability < 30), it's removed from the cache
+6. If the component no longer qualifies (durability < 30), it's removed from the action's array
 7. Subscribers are notified: `_notifySubscribers("dash", null)`
+
+**Important**: The underlying `ComponentStatsController.setStats()` method performs a **deep trait-level merge** when updating stats. This ensures that modifying `Physical.durability` does not erase other Physical traits like `Physical.mass`, `Physical.strength`, etc. See `wiki/subMDs/traits.md` Section 5 for details on the merge algorithm.
 
 ---
 
-## 7. Server Endpoints
+## 7. Entity Lifecycle Integration
 
-### 7.1. GET /action-capabilities
+### 7.1. Entity Spawn
+
+When `stateEntityController.spawnEntity()` creates a new entity:
+
+```javascript
+// In stateEntityController.spawnEntity():
+const entityId = generateUID();
+// ... create entity ...
+// Trigger capability cache re-evaluation for the newly spawned entity
+if (this.actionController) {
+    const state = this.actionController.worldStateController.getAll();
+    this.actionController.reEvaluateEntityCapabilities(state, entityId);
+}
+```
+
+This evaluates all components of the new entity against all actions and adds qualifying entries to the cache.
+
+### 7.2. Entity Despawn
+
+When `stateEntityController.despawnEntity()` removes an entity:
+
+```javascript
+// Before entity is removed:
+if (this.actionController) {
+    this.actionController.removeEntityFromCache(entityId);
+}
+delete this.entities[entityId];
+```
+
+This removes all capability entries for the entity from all action arrays.
+
+### 7.3. Component Addition/Removal (e.g., "entity picks up a knife")
+
+When an entity's component set changes (e.g., picks up/drops an item):
+
+```javascript
+// Via POST /refresh-entity-capabilities API:
+const state = worldStateController.getAll();
+const updatedEntries = worldStateController.actionController.reEvaluateEntityCapabilities(state, entityId);
+```
+
+This removes all entries for the entity from all actions, then re-scans all components against all actions.
+
+---
+
+## 8. Server Endpoints
+
+### 8.1. GET /action-capabilities
 
 Returns the full cached capability data for all actions.
 
@@ -227,57 +342,79 @@ Returns the full cached capability data for all actions.
 ```json
 {
   "capabilities": {
-    "move": {
-      "entity-uuid-123": { /* ActionCapabilityEntry */ }
-    },
-    "dash": {
-      "entity-uuid-123": { /* ActionCapabilityEntry */ }
-    }
+    "pierce": [
+      { "entityId": "e1", "componentId": "knife-comp", "score": 95, ... },
+      { "entityId": "e1", "componentId": "hand-comp", "score": 30, ... }
+    ],
+    "move": [
+      { "entityId": "e1", "componentId": "wheel-comp", "score": 100, ... }
+    ]
   }
 }
 ```
 
-### 7.2. GET /action-capabilities/:actionName
+### 8.2. GET /action-capabilities/:actionName
 
-Returns the best component for a specific action.
+Returns all entries for a specific action (sorted by score).
 
 **Response:**
 ```json
 {
-  "actionName": "move",
+  "actionName": "pierce",
   "bestComponent": {
-    "entityId": "entity-uuid-123",
-    "componentId": "comp-uuid-456",
-    "componentType": "droidRollingBall",
-    "componentIdentifier": "default",
-    "score": 1.0,
-    "requirementValues": { "Movement.move": 20 },
-    "fulfillingComponents": { "Movement.move": "comp-uuid-456" },
-    "requirementsStatus": [ /* ... */ ]
+    "entityId": "e1",
+    "componentId": "knife-comp",
+    "componentType": "knife",
+    "componentIdentifier": "kitchen-knife",
+    "score": 95,
+    "requirementValues": { "Physical.strength": 15, "Manipulation.dexterity": 12 },
+    "fulfillingComponents": { "Physical.strength": "knife-comp", "Manipulation.dexterity": "knife-comp" },
+    "requirementsStatus": [ ... ]
   }
 }
 ```
 
-### 7.3. GET /action-capabilities/entity/:entityId
+### 8.3. GET /action-capabilities/entity/:entityId
 
-Returns all capability entries for a specific entity.
+Returns all capability entries for a specific entity across all actions.
 
 **Response:**
 ```json
 {
-  "entityId": "entity-uuid-123",
-  "capabilities": {
-    "move": { /* ActionCapabilityEntry */ },
-    "dash": { /* ActionCapabilityEntry */ }
-  }
+  "entityId": "entity-uuid-1",
+  "capabilities": [
+    { "actionName": "pierce", "componentId": "knife-comp", "score": 95, ... },
+    { "actionName": "pierce", "componentId": "hand-comp", "score": 30, ... },
+    { "actionName": "move", "componentId": "wheel-comp", "score": 100, ... }
+  ]
+}
+```
+
+### 8.4. POST /refresh-entity-capabilities
+
+Re-evaluates all action capabilities for a specific entity.
+
+**Request:**
+```json
+{ "entityId": "entity-uuid-1" }
+```
+
+**Response:**
+```json
+{
+  "entityId": "entity-uuid-1",
+  "updatedEntries": [
+    { "actionName": "pierce", "componentId": "knife-comp", "score": 95, ... },
+    { "actionName": "move", "componentId": "wheel-comp", "score": 100, ... }
+  ]
 }
 ```
 
 ---
 
-## 8. Performance Considerations
+## 9. Performance Considerations
 
-### 8.1. Full Scan Complexity
+### 9.1. Full Scan Complexity
 
 `scanAllCapabilities()` has O(E × C × A) complexity where:
 - E = number of entities
@@ -286,23 +423,29 @@ Returns all capability entries for a specific entity.
 
 For typical use cases (few entities, ~10 components each, ~10 actions), this is negligible.
 
-### 8.2. Partial Re-evaluation
+### 9.2. Partial Re-evaluation
 
 `reEvaluateActionForComponent()` has O(A) complexity where A = number of dependent actions.
 This is the preferred method for stat changes.
 
-### 8.3. Cache Invalidation
+### 9.3. Entity Re-evaluation
+
+`reEvaluateEntityCapabilities()` has O(C × A) complexity where C = components of the entity, A = number of actions.
+This is used when an entity's component set changes.
+
+### 9.4. Cache Invalidation
 
 The cache is automatically invalidated when:
-1. Entity is spawned/despawned (full scan on next `getActionCapabilities()` call)
-2. Component stats change (partial re-evaluation)
-3. Action registry changes (call `scanAllCapabilities()` manually)
+1. Entity is spawned (full re-evaluation via `reEvaluateEntityCapabilities`)
+2. Entity is despawned (cleanup via `removeEntityFromCache`)
+3. Component stats change (partial re-evaluation via `onStatChange`)
+4. Entity components change (full re-evaluation via `reEvaluateEntityCapabilities`)
 
 ---
 
-## 9. Client-Side Integration
+## 10. Client-Side Integration
 
-### 9.1. Fetching Capabilities
+### 10.1. Fetching Capabilities
 
 ```javascript
 // Fetch all capabilities
@@ -312,9 +455,16 @@ const { capabilities } = await response.json();
 // Fetch capabilities for a specific entity
 const entityResponse = await fetch(`/action-capabilities/entity/${entityId}`);
 const { capabilities } = await entityResponse.json();
+
+// Refresh capabilities after picking up/dropping an item
+await fetch('/refresh-entity-capabilities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entityId })
+});
 ```
 
-### 9.2. Real-time Updates (Future)
+### 10.2. Real-time Updates (Future)
 
 To implement real-time UI updates, the server can broadcast capability changes via Socket.io:
 
@@ -325,13 +475,156 @@ io.emit('action-capability-changed', { actionName, capability });
 
 ---
 
-## 10. Best Practices
+## 11. Public API Methods
 
-### 10.1. Use Cached Data
+### 11.1. scanAllCapabilities(state)
+
+Performs a full bottom-up scan of all entities and their components against all registered actions.
+
+```javascript
+/**
+ * @param {Object} state - The current world state (contains entities).
+ * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
+ */
+```
+
+### 11.2. reEvaluateActionForComponent(state, actionName, componentId)
+
+Re-evaluates a specific action for a specific component. Finds the entry in the array and updates or removes it.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} actionName - The action to re-evaluate.
+ * @param {string} componentId - The component whose stats changed.
+ * @returns {ComponentCapabilityEntry|null} The updated capability entry, or null.
+ */
+```
+
+### 11.3. reEvaluateEntityCapabilities(state, entityId)
+
+Re-evaluates ALL actions for a specific entity. Called when the entity's component set changes.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} entityId - The entity to re-evaluate.
+ * @returns {Array<ComponentCapabilityEntry>} List of updated capability entries.
+ */
+```
+
+### 11.4. removeEntityFromCache(entityId)
+
+Removes all capability entries for an entity from all action caches.
+
+```javascript
+/**
+ * @param {string} entityId - The entity ID to remove.
+ */
+```
+
+### 11.5. getCachedCapabilities()
+
+Returns the cached capability entries for all actions.
+
+```javascript
+/**
+ * @returns {Object<string, Array<ComponentCapabilityEntry>>} The capability cache.
+ */
+```
+
+### 11.6. getBestComponentForAction(actionName)
+
+Returns the best entry for a specific action (highest score, first in array).
+
+```javascript
+/**
+ * @param {string} actionName - The action name.
+ * @returns {ComponentCapabilityEntry|null} The best capability entry, or null.
+ */
+```
+
+### 11.7. getAllCapabilitiesForAction(actionName)
+
+Returns all capability entries for a specific action.
+
+```javascript
+/**
+ * @param {string} actionName - The action name.
+ * @returns {Array<ComponentCapabilityEntry>} Array of capability entries.
+ */
+```
+
+### 11.8. getCapabilitiesForEntity(entityId)
+
+Returns capability entries for a specific entity across all actions.
+
+```javascript
+/**
+ * @param {string} entityId - The entity ID.
+ * @returns {Array<ComponentCapabilityEntry>} Array of capability entries for this entity.
+ */
+```
+
+### 11.9. getActionsForEntity(state, entityId)
+
+Retrieves only the actions that are relevant to a specific entity.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} entityId - The ID of the entity to filter for.
+ * @returns {Object.<string, {requirements: Array, canExecute: Array, cannotExecute: Array}>}
+ * Map of actions and their capability status for the entity.
+ */
+```
+
+### 11.10. getActionCapabilities(state)
+
+Calculates which entities are capable of executing which actions.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @returns {Object.<string, {requirements: Array, canExecute: Array, cannotExecute: Array}>}
+ * Map of actions and their capability status.
+ */
+```
+
+### 11.11. onStatChange(componentId, traitId, statName, newValue, oldValue)
+
+Called when a component stat changes. Re-evaluates all dependent actions.
+
+```javascript
+/**
+ * @param {string} componentId - The component instance ID that changed.
+ * @param {string} traitId - The trait category that changed.
+ * @param {string} statName - The stat name that changed.
+ * @param {any} newValue - The new stat value.
+ * @param {any} oldValue - The previous stat value.
+ */
+```
+
+### 11.12. on(actionName, callback) / off(actionName, callback)
+
+Subscribe/unsubscribe to capability change events for a specific action.
+
+```javascript
+/**
+ * @param {string} actionName - The action name to subscribe to.
+ * @param {Function} callback - Called with (actionName, capabilityEntry).
+ */
+```
+
+---
+
+## 12. Best Practices
+
+### 12.1. Use Cached Data
 
 Always prefer `getCachedCapabilities()` over recomputing. The cache is automatically maintained.
 
-### 10.2. Subscribe to Changes
+### 12.2. Subscribe to Changes
 
 For UI components, subscribe to capability changes rather than polling:
 
@@ -345,9 +638,17 @@ actionController.on('dash', (actionName, capability) => {
 });
 ```
 
-### 10.3. Initial Scan
+### 12.3. Refresh on Component Changes
 
-The initial capability scan is automatically performed after world initialization. No manual call is needed.
+When an entity picks up or drops an item, trigger a refresh:
+
+```javascript
+await fetch('/refresh-entity-capabilities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entityId })
+});
+```
 
 ---
 

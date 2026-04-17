@@ -89,7 +89,7 @@
       {
         "trait": "Physical",
         "stat": "strength",
-        "minValue": 15
+        "minValue": 1
       }
     ],
     "consequences": [

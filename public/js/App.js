@@ -254,7 +254,9 @@ export class ClientApp {
 
         this.ui.showComponentSelection(closestEntity, state, async (compId) => {
             try {
-                await this.actions.executePunch(pending.actionName, pending.entityId, compId);
+                // pending.componentId is the attacker's component (droidHand)
+                // compId is the target component being punched
+                await this.actions.executePunch(pending.actionName, pending.entityId, pending.componentId, compId);
                 this.ui.closeDetails();
                 this.actions.clearPendingAction();
                 await this.refreshWorldAndActions();
@@ -295,17 +297,17 @@ export class ClientApp {
      * Handles the selection of an action from the UI list.
      * @param {string} actionName The name of the selected action.
      * @param {string} entityId The entity performing the action.
-     * @param {string} componentName The name of the target component.
-     * @param {string} componentIdentifier The unique ID of the target component.
+     * @param {string} componentId The unique ID of the target component.
+     * @param {string} componentIdentifier The identifier of the target component.
      * @returns {Promise<void>}
      */
-    async handleActionSelection(actionName, entityId, componentName, componentIdentifier) {
+    async handleActionSelection(actionName, entityId, componentId, componentIdentifier) {
         const actionData = this.availableActions[actionName];
         await this.actions.executeAction(
             actionName, 
             entityId, 
-            componentName, 
-            componentIdentifier, 
+            componentId,
+            componentIdentifier,
             actionData,
             () => this.updateActionList()
         );

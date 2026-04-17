@@ -1,3 +1,5 @@
+import Logger from '../utils/Logger.js';
+
 /**
  * LLMController handles all communication with the Large Language Model backend.
  * It abstracts the HTTP requests and ensures that the communication follows 
@@ -63,6 +65,7 @@ class LLMController {
             clearTimeout(timeoutId);
 
             if (!response.ok) {
+                Logger.error(`[LLMController] API error: ${response.status} ${response.statusText}`);
                 throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
             }
 
@@ -72,8 +75,10 @@ class LLMController {
         } catch (error) {
             clearTimeout(timeoutId);
             if (error.name === 'AbortError') {
+                Logger.error('[LLMController] Request timed out');
                 throw new Error('LLM request timed out after ' + LLMController.REQUEST_TIMEOUT_MS + 'ms');
             }
+            Logger.error(`[LLMController] Communication failure: ${error.message}`);
             throw new Error(`LLM Communication Failure: ${error.message}`);
         }
     }
@@ -84,15 +89,18 @@ class LLMController {
      */
     _validateMessages(messages) {
         if (!Array.isArray(messages) || messages.length === 0) {
+            Logger.warn('[LLMController] Empty or invalid messages array');
             throw new Error('LLMController: "messages" must be a non-empty array.');
         }
 
         for (let i = 0; i < messages.length; i++) {
             const msg = messages[i];
             if (!msg.role || !msg.content) {
-                throw new Error(`LLMController: Message at index ${i} must contain "role" and "content".` || 'Invalid message format');
+                Logger.warn(`[LLMController] Message at index ${i} missing role or content`);
+                throw new Error(`LLMController: Message at index ${i} must contain "role" and "content".`);
             }
             if (!['system', 'user', 'assistant'].includes(msg.role)) {
+                Logger.warn(`[LLMController] Invalid role "${msg.role}" at index ${i}`);
                 throw new Error(`LLMController: Invalid role "${msg.role}" at index ${i}. Expected system, user, or assistant.`);
             }
         }
@@ -112,6 +120,7 @@ class LLMController {
         ) {
             return data.choices[0].message.content;
         }
+        Logger.error('[LLMController] Malformed response from LLM backend');
         throw new Error('LLMController: Received malformed response from LLM backend. Expected choices[0].message.content.');
     }
 }

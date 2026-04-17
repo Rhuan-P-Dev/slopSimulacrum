@@ -68,14 +68,14 @@ export class ActionManager {
      * Actions with targeting requirements are intercepted to trigger target selection.
      * @param {string} actionName 
      * @param {string} entityId 
-     * @param {string} componentName 
-     * @param {string} componentIdentifier 
+     * @param {string} componentId - The unique ID of the selected component.
+     * @param {string} componentIdentifier - The identifier of the selected component.
      * @param {Object} actionData - Metadata about the action (including targetingType).
      * @param {Function} onActionStateChange Callback to refresh UI when pending action changes.
      */
-    async executeAction(actionName, entityId, componentName, componentIdentifier, actionData, onActionStateChange) {
+    async executeAction(actionName, entityId, componentId, componentIdentifier, actionData, onActionStateChange) {
         if (actionData?.targetingType && actionData.targetingType !== 'none') {
-            this._handleTargetingSelection(actionName, entityId, componentName, componentIdentifier, actionData.targetingType);
+            this._handleTargetingSelection(actionName, entityId, componentId, componentIdentifier, actionData.targetingType);
             if (onActionStateChange) onActionStateChange();
             return;
         }
@@ -84,7 +84,7 @@ export class ActionManager {
             const result = await this._sendActionRequest({ 
                 actionName: actionName,
                 entityId: entityId,
-                params: { componentName, componentIdentifier }
+                params: { targetComponentId: componentId, componentIdentifier }
             }, 'ACTION_FAILED');
             console.log('[ActionManager] Action executed successfully:', result);
         } catch (error) {
@@ -94,18 +94,19 @@ export class ActionManager {
 
     /**
      * Internal helper to toggle the pending targeting action state.
+     * Stores componentId (unique UUID) for precise highlighting in the UI.
      */
-    _handleTargetingSelection(actionName, entityId, componentName, componentIdentifier, targetingType) {
+    _handleTargetingSelection(actionName, entityId, componentId, componentIdentifier, targetingType) {
         if (this.pendingMovementAction && 
             this.pendingMovementAction.actionName === actionName && 
-            this.pendingMovementAction.entityId === entityId) {
+            this.pendingMovementAction.componentId === componentId) {
             this.pendingMovementAction = null;
             console.log(`[ActionManager] Action ${actionName} deselected.`);
         } else {
             this.pendingMovementAction = {
                 actionName,
                 entityId,
-                componentName,
+                componentId,
                 componentIdentifier,
                 targetingType
             };
@@ -136,14 +137,15 @@ export class ActionManager {
      * Executes a punch action on a specific component of a target entity.
      * @param {string} actionName 
      * @param {string} entityId 
-     * @param {string} targetComponentId 
+     * @param {string} attackerComponentId - The component ID of the attacker (used for damage value resolution).
+     * @param {string} targetComponentId - The component ID of the target being punched.
      */
-    async executePunch(actionName, entityId, targetComponentId) {
+    async executePunch(actionName, entityId, attackerComponentId, targetComponentId) {
         try {
             const result = await this._sendActionRequest({ 
                 actionName: actionName,
                 entityId: entityId,
-                params: { targetComponentId }
+                params: { attackerComponentId, targetComponentId }
             }, 'PUNCH_FAILED');
             console.log('[ActionManager] Punch executed successfully:', result);
             return result;

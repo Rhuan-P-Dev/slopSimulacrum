@@ -23,7 +23,18 @@ class ComponentStatsController {
         // Deep merge: clone existing + new stats to prevent reference sharing
         const existing = JSON.parse(JSON.stringify(this.componentStats[componentId]));
         const incoming = JSON.parse(JSON.stringify(stats));
-        this.componentStats[componentId] = { ...existing, ...incoming };
+
+        // Deep trait-level merge: merge within each trait category to preserve
+        // other stats in the same trait when only a subset is updated.
+        // e.g., updating Physical.durability must not erase Physical.mass, Physical.strength, etc.
+        for (const [traitId, traitStats] of Object.entries(incoming)) {
+            if (!existing[traitId]) {
+                existing[traitId] = {};
+            }
+            existing[traitId] = { ...existing[traitId], ...traitStats };
+        }
+
+        this.componentStats[componentId] = existing;
     }
 
     /**

@@ -45,13 +45,13 @@ const socketToEntityMap = new Map();
 io.on('connection', (socket) => {
     console.log(`[Socket] New connection: ${socket.id}`);
 
-    // 1. Determine a starting room
-    let startRoomId = worldStateController.roomsController.getUidByLogicalId('start_room');
+    // 1. Determine a starting room (use public API wrapper)
+    let startRoomId = worldStateController.getRoomUidByLogicalId('start_room');
     
-    // Fallback if start_room is not found
+    // Fallback if start_room is not found (use public API)
     if (!startRoomId) {
-        const rooms = worldStateController.roomsController.getAll();
-        const roomIds = Object.keys(rooms);
+        const allRooms = worldStateController.getAll().rooms;
+        const roomIds = Object.keys(allRooms || {});
         if (roomIds.length > 0) {
             startRoomId = roomIds[0];
         }
@@ -63,8 +63,8 @@ io.on('connection', (socket) => {
         return;
     }
 
-    // 2. Incarnate the player: Spawn an entity
-    const entityId = worldStateController.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    // 2. Incarnate the player: Spawn an entity (use public API wrapper)
+    const entityId = worldStateController.spawnEntity('smallBallDroid', startRoomId);
     socketToEntityMap.set(socket.id, entityId);
 
     console.log(`[Socket] Player ${socket.id} incarnated as entity ${entityId} in room ${startRoomId}`);
@@ -72,12 +72,12 @@ io.on('connection', (socket) => {
     // 3. Notify the client of its incarnation
     socket.emit('incarnate', { entityId });
 
-    // 4. Handle disconnection
+    // 4. Handle disconnection (use public API wrapper)
     socket.on('disconnect', () => {
         const entityIdToRemove = socketToEntityMap.get(socket.id);
         if (entityIdToRemove) {
             console.log(`[Socket] Player ${socket.id} disconnected. Despawning entity ${entityIdToRemove}`);
-            worldStateController.stateEntityController.despawnEntity(entityIdToRemove);
+            worldStateController.despawnEntity(entityIdToRemove);
             socketToEntityMap.delete(socket.id);
         }
     });
@@ -177,24 +177,53 @@ app.get('/action-capabilities/:actionName', (req, res) => {
 /**
  * GET /action-capabilities/entity/:entityId
  * Returns all capability entries for a specific entity across all actions.
+ * Each entry represents one component's ability to perform one action.
  * @param {string} entityId - The entity ID.
  */
 app.get('/action-capabilities/entity/:entityId', (req, res) => {
     try {
         const { entityId } = req.params;
         const capabilities = worldStateController.actionController.getCapabilitiesForEntity(entityId);
-        
-        if (Object.keys(capabilities).length === 0) {
-            return res.status(404).json({ 
-                error: 'No capabilities found for this entity.', 
-                entityId 
+
+        if (capabilities.length === 0) {
+            return res.status(404).json({
+                error: 'No capabilities found for this entity.',
+                entityId
             });
         }
-        
+
         res.json({ entityId, capabilities });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
+/**
+ * POST /refresh-entity-capabilities
+ * Re-evaluates all action capabilities for a specific entity.
+ * Called when an entity's component set changes (e.g., picks up/drops an item).
+ * Expects: { "entityId": "..." }
+ */
+app.post('/refresh-entity-capabilities', (req, res) => {
+    const { entityId } = req.body;
+
+    if (!entityId) {
+        return res.status(400).json({
+            error: 'Invalid request. "entityId" is required.'
+        });
+    }
+
+    try {
+        const state = worldStateController.getAll();
+        const updatedEntries = worldStateController.actionController.reEvaluateEntityCapabilities(state, entityId);
+        res.json({ entityId, updatedEntries });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
     }
 });
 
@@ -243,7 +272,8 @@ app.post('/move-entity', (req, res) => {
     }
 
     try {
-        const success = worldStateController.stateEntityController.moveEntity(entityId, targetRoomId);
+        // Use public API wrapper instead of direct sub-controller access
+        const success = worldStateController.moveEntity(entityId, targetRoomId);
         if (success) {
             broadcastWorldState();
             res.json({ message: 'Entity moved successfully.' });
