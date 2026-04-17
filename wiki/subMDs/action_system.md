@@ -8,11 +8,31 @@ The Action System provides a centralized, extensible mechanism for executing gam
 - `ActionController`: Main coordinator for all actions
 - `WorldStateController`: Root injector providing access to all sub-controllers
 
+## 1.1. Action Capability Cache
+
+The `ActionController` maintains a **capability cache** that maps each action to the best fulfilling component across all entities. This enables:
+
+- **Real-time UI updates**: When component stats change (e.g., durability loss), actions are automatically re-evaluated
+- **Efficient queries**: Cached data avoids redundant computation on every request
+- **Component-level tracking**: Each action entry identifies the specific component responsible for fulfilling requirements
+
+**See also:** [Action Capability Cache Sub-Wiki](action_capability_cache.md)
+
 ---
 
 ## 2. Architecture
 
-### 2.1. Dependency Injection Chain
+### 2.1. Capability Cache Architecture
+
+```
+ComponentStatChange → ComponentController → ActionController.onStatChange()
+    → _getActionsForTraitStat() → reEvaluateActionForComponent()
+    → _notifySubscribers() → Event emission
+```
+
+The capability cache uses a **reverse index** (`_componentActionIndex`) to efficiently determine which actions depend on a specific trait.stat combination, enabling targeted re-evaluation instead of full rescans.
+
+### 2.2. Dependency Injection Chain
 
 ```
 Server → WorldStateController → (ConsequenceHandlers, actionRegistry) → ActionController
@@ -25,7 +45,7 @@ The `ActionController` is fully decoupled from data loading and handler instanti
 
 **Logging:** The system utilizes a centralized `Logger` utility (`src/utils/Logger.js`) for all system events, ensuring standardized severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
 
-### 2.2. Action Registry Structure
+### 2.3. Action Registry Structure
 
 Each action is defined with three main components:
 
@@ -221,6 +241,7 @@ Executes success consequences by reading from the action registry and dispatchin
 ### 5.4. ActionController.getActionCapabilities()
 
 Calculates which entities are capable of executing which actions based on the current world state.
+Uses the cached capability data. If cache is empty, performs a full scan.
 
 ```javascript
 /**
@@ -232,7 +253,104 @@ Calculates which entities are capable of executing which actions based on the cu
  */
 ```
 
-### 5.5. ActionController._executeFailureConsequences()
+### 5.5. ActionController.scanAllCapabilities(state)
+
+Performs a full bottom-up scan of all entities and their components against all registered actions.
+Updates the capability cache with the best component for each action-entity pair.
+
+```javascript
+/**
+ * @param {Object} state - The current world state (contains entities).
+ * @returns {Object<string, Object<string, ActionCapabilityEntry>>} The updated capability cache.
+ */
+```
+
+### 5.6. ActionController.reEvaluateActionForComponent(state, actionName, componentId)
+
+Re-evaluates a specific action for a specific component. Called when a component stat changes.
+Only updates the affected action entry.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} actionName - The action to re-evaluate.
+ * @param {string} componentId - The component whose stats changed.
+ * @returns {ActionCapabilityEntry|null} The updated capability entry, or null.
+ */
+```
+
+### 5.7. ActionController.reEvaluateAllActionsForComponent(state, componentId)
+
+Re-evaluates all actions that depend on a specific component's traits.
+Uses the reverse index for efficient lookup.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} componentId - The component whose stats changed.
+ * @returns {Array<ActionCapabilityEntry>} List of updated capability entries.
+ */
+```
+
+### 5.8. ActionController.getCachedCapabilities()
+
+Returns the cached capability entries for all actions without recomputation.
+
+```javascript
+/**
+ * @returns {Object<string, Object<string, ActionCapabilityEntry>>} The capability cache.
+ */
+```
+
+### 5.9. ActionController.getBestComponentForAction(actionName)
+
+Returns the best component for a specific action across all entities.
+
+```javascript
+/**
+ * @param {string} actionName - The action name.
+ * @returns {ActionCapabilityEntry|null} The best capability entry, or null.
+ */
+```
+
+### 5.10. ActionController.getCapabilitiesForEntity(entityId)
+
+Returns capability entries for a specific entity across all actions.
+
+```javascript
+/**
+ * @param {string} entityId - The entity ID.
+ * @returns {Object<string, ActionCapabilityEntry>} Map of actionName → capability entry.
+ */
+```
+
+### 5.11. ActionController.onStatChange(componentId, traitId, statName, newValue, oldValue)
+
+Called when a component stat changes. Re-evaluates all dependent actions.
+Registered as a stat change listener on ComponentController.
+
+```javascript
+/**
+ * @param {string} componentId - The component instance ID that changed.
+ * @param {string} traitId - The trait category that changed.
+ * @param {string} statName - The stat name that changed.
+ * @param {any} newValue - The new stat value.
+ * @param {any} oldValue - The previous stat value.
+ */
+```
+
+### 5.12. ActionController.on(actionName, callback) / off(actionName, callback)
+
+Subscribe/unsubscribe to capability change events for a specific action.
+
+```javascript
+/**
+ * @param {string} actionName - The action name to subscribe to.
+ * @param {Function} callback - Called with (actionName, capabilityEntry).
+ */
+```
+
+### 5.13. ActionController._executeFailureConsequences()
 
 Executes failure consequences using the same dispatcher pattern.
 
@@ -244,11 +362,11 @@ Executes failure consequences using the same dispatcher pattern.
  */
 ```
 
-### 5.6. ConsequenceHandlers.handlers
+### 5.14. ConsequenceHandlers.handlers
 
 Instead of an internal dispatcher, the `ActionController` now uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
 
-### 5.7. stateEntityController.updateEntitySpatial()
+### 5.15. stateEntityController.updateEntitySpatial()
 
 Updates an entity's spatial coordinates.
 

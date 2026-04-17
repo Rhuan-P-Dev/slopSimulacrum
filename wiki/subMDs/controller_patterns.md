@@ -90,7 +90,47 @@ class ActionController {
 }
 ```
 
-### 6.3. Root Injector Updates
+### 6.3. ActionController Stat Change Listener Integration
+
+The `ActionController` subscribes to stat change events from `ComponentController` to enable automatic capability re-evaluation:
+
+```javascript
+// In WorldStateController constructor:
+this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
+    this.actionController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+});
+```
+
+**How it works:**
+1. `ComponentController.updateComponentStat()` / `updateComponentStatDelta()` notifies registered listeners
+2. `ActionController.onStatChange()` receives the change notification
+3. A reverse index (`_componentActionIndex`) maps `trait.stat` → dependent actions
+4. Only dependent actions are re-evaluated via `reEvaluateActionForComponent()`
+5. Subscribers are notified via `on(actionName, callback)` / `off(actionName, callback)`
+
+**ComponentController Listener API:**
+```javascript
+// Register a listener
+componentController.registerStatChangeListener(listener);
+
+// Unregister a listener
+componentController.unregisterStatChangeListener(listener);
+
+// Listener signature: (componentId, traitId, statName, newValue, oldValue)
+```
+
+**ActionController Event API:**
+```javascript
+// Subscribe to capability changes
+actionController.on(actionName, (actionName, capabilityEntry) => {
+    // capabilityEntry is an ActionCapabilityEntry or null
+});
+
+// Unsubscribe
+actionController.off(actionName, callback);
+```
+
+### 6.4. Root Injector Updates
 
 When adding `ActionController`:
 

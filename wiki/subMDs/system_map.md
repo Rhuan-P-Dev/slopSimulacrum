@@ -28,13 +28,14 @@ graph TD
 
 | Controller | Role | Key Responsibility | Primary Data Managed |
 | :--- | :--- | :--- | :--- |
-| **WorldStateController** | Root Coordinator | Root Injection & Global State Aggregation | `subControllers` map |
+| **WorldStateController** | Root Coordinator | Root Injection, Global State Aggregation & Stat Change Wiring | `subControllers` map |
 | **RoomsController** | Room Manager | Room definitions, coordinates, and connections | `rooms` (with x, y, width, height) |
 | **stateEntityController** | Instance Manager | Lifecycle (Spawn/Move/Despawn) of active entities | `entities` (active instances with spatial) |
 | **entityController** | Blueprint Registry | Defining entity "DNA" and composition | `blueprints` (entity types) |
-| **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging | `componentRegistry` (blueprint traits) |
+| **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging + Stat Change Notifications | `componentRegistry` (blueprint traits) |
 | **componentStatsController** | Data Store | Persisting raw stats for every component instance | `componentStats` (instance IDs $\rightarrow$ values) |
 | **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
+| **ActionController** | Action Coordinator | Action execution, capability caching, and stat change re-evaluation | `_capabilityCache`, `_componentActionIndex` |
 
 ---
 
@@ -95,6 +96,23 @@ When a component stat changes:
 2. $\rightarrow$ `componentStatsController.getStats(instanceId)`
 3. $\rightarrow$ Modify value in the local object.
 4. $\rightarrow$ `componentStatsController.setStats(instanceId, updatedStats)`
+5. $\rightarrow$ `_notifyStatChangeListeners(instanceId, traitId, statName, newValue, oldValue)`
+6. $\rightarrow$ `ActionController.onStatChange()` $\rightarrow$ `reEvaluateActionForComponent()` (if action depends on changed trait.stat)
+
+### 3.3. Action Capability Cache Flow
+
+The `ActionController` maintains a cache of best components for each action:
+
+1. **Initial Scan**: Performed during `WorldStateController` initialization after entities are spawned
+2. **Lazy Scan**: `getActionsForEntity()` and `getActionCapabilities()` trigger scan if cache is empty or entity missing
+3. **Partial Re-evaluation**: Stat changes trigger targeted re-evaluation of only affected actions
+4. **Event Emission**: Subscribers notified when capabilities change via `on(actionName, callback)`
+
+**Cache Structure:**
+```
+_capabilityCache: { [actionName]: { [entityId]: ActionCapabilityEntry } }
+_componentActionIndex: Map< "trait.stat", Set<actionName> >
+```
 
 ---
 
@@ -102,6 +120,14 @@ When a component stat changes:
 - **No `new` Keywords**: Do not instantiate controllers inside other controllers. Only `WorldStateController` may use `new` for controller setup.
 - **One-Way Flow**: State modifications should generally flow from top to bottom.
 - **Single Source of Truth**: Always use the injected controllers to access data; never cache state in a way that could desynchronize with the `componentStatsController`.
+- **Capability Cache**: The `ActionController` capability cache is automatically maintained. Do not manually clear it; rely on `scanAllCapabilities()` or stat change notifications.
+
+### Server Endpoints (New)
+| Endpoint | Description |
+|----------|-------------|
+| `GET /action-capabilities` | Returns full cached action capabilities |
+| `GET /action-capabilities/:actionName` | Returns best component for a specific action |
+| `GET /action-capabilities/entity/:entityId` | Returns capabilities for a specific entity |
 
 ### 📢 Notice for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.

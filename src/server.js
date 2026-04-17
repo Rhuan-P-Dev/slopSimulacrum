@@ -136,6 +136,69 @@ app.get('/actions', (req, res) => {
 });
 
 /**
+ * GET /action-capabilities
+ * Returns the cached action capability data for all actions.
+ * Each entry includes the best component(s) for executing the action.
+ */
+app.get('/action-capabilities', (req, res) => {
+    try {
+        const capabilities = worldStateController.actionController.getCachedCapabilities();
+        res.json({ capabilities });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
+/**
+ * GET /action-capabilities/:actionName
+ * Returns the best component for a specific action across all entities.
+ * @param {string} actionName - The name of the action (e.g., "move", "dash").
+ */
+app.get('/action-capabilities/:actionName', (req, res) => {
+    try {
+        const { actionName } = req.params;
+        const bestComponent = worldStateController.actionController.getBestComponentForAction(actionName);
+        
+        if (!bestComponent) {
+            return res.status(404).json({ 
+                error: 'Action not found or no entity can execute it.', 
+                actionName 
+            });
+        }
+        
+        res.json({ actionName, bestComponent });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
+/**
+ * GET /action-capabilities/entity/:entityId
+ * Returns all capability entries for a specific entity across all actions.
+ * @param {string} entityId - The entity ID.
+ */
+app.get('/action-capabilities/entity/:entityId', (req, res) => {
+    try {
+        const { entityId } = req.params;
+        const capabilities = worldStateController.actionController.getCapabilitiesForEntity(entityId);
+        
+        if (Object.keys(capabilities).length === 0) {
+            return res.status(404).json({ 
+                error: 'No capabilities found for this entity.', 
+                entityId 
+            });
+        }
+        
+        res.json({ entityId, capabilities });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    }
+});
+
+/**
  * POST /execute-action
  * Endpoint to execute an action on an entity.
  * Expects: { "actionName": "move", "entityId": "...", "params": {} }
@@ -151,7 +214,10 @@ app.post('/execute-action', (req, res) => {
 
     try {
         const result = worldStateController.actionController.executeAction(actionName, entityId, params);
-        broadcastWorldState();
+        // Only broadcast world state on successful action execution
+        if (result.success) {
+            broadcastWorldState();
+        }
         res.json({ result });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);

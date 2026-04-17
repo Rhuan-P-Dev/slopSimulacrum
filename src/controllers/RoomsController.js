@@ -3,6 +3,9 @@ import { generateUID } from '../utils/idGenerator.js';
 /**
  * RoomsController handles the storage and management of rooms and their connections.
  * It serves as the single source of truth for the world's spatial data.
+ * 
+ * Per wiki/CORE.md: RoomsController is a State Controller (data store only),
+ * following the State Ownership vs. Logic Coordination pattern.
  */
 class RoomsController {
     constructor() {
@@ -76,27 +79,29 @@ class RoomsController {
     /**
      * Resolves a logical room name to its generated UUID.
      * @param {string} logicalId - The logical name of the room (e.g., 'start_room').
-     * @returns {string|null} The UUID of the room or null if not found.
+     * @returns {string|null} The UUID of the room, or null if not found.
      */
     getUidByLogicalId(logicalId) {
         return this.idMap[logicalId] || null;
     }
 
     /**
-     * Retrieves all rooms and their connections.
-     * @returns {Object} The full map of rooms.
+     * Retrieves a deep copy of all rooms and their connections.
+     * Returns a defensive copy to prevent external mutation of internal state.
+     * @returns {Object<string, Object>} A deep copy of the rooms map.
      */
     getAll() {
-        return this.rooms;
+        return JSON.parse(JSON.stringify(this.rooms));
     }
 
     /**
-     * Retrieves a specific room by its ID.
+     * Retrieves a deep copy of a specific room by its ID.
      * @param {string} roomId - The ID of the room to retrieve.
-     * @returns {Object|null} The room data or null if not found.
+     * @returns {Object|null} A deep copy of the room data, or null if not found.
      */
     getRoom(roomId) {
-        return this.rooms[roomId] || null;
+        const room = this.rooms[roomId];
+        return room ? JSON.parse(JSON.stringify(room)) : null;
     }
 }
 

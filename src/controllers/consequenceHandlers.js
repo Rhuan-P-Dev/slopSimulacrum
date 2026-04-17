@@ -19,22 +19,24 @@ class ConsequenceHandlers {
      */
     get handlers() {
         return {
-            updateSpatial: (targetId, params, context) => this._handleUpdateSpatial(targetId, params),
+            updateSpatial: (targetId, params, context) => this._handleUpdateSpatial(targetId, params, context),
             deltaSpatial: (targetId, params, context) => this._handleDeltaSpatial(targetId, params, context),
-            log: (targetId, params, context) => this._handleLog(params),
-            updateStat: (targetId, params, context) => this._handleUpdateStat(targetId, params),
+            log: (targetId, params, context) => this._handleLog(targetId, params, context),
+            updateStat: (targetId, params, context) => this._handleUpdateStat(targetId, params, context),
             updateComponentStatDelta: (targetId, params, context) => this._handleUpdateComponentStatDelta(targetId, params, context),
-            triggerEvent: (targetId, params, context) => this._handleTriggerEvent(targetId, params),
+            triggerEvent: (targetId, params, context) => this._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this._handleDamageComponent(targetId, params, context),
         };
     }
 
     /**
-     * @param {string} entityId
-     * @param {Object} spatialUpdate
+     * Handles spatial coordinate updates for an entity.
+     * @param {string} entityId - The entity ID to update.
+     * @param {Object} spatialUpdate - Object with x and/or y values.
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateSpatial(entityId, spatialUpdate) {
+    _handleUpdateSpatial(entityId, spatialUpdate, context) {
         const success = this.worldStateController.stateEntityController.updateEntitySpatial(entityId, spatialUpdate);
         if (success) {
             const updatedEntity = this.worldStateController.stateEntityController.getEntity(entityId);
@@ -91,17 +93,20 @@ class ConsequenceHandlers {
     }
 
     /**
-     * @param {Object} params
+     * Handles a log consequence, writing a message to the server log.
+     * @param {string} targetId - The entity/component ID associated with the log entry.
+     * @param {Object} params - Parameters containing message and log level.
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleLog(params) {
+    _handleLog(targetId, params, context) {
         if (!params) return { success: true, message: "Logged empty action", data: { level: "info" } };
         const { message = "No message provided", level = "info" } = params;
         
         const logMethod = Logger[level.toLowerCase()] || Logger.info;
-        logMethod(message);
+        logMethod(`[Action:${targetId}] ${message}`);
         
-        return { success: true, message: `Logged: ${message}`, data: { level } };
+        return { success: true, message: `Logged: ${message}`, data: { level, targetId } };
     }
 
     /**
@@ -137,7 +142,7 @@ class ConsequenceHandlers {
             }
         }
 
-        if (!componentId || componentId === targetId && !this.worldStateController.componentController.getComponentStats(componentId)) {
+        if (!componentId || (componentId === targetId && !this.worldStateController.componentController.getComponentStats(componentId))) {
             // If we still have an entityId instead of a componentId
             return { success: false, message: "No valid component identified for stat update", data: null };
         }
@@ -151,11 +156,13 @@ class ConsequenceHandlers {
     }
 
     /**
-     * @param {string} entityId
-     * @param {Object} updateParams
+     * Handles bulk stat updates across all components on an entity.
+     * @param {string} entityId - The entity ID whose components will be updated.
+     * @param {Object} updateParams - Object containing trait, stat, and value.
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateStat(entityId, updateParams) {
+    _handleUpdateStat(entityId, updateParams, context) {
         const { trait, stat, value } = updateParams;
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return { success: false, message: `Entity "${entityId}" not found`, data: null };
@@ -190,11 +197,13 @@ class ConsequenceHandlers {
     }
 
     /**
-     * @param {string} entityId
-     * @param {Object} eventParams
+     * Handles event triggering for logging/notification purposes.
+     * @param {string} entityId - The entity ID associated with the event.
+     * @param {Object} eventParams - Object containing eventType and optional data.
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleTriggerEvent(entityId, eventParams) {
+    _handleTriggerEvent(entityId, eventParams, context) {
         const { eventType, data } = eventParams;
         Logger.info(`Event triggered: ${eventType} for entity ${entityId}`, data || {});
         return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, entityId } };

@@ -11,6 +11,7 @@ class ComponentStatsController {
 
     /**
      * Sets or updates the stats for a specific component instance.
+     * Performs a deep clone of the input to prevent external reference sharing.
      * @param {string} componentId - The unique ID of the component instance.
      * @param {Object} stats - The stats to set.
      * @returns {void}
@@ -19,16 +20,21 @@ class ComponentStatsController {
         if (!this.componentStats[componentId]) {
             this.componentStats[componentId] = {};
         }
-        this.componentStats[componentId] = { ...this.componentStats[componentId], ...stats };
+        // Deep merge: clone existing + new stats to prevent reference sharing
+        const existing = JSON.parse(JSON.stringify(this.componentStats[componentId]));
+        const incoming = JSON.parse(JSON.stringify(stats));
+        this.componentStats[componentId] = { ...existing, ...incoming };
     }
 
     /**
-     * Retrieves the stats for a specific component instance.
+     * Retrieves a deep copy of the stats for a specific component instance.
+     * Returns a defensive copy to prevent external mutation of internal state.
      * @param {string} componentId - The unique ID of the component instance.
-     * @returns {Object|null} The stats of the component, or null if not found.
+     * @returns {Object|null} A deep copy of the component stats, or null if not found.
      */
     getStats(componentId) {
-        return this.componentStats[componentId] || null;
+        const stats = this.componentStats[componentId];
+        return stats ? JSON.parse(JSON.stringify(stats)) : null;
     }
 
     /**
@@ -47,11 +53,11 @@ class ComponentStatsController {
     }
 
     /**
-     * Returns all component stats.
-     * @returns {Object}
+     * Returns a deep copy of all component stats.
+     * @returns {Object} A deep copy of the internal stats store.
      */
     getAll() {
-        return this.componentStats;
+        return JSON.parse(JSON.stringify(this.componentStats));
     }
 }
 

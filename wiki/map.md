@@ -55,6 +55,9 @@ graph TD
     AC --> SEC
     AC --> CC
     AC --> RC
+    
+    %% Stat change notification
+    CC -.->|stat change| AC
 ```
 
 ---
@@ -80,6 +83,10 @@ To understand how a piece of data is retrieved, follow this chain:
 When an action is executed:
 `Server` $\rightarrow$ `WorldStateController` $\rightarrow$ `ActionController` $\rightarrow$ `ConsequenceHandlers` $\rightarrow$ `WorldStateController` (to update sub-controllers).
 
+**Stat Change Notification Flow:**
+When component stats change, the `ActionController` automatically re-evaluates capabilities:
+`ComponentController` $\rightarrow$ `ActionController.onStatChange()` $\rightarrow$ `reEvaluateActionForComponent()` $\rightarrow$ `_notifySubscribers()`
+
 ### 🟡 The LLM Interaction Flow
 The LLM flow is decoupled from the World State hierarchy:
 `Client` $\rightarrow$ `Server` $\rightarrow$ `LLMController` $\rightarrow$ `LLM Backend`.
@@ -96,7 +103,7 @@ The LLM flow is decoupled from the World State hierarchy:
 | Manage entity existence | `EntityController` | Uses Components |
 | Spawn/Move entities | `stateEntityController` | Uses EntityController |
 | Modify room layout | `RoomsController` | Spatial state |
-| Execute a game action | `ActionController` | Coordinates multiple controllers |
+| Execute a game action | `ActionController` | Coordinates multiple controllers; maintains capability cache |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper |
 
 ## ⚠️ Critical Rule for Agents

@@ -50,6 +50,12 @@ class WorldStateController {
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
         const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
         this.actionController = actionController;
+
+        // 5. Wire up stat change notifications from ComponentController to ActionController
+        // This enables automatic capability re-evaluation when component stats change
+        this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
+            this.actionController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+        });
         
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
@@ -61,6 +67,9 @@ class WorldStateController {
 
         // Initialize world with a sample droid as requested
         this.initializeWorld();
+
+        // Perform initial capability scan after entities are spawned
+        this.actionController.scanAllCapabilities(this.getAll());
     }
 
     /**

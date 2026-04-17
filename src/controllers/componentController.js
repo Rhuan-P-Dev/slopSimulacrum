@@ -5,12 +5,58 @@ import TraitsController from './traitsController.js';
  * ComponentController is responsible for communicating with all subcontrollers
  * related to components and routing requests to the appropriate logic.
  * Now implemented with a Default-Override Traits System.
+ * 
+ * It also provides a stat change notification system so dependent controllers
+ * (e.g., ActionController) can re-evaluate action capabilities when stats change.
  */
 class ComponentController {
     constructor(statsController, traitsController, componentRegistry) {
         this.statsController = statsController;
         this.traitsController = traitsController;
         this.componentRegistry = componentRegistry || {};
+        
+        // Stat change subscribers (observer pattern for action capability re-evaluation)
+        this._statChangeListeners = [];
+    }
+
+    /**
+     * Registers a listener to be notified whenever a component stat changes.
+     * @param {Function} listener - A function called with (componentId, traitId, statName, newValue, oldValue).
+     */
+    registerStatChangeListener(listener) {
+        if (typeof listener === 'function' && !this._statChangeListeners.includes(listener)) {
+            this._statChangeListeners.push(listener);
+        }
+    }
+
+    /**
+     * Unregisters a previously registered stat change listener.
+     * @param {Function} listener - The listener function to remove.
+     */
+    unregisterStatChangeListener(listener) {
+        const index = this._statChangeListeners.indexOf(listener);
+        if (index !== -1) {
+            this._statChangeListeners.splice(index, 1);
+        }
+    }
+
+    /**
+     * Notifies all registered stat change listeners.
+     * @param {string} componentId - The component instance ID.
+     * @param {string} traitId - The trait category.
+     * @param {string} statName - The stat name.
+     * @param {any} newValue - The new stat value.
+     * @param {any} oldValue - The previous stat value.
+     * @private
+     */
+    _notifyStatChangeListeners(componentId, traitId, statName, newValue, oldValue) {
+        for (const listener of this._statChangeListeners) {
+            try {
+                listener(componentId, traitId, statName, newValue, oldValue);
+            } catch (error) {
+                console.error(`[ComponentController] Error in stat change listener for ${componentId}:`, error.message);
+            }
+        }
     }
 
     /**
@@ -50,10 +96,14 @@ class ComponentController {
      * @returns {boolean}
      */
     updateComponentStat(instanceId, traitId, statName, value) {
+        // Read current stats to get the old value
         const stats = this.statsController.getStats(instanceId);
         if (stats && stats[traitId]) {
-            stats[traitId][statName] = value;
-            this.statsController.setStats(instanceId, stats);
+            const oldValue = stats[traitId][statName];
+            // Apply the update via setStats with just the changed trait/stat
+            this.statsController.setStats(instanceId, { [traitId]: { [statName]: value } });
+            // Notify listeners of the stat change
+            this._notifyStatChangeListeners(instanceId, traitId, statName, value, oldValue);
             return true;
         }
         return false;
@@ -68,10 +118,15 @@ class ComponentController {
      * @returns {boolean}
      */
     updateComponentStatDelta(instanceId, traitId, statName, delta) {
+        // Read current stats to get the old value
         const stats = this.statsController.getStats(instanceId);
         if (stats && stats[traitId] && typeof stats[traitId][statName] === 'number') {
-            stats[traitId][statName] += delta;
-            this.statsController.setStats(instanceId, stats);
+            const oldValue = stats[traitId][statName];
+            const newValue = oldValue + delta;
+            // Apply the delta via setStats with just the changed trait/stat
+            this.statsController.setStats(instanceId, { [traitId]: { [statName]: newValue } });
+            // Notify listeners of the stat change
+            this._notifyStatChangeListeners(instanceId, traitId, statName, newValue, oldValue);
             return true;
         }
         return false;

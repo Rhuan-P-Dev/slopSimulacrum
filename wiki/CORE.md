@@ -24,6 +24,8 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
 - [Controller Relationship Map](map.md)
+- [Action System](subMDs/action_system.md)
+- [Action Capability Cache](subMDs/action_capability_cache.md)
 - Check the `subMDs` folder for more detailed guides.
 
 ### 📢 Note for Future Agents
@@ -70,3 +72,55 @@ The `ActionController` handles game actions on entities, providing a centralized
 - `RoomsController`: Room data and connections
 
 **Documentation:** See `wiki/subMDs/action_system.md` for complete guide.
+
+### ActionController: Action Capability Cache
+
+The `ActionController` maintains a **capability cache** that maps each action to its best fulfilling component across all entities:
+
+**Cache Structure:**
+```
+_capabilityCache: { [actionName]: { [entityId]: ActionCapabilityEntry } }
+```
+
+**Key Methods:**
+- `scanAllCapabilities(state)` — Full bottom-up scan of all entities/components
+- `getActionsForEntity(state, entityId)` — Get actions for a specific entity (auto-scans if entity not in cache)
+- `getActionCapabilities(state)` — Get all capabilities (auto-scans if cache empty)
+- `getCachedCapabilities()` — Return cached data
+- `getBestComponentForAction(actionName)` — Get best component for an action
+- `getCapabilitiesForEntity(entityId)` — Get capabilities for an entity
+- `reEvaluateActionForComponent(state, actionName, componentId)` — Partial re-evaluation
+- `on(actionName, callback)` / `off(actionName, callback)` — Event subscription
+
+**Auto-Scan Behavior:**
+- `getActionsForEntity()` triggers a scan if cache is empty OR entity not in cache
+- `getActionCapabilities()` triggers a scan if cache is empty
+
+### ActionController: Stat Change Notification
+
+The `ActionController` subscribes to stat changes from `ComponentController`:
+
+```
+ComponentController.updateComponentStatDelta()
+    → _notifyStatChangeListeners()
+        → ActionController.onStatChange()
+            → _getActionsForTraitStat()
+                → reEvaluateActionForComponent()
+                    → _notifySubscribers()
+```
+
+**Server Endpoints:**
+- `GET /action-capabilities` — Returns full cached capabilities
+- `GET /action-capabilities/:actionName` — Returns best component for an action
+- `GET /action-capabilities/entity/:entityId` — Returns capabilities for an entity
+
+### ComponentController: Stat Change Notification
+
+The `ComponentController` provides a listener system for stat changes:
+
+**API:**
+- `registerStatChangeListener(listener)` — Register a listener function
+- `unregisterStatChangeListener(listener)` — Remove a listener
+- Listener signature: `(componentId, traitId, statName, newValue, oldValue)`
+
+**Documentation:** See `wiki/subMDs/action_capability_cache.md` for complete guide.

@@ -258,9 +258,9 @@ export class UIManager {
                     <div class="action-capable clickable ${isSelected ? 'action-selected' : ''}" 
                          data-action="${actionName}" 
                          data-entity="${entity.entityId}" 
-                         data-comp-name="${entity.componentName}" 
+                         data-comp-name="${entity.componentType}" 
                          data-comp-id="${entity.componentIdentifier}">
-                        <span class="component-name">${entity.componentName} (${entity.componentIdentifier})</span>
+                        <span class="component-name">${entity.componentType} (${entity.componentIdentifier})</span>
                         <span class="${entity.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
                     </div>`;
             }).join('');
