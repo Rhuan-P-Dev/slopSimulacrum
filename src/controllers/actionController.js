@@ -1078,26 +1078,31 @@ class ActionController {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
         }
 
-        const results = [];
-        const context = {
-            requirementValues,
-            actionParams: params,
-            fulfillingComponents
-        };
+            const results = [];
+            const context = {
+                requirementValues,
+                actionParams: params,
+                fulfillingComponents
+            };
 
-        for (const consequence of action.consequences) {
-            const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, params);
+            for (const consequence of action.consequences) {
+                const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, params);
 
-            const handler = this.consequenceHandlers.handlers[consequence.type];
-            if (!handler) {
-                results.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
-                continue;
-            }
+                const handler = this.consequenceHandlers.handlers[consequence.type];
+                if (!handler) {
+                    results.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
+                    continue;
+                }
 
-            try {
-                // The handler manages its own targetId resolution (entity vs component) using the context
-                const targetId = params.targetComponentId || entityId;
-                const result = handler(targetId, resolvedParams, context);
+                try {
+                    // Spatial consequences (updateSpatial, deltaSpatial) always operate on the entity.
+                    // Component-level consequences (updateComponentStatDelta, damageComponent) resolve
+                    // their target from context.actionParams.targetComponentId inside the handler.
+                    const spatialTypes = ['updateSpatial', 'deltaSpatial'];
+                    const targetId = spatialTypes.includes(consequence.type)
+                        ? entityId
+                        : (params.targetComponentId || entityId);
+                    const result = handler(targetId, resolvedParams, context);
 
                 results.push({ success: true, type: consequence.type, ...result });
             } catch (error) {

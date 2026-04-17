@@ -116,17 +116,26 @@ export class ActionManager {
 
     /**
      * Executes a movement action with specific target coordinates.
+     * Includes the originally selected componentId so the server can
+     * correctly resolve which component's stats to use for requirements
+     * and consequences (e.g., durability loss from dash).
      * @param {string} actionName 
      * @param {string} entityId 
      * @param {number} targetX 
      * @param {number} targetY 
      */
     async moveToTarget(actionName, entityId, targetX, targetY) {
+        const pending = this.getPendingAction();
         try {
             await this._sendActionRequest({ 
                 actionName: actionName,
                 entityId: entityId,
-                params: { targetX, targetY }
+                params: { 
+                    targetX, 
+                    targetY,
+                    targetComponentId: pending?.componentId,
+                    componentIdentifier: pending?.componentIdentifier
+                }
             }, 'MOVEMENT_FAILED');
         } catch (error) {
             // Error already handled by _sendActionRequest

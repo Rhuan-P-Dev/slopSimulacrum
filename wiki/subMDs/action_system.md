@@ -293,6 +293,16 @@ Executes an action on an entity.
 
 Executes success consequences by reading from the action registry and dispatching to the injected `ConsequenceHandlers`.
 
+**Target ID Resolution by Consequence Type:**
+Different consequence types operate on different scopes. The `_executeConsequences` method resolves the correct `targetId` based on the consequence type:
+
+| Consequence Type | Target ID Used |
+|------------------|----------------|
+| `updateSpatial`, `deltaSpatial` | `entityId` — spatial operations always target the entity |
+| `updateComponentStatDelta`, `damageComponent`, `updateStat`, `log`, `triggerEvent` | `targetComponentId` (from `params`) or `entityId` as fallback |
+
+This ensures that spatial actions (like `move`, `dash`) correctly operate on the entity even when `targetComponentId` is present in the action params (e.g., when the user selected a specific component for multi-component entities).
+
 ```javascript
 /**
  * @param {string} actionName - The name of the action.

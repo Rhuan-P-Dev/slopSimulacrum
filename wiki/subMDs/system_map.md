@@ -162,7 +162,28 @@ For actions like `selfHeal` that modify stats without an explicit target:
 
 **⚠️ Note:** The old "first component with the trait" fallback has been removed to prevent unpredictable behavior.
 
-### 3.6. WorldStateController Public API Flow
+### 3.6. Spatial Action Component Resolution (e.g., move, dash)
+
+For spatial actions on entities with multiple components of the same type (e.g., left and right `droidRollingBall`), the system uses `targetComponentId` for requirement resolution while ensuring spatial consequences always target the entity:
+
+**Client-Side Flow:**
+1. User selects a component in the UI → `componentId` stored in `pendingMovementAction`
+2. `ActionManager.moveToTarget()` sends `{ targetX, targetY, targetComponentId, componentIdentifier }`
+3. Server receives the request at `POST /execute-action`
+
+**Server-Side Target ID Resolution in `_executeConsequences()`:**
+| Consequence Type | Target ID Used |
+|------------------|----------------|
+| `updateSpatial`, `deltaSpatial` | `entityId` — spatial operations always target the entity |
+| `updateComponentStatDelta`, `damageComponent` | `targetComponentId` (from `params`) or `entityId` as fallback |
+
+This separation ensures that:
+- The entity moves correctly (deltaSpatial uses entity ID, not component ID)
+- Component consequences apply to the selected component (e.g., right wheel durability loss from dash)
+
+**⚠️ Critical:** If `targetComponentId` is sent but spatial consequences incorrectly use it as the target ID, the movement will fail because `getEntity()` will receive a component ID instead of an entity ID.
+
+### 3.7. WorldStateController Public API Flow
 
 The server (`src/server.js`) uses public API wrappers instead of direct sub-controller access:
 

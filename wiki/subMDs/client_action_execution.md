@@ -19,15 +19,18 @@ For non-movement actions, the flow is immediate:
 
 ### 2.2. Movement Actions (Deferred Execution)
 Movement actions (defined in `AppConfig.ACTIONS`, e.g., `MOVE`, `DASH`) use a two-step "Pending" state to allow for target selection on the map:
-1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state, highlights the action in the UI, and renders a **white range indicator** around the droid to visualize the possible movement distance.
+1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state, highlights the action in the UI, and renders a **white range indicator** around the droid to visualize the possible movement distance. The selected component's `componentId` and `componentIdentifier` are stored in this pending state.
 2.  **Target Selection**: The user clicks a location on the spatial map.
 3.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
     *   `actionName`: (e.g., "move" or "dash").
     *   `entityId`: The ID of the entity.
-    *   `params`: The `targetX` and `targetY` coordinates relative to the room center.
+    *   `params`:
+        *   `targetX` and `targetY`: Coordinates relative to the room center.
+        *   `targetComponentId`: The component ID of the component selected during action selection. **This is required** to ensure that consequences (e.g., durability loss from `dash`) are applied to the correct component when the entity has multiple components with the same type (e.g., left and right `droidRollingBall` components).
+        *   `componentIdentifier`: The identifier of the selected component (e.g., "left", "right").
 4.  **Execution**: The server calculates the movement based on the action's speed (e.g., `:traitValue` or `:traitValue*2`) and updates the entity's position.
 5.  **Reset**: The `pendingMovementAction` is cleared.
-6.  **Server Processing**: The server validates requirements and executes consequences.
+6.  **Server Processing**: The server validates requirements using the `targetComponentId` and executes consequences on the resolved component.
 7.  **Response & UI Update**: Upon successful execution, the server emits a `world-state-update` event via WebSockets. The client receives this signal and immediately triggers `fetchWorldState()` and `fetchActions()` to refresh the UI.
 
 ### 2.3. Component-Targeted Actions (Deferred Execution)

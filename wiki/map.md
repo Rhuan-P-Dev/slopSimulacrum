@@ -107,6 +107,25 @@ Client → Server → ActionController.executeAction()
     └── ConsequenceHandlers.damageComponent(targetComponentId) → reduce target durability
 ```
 
+**Spatial Action Component Resolution (e.g., move, dash with multi-component entities):**
+For spatial actions on entities with multiple components of the same type (e.g., left and right `droidRollingBall`):
+1. User selects a component in the UI → `componentId` stored in pending action
+2. Client sends `POST /execute-action` with `targetX`, `targetY`, `targetComponentId`, `componentIdentifier`
+3. `ActionController.executeAction()` uses `targetComponentId` for **requirement value resolution**
+4. `ActionController._executeConsequences()` resolves target ID by consequence type:
+   - Spatial consequences (`updateSpatial`, `deltaSpatial`) → always use `entityId`
+   - Component consequences (`updateComponentStatDelta`, `damageComponent`) → use `targetComponentId`
+5. `WorldStateController` broadcasts updated state
+
+**Data Flow Diagram (Spatial):**
+```
+Client → Server → ActionController.executeAction()
+    ├── targetComponentId → _checkRequirementsForComponent() → requirementValues
+    ├── _executeConsequences()
+    │   ├── deltaSpatial → entityId (entity moves)
+    │   └── updateComponentStatDelta → targetComponentId (component durability updated)
+```
+
 **Stat Change Notification Flow:**
 When component stats change, the `ActionController` automatically re-evaluates capabilities:
 `ComponentController` → `ActionController.onStatChange()` → `reEvaluateActionForComponent()` → `_notifySubscribers(actionName, entryOrRemovalMarker)`

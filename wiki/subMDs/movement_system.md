@@ -34,6 +34,19 @@ The movement speed is determined by the action definition in the registry:
 - **Move:** Uses `:traitValue` (the base `Movement.move` stat).
 - **Dash:** Uses `:traitValue*2` (double the base move stat), but consumes 5 durability.
 
+### 3.3. Component Resolution for Multi-Component Entities
+
+When an entity has multiple components with the same trait (e.g., left and right `droidRollingBall` components with `Movement.move`), the system uses the `targetComponentId` parameter to determine which component's stats should be used for:
+- **Requirement value resolution:** The selected component's `Movement.move` value determines movement speed.
+- **Consequence application:** For actions like `dash`, durability loss is applied to the selected component (e.g., the right wheel loses durability, not the left).
+
+**Client-Side Flow:**
+1. User selects a movement action on a specific component → `componentId` stored in `pendingMovementAction`
+2. User clicks map → `ActionManager.moveToTarget()` sends `{ targetX, targetY, targetComponentId, componentIdentifier }`
+3. Server resolves requirements and consequences using the correct component
+
+**See also:** [Client-Side Action Execution](client_action_execution.md) Section 2.2
+
 ## 4. Coordinate Translation
 The system translates screen coordinates to room-relative coordinates:
 1.  **Screen to SVG:** The click event coordinates are transformed using the SVG's coordinate system (`getScreenCTM().inverse()`).
