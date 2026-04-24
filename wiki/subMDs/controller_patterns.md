@@ -87,90 +87,96 @@ worldStateController.getRoomUidByLogicalId('start_room');
 
 ### 6.1. Specialized Action Coordinator
 
-The `ActionController` follows the same Dependency Injection pattern but with a unique role:
+The `ActionController` follows the Dependency Injection pattern. After an SRP refactor, it now focuses **strictly on action execution** and delegates capability cache management to `ComponentCapabilityController`.
 
-- **Role**: Specialized Action Coordinator
-- **Dependency**: Receives `WorldStateController` reference via constructor injection
-- **Responsibility**: Execute game actions through the action registry pattern
-- **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`
-- **Event System**: `on(actionName, callback)` / `off(actionName, callback)` for capability change notifications
-- **Removal Markers**: When capabilities are removed, subscribers receive `{ _type: 'REMOVAL', componentId, entityId }` objects
+- **Role**: Action Execution Coordinator
+- **Dependencies**: `WorldStateController`, `ConsequenceHandlers`, `actionRegistry`, `ComponentCapabilityController`
+- **Responsibility**: Execute game actions, validate requirements, execute consequences
+- **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`, `_resolvePlaceholders()`
+- **Delegation**: All capability cache queries are delegated to `ComponentCapabilityController`
 
 ### 6.2. Constructor Injection Pattern
-
-**❌ Prohibited Pattern (Internal Instantiation):**
-```javascript
-class ActionController {
-    constructor() {
-        // BAD: Creates new instances or loads files internally
-        this.worldStateController = new WorldStateController();
-        this._loadActionRegistry(); 
-    }
-}
-```
 
 **✅ Mandatory Pattern (Constructor Injection):**
 ```javascript
 class ActionController {
-    constructor(worldStateController, consequenceHandlers, actionRegistry) {
-        // GOOD: All dependencies are injected from the Root Injector
+    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController) {
         this.worldStateController = worldStateController;
         this.consequenceHandlers = consequenceHandlers;
-        this.actionRegistry = actionRegistry;
+        this.actionRegistry = actionRegistry || {};
+        this.componentCapabilityController = componentCapabilityController;
     }
 }
 ```
 
-### 6.3. ActionController Stat Change Listener Integration
+### 6.3. Root Injector Updates
 
-The `ActionController` subscribes to stat change events from `ComponentController` to enable automatic capability re-evaluation:
+When adding `ActionController`:
+
+1. Import: `import ActionController from './actionController.js';`
+2. Load Data: `const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');`
+3. Instantiate `ComponentCapabilityController` FIRST (step 4)
+4. Instantiate Handlers: `const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });`
+5. Instantiate: `const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController);`
+6. Assign: `this.actionController = actionController;`
+7. Register: Add to `subControllers` map: `actions: this.actionController`
+
+---
+
+## 7. ComponentCapabilityController Pattern
+
+### 7.1. Capability Cache Manager
+
+The `ComponentCapabilityController` was extracted from `ActionController` to adhere to the **Single Responsibility Principle** (SRP). It manages the capability cache that maps each action to an array of component capability entries.
+
+- **Role**: Capability Cache Manager
+- **Dependencies**: `WorldStateController`, `actionRegistry`
+- **Responsibility**: Scan, score, cache, and re-evaluate component capabilities
+- **Key Methods**: `scanAllCapabilities()`, `reEvaluateActionForComponent()`, `_calculateComponentScore()`
+- **Event System**: `on(actionName, callback)` / `off(actionName, callback)` for capability change notifications
+
+### 7.2. Constructor Injection Pattern
+
+```javascript
+class ComponentCapabilityController {
+    constructor(worldStateController, actionRegistry) {
+        this.worldStateController = worldStateController;
+        this.actionRegistry = actionRegistry || {};
+        this._capabilityCache = {};
+        this._actionSubscribers = new Map();
+        this._traitStatActionIndex = new Map();
+        this._buildTraitStatActionIndex();
+    }
+}
+```
+
+### 7.3. Stat Change Listener Integration
+
+The `ComponentCapabilityController` subscribes to stat change events from `ComponentController` to enable automatic capability re-evaluation:
 
 ```javascript
 // In WorldStateController constructor:
 this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
-    this.actionController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+    this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
 });
 ```
 
 **How it works:**
 1. `ComponentController.updateComponentStat()` / `updateComponentStatDelta()` notifies registered listeners
-2. `ActionController.onStatChange()` receives the change notification
+2. `ComponentCapabilityController.onStatChange()` receives the change notification
 3. A reverse index (`_traitStatActionIndex`) maps `trait.stat` → dependent actions
 4. Only dependent actions are re-evaluated via `reEvaluateActionForComponent()`
 5. Subscribers are notified via `on(actionName, callback)` / `off(actionName, callback)`
 
-**ComponentController Listener API:**
-```javascript
-// Register a listener
-componentController.registerStatChangeListener(listener);
+### 7.4. Root Injector Updates
 
-// Unregister a listener
-componentController.unregisterStatChangeListener(listener);
+When adding `ComponentCapabilityController`:
 
-// Listener signature: (componentId, traitId, statName, newValue, oldValue)
-```
-
-**ActionController Event API:**
-```javascript
-// Subscribe to capability changes
-actionController.on(actionName, (actionName, capabilityEntry) => {
-    // capabilityEntry is an ActionCapabilityEntry, RemovalMarker, or null
-});
-
-// Unsubscribe
-actionController.off(actionName, callback);
-```
-
-### 6.4. Root Injector Updates
-
-When adding `ActionController`:
-
-1. Import: `const ActionController = require('./actionController');`
-2. Load Data: `const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');`
-3. Instantiate Handlers: `const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });`
-4. Instantiate: `const actionController = new ActionController(this, consequenceHandlers, actionRegistry);`
-5. Assign: `this.actionController = actionController;`
-6. Register: Add to `subControllers` map: `actions: this.actionController`
+1. Import: `import ComponentCapabilityController from './componentCapabilityController.js';`
+2. Instantiate (step 4, BEFORE ActionController): `const componentCapabilityController = new ComponentCapabilityController(this, actionRegistry);`
+3. Assign: `this.componentCapabilityController = componentCapabilityController;`
+4. Inject into ActionController: Pass as 4th constructor argument
+5. Register: Add to `subControllers` map: `capabilities: this.componentCapabilityController`
 
 ## 7. Maintaining the Root Injector
 The `WorldStateController` constructor is the **only** place in the entire system where the `new` keyword should be used to instantiate controllers.

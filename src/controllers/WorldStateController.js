@@ -5,6 +5,7 @@ import EntityController from './entityController.js';
 import ComponentStatsController from './componentStatsController.js';
 import TraitsController from './traitsController.js';
 import ActionController from './actionController.js';
+import ComponentCapabilityController from './componentCapabilityController.js';
 import ConsequenceHandlers from './consequenceHandlers.js';
 import DataLoader from '../utils/DataLoader.js';
 
@@ -45,20 +46,25 @@ class WorldStateController {
         this.stateEntityController = stateEntityControllerInstance;
         this.componentController = componentController;
 
-        // 4. Instantiate ActionController (Top level - Injected with Dependencies)
+        // 4. Instantiate ComponentCapabilityController (Capability Cache Manager)
+        // Manages component capability scanning, caching, scoring, and re-evaluation.
+        const componentCapabilityController = new ComponentCapabilityController(this, actionRegistry);
+        this.componentCapabilityController = componentCapabilityController;
+
+        // 5. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
-        const actionController = new ActionController(this, consequenceHandlers, actionRegistry);
+        const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController);
         this.actionController = actionController;
 
         // Wire the actionController reference into stateEntityController for spawn/despawn hooks
         // Must be done AFTER actionController is instantiated (forward reference)
         this.stateEntityController.actionController = actionController;
 
-        // 5. Wire up stat change notifications from ComponentController to ActionController
+        // 6. Wire up stat change notifications from ComponentController to ComponentCapabilityController
         // This enables automatic capability re-evaluation when component stats change
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
-            this.actionController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+            this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
         });
         
         // Map of sub-controllers for easy iteration/extension
@@ -66,13 +72,15 @@ class WorldStateController {
             rooms: this.roomsController,
             entities: this.stateEntityController,
             components: this.componentController,
-            actions: this.actionController
+            actions: this.actionController,
+            capabilities: this.componentCapabilityController
         };
 
         // Initialize world with a sample droid as requested
         this.initializeWorld();
 
         // Perform initial capability scan after entities are spawned
+        // Delegates to ComponentCapabilityController via ActionController wrapper
         this.actionController.scanAllCapabilities(this.getAll());
     }
 

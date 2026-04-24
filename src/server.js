@@ -139,10 +139,11 @@ app.get('/actions', (req, res) => {
  * GET /action-capabilities
  * Returns the cached action capability data for all actions.
  * Each entry includes the best component(s) for executing the action.
+ * Delegates to ComponentCapabilityController.
  */
 app.get('/action-capabilities', (req, res) => {
     try {
-        const capabilities = worldStateController.actionController.getCachedCapabilities();
+        const capabilities = worldStateController.componentCapabilityController.getCachedCapabilities();
         res.json({ capabilities });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -153,20 +154,21 @@ app.get('/action-capabilities', (req, res) => {
 /**
  * GET /action-capabilities/:actionName
  * Returns the best component for a specific action across all entities.
+ * Delegates to ComponentCapabilityController.
  * @param {string} actionName - The name of the action (e.g., "move", "dash").
  */
 app.get('/action-capabilities/:actionName', (req, res) => {
     try {
         const { actionName } = req.params;
-        const bestComponent = worldStateController.actionController.getBestComponentForAction(actionName);
-        
+        const bestComponent = worldStateController.componentCapabilityController.getBestComponentForAction(actionName);
+
         if (!bestComponent) {
-            return res.status(404).json({ 
-                error: 'Action not found or no entity can execute it.', 
-                actionName 
+            return res.status(404).json({
+                error: 'Action not found or no entity can execute it.',
+                actionName
             });
         }
-        
+
         res.json({ actionName, bestComponent });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -178,12 +180,13 @@ app.get('/action-capabilities/:actionName', (req, res) => {
  * GET /action-capabilities/entity/:entityId
  * Returns all capability entries for a specific entity across all actions.
  * Each entry represents one component's ability to perform one action.
+ * Delegates to ComponentCapabilityController.
  * @param {string} entityId - The entity ID.
  */
 app.get('/action-capabilities/entity/:entityId', (req, res) => {
     try {
         const { entityId } = req.params;
-        const capabilities = worldStateController.actionController.getCapabilitiesForEntity(entityId);
+        const capabilities = worldStateController.componentCapabilityController.getCapabilitiesForEntity(entityId);
 
         if (capabilities.length === 0) {
             return res.status(404).json({
@@ -203,6 +206,7 @@ app.get('/action-capabilities/entity/:entityId', (req, res) => {
  * POST /refresh-entity-capabilities
  * Re-evaluates all action capabilities for a specific entity.
  * Called when an entity's component set changes (e.g., picks up/drops an item).
+ * Delegates to ComponentCapabilityController.
  * Expects: { "entityId": "..." }
  */
 app.post('/refresh-entity-capabilities', (req, res) => {
@@ -216,7 +220,7 @@ app.post('/refresh-entity-capabilities', (req, res) => {
 
     try {
         const state = worldStateController.getAll();
-        const updatedEntries = worldStateController.actionController.reEvaluateEntityCapabilities(state, entityId);
+        const updatedEntries = worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
         res.json({ entityId, updatedEntries });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);

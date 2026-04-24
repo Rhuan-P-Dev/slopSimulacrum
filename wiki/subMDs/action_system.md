@@ -10,7 +10,9 @@ The Action System provides a centralized, extensible mechanism for executing gam
 
 ### 1.1. Action Capability Cache
 
-The `ActionController` maintains a **capability cache** that maps each action to an **array of all component capability entries** that qualify for that action. Every component that meets an action's requirements gets its own entry, sorted by score (best first).
+> **SRP Refactor**: The capability cache logic has been extracted from `ActionController` into a dedicated [`ComponentCapabilityController`](./component_capability_controller.md). The `ActionController` now delegates all capability cache queries to it.
+
+The `ComponentCapabilityController` maintains a **capability cache** that maps each action to an **array of all component capability entries** that qualify for that action. Every component that meets an action's requirements gets its own entry, sorted by score (best first).
 
 **Cache Structure:**
 ```javascript
@@ -25,24 +27,20 @@ _capabilityCache: {
 }
 ```
 
-**Key Methods:**
+**Key Methods** (on `ComponentCapabilityController`):
 - `scanAllCapabilities(state)` — Full bottom-up scan of all entities/components
 - `reEvaluateActionForComponent(state, actionName, componentId)` — Update single entry in array
 - `reEvaluateEntityCapabilities(state, entityId)` — Re-scan all components for an entity
 - `removeEntityFromCache(entityId)` — Remove all entries for an entity
-- `getActionsForEntity(state, entityId)` — Get actions for a specific entity (auto-scans if entity not in cache)
-- `getActionCapabilities(state)` — Get all capabilities (auto-scans if cache empty)
+- `getActionsForEntity(state, entityId)` — Get actions for a specific entity
+- `getActionCapabilities(state)` — Get all capabilities
 - `getCachedCapabilities()` — Return cached data
 - `getBestComponentForAction(actionName)` — Get best entry (highest score) for an action
 - `getAllCapabilitiesForAction(actionName)` — Get all entries for an action
 - `getCapabilitiesForEntity(entityId)` — Get all entries for an entity
 - `on(actionName, callback)` / `off(actionName, callback)` — Event subscription
 
-**Auto-Scan Behavior:**
-- `getActionsForEntity()` triggers a scan if cache is empty OR entity not in cache
-- `getActionCapabilities()` triggers a scan if cache is empty
-
-**See also:** [Action Capability Cache Sub-Wiki](action_capability_cache.md)
+**See also:** [Action Capability Cache Sub-Wiki](action_capability_cache.md) | [ComponentCapabilityController Sub-Wiki](component_capability_controller.md)
 
 ---
 
@@ -51,31 +49,34 @@ _capabilityCache: {
 ### 2.1. Capability Cache Architecture
 
 ```
-ComponentStatChange → ComponentController → ActionController.onStatChange()
+ComponentStatChange → ComponentController → ComponentCapabilityController.onStatChange()
     → _getActionsForTraitStat() → reEvaluateActionForComponent()
     → find entry in array → update/remove → re-sort → _notifySubscribers()
 
 EntitySpawn → stateEntityController.spawnEntity()
-    → ActionController.reEvaluateEntityCapabilities()
+    → ComponentCapabilityController.reEvaluateEntityCapabilities()
     → remove all entries for entity → re-scan all components → re-sort → notify
 
 EntityDespawn → stateEntityController.despawnEntity()
-    → ActionController.removeEntityFromCache()
+    → ComponentCapabilityController.removeEntityFromCache()
     → remove all entries for entity from all actions
 ```
 
-The capability cache uses a **reverse index** (`_traitStatActionIndex`) to efficiently determine which actions depend on a specific trait.stat combination, enabling targeted re-evaluation instead of full rescans.
+The capability cache (managed by `ComponentCapabilityController`) uses a **reverse index** (`_traitStatActionIndex`) to efficiently determine which actions depend on a specific trait.stat combination, enabling targeted re-evaluation instead of full rescans.
 
 ### 2.2. Dependency Injection Chain
 
 ```
-Server → WorldStateController → (ConsequenceHandlers, actionRegistry) → ActionController
+Server → WorldStateController
+    ├── ComponentCapabilityController (actionRegistry)
+    └── ActionController (ConsequenceHandlers, actionRegistry, ComponentCapabilityController)
 ```
 
 The `ActionController` is fully decoupled from data loading and handler instantiation. It receives the following via constructor injection from the `WorldStateController`:
 - `WorldStateController`: Reference to the root controller for accessing sub-controllers.
 - `ConsequenceHandlers`: The system responsible for executing action effects.
 - `actionRegistry`: The parsed JSON configuration of available actions.
+- `ComponentCapabilityController`: The capability cache manager (delegated for all cache queries).
 
 **Logging:** The system utilizes a centralized `Logger` utility (`src/utils/Logger.js`) for all system events, ensuring standardized severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
 

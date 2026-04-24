@@ -1,8 +1,10 @@
 # 🗂️ Action Capability Cache System
 
+> **⚠️ Migration Notice (SRP Refactor)**: The capability cache logic previously embedded in `ActionController` has been extracted to a dedicated [`ComponentCapabilityController`](./component_capability_controller.md). The `ActionController` now delegates all capability cache queries to it. This document describes the cache system as a whole; for controller-specific details, see `component_capability_controller.md`.
+
 ## 1. Overview
 
-The **Action Capability Cache** is a core feature of the `ActionController` that maintains a mapping of each action to an array of component capability entries. Every component in the world that qualifies for an action gets its own entry, sorted by score (best first).
+The **Action Capability Cache** is a core feature of the `ComponentCapabilityController` (previously embedded in `ActionController`) that maintains a mapping of each action to an array of component capability entries. Every component in the world that qualifies for an action gets its own entry, sorted by score (best first).
 
 **Key Features:**
 - **All-Component Tracking**: Every qualifying component gets its own entry (not just the best one)
@@ -252,7 +254,7 @@ Notifications are triggered when:
 ```
 ComponentController.updateComponentStatDelta()
     → _notifyStatChangeListeners()
-        → ActionController.onStatChange()
+        → ComponentCapabilityController.onStatChange()
             → _getActionsForTraitStat()
                 → reEvaluateActionForComponent()
                     → find entry in array → update/remove → re-sort
@@ -265,7 +267,7 @@ The subscription is registered in `WorldStateController`:
 
 ```javascript
 this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
-    this.actionController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+    this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
 });
 ```
 
@@ -296,9 +298,9 @@ When `stateEntityController.spawnEntity()` creates a new entity:
 const entityId = generateUID();
 // ... create entity ...
 // Trigger capability cache re-evaluation for the newly spawned entity
-if (this.actionController) {
-    const state = this.actionController.worldStateController.getAll();
-    this.actionController.reEvaluateEntityCapabilities(state, entityId);
+if (this.componentCapabilityController) {
+    const state = this.worldStateController.getAll();
+    this.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
 }
 ```
 
@@ -310,8 +312,8 @@ When `stateEntityController.despawnEntity()` removes an entity:
 
 ```javascript
 // Before entity is removed:
-if (this.actionController) {
-    this.actionController.removeEntityFromCache(entityId);
+if (this.componentCapabilityController) {
+    this.componentCapabilityController.removeEntityFromCache(entityId);
 }
 delete this.entities[entityId];
 ```
@@ -325,7 +327,7 @@ When an entity's component set changes (e.g., picks up/drops an item):
 ```javascript
 // Via POST /refresh-entity-capabilities API:
 const state = worldStateController.getAll();
-const updatedEntries = worldStateController.actionController.reEvaluateEntityCapabilities(state, entityId);
+const updatedEntries = worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
 ```
 
 This removes all entries for the entity from all actions, then re-scans all components against all actions.

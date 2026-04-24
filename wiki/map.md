@@ -29,6 +29,7 @@ graph TD
 
     %% Action Layer
     AC[ActionController]
+    CCC[ComponentCapabilityController]
     CH[ConsequenceHandlers]
 
     %% LLM Layer (Parallel)
@@ -43,8 +44,10 @@ graph TD
     WSC --> SEC
     WSC --> CC
     WSC --> AC
+    WSC --> CCC
 
     AC --> CH
+    AC --> CCC
     CH --> WSC
 
     SEC --> EC
@@ -55,9 +58,10 @@ graph TD
     AC --> SEC
     AC --> CC
     AC --> RC
+    CCC --> CC
     
     %% Stat change notification
-    CC -.->|stat change| AC
+    CC -.->|stat change| CCC
 ```
 
 ---
@@ -127,24 +131,12 @@ Client → Server → ActionController.executeAction()
 ```
 
 **Stat Change Notification Flow:**
-When component stats change, the `ActionController` automatically re-evaluates capabilities:
-`ComponentController` → `ActionController.onStatChange()` → `reEvaluateActionForComponent()` → `_notifySubscribers(actionName, entryOrRemovalMarker)`
+When component stats change, the `ComponentCapabilityController` automatically re-evaluates capabilities:
+`ComponentController` → `ComponentCapabilityController.onStatChange()` → `reEvaluateActionForComponent()` → `_notifySubscribers(actionName, entryOrRemovalMarker)`
 
 **Removal Markers**: When capability entries are removed, subscribers receive a `RemovalMarker` object (`{ _type: 'REMOVAL', componentId, entityId }`) instead of `null`.
 
-### 🟡 The LLM Interaction Flow
-The LLM flow is decoupled from the World State hierarchy:
-`Client` → `Server` → `LLMController` → `LLM Backend`.
-
-**Logging Standard**: The `LLMController` uses the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
-
-### 🟣 WorldStateController Public API Flow
-The server (`src/server.js`) uses public API wrappers instead of direct sub-controller access:
-
-```
-Server Request → WorldStateController.spawnEntity() / despawnEntity() / moveEntity() / getRoomUidByLogicalId()
-    → Delegates to: stateEntityController / roomsController
-```
+### 🔵 The Action Execution Flow
 
 **Available Public Methods:**
 
@@ -167,7 +159,8 @@ Server Request → WorldStateController.spawnEntity() / despawnEntity() / moveEn
 | Manage entity existence | `EntityController` | Uses Components |
 | Spawn/Move entities | `stateEntityController` | Uses EntityController |
 | Modify room layout | `RoomsController` | Spatial state |
-| Execute a game action | `ActionController` | Coordinates multiple controllers; maintains capability cache |
+| Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
+| Query component capabilities | `ComponentCapabilityController` | Manages capability cache, scoring, re-evaluation |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
 
 ## ⚠️ Critical Rule for Agents
