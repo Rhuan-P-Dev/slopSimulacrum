@@ -1,0 +1,729 @@
+/**
+ * SynergyController — Computes combined effect multipliers when multiple
+ * components or entities collaborate on a single action.
+ *
+ * Architecture:
+ * - Follows Dependency Injection pattern (controller_patterns.md §2, §3)
+ * - Injected by WorldStateController as Root Injector
+ * - Integrated into ActionController execution pipeline
+ * - Delegates stat reads to ComponentController / StateEntityController
+ *
+ * Per wiki/code_quality_and_best_practices.md:
+ * - SRP: Only computes synergy multipliers, never executes consequences
+ * - Loose coupling: reads via public APIs, never touches internal state
+ * - No magic numbers: all thresholds in SynergyScaling.js
+ *
+ * @module SynergyController
+ */
+
+import Logger from '../utils/Logger.js';
+import DataLoader from '../utils/DataLoader.js';
+import {
+    calculateSynergyMultiplier,
+    SCALING_CURVES
+} from '../utils/SynergyScaling.js';
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+/**
+ * Default synergy configuration applied when an action has no explicit synergy definition.
+ * @type {Object}
+ */
+const DEFAULT_SYNERGY_CONFIG = {
+    enabled: false,
+    multiEntity: false,
+    scaling: 'linear',
+    caps: {},
+    componentGroups: []
+};
+
+/**
+ * Marker object returned when a synergy group entry is removed.
+ * @typedef {Object} SynergyRemovalMarker
+ * @property {string} _type - Always 'REMOVAL'
+ * @property {string} componentId - ID of the removed component
+ * @property {string} entityId - ID of the entity owning the component
+ * @property {string} actionName - Action that the component no longer contributes to
+ */
+
+/**
+ * Result of a synergy computation.
+ * @typedef {Object} SynergyResult
+ * @property {string} actionName - The action this synergy applies to
+ * @property {number} baseValue - Original consequence value before synergy
+ * @property {number} synergyMultiplier - Computed multiplier (> 1.0 = bonus, = 1.0 = no synergy)
+ * @property {number} finalValue - baseValue * synergyMultiplier (after caps)
+ * @property {boolean} capped - Whether the final value was capped
+ * @property {string|null} capKey - Which cap was applied (e.g., 'damage')
+ * @property {Array} contributingComponents - List of { componentId, entityId, componentType, contribution }
+ * @property {string} summary - Human-readable summary string
+ */
+
+/**
+ * Synergy configuration defined per-action in the action registry.
+ * @typedef {Object} SynergyConfig
+ * @property {boolean} enabled - Whether synergy is active for this action
+ * @property {boolean} multiEntity - Whether multiple entities can collaborate
+ * @property {string} scaling - Scaling curve name ('linear', 'diminishingReturns', 'increasingReturns')
+ * @property {Object} caps - Cap definitions keyed by effect type
+ * @property {Array} componentGroups - Groups of components that can synergize
+ */
+
+/**
+ * Definition of a component group for synergy evaluation.
+ * @typedef {Object} ComponentGroupDef
+ * @property {string} groupType - How to identify group members ('sameComponentType', 'movementComponents', 'anyPhysical', 'anyComponent')
+ * @property {number} minCount - Minimum members required for synergy to activate
+ * @property {string} scaling - Scaling curve override (defaults to action-level)
+ * @property {number} baseMultiplier - Starting multiplier for this group
+ * @property {number} perUnitBonus - Bonus per additional member
+ * @property {string} [synergyStat] - Specific stat to aggregate (e.g., 'Physical.strength')
+ */
+
+/**
+ * Cap definition for a synergy effect.
+ * @typedef {Object} CapDef
+ * @property {number|null} max - Maximum allowed value (null = no cap, 'infinite' = unlimited)
+ * @property {string} [req] - Required trait.stat to unlock the cap (e.g., 'stability')
+ * @property {string} [statPath] - Full trait.stat path for the requirement
+ */
+
+// ─── SynergyController ───────────────────────────────────────────────────────
+
+/**
+ * Computes synergy multipliers for actions based on component compositions
+ * and multi-entity collaborations.
+ *
+ * Synergy configuration is loaded from data/synergy.json (separate from actions.json)
+ * to decouple synergy definitions from action definitions.
+ *
+ * @class
+ */
+class SynergyController {
+    /**
+     * Creates a new SynergyController.
+     *
+     * @param {Object} worldStateController - The root state controller (injected)
+     * @param {Object} actionRegistry - The full action registry from data/actions.json
+     * @param {Object} [synergyRegistry] - The synergy registry from data/synergy.json (optional, loaded internally if not provided)
+     */
+    constructor(worldStateController, actionRegistry, synergyRegistry) {
+        this.worldStateController = worldStateController;
+        this.actionRegistry = actionRegistry || {};
+
+        // Use provided synergyRegistry or load from synergy.json
+        if (synergyRegistry && Object.keys(synergyRegistry).length > 0) {
+            this.synergyRegistry = synergyRegistry;
+        } else {
+            this.synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
+        }
+
+        this._synergyCache = new Map(); // actionName → SynergyResult (short-lived)
+        this._cacheTtlMs = 5000; // 5-second cache for preview queries
+
+        Logger.info('[SynergyController] Initialized', {
+            actionsWithSynergy: this._countActionsWithSynergy()
+        });
+    }
+
+    // ─── Public API ────────────────────────────────────────────────────────
+
+    /**
+     * Computes synergy for an action execution. This is the main entry point
+     * called from ActionController before consequences are applied.
+     *
+     * Evaluates both single-entity component groups and multi-entity
+     * collaboration groups, then merges their multipliers multiplicatively.
+     *
+     * @param {string} actionName - Name of the action being executed
+     * @param {string} entityId - ID of the primary entity
+     * @param {Object} [context] - Execution context
+     * @param {Object} [context.synergyGroups] - Optional multi-entity synergy groups from client
+     * @param {Object} [context.synergyResult] - Existing synergy result to extend
+     * @returns {SynergyResult} Computed synergy result
+     */
+    computeSynergy(actionName, entityId, context = {}) {
+        const config = this._getSynergyConfig(actionName);
+
+        if (!config.enabled) {
+            return this._createResult(actionName, 1.0, false, null, []);
+        }
+
+        const contributingComponents = [];
+        let totalMultiplier = 1.0;
+
+        // 1. Evaluate single-entity component groups
+        const singleResult = this._evaluateComponentGroups(
+            actionName, entityId, config.componentGroups, contributingComponents
+        );
+        totalMultiplier *= singleResult.multiplier;
+
+        // 2. Evaluate multi-entity groups if enabled
+        if (config.multiEntity && context.synergyGroups) {
+            for (const groupDef of context.synergyGroups) {
+                const multiResult = this._evaluateMultiEntityGroup(
+                    actionName, groupDef, config, contributingComponents
+                );
+                totalMultiplier *= multiResult.multiplier;
+            }
+        }
+
+        // 3. Apply caps
+        const { finalValue, capped, capKey } = this._applyCaps(
+            actionName, totalMultiplier, config
+        );
+
+        // 4. Build summary
+        const summary = this._buildSummary(actionName, totalMultiplier, contributingComponents);
+
+        const result = this._createResult(
+            actionName,
+            totalMultiplier,
+            capped,
+            capKey,
+            contributingComponents,
+            summary
+        );
+
+        // Cache for preview queries
+        this._synergyCache.set(actionName, {
+            result,
+            timestamp: Date.now()
+        });
+
+        Logger.info('[SynergyController] Synergy computed', {
+            actionName,
+            multiplier: totalMultiplier,
+            capped,
+            capKey,
+            componentCount: contributingComponents.length
+        });
+
+        return result;
+    }
+
+    /**
+     * Computes synergy for a multi-entity collaboration group.
+     * Used internally by computeSynergy and also available as a standalone
+     * method for preview queries.
+     *
+     * @param {string} actionName - Name of the action
+     * @param {Object} groupDef - Group definition from client with primaryEntityId, supportingEntityIds
+     * @param {SynergyConfig} config - Action-level synergy config
+     * @returns {{ multiplier: number, components: Array }} Result
+     */
+    computeMultiEntitySynergy(actionName, groupDef, config) {
+        return this._evaluateMultiEntityGroup(actionName, groupDef, config, []);
+    }
+
+    /**
+     * Applies a synergy multiplier to a base value, respecting caps.
+     *
+     * @param {SynergyResult} synergyResult - The synergy result to apply
+     * @param {number} baseValue - The base consequence value
+     * @returns {number} Capped final value
+     */
+    applySynergyToResult(synergyResult, baseValue) {
+        const uncapped = baseValue * synergyResult.synergyMultiplier;
+
+        if (synergyResult.capped && synergyResult.capKey !== null) {
+            const config = this._getSynergyConfig(synergyResult.actionName);
+            const capDef = config.caps[synergyResult.capKey];
+
+            if (capDef && capDef.max !== null && capDef.max !== 'infinite') {
+                return Math.min(uncapped, capDef.max);
+            }
+        }
+
+        return uncapped;
+    }
+
+    /**
+     * Gets the synergy summary string for a result.
+     *
+     * @param {SynergyResult} synergyResult - The synergy result
+     * @returns {string} Human-readable summary
+     */
+    getSynergySummary(synergyResult) {
+        return synergyResult.summary || this._buildSummary(
+            synergyResult.actionName,
+            synergyResult.synergyMultiplier,
+            synergyResult.contributingComponents
+        );
+    }
+
+    /**
+     * Gets the synergy configuration for an action.
+     *
+     * @param {string} actionName - Name of the action
+     * @returns {SynergyConfig} The synergy config (or default)
+     */
+    getSynergyConfig(actionName) {
+        return this._getSynergyConfig(actionName);
+    }
+
+    /**
+     * Clears the synergy computation cache.
+     */
+    clearCache() {
+        this._synergyCache.clear();
+        Logger.info('[SynergyController] Cache cleared');
+    }
+
+    /**
+     * Gets all actions that have synergy enabled.
+     *
+     * @returns {string[]} Array of action names with synergy enabled
+     */
+    getActionsWithSynergy() {
+        return Object.keys(this.synergyRegistry).filter(
+            (name) => this.synergyRegistry[name]?.enabled
+        );
+    }
+
+    // ─── Private: Config ───────────────────────────────────────────────────
+
+    /**
+     * Retrieves the synergy configuration for an action.
+     * Synergy configs are loaded from the standalone synergy.json registry.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @returns {SynergyConfig}
+     */
+    _getSynergyConfig(actionName) {
+        const synergyDef = this.synergyRegistry[actionName];
+        if (!synergyDef) {
+            Logger.info(`[SynergyController] No synergy config for action "${actionName}" — using defaults`);
+            return DEFAULT_SYNERGY_CONFIG;
+        }
+
+        return {
+            enabled: synergyDef.enabled ?? false,
+            multiEntity: synergyDef.multiEntity ?? false,
+            scaling: synergyDef.scaling || 'linear',
+            caps: synergyDef.caps || {},
+            componentGroups: synergyDef.componentGroups || []
+        };
+    }
+
+    /**
+     * Counts how many actions have synergy enabled.
+     *
+     * @private
+     * @returns {number}
+     */
+    _countActionsWithSynergy() {
+        return Object.keys(this.synergyRegistry).filter(
+            (name) => this.synergyRegistry[name]?.enabled
+        ).length;
+    }
+
+    // ─── Private: Single-Entity Evaluation ─────────────────────────────────
+
+    /**
+     * Evaluates all component groups for a single entity.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {string} entityId - ID of the entity
+     * @param {Array<ComponentGroupDef>} groups - Component group definitions
+     * @param {Array} contributingComponents - Accumulator array (mutated in place)
+     * @returns {{ multiplier: number, components: Array }}
+     */
+    _evaluateComponentGroups(actionName, entityId, groups, contributingComponents) {
+        let totalMultiplier = 1.0;
+
+        for (const groupDef of groups) {
+            const members = this._gatherGroupMembers(actionName, entityId, groupDef);
+
+            if (members.length < groupDef.minCount) {
+                Logger.info(`[SynergyController] Group "${groupDef.groupType}" for ${actionName} has ${members.length}/${groupDef.minCount} members — skipped`, {
+                    actionName,
+                    groupType: groupDef.groupType,
+                    actualCount: members.length,
+                    requiredCount: groupDef.minCount
+                });
+                continue;
+            }
+
+            const groupScaling = groupDef.scaling || groupDef._parentScaling || 'linear';
+            const multiplier = calculateSynergyMultiplier(
+                members.length,
+                groupScaling,
+                groupDef.baseMultiplier ?? 1.0,
+                groupDef.perUnitBonus ?? 0
+            );
+
+            totalMultiplier *= multiplier;
+
+            for (const member of members) {
+                contributingComponents.push({
+                    componentId: member.componentId,
+                    entityId: member.entityId,
+                    componentType: member.componentType,
+                    contribution: multiplier / members.length
+                });
+            }
+
+            Logger.info(`[SynergyController] Group "${groupDef.groupType}" contributed ${multiplier.toFixed(3)}x`, {
+                count: members.length,
+                scaling: groupScaling
+            });
+        }
+
+        return { multiplier: totalMultiplier, components: contributingComponents };
+    }
+
+    /**
+     * Gathers group members based on the group type definition.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {string} entityId - ID of the entity
+     * @param {ComponentGroupDef} groupDef - Group definition
+     * @returns {Array<{ componentId, entityId, componentType, stats }>}
+     */
+    _gatherGroupMembers(actionName, entityId, groupDef) {
+        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[SynergyController] Entity "${entityId}" not found for synergy evaluation`);
+            return [];
+        }
+
+        switch (groupDef.groupType) {
+            case 'sameComponentType':
+                return this._gatherSameComponentType(entity, groupDef);
+
+            case 'movementComponents':
+                return this._gatherMovementComponents(entity, groupDef);
+
+            case 'anyPhysical':
+                return this._gatherAnyPhysicalComponent(entity, groupDef);
+
+            case 'anyComponent':
+            default:
+                return this._gatherAllComponents(entity, groupDef);
+        }
+    }
+
+    /**
+     * Gathers all components of the same type on an entity.
+     *
+     * @private
+     * @param {Object} entity - The entity object
+     * @param {ComponentGroupDef} groupDef - Group definition
+     * @returns {Array}
+     */
+    _gatherSameComponentType(entity, groupDef) {
+        // If groupDef specifies a particular component type, filter to that
+        if (groupDef.componentType) {
+            const members = entity.components
+                .filter((c) => c.type === groupDef.componentType)
+                .map((c) => ({
+                    componentId: c.id,
+                    entityId: entity.id,
+                    componentType: c.type,
+                    stats: this.worldStateController.componentController.getComponentStats(c.id)
+                }));
+            return members;
+        }
+
+        // Otherwise, find the most frequent component type and gather all of them
+        const typeCounts = new Map();
+        for (const comp of entity.components) {
+            typeCounts.set(comp.type, (typeCounts.get(comp.type) || 0) + 1);
+        }
+
+        let mostCommonType = null;
+        let maxCount = 0;
+        for (const [type, count] of typeCounts) {
+            if (count > maxCount) {
+                maxCount = count;
+                mostCommonType = type;
+            }
+        }
+
+        if (!mostCommonType || maxCount < 2) {
+            return [];
+        }
+
+        return entity.components
+            .filter((c) => c.type === mostCommonType)
+            .map((c) => ({
+                componentId: c.id,
+                entityId: entity.id,
+                componentType: c.type,
+                stats: this.worldStateController.componentController.getComponentStats(c.id)
+            }));
+    }
+
+    /**
+     * Gathers all components with Movement traits.
+     *
+     * @private
+     * @param {Object} entity - The entity object
+     * @param {ComponentGroupDef} groupDef - Group definition
+     * @returns {Array}
+     */
+    _gatherMovementComponents(entity, groupDef) {
+        return entity.components
+            .filter((c) => {
+                const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                return stats && stats.Movement && Object.keys(stats.Movement).length > 0;
+            })
+            .map((c) => ({
+                componentId: c.id,
+                entityId: entity.id,
+                componentType: c.type,
+                stats: this.worldStateController.componentController.getComponentStats(c.id)
+            }));
+    }
+
+    /**
+     * Gathers all components with Physical traits.
+     *
+     * @private
+     * @param {Object} entity - The entity object
+     * @param {ComponentGroupDef} groupDef - Group definition
+     * @returns {Array}
+     */
+    _gatherAnyPhysicalComponent(entity, groupDef) {
+        return entity.components
+            .filter((c) => {
+                const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                return stats && stats.Physical && Object.keys(stats.Physical).length > 0;
+            })
+            .map((c) => ({
+                componentId: c.id,
+                entityId: entity.id,
+                componentType: c.type,
+                stats: this.worldStateController.componentController.getComponentStats(c.id)
+            }));
+    }
+
+    /**
+     * Gathers all components on an entity.
+     *
+     * @private
+     * @param {Object} entity - The entity object
+     * @param {ComponentGroupDef} groupDef - Group definition
+     * @returns {Array}
+     */
+    _gatherAllComponents(entity, groupDef) {
+        return entity.components.map((c) => ({
+            componentId: c.id,
+            entityId: entity.id,
+            componentType: c.type,
+            stats: this.worldStateController.componentController.getComponentStats(c.id)
+        }));
+    }
+
+    // ─── Private: Multi-Entity Evaluation ──────────────────────────────────
+
+    /**
+     * Evaluates a multi-entity collaboration group.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {Object} groupDef - Group definition from client
+     * @param {SynergyConfig} config - Action-level synergy config
+     * @param {Array} contributingComponents - Accumulator array
+     * @returns {{ multiplier: number, components: Array }}
+     */
+    _evaluateMultiEntityGroup(actionName, groupDef, config, contributingComponents) {
+        const primaryEntityId = groupDef.primaryEntityId || groupDef.entityId;
+        const supportingEntityIds = groupDef.supportingEntityIds || groupDef.supportingEntities || [];
+        const primaryComponentId = groupDef.primaryComponentId;
+        const supportingComponentIds = groupDef.supportingComponentIds || [];
+
+        // Gather all entities (primary + supporting)
+        const allEntities = [primaryEntityId, ...supportingEntityIds].filter(Boolean);
+        if (allEntities.length < 2) {
+                Logger.info(`[SynergyController] Multi-entity group for "${actionName}" has fewer than 2 entities — skipped`);
+            return { multiplier: 1.0, components: contributingComponents };
+        }
+
+        // Gather all relevant components across entities
+        const allMembers = [];
+
+        // Primary entity component
+        const primaryEntity = this.worldStateController.stateEntityController.getEntity(primaryEntityId);
+        if (primaryEntity) {
+            const primaryComp = primaryEntity.components.find((c) => c.id === primaryComponentId) ||
+                                primaryEntity.components[0];
+            if (primaryComp) {
+                allMembers.push({
+                    componentId: primaryComp.id,
+                    entityId: primaryEntity.id,
+                    componentType: primaryComp.type,
+                    stats: this.worldStateController.componentController.getComponentStats(primaryComp.id),
+                    isPrimary: true
+                });
+            }
+        }
+
+        // Supporting entities
+        for (const supId of supportingEntityIds) {
+            const supEntity = this.worldStateController.stateEntityController.getEntity(supId);
+            if (!supEntity) {
+                Logger.warn(`[SynergyController] Supporting entity "${supId}" not found for synergy`);
+                continue;
+            }
+
+            // Find specific supporting component if specified
+            const supCompId = supportingComponentIds.find((id) => id === supId) ||
+                              supEntity.components[0]?.id;
+            const supComp = supEntity.components.find((c) => c.id === supCompId) ||
+                            supEntity.components[0];
+
+            if (supComp) {
+                allMembers.push({
+                    componentId: supComp.id,
+                    entityId: supEntity.id,
+                    componentType: supComp.type,
+                    stats: this.worldStateController.componentController.getComponentStats(supComp.id),
+                    isPrimary: false
+                });
+            }
+        }
+
+        if (allMembers.length < 2) {
+            Logger.info(`[SynergyController] Multi-entity group for "${actionName}" has fewer than 2 valid components — skipped`);
+            return { multiplier: 1.0, components: contributingComponents };
+        }
+
+        // Calculate synergy multiplier
+        const scaling = config.scaling || 'linear';
+        const baseMultiplier = 1.0;
+        const perUnitBonus = groupDef.perUnitBonus || config.perUnitBonus || 0.1;
+
+        const multiplier = calculateSynergyMultiplier(
+            allMembers.length,
+            scaling,
+            baseMultiplier,
+            perUnitBonus
+        );
+
+        for (const member of allMembers) {
+            contributingComponents.push({
+                componentId: member.componentId,
+                entityId: member.entityId,
+                componentType: member.componentType,
+                contribution: multiplier / allMembers.length,
+                isPrimary: member.isPrimary
+            });
+        }
+
+        Logger.info('[SynergyController] Multi-entity synergy computed', {
+            actionName,
+            entityCount: allMembers.length,
+            multiplier
+        });
+
+        return { multiplier, components: contributingComponents };
+    }
+
+    // ─── Private: Caps ─────────────────────────────────────────────────────
+
+    /**
+     * Applies caps to the synergy multiplier for an action.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {number} multiplier - Computed multiplier
+     * @param {SynergyConfig} config - Synergy configuration
+     * @returns {{ finalValue: number, capped: boolean, capKey: string|null }}
+     */
+    _applyCaps(actionName, multiplier, config) {
+        let capped = false;
+        let capKey = null;
+
+        // Check each cap definition
+        for (const [capKeyCandidate, capDef] of Object.entries(config.caps || {})) {
+            if (capDef.max === null || capDef.max === 'infinite') {
+                continue; // No cap or infinite — skip
+            }
+
+            if (typeof capDef.max === 'number' && multiplier > capDef.max) {
+                capped = true;
+                capKey = capKeyCandidate;
+                Logger.info(`[SynergyController] Cap applied: ${capKeyCandidate} = ${capDef.max}`, {
+                    actionName,
+                    originalMultiplier: multiplier,
+                    cappedValue: capDef.max
+                });
+            }
+        }
+
+        // If any cap was applied, clamp to the lowest cap value
+        if (capped) {
+            const lowestCap = Math.min(
+                ...Object.entries(config.caps || {})
+                    .filter(([, capDef]) => typeof capDef.max === 'number')
+                    .map(([, capDef]) => capDef.max)
+            );
+            return { finalValue: lowestCap, capped: true, capKey };
+        }
+
+        return { finalValue: multiplier, capped: false, capKey: null };
+    }
+
+    // ─── Private: Result Builders ──────────────────────────────────────────
+
+    /**
+     * Creates a SynergyResult object.
+     *
+     * @private
+     * @param {string} actionName - Action name
+     * @param {number} synergyMultiplier - Computed multiplier
+     * @param {boolean} capped - Whether capped
+     * @param {string|null} capKey - Cap that was applied
+     * @param {Array} contributingComponents - List of contributing components
+     * @param {string} [summary] - Optional summary string
+     * @returns {SynergyResult}
+     */
+    _createResult(actionName, synergyMultiplier, capped, capKey, contributingComponents, summary) {
+        return {
+            actionName,
+            baseValue: 1.0,
+            synergyMultiplier: Math.round(synergyMultiplier * 1000) / 1000, // Round to 3 decimals
+            finalValue: Math.round(synergyMultiplier * 1000) / 1000,
+            capped,
+            capKey,
+            contributingComponents,
+            summary: summary || this._buildSummary(actionName, synergyMultiplier, contributingComponents)
+        };
+    }
+
+    /**
+     * Builds a human-readable summary string.
+     *
+     * @private
+     * @param {string} actionName - Action name
+     * @param {number} multiplier - Synergy multiplier
+     * @param {Array} contributingComponents - Contributing components
+     * @returns {string}
+     */
+    _buildSummary(actionName, multiplier, contributingComponents) {
+        const entityIds = [...new Set(contributingComponents.map((c) => c.entityId))];
+        const entityCount = entityIds.length;
+        const componentCount = contributingComponents.length;
+
+        let parts = [`Synergy: ${multiplier.toFixed(2)}x`];
+
+        if (entityCount > 1) {
+            parts.push(`${entityCount} entities`);
+        }
+
+        parts.push(`${componentCount} component${componentCount !== 1 ? 's' : ''}`);
+
+        if (contributingComponents.some((c) => c.isPrimary)) {
+            parts.push('(primary collaboration)');
+        }
+
+        return parts.join(', ');
+    }
+}
+
+export default SynergyController;

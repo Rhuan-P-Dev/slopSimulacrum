@@ -27,6 +27,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Action System](subMDs/action_system.md)
 - [Action Capability Cache](subMDs/action_capability_cache.md)
 - [Component Capability Controller](subMDs/component_capability_controller.md)
+- [Synergy System](subMDs/synergy_system.md)
 - Check the `subMDs` folder for more detailed guides.
 
 ### 📢 Note for Future Agents
@@ -73,6 +74,34 @@ The `ActionController` handles game action execution, checking requirements and 
 The `ComponentCapabilityController` (extracted from `ActionController` per SRP) maintains a **capability cache** that maps each action to an **array of all qualifying component entries** across all entities.
 
 **Location**: `src/controllers/componentCapabilityController.js`
+
+### SynergyController: Multi-Entity/Component Synergy
+
+The `SynergyController` computes combined effect multipliers when multiple components or entities collaborate on a single action. Synergy configurations are **decoupled** from action definitions and loaded from `data/synergy.json`.
+
+**Location**: `src/controllers/synergyController.js`
+
+**Constructor:** `constructor(worldStateController, actionRegistry, synergyRegistry)`
+
+**Key Responsibilities:**
+- Compute single-entity component group synergy
+- Compute multi-entity collaboration synergy
+- Apply caps to computed multipliers
+- Build human-readable summaries
+
+**Integration Flow:**
+`ActionController.executeAction()` → `SynergyController.computeSynergy()` → `ConsequenceHandlers` (with synergy-applied values)
+
+**Scaling Utilities**: `src/utils/SynergyScaling.js` (linear, diminishingReturns, increasingReturns)
+
+**Data Source**: Synergy configs are in `data/synergy.json` (standalone), separate from `data/actions.json`.
+
+**Server API:**
+- `GET /synergy/actions` — All actions with synergy enabled
+- `GET /synergy/config/:actionName` — Synergy config for an action
+- `POST /synergy/preview` — Preview synergy without executing
+
+**Documentation**: See `wiki/subMDs/synergy_system.md` for complete guide.
 
 **Stat Change Notification Flow:**
 ```

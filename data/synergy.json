@@ -1,0 +1,74 @@
+{
+  "move": {
+    "enabled": true,
+    "multiEntity": false,
+    "scaling": "diminishingReturns",
+    "caps": {},
+    "componentGroups": [
+      {
+        "groupType": "movementComponents",
+        "minCount": 1,
+        "scaling": "diminishingReturns",
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.3
+      }
+    ]
+  },
+  "dash": {
+    "enabled": true,
+    "multiEntity": true,
+    "scaling": "linear",
+    "caps": {},
+    "componentGroups": [
+      {
+        "groupType": "sameComponentType",
+        "componentType": "droidRollingBall",
+        "minCount": 2,
+        "scaling": "linear",
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.5
+      },
+      {
+        "groupType": "movementComponents",
+        "minCount": 1,
+        "scaling": "linear",
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.3
+      }
+    ]
+  },
+  "selfHeal": {
+    "enabled": true,
+    "multiEntity": true,
+    "scaling": "linear",
+    "caps": {
+      "healing": { "max": 50 }
+    },
+    "componentGroups": [
+      {
+        "groupType": "anyPhysical",
+        "minCount": 1,
+        "scaling": "linear",
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.5
+      }
+    ]
+  },
+  "droid punch": {
+    "enabled": true,
+    "multiEntity": false,
+    "scaling": "diminishingReturns",
+    "caps": {
+      "damage": { "max": 1.1, "req": "Physical.stability" }
+    },
+    "componentGroups": [
+      {
+        "groupType": "sameComponentType",
+        "minCount": 2,
+        "scaling": "diminishingReturns",
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.05
+      }
+    ]
+  }
+}

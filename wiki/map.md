@@ -31,6 +31,7 @@ graph TD
     AC[ActionController]
     CCC[ComponentCapabilityController]
     CH[ConsequenceHandlers]
+    SC[SynergyController]
 
     %% LLM Layer (Parallel)
     LLMC[LLMController]
@@ -48,6 +49,7 @@ graph TD
 
     AC --> CH
     AC --> CCC
+    AC --> SC
     CH --> WSC
 
     SEC --> EC
@@ -59,6 +61,7 @@ graph TD
     AC --> CC
     AC --> RC
     CCC --> CC
+    SC --> CC
     
     %% Stat change notification
     CC -.->|stat change| CCC
@@ -136,6 +139,19 @@ When component stats change, the `ComponentCapabilityController` automatically r
 
 **Removal Markers**: When capability entries are removed, subscribers receive a `RemovalMarker` object (`{ _type: 'REMOVAL', componentId, entityId }`) instead of `null`.
 
+### 🔵 Synergy Execution Flow
+
+When synergy-enabled actions execute, synergy is computed before consequences:
+```
+Client → Server → ActionController.executeAction()
+    ├── _checkRequirements() → requirementValues
+    ├── SynergyController.computeSynergy() → SynergyResult
+    ├── _executeConsequences() → apply synergy multiplier to values
+    └── WorldStateController.broadcast() → updated state
+```
+
+**Data Decoupling**: Synergy configs are in `data/synergy.json` (standalone), not embedded in `data/actions.json`.
+
 ### 🔵 The Action Execution Flow
 
 **Available Public Methods:**
@@ -161,6 +177,7 @@ When component stats change, the `ComponentCapabilityController` automatically r
 | Modify room layout | `RoomsController` | Spatial state |
 | Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
 | Query component capabilities | `ComponentCapabilityController` | Manages capability cache, scoring, re-evaluation |
+| Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
 
 ## ⚠️ Critical Rule for Agents

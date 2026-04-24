@@ -328,6 +328,72 @@ app.get('/rooms', (req, res) => {
     }
 });
 
+// =========================================================================
+// SYNERGY ENDPOINTS
+// =========================================================================
+
+/**
+ * GET /synergy/actions
+ * Returns all actions that have synergy enabled.
+ */
+app.get('/synergy/actions', (req, res) => {
+    try {
+        const actionsWithSynergy = worldStateController.getActionsWithSynergy();
+        res.json({ actionsWithSynergy });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /synergy/config/:actionName
+ * Returns the synergy configuration for a specific action.
+ * @param {string} actionName - The action name
+ */
+app.get('/synergy/config/:actionName', (req, res) => {
+    try {
+        const { actionName } = req.params;
+        const config = worldStateController.getSynergyConfig(actionName);
+        res.json({ actionName, synergyConfig: config });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * POST /synergy/preview
+ * Previews synergy computation for an action without executing it.
+ * Expects: { "actionName": "...", "entityId": "...", "synergyGroups": [...] }
+ */
+app.post('/synergy/preview', (req, res) => {
+    const { actionName, entityId, synergyGroups } = req.body;
+
+    if (!actionName || !entityId) {
+        return res.status(400).json({
+            error: 'Invalid request. "actionName" and "entityId" are required.'
+        });
+    }
+
+    try {
+        const synergyResult = worldStateController.computeSynergy(actionName, entityId, { synergyGroups });
+        res.json({ synergyResult });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
 server.listen(port, () => {
     console.log(`SlopSimulacrum Server running at http://localhost:${port}`);
 });

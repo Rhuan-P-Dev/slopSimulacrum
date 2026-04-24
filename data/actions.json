@@ -95,10 +95,10 @@
     "consequences": [
       {
         "type": "damageComponent",
-        "params": { 
-          "trait": "Physical", 
-          "stat": "durability", 
-          "value": "-:Physical.strength" 
+        "params": {
+          "trait": "Physical",
+          "stat": "durability",
+          "value": "-:Physical.strength"
         }
       },
       {

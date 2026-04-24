@@ -6,6 +6,7 @@ import ComponentStatsController from './componentStatsController.js';
 import TraitsController from './traitsController.js';
 import ActionController from './actionController.js';
 import ComponentCapabilityController from './componentCapabilityController.js';
+import SynergyController from './synergyController.js';
 import ConsequenceHandlers from './consequenceHandlers.js';
 import DataLoader from '../utils/DataLoader.js';
 
@@ -13,7 +14,7 @@ import DataLoader from '../utils/DataLoader.js';
  * WorldStateController acts as a high-level coordinator for the server's global state.
  * It manages various sub-controllers and provides a unified interface to access
  * the current state of the simulated world.
- * 
+ *
  * This class acts as the Root Injector, ensuring all controllers share the same
  * state instances to prevent desynchronization.
  */
@@ -32,15 +33,15 @@ class WorldStateController {
         // 1. Instantiate Data Stores (Bottom level)
         const statsController = new ComponentStatsController();
         const traitsController = new TraitsController(traitsRegistry);
-        
+
         // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
         const componentController = new ComponentController(statsController, traitsController, componentRegistry);
         const entityController = new EntityController(componentController);
-        
+
         // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
         const stateEntityControllerInstance = new stateEntityController(entityController);
         const roomsController = new RoomsController();
-        
+
         // Assign to the WorldStateController for coordination and the getAll() method
         this.roomsController = roomsController;
         this.stateEntityController = stateEntityControllerInstance;
@@ -51,29 +52,36 @@ class WorldStateController {
         const componentCapabilityController = new ComponentCapabilityController(this, actionRegistry);
         this.componentCapabilityController = componentCapabilityController;
 
-        // 5. Instantiate ActionController (Top level - Injected with Dependencies)
+        // 5. Instantiate SynergyController (Synergy System — computes multi-entity/component synergy multipliers)
+        // Loads synergy config from data/synergy.json (decoupled from actions.json)
+        const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
+        const synergyController = new SynergyController(this, actionRegistry, synergyRegistry);
+        this.synergyController = synergyController;
+
+        // 6. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
-        const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController);
+        const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController);
         this.actionController = actionController;
 
         // Wire the actionController reference into stateEntityController for spawn/despawn hooks
         // Must be done AFTER actionController is instantiated (forward reference)
         this.stateEntityController.actionController = actionController;
 
-        // 6. Wire up stat change notifications from ComponentController to ComponentCapabilityController
+        // 7. Wire up stat change notifications from ComponentController to ComponentCapabilityController
         // This enables automatic capability re-evaluation when component stats change
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
         });
-        
+
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
             rooms: this.roomsController,
             entities: this.stateEntityController,
             components: this.componentController,
             actions: this.actionController,
-            capabilities: this.componentCapabilityController
+            capabilities: this.componentCapabilityController,
+            synergy: this.synergyController
         };
 
         // Initialize world with a sample droid as requested
@@ -90,7 +98,7 @@ class WorldStateController {
     initializeWorld() {
         // Resolve the UUID for the start room to maintain spatial synchronization
         const startRoomId = this.roomsController.getUidByLogicalId('start_room');
-        
+
         // Spawn the small ball droid in the resolved start room UUID
         this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
@@ -157,6 +165,38 @@ class WorldStateController {
      */
     getRoomUidByLogicalId(logicalId) {
         return this.roomsController.getUidByLogicalId(logicalId);
+    }
+
+    // =========================================================================
+    // SYNERGY PUBLIC API (for server.js access)
+    // =========================================================================
+
+    /**
+     * Computes synergy for an action without executing it.
+     * @param {string} actionName - The action name
+     * @param {string} entityId - The entity executing the action
+     * @param {Object} [context] - Optional context (e.g., synergyGroups for multi-entity)
+     * @returns {Object} SynergyResult object
+     */
+    computeSynergy(actionName, entityId, context) {
+        return this.synergyController.computeSynergy(actionName, entityId, context);
+    }
+
+    /**
+     * Gets all actions that have synergy enabled.
+     * @returns {string[]} Array of action names with synergy
+     */
+    getActionsWithSynergy() {
+        return this.synergyController.getActionsWithSynergy();
+    }
+
+    /**
+     * Gets synergy configuration for an action.
+     * @param {string} actionName - The action name
+     * @returns {Object} Synergy config object
+     */
+    getSynergyConfig(actionName) {
+        return this.synergyController.getSynergyConfig(actionName);
     }
 }
 

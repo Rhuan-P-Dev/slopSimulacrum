@@ -40,12 +40,14 @@ class ActionController {
      * @param {ConsequenceHandlers} consequenceHandlers - The consequence handler system.
      * @param {Object} actionRegistry - The registry of available actions.
      * @param {ComponentCapabilityController} componentCapabilityController - The capability cache manager.
+     * @param {SynergyController} [synergyController] - The synergy system controller (optional).
      */
-    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController) {
+    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController) {
         this.worldStateController = worldStateController;
         this.consequenceHandlers = consequenceHandlers;
         this.actionRegistry = actionRegistry || {};
         this.componentCapabilityController = componentCapabilityController;
+        this.synergyController = synergyController || null;
     }
 
     // =========================================================================
@@ -273,19 +275,31 @@ class ActionController {
                 fulfillingComponents = requirementCheck.fulfillingComponents;
             }
 
-            // Execute success consequences
+            // Compute synergy if enabled for this action
+            let synergyResult = null;
+            if (this.synergyController) {
+                synergyResult = this.synergyController.computeSynergy(
+                    actionName,
+                    entityId,
+                    { synergyGroups: params?.synergyGroups }
+                );
+            }
+
+            // Execute success consequences (with synergy applied)
             const consequenceResult = this._executeConsequences(
                 actionName,
                 entityId,
                 requirementValues,
                 params,
-                fulfillingComponents
+                fulfillingComponents,
+                synergyResult
             );
 
             return {
                 success: true,
                 action: actionName,
                 entityId,
+                synergy: synergyResult,
                 ...consequenceResult
             };
         } catch (error) {
@@ -457,9 +471,10 @@ class ActionController {
      * @param {Object} requirementValues - Map of trait.stat values for substitution.
      * @param {Object} params - Additional action parameters.
      * @param {Object} fulfillingComponents - Map of requirements to the components that satisfied them.
+     * @param {Object} [synergyResult] - Optional synergy computation result.
      * @returns {Object} Result of consequence execution.
      */
-    _executeConsequences(actionName, entityId, requirementValues, params, fulfillingComponents = {}) {
+    _executeConsequences(actionName, entityId, requirementValues, params, fulfillingComponents = {}, synergyResult = null) {
         const action = this.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
@@ -469,7 +484,8 @@ class ActionController {
         const context = {
             requirementValues,
             actionParams: params,
-            fulfillingComponents
+            fulfillingComponents,
+            synergyResult
         };
 
         for (const consequence of action.consequences) {
@@ -482,6 +498,14 @@ class ActionController {
             }
 
             try {
+                // Apply synergy multiplier to numeric consequence values
+                if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams?.value === 'number') {
+                    const baseValue = resolvedParams.value;
+                    resolvedParams.value = this.synergyController
+                        ? this.synergyController.applySynergyToResult(synergyResult, baseValue)
+                        : baseValue;
+                }
+
                 // Spatial consequences (updateSpatial, deltaSpatial) always operate on the entity.
                 // Component-level consequences (updateComponentStatDelta, damageComponent) resolve
                 // their target from context.actionParams.targetComponentId inside the handler.
@@ -491,7 +515,7 @@ class ActionController {
                     : (params.targetComponentId || entityId);
                 const result = handler(targetId, resolvedParams, context);
 
-                results.push({ success: true, type: consequence.type, ...result });
+                results.push({ success: true, type: consequence.type, synergyApplied: synergyResult !== null, ...result });
             } catch (error) {
                 results.push({
                     success: false,
