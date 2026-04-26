@@ -259,7 +259,6 @@ export class UIManager {
         const componentToActionMap = new Map();
         if (crossActionSelections) {
             for (const [actionName, compSet] of crossActionSelections) {
-                if (actionName === activeActionName) continue; // Skip active action
                 for (const compId of compSet) {
                     componentToActionMap.set(compId, actionName);
                 }
@@ -273,7 +272,7 @@ export class UIManager {
             const capableHtml = (actionData.canExecute || []).map(entry => {
                 const canExecute = entry.requirementsStatus.every(rs => rs.current >= rs.required);
                 const isSelected = selectedSet.has(entry.componentId);
-                const grayedByAction = componentToActionMap.get(entry.componentId);
+                const grayedByAction = isSelected ? null : componentToActionMap.get(entry.componentId);
 
                 const reqStatusText = entry.requirementsStatus
                     .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
@@ -342,7 +341,7 @@ export class UIManager {
                 const grayedByAction = componentToActionMap.get(componentId);
 
                 // If grayed (locked to another action), call the grayed handler
-                if (grayedByAction) {
+                if (grayedByAction && actionName !== activeActionName) {
                     if (onGrayedComponentClick) {
                         onGrayedComponentClick(grayedByAction, componentId);
                     }

@@ -356,29 +356,6 @@ class ActionController {
                     requirementValues = componentCheck.requirementValues;
                     fulfillingComponents = componentCheck.fulfillingComponents;
                 }
-            } else if (params && params.targetComponentId) {
-                // Spatial/Self actions: Use the explicitly selected component's stats
-                const selectedComponentId = params.targetComponentId;
-                const componentStats = this.worldStateController.componentController.getComponentStats(selectedComponentId);
-
-                if (componentStats) {
-                    const componentCheck = this._checkRequirementsForComponent(
-                        action.requirements, entityId, selectedComponentId
-                    );
-
-                    if (!componentCheck.passed) {
-                        const errorMessage = this._resolveError(componentCheck.error);
-                        const failureResults = this._executeFailureConsequences(actionName, entityId);
-                        return {
-                            success: false,
-                            error: `Requirement failed: ${errorMessage}`,
-                            ...failureResults
-                        };
-                    }
-
-                    requirementValues = componentCheck.requirementValues;
-                    fulfillingComponents = componentCheck.fulfillingComponents;
-                }
             } else {
                 // Fallback: use entity-wide requirement checking
                 const requirementCheck = this._checkRequirements(action.requirements, entityId);
