@@ -10,7 +10,9 @@
         "minCount": 1,
         "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.3
+        "perUnitBonus": 0.3,
+        "roleFilter": "source",
+        "description": "Only movement components bound as 'source' contribute to move synergy."
       }
     ]
   },
@@ -26,14 +28,18 @@
         "minCount": 2,
         "scaling": "linear",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.5
+        "perUnitBonus": 0.5,
+        "roleFilter": "source",
+        "description": "Multiple droidRollingBall components on the same entity boost dash distance (both legs working together)."
       },
       {
         "groupType": "movementComponents",
         "minCount": 1,
         "scaling": "linear",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.3
+        "perUnitBonus": 0.3,
+        "roleFilter": "source",
+        "description": "Any Movement component bound as source contributes to dash synergy."
       }
     ]
   },
@@ -50,7 +56,9 @@
         "minCount": 1,
         "scaling": "linear",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.5
+        "perUnitBonus": 0.5,
+        "roleFilter": "self_target",
+        "description": "Only Physical components bound as 'self_target' contribute to self-heal synergy. Multiple Physical components on the entity enhance healing."
       }
     ]
   },
@@ -64,10 +72,13 @@
     "componentGroups": [
       {
         "groupType": "sameComponentType",
+        "componentType": "droidHand",
         "minCount": 2,
         "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.05
+        "perUnitBonus": 0.05,
+        "roleFilter": "source",
+        "description": "Multiple droidHand components (left + right) bound as 'source' increase punch damage with diminishing returns."
       }
     ]
   }

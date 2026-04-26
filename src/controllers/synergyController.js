@@ -107,9 +107,10 @@ class SynergyController {
      * @param {Object} actionRegistry - The full action registry from data/actions.json
      * @param {Object} [synergyRegistry] - The synergy registry from data/synergy.json (optional, loaded internally if not provided)
      */
-    constructor(worldStateController, actionRegistry, synergyRegistry) {
+    constructor(worldStateController, actionRegistry, synergyRegistry, actionSelectController) {
         this.worldStateController = worldStateController;
         this.actionRegistry = actionRegistry || {};
+        this.actionSelectController = actionSelectController || null;
 
         // Use provided synergyRegistry or load from synergy.json
         if (synergyRegistry && Object.keys(synergyRegistry).length > 0) {
@@ -134,12 +135,24 @@ class SynergyController {
      *
      * Evaluates both single-entity component groups and multi-entity
      * collaboration groups, then merges their multipliers multiplicatively.
+     * 
+     * Component Binding Integration:
+     * When gathering synergy members, respects the `roleFilter` from synergy
+     * component group definitions. Only components matching the bound role
+     * contribute to synergy (enforcing "one body part, one action").
+     *
+     * Multi-Component Support:
+     * If `context.providedComponentIds` is provided (from client selection),
+     * those exact components are used for synergy computation instead of
+     * auto-gathering from the entity.
      *
      * @param {string} actionName - Name of the action being executed
      * @param {string} entityId - ID of the primary entity
      * @param {Object} [context] - Execution context
+     * @param {Array<{componentId: string, role: string}>} [context.providedComponentIds] - Client-provided component list
      * @param {Object} [context.synergyGroups] - Optional multi-entity synergy groups from client
      * @param {Object} [context.synergyResult] - Existing synergy result to extend
+     * @param {Object} [context.sourceComponentId] - The source component ID from binding resolution
      * @returns {SynergyResult} Computed synergy result
      */
     computeSynergy(actionName, entityId, context = {}) {
@@ -152,11 +165,23 @@ class SynergyController {
         const contributingComponents = [];
         let totalMultiplier = 1.0;
 
-        // 1. Evaluate single-entity component groups
-        const singleResult = this._evaluateComponentGroups(
-            actionName, entityId, config.componentGroups, contributingComponents
-        );
-        totalMultiplier *= singleResult.multiplier;
+        // Get the source component ID from binding context (for role filtering)
+        const sourceComponentId = context?.sourceComponentId;
+
+        // If client provided explicit component IDs, use them directly
+        if (context.providedComponentIds && context.providedComponentIds.length > 0) {
+            const singleResult = this._evaluateProvidedComponents(
+                actionName, entityId, context.providedComponentIds, config
+            );
+            totalMultiplier *= singleResult.multiplier;
+            contributingComponents.push(...singleResult.components);
+        } else {
+            // 1. Evaluate single-entity component groups (auto-gather mode)
+            const singleResult = this._evaluateComponentGroups(
+                actionName, entityId, config.componentGroups, contributingComponents, sourceComponentId
+            );
+            totalMultiplier *= singleResult.multiplier;
+        }
 
         // 2. Evaluate multi-entity groups if enabled
         if (config.multiEntity && context.synergyGroups) {
@@ -196,7 +221,8 @@ class SynergyController {
             multiplier: totalMultiplier,
             capped,
             capKey,
-            componentCount: contributingComponents.length
+            componentCount: contributingComponents.length,
+            mode: context.providedComponentIds ? 'provided' : 'auto-gather'
         });
 
         return result;
@@ -319,23 +345,186 @@ class SynergyController {
         ).length;
     }
 
+    // ─── Private: Client-Provided Component Evaluation ──────────────────────
+
+    /**
+     * Evaluates synergy using client-provided component IDs directly.
+     * Filters components through each group definition's criteria.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {string} entityId - ID of the entity
+     * @param {Array<{componentId: string, role: string}>} providedComponentIds - Client-provided component list
+     * @param {SynergyConfig} config - Action-level synergy config
+     * @returns {{ multiplier: number, components: Array }}
+     */
+    _evaluateProvidedComponents(actionName, entityId, providedComponentIds, config) {
+        const contributingComponents = [];
+        let totalMultiplier = 1.0;
+
+        for (const groupDef of config.componentGroups) {
+            // Filter provided components to members matching this group
+            const members = this._filterProvidedComponentsForGroup(
+                actionName, entityId, providedComponentIds, groupDef
+            );
+
+            if (members.length < groupDef.minCount) {
+                Logger.info(`[SynergyController] Group "${groupDef.groupType}" for ${actionName} has ${members.length}/${groupDef.minCount} provided members — skipped`, {
+                    actionName,
+                    groupType: groupDef.groupType,
+                    actualCount: members.length,
+                    requiredCount: groupDef.minCount,
+                    providedCount: providedComponentIds.length
+                });
+                continue;
+            }
+
+            const groupScaling = groupDef.scaling || groupDef._parentScaling || 'linear';
+            const multiplier = calculateSynergyMultiplier(
+                members.length,
+                groupScaling,
+                groupDef.baseMultiplier ?? 1.0,
+                groupDef.perUnitBonus ?? 0
+            );
+
+            totalMultiplier *= multiplier;
+
+            for (const member of members) {
+                contributingComponents.push({
+                    componentId: member.componentId,
+                    entityId: member.entityId,
+                    componentType: member.componentType,
+                    contribution: multiplier / members.length,
+                    role: member.role
+                });
+            }
+
+            Logger.info(`[SynergyController] Provided group "${groupDef.groupType}" contributed ${multiplier.toFixed(3)}x`, {
+                actionName,
+                count: members.length,
+                scaling: groupScaling,
+                componentIds: members.map((m) => m.componentId)
+            });
+        }
+
+        return { multiplier: totalMultiplier, components: contributingComponents };
+    }
+
+    /**
+     * Filters client-provided components for a specific group definition.
+     * Checks role filter, component type, and trait requirements.
+     *
+     * @private
+     * @param {string} actionName - Name of the action
+     * @param {string} entityId - ID of the entity
+     * @param {Array<{componentId: string, role: string}>} providedComponentIds - Client-provided component list
+     * @param {ComponentGroupDef} groupDef - Group definition to filter against
+     * @returns {Array<{ componentId, entityId, componentType, stats, role }>}
+     */
+    _filterProvidedComponentsForGroup(actionName, entityId, providedComponentIds, groupDef) {
+        const members = [];
+
+        for (const { componentId, role } of providedComponentIds) {
+            // Find the component on the entity
+            const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+            if (!entity) continue;
+
+            const component = entity.components.find((c) => c.id === componentId);
+            if (!component) continue;
+
+            const stats = this.worldStateController.componentController.getComponentStats(componentId);
+            if (!stats) continue;
+
+            // Apply role filter from group definition
+            if (groupDef.roleFilter) {
+                if (!this._matchesRoleFilter(stats, groupDef.roleFilter, component)) {
+                    continue;
+                }
+            }
+
+            // Apply component type filter if specified
+            if (groupDef.componentType && component.type !== groupDef.componentType) {
+                continue;
+            }
+
+            // Apply group-type-specific filters
+            let passesFilter = true;
+            switch (groupDef.groupType) {
+                case 'movementComponents':
+                    passesFilter = stats.Movement && Object.keys(stats.Movement).length > 0;
+                    break;
+                case 'anyPhysical':
+                    passesFilter = stats.Physical && Object.keys(stats.Physical).length > 0;
+                    break;
+                case 'sameComponentType':
+                    // Already filtered by componentType above
+                    passesFilter = true;
+                    break;
+                case 'anyComponent':
+                default:
+                    passesFilter = true;
+                    break;
+            }
+
+            if (!passesFilter) continue;
+
+            members.push({
+                componentId,
+                entityId,
+                componentType: component.type,
+                stats,
+                role
+            });
+        }
+
+        return members;
+    }
+
+    /**
+     * Checks if a component's stats match a role filter.
+     *
+     * @private
+     * @param {Object} stats - Component stats object
+     * @param {string} roleFilter - Role filter ('source', 'target', 'spatial', 'self_target')
+     * @param {Object} [component] - Optional component object for additional checks
+     * @returns {boolean}
+     */
+    _matchesRoleFilter(stats, roleFilter, component) {
+        switch (roleFilter) {
+            case 'source':
+            case 'spatial':
+                // Source/spatial: must have Movement traits
+                return stats.Movement && Object.keys(stats.Movement).length > 0;
+            case 'self_target':
+                // Self-target: must have Physical traits
+                return stats.Physical && Object.keys(stats.Physical).length > 0;
+            case 'target':
+                // Target: any component can be a target
+                return true;
+            default:
+                return true;
+        }
+    }
+
     // ─── Private: Single-Entity Evaluation ─────────────────────────────────
 
     /**
-     * Evaluates all component groups for a single entity.
+     * Evaluates all component groups for a single entity (auto-gather mode).
+     * Respects roleFilter from synergy component group definitions.
      *
      * @private
      * @param {string} actionName - Name of the action
      * @param {string} entityId - ID of the entity
      * @param {Array<ComponentGroupDef>} groups - Component group definitions
      * @param {Array} contributingComponents - Accumulator array (mutated in place)
+     * @param {string} [sourceComponentId] - Optional source component from binding resolution
      * @returns {{ multiplier: number, components: Array }}
      */
-    _evaluateComponentGroups(actionName, entityId, groups, contributingComponents) {
+    _evaluateComponentGroups(actionName, entityId, groups, contributingComponents, sourceComponentId) {
         let totalMultiplier = 1.0;
 
         for (const groupDef of groups) {
-            const members = this._gatherGroupMembers(actionName, entityId, groupDef);
+            const members = this._gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId);
 
             if (members.length < groupDef.minCount) {
                 Logger.info(`[SynergyController] Group "${groupDef.groupType}" for ${actionName} has ${members.length}/${groupDef.minCount} members — skipped`, {
@@ -377,100 +566,120 @@ class SynergyController {
 
     /**
      * Gathers group members based on the group type definition.
+     * Respects roleFilter: only components matching the bound role contribute.
      *
      * @private
      * @param {string} actionName - Name of the action
      * @param {string} entityId - ID of the entity
      * @param {ComponentGroupDef} groupDef - Group definition
+     * @param {string} [sourceComponentId] - Optional source component from binding resolution
      * @returns {Array<{ componentId, entityId, componentType, stats }>}
      */
-    _gatherGroupMembers(actionName, entityId, groupDef) {
+    _gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) {
             Logger.warn(`[SynergyController] Entity "${entityId}" not found for synergy evaluation`);
             return [];
         }
 
+        // If a roleFilter is defined, only include components matching that role
+        const roleFilter = groupDef.roleFilter;
+
+        // Get locked component IDs (exclude those locked to the current action)
+        const lockedComponentIds = this._getLockedComponentIds(actionName);
+
         switch (groupDef.groupType) {
             case 'sameComponentType':
-                return this._gatherSameComponentType(entity, groupDef);
+                return this._gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds);
 
             case 'movementComponents':
-                return this._gatherMovementComponents(entity, groupDef);
+                return this._gatherMovementComponents(entity, groupDef, roleFilter, lockedComponentIds);
 
             case 'anyPhysical':
-                return this._gatherAnyPhysicalComponent(entity, groupDef);
+                return this._gatherAnyPhysicalComponent(entity, groupDef, roleFilter, lockedComponentIds);
 
             case 'anyComponent':
             default:
-                return this._gatherAllComponents(entity, groupDef);
+                return this._gatherAllComponents(entity, groupDef, roleFilter, lockedComponentIds);
         }
     }
 
     /**
      * Gathers all components of the same type on an entity.
+     * Respects roleFilter: only components matching the bound role contribute.
      *
      * @private
      * @param {Object} entity - The entity object
      * @param {ComponentGroupDef} groupDef - Group definition
+     * @param {string} [roleFilter] - Optional role filter from synergy config
      * @returns {Array}
      */
-    _gatherSameComponentType(entity, groupDef) {
+    _gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds) {
         // If groupDef specifies a particular component type, filter to that
-        if (groupDef.componentType) {
-            const members = entity.components
-                .filter((c) => c.type === groupDef.componentType)
-                .map((c) => ({
-                    componentId: c.id,
-                    entityId: entity.id,
-                    componentType: c.type,
-                    stats: this.worldStateController.componentController.getComponentStats(c.id)
-                }));
-            return members;
-        }
+        const typeFilter = groupDef.componentType;
+        const members = entity.components
+            .filter((c) => {
+                // Exclude components locked to other actions
+                if (lockedComponentIds.has(c.id)) return false;
 
-        // Otherwise, find the most frequent component type and gather all of them
-        const typeCounts = new Map();
-        for (const comp of entity.components) {
-            typeCounts.set(comp.type, (typeCounts.get(comp.type) || 0) + 1);
-        }
+                // Filter by component type if specified
+                if (typeFilter && c.type !== typeFilter) return false;
+                
+                // Filter by role if specified
+                if (roleFilter) {
+                    const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                    if (!stats) return false;
 
-        let mostCommonType = null;
-        let maxCount = 0;
-        for (const [type, count] of typeCounts) {
-            if (count > maxCount) {
-                maxCount = count;
-                mostCommonType = type;
-            }
-        }
-
-        if (!mostCommonType || maxCount < 2) {
-            return [];
-        }
-
-        return entity.components
-            .filter((c) => c.type === mostCommonType)
+                    // Check if component matches the role filter
+                    if (roleFilter === 'source' || roleFilter === 'spatial') {
+                        // Source/spatial: must have Movement or satisfy action requirements
+                        return stats.Movement && Object.keys(stats.Movement).length > 0;
+                    }
+                    if (roleFilter === 'self_target') {
+                        // Self-target: must have Physical traits
+                        return stats.Physical && Object.keys(stats.Physical).length > 0;
+                    }
+                    if (roleFilter === 'target') {
+                        // Target: any component can be a target
+                        return true;
+                    }
+                }
+                return true;
+            })
             .map((c) => ({
                 componentId: c.id,
                 entityId: entity.id,
                 componentType: c.type,
                 stats: this.worldStateController.componentController.getComponentStats(c.id)
             }));
+        return members;
     }
 
     /**
      * Gathers all components with Movement traits.
+     * Respects roleFilter: only components matching the bound role contribute.
      *
      * @private
      * @param {Object} entity - The entity object
      * @param {ComponentGroupDef} groupDef - Group definition
+     * @param {string} [roleFilter] - Optional role filter from synergy config
      * @returns {Array}
      */
-    _gatherMovementComponents(entity, groupDef) {
+    _gatherMovementComponents(entity, groupDef, roleFilter, lockedComponentIds) {
         return entity.components
             .filter((c) => {
+                // Exclude components locked to other actions
+                if (lockedComponentIds.has(c.id)) return false;
+
                 const stats = this.worldStateController.componentController.getComponentStats(c.id);
-                return stats && stats.Movement && Object.keys(stats.Movement).length > 0;
+                // Must have Movement traits
+                if (!stats || !stats.Movement || Object.keys(stats.Movement).length === 0) return false;
+                
+                // If roleFilter is specified, enforce it
+                if (roleFilter && roleFilter !== 'source' && roleFilter !== 'spatial') {
+                    return false;
+                }
+                return true;
             })
             .map((c) => ({
                 componentId: c.id,
@@ -482,17 +691,29 @@ class SynergyController {
 
     /**
      * Gathers all components with Physical traits.
+     * Respects roleFilter: only components matching the bound role contribute.
      *
      * @private
      * @param {Object} entity - The entity object
      * @param {ComponentGroupDef} groupDef - Group definition
+     * @param {string} [roleFilter] - Optional role filter from synergy config
      * @returns {Array}
      */
-    _gatherAnyPhysicalComponent(entity, groupDef) {
+    _gatherAnyPhysicalComponent(entity, groupDef, roleFilter, lockedComponentIds) {
         return entity.components
             .filter((c) => {
+                // Exclude components locked to other actions
+                if (lockedComponentIds.has(c.id)) return false;
+
                 const stats = this.worldStateController.componentController.getComponentStats(c.id);
-                return stats && stats.Physical && Object.keys(stats.Physical).length > 0;
+                // Must have Physical traits
+                if (!stats || !stats.Physical || Object.keys(stats.Physical).length === 0) return false;
+                
+                // If roleFilter is specified, enforce it
+                if (roleFilter && roleFilter !== 'self_target' && roleFilter !== 'source') {
+                    return false;
+                }
+                return true;
             })
             .map((c) => ({
                 componentId: c.id,
@@ -504,19 +725,53 @@ class SynergyController {
 
     /**
      * Gathers all components on an entity.
+     * Respects roleFilter: only components matching the bound role contribute.
      *
      * @private
      * @param {Object} entity - The entity object
      * @param {ComponentGroupDef} groupDef - Group definition
+     * @param {string} [roleFilter] - Optional role filter from synergy config
      * @returns {Array}
      */
-    _gatherAllComponents(entity, groupDef) {
-        return entity.components.map((c) => ({
-            componentId: c.id,
-            entityId: entity.id,
-            componentType: c.type,
-            stats: this.worldStateController.componentController.getComponentStats(c.id)
-        }));
+    _gatherAllComponents(entity, groupDef, roleFilter, lockedComponentIds) {
+        if (!roleFilter) {
+            // No role filter: return all components (excluding locked)
+            return entity.components
+                .filter((c) => !lockedComponentIds.has(c.id))
+                .map((c) => ({
+                componentId: c.id,
+                entityId: entity.id,
+                componentType: c.type,
+                stats: this.worldStateController.componentController.getComponentStats(c.id)
+            }));
+        }
+
+        // Filter by role (and exclude locked components)
+        return entity.components
+            .filter((c) => {
+                // Exclude components locked to other actions
+                if (lockedComponentIds.has(c.id)) return false;
+
+                const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                if (!stats) return false;
+
+                if (roleFilter === 'source' || roleFilter === 'spatial') {
+                    return stats.Movement && Object.keys(stats.Movement).length > 0;
+                }
+                if (roleFilter === 'self_target') {
+                    return stats.Physical && Object.keys(stats.Physical).length > 0;
+                }
+                if (roleFilter === 'target') {
+                    return true;
+                }
+                return true;
+            })
+            .map((c) => ({
+                componentId: c.id,
+                entityId: entity.id,
+                componentType: c.type,
+                stats: this.worldStateController.componentController.getComponentStats(c.id)
+            }));
     }
 
     // ─── Private: Multi-Entity Evaluation ──────────────────────────────────
@@ -723,6 +978,19 @@ class SynergyController {
         }
 
         return parts.join(', ');
+    }
+
+    /**
+     * Gets locked component IDs, excluding those locked to the current action.
+     * @private
+     * @param {string} actionName - The current action name.
+     * @returns {Set<string>} Set of locked component IDs to exclude.
+     */
+    _getLockedComponentIds(actionName) {
+        if (this.actionSelectController) {
+            return this.actionSelectController.getLockedComponentIds(actionName);
+        }
+        return new Set();
     }
 }
 

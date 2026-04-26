@@ -19,7 +19,7 @@ For non-movement actions, the flow is immediate:
 
 ### 2.2. Movement Actions (Deferred Execution)
 Movement actions (defined in `AppConfig.ACTIONS`, e.g., `MOVE`, `DASH`) use a two-step "Pending" state to allow for target selection on the map:
-1.  **Action Selection**: The user clicks a movement action. Instead of calling the server, the client stores the action details in a `pendingMovementAction` state, highlights the action in the UI, and renders a **white range indicator** around the droid to visualize the possible movement distance. The selected component's `componentId` and `componentIdentifier` are stored in this pending state.
+1.  **Action Selection**: The user clicks a movement action. `ActionManager.executeAction()` stores the action details in the `_pendingAction` state via `_setPendingAction()`, then invokes the callback (e.g., `() => this.updateActionList()`). The `App.updateActionList()` method detects the pending action, calculates the effective range via `_calculateActionRange()`, and renders a **white range indicator** (SVG dashed circle) around the droid via `UIManager.renderRangeIndicator()`. The selected component's `componentId` and `componentIdentifier` are stored in the pending state.
 2.  **Target Selection**: The user clicks a location on the spatial map.
 3.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
     *   `actionName`: (e.g., "move" or "dash").
@@ -33,9 +33,33 @@ Movement actions (defined in `AppConfig.ACTIONS`, e.g., `MOVE`, `DASH`) use a tw
 6.  **Server Processing**: The server validates requirements using the `targetComponentId` and executes consequences on the resolved component.
 7.  **Response & UI Update**: Upon successful execution, the server emits a `world-state-update` event via WebSockets. The client receives this signal and immediately triggers `fetchWorldState()` and `fetchActions()` to refresh the UI.
 
+### 2.2.5. Multi-Component Actions (Click-to-Toggle Selection + Synergy)
+
+The client uses a **click-to-toggle** model for multi-component selection:
+
+1.  **Component Toggle**: The user clicks component rows in an action list. `_handleComponentToggle()` manages `activeActionName`, `selectedComponentIds` (Set), and `crossActionSelections` (Map). Clicking a component toggles it in/out of the selection. Selected components are highlighted (`action-selected`). Components selected in the active action appear grayed out (`.component-locked`) in all other actions.
+2.  **Cross-Action Graying**: Components selected in the active action are added to `crossMap` so they appear grayed out in other actions. Clicking a grayed component clears it from the other action's selection (`_handleGrayedComponentClick()`).
+3.  **Action Switching**: Clicking a component in a different action switches the active action, moving old selections to `crossActionSelections`.
+4.  **Pending Action Setup**: For spatial/component actions, `_handleComponentToggle()` calls `actions._handleTargetingSelection()` to set the pending action, enabling map/entity click execution.
+5.  **Live Synergy Preview**: When 2+ components are selected, `_updateSynergyPreview()` sends `POST /synergy/preview` with `componentIds` and displays the result via `UIManager.renderSynergyPreview()` (yellow border, ⚡ icon).
+6.  **Map/Entity Click Execution**: For spatial actions with 2+ selected components, map click triggers `_executeMultiComponentSpatial()`:
+    *   `ActionManager.selectComponents()` sends `POST /select-components` for batch lock
+    *   `ActionManager.executeWithComponents()` sends `POST /execute-action` with `params.componentIds`
+    *   Server computes synergy via `SynergyController.computeSynergy()` with `providedComponentIds`
+    *   Client displays final result via `UIManager.renderSynergyResult()` (green border, auto-hides after 8s)
+7.  **Cleanup**: All selections cleared via `_clearAllSelections()`, UI refreshes via `world-state-update`.
+
+**Multi-Select UI Elements:**
+*   **Row Click Toggle**: Click component row to toggle selection. No checkboxes.
+*   **Selected Highlight** (`.action-selected`): Bright green background for selected components.
+*   **Active Action** (`.action-active`): Yellow border/header for the currently active action.
+*   **Cross-Action Gray** (`.component-locked`): Reduced opacity for components selected in other actions. Still clickable to clear the conflict. 🔒 icon with tooltip.
+*   **Live Synergy Preview** (`.synergy-preview-display`): Yellow-bordered popup at bottom-center, persistent while 2+ components selected.
+*   **Final Synergy Result** (`.synergy-result-display`): Green-bordered popup after execution, auto-hides after 8 seconds.
+
 ### 2.3. Component-Targeted Actions (Deferred Execution)
 Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow for precision targeting:
-1.  **Action Selection**: The user clicks an attack action. The client stores it as a pending action and `UIManager` renders a red range indicator around the droid. The selected attacker component ID (from the action list) is stored in `pendingMovementAction.componentId`.
+1.  **Action Selection**: The user clicks an attack action. `ActionManager.executeAction()` stores it as a pending action via `_setPendingAction()`, then invokes the callback which triggers `App.updateActionList()`. The method calculates the static range from the action data (`actionData.range`) and renders a **red range indicator** (SVG dashed circle) around the droid via `UIManager.renderRangeIndicator()`. The selected attacker component ID (from the action list) is stored in `_pendingAction.componentId`.
 2.  **Target Entity Selection**: The user clicks an entity on the map. `ClientApp` validates if the entity is within the action's `range` and uses `AppConfig.TARGETING.PUNCH_TOLERANCE` to determine if a click is close enough to an entity to count as a hit.
 3.  **Component Selection**: If valid, `UIManager.showComponentSelection()` opens the Tactical Targeting HUD, allowing the user to pick a specific component of the target entity.
 4.  **Request Dispatch**: The client sends the `POST /execute-action` request, including:
@@ -56,7 +80,6 @@ Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow f
 ### 3.1. The `/actions` Response
 
 The client relies on the following data structure returned by the server to populate the UI. When requested with an `entityId`, the server returns only the actions relevant to that specific entity.
-
 
 ```json
 {
@@ -101,20 +124,42 @@ To provide clear feedback, the client renders requirements in the following way:
 The `renderActionList` method in the `UIManager` class is responsible for:
 1.  Iterating through the `actions` object.
 2.  Mapping the `canExecute` array to clickable HTML elements, utilizing data attributes to store action and component identifiers.
-3.  Filtering and listing incapable components' required stats in red.
-4.  Attaching click listeners that trigger the `onActionClick` callback provided by the orchestrator.
+3.  Applying `.action-selected` class for selected components, `.component-locked` for cross-action grayed components, `.action-active` for active action header.
+4.  Filtering and listing incapable components' required stats in red.
+5.  Attaching click listeners that trigger `onComponentToggle` and `onGrayedComponentClick` callbacks.
 
-### 4.2. Execution Logic (`ActionManager.executeAction`)
+### 4.2. Execution Logic (`ActionManager`)
 
 **Registry Pattern**: To avoid "magic strings" and ensure consistency, all action type checks (e.g., identifying movement actions) must use constants defined in `AppConfig.ACTIONS`.
 
-When a user clicks a capable component, the `ActionManager.executeAction` method is called via the `ClientApp` orchestrator. It receives:
-*   `actionName`
-*   `entityId`
-*   `componentName`
-*   `componentIdentifier`
+**Methods:**
+*   `executeAction()` — Single-component action execution
+*   `selectComponents()` — Batch lock via `POST /select-components`
+*   `executeWithComponents()` — Multi-component execution via `POST /execute-action` with `componentIds`
+*   `previewSynergy()` — Live synergy preview via `POST /synergy/preview`
 
-The manager then determines if the action is a deferred type (movement or targeted attack, which trigger a "Pending" state for target selection) or a standard action (which is dispatched immediately via a `POST` request to `/execute-action`).
+### 4.3. Multi-Component Execution Logic
+
+**Selection State** (`ClientApp`):
+*   `activeActionName` — Currently selected action
+*   `selectedComponentIds` — Set of component IDs for active action
+*   `crossActionSelections` — Map of actionName → Set of component IDs (for cross-action graying)
+
+**Toggle Flow** (`_handleComponentToggle`):
+1.  Switch active action if clicking different action (move old selections to cross map)
+2.  Toggle component in/out of `selectedComponentIds`
+3.  For spatial/component actions: set pending action via `_handleTargetingSelection()`
+4.  Re-render action list
+5.  If 2+ selected: fetch live synergy preview
+
+**Cross-Action Clear** (`_handleGrayedComponentClick`):
+1.  Remove component from `crossActionSelections` or `selectedComponentIds`
+2.  Re-render action list
+3.  Update synergy preview
+
+**Synergy Display**:
+*   `renderSynergyPreview()` — Live preview (yellow, persistent while selected)
+*   `renderSynergyResult()` — Post-execution result (green, auto-hides after 8s)
 
 ---
 
@@ -124,18 +169,18 @@ The client handles errors through a structured pipeline that decouples detection
 
 ### 5.1. Error Reporting Flow
 When an error occurs (e.g., a failed HTTP request or a targeting validation failure), the following flow is triggered:
-`ActionManager` / `ClientApp` $\rightarrow$ `ClientErrorController` $\rightarrow$ `UIManager.showErrorPopup()`
+`ActionManager` / `ClientApp` → `ClientErrorController` → `UIManager.showErrorPopup()`
 
 ### 5.2. Error Types and Behavior
 
 | Error Type | Source | Client Behavior |
 |------------|--------|-----------------|
-| **Network/HTTP Error** | Connectivity or Server Down | Structured error passed to `ClientErrorController` $\rightarrow$ Red Pop-up. |
-| **Action Failure** | Requirements not met or System Error | Structured error (with `code` and `details`) passed to `ClientErrorController` $\rightarrow$ Template resolution $\rightarrow$ Red Pop-up. |
-| **Validation Error** | Client-side check (e.g., Range) | Immediate structured error dispatch to `ClientErrorController` $\rightarrow$ Red Pop-up (e.g., *"Target out of range (219px > 100px)"*). |
+| **Network/HTTP Error** | Connectivity or Server Down | Structured error passed to `ClientErrorController` → Red Pop-up. |
+| **Action Failure** | Requirements not met or System Error | Structured error (with `code` and `details`) passed to `ClientErrorController` → Template resolution → Red Pop-up. |
+| **Validation Error** | Client-side check (e.g., Range) | Immediate structured error dispatch to `ClientErrorController` → Red Pop-up (e.g., *"Target out of range (219px > 100px)"*). |
 
 ---
 
 ### 📢 Notice for Future Agents
 **Language Requirement:** All frontend logic is written in **Vanilla JavaScript**.
-**Single Source of Truth:** The client synchronizes its view with the server using a hybrid model (WebSocket triggers $\rightarrow$ REST fetch) to ensure the UI reflects the simulation state in real-time.
+**Single Source of Truth:** The client synchronizes its view with the server using a hybrid model (WebSocket triggers → REST fetch) to ensure the UI reflects the simulation state in real-time.

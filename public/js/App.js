@@ -16,7 +16,24 @@ export class ClientApp {
         this.errorController = new ClientErrorController(this.ui);
         this.actions = new ActionManager(this.ui, this.errorController);
         this.availableActions = {};
-        
+
+        /**
+         * @type {string|null} The action currently being selected into.
+         */
+        this.activeActionName = null;
+
+        /**
+         * @type {Set<string>} Component IDs selected for the active action.
+         */
+        this.selectedComponentIds = new Set();
+
+        /**
+         * @type {Map<string, Set<string>>}
+         * Maps actionName → Set of component IDs (for cross-action graying).
+         * Only contains entries for non-active actions.
+         */
+        this.crossActionSelections = new Map();
+
         this.socket = io();
         this._setupSocketListeners();
         this._setupMapClickListener();
@@ -44,11 +61,11 @@ export class ClientApp {
         try {
             await this.worldState.fetchState();
             const droid = this.worldState.getActiveDroid();
-            
+
             // Update the visual world view
             this.ui.updateWorldView(
-                this.worldState.getState(), 
-                droid, 
+                this.worldState.getState(),
+                droid,
                 (entityId, targetId) => this.handleMoveDroid(entityId, targetId)
             );
 
@@ -57,11 +74,11 @@ export class ClientApp {
                 const state = this.worldState.getState();
                 const room = state.rooms[droid.location];
                 this.ui.updateEntityAndComponentViews(
-                    room, 
-                    state.entities, 
-                    droid, 
-                    state, 
-                    (entity) => this.ui.showEntityDetails(entity, state), 
+                    room,
+                    state.entities,
+                    droid,
+                    state,
+                    (entity) => this.ui.showEntityDetails(entity, state),
                     (comp, stats) => this.ui.showComponentDetails(comp, stats)
                 );
             }
@@ -78,14 +95,13 @@ export class ClientApp {
     }
 
     /**
-     * Updates the list of available actions and renders range indicators if a movement action is pending.
-     * @returns {Promise<void>}
+     * Updates the list of available actions with selection state.
      */
     async updateActionList() {
         try {
             const entityId = this.worldState.getMyEntityId();
             this.availableActions = await this.actions.fetchActions(entityId);
-            
+
             const pending = this.actions.getPendingAction();
             if (pending && this.availableActions[pending.actionName]) {
                 const droid = this.worldState.getActiveDroid();
@@ -100,10 +116,33 @@ export class ClientApp {
                 }
             }
 
+            // Build cross-action selections map: include BOTH crossActionSelections
+            // AND the active action's selectedComponentIds so they appear grayed in other actions
+            const crossMap = new Map();
+
+            // Add cross-action selections
+            if (this.crossActionSelections) {
+                for (const [actionName, compSet] of this.crossActionSelections) {
+                    if (actionName !== this.activeActionName) {
+                        crossMap.set(actionName, compSet);
+                    }
+                }
+            }
+
+            // Add active action's selections so they appear grayed in OTHER actions
+            if (this.activeActionName && this.selectedComponentIds.size > 0) {
+                crossMap.set(this.activeActionName, new Set(this.selectedComponentIds));
+            }
+
             this.ui.renderActionList(
-                this.availableActions, 
-                pending, 
-                (name, eid, cname, cid) => this.handleActionSelection(name, eid, cname, cid)
+                this.availableActions,
+                pending,
+                (actionName, entityId, compId, compIdentifier) =>
+                    this._handleComponentToggle(actionName, entityId, compId, compIdentifier),
+                this.activeActionName,
+                this.selectedComponentIds,
+                crossMap,
+                (lockedActionName, compId) => this._handleGrayedComponentClick(lockedActionName, compId)
             );
         } catch (error) {
             console.error('[ClientApp] Action list update failed:', error);
@@ -115,29 +154,157 @@ export class ClientApp {
     }
 
     /**
+     * Handles clicking a component row (toggle selection).
+     * - If no active action, set this as active action.
+     * - If clicking in a different action, switch active action (move old selections to cross map).
+     * - Toggle the component in/out of selected set.
+     * - After toggle, update synergy preview.
+     * - For spatial/component actions: set pending action so map clicks trigger execution.
+     *
+     * @param {string} actionName
+     * @param {string} entityId
+     * @param {string} componentId
+     * @param {string} componentIdentifier
+     */
+    async _handleComponentToggle(actionName, entityId, componentId, componentIdentifier) {
+        const actionData = this.availableActions[actionName];
+        const targetingType = actionData?.targetingType;
+
+        // If clicking a different action than current active, switch actions
+        if (this.activeActionName && this.activeActionName !== actionName) {
+            // Move current selections to cross map
+            if (this.selectedComponentIds.size > 0) {
+                this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
+            }
+            this.selectedComponentIds.clear();
+            this.activeActionName = actionName;
+
+            // Clear pending action and synergy preview
+            this.actions.clearPendingAction();
+            this.ui.clearSynergyPreview();
+        } else if (!this.activeActionName) {
+            this.activeActionName = actionName;
+        }
+
+        // Toggle the component
+        if (this.selectedComponentIds.has(componentId)) {
+            this.selectedComponentIds.delete(componentId);
+        } else {
+            this.selectedComponentIds.add(componentId);
+        }
+
+        // For spatial/component actions: set pending action so map clicks trigger execution
+        if (this.selectedComponentIds.size > 0 && targetingType && targetingType !== 'none') {
+            this.actions._handleTargetingSelection(
+                actionName, entityId, componentId, componentIdentifier, targetingType
+            );
+        } else if (this.selectedComponentIds.size === 0) {
+            // If no components selected, clear pending
+            this.actions.clearPendingAction();
+        }
+
+        // Re-render
+        this.updateActionList();
+
+        // If 2+ components selected, show live synergy preview
+        if (this.selectedComponentIds.size >= 2) {
+            await this._updateSynergyPreview(entityId);
+        } else {
+            this.ui.clearSynergyPreview();
+        }
+    }
+
+    /**
+     * Handles clicking a grayed component (selected in another action).
+     * Clears that component from the other action's selection.
+     *
+     * @param {string} lockedActionName - The action the component is selected in.
+     * @param {string} componentId - The component to remove.
+     */
+    _handleGrayedComponentClick(lockedActionName, componentId) {
+        // If the grayed component belongs to the cross-action map
+        const crossSet = this.crossActionSelections.get(lockedActionName);
+        if (crossSet) {
+            crossSet.delete(componentId);
+            if (crossSet.size === 0) {
+                this.crossActionSelections.delete(lockedActionName);
+            }
+        }
+
+        // Also clear from active selection if present (edge case)
+        this.selectedComponentIds.delete(componentId);
+
+        this.updateActionList();
+
+        // Update synergy preview
+        if (this.selectedComponentIds.size >= 2) {
+            const entityId = this.worldState.getMyEntityId();
+            this._updateSynergyPreview(entityId);
+        } else {
+            this.ui.clearSynergyPreview();
+        }
+    }
+
+    /**
+     * Fetches live synergy preview from the server.
+     * @param {string} entityId
+     */
+    async _updateSynergyPreview(entityId) {
+        if (!this.activeActionName || !entityId || this.selectedComponentIds.size < 2) {
+            this.ui.clearSynergyPreview();
+            return;
+        }
+
+        try {
+            const componentIds = Array.from(this.selectedComponentIds).map(compId => ({
+                componentId: compId,
+                role: 'source'
+            }));
+
+            const preview = await this.actions.previewSynergy(
+                this.activeActionName, entityId, componentIds
+            );
+
+            if (preview) {
+                this.ui.renderSynergyPreview(preview);
+            } else {
+                this.ui.clearSynergyPreview();
+            }
+        } catch (error) {
+            console.warn('[ClientApp] Synergy preview failed:', error);
+            this.ui.clearSynergyPreview();
+        }
+    }
+
+    /**
+     * Clears all component selections (for all actions).
+     */
+    _clearAllSelections() {
+        this.selectedComponentIds.clear();
+        this.crossActionSelections.clear();
+        this.activeActionName = null;
+        this.ui.clearSynergyPreview();
+    }
+
+    /**
      * Calculates the effective range of an action.
-     * If the action has a static range, it uses that.
-     * If it's a movement action, it calculates range based on the droid's stats.
-     * @param {string} actionName The name of the action.
-     * @param {Object} droid The active droid entity.
-     * @param {Object} state The current world state.
-     * @returns {number|null} The calculated range or null if cannot be determined.
+     * @param {string} actionName
+     * @param {Object} droid
+     * @param {Object} state
+     * @returns {number|null}
      */
     _calculateActionRange(actionName, droid, state) {
         const actionData = this.availableActions[actionName];
         if (!actionData) return null;
 
-        // Static range check
         if (actionData.range) return actionData.range;
 
-        // Dynamic movement range
         const isMove = actionName === AppConfig.ACTIONS.MOVE;
         const isDash = actionName === AppConfig.ACTIONS.DASH;
 
         if (isMove || isDash) {
             if (!droid || !droid.components || !state || !state.components || !state.components.instances) return null;
 
-            // Find a component that possesses the Movement trait
             let moveStat = null;
             for (const comp of droid.components) {
                 const stats = state.components.instances[comp.id];
@@ -156,7 +323,6 @@ export class ClientApp {
 
     /**
      * Sets up socket.io listeners for real-time server communication.
-     * @returns {void}
      */
     _setupSocketListeners() {
         this.socket.on('incarnate', (data) => {
@@ -180,8 +346,7 @@ export class ClientApp {
     }
 
     /**
-     * Configures the map click handler to process spatial and component targeting.
-     * @returns {void}
+     * Configures the map click handler for spatial targeting.
      */
     _setupMapClickListener() {
         const map = document.getElementById('world-map');
@@ -200,8 +365,18 @@ export class ClientApp {
             const targetY = svgP.y - AppConfig.VIEW.CENTER_Y;
 
             if (pending.targetingType === 'spatial') {
-                this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
+                // Check if we have multi-component selections for this action
+                if (this.selectedComponentIds.size >= 2 && this.activeActionName === pending.actionName) {
+                    this._executeMultiComponentSpatial(
+                        pending.actionName, pending.entityId,
+                        Array.from(this.selectedComponentIds),
+                        { targetX, targetY }
+                    );
+                } else {
+                    this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
+                }
                 this.actions.clearPendingAction();
+                this._clearAllSelections();
                 this.updateActionList();
             } else if (pending.targetingType === 'component') {
                 this.handlePunchTarget(pending, targetX, targetY);
@@ -210,11 +385,36 @@ export class ClientApp {
     }
 
     /**
-     * Handles targeting for "punch" style actions by finding the closest entity to the clicked coordinates.
-     * @param {Object} pending The pending action data.
-     * @param {number} targetX The clicked X coordinate.
-     * @param {number} targetY The clicked Y coordinate.
-     * @returns {Promise<void>}
+     * Executes a spatial action with multiple components.
+     */
+    async _executeMultiComponentSpatial(actionName, entityId, componentIds, extraParams) {
+        try {
+            const components = componentIds.map(compId => ({
+                componentId: compId,
+                role: 'source'
+            }));
+
+            await this.actions.selectComponents(actionName, entityId, components);
+
+            const response = await this.actions.executeWithComponents(
+                actionName, entityId, components, extraParams
+            );
+
+            if (response?.result?.synergyPreview) {
+                this.ui.renderSynergyResult(response.result.synergyPreview);
+            }
+
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            console.error('[ClientApp] Multi-component spatial action failed:', error);
+        }
+    }
+
+    /**
+     * Handles targeting for "punch" style actions.
+     * @param {Object} pending
+     * @param {number} targetX
+     * @param {number} targetY
      */
     async handlePunchTarget(pending, targetX, targetY) {
         const droid = this.worldState.getActiveDroid();
@@ -229,19 +429,18 @@ export class ClientApp {
         if (distance > range) {
             this.errorController.handleError({
                 code: 'TARGET_OUT_OF_RANGE',
-                details: { 
-                    distance: Math.round(distance), 
-                    range: range 
+                details: {
+                    distance: Math.round(distance),
+                    range: range
                 }
             });
             return;
         }
 
-        // Find closest entity within tolerance to avoid ambiguous selection
         const closestEntity = this.actions.findClosestEntity(
-            state.entities, 
-            targetX, 
-            targetY, 
+            state.entities,
+            targetX,
+            targetY,
             AppConfig.TARGETING.PUNCH_TOLERANCE
         );
 
@@ -254,23 +453,21 @@ export class ClientApp {
 
         this.ui.showComponentSelection(closestEntity, state, async (compId) => {
             try {
-                // pending.componentId is the attacker's component (droidHand)
-                // compId is the target component being punched
                 await this.actions.executePunch(pending.actionName, pending.entityId, pending.componentId, compId);
                 this.ui.closeDetails();
                 this.actions.clearPendingAction();
+                this._clearAllSelections();
                 await this.refreshWorldAndActions();
             } catch (error) {
-                // ActionManager already handles the error reporting via errorController
+                // ActionManager already handles the error reporting
             }
         });
     }
 
     /**
-     * Executes a movement request for an entity to a specific room.
-     * @param {string} entityId The ID of the entity to move.
-     * @param {string} targetRoomId The ID of the target room.
-     * @returns {Promise<void>}
+     * Executes a movement request for an entity to a different room.
+     * @param {string} entityId
+     * @param {string} targetRoomId
      */
     async handleMoveDroid(entityId, targetRoomId) {
         try {
@@ -291,26 +488,6 @@ export class ClientApp {
                 message: error.message
             });
         }
-    }
-
-    /**
-     * Handles the selection of an action from the UI list.
-     * @param {string} actionName The name of the selected action.
-     * @param {string} entityId The entity performing the action.
-     * @param {string} componentId The unique ID of the target component.
-     * @param {string} componentIdentifier The identifier of the target component.
-     * @returns {Promise<void>}
-     */
-    async handleActionSelection(actionName, entityId, componentId, componentIdentifier) {
-        const actionData = this.availableActions[actionName];
-        await this.actions.executeAction(
-            actionName, 
-            entityId, 
-            componentId,
-            componentIdentifier,
-            actionData,
-            () => this.updateActionList()
-        );
     }
 }
 

@@ -22,7 +22,7 @@ The map is rendered using a Scalable Vector Graphics (SVG) element to ensure cla
 - **Rooms (Nodes)**: Each room is represented as a circular node. The color changes based on whether the droid is currently present.
 - **Connections (Edges)**: Lines connecting room nodes represent doors or paths.
 - **Droid Marker**: A distinct, glowing point that moves between room nodes as the droid changes location. The marker for the player's own incarnated entity is highlighted to distinguish it from other entities.
-- **Range Indicators**: When a targeted action is selected, a dashed circle is rendered around the active droid, indicating the maximum effective range. 
+- **Range Indicators**: When a targeted action is selected, a dashed circle is rendered around the active droid, indicating the maximum effective range.
     - **Red**: Used for attack actions.
     - **White**: Used for movement actions (`move`, `dash`).
 
@@ -73,15 +73,15 @@ Entities are rendered as circular markers with the following characteristics:
 - **Interactivity**: Click to show droid details overlay
 
 ### 3.4. Interaction Flow
-- **Movement (Target-Based)**: 
-    1. User selects a movement action (e.g., `move` or `dash`) $\rightarrow$ `ActionManager` stores the action as a `pendingMovementAction`, `UIManager` highlights it using the `.action-selected` class, and a **white range indicator** is rendered based on the droid's `Movement` stats.
-    2. User clicks a location on the World Map $\rightarrow$ `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` $\rightarrow$ Client sends `POST /execute-action` $\rightarrow$ Server updates `stateEntityController` $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state $\rightarrow$ Map updates.
-- **Inspection**: Clicking any Entity Marker $\rightarrow$ `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` $\rightarrow$ Renders detailed component and stat data in the Detail Panel.
-- **Attack (Component-Targeted)**: 
-    1. User selects an attack action (e.g., `droid punch`) $\rightarrow$ `ActionManager` stores it as a pending action $\rightarrow$ `UIManager` renders a red range indicator.
-    2. User clicks an entity within the range $\rightarrow$ `ClientApp` validates distance and identifies the **closest entity** within the `AppConfig.TARGETING.PUNCH_TOLERANCE` to prevent ambiguous target selection when multiple entities are clustered.
-    3. `UIManager.showComponentSelection()` displays the Tactical Targeting HUD $\rightarrow$ User selects a specific component to attack.
-    4. `ActionManager.executePunch()` sends the `targetComponentId` to the server $\rightarrow$ Server updates the target component's stats $\rightarrow$ Server broadcasts `world-state-update` $\rightarrow$ Client refreshes state.
+- **Movement (Target-Based)**:
+    1. User selects a movement action (e.g., `move` or `dash`) → `ActionManager.executeAction()` calls `_setPendingAction()` to store the action, then invokes the **callback** (e.g., `() => this.updateActionList()`) → `App.updateActionList()` detects the pending action, calculates the effective range via `_calculateActionRange()` (dynamic for move/dash from `Movement.move` stat, or static from `actionData.range`), and renders a **white range indicator** (SVG dashed circle) via `UIManager.renderRangeIndicator()`. `UIManager.renderActionList()` applies cross-action visual feedback (see Section 3.7).
+    2. User clicks a location on the World Map → `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` → Client sends `POST /execute-action` → Server updates `stateEntityController` → Server broadcasts `world-state-update` → Client refreshes state → Map updates.
+- **Inspection**: Clicking any Entity Marker → `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` → Renders detailed component and stat data in the Detail Panel.
+- **Attack (Component-Targeted)**:
+    1. User selects an attack action (e.g., `droid punch`) → `ActionManager.executeAction()` calls `_setPendingAction()` then invokes the callback → `App.updateActionList()` calculates the static range from `actionData.range` and renders a **red range indicator** (SVG dashed circle) via `UIManager.renderRangeIndicator()`.
+    2. User clicks an entity within the range → `ClientApp` validates distance and identifies the **closest entity** within the `AppConfig.TARGETING.PUNCH_TOLERANCE` to prevent ambiguous target selection when multiple entities are clustered.
+    3. `UIManager.showComponentSelection()` displays the Tactical Targeting HUD → User selects a specific component to attack.
+    4. `ActionManager.executePunch()` sends the `targetComponentId` to the server → Server updates the target component's stats → Server broadcasts `world-state-update` → Client refreshes state.
 
 ### 3.5. Room Coordinates Display
 The UI shows current room coordinates in the format: `(x, y)` on the map header.
@@ -89,8 +89,35 @@ The UI shows current room coordinates in the format: `(x, y)` on the map header.
 ### 3.6. Action Execution
 For detailed information on how the client handles action requests and requirement visualization, see the [Client-Side Action Execution](./client_action_execution.md) documentation.
 
-### 3.7. Error Handling
-The client utilizes a `ClientErrorController` to decouple error detection from visual presentation. 
+### 3.7. Cross-Action Visual Feedback
+
+When a component is locked to an action, the UI provides visual feedback across ALL action entries:
+
+- **Component locked to Action X**:
+    - In Action X's entry → `.action-highlight` class (bright green background, bold text, ⚡ icon)
+    - In Action Y's entry (same component) → `.action-locked-by-other` class (35% opacity, grayscale filter, 🔒 icon with tooltip showing locked action name)
+
+**Data flow:**
+```
+ClientApp._refreshLockedComponents(entityId)
+    → GET /selections/:entityId → returns array of { componentId, actionName, role, lockedAt }
+    → Populates lockedComponentsByAction: Map<componentId, actionName>
+    → UIManager.renderActionList() receives Map
+    → For each component in each action:
+        - If lockedActionName === currentActionName → .action-highlight
+        - If lockedActionName !== currentActionName → .action-locked-by-other
+```
+
+**CSS Classes:**
+
+| Class | Visual | Meaning |
+|-------|--------|---------|
+| `.action-highlight` | Green background, bold, glow, ⚡ | Component selected for THIS action |
+| `.action-locked-by-other` | Gray, 35% opacity, grayscale, 🔒 | Same component locked to a DIFFERENT action |
+| `.action-selected` | Green background (legacy) | Backward-compatible selection state |
+
+### 3.8. Error Handling
+The client utilizes a `ClientErrorController` to decouple error detection from visual presentation.
 - **Logic**: It uses a template-based system to convert error codes (e.g., `TARGET_OUT_OF_RANGE`) and details into human-readable strings.
 
 ## 4. Styling Guide (Cyber-Terminal Aesthetic)

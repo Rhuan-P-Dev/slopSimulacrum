@@ -7,6 +7,7 @@ import TraitsController from './traitsController.js';
 import ActionController from './actionController.js';
 import ComponentCapabilityController from './componentCapabilityController.js';
 import SynergyController from './synergyController.js';
+import ActionSelectController from './actionSelectController.js';
 import ConsequenceHandlers from './consequenceHandlers.js';
 import DataLoader from '../utils/DataLoader.js';
 
@@ -52,16 +53,30 @@ class WorldStateController {
         const componentCapabilityController = new ComponentCapabilityController(this, actionRegistry);
         this.componentCapabilityController = componentCapabilityController;
 
-        // 5. Instantiate SynergyController (Synergy System — computes multi-entity/component synergy multipliers)
+        // 5. Instantiate ActionSelectController (Component selection/locking)
+        // Enforces "one component, one action" rule: if a component is selected for action A,
+        // it cannot be used for action B simultaneously.
+        const actionSelectController = new ActionSelectController(this);
+        this.actionSelectController = actionSelectController;
+
+        // 6. Instantiate SynergyController (Synergy System — computes multi-entity/component synergy multipliers)
         // Loads synergy config from data/synergy.json (decoupled from actions.json)
+        // Injected with ActionSelectController for locked-component exclusion in synergy pools.
         const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
-        const synergyController = new SynergyController(this, actionRegistry, synergyRegistry);
+        const synergyController = new SynergyController(this, actionRegistry, synergyRegistry, actionSelectController);
         this.synergyController = synergyController;
 
-        // 6. Instantiate ActionController (Top level - Injected with Dependencies)
+        // 7. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
-        const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController);
+        const actionController = new ActionController(
+            this,
+            consequenceHandlers,
+            actionRegistry,
+            componentCapabilityController,
+            synergyController,
+            actionSelectController
+        );
         this.actionController = actionController;
 
         // Wire the actionController reference into stateEntityController for spawn/despawn hooks
@@ -81,7 +96,8 @@ class WorldStateController {
             components: this.componentController,
             actions: this.actionController,
             capabilities: this.componentCapabilityController,
-            synergy: this.synergyController
+            synergy: this.synergyController,
+            selections: this.actionSelectController
         };
 
         // Initialize world with a sample droid as requested

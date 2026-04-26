@@ -48,16 +48,18 @@ The main controller that computes synergy multipliers for actions.
 
 **Constructor Signature:**
 ```javascript
-constructor(worldStateController, actionRegistry, synergyRegistry)
+constructor(worldStateController, actionRegistry, synergyRegistry, actionSelectController)
 ```
 
 - `worldStateController`: Root state controller (injected)
 - `actionRegistry`: Full action registry from `data/actions.json`
 - `synergyRegistry`: Synergy registry from `data/synergy.json` (optional — auto-loaded if not provided)
+- `actionSelectController`: Component selection controller (for locked-component exclusion)
 
 **Key Responsibilities:**
 - Compute single-entity component group synergy
 - Compute multi-entity collaboration synergy
+- Compute client-provided component synergy (multi-component selection)
 - Apply caps to computed multipliers
 - Build human-readable summaries
 
@@ -73,6 +75,14 @@ constructor(worldStateController, actionRegistry, synergyRegistry)
 | `getActionsWithSynergy()` | — | `string[]` | All actions with synergy enabled |
 | `clearCache()` | — | — | Clear the synergy cache |
 
+**Private Methods (New):**
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `_evaluateProvidedComponents()` | `actionName, entityId, providedComponentIds, config` | `{multiplier, components}` | Evaluate synergy from client-provided component list |
+| `_filterProvidedComponentsForGroup()` | `actionName, entityId, providedComponentIds, groupDef` | `Array` | Filter provided components for a group |
+| `_matchesRoleFilter()` | `stats, roleFilter, component` | `boolean` | Check if component matches role filter |
+
 ### 2. SynergyScaling (`src/utils/SynergyScaling.js`)
 
 Provides three scaling curve functions:
@@ -87,7 +97,7 @@ Provides three scaling curve functions:
 
 ### Standalone Synergy Definition (`data/synergy.json`)
 
-Synergy configs are now in a separate file from actions:
+Synergy configs are in a separate file from actions:
 
 ```json
 {
@@ -111,21 +121,6 @@ Synergy configs are now in a separate file from actions:
 }
 ```
 
-### Action Definition (`data/actions.json`) — No Synergy
-
-Actions no longer contain synergy blocks:
-
-```json
-{
-  "actionName": {
-    "targetingType": "spatial",
-    "requirements": [...],
-    "consequences": [...],
-    "failureConsequences": [...]
-  }
-}
-```
-
 ### SynergyResult Object
 
 ```javascript
@@ -137,9 +132,26 @@ Actions no longer contain synergy blocks:
   capped: boolean,              // Whether the value was capped
   capKey: string | null,        // Which cap was applied
   contributingComponents: [     // List of contributors
-    { componentId, entityId, componentType, contribution }
+    { componentId, entityId, componentType, contribution, role? }
   ],
   summary: string               // "Synergy: 1.35x, 2 entities, 3 components"
+}
+```
+
+### SynergyPreview Object (New)
+
+Sent in the server response for frontend display:
+
+```javascript
+{
+  multiplier: number,           // Computed synergy multiplier
+  finalValue: number,           // After caps
+  capped: boolean,              // Whether capped
+  capKey: string | null,        // Which cap was applied
+  contributingComponents: [     // Simplified contributor list
+    { componentId, entityId, componentType, contribution }
+  ],
+  summary: string               // Human-readable summary
 }
 ```
 
@@ -152,98 +164,43 @@ Actions no longer contain synergy blocks:
 | `anyPhysical` | All components with Physical trait | droidHand + droidArm |
 | `anyComponent` | All components on entity | Everything |
 
-## Scaling Examples
+## Synergy Evaluation Modes
 
-### Shooting with a Weapon (Diminishing Returns)
+### Mode 1: Auto-Gather (Legacy)
 
-```json
-{
-  "enabled": true,
-  "caps": {
-    "precision": { "max": 1.25, "req": "Physical.stability" },
-    "damage": { "max": 1.1, "req": "Physical.stability" },
-    "range": { "max": 1.1, "req": "Physical.stability" },
-    "reloadSpeed": { "max": 4.0, "req": "Mind.fineMotorSkills" }
-  },
-  "componentGroups": [{
-    "groupType": "sameComponentType",
-    "minCount": 2,
-    "scaling": "diminishingReturns",
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 0.05
-  }]
-}
+When `computeSynergy()` is called **without** `providedComponentIds`, it uses the existing auto-gather logic:
+
+1. `_evaluateComponentGroups()` iterates through `config.componentGroups`
+2. `_gatherGroupMembers()` gathers members from the entity
+3. `_gather*` methods exclude locked components via `ActionSelectController.getLockedComponentIds()`
+4. Synergy multiplier calculated from gathered members
+
+**Use Case**: Actions where the server auto-determines contributing components.
+
+### Mode 2: Provided-Components (New)
+
+When `computeSynergy()` is called **with** `providedComponentIds`, it uses the new `_evaluateProvidedComponents()` method:
+
+```javascript
+computeSynergy(actionName, entityId, {
+    providedComponentIds: [
+        { componentId: "uuid1", role: "source" },
+        { componentId: "uuid2", role: "source" }
+    ]
+});
 ```
 
-### Opening a Door (Infinite Speed, Multi-Entity)
+**Flow:**
+1. `_evaluateProvidedComponents()` iterates through `config.componentGroups`
+2. `_filterProvidedComponentsForGroup()` filters the provided list for each group
+3. `_matchesRoleFilter()` checks if component stats match the role filter
+4. Synergy multiplier calculated from matching members
+5. Caps applied
+6. Result returned to `ActionController`
 
-```json
-{
-  "enabled": true,
-  "multiEntity": true,
-  "scaling": "linear",
-  "caps": { "speed": { "max": null } },
-  "componentGroups": [{
-    "groupType": "anyPhysical",
-    "minCount": 1,
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 0.5
-  }]
-}
-```
+**Use Case**: Multi-component selection where the user explicitly chooses which components contribute.
 
-### Picking Up a Box (Linear Strength Scale)
-
-```json
-{
-  "enabled": true,
-  "multiEntity": true,
-  "scaling": "linear",
-  "componentGroups": [{
-    "groupType": "sameComponentType",
-    "minCount": 1,
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 1.0,
-    "synergyStat": "Physical.strength"
-  }]
-}
-```
-
-### Picking Up a Rock (Multi-Member Cap)
-
-```json
-{
-  "enabled": true,
-  "multiEntity": true,
-  "scaling": "diminishingReturns",
-  "caps": { "liftCapacity": { "max": 500 } },
-  "componentGroups": [{
-    "groupType": "sameComponentType",
-    "minCount": 1,
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 0.8
-  }]
-}
-```
-
-### Running (Diminishing Returns)
-
-```json
-{
-  "enabled": true,
-  "scaling": "diminishingReturns",
-  "componentGroups": [{
-    "groupType": "movementComponents",
-    "minCount": 1,
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 0.3
-  }]
-}
-```
-
-## Multi-Entity Collaboration
-
-### How It Works
+### Mode 3: Multi-Entity Collaboration
 
 Multiple entities can collaborate on a single action. The client sends synergy groups with primary and supporting entities:
 
@@ -265,7 +222,7 @@ Multiple entities can collaborate on a single action. The client sends synergy g
 }
 ```
 
-### Flow
+## Integration Flow
 
 ```mermaid
 sequenceDiagram
@@ -275,39 +232,85 @@ sequenceDiagram
     participant SC as SynergyController
     participant H as ConsequenceHandlers
 
-    C->>S: POST /execute-action (with synergyGroups)
+    C->>S: POST /execute-action
+    Note over C,S: With componentIds OR synergyGroups
     S->>A: executeAction()
     A->>SC: computeSynergy(actionName, entityId, context)
-    SC->>SC: Gather group members
-    SC->>SC: Calculate multiplier
+    
+    alt providedComponentIds present
+        SC->>SC: _evaluateProvidedComponents()
+        SC->>SC: _filterProvidedComponentsForGroup()
+    else auto-gather mode
+        SC->>SC: _evaluateComponentGroups()
+        SC->>SC: _gatherGroupMembers()
+    end
+    
+    alt multiEntity enabled
+        SC->>SC: _evaluateMultiEntityGroup()
+    end
+    
+    SC->>SC: Apply caps
     SC-->>A: SynergyResult
     A->>H: _executeConsequences (with synergyResult)
     H->>H: Apply synergy multiplier to values
     H-->>A: results
     A-->>S: { synergy, results }
-    S-->>C: response + synergy data
+    S->>S: Build synergyPreview
+    S-->>C: response + synergyPreview
+    C->>UI: renderSynergyResult()
 ```
 
-## Integration Points
+## Server Response Format
 
 ### ActionController Integration
 
 ```javascript
 // In ActionController.executeAction():
 const synergyResult = this.synergyController.computeSynergy(
-  actionName, entityId, { synergyGroups: params?.synergyGroups }
+  actionName, entityId, {
+    providedComponentIds: componentList,     // NEW: client-provided
+    synergyGroups: params?.synergyGroups,    // Legacy: multi-entity
+    sourceComponentId: resolvedSourceComponentId
+  }
 );
+```
 
-// In _executeConsequences():
-// Apply synergy multiplier to numeric consequence values
-if (synergyResult && synergyResult.synergyMultiplier > 1.0) {
-  resolvedParams.value = synergyController.applySynergyToResult(
-    synergyResult, baseValue
-  );
+### Server Response Integration
+
+The server (`server.js`) now includes `synergyPreview` in the execute-action response:
+
+```javascript
+const responseResult = { ...result };
+if (result.success && result.synergy) {
+    responseResult.synergyPreview = {
+        multiplier: result.synergy.synergyMultiplier,
+        finalValue: result.synergy.finalValue,
+        capped: result.synergy.capped,
+        capKey: result.synergy.capKey,
+        contributingComponents: result.synergy.contributingComponents.map((c) => ({
+            componentId: c.componentId,
+            entityId: c.entityId,
+            componentType: c.componentType,
+            contribution: c.contribution
+        })),
+        summary: result.synergy.summary
+    };
 }
 ```
 
-### Server Endpoints
+### Frontend Display
+
+The `UIManager.renderSynergyResult()` method displays synergy feedback:
+
+```
+Synergy: 1.05x
+• droidHand (left-hand-...)
+• droidHand (right-hand-...)
+```
+
+The display auto-hides after 8 seconds.
+
+## Server Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -324,13 +327,15 @@ The WorldStateController instantiates SynergyController as part of the DI chain:
 const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
 
 // Step 5: Instantiate SynergyController with separate synergy registry
-const synergyController = new SynergyController(this, actionRegistry, synergyRegistry);
+const synergyController = new SynergyController(
+    this, actionRegistry, synergyRegistry, actionSelectController
+);
 this.synergyController = synergyController;
 
 // Step 6: Inject into ActionController
 const actionController = new ActionController(
-  this, consequenceHandlers, actionRegistry,
-  componentCapabilityController, synergyController
+    this, consequenceHandlers, actionRegistry,
+    componentCapabilityController, synergyController, actionSelectController
 );
 ```
 
@@ -347,4 +352,5 @@ const actionController = new ActionController(
 
 - [Controller Patterns](controller_patterns.md) — Dependency Injection standards
 - [Action System](action_system.md) — Action execution pipeline
+- [Component Selection](component_selection.md) — Multi-component selection system
 - [Code Quality](../code_quality_and_best_practices.md) — Engineering standards

@@ -246,12 +246,34 @@ app.post('/execute-action', (req, res) => {
     }
 
     try {
+        // Expire stale selections before executing any action
+        worldStateController.actionSelectController.expireStaleSelections();
+
         const result = worldStateController.actionController.executeAction(actionName, entityId, params);
+
+        // Build response with synergy preview for successful executions
+        const responseResult = { ...result };
+        if (result.success && result.synergy) {
+            responseResult.synergyPreview = {
+                multiplier: result.synergy.synergyMultiplier,
+                finalValue: result.synergy.finalValue,
+                capped: result.synergy.capped,
+                capKey: result.synergy.capKey,
+                contributingComponents: result.synergy.contributingComponents.map((c) => ({
+                    componentId: c.componentId,
+                    entityId: c.entityId,
+                    componentType: c.componentType,
+                    contribution: c.contribution
+                })),
+                summary: result.synergy.summary
+            };
+        }
+
         // Only broadcast world state on successful action execution
         if (result.success) {
             broadcastWorldState();
         }
-        res.json({ result });
+        res.json({ result: responseResult });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
         res.status(500).json({
@@ -371,10 +393,12 @@ app.get('/synergy/config/:actionName', (req, res) => {
 /**
  * POST /synergy/preview
  * Previews synergy computation for an action without executing it.
- * Expects: { "actionName": "...", "entityId": "...", "synergyGroups": [...] }
+ * Expects: { "actionName": "...", "entityId": "...", "componentIds": [...], "synergyGroups": [...] }
+ * - componentIds: Array of {componentId, role} for client-provided component synergy
+ * - synergyGroups: Optional multi-entity synergy groups (legacy)
  */
 app.post('/synergy/preview', (req, res) => {
-    const { actionName, entityId, synergyGroups } = req.body;
+    const { actionName, entityId, componentIds, synergyGroups } = req.body;
 
     if (!actionName || !entityId) {
         return res.status(400).json({
@@ -383,8 +407,133 @@ app.post('/synergy/preview', (req, res) => {
     }
 
     try {
-        const synergyResult = worldStateController.computeSynergy(actionName, entityId, { synergyGroups });
+        const context = {};
+        if (componentIds && Array.isArray(componentIds) && componentIds.length > 0) {
+            context.providedComponentIds = componentIds;
+        }
+        if (synergyGroups) {
+            context.synergyGroups = synergyGroups;
+        }
+
+        const synergyResult = worldStateController.computeSynergy(actionName, entityId, context);
         res.json({ synergyResult });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+// =========================================================================
+// Component Selection Endpoints
+// =========================================================================
+
+/**
+ * POST /select-components
+ * Lock multiple components to a specific action (batch selection).
+ * Expects: { "actionName": "...", "entityId": "...", "components": [{ "componentId": "...", "role": "..." }] }
+ */
+app.post('/select-components', (req, res) => {
+    const { actionName, entityId, components } = req.body;
+
+    if (!actionName || !entityId || !components || !Array.isArray(components) || components.length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid request. "actionName", "entityId", and non-empty "components" array are required.'
+        });
+    }
+
+    try {
+        const result = worldStateController.actionSelectController.registerSelections(
+            actionName, entityId, components
+        );
+        res.json(result);
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            success: false,
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * POST /select-component
+ * Lock a component to a specific action (enforces "one component, one action" rule).
+ * Expects: { "actionName": "...", "entityId": "...", "componentId": "...", "role": "..." }
+ */
+app.post('/select-component', (req, res) => {
+    const { actionName, entityId, componentId, role } = req.body;
+
+    if (!actionName || !entityId || !componentId || !role) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid request. "actionName", "entityId", "componentId", and "role" are required.'
+        });
+    }
+
+    try {
+        const result = worldStateController.actionSelectController.registerSelection(
+            actionName, componentId, entityId, role
+        );
+        res.json(result);
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            success: false,
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * POST /release-selection
+ * Release (unlock) a component selection.
+ * Expects: { "componentId": "..." }
+ */
+app.post('/release-selection', (req, res) => {
+    const { componentId } = req.body;
+
+    if (!componentId) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid request. "componentId" is required.'
+        });
+    }
+
+    try {
+        const released = worldStateController.actionSelectController.releaseSelection(componentId);
+        res.json({ success: true, released });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            success: false,
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /selections/:entityId
+ * Get all current component selections for an entity.
+ */
+app.get('/selections/:entityId', (req, res) => {
+    const { entityId } = req.params;
+
+    if (!entityId) {
+        return res.status(400).json({
+            error: 'Invalid request. entityId is required.'
+        });
+    }
+
+    try {
+        const selections = worldStateController.actionSelectController.getLockedComponents(entityId);
+        res.json(selections);
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
         res.status(500).json({

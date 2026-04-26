@@ -33,13 +33,12 @@ export class UIManager {
 
     /**
      * Updates the entity and component layers.
-     * This provides a public interface for App.js to trigger re-renders.
-     * @param {Object} room 
-     * @param {Object} entities 
-     * @param {Object} droid 
-     * @param {Object} state 
-     * @param {Function} onEntityClick 
-     * @param {Function} onComponentClick 
+     * @param {Object} room
+     * @param {Object} entities
+     * @param {Object} droid
+     * @param {Object} state
+     * @param {Function} onEntityClick
+     * @param {Function} onComponentClick
      */
     updateEntityAndComponentViews(room, entities, droid, state, onEntityClick, onComponentClick) {
         this._renderEntities(room, entities, onEntityClick);
@@ -108,7 +107,7 @@ export class UIManager {
 
     renderRangeIndicator(droid, range, color = 'red') {
         const entitiesLayer = this.elements.entitiesLayer;
-        
+
         // Remove existing range indicators if any
         const existing = entitiesLayer.querySelector('.range-indicator');
         if (existing) existing.remove();
@@ -232,45 +231,82 @@ export class UIManager {
 
     /**
      * Renders the action list in the control panel.
+     * Uses click-to-toggle selection model:
+     * - Click component row → toggle selection in active action
+     * - Components selected in active action → highlighted
+     * - Components selected in OTHER actions → grayed out (cross-action conflict)
+     * - Click grayed component → clear the conflict (deselect from other action)
+     *
      * @param {Object} actions The list of available actions.
-     * @param {Object|null} pendingAction The currently selected movement action.
-     * @param {Function} onActionClick Callback for action selection.
+     * @param {Object|null} pendingAction The currently pending targeting action.
+     * @param {Function} onComponentToggle Callback when component is toggled: (actionName, entityId, componentId, componentIdentifier).
+     * @param {string|null} activeActionName The action currently being selected into.
+     * @param {Set<string>} selectedComponentIds Components currently selected for activeActionName.
+     * @param {Map<string, Set<string>>} crossActionSelections Map of actionName → Set of selected component IDs (for other actions).
+     * @param {Function} onGrayedComponentClick Callback when a grayed (cross-action) component is clicked.
      */
-    renderActionList(actions, pendingAction, onActionClick) {
+    renderActionList(actions, pendingAction, onComponentToggle, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
         const actionListEl = this.elements.actionList;
         if (!actions || Object.keys(actions).length === 0) {
             actionListEl.innerHTML = '<em class="text-muted">No actions available.</em>';
             return;
         }
 
+        // Normalize
+        const selectedSet = selectedComponentIds ? new Set(selectedComponentIds) : new Set();
+
+        // Build a map: componentId → actionName (for cross-action graying)
+        const componentToActionMap = new Map();
+        if (crossActionSelections) {
+            for (const [actionName, compSet] of crossActionSelections) {
+                if (actionName === activeActionName) continue; // Skip active action
+                for (const compId of compSet) {
+                    componentToActionMap.set(compId, actionName);
+                }
+            }
+        }
+
         let html = '';
         for (const [actionName, actionData] of Object.entries(actions)) {
+            const isThisActive = actionName === activeActionName;
+
             const capableHtml = (actionData.canExecute || []).map(entry => {
-                const isSelected = pendingAction && 
-                                   pendingAction.actionName === actionName && 
-                                   pendingAction.entityId === entry.entityId &&
-                                   pendingAction.componentId === entry.componentId;
+                const canExecute = entry.requirementsStatus.every(rs => rs.current >= rs.required);
+                const isSelected = selectedSet.has(entry.componentId);
+                const grayedByAction = componentToActionMap.get(entry.componentId);
 
                 const reqStatusText = entry.requirementsStatus
                     .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
                     .join('<br>');
 
+                // Determine row class
+                let rowClass = 'action-capable clickable';
+                if (isSelected) rowClass += ' action-selected';
+                if (grayedByAction) rowClass += ' component-locked';
+
+                // Lock icon with tooltip showing which action it's locked to
+                const lockIcon = grayedByAction
+                    ? `<span class="lock-icon" title="Selected in '${grayedByAction}'">🔒</span>`
+                    : '';
+
                 return `
-                    <div class="action-capable clickable ${isSelected ? 'action-selected' : ''}" 
-                         data-action="${actionName}" 
-                         data-entity="${entry.entityId}" 
-                         data-comp-id="${entry.componentId}" 
-                         data-comp-name="${entry.componentType}" 
-                         data-comp-identifier="${entry.componentIdentifier}">
-                        <span class="component-name">${entry.componentType} (${entry.componentIdentifier})</span>
-                        <span class="${entry.requirementsStatus.every(rs => rs.current >= rs.required) ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
-                    </div>`;
+                    <div class="${rowClass}"
+                         data-action="${actionName}"
+                         data-entity="${entry.entityId}"
+                         data-comp-id="${entry.componentId}"
+                         data-comp-name="${entry.componentType}"
+                         data-comp-identifier="${entry.componentIdentifier}"
+                         data-can-execute="${canExecute}">
+                         ${lockIcon}
+                         <span class="component-name">${entry.componentType} (${entry.componentIdentifier})</span>
+                         <span class="${canExecute ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
+                     </div>`;
             }).join('');
 
             const incapableHtml = (actionData.cannotExecute || []).map(entity => {
                 let statusText = `${entity.componentName} (${entity.componentIdentifier}) cannot execute`;
                 if (entity.stats) {
-                    const statStrings = (actionData.requirements || []).filter(req => 
+                    const statStrings = (actionData.requirements || []).filter(req =>
                         entity.stats[req.trait] && entity.stats[req.trait][req.stat] !== undefined
                     ).map(req => `${req.trait}.${req.stat}=${entity.stats[req.trait][req.stat]}`);
 
@@ -281,8 +317,11 @@ export class UIManager {
                 return `<div class="action-req status-fail">${statusText}</div>`;
             }).join('');
 
+            // Highlight the active action header
+            const actionItemClass = isThisActive ? 'action-item action-active' : 'action-item';
+
             html += `
-                <div class="action-item">
+                <div class="${actionItemClass}">
                     <div class="action-name">${actionName}</div>
                     <div class="action-capabilities">
                         ${capableHtml || '<em class="text-muted-light">No capable components found</em>'}
@@ -292,15 +331,108 @@ export class UIManager {
         }
         actionListEl.innerHTML = html;
 
-        // Attach events to new elements
+        // Attach click events to component rows
         actionListEl.querySelectorAll('.clickable').forEach(el => {
-            el.onclick = () => onActionClick(
-                el.dataset.action, 
-                el.dataset.entity, 
-                el.dataset.compId,
-                el.dataset.compIdentifier
-            );
+            el.onclick = () => {
+                const actionName = el.dataset.action;
+                const entityId = el.dataset.entity;
+                const componentId = el.dataset.compId;
+                const componentIdentifier = el.dataset.compIdentifier;
+                const canExecute = el.dataset.canExecute === 'true';
+                const grayedByAction = componentToActionMap.get(componentId);
+
+                // If grayed (locked to another action), call the grayed handler
+                if (grayedByAction) {
+                    if (onGrayedComponentClick) {
+                        onGrayedComponentClick(grayedByAction, componentId);
+                    }
+                    return;
+                }
+
+                // Normal toggle
+                if (canExecute) {
+                    onComponentToggle(actionName, entityId, componentId, componentIdentifier);
+                }
+            };
         });
+    }
+
+    /**
+     * Displays live synergy preview in the UI.
+     * @param {Object} preview Synergy preview from server.
+     */
+    renderSynergyPreview(preview) {
+        // Remove existing
+        const existing = document.querySelector('.synergy-preview-display');
+        if (existing) existing.remove();
+
+        if (!preview || preview.multiplier <= 1.0) return;
+
+        const componentsHtml = (preview.contributingComponents || []).map(c =>
+            `<span class="synergy-component">• ${c.componentType} (${c.componentId ? c.componentId.substring(0, 8) + '...' : 'unknown'})</span>`
+        ).join('');
+
+        const display = document.createElement('div');
+        display.className = 'synergy-preview-display';
+        display.innerHTML = `
+            <div class="synergy-header">
+                <span class="synergy-multiplier">⚡ Synergy: ${preview.multiplier.toFixed(2)}x</span>
+            </div>
+            ${componentsHtml}
+            ${preview.summary ? `<div class="synergy-summary">${preview.summary}</div>` : ''}
+        `;
+
+        const actionSection = document.querySelector('.action-section') || document.body;
+        actionSection.appendChild(display);
+    }
+
+    /**
+     * Clears the synergy preview display.
+     */
+    clearSynergyPreview() {
+        const existing = document.querySelector('.synergy-preview-display');
+        if (existing) existing.remove();
+    }
+
+    /**
+     * Displays final synergy result after action execution.
+     * Auto-hides after 8 seconds.
+     * @param {Object} preview Synergy preview from server response.
+     */
+    renderSynergyResult(preview) {
+        if (!preview) return;
+
+        // Remove existing
+        const existing = document.querySelector('.synergy-result-display');
+        if (existing) existing.remove();
+
+        const componentsHtml = (preview.contributingComponents || []).map(c =>
+            `<span class="synergy-component">• ${c.componentType} (${c.componentId ? c.componentId.substring(0, 8) + '...' : 'unknown'})</span>`
+        ).join('');
+
+        const capWarning = preview.capped
+            ? `<div class="synergy-cap-warning">⚠ Capped at ${preview.capKey || 'limit'}</div>`
+            : '';
+
+        const display = document.createElement('div');
+        display.className = 'synergy-result-display';
+        display.innerHTML = `
+            <div class="synergy-header">
+                <span class="synergy-multiplier">Synergy: ${preview.multiplier.toFixed(2)}x</span>
+            </div>
+            ${componentsHtml}
+            ${capWarning}
+            ${preview.summary ? `<div class="synergy-summary">${preview.summary}</div>` : ''}
+        `;
+
+        const actionSection = document.querySelector('.action-section') || document.body;
+        actionSection.appendChild(display);
+
+        // Auto-hide after 8 seconds
+        setTimeout(() => {
+            display.classList.add('synergy-fade-out');
+            setTimeout(() => display.remove(), 500);
+        }, 8000);
     }
 
     showEntityDetails(entity, state) {
@@ -394,7 +526,7 @@ export class UIManager {
                         📡 Targeting Protocol Active
                     </h3>
                     <div class="component-selection-list">`;
-            
+
             entity.components.forEach(comp => {
                 const stats = state.components.instances[comp.id];
                 const durability = stats?.Physical?.durability ?? 0;
@@ -414,7 +546,7 @@ export class UIManager {
                         </div>
                     </div>`;
             });
-            
+
             componentsHtml += `</div></div>`;
         }
 
@@ -427,7 +559,7 @@ export class UIManager {
             </div>
             ${componentsHtml || '<div class="trait-row text-center">NO TARGETABLE COMPONENTS DETECTED</div>'}
         `;
-        
+
         this.elements.detailOverlay.style.display = 'flex';
 
         // Attach click events to components

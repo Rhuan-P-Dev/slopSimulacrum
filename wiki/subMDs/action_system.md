@@ -244,16 +244,58 @@ Retrieves only the actions that are relevant to a specific entity. Filters the c
 
 ### 5.2. ActionController.executeAction()
 
-Executes an action on an entity.
+Executes an action on an entity with component selection validation and binding enforcement.
 
 ```javascript
 /**
  * @param {string} actionName - The name of the action to execute.
  * @param {string} entityId - The ID of the entity to perform the action.
  * @param {Object} [params] - Additional action parameters.
+ * @param {string} [params.attackerComponentId] - The component performing the action.
+ * @param {string} [params.targetComponentId] - The component being targeted.
+ * @param {string} [params.selectedBindingRole] - The role of the selected component.
  * @returns {Object} Result of the action execution.
  */
 ```
+
+**Execution Flow:**
+
+```mermaid
+graph TD
+    A[executeAction start] --> B{targetingType?}
+    B -->|spatial| C[Skip selection validation]
+    B -->|other| D[validateSelection]
+    D --> E[resolveSourceComponent]
+    C --> E
+    E --> F{resolved?}
+    F -->|no + has binding| G[COMPONENT_BINDING_MISMATCH]
+    F -->|no + no binding| H[Fallback to requirement check]
+    F -->|yes| I[validateComponentBinding]
+    I --> J{role mismatch?}
+    J -->|spatial/none| K[Skip role check]
+    J -->|other| L{mismatch?}
+    L -->|yes| M[Reject]
+    L -->|no| N[Execute requirements]
+    K --> N
+    H --> N
+    G --> O[Return error]
+    M --> O
+    N --> P[Execute consequences]
+```
+
+**Component Selection Validation:**
+- **Spatial actions** (`move`, `dash`): Skip pre-locking validation because they auto-resolve components via `_resolveSourceComponent()`
+- **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
+
+**Component Binding Enforcement:**
+- If `componentBinding` is defined but no component resolves → return `COMPONENT_BINDING_MISMATCH`
+- If `componentBinding` is NOT defined → fall through to requirement checking (triggers failure consequences)
+
+**Role Mismatch Skip:**
+Role validation is skipped for `spatial` and `none` targetingType actions because:
+- **Spatial actions**: Client sends `'spatial'` role, but server resolves to `'source'`
+- **None actions**: Client sends `'source'` role, but server resolves to `'self_target'`
+- In both cases, client/server role resolution differs, so requirement checking is used instead.
 
 **Returns (Success):**
 ```javascript

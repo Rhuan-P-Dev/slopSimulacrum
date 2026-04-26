@@ -69,6 +69,10 @@ class ComponentCapabilityController {
      * Each component that meets an action's requirements gets its own entry.
      * This is the main method for performing a full capability re-evaluation.
      *
+     * Each entry now includes `_resolvedRole` — the component-action binding role
+     * that this component fulfills (e.g., 'source', 'target', 'spatial', 'self_target').
+     * This ensures the UI and server know which role the selected component plays.
+     *
      * @param {Object} state - The current world state (contains entities).
      * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
      */
@@ -120,7 +124,8 @@ class ComponentCapabilityController {
                                 stat: req.stat,
                                 current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
                                 required: req.minValue
-                            }))
+                            })),
+                            _resolvedRole: this._resolveComponentRole(actionData, component)
                         };
                         this._capabilityCache[actionName].push(entry);
                     }
@@ -197,7 +202,8 @@ class ComponentCapabilityController {
                 stat: req.stat,
                 current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
                 required: req.minValue
-            }))
+            })),
+            _resolvedRole: this._resolveComponentRole(actionData, component)
         };
 
         // Find existing entry in the action array and update it in place
@@ -279,24 +285,25 @@ class ComponentCapabilityController {
                     actionData.requirements, entityId, component.id
                 );
 
-                if (requirementCheck.passed) {
-                    const entry = {
-                        entityId,
-                        componentId: component.id,
-                        componentType: component.type,
-                        componentIdentifier: component.identifier || 'default',
-                        score,
-                        requirementValues: requirementCheck.requirementValues,
-                        fulfillingComponents: requirementCheck.fulfillingComponents,
-                        requirementsStatus: actionData.requirements.map(req => ({
-                            trait: req.trait,
-                            stat: req.stat,
-                            current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
-                            required: req.minValue
-                        }))
-                    };
-                    this._capabilityCache[actionName].push(entry);
-                    updatedEntries.push(entry);
+                    if (requirementCheck.passed) {
+                        const entry = {
+                            entityId,
+                            componentId: component.id,
+                            componentType: component.type,
+                            componentIdentifier: component.identifier || 'default',
+                            score,
+                            requirementValues: requirementCheck.requirementValues,
+                            fulfillingComponents: requirementCheck.fulfillingComponents,
+                            requirementsStatus: actionData.requirements.map(req => ({
+                                trait: req.trait,
+                                stat: req.stat,
+                                current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                                required: req.minValue
+                            })),
+                            _resolvedRole: this._resolveComponentRole(actionData, component)
+                        };
+                        this._capabilityCache[actionName].push(entry);
+                        updatedEntries.push(entry);
                 }
             }
         }
@@ -796,6 +803,103 @@ class ComponentCapabilityController {
             }
         }
         return false;
+    }
+
+    // =========================================================================
+    // COMPONENT ACTION BINDING: ROLE RESOLUTION
+    // =========================================================================
+
+    /**
+     * Determines which binding role a component fulfills for a given action.
+     * This is the core method that enforces the "one body part, one action" rule.
+     *
+     * Role resolution priority:
+     * 1. If action has explicit sourceRole/targetRole bindings → match component type
+     * 2. If action has spatialRole → check for Movement traits
+     * 3. If action has selfTargetRole → check for Physical traits (self-affecting)
+     * 4. Default to 'source' for actions without explicit binding definitions
+     *
+     * @private
+     * @param {Object} actionData - The action definition from the registry.
+     * @param {Object} component - The component object (with type, identifier, traits).
+     * @returns {string|null} The resolved role ('source', 'target', 'spatial', 'self_target', or null).
+     */
+    _resolveComponentRole(actionData, component) {
+        const binding = actionData?.componentBinding;
+        if (!binding) {
+            // No binding defined — default to 'source' for backward compatibility
+            return 'source';
+        }
+
+        const componentType = component?.type;
+        const componentStats = this.worldStateController?.componentController?.getComponentStats(component?.id);
+
+        // Check source role: matches sourceRole components
+        if (binding.sourceRole && binding.roles?.includes('source')) {
+            // Source components typically have the traits required by the action
+            if (this._componentMatchesRoleTraits(componentStats, actionData, 'source')) {
+                return 'source';
+            }
+        }
+
+        // Check target role: matches target components (on enemies)
+        if (binding.targetRole && binding.roles?.includes('target')) {
+            if (this._componentMatchesRoleTraits(componentStats, actionData, 'target')) {
+                return 'target';
+            }
+        }
+
+        // Check spatial role: components with Movement traits
+        if (binding.spatialRole && binding.roles?.includes('spatial')) {
+            if (componentStats?.Movement && Object.keys(componentStats.Movement).length > 0) {
+                return 'spatial';
+            }
+        }
+
+        // Check self_target role: components that can self-affect
+        if (binding.selfTargetRole && binding.roles?.includes('self_target')) {
+            if (this._componentMatchesRoleTraits(componentStats, actionData, 'self_target')) {
+                return 'self_target';
+            }
+        }
+
+        // Fallback: if the component satisfies the action's requirements, it's a source
+        return this._componentSatisfiesRequirements(componentStats, actionData.requirements) ? 'source' : null;
+    }
+
+    /**
+     * Checks if a component's traits match the expected role traits for an action.
+     * @private
+     * @param {Object} componentStats - The component's stats.
+     * @param {Object} actionData - The action definition.
+     * @param {string} role - The role to check against.
+     * @returns {boolean}
+     */
+    _componentMatchesRoleTraits(componentStats, actionData, role) {
+        if (!componentStats || !actionData?.requirements) return false;
+
+        // A component matches a role if it possesses the traits required by the action
+        return this._componentSatisfiesRequirements(componentStats, actionData.requirements);
+    }
+
+    /**
+     * Checks if a component satisfies ALL of an action's requirements.
+     * @private
+     * @param {Object} componentStats - The component's stats.
+     * @param {Array} requirements - The action's requirements.
+     * @returns {boolean}
+     */
+    _componentSatisfiesRequirements(componentStats, requirements) {
+        if (!componentStats || !requirements || !Array.isArray(requirements)) return false;
+
+        for (const req of requirements) {
+            if (!componentStats[req.trait] ||
+                componentStats[req.trait][req.stat] === undefined ||
+                componentStats[req.trait][req.stat] < req.minValue) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // =========================================================================

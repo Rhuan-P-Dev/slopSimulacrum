@@ -1,6 +1,11 @@
 {
   "move": {
     "targetingType": "spatial",
+    "componentBinding": {
+      "roles": ["spatial"],
+      "spatialRole": "source",
+      "description": "Movement actions bind to components with Movement traits. The selected spatial component provides the move speed value."
+    },
     "requirements": [
       {
         "trait": "Movement",
@@ -24,6 +29,12 @@
   },
   "dash": {
     "targetingType": "spatial",
+    "componentBinding": {
+      "roles": ["spatial", "self_target"],
+      "spatialRole": "source",
+      "selfTargetRole": "self_target",
+      "description": "Dash binds to a Movement component as source (provides speed) and a Physical component as self_target (absorbs durability cost). The selected spatial component determines which leg/arm drives the dash."
+    },
     "requirements": [
       {
         "trait": "Movement",
@@ -56,6 +67,11 @@
   },
   "selfHeal": {
     "targetingType": "none",
+    "componentBinding": {
+      "roles": ["self_target"],
+      "selfTargetRole": "self_target",
+      "description": "Self-heal binds to a Physical component as self_target. The selected component receives the durability restoration."
+    },
     "requirements": [
       {
         "trait": "Movement",
@@ -85,6 +101,12 @@
   "droid punch": {
     "targetingType": "component",
     "range": 100,
+    "componentBinding": {
+      "roles": ["source", "target"],
+      "sourceRole": "source",
+      "targetRole": "target",
+      "description": "Punch binds to a Physical component as source (provides strength for damage) and a target component on the enemy (receives durability damage). The attacker's component is selected first, then the target component is clicked on the map."
+    },
     "requirements": [
       {
         "trait": "Physical",

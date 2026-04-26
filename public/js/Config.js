@@ -34,6 +34,10 @@ export const AppConfig = {
         ACTIONS: '/actions',
         EXECUTE_ACTION: '/execute-action',
         MOVE_ENTITY: '/move-entity',
+        SELECT_COMPONENTS: '/select-components',
+        SELECT_COMPONENT: '/select-component',
+        RELEASE_SELECTION: '/release-selection',
+        SYNERGY_PREVIEW: '/synergy/preview',
     },
     DEFAULTS: {
         DROID_BLUEPRINT: 'smallBallDroid',

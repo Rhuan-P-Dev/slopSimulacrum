@@ -32,6 +32,7 @@ graph TD
     CCC[ComponentCapabilityController]
     CH[ConsequenceHandlers]
     SC[SynergyController]
+    ASC[ActionSelectController]
 
     %% LLM Layer (Parallel)
     LLMC[LLMController]
@@ -46,10 +47,13 @@ graph TD
     WSC --> CC
     WSC --> AC
     WSC --> CCC
+    WSC --> ASC
 
     AC --> CH
     AC --> CCC
     AC --> SC
+    AC --> ASC
+    SC --> ASC
     CH --> WSC
 
     SEC --> EC
@@ -88,7 +92,27 @@ To understand how a piece of data is retrieved, follow this chain:
 
 ### 🔵 The Action Execution Flow
 When an action is executed:
-`Server` → `WorldStateController` → `ActionController` → `ConsequenceHandlers` → `WorldStateController` (to update sub-controllers).
+```
+Server → WorldStateController
+    ├── ActionSelectController.expireStaleSelections()
+    ├── ActionController.executeAction()
+    │   ├── validateSelection (skip for spatial actions)
+    │   ├── resolveSourceComponent()
+    │   ├── validateComponentBinding (skip role mismatch for spatial/none)
+    │   ├── _checkRequirements / _checkRequirementsForComponent
+    │   ├── SynergyController.computeSynergy() (excludes locked components)
+    │   └── ConsequenceHandlers (with synergy-applied values)
+    └── ActionSelectController.releaseSelection() (finally block)
+```
+
+**Component Selection Validation:**
+- **Spatial actions** (`move`, `dash`): Skip pre-locking validation because they auto-resolve components via `_resolveSourceComponent()`
+- **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
+
+**Role Mismatch Skip:**
+Role validation is skipped for `spatial` and `none` targetingType actions because client/server role resolution differs:
+- Spatial: Client sends `'spatial'`, server resolves to `'source'`
+- None: Client sends `'source'`, server resolves to `'self_target'`
 
 **updateComponentStatDelta Handler**: Component resolution priority:
 1. **Explicit `targetComponentId`** from `actionParams` (targeted actions like damage)
@@ -152,6 +176,25 @@ Client → Server → ActionController.executeAction()
 
 **Data Decoupling**: Synergy configs are in `data/synergy.json` (standalone), not embedded in `data/actions.json`.
 
+### 🔵 Multi-Component Selection Flow (Client-Side)
+
+The client uses a **click-to-toggle** model for multi-component selection:
+```
+User clicks component row → App._handleComponentToggle()
+    ├── Toggle component in/out of selectedComponentIds
+    ├── Switch active action if clicking different action
+    ├── Set pending action (for spatial/component targeting)
+    ├── Build crossMap (active selections + cross-action selections)
+    ├── Re-render action list (selected=green, grayed=locked)
+    └── If 2+ selected: POST /synergy/preview → renderSynergyPreview()
+
+User clicks map → _setupMapClickListener()
+    ├── If 2+ components selected: _executeMultiComponentSpatial()
+    │   ├── POST /select-components (batch lock)
+    │   └── POST /execute-action with componentIds
+    └── Clear selections, refresh UI
+```
+
 ### 🔵 The Action Execution Flow
 
 **Available Public Methods:**
@@ -161,7 +204,7 @@ Client → Server → ActionController.executeAction()
 | `spawnEntity(blueprintName, roomId)` | `string`, `string` | `string` (entityId) |
 | `despawnEntity(entityId)` | `string` | `boolean` |
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
-| `getRoomUidByLogicalId(logicalId)` | `string` | `string|null` |
+| `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` |
 
 ---
 
@@ -178,6 +221,7 @@ Client → Server → ActionController.executeAction()
 | Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
 | Query component capabilities | `ComponentCapabilityController` | Manages capability cache, scoring, re-evaluation |
 | Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
+| Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
 
 ## ⚠️ Critical Rule for Agents

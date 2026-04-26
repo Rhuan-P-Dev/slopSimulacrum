@@ -1,6 +1,21 @@
 import Logger from '../utils/Logger.js';
 
 /**
+ * Component action binding roles — defines which body part participates in which action.
+ * Enforces the "one body part, one action" rule: if you use your right leg to jump,
+ * you cannot use it to attack simultaneously.
+ *
+ * @readonly
+ * @enum {string}
+ */
+const BINDING_ROLES = {
+    SOURCE: 'source',           // Component providing the action's power/stats (e.g., droidHand for punch)
+    TARGET: 'target',           // Component being affected (e.g., enemy's droidArm taking damage)
+    SPATIAL: 'spatial',         // Component driving movement (e.g., droidRollingBall for move/dash)
+    SELF_TARGET: 'self_target'  // Component self-affecting (e.g., centralBall for selfHeal)
+};
+
+/**
  * Error code registry for structured error handling.
  * @readonly
  * @enum {string}
@@ -11,6 +26,7 @@ const ERROR_REGISTRY = {
     'MISSING_TRAIT_STAT': { message: 'No component possesses the required {trait}.{stat} (>= {minValue})', level: 'WARN' },
     'UNKNOWN_REQUIREMENT_FAILURE': { message: 'Action requirements were not met.', level: 'WARN' },
     'CONSEQUENCE_EXECUTION_FAILED': { message: 'Failed to execute consequence {type}: {error}', level: 'ERROR' },
+    'COMPONENT_BINDING_MISMATCH': { message: 'Selected component does not match the action\'s binding roles. Action "{actionName}" expects roles: {expectedRoles}. Selected role: {selectedRole}', level: 'ERROR' },
     'SYSTEM_RUNTIME_ERROR': { message: 'An unexpected system error occurred: {error}', level: 'CRITICAL' },
 };
 
@@ -41,13 +57,15 @@ class ActionController {
      * @param {Object} actionRegistry - The registry of available actions.
      * @param {ComponentCapabilityController} componentCapabilityController - The capability cache manager.
      * @param {SynergyController} [synergyController] - The synergy system controller (optional).
+     * @param {ActionSelectController} [actionSelectController] - The component selection/locking controller (optional).
      */
-    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController) {
+    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController) {
         this.worldStateController = worldStateController;
         this.consequenceHandlers = consequenceHandlers;
         this.actionRegistry = actionRegistry || {};
         this.componentCapabilityController = componentCapabilityController;
         this.synergyController = synergyController || null;
+        this.actionSelectController = actionSelectController || null;
     }
 
     // =========================================================================
@@ -180,7 +198,19 @@ class ActionController {
     }
 
     /**
-     * Executes an action on an entity.
+     * Executes an action on an entity with component binding enforcement.
+     * 
+     * Component Binding System:
+     * Each action defines which component roles participate via `componentBinding`.
+     * The selected component(s) MUST match the expected role — this prevents using
+     * the wrong body part for an action (e.g., using your right leg to attack
+     * when you selected a jump action that binds to legs).
+     *
+     * Multi-Component Support:
+     * The `params.componentIds` field accepts an array of {componentId, role} objects,
+     * allowing multiple components to participate in a single action. When provided,
+     * all components are validated, passed to synergy computation, and released after execution.
+     *
      * For actions with both attacker and target components (e.g., punch),
      * uses the attacker's component for requirement value resolution and
      * the target's component for consequence application.
@@ -188,11 +218,16 @@ class ActionController {
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity to perform the action.
      * @param {Object} [params] - Additional action parameters.
+     * @param {Array<{componentId: string, role: string}>} [params.componentIds] - Multiple components for this action.
      * @param {string} [params.attackerComponentId] - The component performing the action (used for damage value resolution).
      * @param {string} [params.targetComponentId] - The component being targeted (used for consequence application).
+     * @param {string} [params.selectedBindingRole] - The role of the selected component (e.g., 'source', 'spatial').
      * @returns {Object} Result of the action execution.
      */
     executeAction(actionName, entityId, params = {}) {
+        // Track which components need to be released after execution
+        const componentsToRelease = [];
+
         try {
             const action = this.actionRegistry[actionName];
 
@@ -206,18 +241,104 @@ class ActionController {
                 };
             }
 
-            // Determine which component's stats to use for requirement value resolution
-            // Priority: attackerComponentId (for actions like punch) > targetComponentId > entity-wide check
+            // ─── Resolve Component List ──────────────────────────────────────
+            // Support both legacy single-component (targetComponentId/attackerComponentId)
+            // and new multi-component (componentIds array) parameter formats.
+            let componentList = null;
+            let sourceComponentId = null;
+            let isSpatial = action.targetingType === 'spatial';
+
+            if (params.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
+                // Multi-component mode: componentIds = [{ componentId, role }, ...]
+                componentList = params.componentIds;
+                sourceComponentId = componentList[0]?.componentId;
+            } else if (params?.attackerComponentId || params?.targetComponentId) {
+                // Legacy single-component mode
+                sourceComponentId = params.attackerComponentId || params.targetComponentId;
+                componentList = [{ componentId: sourceComponentId, role: params.selectedBindingRole || 'source' }];
+            }
+
+            // ─── Component Selection Validation ──────────────────────────────
+            // Validate component selection for non-spatial actions.
+            // Spatial actions auto-resolve the component on the server via _resolveSourceComponent().
+            if (this.actionSelectController && sourceComponentId && !isSpatial) {
+                // Use batch validation if componentList is available, otherwise fall back to single
+                const validationCheck = componentList
+                    ? this.actionSelectController.validateSelections(actionName, componentList.map(c => c.componentId))
+                    : this.actionSelectController.validateSelection(sourceComponentId, actionName);
+
+                if (!validationCheck.valid) {
+                    const errorMessage = Array.isArray(validationCheck.error)
+                        ? validationCheck.error.join(' ')
+                        : validationCheck.error || 'Component selection validation failed.';
+                    return {
+                        success: false,
+                        error: errorMessage
+                    };
+                }
+
+                // Track for release after execution
+                const idsToRelease = componentList
+                    ? componentList.map(c => c.componentId)
+                    : [sourceComponentId];
+                componentsToRelease.push(...idsToRelease);
+            }
+
+            // ─── Component Binding Enforcement ───────────────────────────────
+            // Resolve the source component based on action binding + selected role.
+            // This ensures the selected component matches the expected role.
+            // NOTE: Only enforce binding when componentBinding is explicitly defined.
+            // When componentBinding is NOT defined (legacy actions), fall back to
+            // entity-wide requirement checking which properly triggers failure consequences.
+
+            let resolvedSourceComponentId = this._resolveSourceComponent(action, entityId, params);
+
+            if (!resolvedSourceComponentId) {
+                // If the action has no explicit componentBinding, treat this as a
+                // requirement failure (so failure consequences execute properly).
+                // Only return COMPONENT_BINDING_MISMATCH when binding is explicitly defined.
+                if (action.componentBinding) {
+                    return {
+                        success: false,
+                        error: this._resolveError({
+                            code: 'COMPONENT_BINDING_MISMATCH',
+                            details: { 
+                                actionName, 
+                                expectedRoles: action.componentBinding?.roles,
+                                selectedRole: params?.selectedBindingRole
+                            }
+                        })
+                    };
+                }
+                // No binding defined — fall through to requirement checking below
+                // which will properly trigger failure consequences on requirement failure.
+                // resolvedSourceComponentId stays null; the requirement checking block below
+                // handles this via the fallback path.
+            }
+
+            // Validate the selected component matches the expected role
+            // (only when we have a resolved component and binding is defined)
+            let bindingValidation = { valid: true, reason: '' };
+            if (resolvedSourceComponentId) {
+                bindingValidation = this._validateComponentBinding(action, entityId, resolvedSourceComponentId, params);
+                if (!bindingValidation.valid) {
+                    return {
+                        success: false,
+                        error: bindingValidation.reason
+                    };
+                }
+            }
+
+            // Get requirement values from the resolved source component
             let requirementValues = {};
             let fulfillingComponents = {};
 
             if (params && params.attackerComponentId) {
-                // Use the attacker component's stats (e.g., droidHand for punch action)
+                // Punch: Use the attacker component's stats (e.g., droidHand for punch action)
                 const attackerComponentId = params.attackerComponentId;
                 const componentStats = this.worldStateController.componentController.getComponentStats(attackerComponentId);
 
                 if (componentStats) {
-                    // Check that this component meets the requirements
                     const componentCheck = this._checkRequirementsForComponent(
                         action.requirements, entityId, attackerComponentId
                     );
@@ -236,12 +357,11 @@ class ActionController {
                     fulfillingComponents = componentCheck.fulfillingComponents;
                 }
             } else if (params && params.targetComponentId) {
-                // Legacy: Use the explicitly selected component's stats
+                // Spatial/Self actions: Use the explicitly selected component's stats
                 const selectedComponentId = params.targetComponentId;
                 const componentStats = this.worldStateController.componentController.getComponentStats(selectedComponentId);
 
                 if (componentStats) {
-                    // Check that this component meets the requirements
                     const componentCheck = this._checkRequirementsForComponent(
                         action.requirements, entityId, selectedComponentId
                     );
@@ -276,12 +396,17 @@ class ActionController {
             }
 
             // Compute synergy if enabled for this action
+            // Pass resolved source component ID and component list for role-filtered synergy computation
             let synergyResult = null;
             if (this.synergyController) {
                 synergyResult = this.synergyController.computeSynergy(
                     actionName,
                     entityId,
-                    { synergyGroups: params?.synergyGroups }
+                    {
+                        providedComponentIds: componentList,
+                        synergyGroups: params?.synergyGroups,
+                        sourceComponentId: resolvedSourceComponentId
+                    }
                 );
             }
 
@@ -295,13 +420,14 @@ class ActionController {
                 synergyResult
             );
 
-            return {
+            const result = {
                 success: true,
                 action: actionName,
                 entityId,
                 synergy: synergyResult,
                 ...consequenceResult
             };
+            return result;
         } catch (error) {
             return {
                 success: false,
@@ -310,7 +436,209 @@ class ActionController {
                     details: { error: error.message }
                 })
             };
+        } finally {
+            // ─── Release component selections after execution ────────────────
+            // Always release locked components regardless of success or failure
+            if (this.actionSelectController && componentsToRelease.length > 0) {
+                this.actionSelectController.releaseSelections(componentsToRelease);
+            }
         }
+    }
+
+    // =========================================================================
+    // PRIVATE: COMPONENT BINDING RESOLUTION
+    // =========================================================================
+
+    /**
+     * Resolves the source component ID based on action binding configuration
+     * and the parameters provided by the client.
+     * 
+     * This is the core method that enforces the "one body part, one action" rule.
+     * It determines which specific component should provide the action's power/stats.
+     *
+     * Resolution priority:
+     * 1. If attackerComponentId provided → use it (punch actions)
+     * 2. If targetingType is 'spatial' → find component matching spatialRole
+     * 3. If targetingType is 'none' → find component matching selfTargetRole
+     * 4. If targetComponentId provided → use it (legacy)
+     * 5. Fallback → entity-wide best component
+     *
+     * @private
+     * @param {Object} action - The action definition.
+     * @param {string} entityId - The entity ID.
+     * @param {Object} params - The action parameters.
+     * @returns {string|null} The resolved source component ID, or null if none found.
+     */
+    _resolveSourceComponent(action, entityId, params) {
+        const binding = action.componentBinding;
+        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+
+        if (!entity) return null;
+
+        // Priority 1: Punch actions with explicit attackerComponentId
+        if (params?.attackerComponentId) {
+            return params.attackerComponentId;
+        }
+
+        // Priority 2: Explicit targetComponentId from client (spatial actions with selected component)
+        // The client selected a specific component in the UI, so respect that choice.
+        if (params?.targetComponentId) {
+            return params.targetComponentId;
+        }
+
+        // Priority 3: Spatial actions (move, dash) — auto-find component matching spatialRole
+        if (action.targetingType === 'spatial' && binding?.spatialRole) {
+            const spatialComponent = this._findComponentByRole(entity, binding, 'spatial');
+            if (spatialComponent) return spatialComponent.id;
+        }
+
+        // Priority 4: Self-targeting actions (selfHeal) — find component matching selfTargetRole
+        if (action.targetingType === 'none' && binding?.selfTargetRole) {
+            const selfComponent = this._findComponentByRole(entity, binding, 'self_target', action);
+            if (selfComponent) return selfComponent.id;
+        }
+
+        // Priority 5: Fallback — entity-wide check (use best component)
+        const result = this._checkRequirements(action.requirements, entityId);
+        return result.passed ? result.componentId : null;
+    }
+
+    /**
+     * Finds a component on an entity that matches a specific binding role.
+     * @private
+     * @param {Object} entity - The entity object.
+     * @param {Object} binding - The action's componentBinding definition.
+     * @param {string} role - The role to match ('spatial', 'self_target').
+     * @param {Object} [action] - Optional action definition for self_target matching.
+     * @returns {Object|null} The matching component, or null.
+     */
+    _findComponentByRole(entity, binding, role, action = null) {
+        if (!entity?.components) return null;
+
+        // Get component stats for each component
+        for (const component of entity.components) {
+            const componentStats = this.worldStateController.componentController.getComponentStats(component.id);
+            if (!componentStats) continue;
+
+            // For 'spatial' role: look for Movement traits
+            if (role === 'spatial' && binding?.spatialRole) {
+                if (componentStats.Movement && Object.keys(componentStats.Movement).length > 0) {
+                    return component;
+                }
+            }
+
+            // For 'self_target' role: look for Physical traits (or traits required by the action)
+            if (role === 'self_target' && binding?.selfTargetRole) {
+                // Check if component has traits required by the action
+                if (action && this._componentSatisfiesActionRequirements(componentStats, action)) {
+                    return component;
+                }
+                // Fallback: any Physical component can self-target
+                if (!action && componentStats.Physical && Object.keys(componentStats.Physical).length > 0) {
+                    return component;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Validates that the selected component matches the expected binding role.
+     * @private
+     * @param {Object} action - The action definition.
+     * @param {string} entityId - The entity ID.
+     * @param {string} sourceComponentId - The resolved source component ID.
+     * @param {Object} params - The action parameters.
+     * @returns {{valid: boolean, reason: string}}
+     */
+    _validateComponentBinding(action, entityId, sourceComponentId, params) {
+        const binding = action.componentBinding;
+        
+        // No binding defined — skip validation (backward compatibility)
+        if (!binding) {
+            return { valid: true, reason: '' };
+        }
+
+        const sourceComponent = this._findComponentById(entityId, sourceComponentId);
+        if (!sourceComponent) {
+            return { valid: false, reason: `Source component "${sourceComponentId}" not found on entity "${entityId}".` };
+        }
+
+        const sourceComponentStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
+
+        // Validate source role: the component must have the traits required by the action
+        if (binding.roles?.includes('source') || binding.spatialRole || binding.sourceRole) {
+            if (!this._componentSatisfiesActionRequirements(sourceComponentStats, action)) {
+                return { 
+                    valid: false, 
+                    reason: `Selected component "${sourceComponent.identifier}" does not have the required traits for "${action ? Object.keys(this.actionRegistry).find(k => this.actionRegistry[k] === action) : 'unknown'}". ` +
+                            `Expected: ${action?.requirements?.map(r => `${r.trait}.${r.stat} >= ${r.minValue}`).join(', ')}.` 
+                };
+            }
+        }
+
+        // Validate that the resolved role matches what the client sent.
+        // NOTE: Skip this check for spatial and 'none' targetingType actions because:
+        // - Spatial actions: client sends 'spatial' role, but component resolves to 'source'
+        // - None actions: client sends 'source' role, but component resolves to 'self_target'
+        // In both cases, the client's role resolution differs from the server's, so we skip
+        // role validation and rely on requirement checking instead.
+        if (params?.selectedBindingRole && action.targetingType !== 'spatial' && action.targetingType !== 'none') {
+            const resolvedRole = this._getComponentResolvedRole(sourceComponent, action);
+            if (resolvedRole && params.selectedBindingRole !== resolvedRole) {
+                return {
+                    valid: false,
+                    reason: `Component role mismatch: client selected role "${params.selectedBindingRole}" but component resolves to "${resolvedRole}".`
+                };
+            }
+        }
+
+        return { valid: true, reason: '' };
+    }
+
+    /**
+     * Finds a component by ID within an entity.
+     * @private
+     * @param {string} entityId - The entity ID.
+     * @param {string} componentId - The component ID.
+     * @returns {Object|null}
+     */
+    _findComponentById(entityId, componentId) {
+        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        if (!entity?.components) return null;
+        return entity.components.find(c => c.id === componentId) || null;
+    }
+
+    /**
+     * Checks if a component satisfies ALL of an action's requirements.
+     * @private
+     * @param {Object} componentStats - The component's stats.
+     * @param {Object} action - The action definition.
+     * @returns {boolean}
+     */
+    _componentSatisfiesActionRequirements(componentStats, action) {
+        if (!componentStats || !action?.requirements || !Array.isArray(action.requirements)) return false;
+
+        for (const req of action.requirements) {
+            if (!componentStats[req.trait] ||
+                componentStats[req.trait][req.stat] === undefined ||
+                componentStats[req.trait][req.stat] < req.minValue) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Gets the resolved role for a component within an action's binding context.
+     * @private
+     * @param {Object} component - The component object.
+     * @param {Object} action - The action definition.
+     * @returns {string|null}
+     */
+    _getComponentResolvedRole(component, action) {
+        return this.componentCapabilityController?._resolveComponentRole(action, component) || null;
     }
 
     // =========================================================================

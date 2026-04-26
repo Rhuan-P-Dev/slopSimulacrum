@@ -474,15 +474,160 @@ h1 {
 .detail-header-main { margin: 0; color: var(--neon-green); }
 .detail-subheader { color: var(--text-dim); margin: 5px 0 0 0; }
 .id-text { font-size: 0.7em; color: #666; }
-.targeting-protocol-header { 
-    color: var(--neon-green); 
-    text-align: center; 
-    text-transform: uppercase; 
-    letter-spacing: 2px; 
-    margin-bottom: 20px; 
+.targeting-protocol-header {
+    color: var(--neon-green);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 20px;
 }
-.system-header { 
-    margin: 0; 
-    color: var(--neon-green); 
-    font-family: monospace; 
+.system-header {
+    margin: 0;
+    color: var(--neon-green);
+    font-family: monospace;
+}
+
+/* =========================================================================
+   Multi-Component Selection Styles (Click-to-Toggle Model)
+   ========================================================================= */
+
+/**
+ * Active action item - highlighted header.
+ */
+.action-active {
+    border-left-color: #ffff00;
+    background: rgba(255, 255, 0, 0.08);
+}
+
+.action-active .action-name {
+    color: #ffff00;
+}
+
+/**
+ * Selected component row - bright highlight.
+ */
+.action-selected {
+    background-color: var(--neon-green) !important;
+    color: var(--bg-black) !important;
+    font-weight: bold;
+    box-shadow: var(--glow);
+    border: 1px solid #fff;
+}
+
+.action-selected .component-name,
+.action-selected .status-ok,
+.action-selected .status-fail {
+    color: var(--bg-black) !important;
+}
+
+/**
+ * Locked/grayed component row - selected in another action.
+ * Still clickable to clear the conflict.
+ */
+.component-locked {
+    opacity: 0.35;
+    pointer-events: auto;
+    cursor: not-allowed;
+}
+
+.component-locked:hover {
+    opacity: 0.6;
+    background-color: rgba(255, 68, 68, 0.15);
+}
+
+.lock-icon {
+    margin-right: 4px;
+    font-size: 12px;
+    cursor: help;
+}
+
+/* =========================================================================
+   Synergy Preview Display (Live, persistent while selected)
+   ========================================================================= */
+
+.synergy-preview-display {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(22, 22, 22, 0.95);
+    border: 2px solid #ffff00;
+    border-radius: 6px;
+    padding: 12px 20px;
+    z-index: 999;
+    box-shadow: 0 0 20px rgba(255, 255, 0, 0.2);
+    animation: synergySlideUp 0.3s ease-out;
+    min-width: 220px;
+    text-align: center;
+}
+
+@keyframes synergySlideUp {
+    from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+    to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.synergy-header {
+    margin-bottom: 6px;
+}
+
+.synergy-multiplier {
+    color: #ffff00;
+    font-size: 1.1em;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255, 255, 0, 0.5);
+}
+
+.synergy-component {
+    display: block;
+    color: var(--text-main);
+    font-size: 0.8em;
+    margin: 2px 0;
+}
+
+.synergy-summary {
+    color: var(--text-dim);
+    font-size: 0.7em;
+    font-style: italic;
+    margin-top: 4px;
+    border-top: 1px solid rgba(255, 255, 0, 0.15);
+    padding-top: 4px;
+}
+
+/* =========================================================================
+   Synergy Result Display (Post-execution, auto-hide)
+   ========================================================================= */
+
+.synergy-result-display {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-bg);
+    border: 2px solid var(--neon-green);
+    border-radius: 6px;
+    padding: 15px 25px;
+    z-index: 999;
+    box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+    animation: synergySlideUp 0.3s ease-out;
+    min-width: 250px;
+    text-align: center;
+}
+
+.synergy-result-display.synergy-fade-out {
+    animation: synergyFadeOut 0.5s ease-in forwards;
+}
+
+@keyframes synergyFadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.synergy-result-display .synergy-multiplier {
+    color: var(--neon-green);
+}
+
+.synergy-cap-warning {
+    color: #ffaa00;
+    font-size: 0.8em;
+    margin-top: 8px;
 }

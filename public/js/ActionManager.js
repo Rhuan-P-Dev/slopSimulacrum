@@ -212,4 +212,124 @@ export class ActionManager {
     clearPendingAction() {
         this.pendingMovementAction = null;
     }
+
+    // =========================================================================
+    // MULTI-COMPONENT SELECTION API
+    // =========================================================================
+
+    /**
+     * Batch-locks multiple components to a specific action.
+     * Sends POST /select-components to the server.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array<{componentId: string, role: string}>} components - Array of component IDs with roles.
+     * @returns {Promise<Object>} Server response with { success, lockedCount, errors }.
+     */
+    async selectComponents(actionName, entityId, components) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.SELECT_COMPONENTS, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ actionName, entityId, components })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || 'Failed to lock components');
+            }
+
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(Array.isArray(result.errors) ? result.errors.join(' ') : (result.error || 'Batch lock failed'));
+            }
+
+            console.log(`[ActionManager] Batch locked ${result.lockedCount} components for "${actionName}"`);
+            return result;
+        } catch (error) {
+            this.errorController.handleError({
+                code: 'SELECTION_FAILED',
+                message: error.message
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Previews synergy computation for an action without executing it.
+     * Sends POST /synergy/preview to the server.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array<{componentId: string, role: string}>} componentIds - Array of component IDs with roles.
+     * @returns {Promise<Object|null>} Synergy preview object or null.
+     */
+    async previewSynergy(actionName, entityId, componentIds) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.SYNERGY_PREVIEW, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    actionName,
+                    entityId,
+                    componentIds
+                })
+            });
+
+            if (!response.ok) {
+                console.warn('[ActionManager] Synergy preview HTTP error:', response.status);
+                return null;
+            }
+
+            const data = await response.json();
+            return data.synergyResult || null;
+        } catch (error) {
+            console.warn('[ActionManager] Synergy preview failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Executes an action with multiple components.
+     * Sends POST /execute-action with componentIds array for synergy computation.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array<{componentId: string, role: string}>} componentIds - Array of component IDs with roles.
+     * @param {Object} [extraParams] - Additional params (e.g., targetX, targetY for spatial actions).
+     * @returns {Promise<Object>} Server response including synergyPreview.
+     */
+    async executeWithComponents(actionName, entityId, componentIds, extraParams = {}) {
+        try {
+            const payload = {
+                actionName,
+                entityId,
+                params: {
+                    componentIds,
+                    ...extraParams
+                }
+            };
+
+            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.result?.error || err.error || 'Multi-component action failed');
+            }
+
+            const data = await response.json();
+            console.log('[ActionManager] Multi-component action executed:', data);
+            return data;
+        } catch (error) {
+            this.errorController.handleError({
+                code: 'ACTION_FAILED',
+                message: error.message
+            });
+            throw error;
+        }
+    }
 }

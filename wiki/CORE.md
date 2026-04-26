@@ -28,6 +28,8 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Action Capability Cache](subMDs/action_capability_cache.md)
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
+- [Component Selection](subMDs/component_selection.md)
+- [Client Action Execution](subMDs/client_action_execution.md)
 - Check the `subMDs` folder for more detailed guides.
 
 ### 📢 Note for Future Agents
@@ -86,6 +88,7 @@ The `SynergyController` computes combined effect multipliers when multiple compo
 **Key Responsibilities:**
 - Compute single-entity component group synergy
 - Compute multi-entity collaboration synergy
+- Compute client-provided multi-component synergy via `_evaluateProvidedComponents()`
 - Apply caps to computed multipliers
 - Build human-readable summaries
 
@@ -99,9 +102,61 @@ The `SynergyController` computes combined effect multipliers when multiple compo
 **Server API:**
 - `GET /synergy/actions` — All actions with synergy enabled
 - `GET /synergy/config/:actionName` — Synergy config for an action
-- `POST /synergy/preview` — Preview synergy without executing
+- `POST /synergy/preview` — Preview synergy without executing (accepts `componentIds` for live client-provided multi-component synergy)
 
 **Documentation**: See `wiki/subMDs/synergy_system.md` for complete guide.
+
+### ActionSelectController: Component Selection/Locking
+
+The `ActionSelectController` enforces the **"one component, one action" rule**: if a component is selected for action A, it cannot be used for action B simultaneously.
+
+**Location**: `src/controllers/actionSelectController.js`
+
+**Key Responsibilities:**
+- Lock components to specific actions before execution
+- Validate component selection matches the requested action
+- Release locks after action completion (success or failure)
+- Auto-expire stale selections (30s TTL)
+- Provide locked component IDs to SynergyController for exclusion
+- Atomic batch locking via `registerSelections()`
+
+**Integration Flow (Single):**
+`Client POST /select-component` → `ActionSelectController.registerSelection()` → `ActionController.executeAction()` → `ActionSelectController.validateSelection()` → execute → `ActionSelectController.releaseSelection()` (finally block)
+
+**Integration Flow (Multi-Component Batch):**
+`Client POST /select-components` → `ActionSelectController.registerSelections()` → `ActionController.executeAction()` → `ActionSelectController.validateSelections()` → `SynergyController.computeSynergy()` (with `providedComponentIds`) → execute → batch release (finally block)
+
+**Server Endpoints:**
+- `POST /select-component` — Lock a component to an action
+- `POST /select-components` — Batch lock multiple components to an action
+- `POST /release-selection` — Release a component lock
+- `GET /selections/:entityId` — Get current selections
+
+**Documentation**: See `wiki/subMDs/component_selection.md` for complete guide.
+
+### Client-Side Multi-Component Selection
+
+The client uses a **click-to-toggle** model for multi-component selection:
+
+- **`activeActionName`** — Currently active action being selected into
+- **`selectedComponentIds`** — Set of component IDs selected for active action
+- **`crossActionSelections`** — Map of actionName → Set of component IDs (for cross-action graying)
+
+**Flow:**
+1. User clicks component row → `_handleComponentToggle()` toggles selection
+2. Components selected in active action appear grayed out in other actions
+3. For spatial/component actions: pending action is set, enabling map/entity click execution
+4. When 2+ components selected: live synergy preview via `POST /synergy/preview`
+5. Map click with 2+ components: batch lock → execute with synergy → display result
+
+**UI Elements:**
+- `.action-selected` — Green highlight for selected components
+- `.component-locked` — Grayed out for cross-action conflict (clickable to clear)
+- `.action-active` — Yellow header for active action
+- `.synergy-preview-display` — Live synergy preview (yellow, persistent)
+- `.synergy-result-display` — Post-execution result (green, auto-hides after 8s)
+
+**Documentation**: See `wiki/subMDs/client_action_execution.md` Section 2.2.5 for complete guide.
 
 **Stat Change Notification Flow:**
 ```
