@@ -110,9 +110,18 @@ Server → WorldStateController
 - **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
 
 **Role Mismatch Skip:**
-Role validation is skipped for `spatial` and `none` targetingType actions because client/server role resolution differs:
+Role validation is skipped for `spatial`, `none`, and `self_target` targetingType actions because client/server role resolution differs:
 - Spatial: Client sends `'spatial'`, server resolves to `'source'`
 - None: Client sends `'source'`, server resolves to `'self_target'`
+- Self-Target: Client sends `'self_target'`, server resolves to `'self_target'` (selfHeal executes instantly on component selection)
+
+**Self-Targeting Action Flow (selfHeal):**
+For `targetingType: 'self_target'` actions:
+1. User clicks a component row in the action list → component selected, action executes instantly
+2. Client sends `POST /execute-action` with `targetComponentId` and `componentIdentifier`
+3. `ActionController.executeAction()` resolves via Priority 2 (explicit targetComponentId)
+4. `ConsequenceHandlers.updateComponentStatDelta()` applies heal to the selected component
+5. `WorldStateController` broadcasts updated state
 
 **updateComponentStatDelta Handler**: Component resolution priority:
 1. **Explicit `targetComponentId`** from `actionParams` (targeted actions like damage)

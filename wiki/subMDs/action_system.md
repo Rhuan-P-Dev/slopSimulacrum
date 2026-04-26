@@ -246,6 +246,16 @@ Retrieves only the actions that are relevant to a specific entity. Filters the c
 
 Executes an action on an entity with component selection validation and binding enforcement.
 
+**Component Binding Resolution Priority:**
+1. `attackerComponentId` from params → punch actions
+2. `targetComponentId` from params → spatial/self_target actions with explicit selection
+3. `targetingType: 'spatial'` → auto-find Movement component
+4. `targetingType: 'none'` or `'self_target'` → auto-find Physical self-target component
+5. Fallback → entity-wide requirement check
+
+**Self-Targeting Actions (selfHeal):**
+Actions with `targetingType: 'self_target'` execute instantly on the client when a component is selected. The client sends `targetComponentId` in params, and the server resolves it via Priority 2 (explicit targetComponentId).
+
 ```javascript
 /**
  * @param {string} actionName - The name of the action to execute.

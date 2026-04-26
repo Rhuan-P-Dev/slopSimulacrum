@@ -54,6 +54,16 @@ The project employs a middleware architecture with two primary flows:
 
 The `ActionController` handles game action execution, checking requirements and executing consequences through a decoupled handler system.
 
+**Component Binding Resolution Priority:**
+1. `attackerComponentId` from params → punch actions
+2. `targetComponentId` from params → spatial/self_target actions with explicit selection
+3. `targetingType: 'spatial'` → auto-find Movement component
+4. `targetingType: 'none'` or `'self_target'` → auto-find Physical self-target component
+5. Fallback → entity-wide requirement check
+
+**Self-Targeting Actions (selfHeal):**
+Actions with `targetingType: 'self_target'` execute instantly when a component is selected. The client sends `targetComponentId` in params, and the server resolves it via Priority 2 (explicit targetComponentId) before Priority 4 auto-resolution kicks in.
+
 **SRP Note**: Component capability management (scanning, caching, scoring, re-evaluation) has been extracted to `ComponentCapabilityController`. The `ActionController` now delegates all capability cache queries to it.
 
 **Architecture Flow:**

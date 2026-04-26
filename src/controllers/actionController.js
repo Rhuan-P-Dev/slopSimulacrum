@@ -470,7 +470,8 @@ class ActionController {
         }
 
         // Priority 4: Self-targeting actions (selfHeal) — find component matching selfTargetRole
-        if (action.targetingType === 'none' && binding?.selfTargetRole) {
+        // Handles both 'none' (legacy) and 'self_target' (explicit self-targeting) targetingType
+        if ((action.targetingType === 'none' || action.targetingType === 'self_target') && binding?.selfTargetRole) {
             const selfComponent = this._findComponentByRole(entity, binding, 'self_target', action);
             if (selfComponent) return selfComponent.id;
         }

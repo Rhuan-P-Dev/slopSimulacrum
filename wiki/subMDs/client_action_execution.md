@@ -57,6 +57,30 @@ The client uses a **click-to-toggle** model for multi-component selection:
 *   **Live Synergy Preview** (`.synergy-preview-display`): Yellow-bordered popup at bottom-center, persistent while 2+ components selected.
 *   **Final Synergy Result** (`.synergy-result-display`): Green-bordered popup after execution, auto-hides after 8 seconds.
 
+### 2.2.6. Self-Targeting Actions (Instant Execution)
+
+Actions with `targetingType: 'self_target'` (e.g., `selfHeal`) execute **instantly** when a component is selected — no map click or additional confirmation needed.
+
+**Flow:**
+1. **Component Selection**: User clicks a component row in the action list
+2. **Immediate Execution**: `_handleComponentToggle()` detects `targetingType === 'self_target'` and calls `_executeSelfTargetAction()`
+3. **Server Request**: `POST /execute-action` with `targetComponentId` and `componentIdentifier`
+4. **Server Resolution**: `ActionController._resolveSourceComponent()` resolves via Priority 2 (explicit targetComponentId)
+5. **Consequence Application**: `ConsequenceHandlers.updateComponentStatDelta()` applies the effect to the selected component
+6. **UI Refresh**: `world-state-update` event triggers `refreshWorldAndActions()`
+
+**Client Method:** `ClientApp._executeSelfTargetAction(actionName, entityId, componentId, componentIdentifier)`
+
+**Data Flow:**
+```
+User clicks component → App._handleComponentToggle()
+    → targetingType === 'self_target' → _executeSelfTargetAction()
+    → POST /execute-action { targetComponentId, componentIdentifier }
+    → ActionController.executeAction() → resolve via targetComponentId
+    → ConsequenceHandlers.updateComponentStatDelta() → heal component
+    → WorldStateController.broadcast() → refresh UI
+```
+
 ### 2.3. Component-Targeted Actions (Deferred Execution)
 Attack actions (e.g., `droid punch`) use a three-step "Pending" state to allow for precision targeting:
 1.  **Action Selection**: The user clicks an attack action. `ActionManager.executeAction()` stores it as a pending action via `_setPendingAction()`, then invokes the callback which triggers `App.updateActionList()`. The method calculates the static range from the action data (`actionData.range`) and renders a **red range indicator** (SVG dashed circle) around the droid via `UIManager.renderRangeIndicator()`. The selected attacker component ID (from the action list) is stored in `_pendingAction.componentId`.

@@ -193,7 +193,7 @@ export class ClientApp {
             this.selectedComponentIds.add(componentId);
         }
 
-        // For spatial/component actions: set pending action so map clicks trigger execution
+        // For spatial/component/self_target actions: set pending action so map/entity clicks trigger execution
         if (this.selectedComponentIds.size > 0 && targetingType && targetingType !== 'none') {
             this.actions._handleTargetingSelection(
                 actionName, entityId, componentId, componentIdentifier, targetingType
@@ -201,6 +201,12 @@ export class ClientApp {
         } else if (this.selectedComponentIds.size === 0) {
             // If no components selected, clear pending
             this.actions.clearPendingAction();
+        }
+
+        // For self_target actions: execute immediately with selected component
+        if (this.selectedComponentIds.size === 1 && targetingType === 'self_target') {
+            const compId = Array.from(this.selectedComponentIds)[0];
+            await this._executeSelfTargetAction(actionName, entityId, compId, componentIdentifier);
         }
 
         // Re-render
@@ -382,6 +388,29 @@ export class ClientApp {
                 this.handlePunchTarget(pending, targetX, targetY);
             }
         });
+    }
+
+    /**
+     * Executes a self-targeting action (e.g., selfHeal) instantly with the selected component.
+     * @param {string} actionName
+     * @param {string} entityId
+     * @param {string} componentId
+     * @param {string} componentIdentifier
+     */
+    async _executeSelfTargetAction(actionName, entityId, componentId, componentIdentifier) {
+        try {
+            const result = await this.actions._sendActionRequest(
+                {
+                    actionName,
+                    entityId,
+                    params: { targetComponentId: componentId, componentIdentifier }
+                },
+                'ACTION_FAILED'
+            );
+            console.log(`[ClientApp] Self-target action "${actionName}" executed:`, result);
+        } catch (error) {
+            console.error(`[ClientApp] Self-target action "${actionName}" failed:`, error);
+        }
     }
 
     /**

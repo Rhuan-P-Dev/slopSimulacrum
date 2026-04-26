@@ -95,6 +95,16 @@ The `ActionController` follows the Dependency Injection pattern. After an SRP re
 - **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`, `_resolvePlaceholders()`
 - **Delegation**: All capability cache queries are delegated to `ComponentCapabilityController`
 
+**Component Binding Resolution Priority:**
+1. `attackerComponentId` from params → punch actions
+2. `targetComponentId` from params → spatial/self_target actions with explicit selection
+3. `targetingType: 'spatial'` → auto-find Movement component
+4. `targetingType: 'none'` or `'self_target'` → auto-find Physical self-target component
+5. Fallback → entity-wide requirement check
+
+**Self-Targeting Actions (selfHeal):**
+Actions with `targetingType: 'self_target'` execute instantly on the client. The client sends `targetComponentId` in params, and the server resolves it via Priority 2 (explicit targetComponentId).
+
 ### 6.2. Constructor Injection Pattern
 
 **✅ Mandatory Pattern (Constructor Injection):**

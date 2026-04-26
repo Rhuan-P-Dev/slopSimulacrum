@@ -272,6 +272,15 @@ The `ActionManager` (`public/js/ActionManager.js`) coordinates the client-side s
 5. **Live synergy preview**: When 2+ components selected → `POST /synergy/preview` → `renderSynergyPreview()` (yellow, persistent)
 6. **Map click execution**: `_executeMultiComponentSpatial()` → batch lock → execute → `renderSynergyResult()` (green, auto-hide)
 
+### Self-Targeting Mode (Instant Execution)
+Actions with `targetingType: 'self_target'` (e.g., `selfHeal`) execute **instantly** when a component is selected:
+1. **User clicks component row** in the action list
+2. **`App.js._handleComponentToggle()`** detects `targetingType === 'self_target'`
+3. **`_executeSelfTargetAction()`** sends `POST /execute-action` with `targetComponentId`
+4. **Server resolves** the component via `targetComponentId` (Priority 2 in `_resolveSourceComponent`)
+5. **Consequence applies** to the selected component (e.g., durability restoration)
+6. **UI refreshes** via `world-state-update` event
+
 ### UI Display Elements
 
 | Element | CSS Class | Description |
