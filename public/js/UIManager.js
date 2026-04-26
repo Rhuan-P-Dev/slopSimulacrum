@@ -271,7 +271,7 @@ export class UIManager {
 
             const capableHtml = (actionData.canExecute || []).map(entry => {
                 const canExecute = entry.requirementsStatus.every(rs => rs.current >= rs.required);
-                const isSelected = selectedSet.has(entry.componentId);
+                const isSelected = isThisActive && selectedSet.has(entry.componentId);
                 const grayedByAction = isSelected ? null : componentToActionMap.get(entry.componentId);
 
                 const reqStatusText = entry.requirementsStatus
