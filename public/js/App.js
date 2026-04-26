@@ -212,8 +212,10 @@ export class ClientApp {
         // Re-render
         this.updateActionList();
 
-        // If 2+ components selected, show live synergy preview
-        if (this.selectedComponentIds.size >= 2) {
+        // Show synergy preview for 1+ components:
+        // - 1 component: shows action data (range, consequences, requirements)
+        // - 2+ components: shows synergy with modified values
+        if (this.selectedComponentIds.size >= 1) {
             await this._updateSynergyPreview(entityId);
         } else {
             this.ui.clearSynergyPreview();
@@ -242,8 +244,8 @@ export class ClientApp {
 
         this.updateActionList();
 
-        // Update synergy preview
-        if (this.selectedComponentIds.size >= 2) {
+        // Update synergy preview for 1+ components
+        if (this.selectedComponentIds.size >= 1) {
             const entityId = this.worldState.getMyEntityId();
             this._updateSynergyPreview(entityId);
         } else {
@@ -253,10 +255,16 @@ export class ClientApp {
 
     /**
      * Fetches live synergy preview from the server.
+     * Uses the enhanced preview-data API that returns action data + resolved values + synergy.
+     * 
+     * Display modes:
+     * - 1 component: Shows action data (range, consequences, requirements)
+     * - 2+ components: Shows synergy with modified values (before → after + bonus%)
+     * 
      * @param {string} entityId
      */
     async _updateSynergyPreview(entityId) {
-        if (!this.activeActionName || !entityId || this.selectedComponentIds.size < 2) {
+        if (!this.activeActionName || !entityId || this.selectedComponentIds.size < 1) {
             this.ui.clearSynergyPreview();
             return;
         }
@@ -267,7 +275,7 @@ export class ClientApp {
                 role: 'source'
             }));
 
-            const preview = await this.actions.previewSynergy(
+            const preview = await this.actions.previewActionData(
                 this.activeActionName, entityId, componentIds
             );
 
@@ -425,13 +433,9 @@ export class ClientApp {
 
             await this.actions.selectComponents(actionName, entityId, components);
 
-            const response = await this.actions.executeWithComponents(
+            await this.actions.executeWithComponents(
                 actionName, entityId, components, extraParams
             );
-
-            if (response?.result?.synergyPreview) {
-                this.ui.renderSynergyResult(response.result.synergyPreview);
-            }
 
             await this.refreshWorldAndActions();
         } catch (error) {

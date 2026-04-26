@@ -426,6 +426,42 @@ app.post('/synergy/preview', (req, res) => {
     }
 });
 
+/**
+ * POST /synergy/preview-data
+ * Enhanced synergy preview: returns action definition, resolved consequence values,
+ * and synergy result for a given component selection.
+ * Used by the frontend to display action data (single component) and synergy
+ * with modified values (multi-component).
+ *
+ * Expects: { "actionName": "...", "entityId": "...", "componentIds": [...] }
+ * Returns: { actionData, resolvedValues, synergyResult }
+ */
+app.post('/synergy/preview-data', (req, res) => {
+    const { actionName, entityId, componentIds } = req.body;
+
+    if (!actionName || !entityId) {
+        return res.status(400).json({
+            error: 'Invalid request. "actionName" and "entityId" are required.'
+        });
+    }
+
+    try {
+        const context = {};
+        if (componentIds && Array.isArray(componentIds) && componentIds.length > 0) {
+            context.providedComponentIds = componentIds;
+        }
+
+        const previewData = worldStateController.previewActionData(actionName, entityId, context);
+        res.json({ actionPreviewData: previewData });
+    } catch (error) {
+        console.error(`[Server Error] ${error.message}`);
+        res.status(500).json({
+            error: 'Internal Server Error',
+            details: error.message
+        });
+    }
+});
+
 // =========================================================================
 // Component Selection Endpoints
 // =========================================================================

@@ -332,4 +332,47 @@ export class ActionManager {
             throw error;
         }
     }
+
+    // =========================================================================
+    // ENHANCED SYNERGY PREVIEW API
+    // =========================================================================
+
+    /**
+     * Previews action data including resolved values and synergy for a given component selection.
+     * Sends POST /synergy/preview-data to the server.
+     *
+     * Returns:
+     * - actionData: The action definition (targetingType, range, consequences, requirements)
+     * - resolvedValues: Consequence values with placeholders resolved (e.g., { damageComponent: { value: -25 } })
+     * - synergyResult: The computed synergy (multiplier, contributingComponents, etc.)
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array<{componentId: string, role: string}>} componentIds - Array of component IDs with roles.
+     * @returns {Promise<Object|null>} Preview data object or null.
+     */
+    async previewActionData(actionName, entityId, componentIds) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.SYNERGY_PREVIEW_DATA, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    actionName,
+                    entityId,
+                    componentIds
+                })
+            });
+
+            if (!response.ok) {
+                console.warn('[ActionManager] Preview data HTTP error:', response.status);
+                return null;
+            }
+
+            const data = await response.json();
+            return data.actionPreviewData || null;
+        } catch (error) {
+            console.warn('[ActionManager] Preview data failed:', error);
+            return null;
+        }
+    }
 }

@@ -38,6 +38,7 @@ export const AppConfig = {
         SELECT_COMPONENT: '/select-component',
         RELEASE_SELECTION: '/release-selection',
         SYNERGY_PREVIEW: '/synergy/preview',
+        SYNERGY_PREVIEW_DATA: '/synergy/preview-data',
     },
     DEFAULTS: {
         DROID_BLUEPRINT: 'smallBallDroid',

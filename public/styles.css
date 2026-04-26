@@ -593,41 +593,162 @@ h1 {
     padding-top: 4px;
 }
 
+.synergy-cap-warning {
+    color: #ffaa00;
+    font-size: 0.8em;
+    margin-top: 8px;
+}
+
 /* =========================================================================
-   Synergy Result Display (Post-execution, auto-hide)
+   Enhanced Synergy Preview Styles (Action Data + Modified Values)
    ========================================================================= */
 
-.synergy-result-display {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--panel-bg);
-    border: 2px solid var(--neon-green);
-    border-radius: 6px;
-    padding: 15px 25px;
-    z-index: 999;
-    box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
-    animation: synergySlideUp 0.3s ease-out;
-    min-width: 250px;
-    text-align: center;
+/**
+ * Single-component action data preview styles.
+ */
+.action-data-preview {
+    text-align: left;
+    min-width: 200px;
 }
 
-.synergy-result-display.synergy-fade-out {
-    animation: synergyFadeOut 0.5s ease-in forwards;
+.action-data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 0.85em;
+    border-bottom: 1px solid rgba(255, 255, 0, 0.1);
 }
 
-@keyframes synergyFadeOut {
-    from { opacity: 1; }
-    to { opacity: 0; }
+.action-data-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
 }
 
-.synergy-result-display .synergy-multiplier {
-    color: var(--neon-green);
+.action-data-section-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.action-data-label {
+    color: var(--text-dim);
+    min-width: 100px;
+}
+
+.action-data-value {
+    color: var(--text-main);
+    font-weight: bold;
+}
+
+.consequence-row .action-data-value {
+    color: #00ff00;
+}
+
+.consequence-row.negative .action-data-value {
+    color: #ff4444;
+}
+
+.req-row .action-data-value {
+    color: #ffaa00;
+}
+
+/**
+ * Multi-component synergy modified values styles.
+ */
+.synergy-preview-display-inner {
+    text-align: left;
+    min-width: 220px;
+}
+
+.synergy-values-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
+}
+
+.synergy-values-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.synergy-value-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.85em;
+    border-bottom: 1px solid rgba(255, 255, 0, 0.1);
+}
+
+.synergy-value-label {
+    color: var(--text-dim);
+    min-width: 110px;
+}
+
+.synergy-value-changed {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.9em;
+}
+
+.synergy-value-base {
+    color: var(--text-dim);
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+.synergy-value-arrow {
+    color: #ffff00;
+    margin: 0 3px;
+}
+
+.synergy-value-final {
+    color: #00ff00;
+    font-weight: bold;
+}
+
+.synergy-value-bonus {
+    font-size: 0.8em;
+    margin-left: 3px;
+    font-weight: bold;
+}
+
+.bonus-positive {
+    color: #00ff00;
+}
+
+.bonus-negative {
+    color: #ff4444;
+}
+
+.synergy-components-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
+}
+
+.synergy-components-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
 }
 
 .synergy-cap-warning {
     color: #ffaa00;
     font-size: 0.8em;
     margin-top: 8px;
+    font-weight: bold;
 }

@@ -195,7 +195,9 @@ User clicks component row → App._handleComponentToggle()
     ├── Set pending action (for spatial/component targeting)
     ├── Build crossMap (active selections + cross-action selections)
     ├── Re-render action list (selected=green, grayed=locked)
-    └── If 2+ selected: POST /synergy/preview → renderSynergyPreview()
+    └── If 1+ selected: POST /synergy/preview-data → renderSynergyPreview()
+        - 1 component: action data preview
+        - 2+ components: synergy with modified values
 
 User clicks map → _setupMapClickListener()
     ├── If 2+ components selected: _executeMultiComponentSpatial()

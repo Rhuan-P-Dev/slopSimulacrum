@@ -214,6 +214,22 @@ class WorldStateController {
     getSynergyConfig(actionName) {
         return this.synergyController.getSynergyConfig(actionName);
     }
+
+    // =========================================================================
+    // ACTION DATA PREVIEW (for synergy preview system)
+    // =========================================================================
+
+    /**
+     * Previews action data including resolved values and synergy for a given component selection.
+     * Used by the enhanced synergy preview endpoint.
+     * @param {string} actionName - The action name
+     * @param {string} entityId - The entity executing the action
+     * @param {Object} [context] - Optional context (providedComponentIds, etc.)
+     * @returns {Object} Preview data with actionData, resolvedValues, and synergyResult
+     */
+    previewActionData(actionName, entityId, context) {
+        return this.actionController.previewActionData(actionName, entityId, context);
+    }
 }
 
 export default WorldStateController;

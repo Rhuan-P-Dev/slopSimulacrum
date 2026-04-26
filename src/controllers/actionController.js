@@ -926,6 +926,101 @@ class ActionController {
     // PUBLIC: REGISTRY ACCESS
     // =========================================================================
 
+    // =========================================================================
+    // PUBLIC: ACTION DATA PREVIEW (for synergy preview system)
+    // =========================================================================
+
+    /**
+     * Resolves placeholder values in action consequences for a given component.
+     * This allows the preview to show actual computed values (e.g., "Damage: 25")
+     * instead of unresolved placeholders (e.g., "Damage: -:Physical.strength").
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} componentId - The component ID to resolve values against.
+     * @param {string} entityId - The entity ID (for error context).
+     * @returns {Object} Object mapping consequence types to their resolved values.
+     *   Example: { damageComponent: { trait: 'Physical', stat: 'durability', value: -25 } }
+     */
+    resolveActionValues(actionName, componentId, entityId) {
+        const action = this.actionRegistry[actionName];
+        if (!action || !action.consequences) {
+            return {};
+        }
+
+        const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
+        if (!componentStats) {
+            return {};
+        }
+
+        // Build requirement values from component stats
+        const requirementValues = {};
+        for (const [traitId, traitData] of Object.entries(componentStats)) {
+            for (const [statName, statValue] of Object.entries(traitData)) {
+                if (typeof statValue === 'number') {
+                    requirementValues[`${traitId}.${statName}`] = statValue;
+                }
+            }
+        }
+
+        // Resolve each consequence's params
+        const resolvedConsequences = {};
+        for (const consequence of action.consequences) {
+            const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, {});
+            resolvedConsequences[consequence.type] = resolvedParams;
+        }
+
+        return resolvedConsequences;
+    }
+
+    /**
+     * Previews action data including resolved values and synergy for a given component selection.
+     * Returns action definition, resolved consequence values, and synergy result.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Object} [context] - Optional context (providedComponentIds, etc.).
+     * @returns {Object} Preview data including actionData, resolvedValues, and synergyResult.
+     */
+    previewActionData(actionName, entityId, context = {}) {
+        const actionDef = this.actionRegistry[actionName];
+        if (!actionDef) {
+            Logger.warn(`[ActionController] Action "${actionName}" not found for preview`);
+            return null;
+        }
+
+        // Determine which component to resolve values against
+        // Prefer the first provided component, fall back to entity-wide best
+        let resolveComponentId = null;
+        if (context.providedComponentIds && context.providedComponentIds.length > 0) {
+            resolveComponentId = context.providedComponentIds[0].componentId;
+        } else {
+            // Fall back to best component for this action
+            const best = this.getBestComponentForAction(actionName);
+            if (best) resolveComponentId = best.componentId;
+        }
+
+        // Resolve action values (consequences with resolved placeholders)
+        const resolvedValues = resolveComponentId
+            ? this.resolveActionValues(actionName, resolveComponentId, entityId)
+            : {};
+
+        // Compute synergy
+        let synergyResult = null;
+        if (this.synergyController) {
+            synergyResult = this.synergyController.computeSynergy(
+                actionName,
+                entityId,
+                context
+            );
+        }
+
+        return {
+            actionData: actionDef,
+            resolvedValues,
+            synergyResult
+        };
+    }
+
     /**
      * Returns all registered actions.
      * @returns {Object}

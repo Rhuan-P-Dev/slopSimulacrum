@@ -28,6 +28,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Action Capability Cache](subMDs/action_capability_cache.md)
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
+- [Synergy Preview System](subMDs/synergy_preview.md)
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - Check the `subMDs` folder for more detailed guides.
@@ -113,8 +114,19 @@ The `SynergyController` computes combined effect multipliers when multiple compo
 - `GET /synergy/actions` — All actions with synergy enabled
 - `GET /synergy/config/:actionName` — Synergy config for an action
 - `POST /synergy/preview` — Preview synergy without executing (accepts `componentIds` for live client-provided multi-component synergy)
+- `POST /synergy/preview-data` — Enhanced preview with action data + resolved values + synergy (for UI preview panel)
 
 **Documentation**: See `wiki/subMDs/synergy_system.md` for complete guide.
+
+### ActionController: Action Data Preview
+
+The `ActionController` provides methods for previewing action data with resolved values, used by the enhanced synergy preview system.
+
+**Key Methods:**
+- `previewActionData(actionName, entityId, context)` — Returns `{ actionData, resolvedValues, synergyResult }`
+- `resolveActionValues(actionName, componentId, entityId)` — Resolves placeholders (e.g., `:Physical.strength` → `25`) in consequences
+
+**Documentation**: See `wiki/subMDs/synergy_preview.md` for complete guide.
 
 ### ActionSelectController: Component Selection/Locking
 
@@ -156,17 +168,18 @@ The client uses a **click-to-toggle** model for multi-component selection:
 1. User clicks component row → `_handleComponentToggle()` toggles selection
 2. Components selected in active action appear grayed out in other actions
 3. For spatial/component actions: pending action is set, enabling map/entity click execution
-4. When 2+ components selected: live synergy preview via `POST /synergy/preview`
-5. Map click with 2+ components: batch lock → execute with synergy → display result
+4. When 1+ components selected: live synergy preview via `POST /synergy/preview-data`
+   - **1 component**: Shows action data (range, consequences, requirements)
+   - **2+ components**: Shows synergy with modified values (before → after + bonus%)
+5. Map click with 2+ components: batch lock → execute with synergy → refresh UI
 
 **UI Elements:**
 - `.action-selected` — Green highlight for selected components
 - `.component-locked` — Grayed out for cross-action conflict (clickable to clear)
 - `.action-active` — Yellow header for active action
 - `.synergy-preview-display` — Live synergy preview (yellow, persistent)
-- `.synergy-result-display` — Post-execution result (green, auto-hides after 8s)
 
-**Documentation**: See `wiki/subMDs/client_action_execution.md` Section 2.2.5 for complete guide.
+**Documentation**: See `wiki/subMDs/synergy_preview.md` for complete guide.
 
 **Stat Change Notification Flow:**
 ```

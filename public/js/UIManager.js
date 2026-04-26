@@ -358,31 +358,198 @@ export class UIManager {
 
     /**
      * Displays live synergy preview in the UI.
-     * @param {Object} preview Synergy preview from server.
+     * Two modes:
+     * - SINGLE COMPONENT: Shows action data (range, consequences, requirements)
+     * - MULTI COMPONENT: Shows synergy with modified values (before → after + bonus%)
+     *
+     * @param {Object} preview - Preview data from server.
+     * @param {Object} preview.actionData - Action definition (targetingType, range, consequences, requirements).
+     * @param {Object} preview.resolvedValues - Consequence values with placeholders resolved.
+     * @param {Object} preview.synergyResult - Synergy computation result (multiplier, contributingComponents).
      */
     renderSynergyPreview(preview) {
         // Remove existing
         const existing = document.querySelector('.synergy-preview-display');
         if (existing) existing.remove();
 
-        if (!preview || preview.multiplier <= 1.0) return;
+        if (!preview) return;
 
-        const componentsHtml = (preview.contributingComponents || []).map(c =>
-            `<span class="synergy-component">• ${c.componentType} (${c.componentId ? c.componentId.substring(0, 8) + '...' : 'unknown'})</span>`
-        ).join('');
+        const { actionData, resolvedValues, synergyResult } = preview;
+        const componentCount = synergyResult?.contributingComponents?.length ?? 0;
 
         const display = document.createElement('div');
         display.className = 'synergy-preview-display';
-        display.innerHTML = `
-            <div class="synergy-header">
-                <span class="synergy-multiplier">⚡ Synergy: ${preview.multiplier.toFixed(2)}x</span>
-            </div>
-            ${componentsHtml}
-            ${preview.summary ? `<div class="synergy-summary">${preview.summary}</div>` : ''}
-        `;
+
+        if (componentCount <= 1) {
+            // Single component mode: show action data
+            display.innerHTML = this._buildActionDataHtml(actionData, resolvedValues);
+        } else {
+            // Multi-component mode: show synergy with modified values
+            display.innerHTML = this._buildSynergyPreviewHtml(actionData, resolvedValues, synergyResult);
+        }
 
         const actionSection = document.querySelector('.action-section') || document.body;
         actionSection.appendChild(display);
+    }
+
+    /**
+     * Builds HTML for single-component action data preview.
+     * Shows: range, consequences (resolved values), requirements.
+     *
+     * @private
+     * @param {Object} actionData - Action definition.
+     * @param {Object} resolvedValues - Resolved consequence values.
+     * @returns {string} HTML string.
+     */
+    _buildActionDataHtml(actionData, resolvedValues) {
+        if (!actionData) return '';
+
+        let html = '<div class="action-data-preview">';
+
+        // Action name header
+        html += `<div class="synergy-header"><span class="synergy-multiplier">📋 Action: ${actionData._name || 'Unknown'}</span></div>`;
+
+        // Range (if defined)
+        if (actionData.range !== undefined) {
+            html += `<div class="action-data-row"><span class="action-data-label">Range:</span> <span class="action-data-value">${actionData.range}</span></div>`;
+        }
+
+        // Consequences with resolved values
+        if (actionData.consequences && actionData.consequences.length > 0) {
+            html += '<div class="action-data-section">';
+            html += '<div class="action-data-section-title">Consequences:</div>';
+
+            for (const consequence of actionData.consequences) {
+                const resolved = resolvedValues[consequence.type];
+                if (resolved) {
+                    const valueStr = resolved.value !== undefined ? ` → ${resolved.value}` : '';
+                    const sign = resolved.value < 0 ? '🔴' : '🟢';
+                    html += `<div class="action-data-row consequence-row">
+                        <span class="action-data-label">${sign} ${consequence.type}:</span>
+                        <span class="action-data-value">${valueStr}</span>
+                    </div>`;
+                }
+            }
+            html += '</div>';
+        }
+
+        // Requirements
+        if (actionData.requirements && actionData.requirements.length > 0) {
+            html += '<div class="action-data-section">';
+            html += '<div class="action-data-section-title">Requirements:</div>';
+            for (const req of actionData.requirements) {
+                html += `<div class="action-data-row req-row">
+                    <span class="action-data-label">⚙ ${req.trait}.${req.stat}:</span>
+                    <span class="action-data-value">≥ ${req.minValue}</span>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Builds HTML for multi-component synergy preview.
+     * Shows: synergy multiplier, modified values (before → after + bonus%), contributing components.
+     *
+     * @private
+     * @param {Object} actionData - Action definition.
+     * @param {Object} resolvedValues - Resolved consequence values (without synergy).
+     * @param {Object} synergyResult - Synergy computation result.
+     * @returns {string} HTML string.
+     */
+    _buildSynergyPreviewHtml(actionData, resolvedValues, synergyResult) {
+        if (!actionData || !synergyResult) return '';
+
+        const { synergyMultiplier, contributingComponents, capped, capKey, summary } = synergyResult;
+        const multiplier = parseFloat(synergyMultiplier);
+
+        let html = '<div class="synergy-preview-display-inner">';
+
+        // Synergy multiplier header
+        const bonusPercent = Math.round((multiplier - 1) * 100);
+        html += `<div class="synergy-header">
+            <span class="synergy-multiplier">⚡ Synergy: ${multiplier.toFixed(3)}x (+${bonusPercent}%)</span>
+        </div>`;
+
+        // Modified values: show each consequence with synergy-applied value
+        if (actionData.consequences && actionData.consequences.length > 0) {
+            html += '<div class="synergy-values-section">';
+            html += '<div class="synergy-values-title">Modified Values:</div>';
+
+            for (const consequence of actionData.consequences) {
+                const baseResolved = resolvedValues[consequence.type];
+                if (!baseResolved || typeof baseResolved.value !== 'number') continue;
+
+                const baseValue = baseResolved.value;
+                const finalValue = this._applySynergyToValue(baseValue, multiplier);
+                const diff = finalValue - baseValue;
+                const absDiff = Math.abs(diff);
+                const sign = diff >= 0 ? '+' : '';
+
+                // Determine visual indicator
+                const isDamage = consequence.type === 'damageComponent';
+                const isHeal = consequence.type === 'updateComponentStatDelta';
+                const isMove = consequence.type === 'deltaSpatial';
+
+                let indicator = '→';
+                if (isDamage) indicator = diff >= 0 ? '💥' : '🔻';
+                else if (isHeal) indicator = diff >= 0 ? '💚' : '🔻';
+                else if (isMove) indicator = diff >= 0 ? '🏃' : '🐌';
+
+                html += `<div class="synergy-value-row">
+                    <span class="synergy-value-label">${indicator} ${consequence.type}:</span>
+                    <span class="synergy-value-changed">
+                        <span class="synergy-value-base">${Math.abs(baseValue)}</span>
+                        <span class="synergy-value-arrow">→</span>
+                        <span class="synergy-value-final">${Math.abs(finalValue).toFixed(1)}</span>
+                        <span class="synergy-value-bonus ${diff >= 0 ? 'bonus-positive' : 'bonus-negative'}">(${sign}${bonusPercent}%)</span>
+                    </span>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // Contributing components
+        if (contributingComponents && contributingComponents.length > 0) {
+            html += '<div class="synergy-components-section">';
+            html += '<div class="synergy-components-title">Contributing Components:</div>';
+            for (const comp of contributingComponents) {
+                const idShort = comp.componentId ? comp.componentId.substring(0, 8) + '...' : 'unknown';
+                html += `<span class="synergy-component">• ${comp.componentType} (${idShort})</span>`;
+            }
+            html += '</div>';
+        }
+
+        // Cap warning
+        if (capped && capKey) {
+            html += `<div class="synergy-cap-warning">⚠ Capped at ${capKey}</div>`;
+        }
+
+        // Summary
+        if (summary) {
+            html += `<div class="synergy-summary">${summary}</div>`;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Applies synergy multiplier to a numeric value.
+     * For negative values (damage, durability loss), synergy increases magnitude.
+     * For positive values (healing, movement), synergy increases magnitude.
+     *
+     * @private
+     * @param {number} baseValue - The original value.
+     * @param {number} multiplier - The synergy multiplier.
+     * @returns {number} The synergy-applied value.
+     */
+    _applySynergyToValue(baseValue, multiplier) {
+        // Synergy always increases magnitude: negative values become more negative, positive become more positive
+        return baseValue * multiplier;
     }
 
     /**
@@ -393,46 +560,6 @@ export class UIManager {
         if (existing) existing.remove();
     }
 
-    /**
-     * Displays final synergy result after action execution.
-     * Auto-hides after 8 seconds.
-     * @param {Object} preview Synergy preview from server response.
-     */
-    renderSynergyResult(preview) {
-        if (!preview) return;
-
-        // Remove existing
-        const existing = document.querySelector('.synergy-result-display');
-        if (existing) existing.remove();
-
-        const componentsHtml = (preview.contributingComponents || []).map(c =>
-            `<span class="synergy-component">• ${c.componentType} (${c.componentId ? c.componentId.substring(0, 8) + '...' : 'unknown'})</span>`
-        ).join('');
-
-        const capWarning = preview.capped
-            ? `<div class="synergy-cap-warning">⚠ Capped at ${preview.capKey || 'limit'}</div>`
-            : '';
-
-        const display = document.createElement('div');
-        display.className = 'synergy-result-display';
-        display.innerHTML = `
-            <div class="synergy-header">
-                <span class="synergy-multiplier">Synergy: ${preview.multiplier.toFixed(2)}x</span>
-            </div>
-            ${componentsHtml}
-            ${capWarning}
-            ${preview.summary ? `<div class="synergy-summary">${preview.summary}</div>` : ''}
-        `;
-
-        const actionSection = document.querySelector('.action-section') || document.body;
-        actionSection.appendChild(display);
-
-        // Auto-hide after 8 seconds
-        setTimeout(() => {
-            display.classList.add('synergy-fade-out');
-            setTimeout(() => display.remove(), 500);
-        }, 8000);
-    }
 
     showEntityDetails(entity, state) {
         let componentsHtml = '';
