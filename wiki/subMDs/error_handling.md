@@ -39,6 +39,22 @@ Common codes used in `ActionController`:
 - `UNKNOWN_REQUIREMENT_FAILURE`: A requirement check failed for an unspecified reason.
 - `CONSEQUENCE_EXECUTION_FAILED`: An error occurred during the execution of an action's consequences.
 - `SYSTEM_RUNTIME_ERROR`: An unexpected exception occurred during processing.
+- `COMPONENT_BINDING_MISMATCH`: The selected component does not match the action's binding roles.
+
+## 4.1. Client-Side Error Codes
+Common codes used in `ClientErrorController` and `ActionManager`:
+- `SELECTION_FAILED`: Component lock conflict — the component is already locked to a different action.
+  - **Cause**: Spatial actions (move/dash) previously failed to release their component locks, causing subsequent actions (selfHeal) to fail.
+  - **Fix**: Spatial actions now explicitly track components for release in `componentsToRelease` array.
+- `ACTION_FAILED`: General action execution failure.
+- `MOVEMENT_FAILED`: Movement action execution failure.
+- `PUNCH_FAILED`: Punch action execution failure.
+- `TARGET_OUT_OF_RANGE`: Target is outside the action's range.
+- `NO_TARGET_FOUND`: No valid target found within tolerance.
+- `SOCKET_ERROR`: Socket.io communication error.
+- `CONNECTION_ERROR`: World state refresh failure.
+- `INITIALIZATION_ERROR`: Application initialization failure.
+- `ACTION_LIST_UPDATE_FAILED`: Action list refresh failure.
 
 ## 5. Template Syntax
 Templates use curly braces for variable injection:

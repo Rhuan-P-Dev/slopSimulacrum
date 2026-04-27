@@ -441,6 +441,11 @@ export class ClientApp {
 
             await this.refreshWorldAndActions();
         } catch (error) {
+            // Clear stale client-side selections to prevent UI/server state mismatch
+            this.selectedComponentIds.clear();
+            this.crossActionSelections.clear();
+            this.activeActionName = null;
+            this.ui.clearSynergyPreview();
             console.error('[ClientApp] Multi-component spatial action failed:', error);
         }
     }

@@ -49,6 +49,10 @@ The client uses a **click-to-toggle** model for multi-component selection:
     *   Client displays final result via `UIManager.renderSynergyResult()` (green border, auto-hides after 8s)
 7.  **Cleanup**: All selections cleared via `_clearAllSelections()`, UI refreshes via `world-state-update`.
 
+**Error Recovery**: If `selectComponents()` fails, `_executeMultiComponentSpatial()` clears all client-side selection state (`selectedComponentIds`, `crossActionSelections`, `activeActionName`, synergy preview) to prevent UI/server state mismatch. Additionally, if components are already locked to the **same action** (refresh scenario), `selectComponents()` treats it as success rather than an error, aligning with server-side `ActionSelectController.registerSelections()` behavior.
+
+**Server-Side Lock Release**: The server's `ActionController.executeAction()` explicitly tracks spatial action components in `componentsToRelease` (lines 301-317), ensuring locks are released in the `finally` block via `ActionSelectController.releaseSelections()`. This prevents locks from persisting after spatial actions, which previously broke subsequent actions like `selfHeal`.
+
 **Multi-Select UI Elements:**
 *   **Row Click Toggle**: Click component row to toggle selection. No checkboxes.
 *   **Selected Highlight** (`.action-selected`): Bright green background for selected components.

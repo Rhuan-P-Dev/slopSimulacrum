@@ -362,6 +362,45 @@ Prevents permanent locks when:
 
 ## 9. Error Handling
 
+### Stale Selection Recovery (Client-Side)
+
+When `_executeMultiComponentSpatial()` fails (e.g., `selectComponents` throws), the client **immediately clears** all stale selection state to prevent UI/server state mismatch:
+
+```javascript
+// App.js — _executeMultiComponentSpatial() catch block
+catch (error) {
+    this.selectedComponentIds.clear();
+    this.crossActionSelections.clear();
+    this.activeActionName = null;
+    this.ui.clearSynergyPreview();
+    // ... error logging
+}
+```
+
+This ensures:
+- UI does not show components as selected when the server has no locks for them
+- Subsequent attempts start from a clean state
+- `crossActionSelections` Map is cleared to prevent stale cross-action graying
+
+### Lock Refresh Scenario (Client-Side)
+
+When `selectComponents()` receives a server error indicating components are already locked to the **same action**, it treats it as a refresh scenario and returns success:
+
+```javascript
+// ActionManager.js — selectComponents() error handling
+const isRefreshScenario = conflictDetails.length > 0 && 
+    conflictDetails.every(c => c.lockedAction === actionName);
+
+if (isRefreshScenario) {
+    return { success: true, lockedCount: components.length, refreshed: true };
+}
+```
+
+This prevents unnecessary failures when:
+- The user re-selects the same components for the same action
+- Server locks persist from a previous attempt that didn't complete cleanly
+- Rapid re-clicks trigger duplicate `selectComponents()` calls
+
 ### Selection Validation Failure
 
 If `validateSelection()` or `validateSelections()` returns `{ valid: false }`:
@@ -388,7 +427,51 @@ For batch selections, `releaseSelections()` handles all component IDs at once.
 
 ---
 
-## 10. Files Involved
+## 10. Stale Selection Recovery
+
+### Problem A: Client-Side Stale Selections
+
+If a `selectComponents()` call fails (e.g., network error, server rejection), the client-side `selectedComponentIds` Set would retain the component IDs even though the server has no locks. This caused:
+- UI showing components as selected (green highlight) when the server had no locks
+- Immediate failure on next attempt because server still had old locks from a previous session
+- Cross-action graying showing stale selections
+
+### Solution A: Client-Side Error Cleanup (`App.js` — `_executeMultiComponentSpatial`)
+On any failure, all client-side selection state is cleared:
+- `selectedComponentIds.clear()`
+- `crossActionSelections.clear()`
+- `activeActionName = null`
+- `ui.clearSynergyPreview()`
+
+### Problem B: Refresh Scenario (Same-Action Re-lock)
+
+When the user re-selects the same components for the same action (e.g., rapid re-click), the server reports components are already locked to the same action. This was previously treated as an error.
+
+### Solution B: Refresh Handling (`ActionManager.js` — `selectComponents`)
+When the server reports components are locked to the **same action**, treat it as a refresh (not an error):
+- Parse conflict error messages to extract component IDs and locked action names
+- If all conflicts point to the same action → return `{ success: true, refreshed: true }`
+- If any conflict points to a **different** action → throw error as normal
+
+This aligns with the server-side behavior in `ActionSelectController.registerSelections()` (line 443), which already allows same-action locks to be refreshed.
+
+### Problem C: Spatial Action Lock Leak (`ActionController.executeAction`)
+
+Spatial actions (`targetingType: 'spatial'`, e.g., `move`, `dash`) skip the component selection validation block (line 269) because they auto-resolve components via `_resolveSourceComponent()`. This meant their component locks were **never added to `componentsToRelease`**, causing locks to persist indefinitely after spatial actions.
+
+**Symptom**: After doing `move` or `dash` with both `droidRollingBall` components, those components remained locked to "move"/"dash". Subsequent `selfHeal` (which requires clicking a component) would fail because `validateSelection()` found the stale lock.
+
+### Solution C: Spatial Component Tracking (`ActionController.executeAction`)
+Added explicit tracking of spatial action components for release (lines 300-315):
+- Multi-component spatial: iterates `componentList` and adds each component ID to `componentsToRelease`
+- Single-component spatial: adds `resolvedSourceComponentId` to `componentsToRelease`
+- The `finally` block (line 448-454) now correctly releases all spatial action locks
+
+This ensures the `finally` block releases locks after every action, including spatial ones.
+
+---
+
+## 11. Files Involved
 
 | File | Role |
 |------|------|
@@ -404,7 +487,7 @@ For batch selections, `releaseSelections()` handles all component IDs at once.
 
 ---
 
-## 11. Multi-Component Selection API Reference
+## 12. Multi-Component Selection API Reference
 
 ### ActionSelectController Methods
 

@@ -96,18 +96,29 @@ When an action is executed:
 Server → WorldStateController
     ├── ActionSelectController.expireStaleSelections()
     ├── ActionController.executeAction()
-    │   ├── validateSelection (skip for spatial actions)
     │   ├── resolveSourceComponent()
+    │   ├── Track spatial components for release (spatial actions only)
+    │   ├── validateSelection (skip for spatial actions)
     │   ├── validateComponentBinding (skip role mismatch for spatial/none)
     │   ├── _checkRequirements / _checkRequirementsForComponent
     │   ├── SynergyController.computeSynergy() (excludes locked components)
     │   └── ConsequenceHandlers (with synergy-applied values)
-    └── ActionSelectController.releaseSelection() (finally block)
+    └── ActionSelectController.releaseSelections([all tracked components]) (finally block)
 ```
 
 **Component Selection Validation:**
 - **Spatial actions** (`move`, `dash`): Skip pre-locking validation because they auto-resolve components via `_resolveSourceComponent()`
 - **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
+
+**Component Lock Tracking & Release:**
+All actions track their component locks in `componentsToRelease` array, released in the `finally` block:
+- **Non-spatial actions**: Components tracked during validation
+- **Spatial actions**: Components explicitly tracked after `resolveSourceComponent()` (lines 301-317 in `actionController.js`):
+  - Multi-component spatial: Each component from `componentList` is added
+  - Single-component spatial: The resolved `resolvedSourceComponentId` is added
+- **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` tracked during validation
+
+**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
 
 **Role Mismatch Skip:**
 Role validation is skipped for `spatial`, `none`, and `self_target` targetingType actions because client/server role resolution differs:

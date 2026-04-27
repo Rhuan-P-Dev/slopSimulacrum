@@ -290,6 +290,17 @@ graph TD
 - **Spatial actions** (`move`, `dash`): Skip pre-locking validation because they auto-resolve components via `_resolveSourceComponent()`
 - **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
 
+**Component Lock Tracking & Release:**
+All actions track their component locks in `componentsToRelease` array, which is released in the `finally` block via `ActionSelectController.releaseSelections()`.
+
+- **Non-spatial actions**: Components are tracked during validation (line 286-289)
+- **Spatial actions**: Components are explicitly tracked after `_resolveSourceComponent()` (lines 301-317):
+  - Multi-component spatial: Each component from `componentList` is added
+  - Single-component spatial: The resolved `resolvedSourceComponentId` is added
+- **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` are tracked during validation
+
+**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
+
 **Component Binding Enforcement:**
 - If `componentBinding` is defined but no component resolves → return `COMPONENT_BINDING_MISMATCH`
 - If `componentBinding` is NOT defined → fall through to requirement checking (triggers failure consequences)

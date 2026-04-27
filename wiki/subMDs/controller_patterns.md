@@ -95,6 +95,18 @@ The `ActionController` follows the Dependency Injection pattern. After an SRP re
 - **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`, `_resolvePlaceholders()`
 - **Delegation**: All capability cache queries are delegated to `ComponentCapabilityController`
 
+#### 6.1.1. Component Lock Tracking
+
+The `executeAction()` method tracks component locks in `componentsToRelease` array, released in the `finally` block:
+
+- **Non-spatial actions**: Components tracked during validation (lines 286-289)
+- **Spatial actions** (`move`, `dash`): Components explicitly tracked after `_resolveSourceComponent()` (lines 301-317):
+  - Multi-component spatial: Each component from `componentList` is added to `componentsToRelease`
+  - Single-component spatial: The resolved `resolvedSourceComponentId` is added
+- **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` tracked during validation
+
+**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
+
 **Component Binding Resolution Priority:**
 1. `attackerComponentId` from params → punch actions
 2. `targetComponentId` from params → spatial/self_target actions with explicit selection

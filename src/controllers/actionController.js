@@ -298,6 +298,24 @@ class ActionController {
 
             let resolvedSourceComponentId = this._resolveSourceComponent(action, entityId, params);
 
+            // ─── Track Spatial Components for Release ────────────────────────
+            // Spatial actions skip the validation block above (line 269), so their
+            // resolved components are never added to componentsToRelease. This causes
+            // component locks to persist indefinitely, breaking subsequent actions
+            // (e.g., selfHeal fails because droidRollingBall is still locked to "move").
+            // Fix: explicitly track spatial action components for release.
+            if (isSpatial && componentList && componentList.length > 0) {
+                // Multi-component spatial (e.g., move/dash with both droidRollingBall)
+                for (const comp of componentList) {
+                    if (!componentsToRelease.includes(comp.componentId)) {
+                        componentsToRelease.push(comp.componentId);
+                    }
+                }
+            } else if (isSpatial && resolvedSourceComponentId && !componentList) {
+                // Single-component spatial (auto-resolved)
+                componentsToRelease.push(resolvedSourceComponentId);
+            }
+
             if (!resolvedSourceComponentId) {
                 // If the action has no explicit componentBinding, treat this as a
                 // requirement failure (so failure consequences execute properly).

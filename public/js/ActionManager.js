@@ -266,7 +266,30 @@ export class ActionManager {
 
             const result = await response.json();
             if (!result.success) {
-                throw new Error(Array.isArray(result.errors) ? result.errors.join(' ') : (result.error || 'Batch lock failed'));
+                // Build a detailed error message including all conflicts
+                const errorMessages = Array.isArray(result.errors) ? result.errors : [result.error || 'Batch lock failed'];
+                const detail = errorMessages.join('; ');
+                
+                // Log conflict details for debugging
+                const conflictDetails = errorMessages.map(msg => {
+                    const match = msg.match(/Component "([^"]+)" is already locked to action "([^"]+)"/);
+                    if (match) {
+                        return { componentId: match[1], lockedAction: match[2] };
+                    }
+                    return null;
+                }).filter(Boolean);
+
+                // If components are locked to the SAME action, this is a refresh scenario -
+                // the server already has them locked, so we can treat it as success
+                const isRefreshScenario = conflictDetails.length > 0 && 
+                    conflictDetails.every(c => c.lockedAction === actionName);
+
+                if (isRefreshScenario) {
+                    console.log(`[ActionManager] Components already locked to "${actionName}", refreshing locks`);
+                    return { success: true, lockedCount: components.length, refreshed: true };
+                }
+
+                throw new Error(detail);
             }
 
             console.log(`[ActionManager] Batch locked ${result.lockedCount} components for "${actionName}"`);
