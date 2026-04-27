@@ -10,6 +10,7 @@ import SynergyController from './synergyController.js';
 import ActionSelectController from './actionSelectController.js';
 import ConsequenceHandlers from './consequenceHandlers.js';
 import DataLoader from '../utils/DataLoader.js';
+import Logger from '../utils/Logger.js';
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -28,7 +29,7 @@ class WorldStateController {
 
         // Warn if action registry is empty or missing
         if (!actionRegistry || Object.keys(actionRegistry).length === 0) {
-            console.warn('[WorldStateController] Action registry is empty or missing. Actions will not be available.');
+            Logger.warn('Action registry is empty or missing. Actions will not be available.');
         }
 
         // 1. Instantiate Data Stores (Bottom level)
