@@ -12,18 +12,8 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 ## Table of Contents
 - [About the Project](#)
 - [System Architecture Map](subMDs/system_map.md)
-- [LLM Integration](subMDs/llm_integration.md)
-- [Server-Client Architecture](subMDs/server_client_architecture.md)
-- [Controller Patterns](subMDs/controller_patterns.md)
 - [Controller Relationship Map](map.md)
-
-## Sub-Documentation
-- [Code Quality and Best Practices](code_quality_and_best_practices.md)
-- [System Architecture Map](subMDs/system_map.md) (Deep Version)
-- [LLM Integration](subMDs/llm_integration.md)
-- [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
-- [Controller Relationship Map](map.md)
 - [Action System](subMDs/action_system.md)
 - [Action Capability Cache](subMDs/action_capability_cache.md)
 - [Component Capability Controller](subMDs/component_capability_controller.md)
@@ -31,7 +21,35 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Synergy Preview System](subMDs/synergy_preview.md)
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
-- Check the `subMDs` folder for more detailed guides.
+- [Server-Client Architecture](subMDs/server_client_architecture.md)
+- [LLM Integration](subMDs/llm_integration.md)
+- [Movement System](subMDs/movement_system.md)
+- [Client UI](subMDs/client_ui.md)
+- [Entities](subMDs/entities.md)
+- [Error Handling](subMDs/error_handling.md)
+- [Traits](subMDs/traits.md)
+- [World State](subMDs/world_state.md)
+
+## Sub-Documentation
+- [Code Quality and Best Practices](code_quality_and_best_practices.md)
+- [System Architecture Map](subMDs/system_map.md) (Deep Version)
+- [Controller Relationship Map](map.md)
+- [Controller Patterns](subMDs/controller_patterns.md)
+- [Action System](subMDs/action_system.md)
+- [Action Capability Cache](subMDs/action_capability_cache.md)
+- [Component Capability Controller](subMDs/component_capability_controller.md)
+- [Synergy System](subMDs/synergy_system.md)
+- [Synergy Preview System](subMDs/synergy_preview.md)
+- [Component Selection](subMDs/component_selection.md)
+- [Client Action Execution](subMDs/client_action_execution.md)
+- [Server-Client Architecture](subMDs/server_client_architecture.md)
+- [LLM Integration](subMDs/llm_integration.md)
+- [Movement System](subMDs/movement_system.md)
+- [Client UI](subMDs/client_ui.md)
+- [Entities](subMDs/entities.md)
+- [Error Handling](subMDs/error_handling.md)
+- [Traits](subMDs/traits.md)
+- [World State](subMDs/world_state.md)
 
 ### 📢 Note for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.

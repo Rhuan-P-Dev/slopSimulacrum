@@ -16,8 +16,10 @@ graph TD
     style TC fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
-**Injection Order (Root Injector):**
-`ComponentStatsController` → `TraitsController` → `ComponentController` → `EntityController` → `stateEntityController` → `WorldStateController`
+**Injection Order (Root Injector — Bottom-Up):**
+`ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` → `stateEntityController` → `WorldStateController`
+
+**Note:** `ComponentStatsController` and `TraitsController` are both bottom-level data stores instantiated first. `ComponentController` receives both as injected dependencies. The order in the diagram shows the logical dependency chain, not the instantiation sequence.
 
 **Client-Side Architecture (Modular JS):**
 `Config.js` → `WorldStateManager` → `UIManager` → `ClientErrorController` → `ActionManager` → `ClientApp` (Orchestrator)

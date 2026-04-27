@@ -90,7 +90,7 @@ worldStateController.getRoomUidByLogicalId('start_room');
 The `ActionController` follows the Dependency Injection pattern. After an SRP refactor, it now focuses **strictly on action execution** and delegates capability cache management to `ComponentCapabilityController`.
 
 - **Role**: Action Execution Coordinator
-- **Dependencies**: `WorldStateController`, `ConsequenceHandlers`, `actionRegistry`, `ComponentCapabilityController`
+- **Dependencies**: `WorldStateController`, `ConsequenceHandlers`, `actionRegistry`, `ComponentCapabilityController`, `SynergyController`, `ActionSelectController`
 - **Responsibility**: Execute game actions, validate requirements, execute consequences
 - **Key Methods**: `executeAction()`, `_checkRequirements()`, `_executeConsequences()`, `_resolvePlaceholders()`
 - **Delegation**: All capability cache queries are delegated to `ComponentCapabilityController`
@@ -110,14 +110,27 @@ Actions with `targetingType: 'self_target'` execute instantly on the client. The
 **✅ Mandatory Pattern (Constructor Injection):**
 ```javascript
 class ActionController {
-    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController) {
+    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController) {
         this.worldStateController = worldStateController;
         this.consequenceHandlers = consequenceHandlers;
         this.actionRegistry = actionRegistry || {};
         this.componentCapabilityController = componentCapabilityController;
+        this.synergyController = synergyController || null;
+        this.actionSelectController = actionSelectController || null;
     }
 }
 ```
+
+**Parameter Descriptions:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `worldStateController` | `WorldStateController` | Yes | Reference to the root controller for accessing sub-controllers |
+| `consequenceHandlers` | `ConsequenceHandlers` | Yes | The consequence handler dispatcher system |
+| `actionRegistry` | `Object` | Yes | Parsed JSON configuration of available actions |
+| `componentCapabilityController` | `ComponentCapabilityController` | Yes | Capability cache manager (delegates all cache queries) |
+| `synergyController` | `SynergyController` | No | Synergy system for multi-component bonus computation |
+| `actionSelectController` | `ActionSelectController` | No | Component selection/locking controller (enforces one component, one action rule) |
 
 ### 6.3. Root Injector Updates
 
@@ -127,7 +140,7 @@ When adding `ActionController`:
 2. Load Data: `const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');`
 3. Instantiate `ComponentCapabilityController` FIRST (step 4)
 4. Instantiate Handlers: `const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });`
-5. Instantiate: `const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController);`
+5. Instantiate: `const actionController = new ActionController(this, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController);`
 6. Assign: `this.actionController = actionController;`
 7. Register: Add to `subControllers` map: `actions: this.actionController`
 
@@ -188,7 +201,7 @@ When adding `ComponentCapabilityController`:
 4. Inject into ActionController: Pass as 4th constructor argument
 5. Register: Add to `subControllers` map: `capabilities: this.componentCapabilityController`
 
-## 7. Maintaining the Root Injector
+## 8. Maintaining the Root Injector
 The `WorldStateController` constructor is the **only** place in the entire system where the `new` keyword should be used to instantiate controllers.
 
 ### Dependency Changes

@@ -77,6 +77,8 @@ The `ActionController` is fully decoupled from data loading and handler instanti
 - `ConsequenceHandlers`: The system responsible for executing action effects.
 - `actionRegistry`: The parsed JSON configuration of available actions.
 - `ComponentCapabilityController`: The capability cache manager (delegated for all cache queries).
+- `SynergyController`: Multi-component synergy bonus computation (optional).
+- `ActionSelectController`: Component selection/locking controller (optional).
 
 **Logging:** The system utilizes a centralized `Logger` utility (`src/utils/Logger.js`) for all system events, ensuring standardized severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
 
