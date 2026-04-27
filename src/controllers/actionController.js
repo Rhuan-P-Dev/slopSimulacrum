@@ -329,18 +329,31 @@ class ActionController {
                 }
             }
 
-            // Get requirement values from the resolved source component
+            // Get requirement values from the resolved source component(s)
             let requirementValues = {};
             let fulfillingComponents = {};
+            let attackerComponentIds = [];
 
+            // Collect all attacker component IDs (support both single and multi-attacker punch)
             if (params && params.attackerComponentId) {
+                attackerComponentIds = [params.attackerComponentId];
+            } else if (params && params.componentIds && Array.isArray(params.componentIds)) {
+                // For attack actions: extract attacker components from componentIds
+                // Components with 'source' role or components that have Physical traits (strength)
+                attackerComponentIds = params.componentIds
+                    .filter(c => c.role === 'source' || c.role === 'target')
+                    .map(c => c.componentId);
+            }
+
+            if (attackerComponentIds.length > 0) {
                 // Punch: Use the attacker component's stats (e.g., droidHand for punch action)
-                const attackerComponentId = params.attackerComponentId;
-                const componentStats = this.worldStateController.componentController.getComponentStats(attackerComponentId);
+                // For multi-component punch, validate the first component for requirement checking
+                const primaryAttackerId = attackerComponentIds[0];
+                const componentStats = this.worldStateController.componentController.getComponentStats(primaryAttackerId);
 
                 if (componentStats) {
                     const componentCheck = this._checkRequirementsForComponent(
-                        action.requirements, entityId, attackerComponentId
+                        action.requirements, entityId, primaryAttackerId
                     );
 
                     if (!componentCheck.passed) {
@@ -387,15 +400,27 @@ class ActionController {
                 );
             }
 
-            // Execute success consequences (with synergy applied)
-            const consequenceResult = this._executeConsequences(
-                actionName,
-                entityId,
-                requirementValues,
-                params,
-                fulfillingComponents,
-                synergyResult
-            );
+            // Execute success consequences
+            // For multi-attacker punch: execute damage consequences per-attacker-component
+            let consequenceResult;
+            if (actionName === 'droid punch' && attackerComponentIds.length > 1 && params.targetComponentId) {
+                consequenceResult = this._executeMultiAttackerConsequences(
+                    actionName,
+                    entityId,
+                    attackerComponentIds,
+                    params,
+                    synergyResult
+                );
+            } else {
+                consequenceResult = this._executeConsequences(
+                    actionName,
+                    entityId,
+                    requirementValues,
+                    params,
+                    fulfillingComponents,
+                    synergyResult
+                );
+            }
 
             const result = {
                 success: true,
@@ -406,11 +431,13 @@ class ActionController {
             };
             return result;
         } catch (error) {
+            // Defensive: handle case where error is undefined or not an Error object
+            const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
             return {
                 success: false,
                 error: this._resolveError({
                     code: 'SYSTEM_RUNTIME_ERROR',
-                    details: { error: error.message }
+                    details: { error: errorMsg }
                 })
             };
         } finally {
@@ -455,6 +482,15 @@ class ActionController {
         // Priority 1: Punch actions with explicit attackerComponentId
         if (params?.attackerComponentId) {
             return params.attackerComponentId;
+        }
+
+        // Priority 1.5: Multi-component attack actions (e.g., droid punch with componentIds)
+        // When multiple attacker components are provided, use the first one as the source.
+        // This prevents targetComponentId from being mistakenly used as the source.
+        if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0 && params?.targetComponentId) {
+            // For attack actions with both componentIds and targetComponentId,
+            // use the first component from componentIds as the source (it's an attacker, not a target)
+            return params.componentIds[0].componentId;
         }
 
         // Priority 2: Explicit targetComponentId from client (spatial actions with selected component)
@@ -804,12 +840,16 @@ class ActionController {
             }
 
             try {
-                // Apply synergy multiplier to numeric consequence values
-                if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams?.value === 'number') {
-                    const baseValue = resolvedParams.value;
-                    resolvedParams.value = this.synergyController
-                        ? this.synergyController.applySynergyToResult(synergyResult, baseValue)
-                        : baseValue;
+                // Apply synergy multiplier to ALL numeric consequence properties (not just 'value')
+                // This ensures synergy works for properties like 'speed' (deltaSpatial), 'value' (damageComponent), etc.
+                if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams === 'object' && resolvedParams !== null) {
+                    for (const [key, val] of Object.entries(resolvedParams)) {
+                        if (typeof val === 'number') {
+                            resolvedParams[key] = this.synergyController
+                                ? this.synergyController.applySynergyToResult(synergyResult, val)
+                                : val;
+                        }
+                    }
                 }
 
                 // Spatial consequences (updateSpatial, deltaSpatial) always operate on the entity.
@@ -823,11 +863,13 @@ class ActionController {
 
                 results.push({ success: true, type: consequence.type, synergyApplied: synergyResult !== null, ...result });
             } catch (error) {
+                // Defensive: handle case where error is undefined or not an Error object
+                const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
                 results.push({
                     success: false,
                     error: this._resolveError({
                         code: 'CONSEQUENCE_EXECUTION_FAILED',
-                        details: { type: consequence.type, error: error.message }
+                        details: { type: consequence.type, error: errorMsg }
                     }),
                     type: consequence.type
                 });
@@ -920,6 +962,144 @@ class ActionController {
         }
 
         return { success: false, executedFailureConsequences: results.length, results };
+    }
+
+    // =========================================================================
+    // PRIVATE: MULTI-ATTACKER CONSEQUENCE EXECUTION
+    // =========================================================================
+
+    /**
+     * Executes consequences for multi-attacker punch actions.
+     * Each attacker component deals its own separate damage to the target.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The ID of the attacking entity.
+     * @param {Array<string>} attackerComponentIds - Array of attacker component IDs.
+     * @param {Object} params - Action parameters (includes targetComponentId).
+     * @param {Object} [synergyResult] - Optional synergy computation result.
+     * @returns {Object} Result of consequence execution.
+     * @private
+     */
+    _executeMultiAttackerConsequences(actionName, entityId, attackerComponentIds, params, synergyResult = null) {
+        const action = this.actionRegistry[actionName];
+        if (!action || !action.consequences) {
+            return { success: false, error: `Action "${actionName}" has no consequences defined.` };
+        }
+
+        const allResults = [];
+        const targetComponentId = params.targetComponentId;
+
+        // Process each attacker component separately
+        for (const attackerId of attackerComponentIds) {
+            // Get this attacker's strength value
+            const attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
+            if (!attackerStats || !attackerStats.Physical || attackerStats.Physical.strength === undefined) {
+                Logger.warn(`[ActionController] Attacker component "${attackerId}" has no Physical.strength — skipping`);
+                continue;
+            }
+
+            const attackerStrength = attackerStats.Physical.strength;
+
+            // Build per-attacker requirement values
+            const perAttackerRequirementValues = {
+                'Physical.strength': attackerStrength
+            };
+
+            // Build per-attacker fulfilling components map
+            const perAttackerFulfillingComponents = {
+                'Physical.strength': attackerId
+            };
+
+            // Build per-attacker context with attacker-specific params
+            const perAttackerParams = {
+                ...params,
+                attackerComponentId: attackerId
+            };
+
+            // Build per-attacker consequence params with resolved values
+            const perAttackerConsequences = action.consequences.map(consequence => {
+                // For damageComponent: resolve the value from this attacker's strength
+                if (consequence.type === 'damageComponent') {
+                    const damageValue = -attackerStrength; // Negative = damage
+                    return {
+                        type: 'damageComponent',
+                        params: {
+                            trait: consequence.params.trait,
+                            stat: consequence.params.stat,
+                            value: damageValue
+                        }
+                    };
+                }
+                // For log consequences: resolve placeholders with attacker's values
+                if (consequence.type === 'log') {
+                    const resolvedMessage = consequence.params.message
+                        .replace(/:Physical\.strength/g, String(attackerStrength));
+                    return { type: 'log', params: { ...consequence.params, message: resolvedMessage } };
+                }
+                return consequence;
+            });
+
+            // Execute per-attacker consequences with custom context
+            for (const consequence of perAttackerConsequences) {
+                const handler = this.consequenceHandlers.handlers[consequence.type];
+                if (!handler) {
+                    allResults.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
+                    continue;
+                }
+
+                try {
+                    // Resolve placeholders with per-attacker values
+                    const resolvedParams = this._resolvePlaceholders(consequence.params, perAttackerRequirementValues, perAttackerParams);
+
+                    // Apply synergy multiplier to numeric values
+                    if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams === 'object' && resolvedParams !== null) {
+                        for (const [key, val] of Object.entries(resolvedParams)) {
+                            if (typeof val === 'number') {
+                                resolvedParams[key] = this.synergyController
+                                    ? this.synergyController.applySynergyToResult(synergyResult, val)
+                                    : val;
+                            }
+                        }
+                    }
+
+                    // For damageComponent, use the explicit targetComponentId
+                    const result = handler(targetComponentId, resolvedParams, {
+                        requirementValues: perAttackerRequirementValues,
+                        actionParams: perAttackerParams,
+                        fulfillingComponents: perAttackerFulfillingComponents,
+                        synergyResult,
+                        attackerComponentId: attackerId
+                    });
+
+                    allResults.push({
+                        success: true,
+                        type: consequence.type,
+                        attackerComponentId: attackerId,
+                        synergyApplied: synergyResult !== null,
+                        ...result
+                    });
+                } catch (error) {
+                    // Defensive: handle case where error is undefined or not an Error object
+                    const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+                    allResults.push({
+                        success: false,
+                        error: this._resolveError({
+                            code: 'CONSEQUENCE_EXECUTION_FAILED',
+                            details: { type: consequence.type, error: errorMsg }
+                        }),
+                        type: consequence.type,
+                        attackerComponentId: attackerId
+                    });
+                }
+            }
+        }
+
+        return {
+            success: true,
+            executedConsequences: allResults.filter(r => r.success).length,
+            executedPerAttacker: attackerComponentIds.length,
+            results: allResults
+        };
     }
 
     // =========================================================================

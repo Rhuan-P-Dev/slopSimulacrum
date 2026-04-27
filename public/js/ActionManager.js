@@ -164,6 +164,31 @@ export class ActionManager {
     }
 
     /**
+     * Executes a multi-attacker punch action.
+     * All selected attacker components deal their own separate damage to the target.
+     * @param {string} actionName - The action name (e.g., 'droid punch').
+     * @param {string} entityId - The entity ID of the attacker.
+     * @param {Array<{componentId: string, role: string}>} attackerComponents - Array of attacker component IDs with roles.
+     * @param {string} targetComponentId - The component ID of the target being punched.
+     */
+    async executeMultiPunch(actionName, entityId, attackerComponents, targetComponentId) {
+        try {
+            const result = await this._sendActionRequest({ 
+                actionName: actionName,
+                entityId: entityId,
+                params: {
+                    componentIds: attackerComponents,
+                    targetComponentId
+                }
+            }, 'PUNCH_FAILED');
+            console.log('[ActionManager] Multi-attacker punch executed successfully:', result);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
      * Calculates the Euclidean distance between two points.
      * @param {number} x1 
      * @param {number} y1 

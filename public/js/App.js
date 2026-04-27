@@ -445,6 +445,7 @@ export class ClientApp {
 
     /**
      * Handles targeting for "punch" style actions.
+     * Sends ALL selected attacker component IDs so each deals its own damage.
      * @param {Object} pending
      * @param {number} targetX
      * @param {number} targetY
@@ -484,9 +485,29 @@ export class ClientApp {
             return;
         }
 
-        this.ui.showComponentSelection(closestEntity, state, async (compId) => {
+        this.ui.showComponentSelection(closestEntity, state, async (targetCompId) => {
             try {
-                await this.actions.executePunch(pending.actionName, pending.entityId, pending.componentId, compId);
+                // Send ALL selected attacker component IDs for multi-attacker punch
+                const attackerComponentIds = Array.from(this.selectedComponentIds);
+
+                if (attackerComponentIds.length > 1) {
+                    // Multi-component punch: send componentIds array for multi-attacker execution
+                    const components = attackerComponentIds.map(compId => ({
+                        componentId: compId,
+                        role: 'source'
+                    }));
+                    await this.actions.executeMultiPunch(
+                        pending.actionName,
+                        pending.entityId,
+                        components,
+                        targetCompId
+                    );
+                } else {
+                    // Legacy single-component punch
+                    const attackerCompId = attackerComponentIds[0] || pending.componentId;
+                    await this.actions.executePunch(pending.actionName, pending.entityId, attackerCompId, targetCompId);
+                }
+
                 this.ui.closeDetails();
                 this.actions.clearPendingAction();
                 this._clearAllSelections();

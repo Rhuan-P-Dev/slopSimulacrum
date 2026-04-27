@@ -493,8 +493,11 @@ class SynergyController {
         switch (roleFilter) {
             case 'source':
             case 'spatial':
-                // Source/spatial: must have Movement traits
-                return stats.Movement && Object.keys(stats.Movement).length > 0;
+                // Source/spatial: must have Movement traits OR Physical traits (for attack actions)
+                // Movement = movement-based actions (move, dash)
+                // Physical = attack-based actions (punch) where strength provides power
+                return (stats.Movement && Object.keys(stats.Movement).length > 0) ||
+                       (stats.Physical && Object.keys(stats.Physical).length > 0);
             case 'self_target':
                 // Self-target: must have Physical traits
                 return stats.Physical && Object.keys(stats.Physical).length > 0;
@@ -632,8 +635,9 @@ class SynergyController {
 
                     // Check if component matches the role filter
                     if (roleFilter === 'source' || roleFilter === 'spatial') {
-                        // Source/spatial: must have Movement or satisfy action requirements
-                        return stats.Movement && Object.keys(stats.Movement).length > 0;
+                        // Source/spatial: must have Movement traits (movement actions) OR Physical traits (attack actions like punch)
+                        return (stats.Movement && Object.keys(stats.Movement).length > 0) ||
+                               (stats.Physical && Object.keys(stats.Physical).length > 0);
                     }
                     if (roleFilter === 'self_target') {
                         // Self-target: must have Physical traits

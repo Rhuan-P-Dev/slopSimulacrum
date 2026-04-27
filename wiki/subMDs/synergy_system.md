@@ -2,355 +2,223 @@
 
 ## Overview
 
-The Synergy System computes combined effect multipliers when multiple components or entities collaborate on a single action. It plugs into the existing action execution pipeline, modifying the final outcome ("X") based on component compositions and multi-entity collaborations.
+The synergy system computes combined effect multipliers when multiple components collaborate on a single action. When multiple components of the same type are selected, the synergy multiplier is applied to the action's consequence values.
 
-## What is "X"?
+## How It Works
 
-"X" is the **effective output value** of an action consequence — e.g., the actual damage dealt, the actual movement speed, or the actual healing amount. The synergy system modifies these values before consequences are applied.
-
-## Architecture
-
-```mermaid
-graph TD
-    Client --> Server
-    Server --> WorldStateController
-    WorldStateController --> ActionController
-    WorldStateController --> SynergyController
-    
-    ActionController --> SynergyController
-    ActionController --> ConsequenceHandlers
-    
-    SynergyController --> ComponentController
-    SynergyController -.->|reads stats| StateEntityController
-    
-    SynergyController --> SynergyScaling
+```
+Client selects 2+ components → Server computes synergy → Multiplier applied to consequences
 ```
 
-### Data Loading Flow
+### Synergy Configuration
 
-```mermaid
-graph LR
-    WSC[WorldStateController] -->|load| ActionsJSON[data/actions.json]
-    WSC -->|load| SynergyJSON[data/synergy.json]
-    WSC -->|inject| SynergyController
-    SynergyController -->|uses| SynergyJSON
-    WSC -->|inject| ActionController
-    ActionController -->|uses| SynergyController
-```
-
-**Key Change**: Synergy configurations are **decoupled** from action definitions and loaded from a standalone `data/synergy.json` file. This follows the Single Responsibility Principle — actions define *what they do*, synergy defines *how components/entities collaborate*.
-
-## Components
-
-### 1. SynergyController (`src/controllers/synergyController.js`)
-
-The main controller that computes synergy multipliers for actions.
-
-**Constructor Signature:**
-```javascript
-constructor(worldStateController, actionRegistry, synergyRegistry, actionSelectController)
-```
-
-- `worldStateController`: Root state controller (injected)
-- `actionRegistry`: Full action registry from `data/actions.json`
-- `synergyRegistry`: Synergy registry from `data/synergy.json` (optional — auto-loaded if not provided)
-- `actionSelectController`: Component selection controller (for locked-component exclusion)
-
-**Key Responsibilities:**
-- Compute single-entity component group synergy
-- Compute multi-entity collaboration synergy
-- Compute client-provided component synergy (multi-component selection)
-- Apply caps to computed multipliers
-- Build human-readable summaries
-
-**Public API:**
-
-| Method | Parameters | Returns | Description |
-|--------|-----------|---------|-------------|
-| `computeSynergy()` | `actionName, entityId, context` | `SynergyResult` | Main entry — computes synergy for an action |
-| `computeMultiEntitySynergy()` | `actionName, groupDef, config` | `{multiplier, components}` | Multi-entity collaboration |
-| `applySynergyToResult()` | `synergyResult, baseValue` | `number` | Caps and applies multiplier |
-| `getSynergySummary()` | `synergyResult` | `string` | Human-readable summary |
-| `getSynergyConfig()` | `actionName` | `SynergyConfig` | Get synergy config for an action |
-| `getActionsWithSynergy()` | — | `string[]` | All actions with synergy enabled |
-| `clearCache()` | — | — | Clear the synergy cache |
-
-**Private Methods (New):**
-
-| Method | Parameters | Returns | Description |
-|--------|-----------|---------|-------------|
-| `_evaluateProvidedComponents()` | `actionName, entityId, providedComponentIds, config` | `{multiplier, components}` | Evaluate synergy from client-provided component list |
-| `_filterProvidedComponentsForGroup()` | `actionName, entityId, providedComponentIds, groupDef` | `Array` | Filter provided components for a group |
-| `_matchesRoleFilter()` | `stats, roleFilter, component` | `boolean` | Check if component matches role filter |
-
-### 2. SynergyScaling (`src/utils/SynergyScaling.js`)
-
-Provides three scaling curve functions:
-
-| Curve | Formula | Use Case |
-|-------|---------|----------|
-| `linear` | `base + bonus * (count - 1)` | Simple additive bonus |
-| `diminishingReturns` | `base + bonus * (1 - e^(-2*(count-1)))` | Saturation curves (e.g., shooting) |
-| `increasingReturns` | `base + bonus * (count-1)^1.5` | Accelerating curves (e.g., combos) |
-
-## Data Model
-
-### Standalone Synergy Definition (`data/synergy.json`)
-
-Synergy configs are in a separate file from actions:
+Synergy configs are defined in `data/synergy.json` (separate from actions.json for decoupling):
 
 ```json
 {
-  "actionName": {
+  "move": {
     "enabled": true,
     "multiEntity": false,
-    "scaling": "linear",
+    "scaling": "diminishingReturns",
+    "caps": {},
+    "componentGroups": [
+      {
+        "groupType": "movementComponents",
+        "minCount": 1,
+        "baseMultiplier": 1.0,
+        "perUnitBonus": 0.3,
+        "roleFilter": "source"
+      }
+    ]
+  },
+  "droid punch": {
+    "enabled": true,
+    "multiEntity": false,
+    "scaling": "diminishingReturns",
     "caps": {
-      "effectKey": { "max": 1.25, "req": "trait.stat" }
+      "damage": { "max": 1.1, "req": "Physical.stability" }
     },
     "componentGroups": [
       {
         "groupType": "sameComponentType",
+        "componentType": "droidHand",
         "minCount": 2,
-        "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
-        "perUnitBonus": 0.05
+        "perUnitBonus": 0.05,
+        "roleFilter": "source"
       }
     ]
   }
 }
 ```
 
-### SynergyResult Object
+## Synergy Application
+
+### Backend Application
+
+Synergy multipliers are applied in `ActionController._executeConsequences()` and `ActionController._executeMultiAttackerConsequences()`.
+
+**Critical:** The synergy multiplier is applied to **ALL numeric consequence properties**, not just `value`. This ensures synergy works for:
+- `speed` (deltaSpatial - move/dash distance)
+- `value` (damageComponent, updateComponentStatDelta)
+- Any other numeric parameter added to consequences
 
 ```javascript
-{
-  actionName: string,           // The action this synergy applies to
-  baseValue: number,            // Original consequence value
-  synergyMultiplier: number,    // Computed multiplier (> 1.0 = bonus)
-  finalValue: number,           // After caps
-  capped: boolean,              // Whether the value was capped
-  capKey: string | null,        // Which cap was applied
-  contributingComponents: [     // List of contributors
-    { componentId, entityId, componentType, contribution, role? }
-  ],
-  summary: string               // "Synergy: 1.35x, 2 entities, 3 components"
+// Applied to ALL numeric properties in resolvedParams
+if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams === 'object' && resolvedParams !== null) {
+    for (const [key, val] of Object.entries(resolvedParams)) {
+        if (typeof val === 'number') {
+            resolvedParams[key] = synergyController
+                ? synergyController.applySynergyToResult(synergyResult, val)
+                : val;
+        }
+    }
 }
 ```
 
-### SynergyPreview Object (New)
+### Multi-Attacker Punch
 
-Sent in the server response for frontend display:
+For `droid punch` actions with multiple attacker components, each attacker deals its own separate damage:
 
 ```javascript
-{
-  multiplier: number,           // Computed synergy multiplier
-  finalValue: number,           // After caps
-  capped: boolean,              // Whether capped
-  capKey: string | null,        // Which cap was applied
-  contributingComponents: [     // Simplified contributor list
-    { componentId, entityId, componentType, contribution }
-  ],
-  summary: string               // Human-readable summary
+// Triggered when: actionName === 'droid punch' && attackerComponentIds.length > 1 && params.targetComponentId
+_executeMultiAttackerConsequences(actionName, entityId, attackerComponentIds, params, synergyResult)
+```
+
+Each attacker component:
+1. Reads its own `Physical.strength` value
+2. Creates a separate `damageComponent` consequence with `-strength` as damage
+3. Applies synergy multiplier to each damage value
+4. Executes the consequence against the target component
+
+**Example:** 4 components with strength 25, 25, 10, 10:
+- Attacker 1 (droidHand left): 25 damage
+- Attacker 2 (droidHand right): 25 damage
+- Attacker 3 (centralBall): 10 damage
+- Attacker 4 (droidHead): 10 damage
+- **Total: 70 damage** (before synergy multiplier)
+
+### Frontend Integration
+
+The frontend sends all selected attacker component IDs for punch actions:
+
+```javascript
+// App.js - handlePunchTarget
+if (attackerComponentIds.length > 1) {
+    const components = attackerComponentIds.map(compId => ({
+        componentId: compId,
+        role: 'source'
+    }));
+    await this.actions.executeMultiPunch(actionName, entityId, components, targetCompId);
 }
 ```
 
-## Group Types
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `sameComponentType` | Same component type on entity | 2x droidRollingBall |
-| `movementComponents` | All components with Movement trait | droidRollingBall + any move component |
-| `anyPhysical` | All components with Physical trait | droidHand + droidArm |
-| `anyComponent` | All components on entity | Everything |
-
-## Synergy Evaluation Modes
-
-### Mode 1: Auto-Gather (Legacy)
-
-When `computeSynergy()` is called **without** `providedComponentIds`, it uses the existing auto-gather logic:
-
-1. `_evaluateComponentGroups()` iterates through `config.componentGroups`
-2. `_gatherGroupMembers()` gathers members from the entity
-3. `_gather*` methods exclude locked components via `ActionSelectController.getLockedComponentIds()`
-4. Synergy multiplier calculated from gathered members
-
-**Use Case**: Actions where the server auto-determines contributing components.
-
-### Mode 2: Provided-Components (New)
-
-When `computeSynergy()` is called **with** `providedComponentIds`, it uses the new `_evaluateProvidedComponents()` method:
-
 ```javascript
-computeSynergy(actionName, entityId, {
-    providedComponentIds: [
-        { componentId: "uuid1", role: "source" },
-        { componentId: "uuid2", role: "source" }
-    ]
-});
-```
-
-**Flow:**
-1. `_evaluateProvidedComponents()` iterates through `config.componentGroups`
-2. `_filterProvidedComponentsForGroup()` filters the provided list for each group
-3. `_matchesRoleFilter()` checks if component stats match the role filter
-4. Synergy multiplier calculated from matching members
-5. Caps applied
-6. Result returned to `ActionController`
-
-**Use Case**: Multi-component selection where the user explicitly chooses which components contribute.
-
-### Mode 3: Multi-Entity Collaboration
-
-Multiple entities can collaborate on a single action. The client sends synergy groups with primary and supporting entities:
-
-```json
-{
-  "actionName": "dash",
-  "entityId": "entity-1",
-  "params": {
-    "synergyGroups": [
-      {
-        "primaryEntityId": "entity-1",
-        "primaryComponentId": "droidRollingBall-1",
-        "supportingEntityIds": ["entity-2"],
-        "supportingComponentIds": ["droidRollingBall-2"],
-        "perUnitBonus": 0.5
-      }
-    ]
-  }
+// ActionManager.js - executeMultiPunch
+async executeMultiPunch(actionName, entityId, attackerComponents, targetComponentId) {
+    const result = await this._sendActionRequest({
+        actionName,
+        entityId,
+        params: {
+            componentIds: attackerComponents,
+            targetComponentId
+        }
+    }, 'PUNCH_FAILED');
+    return result;
 }
 ```
 
-## Integration Flow
+## Synergy Scaling Curves
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as Server
-    participant A as ActionController
-    participant SC as SynergyController
-    participant H as ConsequenceHandlers
+Defined in `src/utils/SynergyScaling.js`:
 
-    C->>S: POST /execute-action
-    Note over C,S: With componentIds OR synergyGroups
-    S->>A: executeAction()
-    A->>SC: computeSynergy(actionName, entityId, context)
-    
-    alt providedComponentIds present
-        SC->>SC: _evaluateProvidedComponents()
-        SC->>SC: _filterProvidedComponentsForGroup()
-    else auto-gather mode
-        SC->>SC: _evaluateComponentGroups()
-        SC->>SC: _gatherGroupMembers()
-    end
-    
-    alt multiEntity enabled
-        SC->>SC: _evaluateMultiEntityGroup()
-    end
-    
-    SC->>SC: Apply caps
-    SC-->>A: SynergyResult
-    A->>H: _executeConsequences (with synergyResult)
-    H->>H: Apply synergy multiplier to values
-    H-->>A: results
-    A-->>S: { synergy, results }
-    S->>S: Build synergyPreview
-    S-->>C: response + synergyPreview
-    C->>UI: renderSynergyResult()
+| Curve | Formula | Description |
+|-------|---------|-------------|
+| `linear` | `base + (count-1) * bonus` | Straight line increase |
+| `diminishingReturns` | `base * (1 + bonus * (1 - 1/count))` | Each additional component adds less |
+| `increasingReturns` | `base * (1 + bonus * count^0.5)` | Each additional component adds more |
+
+## Known Actions with Synergy
+
+| Action | Synergy Type | Effect |
+|--------|-------------|--------|
+| `move` | Movement components | `speed * multiplier` → increased move distance |
+| `dash` | droidRollingBall + Movement | `speed * multiplier` → increased dash distance |
+| `droid punch` | droidHand (2+) | Each hand deals `strength * multiplier` damage |
+| `selfHeal` | Physical components | `value * multiplier` → increased healing (capped at 50) |
+
+## Bug Fixes
+
+### Fix 1: Synergy Not Applied to Non-Value Properties (2026-04-26)
+
+**Problem:** Synergy multiplier was only applied to `resolvedParams.value`, but `move` uses `speed` as its parameter name. This caused synergy to be silently ignored for spatial actions.
+
+**Solution:** Modified `_executeConsequences()` to iterate over ALL numeric properties in `resolvedParams` and apply the synergy multiplier to each one.
+
+### Fix 2: Multi-Attacker Punch Only Used Last Component (2026-04-26)
+
+**Problem:** When 4 components were selected for punch, only the last component's strength value was used for damage. Expected: each component deals its own damage (25+25+10+10=70). Actual: only 10 damage.
+
+**Solution:** 
+1. Added `_executeMultiAttackerConsequences()` method that iterates over all attacker components
+2. Each attacker deals separate damage based on its own `Physical.strength`
+3. Frontend updated to send all attacker component IDs via `executeMultiPunch()`
+
+### Fix 3: Source Component Resolution Returns Target Instead of Attacker (2026-04-26)
+
+**Problem:** For multi-component punch actions with `componentIds` + `targetComponentId`, `_resolveSourceComponent()` Priority 2 returned `targetComponentId` (the enemy's component) instead of an attacker component. This caused binding validation to fail with "Source component not found on entity".
+
+**Solution:** Added Priority 1.5 in `_resolveSourceComponent()` that checks for `componentIds` + `targetComponentId` combination and uses `componentIds[0]` as the source instead of the target.
+
+### Fix 4: Synergy Role Filter Blocks Physical Components for Punch (2026-04-26)
+
+**Problem:** The `_matchesRoleFilter()` method for `'source'` role only allowed components with `Movement` traits. Punch attackers have `Physical` traits, so they were filtered out. Logs showed: `Group "sameComponentType" for droid punch has 0/2 provided members — skipped`.
+
+**Solution:** Modified `_matchesRoleFilter()` to allow both `Movement` AND `Physical` traits for the `'source'` role:
+- `Movement` = movement-based actions (move, dash)
+- `Physical` = attack-based actions (punch) where strength provides power
+
+### Fix 5: CRITICAL Error — `error.message` Access on Undefined (2026-04-26)
+
+**Problem:** The catch block in `_executeMultiAttackerConsequences` accessed `error.message` without null checking, causing `Cannot read properties of undefined (reading 'message')` when an unexpected error occurred.
+
+**Solution:** Added defensive null check before accessing `error.message`:
+```javascript
+const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
 ```
 
-## Server Response Format
+### Fix 6: `_gatherSameComponentType()` Also Blocks Punch Components (2026-04-26)
 
-### ActionController Integration
+**Problem:** The `_matchesRoleFilter()` method was fixed in Fix 4 to allow both `Movement` AND `Physical` traits for the `'source'` role. However, `_gatherSameComponentType()` (used for "sameComponentType" synergy groups like droid punch) was NOT updated. It still only checked for `Movement` traits, filtering out all droidHand components that have `Physical` traits.
 
+**Impact:** For 'droid punch' with `groupType: "sameComponentType"` and `roleFilter: "source"`, the synergy group had 0 members → synergy skipped.
+
+**Solution:** Updated `_gatherSameComponentType()` to also allow `Physical` traits for `source`/`spatial` role:
 ```javascript
-// In ActionController.executeAction():
-const synergyResult = this.synergyController.computeSynergy(
-  actionName, entityId, {
-    providedComponentIds: componentList,     // NEW: client-provided
-    synergyGroups: params?.synergyGroups,    // Legacy: multi-entity
-    sourceComponentId: resolvedSourceComponentId
-  }
-);
-```
-
-### Server Response Integration
-
-The server (`server.js`) now includes `synergyPreview` in the execute-action response:
-
-```javascript
-const responseResult = { ...result };
-if (result.success && result.synergy) {
-    responseResult.synergyPreview = {
-        multiplier: result.synergy.synergyMultiplier,
-        finalValue: result.synergy.finalValue,
-        capped: result.synergy.capped,
-        capKey: result.synergy.capKey,
-        contributingComponents: result.synergy.contributingComponents.map((c) => ({
-            componentId: c.componentId,
-            entityId: c.entityId,
-            componentType: c.componentType,
-            contribution: c.contribution
-        })),
-        summary: result.synergy.summary
-    };
+if (roleFilter === 'source' || roleFilter === 'spatial') {
+    return (stats.Movement && Object.keys(stats.Movement).length > 0) ||
+           (stats.Physical && Object.keys(stats.Physical).length > 0);
 }
 ```
 
-### Frontend Display
+### Fix 7: Main `executeAction` Catch Block Also Accesses `error.message` on Undefined (2026-04-27)
 
-The `UIManager.renderSynergyResult()` method displays synergy feedback:
+**Problem:** Fix 5 only patched the catch block inside `_executeMultiAttackerConsequences`, but the outer `executeAction` try-catch block had the same vulnerability. When an unexpected error occurred, the outer catch block tried to access `error.message` on an undefined value, causing the CRITICAL error: "Cannot read properties of undefined (reading 'message')".
 
-```
-Synergy: 1.05x
-• droidHand (left-hand-...)
-• droidHand (right-hand-...)
-```
+**Impact:** Multi-attacker punch with 4 components crashed with CRITICAL error even though synergy was computed successfully.
 
-The display auto-hides after 8 seconds.
-
-## Server Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/synergy/actions` | GET | All actions with synergy enabled |
-| `/synergy/config/:actionName` | GET | Synergy config for an action |
-| `/synergy/preview` | POST | Preview synergy without executing |
-
-## WorldStateController Integration
-
-The WorldStateController instantiates SynergyController as part of the DI chain:
-
+**Solution:** Applied the same defensive null check to the main `executeAction` catch block:
 ```javascript
-// Step 5: Load synergy.json separately
-const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
-
-// Step 5: Instantiate SynergyController with separate synergy registry
-const synergyController = new SynergyController(
-    this, actionRegistry, synergyRegistry, actionSelectController
-);
-this.synergyController = synergyController;
-
-// Step 6: Inject into ActionController
-const actionController = new ActionController(
-    this, consequenceHandlers, actionRegistry,
-    componentCapabilityController, synergyController, actionSelectController
-);
+const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
 ```
 
-## Coding Standards
+### Fix 8: `_executeConsequences` Catch Block Also Accesses `error.message` on Undefined (2026-04-27)
 
-- **SRP**: SynergyController only computes multipliers, never executes consequences
-- **Loose Coupling**: Reads via public APIs (ComponentController, StateEntityController)
-- **No Magic Numbers**: All thresholds defined in SynergyScaling.js
-- **Structured Logging**: Uses Logger utility with severity levels
-- **Type Safety**: JSDoc annotations for all public methods
-- **Data Decoupling**: Synergy configs are in `data/synergy.json`, not embedded in `data/actions.json`
+**Problem:** The catch block inside `_executeConsequences` (used for single-attacker actions like `move`) also accessed `error.message` without null checking.
 
-## Related Documentation
+**Impact:** If any consequence handler threw an unexpected error, the `_executeConsequences` catch block would crash with the same "Cannot read properties of undefined (reading 'message')" error.
 
-- [Controller Patterns](controller_patterns.md) — Dependency Injection standards
-- [Action System](action_system.md) — Action execution pipeline
-- [Component Selection](component_selection.md) — Multi-component selection system
-- [Code Quality](../code_quality_and_best_practices.md) — Engineering standards
+**Solution:** Applied the same defensive null check to the `_executeConsequences` catch block:
+```javascript
+const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+```
