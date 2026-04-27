@@ -118,14 +118,13 @@ app.post('/chat', async (req, res) => {
  */
 app.get('/actions', (req, res) => {
     try {
-        const state = worldStateController.getAll();
         const { entityId } = req.query;
 
         let actionStatus;
         if (entityId) {
-            actionStatus = worldStateController.actionController.getActionsForEntity(state, entityId);
+            actionStatus = worldStateController.getActionsForEntity(entityId);
         } else {
-            actionStatus = worldStateController.actionController.getActionCapabilities(state);
+            actionStatus = worldStateController.getActionCapabilities();
         }
         
         res.json({ actions: actionStatus });
@@ -143,7 +142,7 @@ app.get('/actions', (req, res) => {
  */
 app.get('/action-capabilities', (req, res) => {
     try {
-        const capabilities = worldStateController.componentCapabilityController.getCachedCapabilities();
+        const capabilities = worldStateController.getCachedCapabilities();
         res.json({ capabilities });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -160,7 +159,7 @@ app.get('/action-capabilities', (req, res) => {
 app.get('/action-capabilities/:actionName', (req, res) => {
     try {
         const { actionName } = req.params;
-        const bestComponent = worldStateController.componentCapabilityController.getBestComponentForAction(actionName);
+        const bestComponent = worldStateController.getBestComponentForAction(actionName);
 
         if (!bestComponent) {
             return res.status(404).json({
@@ -186,7 +185,7 @@ app.get('/action-capabilities/:actionName', (req, res) => {
 app.get('/action-capabilities/entity/:entityId', (req, res) => {
     try {
         const { entityId } = req.params;
-        const capabilities = worldStateController.componentCapabilityController.getCapabilitiesForEntity(entityId);
+        const capabilities = worldStateController.getCapabilitiesForEntity(entityId);
 
         if (capabilities.length === 0) {
             return res.status(404).json({
@@ -219,8 +218,7 @@ app.post('/refresh-entity-capabilities', (req, res) => {
     }
 
     try {
-        const state = worldStateController.getAll();
-        const updatedEntries = worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
+        const updatedEntries = worldStateController.reEvaluateEntityCapabilities(entityId);
         res.json({ entityId, updatedEntries });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -247,9 +245,9 @@ app.post('/execute-action', (req, res) => {
 
     try {
         // Expire stale selections before executing any action
-        worldStateController.actionSelectController.expireStaleSelections();
+        worldStateController.expireStaleSelections();
 
-        const result = worldStateController.actionController.executeAction(actionName, entityId, params);
+        const result = worldStateController.executeAction(actionName, entityId, params);
 
         // Build response with synergy preview for successful executions
         const responseResult = { ...result };
@@ -339,7 +337,7 @@ app.get('/world-state', (req, res) => {
  */
 app.get('/rooms', (req, res) => {
     try {
-        const rooms = worldStateController.roomsController.getAll();
+        const rooms = worldStateController.getRooms();
         res.json({ rooms });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -482,7 +480,7 @@ app.post('/select-components', (req, res) => {
     }
 
     try {
-        const result = worldStateController.actionSelectController.registerSelections(
+        const result = worldStateController.registerSelections(
             actionName, entityId, components
         );
         res.json(result);
@@ -512,7 +510,7 @@ app.post('/select-component', (req, res) => {
     }
 
     try {
-        const result = worldStateController.actionSelectController.registerSelection(
+        const result = worldStateController.registerSelection(
             actionName, componentId, entityId, role
         );
         res.json(result);
@@ -542,7 +540,7 @@ app.post('/release-selection', (req, res) => {
     }
 
     try {
-        const released = worldStateController.actionSelectController.releaseSelection(componentId);
+        const released = worldStateController.releaseSelection(componentId);
         res.json({ success: true, released });
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);
@@ -568,7 +566,7 @@ app.get('/selections/:entityId', (req, res) => {
     }
 
     try {
-        const selections = worldStateController.actionSelectController.getLockedComponents(entityId);
+        const selections = worldStateController.getLockedComponents(entityId);
         res.json(selections);
     } catch (error) {
         console.error(`[Server Error] ${error.message}`);

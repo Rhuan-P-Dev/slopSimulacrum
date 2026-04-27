@@ -7,3 +7,5 @@ import crypto from 'crypto';
 export function generateUID() {
     return crypto.randomUUID();
 }
+
+export default generateUID;

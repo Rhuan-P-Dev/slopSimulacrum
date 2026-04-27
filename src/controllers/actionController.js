@@ -228,6 +228,11 @@ class ActionController {
         // Track which components need to be released after execution
         const componentsToRelease = [];
 
+        // Expire any stale selections from previous actions before executing
+        if (this.actionSelectController) {
+            this.actionSelectController.expireStaleSelections();
+        }
+
         try {
             const action = this.actionRegistry[actionName];
 

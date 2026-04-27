@@ -24,11 +24,13 @@ export const ACTION_SCORING = {
     
     /** Ratio above which a value is considered "significantly exceeding" the threshold */
     EXCEEDED_THRESHOLD_MULTIPLIER: 2.0,
+    
+    /**
+     * Factor used to determine if a value is "close" to a threshold.
+     * A value is considered close if: value / minValue > (1 / CLOSE_TO_THRESHOLD_FACTOR)
+     */
+    CLOSE_TO_THRESHOLD_FACTOR: 1.25,
 };
 
-/**
- * Factor used to determine if a value is "close" to a threshold.
- * A value is considered close if: value / minValue > (1 / CLOSE_TO_THRESHOLD_FACTOR)
- * @type {number}
- */
-export const CLOSE_TO_THRESHOLD_FACTOR = 1.25;
+// Backward compatibility alias for direct access
+export const CLOSE_TO_THRESHOLD_FACTOR = ACTION_SCORING.CLOSE_TO_THRESHOLD_FACTOR;

@@ -207,6 +207,8 @@ export class ClientApp {
         if (this.selectedComponentIds.size === 1 && targetingType === 'self_target') {
             const compId = Array.from(this.selectedComponentIds)[0];
             await this._executeSelfTargetAction(actionName, entityId, compId, componentIdentifier);
+            // Clear pending action to prevent stale state on subsequent map clicks
+            this.actions.clearPendingAction();
         }
 
         // Re-render

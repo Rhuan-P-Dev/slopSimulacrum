@@ -196,8 +196,8 @@ For actions that involve both an attacker and a target (e.g., punch/attack actio
 
 **Placeholder Substitution:**
 - `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movement.move`).
-- **Embedded Support**: Placeholders can now be embedded within strings (e.g., `"Power is :Physical.strength"`) and will be automatically resolved.
 - **Arithmetic**: Supports signs and multipliers (e.g., `"-:Movement.move*2"`).
+- **Embedded Support**: Placeholders can be embedded within strings (e.g., `"Power is :Physical.strength"`) and will be automatically resolved. The system first attempts an exact match for numeric return, then falls back to template string replacement for embedded placeholders.
 
 **Example:** Move using deltaSpatial for relative movement:
 ```javascript
@@ -231,20 +231,11 @@ failureConsequences: [
 
 ## 5. Controller Methods
 
-### 5.1. ActionController.getActionsForEntity()
+### 5.1. ActionController — Action Execution Methods
 
-Retrieves only the actions that are relevant to a specific entity. Filters the cache by entityId to show only this entity's component capabilities.
+The `ActionController` is responsible for **executing game actions**: validating requirements, resolving components, and running consequences.
 
-```javascript
-/**
- * @param {Object} state - The current world state.
- * @param {string} entityId - The ID of the entity to filter for.
- * @returns {Object} Map of actions and their capability status for the entity.
- * Each action has: { ...actionData, canExecute: [entries], cannotExecute: [...] }
- */
-```
-
-### 5.2. ActionController.executeAction()
+#### 5.1.1. ActionController.executeAction()
 
 Executes an action on an entity with component selection validation and binding enforcement.
 
@@ -344,7 +335,7 @@ Role validation is skipped for `spatial` and `none` targetingType actions becaus
 }
 ```
 
-### 5.3. ActionController._executeConsequences()
+#### 5.1.2. ActionController._executeConsequences()
 
 Executes success consequences by reading from the action registry and dispatching to the injected `ConsequenceHandlers`.
 
@@ -368,10 +359,22 @@ This ensures that spatial actions (like `move`, `dash`) correctly operate on the
  */
 ```
 
-### 5.4. ActionController.getActionCapabilities()
+#### 5.1.3. ActionController._executeFailureConsequences()
+
+Executes failure consequences using the same dispatcher pattern.
+
+```javascript
+/**
+ * @param {string} actionName - The action name.
+ * @param {string} entityId - The entity ID.
+ * @returns {Object} Result of failure consequence execution.
+ */
+```
+
+#### 5.1.4. ActionController.getActionCapabilities()
 
 Calculates which entities are capable of executing which actions based on the current world state.
-Uses the cached capability data. If cache is empty, performs a full scan.
+Delegates to `ComponentCapabilityController` for cache data.
 
 ```javascript
 /**
@@ -381,7 +384,30 @@ Uses the cached capability data. If cache is empty, performs a full scan.
  */
 ```
 
-### 5.5. ActionController.scanAllCapabilities(state)
+#### 5.1.5. ActionController.getActionsForEntity()
+
+Retrieves only the actions that are relevant to a specific entity. Filters the cache by entityId to show only this entity's component capabilities.
+
+```javascript
+/**
+ * @param {Object} state - The current world state.
+ * @param {string} entityId - The ID of the entity to filter for.
+ * @returns {Object} Map of actions and their capability status for the entity.
+ * Each action has: { ...actionData, canExecute: [entries], cannotExecute: [...] }
+ */
+```
+
+#### 5.1.6. ConsequenceHandlers.handlers
+
+Instead of an internal dispatcher, the `ActionController` uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
+
+---
+
+### 5.2. ComponentCapabilityController — Capability Cache Methods
+
+The `ComponentCapabilityController` is responsible for **managing the capability cache** that maps each action to an array of all qualifying component capability entries. The `ActionController` delegates all capability cache queries to this controller.
+
+#### 5.2.1. ComponentCapabilityController.scanAllCapabilities(state)
 
 Performs a full bottom-up scan of all entities and their components against all registered actions.
 Updates the capability cache with ALL qualifying component entries (not just the best one).
@@ -393,7 +419,7 @@ Updates the capability cache with ALL qualifying component entries (not just the
  */
 ```
 
-### 5.6. ActionController.reEvaluateActionForComponent(state, actionName, componentId)
+#### 5.2.2. ComponentCapabilityController.reEvaluateActionForComponent(state, actionName, componentId)
 
 Re-evaluates a specific action for a specific component. Finds the entry in the action's array and updates or removes it. Called when a component stat changes.
 
@@ -406,7 +432,7 @@ Re-evaluates a specific action for a specific component. Finds the entry in the 
  */
 ```
 
-### 5.7. ActionController.reEvaluateAllActionsForComponent(state, componentId)
+#### 5.2.3. ComponentCapabilityController.reEvaluateAllActionsForComponent(state, componentId)
 
 Re-evaluates all actions that depend on a specific component's traits.
 Uses the reverse index for efficient lookup.
@@ -419,7 +445,7 @@ Uses the reverse index for efficient lookup.
  */
 ```
 
-### 5.8. ActionController.reEvaluateEntityCapabilities(state, entityId)
+#### 5.2.4. ComponentCapabilityController.reEvaluateEntityCapabilities(state, entityId)
 
 Re-evaluates ALL actions for a specific entity. Removes all entries for this entity from all actions, then re-scans all components against all actions. Called when an entity's component set changes (e.g., picks up/drops an item, spawns).
 
@@ -431,7 +457,7 @@ Re-evaluates ALL actions for a specific entity. Removes all entries for this ent
  */
 ```
 
-### 5.9. ActionController.removeEntityFromCache(entityId)
+#### 5.2.5. ComponentCapabilityController.removeEntityFromCache(entityId)
 
 Removes all capability entries for an entity from all action arrays. Called when an entity is despawned.
 
@@ -441,7 +467,7 @@ Removes all capability entries for an entity from all action arrays. Called when
  */
 ```
 
-### 5.10. ActionController.getCachedCapabilities()
+#### 5.2.6. ComponentCapabilityController.getCachedCapabilities()
 
 Returns the cached capability entries for all actions without recomputation.
 
@@ -451,7 +477,7 @@ Returns the cached capability entries for all actions without recomputation.
  */
 ```
 
-### 5.11. ActionController.getBestComponentForAction(actionName)
+#### 5.2.7. ComponentCapabilityController.getBestComponentForAction(actionName)
 
 Returns the best entry for a specific action (highest score, first in array).
 
@@ -462,7 +488,7 @@ Returns the best entry for a specific action (highest score, first in array).
  */
 ```
 
-### 5.12. ActionController.getAllCapabilitiesForAction(actionName)
+#### 5.2.8. ComponentCapabilityController.getAllCapabilitiesForAction(actionName)
 
 Returns all capability entries for a specific action (sorted by score).
 
@@ -473,7 +499,7 @@ Returns all capability entries for a specific action (sorted by score).
  */
 ```
 
-### 5.13. ActionController.getCapabilitiesForEntity(entityId)
+#### 5.2.9. ComponentCapabilityController.getCapabilitiesForEntity(entityId)
 
 Returns capability entries for a specific entity across all actions. Filters the cache by entityId.
 
@@ -484,7 +510,7 @@ Returns capability entries for a specific entity across all actions. Filters the
  */
 ```
 
-### 5.14. ActionController.onStatChange(componentId, traitId, statName, newValue, oldValue)
+#### 5.2.10. ComponentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue)
 
 Called when a component stat changes. Re-evaluates all dependent actions.
 Registered as a stat change listener on ComponentController.
@@ -499,7 +525,7 @@ Registered as a stat change listener on ComponentController.
  */
 ```
 
-### 5.15. ActionController.on(actionName, callback) / off(actionName, callback)
+#### 5.2.11. ComponentCapabilityController.on(actionName, callback) / off(actionName, callback)
 
 Subscribe/unsubscribe to capability change events for a specific action.
 
@@ -510,23 +536,11 @@ Subscribe/unsubscribe to capability change events for a specific action.
  */
 ```
 
-### 5.16. ActionController._executeFailureConsequences()
+---
 
-Executes failure consequences using the same dispatcher pattern.
+### 5.3. stateEntityController — Spatial Update Method
 
-```javascript
-/**
- * @param {string} actionName - The action name.
- * @param {string} entityId - The entity ID.
- * @returns {Object} Result of failure consequence execution.
- */
-```
-
-### 5.17. ConsequenceHandlers.handlers
-
-Instead of an internal dispatcher, the `ActionController` now uses a strategy map provided by the `ConsequenceHandlers` class. This allows handlers to be updated or replaced without modifying the `ActionController` logic.
-
-### 5.18. stateEntityController.updateEntitySpatial()
+#### 5.3.1. stateEntityController.updateEntitySpatial()
 
 Updates an entity's spatial coordinates.
 
@@ -733,10 +747,12 @@ Always validate inputs and return descriptive error messages when actions fail.
 
 ### 8.6. Placeholder Naming
 
-Use the `:trait.stat` syntax (e.g., `:Movement.move`) to reference specific requirement values. Combine with arithmetic in strings for calculations:
+Use the `:trait.stat` syntax (e.g., `:Movement.move`) to reference specific requirement values. Combine with arithmetic for calculations:
 - `":trait.stat"` - Positive value
 - `" -:trait.stat"` - Negative value
 - `":trait.stat*2"` - Multiplied value
+
+Placeholders can be used as the **entire value** (returns a number) or **embedded within strings** (performs template string replacement).
 
 ---
 

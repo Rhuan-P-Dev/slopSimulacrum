@@ -231,6 +231,146 @@ class WorldStateController {
     previewActionData(actionName, entityId, context) {
         return this.actionController.previewActionData(actionName, entityId, context);
     }
+
+    // =========================================================================
+    // ACTION API WRAPPERS (for server.js access)
+    // =========================================================================
+
+    /**
+     * Returns actions relevant to a specific entity.
+     * @param {string} entityId - The entity ID.
+     * @returns {Object} Action status for the entity.
+     */
+    getActionsForEntity(entityId) {
+        const state = this.getAll();
+        return this.actionController.getActionsForEntity(state, entityId);
+    }
+
+    /**
+     * Returns all action capabilities across all entities.
+     * @returns {Object} Action capabilities data.
+     */
+    getActionCapabilities() {
+        const state = this.getAll();
+        return this.actionController.getActionCapabilities(state);
+    }
+
+    /**
+     * Executes an action on an entity.
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity executing the action.
+     * @param {Object} [params] - Optional action parameters.
+     * @returns {Object} Execution result.
+     */
+    executeAction(actionName, entityId, params) {
+        return this.actionController.executeAction(actionName, entityId, params);
+    }
+
+    // =========================================================================
+    // COMPONENT CAPABILITY API WRAPPERS (for server.js access)
+    // =========================================================================
+
+    /**
+     * Returns the cached action capability data for all actions.
+     * @returns {Object} Cached capabilities.
+     */
+    getCachedCapabilities() {
+        return this.componentCapabilityController.getCachedCapabilities();
+    }
+
+    /**
+     * Returns the best component for a specific action across all entities.
+     * @param {string} actionName - The action name.
+     * @returns {Object|null} Best component entry or null.
+     */
+    getBestComponentForAction(actionName) {
+        return this.componentCapabilityController.getBestComponentForAction(actionName);
+    }
+
+    /**
+     * Returns all capability entries for a specific entity across all actions.
+     * @param {string} entityId - The entity ID.
+     * @returns {Array} Capability entries array.
+     */
+    getCapabilitiesForEntity(entityId) {
+        return this.componentCapabilityController.getCapabilitiesForEntity(entityId);
+    }
+
+    /**
+     * Re-evaluates all action capabilities for a specific entity.
+     * @param {string} entityId - The entity ID.
+     * @returns {Array} Updated capability entries.
+     */
+    reEvaluateEntityCapabilities(entityId) {
+        const state = this.getAll();
+        return this.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
+    }
+
+    // =========================================================================
+    // ROOM API WRAPPERS (for server.js access)
+    // =========================================================================
+
+    /**
+     * Returns all rooms.
+     * @returns {Object} All rooms data.
+     */
+    getRooms() {
+        return this.roomsController.getAll();
+    }
+
+    // =========================================================================
+    // ACTION SELECTION API WRAPPERS (for server.js access)
+    // =========================================================================
+
+    /**
+     * Expires all stale component selections.
+     * Should be called before executing any action.
+     * @returns {void}
+     */
+    expireStaleSelections() {
+        this.actionSelectController.expireStaleSelections();
+    }
+
+    /**
+     * Locks multiple components to a specific action (batch selection).
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array} components - Array of {componentId, role} objects.
+     * @returns {Object} Selection result.
+     */
+    registerSelections(actionName, entityId, components) {
+        return this.actionSelectController.registerSelections(actionName, entityId, components);
+    }
+
+    /**
+     * Locks a single component to a specific action.
+     * @param {string} actionName - The action name.
+     * @param {string} componentId - The component ID.
+     * @param {string} entityId - The entity ID.
+     * @param {string} role - The component role.
+     * @returns {Object} Selection result.
+     */
+    registerSelection(actionName, componentId, entityId, role) {
+        return this.actionSelectController.registerSelection(actionName, componentId, entityId, role);
+    }
+
+    /**
+     * Releases (unlocks) a component selection.
+     * @param {string} componentId - The component ID to release.
+     * @returns {boolean} Whether the selection was released.
+     */
+    releaseSelection(componentId) {
+        return this.actionSelectController.releaseSelection(componentId);
+    }
+
+    /**
+     * Returns all current component selections for an entity.
+     * @param {string} entityId - The entity ID.
+     * @returns {Object} Locked components data.
+     */
+    getLockedComponents(entityId) {
+        return this.actionSelectController.getLockedComponents(entityId);
+    }
 }
 
 export default WorldStateController;

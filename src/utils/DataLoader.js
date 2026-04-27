@@ -23,8 +23,8 @@ class DataLoader {
             const data = fs.readFileSync(absolutePath, 'utf8');
             return JSON.parse(data);
         } catch (error) {
-            console.error(`[DataLoader] Failed to load file at ${relativePath}:`, error);
-            throw error;
+            console.error(`[DataLoader] Failed to load file at ${relativePath}:`, error.stack || error);
+            throw new Error(`[DataLoader] Failed to load file at ${relativePath}: ${error.message}`, { cause: error });
         }
     }
 

@@ -2,6 +2,8 @@
 
 This wiki is specifically designed for AI agents.
 
+> **Note:** The `wiki/subMDs/action/` directory was removed — it was empty and served no purpose. All action-related documentation lives in `action_system.md`.
+
 ### ⚠️ Mandatory Requirement for AI Agents
 All AI agents working on this project **must** use this wiki and its `subMDs` as the **single source of truth** for all code implementations.
 
@@ -10,7 +12,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 **Special Notice on Architecture:** The `subMDs/controller_patterns.md` guide is **obligatory**. All controllers must be implemented using the specified Dependency Injection patterns to prevent critical state desynchronization.
 
 ## Table of Contents
-- [About the Project](#)
+- [About the Project](#core-wiki)
 - [System Architecture Map](subMDs/system_map.md)
 - [Controller Relationship Map](map.md)
 - [Controller Patterns](subMDs/controller_patterns.md)

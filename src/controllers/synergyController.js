@@ -424,7 +424,13 @@ class SynergyController {
     _filterProvidedComponentsForGroup(actionName, entityId, providedComponentIds, groupDef) {
         const members = [];
 
+        // Get locked component IDs to exclude those locked to other actions
+        const lockedComponentIds = this._getLockedComponentIds(actionName);
+
         for (const { componentId, role } of providedComponentIds) {
+            // Exclude components locked to other actions
+            if (lockedComponentIds.has(componentId)) continue;
+
             // Find the component on the entity
             const entity = this.worldStateController.stateEntityController.getEntity(entityId);
             if (!entity) continue;
