@@ -78,16 +78,9 @@ The system supports `addGlobalProperty(trait_id, property_key, default_value)`. 
 - **Cache on Creation**: The merge process happens once during `initializeComponent`.
 - **Invalidation**: The cache is only recalculated if the `Global_Traits` are modified or the component's blueprint changes.
 
-## 5. Component Stats Persistence (Deep Trait-Level Merge)
+## 5. Component Stats Persistence
 
-### 5.1. The Merge Process in `ComponentStatsController.setStats()`
-When component stats are updated at runtime (e.g., via action consequences like `updateComponentStatDelta`), the `setStats()` method performs a **deep trait-level merge** to ensure that updating a single stat does not erase other stats within the same trait category.
-
-**Merge Algorithm:**
-1. Deep clone the existing stats (prevents external reference sharing).
-2. Deep clone the incoming stats.
-3. For each trait category in the incoming stats, merge within that trait: `{ ...existing[traitId], ...incoming[traitId] }`.
-4. Store the merged result.
+The system performs a **deep trait-level merge** when updating component stats at runtime (e.g., via `updateComponentStatDelta` consequences). This ensures that updating a single stat does not erase other stats within the same trait category.
 
 **Example:**
 ```
@@ -101,10 +94,9 @@ After update:
   ← mass, volume, temperature, strength are PRESERVED
 ```
 
-### 5.2. Why This Matters
-Without deep trait-level merging, updating one stat (e.g., `durability`) would replace the **entire** trait object, erasing all other stats in that category. This is critical for actions that modify individual stats while preserving the rest of the trait data.
-
 **Reference:** `src/controllers/componentStatsController.js` — `setStats()` method.
+
+🐛 For fix details on the deep trait-level merge implementation, see [BUG-005](../../bugfixWiki/high/BUG-005-deep-trait-merge.md).
 
 ---
 

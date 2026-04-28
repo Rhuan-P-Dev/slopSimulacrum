@@ -67,12 +67,7 @@ The `WorldStateController` provides public API wrapper methods that the server (
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` | Moves an entity to a different room |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` | Resolves a logical room name to its UUID |
 
-**❌ Prohibited — Direct sub-controller access:**
-```javascript
-// BAD: Direct sub-controller access
-worldStateController.stateEntityController.spawnEntity('droid', roomId);
-worldStateController.roomsController.getUidByLogicalId('start_room');
-```
+🐛 For fix details on the direct access pattern, see [BUG-009](../../bugfixWiki/high/BUG-009-server-direct-access.md).
 
 **✅ Mandatory — Use public API:**
 ```javascript
@@ -105,7 +100,7 @@ The `executeAction()` method tracks component locks in `componentsToRelease` arr
   - Single-component spatial: The resolved `resolvedSourceComponentId` is added
 - **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` tracked during validation
 
-**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
+🐛 For fix details, see [BUG-003](../../bugfixWiki/critical/BUG-003-spatial-action-lock-leak.md).
 
 **Component Binding Resolution Priority:**
 1. `attackerComponentId` from params → punch actions

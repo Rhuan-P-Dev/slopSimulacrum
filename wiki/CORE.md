@@ -13,6 +13,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ## Table of Contents
 - [About the Project](#core-wiki)
+- [Bugfix Wiki](bugfixWiki/README.md)
 - [System Architecture Map](subMDs/system_map.md)
 - [Controller Relationship Map](map.md)
 - [Controller Patterns](subMDs/controller_patterns.md)
@@ -34,6 +35,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)
+- [Bugfix Wiki](bugfixWiki/README.md)
 - [System Architecture Map](subMDs/system_map.md) (Deep Version)
 - [Controller Relationship Map](map.md)
 - [Controller Patterns](subMDs/controller_patterns.md)

@@ -203,9 +203,7 @@ When multiple components with `role: 'source'` are provided via `params.componen
 4. Damage is applied to `targetComponentId` for each attacker independently
 5. Synergy multiplier is applied to each attacker's damage
 
-**⚠️ Critical Fix**: Previously, the filter included `target` role components (`c.role === 'source' || c.role === 'target'`), causing enemy components to be treated as attackers. Since enemy components don't have the attacker's `Physical.strength`, damage was skipped → **0 damage**. Fixed to filter only `source` role.
-
-**Safety Fix**: The catch block in `_executeMultiAttackerConsequences()` now uses `consequence?.type || 'unknown'` and `consequence?.params?.message` to prevent CRITICAL errors when consequence data is malformed.
+🐛 For fix details, see [BUG-001](../../bugfixWiki/critical/BUG-001-multi-attacker-punch-target-role.md) and [BUG-002](../../bugfixWiki/critical/BUG-002-malformed-consequence-error.md).
 
 **Placeholder Substitution:**
 - `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movement.move`).
@@ -312,7 +310,7 @@ All actions track their component locks in `componentsToRelease` array, which is
   - Single-component spatial: The resolved `resolvedSourceComponentId` is added
 - **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` are tracked during validation
 
-**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
+🐛 For fix details, see [BUG-003](../../bugfixWiki/critical/BUG-003-spatial-action-lock-leak.md) and [BUG-004](../../bugfixWiki/high/BUG-004-role-mismatch-skip.md).
 
 **Component Binding Enforcement:**
 - If `componentBinding` is defined but no component resolves → return `COMPONENT_BINDING_MISMATCH`
