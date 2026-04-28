@@ -361,10 +361,10 @@ class ActionController {
             if (params && params.attackerComponentId) {
                 attackerComponentIds = [params.attackerComponentId];
             } else if (params && params.componentIds && Array.isArray(params.componentIds)) {
-                // For attack actions: extract attacker components from componentIds
-                // Components with 'source' role or components that have Physical traits (strength)
+                // For attack actions: extract ONLY source role components as attackers
+                // Target components are enemies being hit, not attackers
                 attackerComponentIds = params.componentIds
-                    .filter(c => c.role === 'source' || c.role === 'target')
+                    .filter(c => c.role === 'source')
                     .map(c => c.componentId);
             }
 
@@ -1054,7 +1054,7 @@ class ActionController {
                     };
                 }
                 // For log consequences: resolve placeholders with attacker's values
-                if (consequence.type === 'log') {
+                if (consequence.type === 'log' && consequence?.params?.message) {
                     const resolvedMessage = consequence.params.message
                         .replace(/:Physical\.strength/g, String(attackerStrength));
                     return { type: 'log', params: { ...consequence.params, message: resolvedMessage } };
@@ -1104,13 +1104,14 @@ class ActionController {
                 } catch (error) {
                     // Defensive: handle case where error is undefined or not an Error object
                     const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+                    const consequenceType = consequence?.type || 'unknown';
                     allResults.push({
                         success: false,
                         error: this._resolveError({
                             code: 'CONSEQUENCE_EXECUTION_FAILED',
-                            details: { type: consequence.type, error: errorMsg }
+                            details: { type: consequenceType, error: errorMsg }
                         }),
-                        type: consequence.type,
+                        type: consequenceType,
                         attackerComponentId: attackerId
                     });
                 }

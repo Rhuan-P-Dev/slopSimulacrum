@@ -194,6 +194,19 @@ For actions that involve both an attacker and a target (e.g., punch/attack actio
 // not -10 (from target's global defaults).
 ```
 
+**Multi-Attacker Punch (Multiple Source Components):**
+When multiple components with `role: 'source'` are provided via `params.componentIds`, the `_executeMultiAttackerConsequences()` method processes each attacker separately:
+
+1. Client sends `params.componentIds = [{componentId, role: 'source'}, ...]` with `params.targetComponentId`
+2. `attackerComponentIds` is built by filtering `componentIds` for `role === 'source'` **only** (target components are excluded)
+3. Each attacker's `Physical.strength` is used to calculate individual damage
+4. Damage is applied to `targetComponentId` for each attacker independently
+5. Synergy multiplier is applied to each attacker's damage
+
+**⚠️ Critical Fix**: Previously, the filter included `target` role components (`c.role === 'source' || c.role === 'target'`), causing enemy components to be treated as attackers. Since enemy components don't have the attacker's `Physical.strength`, damage was skipped → **0 damage**. Fixed to filter only `source` role.
+
+**Safety Fix**: The catch block in `_executeMultiAttackerConsequences()` now uses `consequence?.type || 'unknown'` and `consequence?.params?.message` to prevent CRITICAL errors when consequence data is malformed.
+
 **Placeholder Substitution:**
 - `:trait.stat` - Replaced with the actual value of the specified trait and stat (e.g., `:Movement.move`).
 - **Arithmetic**: Supports signs and multipliers (e.g., `"-:Movement.move*2"`).
