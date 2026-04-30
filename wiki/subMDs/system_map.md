@@ -17,7 +17,7 @@ graph TD
 ```
 
 **Injection Order (Root Injector — Bottom-Up):**
-`ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` → `stateEntityController` → `WorldStateController`
+`ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` (injected with ComponentController + blueprintRegistry from `data/blueprints.json`) → `stateEntityController` → `WorldStateController`
 
 **Note:** `ComponentStatsController` and `TraitsController` are both bottom-level data stores instantiated first. `ComponentController` receives both as injected dependencies. The order in the diagram shows the logical dependency chain, not the instantiation sequence.
 
@@ -33,7 +33,7 @@ graph TD
 | **WorldStateController** | Root Coordinator | Root Injection, Global State Aggregation, Stat Change Wiring, Public API Wrappers | `subControllers` map |
 | **RoomsController** | Room Manager | Room definitions, coordinates, and connections | `rooms` (with x, y, width, height) |
 | **stateEntityController** | Instance Manager | Lifecycle (Spawn/Move/Despawn) of active entities | `entities` (active instances with spatial) |
-| **entityController** | Blueprint Registry | Defining entity "DNA" and composition | `blueprints` (entity types) |
+| **entityController** | Blueprint Registry | Loading entity blueprints from `data/blueprints.json` via DataLoader | `blueprints` (entity types from JSON data file) |
 | **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging + Stat Change Notifications | `componentRegistry` (blueprint traits) |
 | **componentStatsController** | Data Store | Persisting raw stats with deep trait-level merge | `componentStats` (instance IDs → values) |
 | **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
@@ -86,11 +86,13 @@ Components have Spatial trait with position offsets:
 When `WorldStateController` spawns an entity:
 1. `stateEntityController.spawnEntity(blueprintName, roomId)`
 2. → `entityController.createEntityFromBlueprint(blueprintName)`
-3. → `entityController.expandBlueprint(blueprintName)` (Recursive expansion)
+3. → `entityController.expandBlueprint(blueprintName)` (Recursive expansion with cycle detection)
 4. → For each component: `componentController.initializeComponent(type, instanceId)`
 5. → `traitsController.mergeTraits(blueprintTraits)` (Merge: Blueprint Overrides ∪ Global Defaults)
 6. → `componentStatsController.setStats(instanceId, finalStats)`
 7. → `stateEntityController` stores the final entity object with its component IDs and location.
+
+**Note:** Blueprints are loaded from `data/blueprints.json` at `EntityController` construction via `DataLoader.loadJsonSafe()`, following the data-driven design principle.
 
 ### 3.2. Stat Update Flow
 When a component stat changes:

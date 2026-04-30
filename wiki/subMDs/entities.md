@@ -89,13 +89,16 @@ The system operates through a chain of specialized controllers:
 
 ### 2.2. entityController (`src/controllers/entityController.js`)
 - **Role**: Blueprint Registry.
-- **Responsibility**: Stores the "DNA" or blueprints of entities.
+- **Responsibility**: Loads and manages entity blueprints from `data/blueprints.json` via the `DataLoader` utility.
 - **Composition Logic**: Defines which components make up a specific entity type.
-- **Example Blueprint**:
+- **Data-Driven**: Blueprints are loaded from JSON at runtime, not hardcoded in source code.
+- **Constructor Injection**: Accepts optional `blueprints` parameter for testing; falls back to `DataLoader.loadJsonSafe('data/blueprints.json', {})`.
+- **Example Blueprints** (from `data/blueprints.json`):
   - `"smallBallDroid"`: `["centralBall"]`
   - `"centralBall"`: `["droidHead", ["droidArm", "left"], ["droidArm", "right"], "droidRollingBall"]`
   - `"droidArm"`: `["droidHand"]`
   - `"droidHand"`: `[["humanoidDroidFinger", "left"], ["humanoidDroidFinger", "middle"], ["humanoidDroidFinger", "right"]]`
+  - `"knife"`: `["knife"]` (standalone item entity)
 
 ### 2.3. componentController (`src/controllers/componentController.js`)
 - **Role**: Component Coordinator.
@@ -109,10 +112,26 @@ The system operates through a chain of specialized controllers:
 
 ## 3. Implementation Guidelines
 
-### 3.1. Creating a New Entity
-1. **Define the Blueprint**: Add the hierarchy to the `entityController` blueprint map.
-2. **Define Components**: Ensure all components used in the blueprint are recognized by the `componentController`.
-3. **Initialize Stats**: Define the base stats for the components in the `componentStatsController`.
+### 3.1. Creating a New Entity (Data-Driven)
+1. **Define the Component**: Add the component definition to `data/components.json` with traits (Physical, Spatial, Mind, Movement).
+2. **Define the Blueprint**: Add the blueprint entry to `data/blueprints.json` specifying the component hierarchy.
+3. **Initialize Stats**: Stats are automatically initialized via `ComponentStatsController` when the entity spawns (uses deep trait-level merge).
+
+**Example — Adding a New Item (Knife):**
+```json
+// data/components.json
+"knife": {
+  "traits": {
+    "Physical": { "durability": 60, "strength": 15, "mass": 2, "sharpness": 20 },
+    "Spatial": { "x": 0, "y": 0 }
+  }
+}
+
+// data/blueprints.json
+"knife": ["knife"]
+```
+
+To spawn in the world, call `stateEntityController.spawnEntity('knife', roomId)` from `WorldStateController`.
 
 ### 3.2. Entity Spatial Coordinates
 Entities now have a `spatial` property that stores their position relative to their current room:
@@ -146,10 +165,9 @@ Components also have `Spatial` trait with `x` and `y` values that define their p
 - Example: `droidArm` at `x: 20, y: 10` appears to the right and below the center.
 
 ### 3.4. Creating a New Entity with Spatial Traits
-1. **Define the Blueprint**: Add the hierarchy to the `entityController` blueprint map.
-2. **Define Components**: Ensure all components used in the blueprint are recognized by the `componentController`.
-3. **Define Spatial Traits**: Add `Spatial` trait with `x` and `y` offsets to each component in `componentController.js`.
-4. **Initialize Stats**: Define the base stats for the components in the `componentStatsController`.
+1. **Define the Component**: Add the component to `data/components.json` with `Spatial` trait (`x`, `y` offsets).
+2. **Define the Blueprint**: Add the hierarchy to `data/blueprints.json`.
+3. **Spawn Entity**: Use `stateEntityController.spawnEntity(blueprintName, roomId)` and optionally `updateEntitySpatial(entityId, {x, y})` for placement.
 
 ### 3.5. Manipulating Entities
 All manipulations must flow through the `stateEntityController` to ensure that changes are reflected in the global world state and that the correct components are updated.

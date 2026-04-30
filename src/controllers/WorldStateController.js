@@ -37,8 +37,9 @@ class WorldStateController {
         const traitsController = new TraitsController(traitsRegistry);
 
         // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
+        const blueprintRegistry = DataLoader.loadJsonSafe('data/blueprints.json', {});
         const componentController = new ComponentController(statsController, traitsController, componentRegistry);
-        const entityController = new EntityController(componentController);
+        const entityController = new EntityController(componentController, blueprintRegistry);
 
         // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
         const stateEntityControllerInstance = new stateEntityController(entityController);
@@ -104,6 +105,9 @@ class WorldStateController {
         // Initialize world with a sample droid as requested
         this.initializeWorld();
 
+        // Spawn the knife entity on the floor of the entrance hall
+        this._spawnKnifeInStartRoom();
+
         // Perform initial capability scan after entities are spawned
         // Delegates to ComponentCapabilityController via ActionController wrapper
         this.actionController.scanAllCapabilities(this.getAll());
@@ -122,6 +126,16 @@ class WorldStateController {
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
+    }
+
+    /**
+     * Spawns a knife entity on the floor of the start room.
+     * @private
+     */
+    _spawnKnifeInStartRoom() {
+        const knifeRoomId = this.roomsController.getUidByLogicalId('start_room');
+        const knifeEntityId = this.stateEntityController.spawnEntity('knife', knifeRoomId);
+        this.stateEntityController.updateEntitySpatial(knifeEntityId, { x: -50, y: 30 });
     }
 
     /**

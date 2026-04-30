@@ -36,5 +36,11 @@
       "Spatial": { "x": 0, "y": 20 },
       "Movement": { "move": 20 }
     } 
+  },
+  "knife": { 
+    "traits": { 
+      "Physical": { "durability": 60, "strength": 15, "mass": 2, "sharpness": 20 },
+      "Spatial": { "x": 0, "y": 0 }
+    } 
   }
 }

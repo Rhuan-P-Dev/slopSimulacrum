@@ -44,12 +44,14 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-020](medium/BUG-020-deltaspatial-speed-rendering.md) | deltaSpatial Speed Property Rendering | ✅ Fixed | `22bf5dc` | `UIManager.js` |
 | [BUG-022](medium/BUG-022-duplicate-contributing-components.md) | Duplicate Contributing Components in Synergy Result | ✅ Fixed | `22bf5dc` | `synergyController.js` |
 | [BUG-023](medium/BUG-023-range-indicator-ignores-synergy.md) | Range Indicator Ignores Synergy Multiplier | ✅ Fixed | `22bf5dc` | `App.js` |
+| [BUG-024](medium/BUG-024-blueprint-recursion-stackoverflow.md) | Blueprint Recursion: Leaf-Only Blueprints Stack Overflow | ✅ Fixed | `41014fb3` | `entityController.js` |
 
 ### 🟢 Low Severity
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
 | [BUG-016](low/BUG-016-ui-selection-state.md) | UI Actions Incorrectly Marked as Selected | ✅ Fixed | `bf19079` | `App.js` |
+| [BUG-025](low/BUG-025-startroomid-scope-bug.md) | `startRoomId` Scope Bug in `_spawnKnifeInStartRoom()` | ✅ Fixed | `41014fb3` | `WorldStateController.js` |
 
 ### 🏗️ Architectural Fixes
 

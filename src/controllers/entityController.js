@@ -1,41 +1,36 @@
 import ComponentController from './componentController.js';
 import { generateUID } from '../utils/idGenerator.js';
+import DataLoader from '../utils/DataLoader.js';
 
 /**
  * EntityController is responsible for storing entity blueprints and
  * managing the composition of entities.
+ * 
+ * Blueprints are data-driven: loaded from data/blueprints.json at runtime
+ * via the DataLoader utility, following the data-driven design principle.
  */
 class EntityController {
-    constructor(componentController) {
+    constructor(componentController, blueprints = null) {
         this.componentController = componentController;
         
-        // Entity Blueprints
-        // format: "blueprint_name": [composition_array]
-        // Composition array can contain strings (component names) or arrays [component_name, identifier/side]
-        this.blueprints = {
-            "smallBallDroid": ["centralBall"],
-            "centralBall": [
-                "droidHead", 
-                ["droidArm", "left"], 
-                ["droidArm", "right"], 
-                ["droidRollingBall", "left"], 
-                ["droidRollingBall", "right"], 
-            ],
-            "droidArm": ["droidHand"],
-            "droidHand": [
-                ["humanoidDroidFinger", "left"], 
-                ["humanoidDroidFinger", "middle"], 
-                ["humanoidDroidFinger", "right"]
-            ],
-        };
+        // Load blueprints from data file (decoupled from code).
+        // If blueprints are injected (e.g., for testing), use those instead.
+        this.blueprints = blueprints || DataLoader.loadJsonSafe('data/blueprints.json', {});
     }
 
     /**
      * Recursively expands a blueprint into a flat list of component definitions.
      * @param {string} blueprintName - The name of the blueprint to expand.
+     * @param {Set<string>} [visited] - Set of already-visited blueprint names to prevent infinite recursion.
      * @returns {Array} A list of components needed for the entity.
      */
-    expandBlueprint(blueprintName) {
+    expandBlueprint(blueprintName, visited = new Set()) {
+        if (visited.has(blueprintName)) {
+            // Prevent infinite recursion for leaf-only blueprints (e.g., knife)
+            return [];
+        }
+        visited.add(blueprintName);
+
         const components = [];
         const blueprint = this.blueprints[blueprintName];
 
@@ -51,7 +46,7 @@ class EntityController {
                 
                 // If the component itself is also a blueprint, expand it to add its children
                 if (this.blueprints[compName]) {
-                    components.push(...this.expandBlueprint(compName).map(c => 
+                    components.push(...this.expandBlueprint(compName, visited).map(c => 
                         Array.isArray(c) ? [c[0], `${c[1]}_${identifier}`] : [c, identifier]
                     ));
                 }
@@ -65,7 +60,7 @@ class EntityController {
                 
                 // If the component itself is also a blueprint, expand it to add its children
                 if (this.blueprints[compName]) {
-                    components.push(...this.expandBlueprint(compName));
+                    components.push(...this.expandBlueprint(compName, visited));
                 }
             }
         }

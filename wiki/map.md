@@ -78,12 +78,18 @@ graph TD
 ### 🟢 The World State Hierarchy (Bottom-Up)
 To understand how a piece of data is retrieved, follow this chain:
 
+0.  **JSON Data Files (Configuration)**:
+    - `data/actions.json`: Action definitions with requirements and consequences.
+    - `data/components.json`: Component type definitions with trait templates.
+    - `data/blueprints.json`: Entity blueprint definitions (component hierarchies).
+    - `data/traits.json`: Global trait molds.
+    - `data/synergy.json`: Synergy configurations.
 1.  **Data Layer (Bottom)**:
     - `ComponentStatsController`: Manages raw numeric values with **deep trait-level merge** (updating one stat preserves others in the same trait). See `wiki/subMDs/traits.md` Section 5.
     - `TraitsController`: Manages entity traits and their properties.
 2.  **Logic Layer (Middle)**:
-    - `ComponentController` → depends on `ComponentStatsController` & `TraitsController`.
-    - `EntityController` → depends on `ComponentController`.
+    - `ComponentController` → depends on `ComponentStatsController` & `TraitsController` & `componentRegistry`.
+    - `EntityController` → depends on `ComponentController` & `blueprintRegistry` (loaded from `data/blueprints.json`).
 3.  **Instance Layer (Top)**:
     - `stateEntityController` → depends on `EntityController`.
     - `RoomsController`: Manages spatial layout and room connectivity.
@@ -249,7 +255,7 @@ Returns complete preview data including action definition, resolved values, and 
 | Modify raw stats | `ComponentStatsController` | Lowest level |
 | Change entity traits | `TraitsController` | Lowest level |
 | Calculate component logic | `ComponentController` | Uses Stats & Traits |
-| Manage entity existence | `EntityController` | Uses Components |
+| Manage entity existence | `EntityController` | Uses Components + Blueprint Registry |
 | Spawn/Move entities | `stateEntityController` | Uses EntityController |
 | Modify room layout | `RoomsController` | Spatial state |
 | Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
@@ -257,6 +263,16 @@ Returns complete preview data including action definition, resolved values, and 
 | Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
 | Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
+
+## 📁 Data Files
+
+| File | Purpose |
+|------|---------|
+| `data/actions.json` | Action definitions (requirements, consequences) |
+| `data/components.json` | Component type definitions with trait templates |
+| `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
+| `data/traits.json` | Global trait molds |
+| `data/synergy.json` | Synergy configurations |
 
 ## ⚠️ Critical Rule for Agents
 **Never instantiate a controller manually** inside another controller. Always use the instances provided by `WorldStateController` or injected via the constructor. This prevents the "Dual State" bug where two controllers think the world is in different states.

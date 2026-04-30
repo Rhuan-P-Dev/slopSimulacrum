@@ -75,5 +75,14 @@ The project employs a middleware architecture with two primary flows:
 - **World State Management:** `Client` → `Server` → `WorldStateController` → `SubControllers`.
 
 **Entity Management Hierarchy:**
-`WorldStateController` → `stateEntityController` → `entityController` → `componentController` → `componentStatsController`.
+`WorldStateController` → `stateEntityController` → `entityController` (loads blueprints from `data/blueprints.json`) → `componentController` → `componentStatsController`.
+
+**Data Files:**
+| File | Purpose |
+|------|---------|
+| `data/actions.json` | Action definitions (requirements, consequences) |
+| `data/components.json` | Component type definitions with trait templates |
+| `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
+| `data/traits.json` | Global trait molds |
+| `data/synergy.json` | Synergy configurations |
 

@@ -1,0 +1,17 @@
+{
+  "smallBallDroid": ["centralBall"],
+  "centralBall": [
+    "droidHead",
+    ["droidArm", "left"],
+    ["droidArm", "right"],
+    ["droidRollingBall", "left"],
+    ["droidRollingBall", "right"]
+  ],
+  "droidArm": ["droidHand"],
+  "droidHand": [
+    ["humanoidDroidFinger", "left"],
+    ["humanoidDroidFinger", "middle"],
+    ["humanoidDroidFinger", "right"]
+  ],
+  "knife": ["knife"]
+}
