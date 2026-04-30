@@ -37,6 +37,11 @@ export class ClientApp {
         this.socket = io();
         this._setupSocketListeners();
         this._setupMapClickListener();
+
+        /**
+         * @type {Object|null} Current synergy preview result (from _updateSynergyPreview).
+         */
+        this.currentSynergyResult = null;
     }
 
     /**
@@ -107,7 +112,13 @@ export class ClientApp {
                 const droid = this.worldState.getActiveDroid();
                 const state = this.worldState.getState();
                 if (droid && state) {
-                    const range = this._calculateActionRange(pending.actionName, droid, state);
+                    // Get synergy multiplier from current preview (if available)
+                    const synergyMultiplier = this.currentSynergyResult
+                        ? parseFloat(this.currentSynergyResult.synergyMultiplier) || 1.0
+                        : 1.0;
+                    const range = this._calculateActionRange(
+                        pending.actionName, droid, state, synergyMultiplier
+                    );
                     if (range !== null) {
                         const isMovement = pending.actionName === AppConfig.ACTIONS.MOVE || pending.actionName === AppConfig.ACTIONS.DASH;
                         const color = isMovement ? 'white' : 'red';
@@ -263,10 +274,13 @@ export class ClientApp {
      * - 1 component: Shows action data (range, consequences, requirements)
      * - 2+ components: Shows synergy with modified values (before → after + bonus%)
      * 
+     * Stores the synergy result so _calculateActionRange can apply it to the range indicator.
+     * 
      * @param {string} entityId
      */
     async _updateSynergyPreview(entityId) {
         if (!this.activeActionName || !entityId || this.selectedComponentIds.size < 1) {
+            this.currentSynergyResult = null;
             this.ui.clearSynergyPreview();
             return;
         }
@@ -282,12 +296,16 @@ export class ClientApp {
             );
 
             if (preview) {
+                // Store synergy result for range calculation
+                this.currentSynergyResult = preview.synergyResult || null;
                 this.ui.renderSynergyPreview(preview);
             } else {
+                this.currentSynergyResult = null;
                 this.ui.clearSynergyPreview();
             }
         } catch (error) {
             console.warn('[ClientApp] Synergy preview failed:', error);
+            this.currentSynergyResult = null;
             this.ui.clearSynergyPreview();
         }
     }
@@ -304,12 +322,14 @@ export class ClientApp {
 
     /**
      * Calculates the effective range of an action.
+     * Applies synergy multiplier when available (multi-component selection).
      * @param {string} actionName
      * @param {Object} droid
      * @param {Object} state
+     * @param {number} [synergyMultiplier=1.0] - Synergy multiplier from current preview.
      * @returns {number|null}
      */
-    _calculateActionRange(actionName, droid, state) {
+    _calculateActionRange(actionName, droid, state, synergyMultiplier = 1.0) {
         const actionData = this.availableActions[actionName];
         if (!actionData) return null;
 
@@ -321,17 +341,22 @@ export class ClientApp {
         if (isMove || isDash) {
             if (!droid || !droid.components || !state || !state.components || !state.components.instances) return null;
 
-            let moveStat = null;
+            // Use the component with the highest move stat for synergy calculation
+            let maxMoveStat = null;
             for (const comp of droid.components) {
                 const stats = state.components.instances[comp.id];
                 if (stats && stats.Movement && stats.Movement.move !== undefined) {
-                    moveStat = stats.Movement.move;
-                    break;
+                    if (maxMoveStat === null || stats.Movement.move > maxMoveStat) {
+                        maxMoveStat = stats.Movement.move;
+                    }
                 }
             }
 
-            if (moveStat === null) return null;
-            return isDash ? moveStat * AppConfig.MULTIPLIERS.DASH_RANGE : moveStat;
+            if (maxMoveStat === null) return null;
+
+            // Apply synergy multiplier to the move stat before calculating range
+            const effectiveMove = maxMoveStat * synergyMultiplier;
+            return isDash ? effectiveMove * AppConfig.MULTIPLIERS.DASH_RANGE : effectiveMove;
         }
 
         return null;
@@ -381,19 +406,30 @@ export class ClientApp {
             const targetY = svgP.y - AppConfig.VIEW.CENTER_Y;
 
             if (pending.targetingType === 'spatial') {
-                // Check if we have multi-component selections for this action
-                if (this.selectedComponentIds.size >= 2 && this.activeActionName === pending.actionName) {
+                // Clear pending action FIRST to prevent stale state triggering
+                // a second execution (race condition causing extra droid balls)
+                this.actions.clearPendingAction();
+
+                // Capture selection state BEFORE clearing
+                const isMultiComponent = this.selectedComponentIds.size >= 2 && this.activeActionName === pending.actionName;
+                const componentIdsToExecute = isMultiComponent
+                    ? Array.from(this.selectedComponentIds)
+                    : [];
+
+                // Clear selections to prevent duplicate execution
+                this._clearAllSelections();
+                this.updateActionList();
+
+                // Execute with captured state
+                if (isMultiComponent) {
                     this._executeMultiComponentSpatial(
                         pending.actionName, pending.entityId,
-                        Array.from(this.selectedComponentIds),
+                        componentIdsToExecute,
                         { targetX, targetY }
                     );
                 } else {
                     this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
                 }
-                this.actions.clearPendingAction();
-                this._clearAllSelections();
-                this.updateActionList();
             } else if (pending.targetingType === 'component') {
                 this.handlePunchTarget(pending, targetX, targetY);
             }

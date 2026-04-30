@@ -29,6 +29,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-008](high/BUG-008-state-desync.md) | State Desynchronization Between Save/Load | ✅ Documented | — | `WorldStateController.js` |
 | [BUG-009](high/BUG-009-server-direct-access.md) | Server Direct Sub-Controller Access | ✅ Fixed | — | `server.js`, `WorldStateController.js` |
 | [BUG-010](high/BUG-010-self-target-resolution.md) | Self-Targeting Action Component Resolution | ✅ Fixed | `53fa440` | `actionController.js` |
+| [BUG-021](high/BUG-021-spatial-action-race-condition.md) | Multi-Component Spatial Action Race Condition | ✅ Fixed | `22bf5dc` | `App.js` |
 
 ### 🟡 Medium Severity
 
@@ -39,6 +40,10 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-013](medium/BUG-013-selection-persistence.md) | Component Selection Lost on Page Refresh | ✅ Fixed | `2573bea` | `App.js`, `actionController.js` |
 | [BUG-014](medium/BUG-014-defensive-copying.md) | Entity State Direct Mutation | ✅ Fixed | `d2e8c0b` | `entityController.js` |
 | [BUG-015](medium/BUG-015-division-by-zero-scoring.md) | Division by Zero in Action Scoring (minValue = 0) | ⚠️ Known | — | `ActionScoring.js` |
+| [BUG-019](medium/BUG-019-action-preview-name-missing.md) | Action Preview Name Missing (`_name` property) | ✅ Fixed | `22bf5dc` | `actionController.js`, `UIManager.js` |
+| [BUG-020](medium/BUG-020-deltaspatial-speed-rendering.md) | deltaSpatial Speed Property Rendering | ✅ Fixed | `22bf5dc` | `UIManager.js` |
+| [BUG-022](medium/BUG-022-duplicate-contributing-components.md) | Duplicate Contributing Components in Synergy Result | ✅ Fixed | `22bf5dc` | `synergyController.js` |
+| [BUG-023](medium/BUG-023-range-indicator-ignores-synergy.md) | Range Indicator Ignores Synergy Multiplier | ✅ Fixed | `22bf5dc` | `App.js` |
 
 ### 🟢 Low Severity
 

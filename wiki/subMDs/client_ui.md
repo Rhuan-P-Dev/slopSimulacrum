@@ -76,10 +76,19 @@ Entities are rendered as circular markers with the following characteristics:
 - **Movement (Target-Based)**:
     1. User selects a movement action (e.g., `move` or `dash`) → `ActionManager.executeAction()` calls `_setPendingAction()` to store the action, then invokes the **callback** (e.g., `() => this.updateActionList()`) → `App.updateActionList()` detects the pending action, calculates the effective range via `_calculateActionRange()` (dynamic for move/dash from `Movement.move` stat, or static from `actionData.range`), and renders a **white range indicator** (SVG dashed circle) via `UIManager.renderRangeIndicator()`. `UIManager.renderActionList()` applies cross-action visual feedback (see Section 3.7).
     2. User clicks a location on the World Map → `ClientApp` calculates relative coordinates and calls `ActionManager.moveToTarget()` → Client sends `POST /execute-action` → Server updates `stateEntityController` → Server broadcasts `world-state-update` → Client refreshes state → Map updates.
+       - **Range with Synergy**: When 2+ components are selected, the range indicator reflects the synergy-boosted move distance. The `ClientApp.currentSynergyResult` stores the synergy multiplier, which `_calculateActionRange()` applies: `effectiveMove = maxMoveStat * synergyMultiplier`.
 - **Inspection**: Clicking any Entity Marker → `UIManager.showEntityDetails()` retrieves the entity data from the `WorldStateManager` → Renders detailed component and stat data in the Detail Panel.
 - **Attack (Component-Targeted)**:
     1. User selects an attack action (e.g., `droid punch`) → `ActionManager.executeAction()` calls `_setPendingAction()` then invokes the callback → `App.updateActionList()` calculates the static range from `actionData.range` and renders a **red range indicator** (SVG dashed circle) via `UIManager.renderRangeIndicator()`.
     2. User clicks an entity within the range → `ClientApp` validates distance and identifies the **closest entity** within the `AppConfig.TARGETING.PUNCH_TOLERANCE` to prevent ambiguous target selection when multiple entities are clustered.
+
+**Synergy-Aware Range Calculation:**
+```
+ClientApp.currentSynergyResult → synergyMultiplier
+    → _calculateActionRange(actionName, droid, state, synergyMultiplier)
+    → effectiveMove = maxMoveStat * synergyMultiplier
+    → range = isDash ? effectiveMove * DASH_RANGE_MULTIPLIER : effectiveMove
+```
     3. `UIManager.showComponentSelection()` displays the Tactical Targeting HUD → User selects a specific component to attack.
     4. `ActionManager.executePunch()` sends the `targetComponentId` to the server → Server updates the target component's stats → Server broadcasts `world-state-update` → Client refreshes state.
 

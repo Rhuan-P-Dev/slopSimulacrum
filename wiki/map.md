@@ -228,6 +228,18 @@ User clicks map → _setupMapClickListener()
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` |
 
+#### `ActionController.previewActionData(actionName, entityId, context)`
+
+Returns complete preview data including action definition, resolved values, and synergy.
+
+**Returns:** `{ actionData: { _name, ...actionDef }, resolvedValues, synergyResult }`
+
+- `_name`: The action name string (added for UI display)
+- `resolvedValues`: Consequence values with placeholders resolved
+  - For `deltaSpatial`: `{ speed: number }`
+  - For other consequences: `{ value: number }`
+- `synergyResult`: Computed synergy with deduplicated `contributingComponents` (each component appears at most once)
+
 ---
 
 ## 🛠️ Agent Quick-Reference

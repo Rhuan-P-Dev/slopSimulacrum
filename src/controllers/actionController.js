@@ -239,10 +239,7 @@ class ActionController {
             if (!action) {
                 return {
                     success: false,
-                    error: this._resolveError({
-                        code: 'ACTION_NOT_FOUND',
-                        details: { actionName }
-                    })
+                    error: `Action "${actionName}" not found.`
                 };
             }
 
@@ -1219,7 +1216,7 @@ class ActionController {
         }
 
         return {
-            actionData: actionDef,
+            actionData: { ...actionDef, _name: actionName },
             resolvedValues,
             synergyResult
         };

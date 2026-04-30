@@ -222,3 +222,23 @@ const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
 ```javascript
 const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
 ```
+
+### Fix 9: Duplicate Contributing Components in Synergy Result (2026-04-29)
+
+**Problem:** When the `dash` synergy config has two groups (`sameComponentType` + `movementComponents`), both groups matched the same components, creating 4 entries in `contributingComponents` instead of 2. This caused the synergy preview to show duplicate components.
+
+**Impact:** The synergy preview displayed 4 `droidRollingBall` entries when only 2 physical balls existed.
+
+**Solution:** Added deduplication in both `SynergyController._evaluateProvidedComponents()` and `SynergyController._evaluateComponentGroups()` by filtering on `componentId`:
+```javascript
+// Deduplicate: each component should appear at most once
+const seen = new Set();
+const unique = [];
+for (const c of contributingComponents) {
+    if (!seen.has(c.componentId)) {
+        seen.add(c.componentId);
+        unique.push(c);
+    }
+}
+return { multiplier: totalMultiplier, components: unique };
+```

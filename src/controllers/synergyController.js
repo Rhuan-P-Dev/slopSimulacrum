@@ -407,7 +407,16 @@ class SynergyController {
             });
         }
 
-        return { multiplier: totalMultiplier, components: contributingComponents };
+        // Deduplicate: each component should appear at most once
+        const seen = new Set();
+        const unique = [];
+        for (const c of contributingComponents) {
+            if (!seen.has(c.componentId)) {
+                seen.add(c.componentId);
+                unique.push(c);
+            }
+        }
+        return { multiplier: totalMultiplier, components: unique };
     }
 
     /**
@@ -570,7 +579,16 @@ class SynergyController {
             });
         }
 
-        return { multiplier: totalMultiplier, components: contributingComponents };
+        // Deduplicate: each component should appear at most once
+        const seen = new Set();
+        const unique = [];
+        for (const c of contributingComponents) {
+            if (!seen.has(c.componentId)) {
+                seen.add(c.componentId);
+                unique.push(c);
+            }
+        }
+        return { multiplier: totalMultiplier, components: unique };
     }
 
     /**

@@ -81,6 +81,7 @@ Enhanced synergy preview endpoint that returns action data, resolved values, and
 {
   "actionPreviewData": {
     "actionData": {
+      "_name": "dash",
       "targetingType": "spatial",
       "range": 100,
       "requirements": [...],
@@ -269,9 +270,41 @@ The preview system uses these CSS classes (defined in `public/styles.css`):
 
 4. **Bonus percentage**: Calculated as `(multiplier - 1) * 100` and displayed as `+X%`.
 
+5. **Component deduplication**: Each component appears at most once in `contributingComponents`, even if it matches multiple synergy groups. Deduplication is performed in `SynergyController._evaluateProvidedComponents()` and `SynergyController._evaluateComponentGroups()` by filtering on `componentId`.
+
+6. **Synergy-aware range indicator**: The frontend `_calculateActionRange()` applies the synergy multiplier to movement stats. When 2+ components are selected with synergy, the range indicator reflects the boosted effective move distance: `effectiveMove = maxMoveStat * synergyMultiplier`.
+
+## deltaSpatial Consequence Handling
+
+The `deltaSpatial` consequence uses a `speed` property instead of `value`:
+
+| Consequence Type | Property | Example |
+|-----------------|----------|---------|
+| `deltaSpatial` | `speed` | `{ "speed": 20 }` |
+| `updateComponentStatDelta` | `value` | `{ "value": -5 }` |
+| `damageComponent` | `value` | `{ "value": -25 }` |
+
+The frontend `UIManager._buildActionDataHtml()` and `UIManager._buildSynergyPreviewHtml()` methods handle both property formats:
+- For `deltaSpatial`: checks `baseResolved.speed`
+- For other consequences: checks `baseResolved.value`
+
+## Known Fixes
+
+### Fix: deltaSpatial Speed Property Rendering (2026-04-29)
+
+**Problem:** `deltaSpatial` uses `speed` property (e.g., `{ "speed": 20 }`) instead of `value`, but the frontend checked `baseResolved.value` which was undefined.
+
+**Solution:** Modified `UIManager._buildActionDataHtml()` and `UIManager._buildSynergyPreviewHtml()` to handle `deltaSpatial`'s `speed` property.
+
+### Fix: Synergy-Aware Range Indicator (2026-04-29)
+
+**Problem:** The range indicator did not reflect the synergy multiplier when 2+ components were selected. The move/dash range was calculated from raw `Movement.move` stat only.
+
+**Solution:** Added `currentSynergyResult` property to `ClientApp` and updated `_calculateActionRange()` to accept a `synergyMultiplier` parameter. The range is now: `effectiveMove = maxMoveStat * synergyMultiplier`, and for dash: `effectiveMove * DASH_RANGE_MULTIPLIER`.
+
 ---
 
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-29
 **Related Documentation:**
 - [`wiki/subMDs/synergy_system.md`](../subMDs/synergy_system.md)
 - [`wiki/subMDs/client_action_execution.md`](../subMDs/client_action_execution.md)

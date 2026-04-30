@@ -422,8 +422,15 @@ export class UIManager {
             for (const consequence of actionData.consequences) {
                 const resolved = resolvedValues[consequence.type];
                 if (resolved) {
-                    const valueStr = resolved.value !== undefined ? ` → ${resolved.value}` : '';
-                    const sign = resolved.value < 0 ? '🔴' : '🟢';
+                    // deltaSpatial uses 'speed' property instead of 'value'
+                    let valueStr = '';
+                    if (consequence.type === 'deltaSpatial') {
+                        valueStr = resolved.speed !== undefined ? ` → ${resolved.speed}` : '';
+                    } else {
+                        valueStr = resolved.value !== undefined ? ` → ${resolved.value}` : '';
+                    }
+                    const displayValue = consequence.type === 'deltaSpatial' ? resolved.speed : resolved.value;
+                    const sign = displayValue < 0 ? '🔴' : '🟢';
                     html += `<div class="action-data-row consequence-row">
                         <span class="action-data-label">${sign} ${consequence.type}:</span>
                         <span class="action-data-value">${valueStr}</span>
@@ -481,9 +488,17 @@ export class UIManager {
 
             for (const consequence of actionData.consequences) {
                 const baseResolved = resolvedValues[consequence.type];
-                if (!baseResolved || typeof baseResolved.value !== 'number') continue;
 
-                const baseValue = baseResolved.value;
+                // deltaSpatial uses 'speed' property instead of 'value'
+                let baseValue;
+                if (consequence.type === 'deltaSpatial') {
+                    if (!baseResolved || typeof baseResolved.speed !== 'number') continue;
+                    baseValue = baseResolved.speed;
+                } else {
+                    if (!baseResolved || typeof baseResolved.value !== 'number') continue;
+                    baseValue = baseResolved.value;
+                }
+
                 const finalValue = this._applySynergyToValue(baseValue, multiplier);
                 const diff = finalValue - baseValue;
                 const absDiff = Math.abs(diff);
@@ -499,8 +514,9 @@ export class UIManager {
                 else if (isHeal) indicator = diff >= 0 ? '💚' : '🔻';
                 else if (isMove) indicator = diff >= 0 ? '🏃' : '🐌';
 
+                const labelProperty = consequence.type === 'deltaSpatial' ? 'speed' : 'value';
                 html += `<div class="synergy-value-row">
-                    <span class="synergy-value-label">${indicator} ${consequence.type}:</span>
+                    <span class="synergy-value-label">${indicator} ${consequence.type} (${labelProperty}):</span>
                     <span class="synergy-value-changed">
                         <span class="synergy-value-base">${Math.abs(baseValue)}</span>
                         <span class="synergy-value-arrow">→</span>

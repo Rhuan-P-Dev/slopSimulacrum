@@ -22,6 +22,12 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
 - [Synergy Preview System](subMDs/synergy_preview.md)
+- **Recent Fixes:**
+  - Bug 1: deltaSpatial action name rendering (`_name` property)
+  - Bug 2: deltaSpatial speed property handling in preview
+  - Bug 3: Multi-component spatial action race condition
+  - Bug 4: Duplicate contributing components in synergy
+  - Bug 5: Synergy-aware range indicator
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
