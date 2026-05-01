@@ -28,6 +28,8 @@ class ConsequenceHandlers {
             damageComponent: (targetId, params, context) => this._handleDamageComponent(targetId, params, context),
             grabItem: (targetId, params, context) => this._handleGrabItem(targetId, params, context),
             releaseItem: (targetId, params, context) => this._handleReleaseItem(targetId, params, context),
+            grabToBackpack: (targetId, params, context) => this._handleGrabToBackpack(targetId, params, context),
+            dropAll: (targetId, params, context) => this._handleDropAll(targetId, params, context),
         };
     }
 
@@ -313,6 +315,7 @@ class ConsequenceHandlers {
 
     /**
      * Handles releasing a grabbed item: removing it from the entity and restoring the hand.
+     * Checks both grab registry (hand grabs) and backpack registry (backpack items).
      *
      * @param {string} targetId - The hand component ID or item component ID.
      * @param {Object} params - Parameters (reserved for future configuration).
@@ -320,18 +323,29 @@ class ConsequenceHandlers {
      * @returns {Object} { success: boolean, message: string, data: any }
      */
     _handleReleaseItem(targetId, params, context) {
-        // Step 1: Find grab info — check by both handComponentId and item componentId
-        // The grab registry is keyed by item componentId, so we need to search flexibly
+        const actionParams = context?.actionParams || {};
+        const entityId = actionParams.entityId || '';
+
+        // Step 1: Try to find in grab registry (hand grabs)
         let grabInfo = null;
-        const allGrabs = this.worldStateController.equipmentController.getGrabInfoByEntity(
-            context?.actionParams?.entityId || ''
-        );
+        const allGrabs = this.worldStateController.equipmentController.getGrabInfoByEntity(entityId);
 
         // Try to find by targetId matching handComponentId OR item componentId
         for (const g of allGrabs) {
             if (g.handComponentId === targetId || g.componentId === targetId) {
                 grabInfo = g;
                 break;
+            }
+        }
+
+        // Step 2: If not found in grab registry, check backpack registry
+        if (!grabInfo) {
+            const backpackItems = this.worldStateController.equipmentController.getBackpackItems(entityId);
+            for (const backpackEntry of backpackItems) {
+                if (backpackEntry.componentId === targetId || backpackEntry.backpackComponentId === targetId) {
+                    grabInfo = backpackEntry;
+                    break;
+                }
             }
         }
 
@@ -342,11 +356,18 @@ class ConsequenceHandlers {
             return { success: false, message: 'No item equipped for this target', data: null };
         }
 
-        // The item componentId is the key in the grab registry
+        // Step 3: Determine release method and componentId
+        const isBackpackItem = 'backpackComponentId' in grabInfo;
         const itemComponentId = grabInfo.componentId || targetId;
 
-        // Step 2: Release the item
-        const releaseResult = this.worldStateController.equipmentController.releaseItem(itemComponentId);
+        let releaseResult;
+        if (isBackpackItem) {
+            // Release from backpack
+            releaseResult = this.worldStateController.equipmentController.releaseBackpackItem(itemComponentId);
+        } else {
+            // Release from hand grab
+            releaseResult = this.worldStateController.equipmentController.releaseItem(itemComponentId);
+        }
 
         if (!releaseResult.success) {
             Logger.warn(`[ConsequenceHandlers] Release failed: ${releaseResult.error}`, {
@@ -355,8 +376,8 @@ class ConsequenceHandlers {
             return { success: false, message: releaseResult.error, data: null };
         }
 
-        // Step 3: Restore hand strength from stored original value
-        if (releaseResult.grabInfo) {
+        // Step 4: Restore hand strength (only for hand grabs, not backpack)
+        if (!isBackpackItem && releaseResult.grabInfo) {
             const { handComponentId: restoredHandId, originalStrength } = releaseResult.grabInfo;
             if (originalStrength !== undefined) {
                 const currentStats = this.worldStateController.componentController.getComponentStats(restoredHandId);
@@ -374,10 +395,10 @@ class ConsequenceHandlers {
             }
         }
 
-        // Step 4: Re-scan capabilities (item traits no longer available)
+        // Step 5: Re-scan capabilities (item traits no longer available)
         try {
             const state = this.worldStateController.getAll();
-            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, releaseResult.grabInfo?.entityId || '');
+            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, releaseResult.grabInfo?.entityId || releaseResult.entry?.entityId || entityId);
         } catch (error) {
             Logger.error(`[ConsequenceHandlers] Capability re-scan failed after release: ${error.message}`, {
                 error: error.message
@@ -391,7 +412,141 @@ class ConsequenceHandlers {
             message: 'Item released',
             data: {
                 targetId,
-                entityId: releaseResult.grabInfo?.entityId
+                entityId: releaseResult.grabInfo?.entityId || releaseResult.entry?.entityId
+            }
+        };
+    }
+
+    // =========================================================================
+    // BACKPACK HANDLERS (grab to backpack, drop all)
+    // =========================================================================
+
+    /**
+     * Handles grabbing an item entity and storing it in the entity's backpack.
+     * The item's traits become available for action requirement checking.
+     * The backpack's Physical.volume determines total storage capacity.
+     *
+     * @param {string} targetId - The backpack component ID.
+     * @param {Object} params - Parameters (reserved for future configuration).
+     * @param {Object} context - Context containing actionParams (entityId, targetEntityId, targetComponentId).
+     * @returns {Object} { success: boolean, message: string, data: any }
+     */
+    _handleGrabToBackpack(targetId, params, context) {
+        const actionParams = context?.actionParams || {};
+        const entityId = actionParams.entityId;
+        const itemEntityId = actionParams.targetEntityId;
+        const backpackComponentId = actionParams.targetComponentId || targetId;
+
+        // Validate required parameters
+        if (!entityId) {
+            Logger.warn('[ConsequenceHandlers] grabToBackpack failed: missing entityId', { context });
+            return { success: false, message: 'Missing entityId in action params', data: null };
+        }
+        if (!itemEntityId) {
+            Logger.warn('[ConsequenceHandlers] grabToBackpack failed: missing targetEntityId (item entity)', { context });
+            return { success: false, message: 'Missing targetEntityId (item entity ID) in action params', data: null };
+        }
+
+        // Get the item entity
+        const itemEntity = this.worldStateController.stateEntityController.getEntity(itemEntityId);
+        if (!itemEntity) {
+            Logger.warn(`[ConsequenceHandlers] grabToBackpack failed: item entity "${itemEntityId}" not found`, { itemEntityId });
+            return { success: false, message: `Item entity "${itemEntityId}" not found`, data: null };
+        }
+
+        // Step 1: Grab the item into backpack
+        const grabResult = this.worldStateController.equipmentController.grabToBackpack(
+            entityId,
+            backpackComponentId,
+            itemEntity
+        );
+
+        if (!grabResult.success) {
+            Logger.warn(`[ConsequenceHandlers] grabToBackpack failed: ${grabResult.error}`, {
+                entityId, backpackComponentId, itemEntityId
+            });
+            return { success: false, message: grabResult.error, data: null };
+        }
+
+        // Step 2: Re-scan capabilities (new actions may be available from item traits)
+        try {
+            const state = this.worldStateController.getAll();
+            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
+        } catch (error) {
+            Logger.error(`[ConsequenceHandlers] Capability re-scan failed for entity "${entityId}": ${error.message}`, {
+                entityId, error: error.message
+            });
+        }
+
+        Logger.info(`[ConsequenceHandlers] Item grabbed to backpack successfully by entity "${entityId}"`, {
+            componentId: grabResult.componentId,
+            backpackComponentId,
+            entityId
+        });
+
+        return {
+            success: true,
+            message: 'Item stored in backpack',
+            data: {
+                componentId: grabResult.componentId,
+                backpackComponentId,
+                entityId
+            }
+        };
+    }
+
+    /**
+     * Handles dropping all items from both hand grabs and backpack for an entity.
+     * Items are respawned in the world at the entity's position.
+     *
+     * @param {string} targetId - The component/entity ID associated with the drop.
+     * @param {Object} params - Parameters (reserved for future configuration).
+     * @param {Object} context - Context containing actionParams.
+     * @returns {Object} { success: boolean, message: string, data: any }
+     */
+    _handleDropAll(targetId, params, context) {
+        const actionParams = context?.actionParams || {};
+        const entityId = actionParams.entityId;
+
+        // Validate required parameters
+        if (!entityId) {
+            Logger.warn('[ConsequenceHandlers] dropAll failed: missing entityId', { context });
+            return { success: false, message: 'Missing entityId in action params', data: null };
+        }
+
+        // Step 1: Drop all items (hand grabs + backpack)
+        const dropResult = this.worldStateController.equipmentController.dropAll(entityId);
+
+        if (!dropResult.success) {
+            Logger.info(`[ConsequenceHandlers] dropAll failed: nothing to drop for entity "${entityId}"`, { entityId });
+            return { success: false, message: 'Nothing to drop', data: null };
+        }
+
+        // Step 2: Re-scan capabilities (item traits no longer available)
+        try {
+            const state = this.worldStateController.getAll();
+            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
+        } catch (error) {
+            Logger.error(`[ConsequenceHandlers] Capability re-scan failed after dropAll: ${error.message}`, {
+                entityId, error: error.message
+            });
+        }
+
+        Logger.info(`[ConsequenceHandlers] All items dropped by entity "${entityId}"`, {
+            entityId,
+            totalDropped: dropResult.droppedItems.length,
+            releasedHandGrabs: dropResult.releasedHandGrabs,
+            releasedBackpackItems: dropResult.releasedBackpackItems
+        });
+
+        return {
+            success: true,
+            message: 'All items dropped',
+            data: {
+                entityId,
+                droppedItems: dropResult.droppedItems,
+                releasedHandGrabs: dropResult.releasedHandGrabs,
+                releasedBackpackItems: dropResult.releasedBackpackItems
             }
         };
     }

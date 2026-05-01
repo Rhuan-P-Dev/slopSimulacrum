@@ -143,6 +143,15 @@ class ComponentController {
     }
 
     /**
+     * Retrieves the component definition (blueprint) from the registry.
+     * @param {string} componentType - The component type name.
+     * @returns {Object|null} The component blueprint or null if not found.
+     */
+    getComponentDefinition(componentType) {
+        return this.componentRegistry[componentType] || null;
+    }
+
+    /**
      * Returns the combined state of all components and the global trait molds.
      * @returns {Object}
      */

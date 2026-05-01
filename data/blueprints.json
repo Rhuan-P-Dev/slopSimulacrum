@@ -2,6 +2,7 @@
   "smallBallDroid": ["centralBall"],
   "centralBall": [
     "droidHead",
+    "droidBackpack",
     ["droidArm", "left"],
     ["droidArm", "right"],
     ["droidRollingBall", "left"],

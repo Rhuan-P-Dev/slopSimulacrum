@@ -150,7 +150,7 @@
       {
         "trait": "Physical",
         "stat": "strength",
-        "minValue": 1
+        "minValue": 25
       }
     ],
     "consequences": [
@@ -245,6 +245,68 @@
         "type": "log",
         "level": "warn",
         "message": "Cut failed - sharpness too low"
+      }
+    ]
+  },
+  "grabToBackpack": {
+    "targetingType": "component",
+    "range": 100,
+    "componentBinding": {
+      "roles": ["source", "target"],
+      "sourceRole": "self_target",
+      "targetRole": "target",
+      "description": "Grab binds to the droidBackpack component as source and an item entity as target. The item is stored in the backpack instead of the hand. The backpack's Physical.volume determines total storage capacity."
+    },
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "volume",
+        "minValue": 5
+      }
+    ],
+    "consequences": [
+      {
+        "type": "grabToBackpack",
+        "params": {}
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "Item stored in droid backpack."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Grab to backpack failed — item out of range or backpack full"
+      }
+    ]
+  },
+  "dropAll": {
+    "targetingType": "self_target",
+    "componentBinding": {
+      "roles": ["self_target"],
+      "selfTargetRole": "self_target",
+      "description": "Drop all is a self-targeting action that executes instantly when clicked. All grabbed items and backpack items are dropped into the world."
+    },
+    "requirements": [],
+    "consequences": [
+      {
+        "type": "dropAll",
+        "params": {}
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "All items dropped."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Drop all failed — nothing to drop"
       }
     ]
   }

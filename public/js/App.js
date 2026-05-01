@@ -481,6 +481,8 @@ export class ClientApp {
             } else if (pending.targetingType === 'component') {
                 if (pending.actionName === 'grab') {
                     this.handleGrabTarget(pending, targetX, targetY);
+                } else if (pending.actionName === 'grabToBackpack') {
+                    this.handleGrabToBackpackTarget(pending, targetX, targetY);
                 } else if (pending.actionName === 'cut' || pending.actionName === 'droid punch') {
                     this.handlePunchTarget(pending, targetX, targetY);
                 }
@@ -497,6 +499,15 @@ export class ClientApp {
      */
     async _executeSelfTargetAction(actionName, entityId, componentId, componentIdentifier) {
         try {
+            // dropAll: execute with entity-level params (no targetComponentId needed)
+            if (actionName === 'dropAll') {
+                const result = await this.actions.executeDropAll(actionName, entityId);
+                console.log(`[ClientApp] Drop all executed:`, result);
+                this._clearAllSelections();
+                await this.refreshWorldAndActions();
+                return;
+            }
+
             const result = await this.actions._sendActionRequest(
                 {
                     actionName,
@@ -591,6 +602,72 @@ export class ClientApp {
             await this.refreshWorldAndActions();
         } catch (error) {
             console.error('[ClientApp] Grab failed:', error);
+        }
+    }
+
+    /**
+     * Handles targeting for "grabToBackpack" actions.
+     * Finds the closest entity to the click and attempts to grab the item into the backpack.
+     * @param {Object} pending
+     * @param {number} targetX
+     * @param {number} targetY
+     */
+    async handleGrabToBackpackTarget(pending, targetX, targetY) {
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        if (!droid || !state) return;
+
+        const actionData = this.availableActions[pending.actionName];
+        const range = actionData?.range || 100;
+
+        const distance = this.actions.calculateDistance(targetX, targetY, droid.spatial.x, droid.spatial.y);
+
+        if (distance > range) {
+            this.errorController.handleError({
+                code: 'TARGET_OUT_OF_RANGE',
+                details: {
+                    distance: Math.round(distance),
+                    range: range
+                }
+            });
+            this.actions.clearPendingAction();
+            return;
+        }
+
+        const closestEntity = this.actions.findClosestEntity(
+            state.entities,
+            targetX,
+            targetY,
+            AppConfig.TARGETING.PUNCH_TOLERANCE
+        );
+
+        if (!closestEntity) {
+            this.errorController.handleError({
+                code: 'NO_TARGET_FOUND'
+            });
+            this.actions.clearPendingAction();
+            return;
+        }
+
+        try {
+            // Find the backpack component on the droid
+            const backpackComp = droid.components.find(c => c.type === 'droidBackpack');
+            if (!backpackComp) {
+                this.errorController.handleError({
+                    code: 'BACKPACK_NOT_FOUND',
+                    message: 'No backpack component found on this entity.'
+                });
+                this.actions.clearPendingAction();
+                return;
+            }
+
+            await this.actions.executeGrabToBackpack(pending.actionName, pending.entityId, backpackComp.id, closestEntity.id);
+
+            this.actions.clearPendingAction();
+            this._clearAllSelections();
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            console.error('[ClientApp] Grab to backpack failed:', error);
         }
     }
 

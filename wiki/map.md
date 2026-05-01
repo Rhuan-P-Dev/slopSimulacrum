@@ -202,6 +202,60 @@ Client → Server → ActionController.executeAction()
 
 **Data Decoupling**: Synergy configs are in `data/synergy.json` (standalone), not embedded in `data/actions.json`.
 
+### 🔵 Equipment/Inventory Flow
+
+The equipment system manages item grabbing, backpack storage, and dropping:
+
+**Hand Grab Flow:**
+```
+Client → Server → ActionController.executeAction("grab")
+    ├── _checkGrabRange() → validate proximity
+    ├── _checkRequirementsForComponent() → Physical.strength ≥ 1
+    ├── ConsequenceHandlers.grabItem()
+    │   └── EquipmentController.grabItem()
+    │       ├── initializeComponent() from item blueprint
+    │       ├── addComponentToEntity() — item becomes entity component
+    │       └── despawnEntity() — original item entity removed
+    ├── Apply debuff to hand (strength -5)
+    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
+```
+
+**Backpack Grab Flow:**
+```
+Client → Server → ActionController.executeAction("grabToBackpack")
+    ├── _checkGrabRange() → validate proximity
+    ├── _checkRequirementsForComponent() → Physical.volume ≥ 1
+    ├── ConsequenceHandlers.grabToBackpack()
+    │   └── EquipmentController.grabToBackpack()
+    │       ├── Check backpack capacity (usedVolume + itemVolume ≤ backpackVolume)
+    │       ├── initializeComponent() from item blueprint
+    │       ├── addComponentToEntity() — item becomes entity component
+    │       └── Store backpack entry in _backpackRegistry
+    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
+```
+
+**Drop All Flow:**
+```
+Client → Server → ActionController.executeAction("dropAll")
+    ├── ConsequenceHandlers.dropAll()
+    │   └── EquipmentController.dropAll()
+    │       ├── Release all hand grabs → respawn items in world
+    │       ├── Release all backpack items → respawn items in world
+    │       ├── Restore all hand strengths
+    │       └── Clear _grabRegistry and _backpackRegistry entries
+    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
+```
+
+**EquipmentController Key Methods:**
+| Method | Description |
+|--------|-------------|
+| `grabItem(entityId, handComponentId, itemEntity)` | Add item as component to entity (hand grab) |
+| `grabToBackpack(entityId, backpackComponentId, itemEntity)` | Add item to backpack (volume-checked) |
+| `releaseItem(componentId)` | Remove item from entity, respawn in world |
+| `dropAll(entityId)` | Release ALL items (hand + backpack) |
+| `getBackpackItems(entityId)` | Get backpack items array |
+| `getBackpackVolume(entityId, backpackComponentId)` | Get {total, used, remaining} volume info |
+
 ### 🔵 Multi-Component Selection Flow (Client-Side)
 
 The client uses a **click-to-toggle** model for multi-component selection:
@@ -289,3 +343,4 @@ Returns complete preview data including action definition, resolved values, and 
 | 2026-04-30 | **Bug #2 Fix:** `release` action changed to `self_target` (executes instantly on component click); items respawn in world when released | `actions.json`, `equipmentController.js`, `consequenceHandlers.js`, `componentCapabilityController.js` |
 | 2026-04-30 | **Bug #3 Fix:** New `cut` action added (requires `Physical.sharpness ≥ 20`); synergy config added | `actions.json`, `synergy.json` |
 | 2026-04-30 | **UI:** Release button added for grabbed items; `cut` action integrated with map click targeting | `App.js`, `UIManager.js`, `ActionManager.js`, `styles.css` |
+| 2026-05-01 | **Feature:** Inventory system — droidBackpack component, grabToBackpack action, dropAll action | `components.json`, `blueprints.json`, `actions.json`, `equipmentController.js`, `componentController.js`, `consequenceHandlers.js`, `App.js`, `ActionManager.js`, `equipment_system.md`, `map.md` |

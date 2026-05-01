@@ -205,6 +205,46 @@ export class ActionManager {
     }
 
     /**
+     * Executes a grab-to-backpack action: stores an item in the entity's backpack.
+     * @param {string} actionName - The action name (e.g., 'grabToBackpack').
+     * @param {string} entityId - The entity ID of the grabber.
+     * @param {string} backpackComponentId - The backpack component ID.
+     * @param {string} targetEntityId - The entity ID of the item being grabbed.
+     */
+    async executeGrabToBackpack(actionName, entityId, backpackComponentId, targetEntityId) {
+        try {
+            const result = await this._sendActionRequest({
+                actionName: actionName,
+                entityId: entityId,
+                params: { targetComponentId: backpackComponentId, targetEntityId }
+            }, 'GRAB_TO_BACKPACK_FAILED');
+            console.log('[ActionManager] Grab to backpack executed successfully:', result);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Executes a drop-all action: drops all grabbed items and backpack items.
+     * @param {string} actionName - The action name (e.g., 'dropAll').
+     * @param {string} entityId - The entity ID of the owner.
+     */
+    async executeDropAll(actionName, entityId) {
+        try {
+            const result = await this._sendActionRequest({
+                actionName: actionName,
+                entityId: entityId,
+                params: {}
+            }, 'DROP_ALL_FAILED');
+            console.log('[ActionManager] Drop all executed successfully:', result);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
      * Executes a multi-attacker punch action.
      * All selected attacker components deal their own separate damage to the target.
      * @param {string} actionName - The action name (e.g., 'droid punch').
