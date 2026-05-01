@@ -94,12 +94,43 @@ class ComponentCapabilityController {
             const entity = entities[entityId];
             if (!entity || !entity.components) continue;
 
+            // Special handling for "release" action: entities with grabbed items are capable
+            const grabbedItems = this.worldStateController.equipmentController?.getGrabInfoByEntity(entityId);
+            if (grabbedItems && grabbedItems.length > 0) {
+                // Add entity as capable for "release" if the array exists
+                if (!this._capabilityCache.release) {
+                    this._capabilityCache.release = [];
+                }
+                // Only add if not already present
+                const alreadyInCache = this._capabilityCache.release.some(e => e.entityId === entityId);
+                if (!alreadyInCache) {
+                    // Use the first grabbed item's component as the source
+                    const grabInfo = grabbedItems[0];
+                    const component = entity.components.find(c => c.id === grabInfo.componentId);
+                    if (component) {
+                        this._capabilityCache.release.push({
+                            entityId,
+                            componentId: grabInfo.componentId,
+                            componentType: component.type,
+                            componentIdentifier: component.identifier || 'default',
+                            score: 10, // Low priority score for release
+                            requirementValues: {},
+                            fulfillingComponents: {},
+                            requirementsStatus: [],
+                            _resolvedRole: 'source'
+                        });
+                    }
+                }
+            }
+
             for (const component of entity.components) {
                 const componentStats = this.worldStateController.componentController.getComponentStats(component.id);
                 if (!componentStats) continue;
 
                 // Evaluate this component against every action
                 for (const [actionName, actionData] of Object.entries(actions)) {
+                    // Skip "release" — handled specially above
+                    if (actionName === 'release') continue;
                     if (!actionData.requirements || actionData.requirements.length === 0) continue;
 
                     const score = this._calculateComponentScore(componentStats, actionData.requirements);
@@ -266,14 +297,42 @@ class ComponentCapabilityController {
         const actions = this.getActionRegistry();
         const updatedEntries = [];
 
+        // Special handling for "release" action: entities with grabbed items are capable
+        const grabbedItems = this.worldStateController.equipmentController?.getGrabInfoByEntity(entityId);
+        if (grabbedItems && grabbedItems.length > 0) {
+            if (!this._capabilityCache.release) {
+                this._capabilityCache.release = [];
+            }
+            // Add release capability entry
+            const grabInfo = grabbedItems[0];
+            const component = entity.components.find(c => c.id === grabInfo.componentId);
+            if (component) {
+                const entry = {
+                    entityId,
+                    componentId: grabInfo.componentId,
+                    componentType: component.type,
+                    componentIdentifier: component.identifier || 'default',
+                    score: 10,
+                    requirementValues: {},
+                    fulfillingComponents: {},
+                    requirementsStatus: [],
+                    _resolvedRole: 'source'
+                };
+                this._capabilityCache.release.push(entry);
+                updatedEntries.push(entry);
+            }
+        }
+
         for (const component of entity.components) {
             const componentStats = this.worldStateController.componentController.getComponentStats(component.id);
             if (!componentStats) continue;
 
             for (const [actionName, actionData] of Object.entries(actions)) {
+                // Skip "release" — handled specially above
+                if (actionName === 'release') continue;
                 if (!actionData.requirements || actionData.requirements.length === 0) continue;
 
-                // Ensure the action array exists (for initial entity spawn before full scan)
+                // Ensure the action array exists
                 if (!this._capabilityCache[actionName]) {
                     this._capabilityCache[actionName] = [];
                 }

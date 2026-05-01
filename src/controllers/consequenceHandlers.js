@@ -26,6 +26,8 @@ class ConsequenceHandlers {
             updateComponentStatDelta: (targetId, params, context) => this._handleUpdateComponentStatDelta(targetId, params, context),
             triggerEvent: (targetId, params, context) => this._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this._handleDamageComponent(targetId, params, context),
+            grabItem: (targetId, params, context) => this._handleGrabItem(targetId, params, context),
+            releaseItem: (targetId, params, context) => this._handleReleaseItem(targetId, params, context),
         };
     }
 
@@ -212,6 +214,186 @@ class ConsequenceHandlers {
         const { eventType, data } = eventParams;
         Logger.info(`Event triggered: ${eventType} for entity ${entityId}`, data || {});
         return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, entityId } };
+    }
+
+    // =========================================================================
+    // GRAB / RELEASE ITEM HANDLERS (for equipment system)
+    // =========================================================================
+
+    /**
+     * Handles grabbing an item entity and adding it as a component to the main entity.
+     * The item's traits become available for action requirement checking.
+     *
+     * @param {string} targetId - The hand component ID (source of the grab).
+     * @param {Object} params - Parameters containing debuff configuration.
+     * @param {Object} context - Context containing actionParams (entityId, targetEntityId, attackerComponentId).
+     * @returns {Object} { success: boolean, message: string, data: any }
+     */
+    _handleGrabItem(targetId, params, context) {
+        const actionParams = context?.actionParams || {};
+        const entityId = actionParams.entityId;
+        const itemEntityId = actionParams.targetEntityId;
+        const handComponentId = actionParams.attackerComponentId || targetId;
+
+        // Validate required parameters
+        if (!entityId) {
+            Logger.warn('[ConsequenceHandlers] Grab failed: missing entityId', { context });
+            return { success: false, message: 'Missing entityId in action params', data: null };
+        }
+        if (!itemEntityId) {
+            Logger.warn('[ConsequenceHandlers] Grab failed: missing targetEntityId (item entity)', { context });
+            return { success: false, message: 'Missing targetEntityId (item entity ID) in action params', data: null };
+        }
+
+        // Get the item entity
+        const itemEntity = this.worldStateController.stateEntityController.getEntity(itemEntityId);
+        if (!itemEntity) {
+            Logger.warn(`[ConsequenceHandlers] Grab failed: item entity "${itemEntityId}" not found`, { itemEntityId });
+            return { success: false, message: `Item entity "${itemEntityId}" not found`, data: null };
+        }
+
+        // Step 1: Grab the item (add as component to entity)
+        const grabResult = this.worldStateController.equipmentController.grabItem(
+            entityId,
+            handComponentId,
+            itemEntity
+        );
+
+        if (!grabResult.success) {
+            Logger.warn(`[ConsequenceHandlers] Grab failed: ${grabResult.error}`, {
+                entityId, handComponentId, itemEntityId
+            });
+            return { success: false, message: grabResult.error, data: null };
+        }
+
+        // Step 2: Apply debuff to the hand (if specified)
+        if (params?.debuff) {
+            const { trait, stat, value } = params.debuff;
+            const debuffSuccess = this.worldStateController.componentController.updateComponentStatDelta(
+                handComponentId,
+                trait,
+                stat,
+                value
+            );
+            if (!debuffSuccess) {
+                Logger.warn(`[ConsequenceHandlers] Debuff application failed for hand "${handComponentId}"`, {
+                    trait, stat, value
+                });
+            } else {
+                Logger.info(`[ConsequenceHandlers] Debuff applied to hand "${handComponentId}": ${trait}.${stat} ${value}`);
+            }
+        }
+
+        // Step 3: Re-scan capabilities (new actions may be available from item traits)
+        try {
+            const state = this.worldStateController.getAll();
+            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, entityId);
+        } catch (error) {
+            Logger.error(`[ConsequenceHandlers] Capability re-scan failed for entity "${entityId}": ${error.message}`, {
+                entityId, error: error.message
+            });
+        }
+
+        Logger.info(`[ConsequenceHandlers] Item grabbed successfully by entity "${entityId}"`, {
+            componentId: grabResult.componentId,
+            handComponentId,
+            entityId
+        });
+
+        return {
+            success: true,
+            message: 'Item grabbed and equipped',
+            data: {
+                componentId: grabResult.componentId,
+                handComponentId,
+                entityId
+            }
+        };
+    }
+
+    /**
+     * Handles releasing a grabbed item: removing it from the entity and restoring the hand.
+     *
+     * @param {string} targetId - The hand component ID or item component ID.
+     * @param {Object} params - Parameters (reserved for future configuration).
+     * @param {Object} context - Context containing actionParams.
+     * @returns {Object} { success: boolean, message: string, data: any }
+     */
+    _handleReleaseItem(targetId, params, context) {
+        // Step 1: Find grab info — check by both handComponentId and item componentId
+        // The grab registry is keyed by item componentId, so we need to search flexibly
+        let grabInfo = null;
+        const allGrabs = this.worldStateController.equipmentController.getGrabInfoByEntity(
+            context?.actionParams?.entityId || ''
+        );
+
+        // Try to find by targetId matching handComponentId OR item componentId
+        for (const g of allGrabs) {
+            if (g.handComponentId === targetId || g.componentId === targetId) {
+                grabInfo = g;
+                break;
+            }
+        }
+
+        if (!grabInfo) {
+            Logger.info(`[ConsequenceHandlers] Release failed: no item equipped for target "${targetId}"`, {
+                targetId
+            });
+            return { success: false, message: 'No item equipped for this target', data: null };
+        }
+
+        // The item componentId is the key in the grab registry
+        const itemComponentId = grabInfo.componentId || targetId;
+
+        // Step 2: Release the item
+        const releaseResult = this.worldStateController.equipmentController.releaseItem(itemComponentId);
+
+        if (!releaseResult.success) {
+            Logger.warn(`[ConsequenceHandlers] Release failed: ${releaseResult.error}`, {
+                targetId
+            });
+            return { success: false, message: releaseResult.error, data: null };
+        }
+
+        // Step 3: Restore hand strength from stored original value
+        if (releaseResult.grabInfo) {
+            const { handComponentId: restoredHandId, originalStrength } = releaseResult.grabInfo;
+            if (originalStrength !== undefined) {
+                const currentStats = this.worldStateController.componentController.getComponentStats(restoredHandId);
+                const currentStrength = currentStats?.Physical?.strength ?? 0;
+                const delta = originalStrength - currentStrength;
+                if (delta !== 0) {
+                    this.worldStateController.componentController.updateComponentStatDelta(
+                        restoredHandId,
+                        'Physical',
+                        'strength',
+                        delta
+                    );
+                    Logger.info(`[ConsequenceHandlers] Hand strength restored: ${currentStrength} → ${originalStrength}`);
+                }
+            }
+        }
+
+        // Step 4: Re-scan capabilities (item traits no longer available)
+        try {
+            const state = this.worldStateController.getAll();
+            this.worldStateController.componentCapabilityController.reEvaluateEntityCapabilities(state, releaseResult.grabInfo?.entityId || '');
+        } catch (error) {
+            Logger.error(`[ConsequenceHandlers] Capability re-scan failed after release: ${error.message}`, {
+                error: error.message
+            });
+        }
+
+        Logger.info(`[ConsequenceHandlers] Item released from target "${targetId}"`);
+
+        return {
+            success: true,
+            message: 'Item released',
+            data: {
+                targetId,
+                entityId: releaseResult.grabInfo?.entityId
+            }
+        };
     }
 }
 

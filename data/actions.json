@@ -111,7 +111,7 @@
       {
         "trait": "Physical",
         "stat": "strength",
-        "minValue": 1
+        "minValue": 15
       }
     ],
     "consequences": [
@@ -134,6 +134,117 @@
         "type": "log",
         "level": "warn",
         "message": "Punch failed - strength too low"
+      }
+    ]
+  },
+  "grab": {
+    "targetingType": "component",
+    "range": 100,
+    "componentBinding": {
+      "roles": ["source", "target"],
+      "sourceRole": "source",
+      "targetRole": "target",
+      "description": "Grab binds to a Physical component as source (hand) and an item entity as target. The item becomes a component of the entity. The hand suffers a strength debuff from carrying weight."
+    },
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "grabItem",
+        "params": {
+          "debuff": { "trait": "Physical", "stat": "strength", "value": -5 }
+        }
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "Entity grabbed item — new capabilities unlocked!"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Grab failed — item out of range or strength too low"
+      }
+    ]
+  },
+  "release": {
+    "targetingType": "self_target",
+    "componentBinding": {
+      "roles": ["self_target"],
+      "selfTargetRole": "self_target",
+      "description": "Release is a self-targeting action that executes instantly when a grabbed item component is clicked. The item is dropped back into the world and strength is restored."
+    },
+    "requirements": [],
+    "consequences": [
+      {
+        "type": "releaseItem",
+        "params": {}
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "Entity dropped the held item."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Release failed — no item equipped"
+      }
+    ]
+  },
+  "cut": {
+    "targetingType": "component",
+    "range": 100,
+    "componentBinding": {
+      "roles": ["source", "target"],
+      "sourceRole": "source",
+      "targetRole": "target",
+      "description": "Cut binds to a Physical component with sharpness as source (hand holding the knife) and a target component on the enemy (being cut). The knife's sharpness stat determines the damage dealt. Requires Physical.sharpness ≥ 20."
+    },
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "sharpness",
+        "minValue": 20
+      }
+    ],
+    "consequences": [
+      {
+        "type": "damageComponent",
+        "params": {
+          "trait": "Physical",
+          "stat": "durability",
+          "value": "-:Physical.sharpness"
+        }
+      },
+      {
+        "type": "updateComponentStatDelta",
+        "params": {
+          "trait": "Physical",
+          "stat": "sharpness",
+          "value": -2
+        }
+      },
+      {
+        "type": "log",
+        "level": "info",
+        "message": "Entity used a knife to cut dealing :Physical.sharpness damage! Knife sharpness reduced by 2."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "level": "warn",
+        "message": "Cut failed - sharpness too low"
       }
     ]
   }

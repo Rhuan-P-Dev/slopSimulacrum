@@ -144,19 +144,60 @@ export class ActionManager {
 
     /**
      * Executes a punch action on a specific component of a target entity.
-     * @param {string} actionName 
-     * @param {string} entityId 
+     * @param {string} actionName
+     * @param {string} entityId
      * @param {string} attackerComponentId - The component ID of the attacker (used for damage value resolution).
      * @param {string} targetComponentId - The component ID of the target being punched.
      */
     async executePunch(actionName, entityId, attackerComponentId, targetComponentId) {
         try {
-            const result = await this._sendActionRequest({ 
+            const result = await this._sendActionRequest({
                 actionName: actionName,
                 entityId: entityId,
                 params: { attackerComponentId, targetComponentId }
             }, 'PUNCH_FAILED');
             console.log('[ActionManager] Punch executed successfully:', result);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Executes a grab action: grabs an item entity and adds it as a component.
+     * @param {string} actionName - The action name (e.g., 'grab').
+     * @param {string} entityId - The entity ID of the grabber.
+     * @param {string} attackerComponentId - The hand component doing the grabbing.
+     * @param {string} targetEntityId - The entity ID of the item being grabbed.
+     */
+    async executeGrab(actionName, entityId, attackerComponentId, targetEntityId) {
+        try {
+            const result = await this._sendActionRequest({
+                actionName: actionName,
+                entityId: entityId,
+                params: { attackerComponentId, targetEntityId }
+            }, 'GRAB_FAILED');
+            console.log('[ActionManager] Grab executed successfully:', result);
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+
+    /**
+     * Executes a release action: drops a grabbed item.
+     * @param {string} actionName - The action name (e.g., 'release').
+     * @param {string} entityId - The entity ID of the grabber.
+     * @param {string} grabbedItemCompId - The grabbed item component ID to release.
+     */
+    async executeRelease(actionName, entityId, grabbedItemCompId) {
+        try {
+            const result = await this._sendActionRequest({
+                actionName: actionName,
+                entityId: entityId,
+                params: { targetComponentId: grabbedItemCompId }
+            }, 'RELEASE_FAILED');
+            console.log('[ActionManager] Release executed successfully:', result);
             return result;
         } catch (error) {
             throw error;

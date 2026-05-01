@@ -577,6 +577,21 @@ export class UIManager {
     }
 
 
+    /**
+     * Checks if a component is a grabbed item (not a standard droid component).
+     * Grabbed items like 'knife' are added as components to the entity but are not part of
+     * the base blueprint structure.
+     * @param {string} compType - The component type to check.
+     * @returns {boolean} True if the component is a grabbed item.
+     */
+    _isGrabbedItemComponent(compType) {
+        const standardComponents = [
+            'centralBall', 'droidHead', 'droidArm', 'droidHand',
+            'humanoidDroidFinger', 'droidRollingBall'
+        ];
+        return !standardComponents.includes(compType);
+    }
+
     showEntityDetails(entity, state) {
         let componentsHtml = '';
         if (entity.components && state.components && state.components.instances) {
@@ -593,6 +608,13 @@ export class UIManager {
                         statsHtml += `<div class="trait-row"><span class="trait-name">${traitId}</span>: ${propsHtml}</div>`;
                     }
                 }
+
+                // Check if this is a grabbed item (e.g., knife) that can be released
+                const isGrabbedItem = this._isGrabbedItemComponent(comp.type);
+                const releaseButton = isGrabbedItem
+                    ? `<button class="release-btn" data-comp-id="${comp.id}" data-comp-type="${comp.type}">🗑️ Release ${comp.type}</button>`
+                    : '';
+
                 componentsHtml += `
                     <div class="component-item">
                         <div class="component-title">
@@ -600,6 +622,7 @@ export class UIManager {
                             <span class="id-text">ID: ${comp.identifier}</span>
                         </div>
                         ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
+                        ${releaseButton}
                     </div>`;
             });
             componentsHtml += '</div>';
@@ -625,6 +648,20 @@ export class UIManager {
             ${componentsHtml}
         `;
         this.elements.detailOverlay.style.display = 'flex';
+
+        // Attach click events to release buttons
+        this.elements.detailContent.querySelectorAll('.release-btn').forEach(btn => {
+            btn.onclick = () => {
+                const componentId = btn.dataset.compId;
+                const compType = btn.dataset.compType;
+                console.log(`[UIManager] Release button clicked for ${compType} (component: ${componentId})`);
+                // Dispatch event for App.js to handle
+                this.elements.detailOverlay.dispatchEvent(new CustomEvent('release-component', {
+                    detail: { componentId, componentType: compType },
+                    bubbles: true
+                }));
+            };
+        });
     }
 
     showComponentDetails(component, stats) {

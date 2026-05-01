@@ -22,6 +22,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
 - [Synergy Preview System](subMDs/synergy_preview.md)
+- [Equipment/Grab System](subMDs/equipment_system.md)
 - **Recent Fixes:**
   - Bug 1: deltaSpatial action name rendering (`_name` property)
   - Bug 2: deltaSpatial speed property handling in preview
@@ -50,6 +51,7 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
 - [Synergy Preview System](subMDs/synergy_preview.md)
+- [Equipment/Grab System](subMDs/equipment_system.md)
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)

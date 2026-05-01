@@ -243,6 +243,20 @@ class ActionController {
                 };
             }
 
+            // ─── Range Check for Grab Actions ────────────────────────────────
+            // For grab actions, verify the target item entity is within range of the source entity.
+            if (action.range && params.targetEntityId) {
+                const rangeCheck = this._checkGrabRange(entityId, params.targetEntityId, action.range);
+                if (!rangeCheck.success) {
+                    const failureResults = this._executeFailureConsequences(actionName, entityId);
+                    return {
+                        success: false,
+                        error: rangeCheck.error,
+                        ...failureResults
+                    };
+                }
+            }
+
             // ─── Resolve Component List ──────────────────────────────────────
             // Support both legacy single-component (targetComponentId/attackerComponentId)
             // and new multi-component (componentIds array) parameter formats.
@@ -827,6 +841,47 @@ class ActionController {
     }
 
     /**
+     * Checks if a target entity is within range of a source entity.
+     * Used for grab actions to verify the item is close enough to pick up.
+     *
+     * @param {string} sourceEntityId - The entity performing the grab.
+     * @param {string} targetEntityId - The entity being grabbed (item).
+     * @param {number} maxRange - The maximum allowed distance.
+     * @returns {{ success: boolean, error?: string }}
+     * @private
+     */
+    _checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
+        const sourceEntity = this.worldStateController.stateEntityController.getEntity(sourceEntityId);
+        if (!sourceEntity) {
+            return { success: false, error: `Source entity "${sourceEntityId}" not found.` };
+        }
+
+        const targetEntity = this.worldStateController.stateEntityController.getEntity(targetEntityId);
+        if (!targetEntity) {
+            return { success: false, error: `Target entity "${targetEntityId}" not found.` };
+        }
+
+        // Both entities must have spatial data
+        if (!sourceEntity.spatial || !targetEntity.spatial) {
+            return { success: false, error: 'One or both entities lack spatial data.' };
+        }
+
+        // Calculate Euclidean distance
+        const dx = sourceEntity.spatial.x - targetEntity.spatial.x;
+        const dy = sourceEntity.spatial.y - targetEntity.spatial.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > maxRange) {
+            const error = `Item is too far away (${Math.round(distance)} units, max range: ${maxRange}). Move closer to grab it.`;
+            Logger.warn(`[ActionController] Grab range check failed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
+            return { success: false, error };
+        }
+
+        Logger.info(`[ActionController] Grab range check passed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
+        return { success: true };
+    }
+
+    /**
      * Executes the success consequences of an action using the normalized handler interface.
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity performing the action.
@@ -845,7 +900,7 @@ class ActionController {
         const results = [];
         const context = {
             requirementValues,
-            actionParams: params,
+            actionParams: { ...params, entityId: entityId },
             fulfillingComponents,
             synergyResult
         };

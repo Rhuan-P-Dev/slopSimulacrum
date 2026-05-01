@@ -280,3 +280,12 @@ Returns complete preview data including action definition, resolved values, and 
 **Server API Access**: The server (`src/server.js`) must use `WorldStateController` public API methods (`spawnEntity`, `despawnEntity`, `moveEntity`, `getRoomUidByLogicalId`) instead of directly accessing sub-controllers. See `subMDs/controller_patterns.md` Section 5.1.
 
 **Logging Standard**: All controllers must use the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
+
+## 📋 Recent Changes Log
+
+| Date | Change | Files |
+|------|--------|-------|
+| 2026-04-30 | **Bug #1 Fix:** Blueprint expansion now uses per-branch `visited` Sets so sibling components (left/right arms) expand independently | `entityController.js` |
+| 2026-04-30 | **Bug #2 Fix:** `release` action changed to `self_target` (executes instantly on component click); items respawn in world when released | `actions.json`, `equipmentController.js`, `consequenceHandlers.js`, `componentCapabilityController.js` |
+| 2026-04-30 | **Bug #3 Fix:** New `cut` action added (requires `Physical.sharpness ≥ 20`); synergy config added | `actions.json`, `synergy.json` |
+| 2026-04-30 | **UI:** Release button added for grabbed items; `cut` action integrated with map click targeting | `App.js`, `UIManager.js`, `ActionManager.js`, `styles.css` |

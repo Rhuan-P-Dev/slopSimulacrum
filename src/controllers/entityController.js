@@ -20,6 +20,8 @@ class EntityController {
 
     /**
      * Recursively expands a blueprint into a flat list of component definitions.
+     * Uses a per-branch visited set to prevent infinite recursion while allowing
+     * the same blueprint to be expanded in different branches (e.g., left and right arms).
      * @param {string} blueprintName - The name of the blueprint to expand.
      * @param {Set<string>} [visited] - Set of already-visited blueprint names to prevent infinite recursion.
      * @returns {Array} A list of components needed for the entity.
@@ -29,7 +31,6 @@ class EntityController {
             // Prevent infinite recursion for leaf-only blueprints (e.g., knife)
             return [];
         }
-        visited.add(blueprintName);
 
         const components = [];
         const blueprint = this.blueprints[blueprintName];
@@ -45,8 +46,12 @@ class EntityController {
                 components.push([compName, identifier]);
                 
                 // If the component itself is also a blueprint, expand it to add its children
+                // Create a NEW visited set for each branch to allow sibling blueprints
+                // to be expanded independently (e.g., left and right arms both expanding droidArm)
                 if (this.blueprints[compName]) {
-                    components.push(...this.expandBlueprint(compName, visited).map(c => 
+                    const branchVisited = new Set(visited);
+                    branchVisited.add(blueprintName);
+                    components.push(...this.expandBlueprint(compName, branchVisited).map(c => 
                         Array.isArray(c) ? [c[0], `${c[1]}_${identifier}`] : [c, identifier]
                     ));
                 }
@@ -59,8 +64,11 @@ class EntityController {
                 components.push([compName, identifier]);
                 
                 // If the component itself is also a blueprint, expand it to add its children
+                // Create a NEW visited set for this branch
                 if (this.blueprints[compName]) {
-                    components.push(...this.expandBlueprint(compName, visited));
+                    const branchVisited = new Set(visited);
+                    branchVisited.add(blueprintName);
+                    components.push(...this.expandBlueprint(compName, branchVisited));
                 }
             }
         }

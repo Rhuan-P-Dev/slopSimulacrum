@@ -9,6 +9,7 @@ import ComponentCapabilityController from './componentCapabilityController.js';
 import SynergyController from './synergyController.js';
 import ActionSelectController from './actionSelectController.js';
 import ConsequenceHandlers from './consequenceHandlers.js';
+import EquipmentController from './equipmentController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 
@@ -81,6 +82,11 @@ class WorldStateController {
         );
         this.actionController = actionController;
 
+        // 8. Instantiate EquipmentController (Equipment/Grab System)
+        // Manages grabbing items and adding them as components to entities.
+        const equipmentController = new EquipmentController(this);
+        this.equipmentController = equipmentController;
+
         // Wire the actionController reference into stateEntityController for spawn/despawn hooks
         // Must be done AFTER actionController is instantiated (forward reference)
         this.stateEntityController.actionController = actionController;
@@ -99,7 +105,8 @@ class WorldStateController {
             actions: this.actionController,
             capabilities: this.componentCapabilityController,
             synergy: this.synergyController,
-            selections: this.actionSelectController
+            selections: this.actionSelectController,
+            equipment: this.equipmentController
         };
 
         // Initialize world with a sample droid as requested

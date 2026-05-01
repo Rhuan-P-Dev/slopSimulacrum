@@ -1,5 +1,6 @@
 import EntityController from './entityController.js';
 import { generateUID } from '../utils/idGenerator.js';
+import Logger from '../utils/Logger.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -126,6 +127,59 @@ class stateEntityController {
      */
     getAll() {
         return this.entities;
+    }
+
+    // =========================================================================
+    // COMPONENT MANAGEMENT (for grab/equip system)
+    // =========================================================================
+
+    /**
+     * Adds a new component to an entity's component list.
+     * Used by the EquipmentController when an item is grabbed.
+     *
+     * @param {string} entityId - The ID of the entity.
+     * @param {string} componentId - The ID of the component to add.
+     * @param {string} componentType - The type of the component.
+     * @returns {boolean} True if the component was added successfully.
+     */
+    addComponentToEntity(entityId, componentId, componentType) {
+        const entity = this.entities[entityId];
+        if (!entity) {
+            Logger.warn(`Entity "${entityId}" not found. Cannot add component.`);
+            return false;
+        }
+
+        entity.components.push({ id: componentId, type: componentType });
+        Logger.info(`Added component "${componentType}" (${componentId}) to entity "${entityId}".`);
+
+        return true;
+    }
+
+    /**
+     * Removes a component from an entity's component list.
+     * Used by the EquipmentController when an item is released.
+     *
+     * @param {string} entityId - The ID of the entity.
+     * @param {string} componentId - The ID of the component to remove.
+     * @returns {boolean} True if the component was removed successfully.
+     */
+    removeComponentFromEntity(entityId, componentId) {
+        const entity = this.entities[entityId];
+        if (!entity) {
+            Logger.warn(`Entity "${entityId}" not found. Cannot remove component.`);
+            return false;
+        }
+
+        const beforeCount = entity.components.length;
+        entity.components = entity.components.filter((c) => c.id !== componentId);
+
+        if (entity.components.length === beforeCount) {
+            Logger.warn(`Component "${componentId}" not found on entity "${entityId}".`);
+            return false;
+        }
+
+        Logger.info(`Removed component "${componentId}" from entity "${entityId}".`);
+        return true;
     }
 }
 

@@ -37,6 +37,7 @@ export class ClientApp {
         this.socket = io();
         this._setupSocketListeners();
         this._setupMapClickListener();
+        this._setupReleaseHandler();
 
         /**
          * @type {Object|null} Current synergy preview result (from _updateSynergyPreview).
@@ -387,6 +388,53 @@ export class ClientApp {
     }
 
     /**
+     * Sets up the release handler for grabbed items.
+     * Listens for the 'release-component' custom event from UIManager's detail overlay.
+     */
+    _setupReleaseHandler() {
+        // Attach listener after DOM is ready (the overlay may not exist yet)
+        const attachListener = () => {
+            const detailOverlay = document.getElementById('detail-overlay');
+            if (!detailOverlay) {
+                // Retry after a short delay
+                setTimeout(attachListener, 100);
+                return;
+            }
+
+            detailOverlay.addEventListener('release-component', async (event) => {
+                const { componentId: grabbedItemCompId, componentType } = event.detail;
+                const entityId = this.worldState.getMyEntityId();
+                if (!entityId) {
+                    console.error('[ClientApp] No active entity to release from.');
+                    return;
+                }
+
+                console.log(`[ClientApp] Executing release action for ${componentType} (grabbed item: ${grabbedItemCompId})`);
+
+                try {
+                    const result = await this.actions.executeRelease('release', entityId, grabbedItemCompId);
+                    console.log('[ClientApp] Release executed successfully:', result);
+
+                    // Clear pending action and refresh
+                    this.actions.clearPendingAction();
+                    this._clearAllSelections();
+                    await this.refreshWorldAndActions();
+                } catch (error) {
+                    console.error('[ClientApp] Release failed:', error);
+                    this.errorController.handleError({
+                        code: 'RELEASE_FAILED',
+                        message: error.message
+                    });
+                }
+            });
+
+            console.log('[ClientApp] Release handler attached to detail overlay.');
+        };
+
+        attachListener();
+    }
+
+    /**
      * Configures the map click handler for spatial targeting.
      */
     _setupMapClickListener() {
@@ -431,7 +479,11 @@ export class ClientApp {
                     this.actions.moveToTarget(pending.actionName, pending.entityId, targetX, targetY);
                 }
             } else if (pending.targetingType === 'component') {
-                this.handlePunchTarget(pending, targetX, targetY);
+                if (pending.actionName === 'grab') {
+                    this.handleGrabTarget(pending, targetX, targetY);
+                } else if (pending.actionName === 'cut' || pending.actionName === 'droid punch') {
+                    this.handlePunchTarget(pending, targetX, targetY);
+                }
             }
         });
     }
@@ -483,6 +535,62 @@ export class ClientApp {
             this.activeActionName = null;
             this.ui.clearSynergyPreview();
             console.error('[ClientApp] Multi-component spatial action failed:', error);
+        }
+    }
+
+    /**
+     * Handles targeting for "grab" actions.
+     * Finds the closest entity to the click and attempts to grab it.
+     * @param {Object} pending
+     * @param {number} targetX
+     * @param {number} targetY
+     */
+    async handleGrabTarget(pending, targetX, targetY) {
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        if (!droid || !state) return;
+
+        const actionData = this.availableActions[pending.actionName];
+        const range = actionData?.range || 100;
+
+        const distance = this.actions.calculateDistance(targetX, targetY, droid.spatial.x, droid.spatial.y);
+
+        if (distance > range) {
+            this.errorController.handleError({
+                code: 'TARGET_OUT_OF_RANGE',
+                details: {
+                    distance: Math.round(distance),
+                    range: range
+                }
+            });
+            this.actions.clearPendingAction();
+            return;
+        }
+
+        const closestEntity = this.actions.findClosestEntity(
+            state.entities,
+            targetX,
+            targetY,
+            AppConfig.TARGETING.PUNCH_TOLERANCE
+        );
+
+        if (!closestEntity) {
+            this.errorController.handleError({
+                code: 'NO_TARGET_FOUND'
+            });
+            this.actions.clearPendingAction();
+            return;
+        }
+
+        try {
+            const handCompId = Array.from(this.selectedComponentIds)[0] || pending.componentId;
+            await this.actions.executeGrab(pending.actionName, pending.entityId, handCompId, closestEntity.id);
+
+            this.actions.clearPendingAction();
+            this._clearAllSelections();
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            console.error('[ClientApp] Grab failed:', error);
         }
     }
 

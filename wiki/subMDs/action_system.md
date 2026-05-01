@@ -693,6 +693,56 @@ Triggers a server event for client notifications.
 { type: "triggerEvent", eventType: "action_complete", data: { action: "move" } }
 ```
 
+### 6.7. grabItem
+
+Grabs an item entity and adds it as a component to the main entity. The item's traits become available for action requirement checking.
+
+**Parameters:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `debuff.trait` | string | The trait category for the strength debuff (e.g., "Physical") |
+| `debuff.stat` | string | The stat to reduce (e.g., "strength") |
+| `debuff.value` | number | The delta value (negative, e.g., -5) |
+
+**Context Parameters:**
+- `context.actionParams.entityId` — Main entity receiving the item
+- `context.actionParams.targetEntityId` — Item entity being grabbed
+- `context.actionParams.attackerComponentId` — Hand component that grabs the item
+
+**Example:**
+```javascript
+{
+  type: "grabItem",
+  params: {
+    debuff: { trait: "Physical", stat: "strength", value: -5 }
+  }
+}
+```
+
+📖 See [Equipment System Wiki](./equipment_system.md) for full details.
+
+### 6.8. releaseItem
+
+Releases a grabbed item: removes the item component from the entity and restores the hand's strength.
+
+**Parameters:**
+| Property | Type | Description |
+|----------|------|-------------|
+| (none required) | — | — |
+
+**Context Parameters:**
+- `context.actionParams.entityId` — Main entity that was holding the item
+
+**Example:**
+```javascript
+{
+  type: "releaseItem",
+  params: {}
+}
+```
+
+📖 See [Equipment System Wiki](./equipment_system.md) for full details.
+
 ---
 
 ## 7. Adding New Actions
@@ -937,6 +987,33 @@ These resolved values are passed directly to consequence handlers (like `deltaSp
 | dash | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | selfHeal | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| **grab** | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| **release** | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| **cut** | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+
+**New Consequence Handlers:**
+| Handler | Purpose | Status |
+|---------|---------|--------|
+| `grabItem` | Add item as component to entity | ✅ Implemented |
+| `releaseItem` | Remove item from entity, restore strength | ✅ Implemented |
+
+**New Actions:**
+| Action | Requirements | Consequences |
+|--------|-------------|--------------|
+| `cut` | `Physical.sharpness ≥ 20` on source component | `damageComponent` (target), `updateComponentStatDelta` (knife dulls), `log` |
+
+**New Controllers:**
+| Controller | Purpose | Status |
+|------------|---------|--------|
+| `EquipmentController` | Manage grab/release, track held items | ✅ Implemented |
+
+**New StateEntityController Methods:**
+| Method | Purpose | Status |
+|--------|---------|--------|
+| `addComponentToEntity()` | Add item component to entity | ✅ Implemented |
+| `removeComponentFromEntity()` | Remove item component from entity | ✅ Implemented |
+
+📖 See [Equipment System Wiki](./equipment_system.md) for full details.
 
 ---
 
