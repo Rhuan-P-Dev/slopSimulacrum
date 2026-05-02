@@ -178,9 +178,3 @@ A Node.js Express server integrated with Socket.io that:
 node src/server.js
 ```
 The server will start by default on `http://localhost:3000`.
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

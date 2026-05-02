@@ -137,9 +137,3 @@ The client utilizes a `ClientErrorController` to decouple error detection from v
     - Highlights: Glowing neon effects using `box-shadow` and `filter: drop-shadow`.
     - Error: `#ff4444` (Red, used via `status-fail`)
 - **Typography**: Monospaced fonts (e.g., 'Courier New') to simulate a retro-futuristic terminal.
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

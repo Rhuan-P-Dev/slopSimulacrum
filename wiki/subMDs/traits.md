@@ -97,9 +97,3 @@ After update:
 **Reference:** `src/controllers/componentStatsController.js` — `setStats()` method.
 
 🐛 For fix details on the deep trait-level merge implementation, see [BUG-005](../../bugfixWiki/high/BUG-005-deep-trait-merge.md).
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

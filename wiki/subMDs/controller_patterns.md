@@ -219,9 +219,3 @@ When a new dependency is added to a sub-controller (e.g., `EntityController` now
     - Pass the `PhysicsController` instance into the `EntityController` constructor.
 
 This ensures that the dependency graph remains transparent and the Single Source of Truth is preserved across the entire simulation.
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

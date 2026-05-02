@@ -88,9 +88,3 @@ The primary objective is **Maintainability**. The code must be written so that a
 ---
 
 **Signed:** *Software Governance Systems - Gemma 4*
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

@@ -78,9 +78,3 @@ If you need to track a new type of global state (e.g., Global Weather, Game Time
   }
 }
 ```
-
----
-
-### 📢 Notice for Future Agents
-**Language Requirement:** All source code in this project must be written in **JavaScript**.
-**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.

@@ -2,13 +2,6 @@
 
 This wiki is specifically designed for AI agents.
 
-> **Note:** The `wiki/subMDs/action/` directory was removed — it was empty and served no purpose. All action-related documentation lives in `action_system.md`.
-
-### ⚠️ Mandatory Requirement for AI Agents
-All AI agents working on this project **must** use this wiki and its `subMDs` as the **single source of truth** for all code implementations.
-
-**It is a strict requirement to read and analyze the relevant sections of the wiki and sub-wikis BEFORE writing or modifying any code.**
-
 **Special Notice on Architecture:** The `subMDs/controller_patterns.md` guide is **obligatory**. All controllers must be implemented using the specified Dependency Injection patterns to prevent critical state desynchronization.
 
 ## Table of Contents
@@ -65,6 +58,9 @@ All AI agents working on this project **must** use this wiki and its `subMDs` as
 
 ### 📢 Note for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.
+**Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.
+**It is a strict requirement to read and analyze the relevant sections of the wiki and sub-wikis BEFORE writing or modifying any code.**
+
 
 **Logging Standard:** All controllers must use the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
 
