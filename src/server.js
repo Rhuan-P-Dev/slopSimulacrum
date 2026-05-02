@@ -3,6 +3,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import LLMController from './controllers/LLMController.js';
 import WorldStateController from './controllers/WorldStateController.js';
+import Logger from './utils/Logger.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -19,20 +20,21 @@ const worldStateController = new WorldStateController();
 
 /**
  * Broadcasts the current world state to all connected clients via Socket.io.
+ * @returns {void}
  */
 function broadcastWorldState() {
     try {
-        const state = worldStateController.getAll();
-        if (!state) {
-            console.warn('[Socket] Warning: Attempted to broadcast null/undefined world state');
+        const worldState = worldStateController.getAll();
+        if (!worldState) {
+            Logger.warn('Attempted to broadcast null/undefined world state');
             return;
         }
         
         const clientCount = io.engine.clientsCount;
-        io.emit('world-state-update', { state });
-        console.log(`[Socket] World state broadcasted to ${clientCount} connected clients at ${new Date().toLocaleTimeString()}`);
+        io.emit('world-state-update', { state: worldState });
+        Logger.info('World state broadcasted', { clientCount, time: new Date().toLocaleTimeString() });
     } catch (error) {
-        console.error(`[Server Error] Failed to broadcast world state: ${error.message}`);
+        Logger.error('Failed to broadcast world state', { error: error.message });
     }
 }
 
@@ -40,10 +42,11 @@ function broadcastWorldState() {
 const socketToEntityMap = new Map();
 
 /**
- * Handle WebSocket connections and "Incarnation"
+ * Handle WebSocket connections and "Incarnation".
+ * @param {import('socket.io').Socket} socket - The client socket connection.
  */
 io.on('connection', (socket) => {
-    console.log(`[Socket] New connection: ${socket.id}`);
+    Logger.info('New socket connection', { socketId: socket.id });
 
     // 1. Determine a starting room (use public API wrapper)
     let startRoomId = worldStateController.getRoomUidByLogicalId('start_room');
@@ -58,7 +61,7 @@ io.on('connection', (socket) => {
     }
 
     if (!startRoomId) {
-        console.error('[Socket Error] No valid room found for incarnation.');
+        Logger.critical('No valid room found for incarnation', { socketId: socket.id });
         socket.emit('error', { message: 'World initialization error: No rooms available.' });
         return;
     }
@@ -67,7 +70,7 @@ io.on('connection', (socket) => {
     const entityId = worldStateController.spawnEntity('smallBallDroid', startRoomId);
     socketToEntityMap.set(socket.id, entityId);
 
-    console.log(`[Socket] Player ${socket.id} incarnated as entity ${entityId} in room ${startRoomId}`);
+    Logger.info('Player incarnated', { socketId: socket.id, entityId, roomId: startRoomId });
 
     // 3. Notify the client of its incarnation
     socket.emit('incarnate', { entityId });
@@ -76,7 +79,7 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const entityIdToRemove = socketToEntityMap.get(socket.id);
         if (entityIdToRemove) {
-            console.log(`[Socket] Player ${socket.id} disconnected. Despawning entity ${entityIdToRemove}`);
+            Logger.info('Player disconnected, despawning entity', { socketId: socket.id, entityId: entityIdToRemove });
             worldStateController.despawnEntity(entityIdToRemove);
             socketToEntityMap.delete(socket.id);
         }
@@ -103,7 +106,7 @@ app.post('/chat', async (req, res) => {
         const response = await llmController.chat(messages);
         res.json({ response });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('Chat endpoint error', { error: error.message });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -129,7 +132,7 @@ app.get('/actions', (req, res) => {
         
         res.json({ actions: actionStatus });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/actions endpoint error', { error: error.message });
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
@@ -145,7 +148,7 @@ app.get('/action-capabilities', (req, res) => {
         const capabilities = worldStateController.getCachedCapabilities();
         res.json({ capabilities });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/action-capabilities endpoint error', { error: error.message });
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
@@ -170,7 +173,7 @@ app.get('/action-capabilities/:actionName', (req, res) => {
 
         res.json({ actionName, bestComponent });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/action-capabilities/:actionName endpoint error', { error: error.message, actionName });
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
@@ -196,7 +199,7 @@ app.get('/action-capabilities/entity/:entityId', (req, res) => {
 
         res.json({ entityId, capabilities });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/action-capabilities/entity/:entityId endpoint error', { error: error.message, entityId });
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
@@ -221,7 +224,7 @@ app.post('/refresh-entity-capabilities', (req, res) => {
         const updatedEntries = worldStateController.reEvaluateEntityCapabilities(entityId);
         res.json({ entityId, updatedEntries });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/refresh-entity-capabilities endpoint error', { error: error.message, entityId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -273,7 +276,7 @@ app.post('/execute-action', (req, res) => {
         }
         res.json({ result: responseResult });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/execute-action endpoint error', { error: error.message, actionName, entityId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -305,7 +308,7 @@ app.post('/move-entity', (req, res) => {
             res.status(404).json({ error: 'Entity not found.' });
         }
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/move-entity endpoint error', { error: error.message, entityId, targetRoomId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -320,10 +323,10 @@ app.post('/move-entity', (req, res) => {
  */
 app.get('/world-state', (req, res) => {
     try {
-        const state = worldStateController.getAll();
-        res.json({ state });
+        const worldState = worldStateController.getAll();
+        res.json({ state: worldState });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/world-state endpoint error', { error: error.message });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -340,7 +343,7 @@ app.get('/rooms', (req, res) => {
         const rooms = worldStateController.getRooms();
         res.json({ rooms });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/rooms endpoint error', { error: error.message });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -361,7 +364,7 @@ app.get('/synergy/actions', (req, res) => {
         const actionsWithSynergy = worldStateController.getActionsWithSynergy();
         res.json({ actionsWithSynergy });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/synergy/actions endpoint error', { error: error.message });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -380,7 +383,7 @@ app.get('/synergy/config/:actionName', (req, res) => {
         const config = worldStateController.getSynergyConfig(actionName);
         res.json({ actionName, synergyConfig: config });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/synergy/config/:actionName endpoint error', { error: error.message, actionName });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -416,7 +419,7 @@ app.post('/synergy/preview', (req, res) => {
         const synergyResult = worldStateController.computeSynergy(actionName, entityId, context);
         res.json({ synergyResult });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/synergy/preview endpoint error', { error: error.message, actionName, entityId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -452,7 +455,7 @@ app.post('/synergy/preview-data', (req, res) => {
         const previewData = worldStateController.previewActionData(actionName, entityId, context);
         res.json({ actionPreviewData: previewData });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/synergy/preview-data endpoint error', { error: error.message, actionName, entityId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -485,7 +488,7 @@ app.post('/select-components', (req, res) => {
         );
         res.json(result);
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/select-components endpoint error', { error: error.message, actionName, entityId });
         res.status(500).json({
             success: false,
             error: 'Internal Server Error',
@@ -515,7 +518,7 @@ app.post('/select-component', (req, res) => {
         );
         res.json(result);
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/select-component endpoint error', { error: error.message, actionName, entityId, componentId });
         res.status(500).json({
             success: false,
             error: 'Internal Server Error',
@@ -543,7 +546,7 @@ app.post('/release-selection', (req, res) => {
         const released = worldStateController.releaseSelection(componentId);
         res.json({ success: true, released });
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/release-selection endpoint error', { error: error.message, componentId });
         res.status(500).json({
             success: false,
             error: 'Internal Server Error',
@@ -569,7 +572,7 @@ app.get('/selections/:entityId', (req, res) => {
         const selections = worldStateController.getLockedComponents(entityId);
         res.json(selections);
     } catch (error) {
-        console.error(`[Server Error] ${error.message}`);
+        Logger.error('/selections/:entityId endpoint error', { error: error.message, entityId });
         res.status(500).json({
             error: 'Internal Server Error',
             details: error.message
@@ -578,5 +581,5 @@ app.get('/selections/:entityId', (req, res) => {
 });
 
 server.listen(port, () => {
-    console.log(`SlopSimulacrum Server running at http://localhost:${port}`);
+    Logger.info('SlopSimulacrum Server running', { port, url: `http://localhost:${port}` });
 });
