@@ -1,0 +1,123 @@
+/* =========================================================================
+   Navigation & Room Info Styles
+   Single Responsibility: Navigation buttons, room descriptions, detail overlays
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+.nav-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+.nav-btn {
+    background: var(--dark-green);
+    color: var(--neon-green);
+    border: 1px solid var(--neon-green);
+    padding: 8px 16px;
+    cursor: pointer;
+    font-family: inherit;
+    text-transform: uppercase;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover {
+    background: var(--neon-green);
+    color: var(--bg-black);
+    box-shadow: var(--glow);
+}
+
+.room-info {
+    text-align: center;
+}
+
+.room-name {
+    font-size: 1.4em;
+    color: var(--text-main);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.room-desc {
+    font-style: italic;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+    min-height: 60px;
+}
+
+.detail-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+}
+
+.detail-card {
+    background: var(--panel-bg);
+    border: 2px solid var(--neon-green);
+    width: 600px;
+    max-height: 80vh;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
+    overflow-y: auto;
+    position: relative;
+}
+
+.close-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    cursor: pointer;
+    padding: 5px 10px;
+    font-family: inherit;
+}
+
+.detail-header {
+    border-bottom: 1px solid var(--neon-green);
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+}
+
+.entity-stat {
+    margin-bottom: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.stat-label {
+    color: var(--neon-green);
+    font-weight: bold;
+    min-width: 120px;
+}
+
+.stat-value {
+    color: var(--text-main);
+}
+
+.room-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}

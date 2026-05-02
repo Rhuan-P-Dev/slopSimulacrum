@@ -1,0 +1,35 @@
+/* =========================================================================
+   Base Styles — Reset, Body, Typography
+   Single Responsibility: Global typography and base element styling
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+body {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: var(--bg-black);
+    color: var(--neon-green);
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+}
+
+h1 {
+    text-transform: uppercase;
+    letter-spacing: 5px;
+    border-bottom: 2px solid var(--neon-green);
+    padding-bottom: 10px;
+    text-shadow: var(--glow);
+    margin-bottom: 30px;
+}

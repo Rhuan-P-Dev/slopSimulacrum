@@ -1,0 +1,24 @@
+/* =========================================================================
+   Utility Classes
+   Single Responsibility: Reusable micro-utilities for text, alignment, and display
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+.text-muted { color: #666; }
+.text-muted-light { color: #888; }
+.text-neon { color: var(--neon-green); }
+.text-center { text-align: center; }
+
+/* Detail card specific utilities */
+.detail-header-main { margin: 0; color: var(--neon-green); }
+.detail-subheader { color: var(--text-dim); margin: 5px 0 0 0; }
+.id-text { font-size: 0.7em; color: #666; }

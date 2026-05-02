@@ -1,0 +1,72 @@
+/* =========================================================================
+   Feedback Styles — Error popups, release buttons, animation keyframes
+   Single Responsibility: User feedback elements (errors, releases, animations)
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+/* Error Popup */
+.error-popup {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: #ff4444;
+    color: #fff;
+    padding: 15px 25px;
+    border: 2px solid #fff;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    box-shadow: 0 0 20px rgba(255, 68, 68, 0.5), inset 0 0 10px rgba(0,0,0,0.3);
+    z-index: 1000;
+    animation: slideInRight 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
+    pointer-events: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(110%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+/* Release Button */
+.release-btn {
+    background: rgba(255, 68, 68, 0.15);
+    border: 1px solid #ff4444;
+    color: #ff4444;
+    padding: 6px 12px;
+    margin-top: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    border-radius: 2px;
+    width: 100%;
+    text-align: center;
+}
+
+.release-btn:hover {
+    background: rgba(255, 68, 68, 0.3);
+    box-shadow: 0 0 10px rgba(255, 68, 68, 0.4);
+    color: #fff;
+    border-color: #ff6666;
+}
+
+.release-btn:active {
+    transform: scale(0.98);
+}

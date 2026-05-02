@@ -1,0 +1,208 @@
+/* =========================================================================
+   Synergy Preview Display Styles
+   Single Responsibility: Synergy preview rendering, multiplier display, modified values
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+.synergy-preview-display {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(22, 22, 22, 0.95);
+    border: 2px solid #ffff00;
+    border-radius: 6px;
+    padding: 12px 20px;
+    z-index: 999;
+    box-shadow: 0 0 20px rgba(255, 255, 0, 0.2);
+    animation: synergySlideUp 0.3s ease-out;
+    min-width: 220px;
+    text-align: center;
+}
+
+@keyframes synergySlideUp {
+    from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+    to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.synergy-header {
+    margin-bottom: 6px;
+}
+
+.synergy-multiplier {
+    color: #ffff00;
+    font-size: 1.1em;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(255, 255, 0, 0.5);
+}
+
+.synergy-component {
+    display: block;
+    color: var(--text-main);
+    font-size: 0.8em;
+    margin: 2px 0;
+}
+
+.synergy-summary {
+    color: var(--text-dim);
+    font-size: 0.7em;
+    font-style: italic;
+    margin-top: 4px;
+    border-top: 1px solid rgba(255, 255, 0, 0.15);
+    padding-top: 4px;
+}
+
+/* Single-component action data preview */
+.action-data-preview {
+    text-align: left;
+    min-width: 200px;
+}
+
+.action-data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 0.85em;
+    border-bottom: 1px solid rgba(255, 255, 0, 0.1);
+}
+
+.action-data-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
+}
+
+.action-data-section-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.action-data-label {
+    color: var(--text-dim);
+    min-width: 100px;
+}
+
+.action-data-value {
+    color: var(--text-main);
+    font-weight: bold;
+}
+
+.consequence-row .action-data-value {
+    color: #00ff00;
+}
+
+.consequence-row.negative .action-data-value {
+    color: #ff4444;
+}
+
+.req-row .action-data-value {
+    color: #ffaa00;
+}
+
+/* Multi-component synergy modified values */
+.synergy-preview-display-inner {
+    text-align: left;
+    min-width: 220px;
+}
+
+.synergy-values-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
+}
+
+.synergy-values-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.synergy-value-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.85em;
+    border-bottom: 1px solid rgba(255, 255, 0, 0.1);
+}
+
+.synergy-value-label {
+    color: var(--text-dim);
+    min-width: 110px;
+}
+
+.synergy-value-changed {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.9em;
+}
+
+.synergy-value-base {
+    color: var(--text-dim);
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+.synergy-value-arrow {
+    color: #ffff00;
+    margin: 0 3px;
+}
+
+.synergy-value-final {
+    color: #00ff00;
+    font-weight: bold;
+}
+
+.synergy-value-bonus {
+    font-size: 0.8em;
+    margin-left: 3px;
+    font-weight: bold;
+}
+
+.bonus-positive {
+    color: #00ff00;
+}
+
+.bonus-negative {
+    color: #ff4444;
+}
+
+.synergy-components-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 0, 0.2);
+}
+
+.synergy-components-title {
+    color: #ffff00;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.synergy-cap-warning {
+    color: #ffaa00;
+    font-size: 0.8em;
+    margin-top: 8px;
+    font-weight: bold;
+}

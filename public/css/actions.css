@@ -1,0 +1,123 @@
+/* =========================================================================
+   Action List & Selection Styles
+   Single Responsibility: Action list rendering, capability display, component selection states
+   ========================================================================= */
+
+:root {
+    --neon-green: #00ff00;
+    --dark-green: #004400;
+    --bg-black: #0a0a0a;
+    --panel-bg: #161616;
+    --text-main: #fff;
+    --text-dim: #aaa;
+    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+/* Action List */
+.action-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--neon-green);
+}
+
+.action-list {
+    max-height: 250px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+}
+
+.action-item {
+    background: rgba(0, 255, 0, 0.05);
+    border-left: 3px solid var(--neon-green);
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+.action-name {
+    color: var(--neon-green);
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 0.9em;
+}
+
+.action-capabilities {
+    margin-top: 5px;
+}
+
+.action-capable {
+    font-size: 0.8em;
+    margin: 3px 0;
+    line-height: 1.4;
+}
+
+.component-name {
+    color: #ffff00;
+}
+
+.status-ok {
+    color: var(--neon-green);
+}
+
+.status-req {
+    color: #ffaa00;
+}
+
+.status-fail {
+    color: #ff4444;
+}
+
+/* Action List Hover Effects */
+.action-capable.clickable {
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 2px 5px;
+    border-radius: 2px;
+}
+
+.action-capable.clickable:hover {
+    background-color: rgba(0, 255, 0, 0.15);
+    transform: translateX(3px);
+}
+
+/* Selected Action Highlight */
+.action-selected {
+    background-color: var(--neon-green) !important;
+    color: var(--bg-black) !important;
+    font-weight: bold;
+    box-shadow: var(--glow);
+    border: 1px solid #fff;
+}
+
+.action-selected .component-name,
+.action-selected .status-ok,
+.action-selected .status-fail {
+    color: var(--bg-black) !important;
+}
+
+/* Active Action Item */
+.action-active {
+    border-left-color: #ffff00;
+    background: rgba(255, 255, 0, 0.08);
+}
+
+.action-active .action-name {
+    color: #ffff00;
+}
+
+/* Locked/Grayed Component Row */
+.component-locked {
+    opacity: 0.35;
+    pointer-events: auto;
+    cursor: not-allowed;
+}
+
+.component-locked:hover {
+    opacity: 0.6;
+    background-color: rgba(255, 68, 68, 0.15);
+}
+
+.lock-icon {
+    margin-right: 4px;
+    font-size: 12px;
+    cursor: help;
+}
