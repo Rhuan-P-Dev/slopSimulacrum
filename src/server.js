@@ -42,38 +42,68 @@ function broadcastWorldState() {
 const socketToEntityMap = new Map();
 
 /**
+ * Clean up socket-to-entity mapping on socket error.
+ * Prevents orphaned entries in socketToEntityMap when sockets fail unexpectedly.
+ * @param {string} socketId - The socket ID to clean up.
+ */
+function cleanupSocketMapping(socketId) {
+    const entityId = socketToEntityMap.get(socketId);
+    if (entityId) {
+        Logger.warn('Cleaning up socket mapping after error', { socketId, entityId });
+        worldStateController.despawnEntity(entityId);
+        socketToEntityMap.delete(socketId);
+    }
+}
+
+/**
  * Handle WebSocket connections and "Incarnation".
+ * - Spawns a player entity for each connected client.
+ * - Maps socket IDs to entity IDs for lifecycle management.
+ * - Cleans up entities on disconnect or error.
  * @param {import('socket.io').Socket} socket - The client socket connection.
  */
 io.on('connection', (socket) => {
     Logger.info('New socket connection', { socketId: socket.id });
 
-    // 1. Determine a starting room (use public API wrapper)
-    let startRoomId = worldStateController.getRoomUidByLogicalId('start_room');
-    
-    // Fallback if start_room is not found (use public API)
-    if (!startRoomId) {
-        const allRooms = worldStateController.getAll().rooms;
-        const roomIds = Object.keys(allRooms || {});
-        if (roomIds.length > 0) {
-            startRoomId = roomIds[0];
-        }
-    }
+    // Handle socket errors to prevent orphaned entity mappings
+    socket.on('error', (error) => {
+        Logger.error('Socket error', { socketId: socket.id, error: error.message });
+        cleanupSocketMapping(socket.id);
+    });
 
-    if (!startRoomId) {
-        Logger.critical('No valid room found for incarnation', { socketId: socket.id });
-        socket.emit('error', { message: 'World initialization error: No rooms available.' });
+    try {
+        // 1. Determine a starting room (use public API wrapper)
+        let startRoomId = worldStateController.getRoomUidByLogicalId('start_room');
+        
+        // Fallback if start_room is not found (use public API)
+        if (!startRoomId) {
+            const availableRooms = worldStateController.getAll().rooms;
+            const availableRoomIds = Object.keys(availableRooms || {});
+            if (availableRoomIds.length > 0) {
+                startRoomId = availableRoomIds[0];
+            }
+        }
+
+        if (!startRoomId) {
+            Logger.critical('No valid room found for incarnation', { socketId: socket.id });
+            socket.emit('error', { message: 'World initialization error: No rooms available.' });
+            return;
+        }
+
+        // 2. Incarnate the player: Spawn an entity (use public API wrapper)
+        const entityId = worldStateController.spawnEntity('smallBallDroid', startRoomId);
+        socketToEntityMap.set(socket.id, entityId);
+
+        Logger.info('Player incarnated', { socketId: socket.id, entityId, roomId: startRoomId });
+
+        // 3. Notify the client of its incarnation
+        socket.emit('incarnate', { entityId });
+    } catch (error) {
+        Logger.error('Failed to incarnate player', { socketId: socket.id, error: error.message });
+        socket.emit('error', { message: 'Failed to incarnate player entity.' });
+        cleanupSocketMapping(socket.id);
         return;
     }
-
-    // 2. Incarnate the player: Spawn an entity (use public API wrapper)
-    const entityId = worldStateController.spawnEntity('smallBallDroid', startRoomId);
-    socketToEntityMap.set(socket.id, entityId);
-
-    Logger.info('Player incarnated', { socketId: socket.id, entityId, roomId: startRoomId });
-
-    // 3. Notify the client of its incarnation
-    socket.emit('incarnate', { entityId });
 
     // 4. Handle disconnection (use public API wrapper)
     socket.on('disconnect', () => {

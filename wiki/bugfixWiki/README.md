@@ -30,6 +30,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-009](high/BUG-009-server-direct-access.md) | Server Direct Sub-Controller Access | ✅ Fixed | — | `server.js`, `WorldStateController.js` |
 | [BUG-010](high/BUG-010-self-target-resolution.md) | Self-Targeting Action Component Resolution | ✅ Fixed | `53fa440` | `actionController.js` |
 | [BUG-021](high/BUG-021-spatial-action-race-condition.md) | Multi-Component Spatial Action Race Condition | ✅ Fixed | `22bf5dc` | `App.js` |
+| [BUG-026](high/BUG-026-blueprint-expansion-sibling-skipped.md) | Blueprint Expansion: Sibling Components Skipped | ✅ Fixed | `41014fb3` | `entityController.js` |
+| [BUG-028](high/BUG-028-socket-error-orphaned-mapping.md) | Socket Error Causes Orphaned Entity Mapping | ✅ Fixed | `pending` | `server.js` |
 
 ### 🟡 Medium Severity
 
