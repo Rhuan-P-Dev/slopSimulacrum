@@ -62,6 +62,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 |----|-------|--------|----------|---------------|
 | [BUG-017](architectural/BUG-017-dual-state-bug.md) | Dual State Bug: Internal Controller Instantiation | ✅ Fixed | — | All controllers |
 | [BUG-018](architectural/BUG-018-actions-not-generic.md) | Hardcoded Actions (Not Data-Driven) | ✅ Fixed | `462ecc5`, `be6858d` | `actions.json`, `actionController.js` |
+| [BUG-029](architectural/BUG-029-server-monolith-srp-violation.md) | Server Monolith Violates SRP | ✅ Fixed | `pending` | `src/server.js` |
 
 ---
 
