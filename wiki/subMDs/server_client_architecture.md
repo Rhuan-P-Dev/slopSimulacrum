@@ -166,8 +166,7 @@ A Node.js Express server integrated with Socket.io that:
 - Manages "Incarnation": maps WebSocket IDs to spawned entities and handles automatic despawning on disconnect.
 - Serves a static front-end from the `/public` directory.
 
-### 3.2. Clients
-- **CLI Client (`src/client.js`)**: A command-line interface that manages conversation history and communicates with the server via HTTP.
+### 3.2. Client
 - **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, and `ActionManager.js`) that visualize the world state and handle action execution.
 
 ---
@@ -179,12 +178,6 @@ A Node.js Express server integrated with Socket.io that:
 node src/server.js
 ```
 The server will start by default on `http://localhost:3000`.
-
-### 4.2. Start the Client
-In a new terminal:
-```bash
-node src/client.js
-```
 
 ---
 
