@@ -29,6 +29,7 @@ This wiki is specifically designed for AI agents.
 - [LLM Integration](subMDs/llm_integration.md)
 - [Movement System](subMDs/movement_system.md)
 - [Client UI](subMDs/client_ui.md)
+- [Client-Side Architecture](subMDs/client_side_architecture.md)
 - [Entities](subMDs/entities.md)
 - [Error Handling](subMDs/error_handling.md)
 - [Traits](subMDs/traits.md)
@@ -53,12 +54,11 @@ This wiki is specifically designed for AI agents.
 - [Server Splitting Architecture](subMDs/server_splitting.md)
 - [LLM Integration](subMDs/llm_integration.md)
 - [Movement System](subMDs/movement_system.md)
-- [Client UI](subMDs/client_ui.md)
-- [Entities](subMDs/entities.md)
 - [Error Handling](subMDs/error_handling.md)
 - [Traits](subMDs/traits.md)
 - [World State](subMDs/world_state.md)
 - [CSS Architecture](subMDs/css_architecture.md)
+- [Client-Side Architecture](subMDs/client_side_architecture.md)
 
 ### 📢 Note for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.
