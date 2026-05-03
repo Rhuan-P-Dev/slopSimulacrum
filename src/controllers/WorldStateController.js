@@ -202,6 +202,34 @@ class WorldStateController {
         return this.roomsController.getUidByLogicalId(logicalId);
     }
 
+    /**
+     * Retrieves an entity by its ID.
+     * Provides a public API for accessing entity state instead of direct property access.
+     * @param {string} entityId - The entity ID.
+     * @returns {Object|null} The entity object, or null if not found.
+     */
+    getEntity(entityId) {
+        return this.stateEntityController.getEntity(entityId);
+    }
+
+    /**
+     * Retrieves an entity's component by its component ID.
+     * @param {string} componentId - The component ID.
+     * @returns {Object|null} The component object, or null if not found.
+     */
+    getComponent(componentId) {
+        return this.componentController.getComponent(componentId);
+    }
+
+    /**
+     * Retrieves component stats by component ID.
+     * @param {string} componentId - The component ID.
+     * @returns {Object|null} The component stats object, or null if not found.
+     */
+    getComponentStats(componentId) {
+        return this.componentController.getComponentStats(componentId);
+    }
+
     // =========================================================================
     // SYNERGY PUBLIC API (for server.js access)
     // =========================================================================

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Logger from './Logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,7 @@ class DataLoader {
             const data = fs.readFileSync(absolutePath, 'utf8');
             return JSON.parse(data);
         } catch (error) {
-            console.error(`[DataLoader] Failed to load file at ${relativePath}:`, error.stack || error);
+            Logger.error(`[DataLoader] Failed to load file at ${relativePath}:`, error.stack || error);
             throw new Error(`[DataLoader] Failed to load file at ${relativePath}: ${error.message}`, { cause: error });
         }
     }

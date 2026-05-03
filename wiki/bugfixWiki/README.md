@@ -49,6 +49,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-023](medium/BUG-023-range-indicator-ignores-synergy.md) | Range Indicator Ignores Synergy Multiplier | ✅ Fixed | `22bf5dc` | `App.js` |
 | [BUG-024](medium/BUG-024-blueprint-recursion-stackoverflow.md) | Blueprint Recursion: Leaf-Only Blueprints Stack Overflow | ✅ Fixed | `41014fb3` | `entityController.js` |
 | [BUG-027](medium/BUG-027-server-console-log-instead-of-logger.md) | Server Uses console.log Instead of Centralized Logger | ✅ Fixed | `4cf43abf` | `server.js` |
+| [BUG-032](medium/BUG-032-controller-direct-property-access.md) | Controllers Directly Access Sub-Controller Private Properties | ✅ Fixed | `pending` | `actionController.js`, `WorldStateController.js` |
 
 ### 🟢 Low Severity
 

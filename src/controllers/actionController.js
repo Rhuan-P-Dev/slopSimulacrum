@@ -1,4 +1,8 @@
 import Logger from '../utils/Logger.js';
+import { resolvePlaceholders } from '../utils/PlaceholderResolver.js';
+import { checkRequirements, checkRequirementsForComponent, componentSatisfiesRequirements } from '../utils/RequirementChecker.js';
+import { checkGrabRange } from '../utils/RangeChecker.js';
+import { SYNERGY_BONUS_THRESHOLD } from '../utils/Constants.js';
 
 /**
  * Component action binding roles — defines which body part participates in which action.
@@ -536,7 +540,7 @@ class ActionController {
      */
     _resolveSourceComponent(action, entityId, params) {
         const binding = action.componentBinding;
-        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        const entity = this.worldStateController.getEntity(entityId);
 
         if (!entity) return null;
 
@@ -680,7 +684,7 @@ class ActionController {
      * @returns {Object|null}
      */
     _findComponentById(entityId, componentId) {
-        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        const entity = this.worldStateController.getEntity(entityId);
         if (!entity?.components) return null;
         return entity.components.find(c => c.id === componentId) || null;
     }
@@ -693,16 +697,8 @@ class ActionController {
      * @returns {boolean}
      */
     _componentSatisfiesActionRequirements(componentStats, action) {
-        if (!componentStats || !action?.requirements || !Array.isArray(action.requirements)) return false;
-
-        for (const req of action.requirements) {
-            if (!componentStats[req.trait] ||
-                componentStats[req.trait][req.stat] === undefined ||
-                componentStats[req.trait][req.stat] < req.minValue) {
-                return false;
-            }
-        }
-        return true;
+        if (!componentStats || !action?.requirements) return false;
+        return componentSatisfiesRequirements(componentStats, action.requirements);
     }
 
     /**
@@ -731,7 +727,7 @@ class ActionController {
      * @private
      */
     _checkRequirements(requirements, entityId) {
-        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        const entity = this.worldStateController.getEntity(entityId);
         if (!entity) {
             return {
                 passed: false,
@@ -739,55 +735,9 @@ class ActionController {
             };
         }
 
-        const reqList = Array.isArray(requirements) ? requirements : [requirements];
-
-        // 1. Score components based on how many requirements they satisfy
-        const componentScores = entity.components.map(component => {
-            const stats = this.worldStateController.componentController.getComponentStats(component.id);
-            let score = 0;
-            const satisfiedReqs = [];
-
-            for (const req of reqList) {
-                if (stats && stats[req.trait] && stats[req.trait][req.stat] >= req.minValue) {
-                    score++;
-                    satisfiedReqs.push(req);
-                }
-            }
-            return { id: component.id, score, satisfiedReqs };
-        });
-
-        // 2. Sort components by score descending to prioritize the most capable ones
-        componentScores.sort((a, b) => b.score - a.score);
-
-        const requirementValues = {};
-        const fulfillingComponents = {};
-        let primaryComponentId = null;
-
-        // 3. Assign the best available component for each requirement
-        for (const req of reqList) {
-            const bestComponent = componentScores.find(cs =>
-                cs.satisfiedReqs.some(r => r === req)
-            );
-
-            if (!bestComponent) {
-                return {
-                    passed: false,
-                    error: {
-                        code: 'MISSING_TRAIT_STAT',
-                        details: { trait: req.trait, stat: req.stat, minValue: req.minValue }
-                    }
-                };
-            }
-
-            const stats = this.worldStateController.componentController.getComponentStats(bestComponent.id);
-            const key = `${req.trait}.${req.stat}`;
-            requirementValues[key] = stats[req.trait][req.stat];
-            fulfillingComponents[key] = bestComponent.id;
-
-            if (!primaryComponentId) primaryComponentId = bestComponent.id;
-        }
-
-        return { passed: true, requirementValues, fulfillingComponents, componentId: primaryComponentId };
+        return checkRequirements(requirements, entity, (compId) =>
+            this.worldStateController.getComponentStats(compId)
+        );
     }
 
     /**
@@ -802,36 +752,19 @@ class ActionController {
      * @private
      */
     _checkRequirementsForComponent(requirements, entityId, componentId) {
-        const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
+        const componentStats = this.worldStateController.getComponentStats(componentId);
         if (!componentStats) {
             return { passed: false, error: { code: 'ENTITY_NOT_FOUND', details: { entityId } } };
         }
 
-        const reqList = Array.isArray(requirements) ? requirements : [requirements];
-
-        const requirementValues = {};
-        const fulfillingComponents = {};
-
-        for (const req of reqList) {
-            const key = `${req.trait}.${req.stat}`;
-
-            if (!componentStats[req.trait] ||
-                componentStats[req.trait][req.stat] === undefined ||
-                componentStats[req.trait][req.stat] < req.minValue) {
-                return {
-                    passed: false,
-                    error: {
-                        code: 'MISSING_TRAIT_STAT',
-                        details: { trait: req.trait, stat: req.stat, minValue: req.minValue }
-                    }
-                };
+        const result = checkRequirementsForComponent(requirements, componentStats);
+        // Store the componentId in fulfillingComponents for each requirement
+        if (result.passed) {
+            for (const key of Object.keys(result.fulfillingComponents)) {
+                result.fulfillingComponents[key] = componentId;
             }
-
-            requirementValues[key] = componentStats[req.trait][req.stat];
-            fulfillingComponents[key] = componentId;
         }
-
-        return { passed: true, requirementValues, fulfillingComponents };
+        return result;
     }
 
     // =========================================================================
@@ -883,44 +816,23 @@ class ActionController {
         if (typeof sourceEntityId !== 'string' || sourceEntityId.trim() === '') {
             throw new TypeError('Invalid sourceEntityId: must be a non-empty string.');
         }
-        
+
         // Validate targetEntityId
         if (typeof targetEntityId !== 'string' || targetEntityId.trim() === '') {
             throw new TypeError('Invalid targetEntityId: must be a non-empty string.');
         }
-        
-        // Validate maxRange is a positive number
-        if (typeof maxRange !== 'number' || maxRange <= 0 || !isFinite(maxRange)) {
-            throw new TypeError('Invalid maxRange: must be a positive number.');
-        }
-        const sourceEntity = this.worldStateController.stateEntityController.getEntity(sourceEntityId);
+
+        const sourceEntity = this.worldStateController.getEntity(sourceEntityId);
         if (!sourceEntity) {
             return { success: false, error: `Source entity "${sourceEntityId}" not found.` };
         }
 
-        const targetEntity = this.worldStateController.stateEntityController.getEntity(targetEntityId);
+        const targetEntity = this.worldStateController.getEntity(targetEntityId);
         if (!targetEntity) {
             return { success: false, error: `Target entity "${targetEntityId}" not found.` };
         }
 
-        // Both entities must have spatial data
-        if (!sourceEntity.spatial || !targetEntity.spatial) {
-            return { success: false, error: 'One or both entities lack spatial data.' };
-        }
-
-        // Calculate Euclidean distance
-        const dx = sourceEntity.spatial.x - targetEntity.spatial.x;
-        const dy = sourceEntity.spatial.y - targetEntity.spatial.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance > maxRange) {
-            const error = `Item is too far away (${Math.round(distance)} units, max range: ${maxRange}). Move closer to grab it.`;
-            Logger.warn(`[ActionController] Grab range check failed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
-            return { success: false, error };
-        }
-
-        Logger.info(`[ActionController] Grab range check passed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
-        return { success: true };
+        return checkGrabRange(sourceEntity, targetEntity, maxRange);
     }
 
     /**
@@ -959,7 +871,7 @@ class ActionController {
             try {
                 // Apply synergy multiplier to ALL numeric consequence properties (not just 'value')
                 // This ensures synergy works for properties like 'speed' (deltaSpatial), 'value' (damageComponent), etc.
-                if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams === 'object' && resolvedParams !== null) {
+                if (synergyResult && synergyResult.synergyMultiplier > SYNERGY_BONUS_THRESHOLD && typeof resolvedParams === 'object' && resolvedParams !== null) {
                     for (const [key, val] of Object.entries(resolvedParams)) {
                         if (typeof val === 'number') {
                             resolvedParams[key] = this.synergyController
@@ -1007,53 +919,8 @@ class ActionController {
      * @returns {any} The resolved value (number if placeholder resolved, original otherwise).
      */
     _resolvePlaceholders(params, requirementValues, actionParams) {
-        if (params === null || params === undefined) return params;
-
-        if (typeof params === 'string') {
-            // If the string is EXACTLY a placeholder (with optional sign/multiplier), return as number
-            const exactMatch = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
-            if (exactMatch) {
-                const sign = exactMatch[1] === '-' ? -1 : 1;
-                const placeholder = exactMatch[2].substring(1);
-                const multiplier = exactMatch[3] ? parseInt(exactMatch[3], 10) : 1;
-                const value = requirementValues[placeholder];
-                // Validate that the resolved value is numeric
-                if (value !== undefined && typeof value === 'number') {
-                    return sign * value * multiplier;
-                }
-                Logger.warn(`[ActionController] Placeholder "${placeholder}" resolved to non-numeric value:`, value);
-                return params; // Return original string if not numeric
-            }
-
-            // Otherwise, treat as a template string and replace all embedded placeholders
-            const resolved = params.replace(/(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(\*(-?\d+))?/g, (match, sign, placeholder, multiplier) => {
-                const pName = placeholder.substring(1);
-                const val = requirementValues[pName];
-                if (val === undefined) return match;
-
-                // Validate numeric resolution
-                if (typeof val !== 'number') {
-                    Logger.warn(`[ActionController] Placeholder "${pName}" resolved to non-numeric value:`, val);
-                    return match; // Keep original placeholder
-                }
-
-                const s = sign === '-' ? -1 : 1;
-                const m = multiplier ? parseInt(multiplier.substring(1), 10) : 1;
-                return s * val * m;
-            });
-            return resolved;
-        }
-
-        if (typeof params === 'number') return params;
-        if (Array.isArray(params)) return params.map(p => this._resolvePlaceholders(p, requirementValues, actionParams));
-        if (typeof params === 'object') {
-            const result = {};
-            for (const [key, value] of Object.entries(params)) {
-                result[key] = this._resolvePlaceholders(value, requirementValues, actionParams);
-            }
-            return result;
-        }
-        return params;
+        // Delegate to the shared PlaceholderResolver utility
+        return resolvePlaceholders(params, requirementValues);
     }
 
     /**

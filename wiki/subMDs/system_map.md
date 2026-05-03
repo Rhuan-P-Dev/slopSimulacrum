@@ -39,6 +39,17 @@ graph TD
 | **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
 | **ActionController** | Action Coordinator | Action execution, capability caching, stat change re-evaluation, event notifications | `_capabilityCache`, `_traitStatActionIndex`, `_actionSubscribers` |
 
+### Utility Layer (Extracted Business Logic)
+
+| Utility | Role | Key Responsibility | Source Controller |
+| :--- | :--- | :--- | :--- |
+| **PlaceholderResolver** | Placeholder Resolution | Resolves action consequence placeholders (`:Trait.stat`) to numeric values | ActionController |
+| **RequirementChecker** | Requirement Validation | Entity-level and component-level action requirement checking | ActionController |
+| **RangeChecker** | Proximity Validation | Euclidean distance calculation for grab/range actions | ActionController |
+| **Logger** | Structured Logging | Centralized logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`) | All controllers |
+| **DataLoader** | JSON Configuration | Loading and parsing JSON data files from `data/` directory | All controllers |
+| **Constants** | Application Constants | Magic numbers extracted to named constants (`MAX_FILE_LINES`, `SYNERGY_BONUS_THRESHOLD`, etc.) | All files |
+
 ---
 
 ## 2.1. Spatial Data Schema
@@ -204,6 +215,23 @@ Server Request → WorldStateController.spawnEntity() / despawnEntity() / moveEn
 | `despawnEntity(entityId)` | `string` | `boolean` |
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string|null` |
+| `getEntity(entityId)` | `string` | `Object|null` |
+| `getComponent(componentId)` | `string` | `Object|null` |
+| `getComponentStats(componentId)` | `string` | `Object|null` |
+
+### 3.8. ActionController Extracted Utility Flow
+
+ActionController delegates business logic to utility modules for SRP compliance:
+
+```
+ActionController.executeAction()
+    ├── _checkRequirements() → RequirementChecker.checkRequirements()
+    ├── _checkRequirementsForComponent() → RequirementChecker.checkRequirementsForComponent()
+    ├── _componentSatisfiesActionRequirements() → RequirementChecker.componentSatisfiesRequirements()
+    ├── _resolvePlaceholders() → PlaceholderResolver.resolvePlaceholders()
+    ├── _checkGrabRange() → RangeChecker.checkGrabRange()
+    └── SYNERGY_BONUS_THRESHOLD → Constants.SYNERGY_BONUS_THRESHOLD
+```
 
 ---
 
