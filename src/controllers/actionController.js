@@ -185,8 +185,19 @@ class ActionController {
      * @param {string} entityId - The entity ID to check.
      * @returns {{passed: boolean, error?: {code: string, details: Object}, componentId?: string, requirementValues?: Object, fulfillingComponents?: Object}}
      * Result indicating if requirements were passed and which components fulfilled them.
+     * @throws {TypeError} If actionName or entityId is not a non-empty string.
      */
     checkRequirements(actionName, entityId) {
+        // Validate actionName
+        if (typeof actionName !== 'string' || actionName.trim() === '') {
+            throw new TypeError('Invalid actionName: must be a non-empty string.');
+        }
+        
+        // Validate entityId
+        if (typeof entityId !== 'string' || entityId.trim() === '') {
+            throw new TypeError('Invalid entityId: must be a non-empty string.');
+        }
+        
         const action = this.actionRegistry[actionName];
         if (!action) {
             return {
@@ -223,8 +234,24 @@ class ActionController {
      * @param {string} [params.targetComponentId] - The component being targeted (used for consequence application).
      * @param {string} [params.selectedBindingRole] - The role of the selected component (e.g., 'source', 'spatial').
      * @returns {Object} Result of the action execution.
+     * @throws {TypeError} If actionName, entityId is not a non-empty string, or params is not an object.
      */
     executeAction(actionName, entityId, params = {}) {
+        // Validate actionName
+        if (typeof actionName !== 'string' || actionName.trim() === '') {
+            throw new TypeError('Invalid actionName: must be a non-empty string.');
+        }
+        
+        // Validate entityId
+        if (typeof entityId !== 'string' || entityId.trim() === '') {
+            throw new TypeError('Invalid entityId: must be a non-empty string.');
+        }
+        
+        // Validate params is an object (not null or array)
+        if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+            throw new TypeError('Invalid params: must be an object.');
+        }
+
         // Track which components need to be released after execution
         const componentsToRelease = [];
 
@@ -846,11 +873,26 @@ class ActionController {
      *
      * @param {string} sourceEntityId - The entity performing the grab.
      * @param {string} targetEntityId - The entity being grabbed (item).
-     * @param {number} maxRange - The maximum allowed distance.
+     * @param {number} maxRange - The maximum allowed distance (must be a positive number).
      * @returns {{ success: boolean, error?: string }}
+     * @throws {TypeError} If sourceEntityId, targetEntityId is not a non-empty string, or maxRange is not a positive number.
      * @private
      */
     _checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
+        // Validate sourceEntityId
+        if (typeof sourceEntityId !== 'string' || sourceEntityId.trim() === '') {
+            throw new TypeError('Invalid sourceEntityId: must be a non-empty string.');
+        }
+        
+        // Validate targetEntityId
+        if (typeof targetEntityId !== 'string' || targetEntityId.trim() === '') {
+            throw new TypeError('Invalid targetEntityId: must be a non-empty string.');
+        }
+        
+        // Validate maxRange is a positive number
+        if (typeof maxRange !== 'number' || maxRange <= 0 || !isFinite(maxRange)) {
+            throw new TypeError('Invalid maxRange: must be a positive number.');
+        }
         const sourceEntity = this.worldStateController.stateEntityController.getEntity(sourceEntityId);
         if (!sourceEntity) {
             return { success: false, error: `Source entity "${sourceEntityId}" not found.` };

@@ -12,8 +12,9 @@ import Logger from '../utils/Logger.js';
 class stateEntityController {
     /**
      * @param {EntityController} entityController - The entity blueprint controller.
+     * @param {import('../controllers/actionController.js').default|null} actionController - The action controller for capability re-evaluation.
      */
-    constructor(entityController) {
+    constructor(entityController, actionController = null) {
         this.entityController = entityController;
 
         /**
@@ -24,10 +25,10 @@ class stateEntityController {
         this.entities = {};
 
         /**
-         * Reference to the ActionController (set by WorldStateController after construction).
+         * Reference to the ActionController.
          * @type {import('../controllers/actionController.js').default|null}
          */
-        this.actionController = null;
+        this.actionController = actionController;
     }
 
     /**

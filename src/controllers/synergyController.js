@@ -18,6 +18,7 @@
 
 import Logger from '../utils/Logger.js';
 import DataLoader from '../utils/DataLoader.js';
+import { DEFAULT_SYNERGY_BASE_MULTIPLIER } from '../utils/Constants.js';
 import {
     calculateSynergyMultiplier,
     SCALING_CURVES
@@ -383,7 +384,7 @@ class SynergyController {
             const multiplier = calculateSynergyMultiplier(
                 members.length,
                 groupScaling,
-                groupDef.baseMultiplier ?? 1.0,
+                groupDef.baseMultiplier ?? DEFAULT_SYNERGY_BASE_MULTIPLIER,
                 groupDef.perUnitBonus ?? 0
             );
 
@@ -558,7 +559,7 @@ class SynergyController {
             const multiplier = calculateSynergyMultiplier(
                 members.length,
                 groupScaling,
-                groupDef.baseMultiplier ?? 1.0,
+                groupDef.baseMultiplier ?? DEFAULT_SYNERGY_BASE_MULTIPLIER,
                 groupDef.perUnitBonus ?? 0
             );
 

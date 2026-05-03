@@ -1,5 +1,6 @@
 import Logger from '../utils/Logger.js';
 import generateUID from '../utils/idGenerator.js';
+import { DEFAULT_ITEM_VOLUME } from '../utils/Constants.js';
 
 /**
  * EquipmentController — Manages grabbing items and adding them as components to entities.
@@ -369,7 +370,7 @@ class EquipmentController {
         }
 
         const itemComponentDef = this.worldStateController.componentController.getComponentDefinition(itemType);
-        const itemVolume = itemComponentDef?.traits?.Physical?.volume ?? 1;
+        const itemVolume = itemComponentDef?.traits?.Physical?.volume ?? DEFAULT_ITEM_VOLUME;
 
         if (usedVolume + itemVolume > backpackVolume) {
             const error = `Backpack full: ${usedVolume}/${backpackVolume} volume used, item needs ${itemVolume}.`;

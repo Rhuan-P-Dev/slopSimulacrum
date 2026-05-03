@@ -43,12 +43,8 @@ class WorldStateController {
         const entityController = new EntityController(componentController, blueprintRegistry);
 
         // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
-        const stateEntityControllerInstance = new stateEntityController(entityController);
         const roomsController = new RoomsController();
-
-        // Assign to the WorldStateController for coordination and the getAll() method
         this.roomsController = roomsController;
-        this.stateEntityController = stateEntityControllerInstance;
         this.componentController = componentController;
 
         // 4. Instantiate ComponentCapabilityController (Capability Cache Manager)
@@ -87,9 +83,10 @@ class WorldStateController {
         const equipmentController = new EquipmentController(this);
         this.equipmentController = equipmentController;
 
-        // Wire the actionController reference into stateEntityController for spawn/despawn hooks
-        // Must be done AFTER actionController is instantiated (forward reference)
-        this.stateEntityController.actionController = actionController;
+        // 9. Instantiate stateEntityController with actionController (after ActionController is created)
+        // This follows proper DI pattern - no forward references needed
+        const stateEntityControllerInstance = new stateEntityController(entityController, actionController);
+        this.stateEntityController = stateEntityControllerInstance;
 
         // 7. Wire up stat change notifications from ComponentController to ComponentCapabilityController
         // This enables automatic capability re-evaluation when component stats change

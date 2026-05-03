@@ -1,4 +1,5 @@
 import Logger from '../utils/Logger.js';
+import { MIN_MOVEMENT_DISTANCE, MIN_STRENGTH_DELTA } from '../utils/Constants.js';
 
 /**
  * ConsequenceHandlers provides a set of strategy functions to execute
@@ -73,7 +74,7 @@ class ConsequenceHandlers {
             const dx = actionParams.targetX - entity.spatial.x;
             const dy = actionParams.targetY - entity.spatial.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 0) {
+            if (distance > MIN_MOVEMENT_DISTANCE) {
                 moveX = (dx / distance) * speed;
                 moveY = (dy / distance) * speed;
             } else {
@@ -383,7 +384,7 @@ class ConsequenceHandlers {
                 const currentStats = this.worldStateController.componentController.getComponentStats(restoredHandId);
                 const currentStrength = currentStats?.Physical?.strength ?? 0;
                 const delta = originalStrength - currentStrength;
-                if (delta !== 0) {
+                if (delta !== MIN_STRENGTH_DELTA) {
                     this.worldStateController.componentController.updateComponentStatDelta(
                         restoredHandId,
                         'Physical',
