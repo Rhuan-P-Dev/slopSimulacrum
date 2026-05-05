@@ -143,7 +143,7 @@ Defined in `src/utils/SynergyScaling.js`:
 | Action | Synergy Type | Effect |
 |--------|-------------|--------|
 | `move` | Movement components | `speed * multiplier` → increased move distance |
-| `dash` | droidRollingBall + Movement | `speed * multiplier` → increased dash distance |
+| `dash` | droidRollingBall (2+) + Movement (2+) | `speed * multiplier` → increased dash distance (requires 2+ of each group) |
 | `droid punch` | droidHand (2+) | Each hand deals `strength * multiplier` damage |
 | `selfHeal` | Physical components | `value * multiplier` → increased healing (capped at 50) |
 
@@ -242,3 +242,23 @@ for (const c of contributingComponents) {
 }
 return { multiplier: totalMultiplier, components: unique };
 ```
+
+### Fix 10: Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy (2026-05-04)
+
+**Problem:** The `SynergyComponentGatherer` methods (`gatherMovementComponents`, `gatherSameComponentType`) gathered **ALL matching components on the entity**, not just the source component that was selected. For spatial actions, component selection validation is skipped (so no components are locked), meaning ALL Movement components on the entity contribute to synergy even when only 1 was selected.
+
+**Impact:** With an entity that has 2 `droidRollingBall` components (move=10):
+- Expected dash speed: 10 × 2 × 1.0 = **20** (1 component, no synergy)
+- Actual dash speed: 10 × 2 × 1.95 = **39** (synergy incorrectly computed as 1.3 × 1.5)
+
+**Solution (3 parts):**
+
+1. **`SynergyComponentGatherer.js`**: All gather methods now accept a `sourceComponentId` parameter. When provided, only include the source component (plus same-type siblings for `sameComponentType` groups).
+
+2. **`synergyController.js`**: Updated `_gatherGroupMembers()` to pass `sourceComponentId` as the 5th parameter to all gatherer methods.
+
+3. **`data/synergy.json`**: Changed `movementComponents` group's `minCount` from `1` to `2` for dash (synergy only triggers when 2+ movement sources are actively involved).
+
+**Expected behavior after fix:**
+- 1 droidRollingBall: synergy = 1.0x → speed = 20
+- 2 droidRollingBalls: synergy = 1.5 × 1.3 = 1.95x → speed = 39

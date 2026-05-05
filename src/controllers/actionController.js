@@ -1,8 +1,11 @@
 import Logger from '../utils/Logger.js';
 import { resolvePlaceholders } from '../utils/PlaceholderResolver.js';
-import { checkRequirements, checkRequirementsForComponent, componentSatisfiesRequirements } from '../utils/RequirementChecker.js';
-import { checkGrabRange } from '../utils/RangeChecker.js';
+import { componentSatisfiesRequirements } from '../utils/RequirementChecker.js';
 import { SYNERGY_BONUS_THRESHOLD } from '../utils/Constants.js';
+import RangeValidator from './RangeValidator.js';
+import ComponentResolver from './ComponentResolver.js';
+import RequirementResolver from './RequirementResolver.js';
+import ConsequenceDispatcher from './ConsequenceDispatcher.js';
 
 /**
  * Component action binding roles — defines which body part participates in which action.
@@ -38,21 +41,22 @@ const ERROR_REGISTRY = {
  * ActionController handles game actions, checking requirements and
  * executing consequences through a decoupled handler system.
  *
- * Component capability management (scanning, caching, scoring, re-evaluation)
- * has been extracted to ComponentCapabilityController to adhere to the
- * Single Responsibility Principle.
+ * Component capability management has been extracted to ComponentCapabilityController.
+ * Range validation, component resolution, requirement checking, and consequence
+ * execution have been extracted to their own modules.
  *
  * ActionController responsibilities:
- * - Action execution (executeAction)
- * - Entity-level requirement validation (checkRequirements, _checkRequirements)
- * - Consequence execution (_executeConsequences)
- * - Placeholder resolution (_resolvePlaceholders)
+ * - Action execution orchestration (executeAction)
  * - Delegates capability cache queries to ComponentCapabilityController
+ * - Delegates range validation to RangeValidator
+ * - Delegates component resolution to ComponentResolver
+ * - Delegates requirement checking to RequirementResolver
+ * - Delegates consequence execution to ConsequenceDispatcher
  *
  * @example
  * // Architecture flow:
  * // Server -> WorldStateController -> ActionController (executeAction)
- * // Server -> WorldStateController -> ComponentCapabilityController (capability queries)
+ * // ActionController -> RangeValidator, ComponentResolver, RequirementResolver, ConsequenceDispatcher
  */
 class ActionController {
     /**
@@ -70,19 +74,23 @@ class ActionController {
         this.componentCapabilityController = componentCapabilityController;
         this.synergyController = synergyController || null;
         this.actionSelectController = actionSelectController || null;
+
+        // Inject extracted modules
+        this.rangeValidator = new RangeValidator(worldStateController, this);
+        this.componentResolver = new ComponentResolver(worldStateController);
+        this.requirementResolver = new RequirementResolver(worldStateController);
+        this.consequenceDispatcher = new ConsequenceDispatcher(worldStateController, this, synergyController);
     }
 
     // =========================================================================
     // PUBLIC API: CAPABILITY DELEGATION
     // =========================================================================
     // All capability cache operations are delegated to ComponentCapabilityController.
-    // These wrapper methods maintain backward compatibility for existing callers.
 
     /**
      * Scans all entities and their components against all registered actions.
      * Delegates to ComponentCapabilityController.scanAllCapabilities().
-     *
-     * @param {Object} state - The current world state (contains entities).
+     * @param {Object} state - The current world state.
      * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
      */
     scanAllCapabilities(state) {
@@ -92,7 +100,6 @@ class ActionController {
     /**
      * Returns the cached capability entries for all actions.
      * Delegates to ComponentCapabilityController.getCachedCapabilities().
-     *
      * @returns {Object<string, Array<ComponentCapabilityEntry>>} The capability cache.
      */
     getCachedCapabilities() {
@@ -122,7 +129,6 @@ class ActionController {
     /**
      * Returns capability entries for a specific entity across all actions.
      * Delegates to ComponentCapabilityController.getCapabilitiesForEntity().
-     *
      * @param {string} entityId - The entity ID.
      * @returns {Array<ComponentCapabilityEntry>} Array of capability entries for this entity.
      */
@@ -133,23 +139,19 @@ class ActionController {
     /**
      * Retrieves only the actions that are relevant to a specific entity.
      * Delegates to ComponentCapabilityController.getActionsForEntity().
-     *
      * @param {Object} state - The current world state.
      * @param {string} entityId - The ID of the entity to filter for.
      * @returns {Object.<string, {requirements: Array, canExecute: Array, cannotExecute: Array}>}
-     * Map of actions and their capability status for the entity.
      */
     getActionsForEntity(state, entityId) {
         return this.componentCapabilityController.getActionsForEntity(state, entityId);
     }
 
     /**
-     * Calculates which entities are capable of executing which actions based on the current world state.
+     * Calculates which entities are capable of executing which actions.
      * Delegates to ComponentCapabilityController.getActionCapabilities().
-     *
      * @param {Object} state - The current world state.
      * @returns {Object.<string, {requirements: Array, canExecute: Array, cannotExecute: Array}>}
-     * Map of actions and their capability status.
      */
     getActionCapabilities(state) {
         return this.componentCapabilityController.getActionCapabilities(state);
@@ -158,7 +160,6 @@ class ActionController {
     /**
      * Re-evaluates ALL actions for a specific entity.
      * Delegates to ComponentCapabilityController.reEvaluateEntityCapabilities().
-     *
      * @param {Object} state - The current world state.
      * @param {string} entityId - The entity to re-evaluate.
      * @returns {Array<ComponentCapabilityEntry>} List of updated capability entries.
@@ -170,7 +171,6 @@ class ActionController {
     /**
      * Removes all capability entries for an entity from all action caches.
      * Delegates to ComponentCapabilityController.removeEntityFromCache().
-     *
      * @param {string} entityId - The entity ID to remove.
      */
     removeEntityFromCache(entityId) {
@@ -183,133 +183,74 @@ class ActionController {
 
     /**
      * Checks if an entity meets the requirements for an action.
-     * Uses entity-level requirement checking (can combine multiple components).
+     * Delegates to RequirementResolver.checkEntityRequirements().
      *
      * @param {string} actionName - The name of the action to check.
      * @param {string} entityId - The entity ID to check.
      * @returns {{passed: boolean, error?: {code: string, details: Object}, componentId?: string, requirementValues?: Object, fulfillingComponents?: Object}}
-     * Result indicating if requirements were passed and which components fulfilled them.
-     * @throws {TypeError} If actionName or entityId is not a non-empty string.
      */
     checkRequirements(actionName, entityId) {
-        // Validate actionName
         if (typeof actionName !== 'string' || actionName.trim() === '') {
             throw new TypeError('Invalid actionName: must be a non-empty string.');
         }
-        
-        // Validate entityId
         if (typeof entityId !== 'string' || entityId.trim() === '') {
             throw new TypeError('Invalid entityId: must be a non-empty string.');
         }
-        
+
         const action = this.actionRegistry[actionName];
         if (!action) {
-            return {
-                passed: false,
-                error: { code: 'ACTION_NOT_FOUND', details: { actionName } }
-            };
+            return { passed: false, error: { code: 'ACTION_NOT_FOUND', details: { actionName } } };
         }
-        return this._checkRequirements(action.requirements, entityId);
+        return this.requirementResolver.checkEntityRequirements(action.requirements, entityId);
     }
 
     /**
      * Executes an action on an entity with component binding enforcement.
-     * 
-     * Component Binding System:
-     * Each action defines which component roles participate via `componentBinding`.
-     * The selected component(s) MUST match the expected role — this prevents using
-     * the wrong body part for an action (e.g., using your right leg to attack
-     * when you selected a jump action that binds to legs).
-     *
-     * Multi-Component Support:
-     * The `params.componentIds` field accepts an array of {componentId, role} objects,
-     * allowing multiple components to participate in a single action. When provided,
-     * all components are validated, passed to synergy computation, and released after execution.
-     *
-     * For actions with both attacker and target components (e.g., punch),
-     * uses the attacker's component for requirement value resolution and
-     * the target's component for consequence application.
+     * Delegates to RangeValidator, ComponentResolver, RequirementResolver, and ConsequenceDispatcher.
      *
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The ID of the entity to perform the action.
      * @param {Object} [params] - Additional action parameters.
-     * @param {Array<{componentId: string, role: string}>} [params.componentIds] - Multiple components for this action.
-     * @param {string} [params.attackerComponentId] - The component performing the action (used for damage value resolution).
-     * @param {string} [params.targetComponentId] - The component being targeted (used for consequence application).
-     * @param {string} [params.selectedBindingRole] - The role of the selected component (e.g., 'source', 'spatial').
      * @returns {Object} Result of the action execution.
-     * @throws {TypeError} If actionName, entityId is not a non-empty string, or params is not an object.
      */
     executeAction(actionName, entityId, params = {}) {
-        // Validate actionName
         if (typeof actionName !== 'string' || actionName.trim() === '') {
             throw new TypeError('Invalid actionName: must be a non-empty string.');
         }
-        
-        // Validate entityId
         if (typeof entityId !== 'string' || entityId.trim() === '') {
             throw new TypeError('Invalid entityId: must be a non-empty string.');
         }
-        
-        // Validate params is an object (not null or array)
         if (typeof params !== 'object' || params === null || Array.isArray(params)) {
             throw new TypeError('Invalid params: must be an object.');
         }
 
-        // Track which components need to be released after execution
         const componentsToRelease = [];
 
-        // Expire any stale selections from previous actions before executing
         if (this.actionSelectController) {
             this.actionSelectController.expireStaleSelections();
         }
 
         try {
             const action = this.actionRegistry[actionName];
-
             if (!action) {
-                return {
-                    success: false,
-                    error: `Action "${actionName}" not found.`
-                };
+                return { success: false, error: `Action "${actionName}" not found.` };
             }
 
-            // ─── Range Check for Grab Actions ────────────────────────────────
-            // For grab actions, verify the target item entity is within range of the source entity.
+            // ─── Range Check (delegated to RangeValidator) ────────────────────
             if (action.range && params.targetEntityId) {
-                const rangeCheck = this._checkGrabRange(entityId, params.targetEntityId, action.range);
+                const rangeCheck = this.rangeValidator.checkGrabRange(entityId, params.targetEntityId, action.range);
                 if (!rangeCheck.success) {
-                    const failureResults = this._executeFailureConsequences(actionName, entityId);
-                    return {
-                        success: false,
-                        error: rangeCheck.error,
-                        ...failureResults
-                    };
+                    const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
+                    return { success: false, error: rangeCheck.error, ...failureResults };
                 }
             }
 
-            // ─── Resolve Component List ──────────────────────────────────────
-            // Support both legacy single-component (targetComponentId/attackerComponentId)
-            // and new multi-component (componentIds array) parameter formats.
-            let componentList = null;
-            let sourceComponentId = null;
-            let isSpatial = action.targetingType === 'spatial';
+            // ─── Build Component List (delegated to ComponentResolver) ────────
+            const { componentList, sourceComponentId } = this.componentResolver.buildComponentList(params);
+            const isSpatial = action.targetingType === 'spatial';
 
-            if (params.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
-                // Multi-component mode: componentIds = [{ componentId, role }, ...]
-                componentList = params.componentIds;
-                sourceComponentId = componentList[0]?.componentId;
-            } else if (params?.attackerComponentId || params?.targetComponentId) {
-                // Legacy single-component mode
-                sourceComponentId = params.attackerComponentId || params.targetComponentId;
-                componentList = [{ componentId: sourceComponentId, role: params.selectedBindingRole || 'source' }];
-            }
-
-            // ─── Component Selection Validation ──────────────────────────────
-            // Validate component selection for non-spatial actions.
-            // Spatial actions auto-resolve the component on the server via _resolveSourceComponent().
+            // ─── Component Selection Validation ───────────────────────────────
             if (this.actionSelectController && sourceComponentId && !isSpatial) {
-                // Use batch validation if componentList is available, otherwise fall back to single
                 const validationCheck = componentList
                     ? this.actionSelectController.validateSelections(actionName, componentList.map(c => c.componentId))
                     : this.actionSelectController.validateSelection(sourceComponentId, actionName);
@@ -318,196 +259,124 @@ class ActionController {
                     const errorMessage = Array.isArray(validationCheck.error)
                         ? validationCheck.error.join(' ')
                         : validationCheck.error || 'Component selection validation failed.';
-                    return {
-                        success: false,
-                        error: errorMessage
-                    };
+                    return { success: false, error: errorMessage };
                 }
 
-                // Track for release after execution
                 const idsToRelease = componentList
                     ? componentList.map(c => c.componentId)
                     : [sourceComponentId];
                 componentsToRelease.push(...idsToRelease);
             }
 
-            // ─── Component Binding Enforcement ───────────────────────────────
-            // Resolve the source component based on action binding + selected role.
-            // This ensures the selected component matches the expected role.
-            // NOTE: Only enforce binding when componentBinding is explicitly defined.
-            // When componentBinding is NOT defined (legacy actions), fall back to
-            // entity-wide requirement checking which properly triggers failure consequences.
+            // ─── Resolve Requirements First (for fallback) ──────────────────
+            let requirementValues = {};
+            let fulfillingComponents = {};
+            let requirementCheckResult = null;
 
-            let resolvedSourceComponentId = this._resolveSourceComponent(action, entityId, params);
+            // Collect attacker component IDs
+            let attackerComponentIds = [];
+            if (params?.attackerComponentId) {
+                attackerComponentIds = [params.attackerComponentId];
+            } else if (params?.componentIds && Array.isArray(params.componentIds)) {
+                attackerComponentIds = params.componentIds.filter(c => c.role === 'source').map(c => c.componentId);
+            }
+
+            // Resolve requirements per-attacker or entity-wide
+            if (attackerComponentIds.length > 0) {
+                const primaryAttackerId = attackerComponentIds[0];
+                requirementCheckResult = this.requirementResolver.checkComponentRequirements(
+                    action.requirements, entityId, primaryAttackerId
+                );
+
+                if (!requirementCheckResult.passed) {
+                    const errorMessage = this._resolveError(requirementCheckResult.error);
+                    const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
+                    return { success: false, error: `Requirement failed: ${errorMessage}`, ...failureResults };
+                }
+
+                requirementValues = requirementCheckResult.requirementValues;
+                fulfillingComponents = requirementCheckResult.fulfillingComponents;
+            } else {
+                requirementCheckResult = this.requirementResolver.checkEntityRequirements(action.requirements, entityId);
+                if (!requirementCheckResult.passed) {
+                    const errorMessage = this._resolveError(requirementCheckResult.error);
+                    const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
+                    return { success: false, error: `Requirement failed: ${errorMessage}`, ...failureResults };
+                }
+                requirementValues = requirementCheckResult.requirementValues;
+                fulfillingComponents = requirementCheckResult.fulfillingComponents;
+            }
+
+            // ─── Resolve Source Component (delegated to ComponentResolver) ────
+            let resolvedSourceComponentId = this.componentResolver.resolveSourceComponent(
+                action, entityId, params, requirementCheckResult
+            );
 
             // ─── Track Spatial Components for Release ────────────────────────
-            // Spatial actions skip the validation block above (line 269), so their
-            // resolved components are never added to componentsToRelease. This causes
-            // component locks to persist indefinitely, breaking subsequent actions
-            // (e.g., selfHeal fails because droidRollingBall is still locked to "move").
-            // Fix: explicitly track spatial action components for release.
             if (isSpatial && componentList && componentList.length > 0) {
-                // Multi-component spatial (e.g., move/dash with both droidRollingBall)
                 for (const comp of componentList) {
                     if (!componentsToRelease.includes(comp.componentId)) {
                         componentsToRelease.push(comp.componentId);
                     }
                 }
             } else if (isSpatial && resolvedSourceComponentId && !componentList) {
-                // Single-component spatial (auto-resolved)
                 componentsToRelease.push(resolvedSourceComponentId);
             }
 
-            if (!resolvedSourceComponentId) {
-                // If the action has no explicit componentBinding, treat this as a
-                // requirement failure (so failure consequences execute properly).
-                // Only return COMPONENT_BINDING_MISMATCH when binding is explicitly defined.
-                if (action.componentBinding) {
-                    return {
-                        success: false,
-                        error: this._resolveError({
-                            code: 'COMPONENT_BINDING_MISMATCH',
-                            details: { 
-                                actionName, 
-                                expectedRoles: action.componentBinding?.roles,
-                                selectedRole: params?.selectedBindingRole
-                            }
-                        })
-                    };
-                }
-                // No binding defined — fall through to requirement checking below
-                // which will properly trigger failure consequences on requirement failure.
-                // resolvedSourceComponentId stays null; the requirement checking block below
-                // handles this via the fallback path.
+            // ─── Validate Component Binding ─────────────────────────────────
+            if (!resolvedSourceComponentId && action.componentBinding) {
+                return {
+                    success: false,
+                    error: this._resolveError({
+                        code: 'COMPONENT_BINDING_MISMATCH',
+                        details: { actionName, expectedRoles: action.componentBinding?.roles, selectedRole: params?.selectedBindingRole }
+                    })
+                };
             }
 
-            // Validate the selected component matches the expected role
-            // (only when we have a resolved component and binding is defined)
-            let bindingValidation = { valid: true, reason: '' };
             if (resolvedSourceComponentId) {
-                bindingValidation = this._validateComponentBinding(action, entityId, resolvedSourceComponentId, params);
+                const bindingValidation = this.componentResolver.validateComponentBinding(action, entityId, resolvedSourceComponentId, params);
                 if (!bindingValidation.valid) {
-                    return {
-                        success: false,
-                        error: bindingValidation.reason
-                    };
+                    return { success: false, error: bindingValidation.reason };
                 }
             }
 
-            // Get requirement values from the resolved source component(s)
-            let requirementValues = {};
-            let fulfillingComponents = {};
-            let attackerComponentIds = [];
-
-            // Collect all attacker component IDs (support both single and multi-attacker punch)
-            if (params && params.attackerComponentId) {
-                attackerComponentIds = [params.attackerComponentId];
-            } else if (params && params.componentIds && Array.isArray(params.componentIds)) {
-                // For attack actions: extract ONLY source role components as attackers
-                // Target components are enemies being hit, not attackers
-                attackerComponentIds = params.componentIds
-                    .filter(c => c.role === 'source')
-                    .map(c => c.componentId);
-            }
-
-            if (attackerComponentIds.length > 0) {
-                // Punch: Use the attacker component's stats (e.g., droidHand for punch action)
-                // For multi-component punch, validate the first component for requirement checking
-                const primaryAttackerId = attackerComponentIds[0];
-                const componentStats = this.worldStateController.componentController.getComponentStats(primaryAttackerId);
-
-                if (componentStats) {
-                    const componentCheck = this._checkRequirementsForComponent(
-                        action.requirements, entityId, primaryAttackerId
-                    );
-
-                    if (!componentCheck.passed) {
-                        const errorMessage = this._resolveError(componentCheck.error);
-                        const failureResults = this._executeFailureConsequences(actionName, entityId);
-                        return {
-                            success: false,
-                            error: `Requirement failed: ${errorMessage}`,
-                            ...failureResults
-                        };
-                    }
-
-                    requirementValues = componentCheck.requirementValues;
-                    fulfillingComponents = componentCheck.fulfillingComponents;
-                }
-            } else {
-                // Fallback: use entity-wide requirement checking
-                const requirementCheck = this._checkRequirements(action.requirements, entityId);
-                if (!requirementCheck.passed) {
-                    const errorMessage = this._resolveError(requirementCheck.error);
-                    const failureResults = this._executeFailureConsequences(actionName, entityId);
-                    return {
-                        success: false,
-                        error: `Requirement failed: ${errorMessage}`,
-                        ...failureResults
-                    };
-                }
-                requirementValues = requirementCheck.requirementValues;
-                fulfillingComponents = requirementCheck.fulfillingComponents;
-            }
-
-            // Compute synergy if enabled for this action
-            // Pass resolved source component ID and component list for role-filtered synergy computation
+            // ─── Compute Synergy ────────────────────────────────────────────
             let synergyResult = null;
             if (this.synergyController) {
-                synergyResult = this.synergyController.computeSynergy(
-                    actionName,
-                    entityId,
-                    {
-                        providedComponentIds: componentList,
-                        synergyGroups: params?.synergyGroups,
-                        sourceComponentId: resolvedSourceComponentId
-                    }
-                );
+                synergyResult = this.synergyController.computeSynergy(actionName, entityId, {
+                    providedComponentIds: componentList,
+                    synergyGroups: params?.synergyGroups,
+                    sourceComponentId: resolvedSourceComponentId
+                });
             }
 
-            // Execute success consequences
-            // For multi-attacker punch: execute damage consequences per-attacker-component
+            // ─── Execute Consequences (delegated to ConsequenceDispatcher) ──
             let consequenceResult;
             if (actionName === 'droid punch' && attackerComponentIds.length > 1 && params.targetComponentId) {
-                consequenceResult = this._executeMultiAttackerConsequences(
-                    actionName,
-                    entityId,
-                    attackerComponentIds,
-                    params,
-                    synergyResult
+                consequenceResult = this.consequenceDispatcher.executeMultiAttacker(
+                    actionName, entityId, attackerComponentIds, params, synergyResult
                 );
             } else {
-                consequenceResult = this._executeConsequences(
-                    actionName,
-                    entityId,
-                    requirementValues,
-                    params,
-                    fulfillingComponents,
-                    synergyResult
+                consequenceResult = this.consequenceDispatcher.execute(
+                    actionName, entityId, requirementValues, params, fulfillingComponents, synergyResult
                 );
             }
 
-            const result = {
+            return {
                 success: true,
                 action: actionName,
                 entityId,
                 synergy: synergyResult,
                 ...consequenceResult
             };
-            return result;
         } catch (error) {
-            // Defensive: handle case where error is undefined or not an Error object
             const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
             return {
                 success: false,
-                error: this._resolveError({
-                    code: 'SYSTEM_RUNTIME_ERROR',
-                    details: { error: errorMsg }
-                })
+                error: this._resolveError({ code: 'SYSTEM_RUNTIME_ERROR', details: { error: errorMsg } })
             };
         } finally {
-            // ─── Release component selections after execution ────────────────
-            // Always release locked components regardless of success or failure
             if (this.actionSelectController && componentsToRelease.length > 0) {
                 this.actionSelectController.releaseSelections(componentsToRelease);
             }
@@ -515,276 +384,24 @@ class ActionController {
     }
 
     // =========================================================================
-    // PRIVATE: COMPONENT BINDING RESOLUTION
+    // PRIVATE: ERROR RESOLUTION
     // =========================================================================
 
     /**
-     * Resolves the source component ID based on action binding configuration
-     * and the parameters provided by the client.
-     * 
-     * This is the core method that enforces the "one body part, one action" rule.
-     * It determines which specific component should provide the action's power/stats.
-     *
-     * Resolution priority:
-     * 1. If attackerComponentId provided → use it (punch actions)
-     * 2. If targetingType is 'spatial' → find component matching spatialRole
-     * 3. If targetingType is 'none' → find component matching selfTargetRole
-     * 4. If targetComponentId provided → use it (legacy)
-     * 5. Fallback → entity-wide best component
-     *
-     * @private
-     * @param {Object} action - The action definition.
-     * @param {string} entityId - The entity ID.
-     * @param {Object} params - The action parameters.
-     * @returns {string|null} The resolved source component ID, or null if none found.
-     */
-    _resolveSourceComponent(action, entityId, params) {
-        const binding = action.componentBinding;
-        const entity = this.worldStateController.getEntity(entityId);
-
-        if (!entity) return null;
-
-        // Priority 1: Punch actions with explicit attackerComponentId
-        if (params?.attackerComponentId) {
-            return params.attackerComponentId;
-        }
-
-        // Priority 1.5: Multi-component attack actions (e.g., droid punch with componentIds)
-        // When multiple attacker components are provided, use the first one as the source.
-        // This prevents targetComponentId from being mistakenly used as the source.
-        if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0 && params?.targetComponentId) {
-            // For attack actions with both componentIds and targetComponentId,
-            // use the first component from componentIds as the source (it's an attacker, not a target)
-            return params.componentIds[0].componentId;
-        }
-
-        // Priority 2: Explicit targetComponentId from client (spatial actions with selected component)
-        // The client selected a specific component in the UI, so respect that choice.
-        if (params?.targetComponentId) {
-            return params.targetComponentId;
-        }
-
-        // Priority 3: Spatial actions (move, dash) — auto-find component matching spatialRole
-        if (action.targetingType === 'spatial' && binding?.spatialRole) {
-            const spatialComponent = this._findComponentByRole(entity, binding, 'spatial');
-            if (spatialComponent) return spatialComponent.id;
-        }
-
-        // Priority 4: Self-targeting actions (selfHeal) — find component matching selfTargetRole
-        // Handles both 'none' (legacy) and 'self_target' (explicit self-targeting) targetingType
-        if ((action.targetingType === 'none' || action.targetingType === 'self_target') && binding?.selfTargetRole) {
-            const selfComponent = this._findComponentByRole(entity, binding, 'self_target', action);
-            if (selfComponent) return selfComponent.id;
-        }
-
-        // Priority 5: Fallback — entity-wide check (use best component)
-        const result = this._checkRequirements(action.requirements, entityId);
-        return result.passed ? result.componentId : null;
-    }
-
-    /**
-     * Finds a component on an entity that matches a specific binding role.
-     * @private
-     * @param {Object} entity - The entity object.
-     * @param {Object} binding - The action's componentBinding definition.
-     * @param {string} role - The role to match ('spatial', 'self_target').
-     * @param {Object} [action] - Optional action definition for self_target matching.
-     * @returns {Object|null} The matching component, or null.
-     */
-    _findComponentByRole(entity, binding, role, action = null) {
-        if (!entity?.components) return null;
-
-        // Get component stats for each component
-        for (const component of entity.components) {
-            const componentStats = this.worldStateController.componentController.getComponentStats(component.id);
-            if (!componentStats) continue;
-
-            // For 'spatial' role: look for Movement traits
-            if (role === 'spatial' && binding?.spatialRole) {
-                if (componentStats.Movement && Object.keys(componentStats.Movement).length > 0) {
-                    return component;
-                }
-            }
-
-            // For 'self_target' role: look for Physical traits (or traits required by the action)
-            if (role === 'self_target' && binding?.selfTargetRole) {
-                // Check if component has traits required by the action
-                if (action && this._componentSatisfiesActionRequirements(componentStats, action)) {
-                    return component;
-                }
-                // Fallback: any Physical component can self-target
-                if (!action && componentStats.Physical && Object.keys(componentStats.Physical).length > 0) {
-                    return component;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Validates that the selected component matches the expected binding role.
-     * @private
-     * @param {Object} action - The action definition.
-     * @param {string} entityId - The entity ID.
-     * @param {string} sourceComponentId - The resolved source component ID.
-     * @param {Object} params - The action parameters.
-     * @returns {{valid: boolean, reason: string}}
-     */
-    _validateComponentBinding(action, entityId, sourceComponentId, params) {
-        const binding = action.componentBinding;
-        
-        // No binding defined — skip validation (backward compatibility)
-        if (!binding) {
-            return { valid: true, reason: '' };
-        }
-
-        const sourceComponent = this._findComponentById(entityId, sourceComponentId);
-        if (!sourceComponent) {
-            return { valid: false, reason: `Source component "${sourceComponentId}" not found on entity "${entityId}".` };
-        }
-
-        const sourceComponentStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
-
-        // Validate source role: the component must have the traits required by the action
-        if (binding.roles?.includes('source') || binding.spatialRole || binding.sourceRole) {
-            if (!this._componentSatisfiesActionRequirements(sourceComponentStats, action)) {
-                return { 
-                    valid: false, 
-                    reason: `Selected component "${sourceComponent.identifier}" does not have the required traits for "${action ? Object.keys(this.actionRegistry).find(k => this.actionRegistry[k] === action) : 'unknown'}". ` +
-                            `Expected: ${action?.requirements?.map(r => `${r.trait}.${r.stat} >= ${r.minValue}`).join(', ')}.` 
-                };
-            }
-        }
-
-        // Validate that the resolved role matches what the client sent.
-        // NOTE: Skip this check for spatial and 'none' targetingType actions because:
-        // - Spatial actions: client sends 'spatial' role, but component resolves to 'source'
-        // - None actions: client sends 'source' role, but component resolves to 'self_target'
-        // In both cases, the client's role resolution differs from the server's, so we skip
-        // role validation and rely on requirement checking instead.
-        if (params?.selectedBindingRole && action.targetingType !== 'spatial' && action.targetingType !== 'none') {
-            const resolvedRole = this._getComponentResolvedRole(sourceComponent, action);
-            if (resolvedRole && params.selectedBindingRole !== resolvedRole) {
-                return {
-                    valid: false,
-                    reason: `Component role mismatch: client selected role "${params.selectedBindingRole}" but component resolves to "${resolvedRole}".`
-                };
-            }
-        }
-
-        return { valid: true, reason: '' };
-    }
-
-    /**
-     * Finds a component by ID within an entity.
-     * @private
-     * @param {string} entityId - The entity ID.
-     * @param {string} componentId - The component ID.
-     * @returns {Object|null}
-     */
-    _findComponentById(entityId, componentId) {
-        const entity = this.worldStateController.getEntity(entityId);
-        if (!entity?.components) return null;
-        return entity.components.find(c => c.id === componentId) || null;
-    }
-
-    /**
-     * Checks if a component satisfies ALL of an action's requirements.
-     * @private
-     * @param {Object} componentStats - The component's stats.
-     * @param {Object} action - The action definition.
-     * @returns {boolean}
-     */
-    _componentSatisfiesActionRequirements(componentStats, action) {
-        if (!componentStats || !action?.requirements) return false;
-        return componentSatisfiesRequirements(componentStats, action.requirements);
-    }
-
-    /**
-     * Gets the resolved role for a component within an action's binding context.
-     * @private
-     * @param {Object} component - The component object.
-     * @param {Object} action - The action definition.
-     * @returns {string|null}
-     */
-    _getComponentResolvedRole(component, action) {
-        return this.componentCapabilityController?._resolveComponentRole(action, component) || null;
-    }
-
-    // =========================================================================
-    // PRIVATE: ENTITY-LEVEL REQUIREMENT CHECKING
-    // =========================================================================
-
-    /**
-     * Checks if an entity meets the requirements for an action.
-     * Requirements can be satisfied by multiple components.
-     * Used during action execution for entity-wide checks.
-     *
-     * @param {Array<Object>} requirements - An array of requirement objects.
-     * @param {string} entityId - The entity ID to check.
-     * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, componentId?: string, error?: {code: string, details: Object}}}
-     * @private
-     */
-    _checkRequirements(requirements, entityId) {
-        const entity = this.worldStateController.getEntity(entityId);
-        if (!entity) {
-            return {
-                passed: false,
-                error: { code: 'ENTITY_NOT_FOUND', details: { entityId } }
-            };
-        }
-
-        return checkRequirements(requirements, entity, (compId) =>
-            this.worldStateController.getComponentStats(compId)
-        );
-    }
-
-    /**
-     * Checks if a specific component meets ALL of the action's requirements.
-     * Used during action execution when a specific component is targeted
-     * (e.g., attackerComponentId or targetComponentId provided).
-     *
-     * @param {Array<Object>} requirements - An array of requirement objects.
-     * @param {string} entityId - The entity ID (used for error logging).
-     * @param {string} componentId - The specific component to evaluate.
-     * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, error?: {code: string, details: Object}}}
-     * @private
-     */
-    _checkRequirementsForComponent(requirements, entityId, componentId) {
-        const componentStats = this.worldStateController.getComponentStats(componentId);
-        if (!componentStats) {
-            return { passed: false, error: { code: 'ENTITY_NOT_FOUND', details: { entityId } } };
-        }
-
-        const result = checkRequirementsForComponent(requirements, componentStats);
-        // Store the componentId in fulfillingComponents for each requirement
-        if (result.passed) {
-            for (const key of Object.keys(result.fulfillingComponents)) {
-                result.fulfillingComponents[key] = componentId;
-            }
-        }
-        return result;
-    }
-
-    // =========================================================================
-    // PRIVATE: CONSEQUENCE EXECUTION
-    // =========================================================================
-
-    /**
-     * Resolves a structured error into a human-readable message and logs it.
+     * Resolves a structured error into a human-readable message.
      * @param {Object} error - The error object { code, details }.
      * @returns {string} Formatted error message.
+     * @private
      */
     _resolveError(error) {
         if (!error || !error.code) {
-            Logger.error("An unknown error occurred.");
-            return "An unknown error occurred.";
+            Logger.error('An unknown error occurred.');
+            return 'An unknown error occurred.';
         }
         const registryEntry = ERROR_REGISTRY[error.code];
         if (!registryEntry) {
             Logger.error(`An undefined error occurred: ${error.code}`);
-            return "An undefined error occurred.";
+            return 'An undefined error occurred.';
         }
 
         let message = registryEntry.message;
@@ -796,354 +413,70 @@ class ActionController {
 
         const logLevel = registryEntry.level || 'ERROR';
         Logger[logLevel.toLowerCase()](message, error.details);
-
         return message;
     }
 
-    /**
-     * Checks if a target entity is within range of a source entity.
-     * Used for grab actions to verify the item is close enough to pick up.
-     *
-     * @param {string} sourceEntityId - The entity performing the grab.
-     * @param {string} targetEntityId - The entity being grabbed (item).
-     * @param {number} maxRange - The maximum allowed distance (must be a positive number).
-     * @returns {{ success: boolean, error?: string }}
-     * @throws {TypeError} If sourceEntityId, targetEntityId is not a non-empty string, or maxRange is not a positive number.
-     * @private
-     */
-    _checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
-        // Validate sourceEntityId
-        if (typeof sourceEntityId !== 'string' || sourceEntityId.trim() === '') {
-            throw new TypeError('Invalid sourceEntityId: must be a non-empty string.');
-        }
-
-        // Validate targetEntityId
-        if (typeof targetEntityId !== 'string' || targetEntityId.trim() === '') {
-            throw new TypeError('Invalid targetEntityId: must be a non-empty string.');
-        }
-
-        const sourceEntity = this.worldStateController.getEntity(sourceEntityId);
-        if (!sourceEntity) {
-            return { success: false, error: `Source entity "${sourceEntityId}" not found.` };
-        }
-
-        const targetEntity = this.worldStateController.getEntity(targetEntityId);
-        if (!targetEntity) {
-            return { success: false, error: `Target entity "${targetEntityId}" not found.` };
-        }
-
-        return checkGrabRange(sourceEntity, targetEntity, maxRange);
-    }
-
-    /**
-     * Executes the success consequences of an action using the normalized handler interface.
-     * @param {string} actionName - The name of the action to execute.
-     * @param {string} entityId - The ID of the entity performing the action.
-     * @param {Object} requirementValues - Map of trait.stat values for substitution.
-     * @param {Object} params - Additional action parameters.
-     * @param {Object} fulfillingComponents - Map of requirements to the components that satisfied them.
-     * @param {Object} [synergyResult] - Optional synergy computation result.
-     * @returns {Object} Result of consequence execution.
-     */
-    _executeConsequences(actionName, entityId, requirementValues, params, fulfillingComponents = {}, synergyResult = null) {
-        const action = this.actionRegistry[actionName];
-        if (!action || !action.consequences) {
-            return { success: false, error: `Action "${actionName}" has no consequences defined.` };
-        }
-
-        const results = [];
-        const context = {
-            requirementValues,
-            actionParams: { ...params, entityId: entityId },
-            fulfillingComponents,
-            synergyResult
-        };
-
-        for (const consequence of action.consequences) {
-            const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, params);
-
-            const handler = this.consequenceHandlers.handlers[consequence.type];
-            if (!handler) {
-                results.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
-                continue;
-            }
-
-            try {
-                // Apply synergy multiplier to ALL numeric consequence properties (not just 'value')
-                // This ensures synergy works for properties like 'speed' (deltaSpatial), 'value' (damageComponent), etc.
-                if (synergyResult && synergyResult.synergyMultiplier > SYNERGY_BONUS_THRESHOLD && typeof resolvedParams === 'object' && resolvedParams !== null) {
-                    for (const [key, val] of Object.entries(resolvedParams)) {
-                        if (typeof val === 'number') {
-                            resolvedParams[key] = this.synergyController
-                                ? this.synergyController.applySynergyToResult(synergyResult, val)
-                                : val;
-                        }
-                    }
-                }
-
-                // Spatial consequences (updateSpatial, deltaSpatial) always operate on the entity.
-                // Component-level consequences (updateComponentStatDelta, damageComponent) resolve
-                // their target from context.actionParams.targetComponentId inside the handler.
-                const spatialTypes = ['updateSpatial', 'deltaSpatial'];
-                const targetId = spatialTypes.includes(consequence.type)
-                    ? entityId
-                    : (params.targetComponentId || entityId);
-                const result = handler(targetId, resolvedParams, context);
-
-                results.push({ success: true, type: consequence.type, synergyApplied: synergyResult !== null, ...result });
-            } catch (error) {
-                // Defensive: handle case where error is undefined or not an Error object
-                const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
-                results.push({
-                    success: false,
-                    error: this._resolveError({
-                        code: 'CONSEQUENCE_EXECUTION_FAILED',
-                        details: { type: consequence.type, error: errorMsg }
-                    }),
-                    type: consequence.type
-                });
-            }
-        }
-
-        return { success: true, executedConsequences: results.length, results };
-    }
-
-    /**
-     * Resolves placeholders in params (e.g., ":Movement.move" -> actual value).
-     * Now supports embedded placeholders within strings.
-     * Includes numeric validation to prevent string concatenation bugs.
-     * @private
-     * @param {any} params - The value to resolve.
-     * @param {Object} requirementValues - Map of "trait.stat" → numeric value.
-     * @param {Object} actionParams - Parameters passed from the client.
-     * @returns {any} The resolved value (number if placeholder resolved, original otherwise).
-     */
-    _resolvePlaceholders(params, requirementValues, actionParams) {
-        // Delegate to the shared PlaceholderResolver utility
-        return resolvePlaceholders(params, requirementValues);
-    }
-
-    /**
-     * Executes the failure consequences of an action.
-     * @param {string} actionName - The action name.
-     * @param {string} entityId - The entity ID.
-     * @returns {Object} Result of failure consequence execution.
-     */
-    _executeFailureConsequences(actionName, entityId) {
-        const action = this.actionRegistry[actionName];
-        if (!action || !action.failureConsequences) {
-            return { success: false, error: `Action "${actionName}" has no failure consequences defined.` };
-        }
-
-        const results = [];
-        for (const consequence of action.failureConsequences) {
-            const resolvedParams = this._resolvePlaceholders(consequence.params, {}, {});
-            const handler = this.consequenceHandlers.handlers[consequence.type];
-            if (handler) {
-                // Pass an empty context for failure consequences
-                results.push({ success: true, type: consequence.type, ...handler(entityId, resolvedParams, {}) });
-            }
-        }
-
-        return { success: false, executedFailureConsequences: results.length, results };
-    }
-
     // =========================================================================
-    // PRIVATE: MULTI-ATTACKER CONSEQUENCE EXECUTION
-    // =========================================================================
-
-    /**
-     * Executes consequences for multi-attacker punch actions.
-     * Each attacker component deals its own separate damage to the target.
-     *
-     * @param {string} actionName - The action name.
-     * @param {string} entityId - The ID of the attacking entity.
-     * @param {Array<string>} attackerComponentIds - Array of attacker component IDs.
-     * @param {Object} params - Action parameters (includes targetComponentId).
-     * @param {Object} [synergyResult] - Optional synergy computation result.
-     * @returns {Object} Result of consequence execution.
-     * @private
-     */
-    _executeMultiAttackerConsequences(actionName, entityId, attackerComponentIds, params, synergyResult = null) {
-        const action = this.actionRegistry[actionName];
-        if (!action || !action.consequences) {
-            return { success: false, error: `Action "${actionName}" has no consequences defined.` };
-        }
-
-        const allResults = [];
-        const targetComponentId = params.targetComponentId;
-
-        // Process each attacker component separately
-        for (const attackerId of attackerComponentIds) {
-            // Get this attacker's strength value
-            const attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
-            if (!attackerStats || !attackerStats.Physical || attackerStats.Physical.strength === undefined) {
-                Logger.warn(`[ActionController] Attacker component "${attackerId}" has no Physical.strength — skipping`);
-                continue;
-            }
-
-            const attackerStrength = attackerStats.Physical.strength;
-
-            // Build per-attacker requirement values
-            const perAttackerRequirementValues = {
-                'Physical.strength': attackerStrength
-            };
-
-            // Build per-attacker fulfilling components map
-            const perAttackerFulfillingComponents = {
-                'Physical.strength': attackerId
-            };
-
-            // Build per-attacker context with attacker-specific params
-            const perAttackerParams = {
-                ...params,
-                attackerComponentId: attackerId
-            };
-
-            // Build per-attacker consequence params with resolved values
-            const perAttackerConsequences = action.consequences.map(consequence => {
-                // For damageComponent: resolve the value from this attacker's strength
-                if (consequence.type === 'damageComponent') {
-                    const damageValue = -attackerStrength; // Negative = damage
-                    return {
-                        type: 'damageComponent',
-                        params: {
-                            trait: consequence.params.trait,
-                            stat: consequence.params.stat,
-                            value: damageValue
-                        }
-                    };
-                }
-                // For log consequences: resolve placeholders with attacker's values
-                if (consequence.type === 'log' && consequence?.params?.message) {
-                    const resolvedMessage = consequence.params.message
-                        .replace(/:Physical\.strength/g, String(attackerStrength));
-                    return { type: 'log', params: { ...consequence.params, message: resolvedMessage } };
-                }
-                return consequence;
-            });
-
-            // Execute per-attacker consequences with custom context
-            for (const consequence of perAttackerConsequences) {
-                const handler = this.consequenceHandlers.handlers[consequence.type];
-                if (!handler) {
-                    allResults.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
-                    continue;
-                }
-
-                try {
-                    // Resolve placeholders with per-attacker values
-                    const resolvedParams = this._resolvePlaceholders(consequence.params, perAttackerRequirementValues, perAttackerParams);
-
-                    // Apply synergy multiplier to numeric values
-                    if (synergyResult && synergyResult.synergyMultiplier > 1.0 && typeof resolvedParams === 'object' && resolvedParams !== null) {
-                        for (const [key, val] of Object.entries(resolvedParams)) {
-                            if (typeof val === 'number') {
-                                resolvedParams[key] = this.synergyController
-                                    ? this.synergyController.applySynergyToResult(synergyResult, val)
-                                    : val;
-                            }
-                        }
-                    }
-
-                    // For damageComponent, use the explicit targetComponentId
-                    const result = handler(targetComponentId, resolvedParams, {
-                        requirementValues: perAttackerRequirementValues,
-                        actionParams: perAttackerParams,
-                        fulfillingComponents: perAttackerFulfillingComponents,
-                        synergyResult,
-                        attackerComponentId: attackerId
-                    });
-
-                    allResults.push({
-                        success: true,
-                        type: consequence.type,
-                        attackerComponentId: attackerId,
-                        synergyApplied: synergyResult !== null,
-                        ...result
-                    });
-                } catch (error) {
-                    // Defensive: handle case where error is undefined or not an Error object
-                    const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
-                    const consequenceType = consequence?.type || 'unknown';
-                    allResults.push({
-                        success: false,
-                        error: this._resolveError({
-                            code: 'CONSEQUENCE_EXECUTION_FAILED',
-                            details: { type: consequenceType, error: errorMsg }
-                        }),
-                        type: consequenceType,
-                        attackerComponentId: attackerId
-                    });
-                }
-            }
-        }
-
-        return {
-            success: true,
-            executedConsequences: allResults.filter(r => r.success).length,
-            executedPerAttacker: attackerComponentIds.length,
-            results: allResults
-        };
-    }
-
-    // =========================================================================
-    // PUBLIC: REGISTRY ACCESS
-    // =========================================================================
-
-    // =========================================================================
-    // PUBLIC: ACTION DATA PREVIEW (for synergy preview system)
+    // PUBLIC: ACTION DATA PREVIEW
     // =========================================================================
 
     /**
      * Resolves placeholder values in action consequences for a given component.
-     * This allows the preview to show actual computed values (e.g., "Damage: 25")
-     * instead of unresolved placeholders (e.g., "Damage: -:Physical.strength").
-     *
      * @param {string} actionName - The action name.
      * @param {string} componentId - The component ID to resolve values against.
      * @param {string} entityId - The entity ID (for error context).
      * @returns {Object} Object mapping consequence types to their resolved values.
-     *   Example: { damageComponent: { trait: 'Physical', stat: 'durability', value: -25 } }
      */
     resolveActionValues(actionName, componentId, entityId) {
         const action = this.actionRegistry[actionName];
-        if (!action || !action.consequences) {
-            return {};
-        }
+        if (!action || !action.consequences) return {};
 
-        const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
-        if (!componentStats) {
-            return {};
-        }
+        const requirementValues = this.requirementResolver.resolveRequirementValues(componentId);
+        if (!requirementValues) return {};
 
-        // Build requirement values from component stats
-        const requirementValues = {};
-        for (const [traitId, traitData] of Object.entries(componentStats)) {
-            for (const [statName, statValue] of Object.entries(traitData)) {
-                if (typeof statValue === 'number') {
-                    requirementValues[`${traitId}.${statName}`] = statValue;
-                }
-            }
-        }
-
-        // Resolve each consequence's params
         const resolvedConsequences = {};
         for (const consequence of action.consequences) {
             const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, {});
             resolvedConsequences[consequence.type] = resolvedParams;
         }
-
         return resolvedConsequences;
     }
 
     /**
-     * Previews action data including resolved values and synergy for a given component selection.
-     * Returns action definition, resolved consequence values, and synergy result.
-     *
+     * Resolves placeholder values in an object using requirement values.
+     * @param {Object} params - The object with placeholder values (e.g., { damage: ":Physical.strength" }).
+     * @param {Object} requirementValues - Mapping of placeholders to resolved values.
+     * @param {Object} context - Additional context (unused, kept for API compatibility).
+     * @returns {Object} Object with placeholders resolved.
+     * @private
+     */
+    _resolvePlaceholders(params, requirementValues, context) {
+        if (!params) return params;
+        const resolved = {};
+        for (const [key, value] of Object.entries(params)) {
+            if (typeof value === 'string' && value.startsWith(':')) {
+                const placeholder = value.slice(1);
+                resolved[key] = requirementValues[placeholder] ?? value;
+            } else if (typeof value === 'string' && value.startsWith('-:')) {
+                const placeholder = value.slice(2);
+                const resolvedValue = requirementValues[placeholder] ?? 0;
+                resolved[key] = -resolvedValue;
+            } else if (typeof value === 'string' && value.startsWith('*:')) {
+                const placeholder = value.slice(2);
+                const resolvedValue = requirementValues[placeholder] ?? 1;
+                resolved[key] = resolvedValue;
+            } else {
+                resolved[key] = value;
+            }
+        }
+        return resolved;
+    }
+
+    /**
+     * Previews action data including resolved values and synergy.
      * @param {string} actionName - The action name.
      * @param {string} entityId - The entity ID.
-     * @param {Object} [context] - Optional context (providedComponentIds, etc.).
+     * @param {Object} [context] - Optional context.
      * @returns {Object} Preview data including actionData, resolvedValues, and synergyResult.
      */
     previewActionData(actionName, entityId, context = {}) {
@@ -1153,30 +486,21 @@ class ActionController {
             return null;
         }
 
-        // Determine which component to resolve values against
-        // Prefer the first provided component, fall back to entity-wide best
         let resolveComponentId = null;
         if (context.providedComponentIds && context.providedComponentIds.length > 0) {
             resolveComponentId = context.providedComponentIds[0].componentId;
         } else {
-            // Fall back to best component for this action
             const best = this.getBestComponentForAction(actionName);
             if (best) resolveComponentId = best.componentId;
         }
 
-        // Resolve action values (consequences with resolved placeholders)
         const resolvedValues = resolveComponentId
             ? this.resolveActionValues(actionName, resolveComponentId, entityId)
             : {};
 
-        // Compute synergy
         let synergyResult = null;
         if (this.synergyController) {
-            synergyResult = this.synergyController.computeSynergy(
-                actionName,
-                entityId,
-                context
-            );
+            synergyResult = this.synergyController.computeSynergy(actionName, entityId, context);
         }
 
         return {

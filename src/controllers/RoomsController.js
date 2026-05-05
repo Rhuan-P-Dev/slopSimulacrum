@@ -91,7 +91,7 @@ class RoomsController {
      * @returns {Object<string, Object>} A deep copy of the rooms map.
      */
     getAll() {
-        return JSON.parse(JSON.stringify(this.rooms));
+        return structuredClone(this.rooms);
     }
 
     /**
@@ -101,7 +101,7 @@ class RoomsController {
      */
     getRoom(roomId) {
         const room = this.rooms[roomId];
-        return room ? JSON.parse(JSON.stringify(room)) : null;
+        return room ? structuredClone(room) : null;
     }
 }
 

@@ -33,6 +33,13 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-026](high/BUG-026-blueprint-expansion-sibling-skipped.md) | Blueprint Expansion: Sibling Components Skipped | ✅ Fixed | `41014fb3` | `entityController.js` |
 | [BUG-028](high/BUG-028-socket-error-orphaned-mapping.md) | Socket Error Causes Orphaned Entity Mapping | ✅ Fixed | `pending` | `server.js` |
 | [BUG-031](high/BUG-031-action-executor-direct-property-access.md) | ActionExecutor Direct Internal Property Access | ✅ Fixed | `pending` | `ActionExecutor.js`, `ActionManager.js` |
+| [BUG-034](high/BUG-034-data-loader-silent-swallow.md) | DataLoader.loadJsonSafe Silently Swallows Errors | ✅ Fixed | `pending` | `DataLoader.js` |
+| [BUG-035](high/BUG-035-state-entity-get-all-direct-reference.md) | stateEntityController.getAll() Returns Direct Reference | ✅ Fixed | `pending` | `stateEntityController.js` |
+| [BUG-037](high/BUG-037-css-root-duplication.md) | CSS :root Variables Duplicated Across 10 Files | ✅ Fixed (partial) | `pending` | `public/css/*.css` |
+| [BUG-040](high/BUG-040-equipment-registry-memory-leak.md) | Equipment Registry Memory Leak on Entity Despawn | ✅ Fixed | `pending` | `equipmentController.js`, `stateEntityController.js`, `WorldStateController.js` |
+| [BUG-045](high/BUG-045-synergy-excludes-components-locked-to-current-action.md) | Synergy Excludes Components Locked to Current Action | ✅ Fixed | `pending` | `SynergyComponentGatherer.js`, `actionSelectController.js` |
+| [BUG-046](high/BUG-046-filterProvidedForGroup-missing-filters.md) | _filterProvidedForGroup missing componentType/groupType filters | ✅ Fixed | `pending` | `synergyController.js` |
+| [BUG-047](high/BUG-047-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents | ✅ Fixed | `pending` | `synergyController.js` |
 
 ### 🟡 Medium Severity
 
@@ -50,6 +57,15 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-024](medium/BUG-024-blueprint-recursion-stackoverflow.md) | Blueprint Recursion: Leaf-Only Blueprints Stack Overflow | ✅ Fixed | `41014fb3` | `entityController.js` |
 | [BUG-027](medium/BUG-027-server-console-log-instead-of-logger.md) | Server Uses console.log Instead of Centralized Logger | ✅ Fixed | `4cf43abf` | `server.js` |
 | [BUG-032](medium/BUG-032-controller-direct-property-access.md) | Controllers Directly Access Sub-Controller Private Properties | ✅ Fixed | `pending` | `actionController.js`, `WorldStateController.js` |
+| [BUG-033](medium/BUG-033-synergy-cache-never-expires.md) | Synergy Cache Never Expires | ✅ Fixed | `pending` | `synergyController.js` |
+| [BUG-036](medium/BUG-036-hardcoded-business-logic-in-action-controller.md) | Hardcoded Business Logic in ActionController | ⚠️ Known | — | `actionController.js` |
+| [BUG-038](medium/BUG-038-hardcoded-colors-in-css.md) | Hardcoded Color Values in CSS | ⚠️ Known | — | `public/css/*.css` |
+| [BUG-041](medium/BUG-041-equipmentController-srp-violation.md) | EquipmentController SRP Violation — Extracted 2 Modules | ✅ Fixed | `pending` | `equipmentController.js`, `HandEquipment.js`, `BackpackInventory.js` |
+| [BUG-042](medium/BUG-042-synergyController-srp-violation.md) | SynergyController SRP Violation — Extracted 4 Modules | ✅ Fixed | `pending` | `synergyController.js`, `SynergyConfigManager.js`, `SynergyComponentGatherer.js`, `SynergyCalculator.js`, `SynergyCacheManager.js` |
+| [BUG-043](medium/BUG-043-previewActionData-missing-resolvePlaceholders.md) | ActionController.previewActionData calls missing _resolvePlaceholders | ✅ Fixed | `pending` | `actionController.js` |
+| [BUG-044](medium/BUG-044-actionSelectController-missing-getLockedComponentsForAction.md) | ActionSelectController missing getLockedComponentsForAction method | ✅ Fixed | `pending` | `actionSelectController.js`, `SynergyComponentGatherer.js` |
+| [BUG-048](medium/BUG-048-dash-1-component-moves-4x.md) | Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy | ✅ Fixed | `pending` | `SynergyComponentGatherer.js`, `synergyController.js`, `synergy.json` |
+| [BUG-049](medium/BUG-049-consequenceHandlers-srp-violation.md) | ConsequenceHandlers SRP Violation — Monolithic Handler Class | ✅ Fixed | `pending` | `consequenceHandlers.js`, 6 new focused modules |
 
 ### 🟢 Low Severity
 

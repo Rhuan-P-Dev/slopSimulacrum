@@ -21,8 +21,8 @@ class ComponentStatsController {
             this.componentStats[componentId] = {};
         }
         // Deep merge: clone existing + new stats to prevent reference sharing
-        const existing = JSON.parse(JSON.stringify(this.componentStats[componentId]));
-        const incoming = JSON.parse(JSON.stringify(stats));
+        const existing = structuredClone(this.componentStats[componentId]);
+        const incoming = structuredClone(stats);
 
         // Deep trait-level merge: merge within each trait category to preserve
         // other stats in the same trait when only a subset is updated.
@@ -45,7 +45,7 @@ class ComponentStatsController {
      */
     getStats(componentId) {
         const stats = this.componentStats[componentId];
-        return stats ? JSON.parse(JSON.stringify(stats)) : null;
+        return stats ? structuredClone(stats) : null;
     }
 
     /**
@@ -68,7 +68,7 @@ class ComponentStatsController {
      * @returns {Object} A deep copy of the internal stats store.
      */
     getAll() {
-        return JSON.parse(JSON.stringify(this.componentStats));
+        return structuredClone(this.componentStats);
     }
 }
 

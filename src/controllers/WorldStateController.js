@@ -83,9 +83,9 @@ class WorldStateController {
         const equipmentController = new EquipmentController(this);
         this.equipmentController = equipmentController;
 
-        // 9. Instantiate stateEntityController with actionController (after ActionController is created)
+        // 9. Instantiate stateEntityController with actionController and equipmentController (after ActionController is created)
         // This follows proper DI pattern - no forward references needed
-        const stateEntityControllerInstance = new stateEntityController(entityController, actionController);
+        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, this.equipmentController);
         this.stateEntityController = stateEntityControllerInstance;
 
         // 7. Wire up stat change notifications from ComponentController to ComponentCapabilityController

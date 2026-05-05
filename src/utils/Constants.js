@@ -117,3 +117,17 @@ export const MAX_INDENTATION_LEVEL = 4;
  * @type {number}
  */
 export const MAX_LOCAL_VARIABLES = 10;
+
+/**
+ * TTL for synergy computation cache in milliseconds (5 seconds).
+ * Used by SynergyController to expire stale synergy results.
+ * @type {number}
+ */
+export const SYNERGY_CACHE_TTL_MS = 5000;
+
+/**
+ * Maximum number of entries in the synergy cache.
+ * Prevents unbounded memory growth.
+ * @type {number}
+ */
+export const SYNERGY_CACHE_MAX_SIZE = 100;

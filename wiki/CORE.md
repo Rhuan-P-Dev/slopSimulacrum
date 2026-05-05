@@ -35,6 +35,7 @@ This wiki is specifically designed for AI agents.
 - [Traits](subMDs/traits.md)
 - [World State](subMDs/world_state.md)
 - [CSS Architecture](subMDs/css_architecture.md)
+- [Consequence Handler Architecture](subMDs/consequence_handler_architecture.md)
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)

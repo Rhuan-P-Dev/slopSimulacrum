@@ -39,6 +39,7 @@ class DataLoader {
         try {
             return this.loadJson(relativePath);
         } catch (error) {
+            Logger.warn(`[DataLoader] Failed to load ${relativePath}, using default: ${error.message}`);
             return defaultValue;
         }
     }

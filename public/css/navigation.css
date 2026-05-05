@@ -3,15 +3,6 @@
    Single Responsibility: Navigation buttons, room descriptions, detail overlays
    ========================================================================= */
 
-:root {
-    --neon-green: #00ff00;
-    --dark-green: #004400;
-    --bg-black: #0a0a0a;
-    --panel-bg: #161616;
-    --text-main: #fff;
-    --text-dim: #aaa;
-    --glow: 0 0 10px rgba(0, 255, 0, 0.5);
-}
 
 .nav-buttons {
     display: flex;

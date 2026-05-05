@@ -152,13 +152,14 @@ class ComponentController {
     }
 
     /**
-     * Returns the combined state of all components and the global trait molds.
-     * @returns {Object}
+     * Returns a deep clone of the combined state of all components and the global trait molds.
+     * Prevents direct mutation of internal state.
+     * @returns {Object} Deep clone of the combined component state.
      */
     getAll() {
         return {
             globalTraits: this.traitsController.getGlobalTraits(),
-            registry: this.componentRegistry,
+            registry: structuredClone(this.componentRegistry),
             instances: this.statsController.getAll()
         };
     }

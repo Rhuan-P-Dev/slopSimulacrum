@@ -591,6 +591,15 @@ class ActionSelectController {
 
         return result;
     }
+
+    /**
+     * Alias for getSelectionsForAction — used by SynergyComponentGatherer.
+     * @param {string} actionName - The action name.
+     * @returns {Array} Locked component entries.
+     */
+    getLockedComponentsForAction(actionName) {
+        return this.getSelectionsForAction(actionName);
+    }
 }
 
 /**

@@ -34,12 +34,12 @@
       },
       {
         "groupType": "movementComponents",
-        "minCount": 1,
+        "minCount": 2,
         "scaling": "linear",
         "baseMultiplier": 1.0,
         "perUnitBonus": 0.3,
         "roleFilter": "source",
-        "description": "Any Movement component bound as source contributes to dash synergy."
+        "description": "Multiple Movement components bound as source contribute to dash synergy (both legs working together)."
       }
     ]
   },

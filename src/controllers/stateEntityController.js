@@ -14,7 +14,7 @@ class stateEntityController {
      * @param {EntityController} entityController - The entity blueprint controller.
      * @param {import('../controllers/actionController.js').default|null} actionController - The action controller for capability re-evaluation.
      */
-    constructor(entityController, actionController = null) {
+    constructor(entityController, actionController = null, equipmentController = null) {
         this.entityController = entityController;
 
         /**
@@ -29,6 +29,13 @@ class stateEntityController {
          * @type {import('../controllers/actionController.js').default|null}
          */
         this.actionController = actionController;
+
+        /**
+         * Reference to the EquipmentController.
+         * Used to clean up equipment registries on entity despawn.
+         * @type {import('../controllers/equipmentController.js').default|null}
+         */
+        this.equipmentController = equipmentController;
     }
 
     /**
@@ -83,10 +90,16 @@ class stateEntityController {
      */
     despawnEntity(entityId) {
         if (this.entities[entityId]) {
+            // Clean up equipment registries (hand grabs + backpack) before despawning
+            if (this.equipmentController) {
+                this.equipmentController.releaseEntityGrabs(entityId);
+            }
+
             // Remove all capability entries for this entity before despawning
             if (this.actionController) {
                 this.actionController.removeEntityFromCache(entityId);
             }
+
             delete this.entities[entityId];
             return true;
         }
@@ -126,8 +139,12 @@ class stateEntityController {
      * This is called by WorldStateController.getAll().
      * @returns {Object}
      */
+    /**
+     * Returns a deep clone of all active entities to prevent direct mutation of internal state.
+     * @returns {Object} Deep clone of the entities store.
+     */
     getAll() {
-        return this.entities;
+        return structuredClone(this.entities);
     }
 
     // =========================================================================
