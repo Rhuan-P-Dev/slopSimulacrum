@@ -12,7 +12,6 @@ import DataLoader from '../utils/DataLoader.js';
 
 const DEFAULT_SYNERGY_CONFIG = {
     enabled: false,
-    multiEntity: false,
     scaling: 'linear',
     caps: {},
     componentGroups: []
@@ -46,7 +45,6 @@ class SynergyConfigManager {
         if (!config) return { ...DEFAULT_SYNERGY_CONFIG };
         return {
             enabled: config.enabled ?? false,
-            multiEntity: config.multiEntity ?? false,
             scaling: config.scaling || 'linear',
             caps: config.caps || {},
             componentGroups: config.componentGroups || []

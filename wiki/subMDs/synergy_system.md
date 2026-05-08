@@ -18,7 +18,6 @@ Synergy configs are defined in `data/synergy.json` (separate from actions.json f
 {
   "move": {
     "enabled": true,
-    "multiEntity": false,
     "scaling": "diminishingReturns",
     "caps": {},
     "componentGroups": [
@@ -33,7 +32,6 @@ Synergy configs are defined in `data/synergy.json` (separate from actions.json f
   },
   "droid punch": {
     "enabled": true,
-    "multiEntity": false,
     "scaling": "diminishingReturns",
     "caps": {
       "damage": { "max": 1.1, "req": "Physical.stability" }
@@ -56,7 +54,9 @@ Synergy configs are defined in `data/synergy.json` (separate from actions.json f
 
 ### Backend Application
 
-Synergy multipliers are applied in `ActionController._executeConsequences()` and `ActionController._executeMultiAttackerConsequences()`.
+Synergy multipliers are applied in `ConsequenceDispatcher._applySynergy()`, which is called by both `execute()` (single-attacker) and `executeMultiAttacker()` (multi-attacker).
+
+**Note:** Cross-entity synergy (`multiEntity`) has been removed from the codebase. Synergy now only applies to components within a single entity.
 
 **Critical:** The synergy multiplier is applied to **ALL numeric consequence properties**, not just `value`. This ensures synergy works for:
 - `speed` (deltaSpatial - move/dash distance)
@@ -82,7 +82,7 @@ For `droid punch` actions with multiple attacker components, each attacker deals
 
 ```javascript
 // Triggered when: actionName === 'droid punch' && attackerComponentIds.length > 1 && params.targetComponentId
-_executeMultiAttackerConsequences(actionName, entityId, attackerComponentIds, params, synergyResult)
+this.consequenceDispatcher.executeMultiAttacker(actionName, entityId, attackerComponentIds, params, synergyResult)
 ```
 
 Each attacker component:

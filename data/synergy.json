@@ -1,7 +1,6 @@
 {
   "move": {
     "enabled": true,
-    "multiEntity": false,
     "scaling": "diminishingReturns",
     "caps": {},
     "componentGroups": [
@@ -18,7 +17,6 @@
   },
   "dash": {
     "enabled": true,
-    "multiEntity": true,
     "scaling": "linear",
     "caps": {},
     "componentGroups": [
@@ -45,7 +43,6 @@
   },
   "selfHeal": {
     "enabled": true,
-    "multiEntity": true,
     "scaling": "linear",
     "caps": {
       "healing": { "max": 50 }
@@ -64,7 +61,6 @@
   },
   "droid punch": {
     "enabled": true,
-    "multiEntity": false,
     "scaling": "diminishingReturns",
     "caps": {
       "damage": { "max": 1.1, "req": "Physical.stability" }
@@ -84,7 +80,6 @@
   },
   "cut": {
     "enabled": true,
-    "multiEntity": true,
     "scaling": "linear",
     "caps": {
       "damage": { "max": 2.0 }

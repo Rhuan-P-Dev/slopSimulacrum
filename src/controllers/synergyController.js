@@ -83,14 +83,6 @@ class SynergyController {
             );
         }
 
-        if (config.multiEntity && context.synergyGroups) {
-            for (const groupDef of context.synergyGroups) {
-                totalMultiplier *= this._evaluateMultiEntityGroup(
-                    actionName, groupDef, config, contributingComponents
-                );
-            }
-        }
-
         const { finalValue: multiplier, capped, capKey } = this._applyCaps(actionName, totalMultiplier, config);
 
         const summary = this._buildSummary(actionName, multiplier, contributingComponents);
@@ -286,49 +278,7 @@ class SynergyController {
         }
     }
 
-    _evaluateMultiEntityGroup(actionName, groupDef, config, contributingComponents) {
-        const primaryEntityId = groupDef.primaryEntityId || groupDef.entityId;
-        const supportingEntityIds = groupDef.supportingEntityIds || [];
-        if (!primaryEntityId || supportingEntityIds.length === 0) return 1.0;
 
-        const allMembers = [];
-        const primaryEntity = this.worldStateController.stateEntityController.getEntity(primaryEntityId);
-        if (primaryEntity) {
-            const primaryComp = primaryEntity.components.find(c => c.id === groupDef.primaryComponentId) || primaryEntity.components[0];
-            if (primaryComp) {
-                allMembers.push({
-                    componentId: primaryComp.id, entityId: primaryEntity.id,
-                    componentType: primaryComp.type, isPrimary: true
-                });
-            }
-        }
-
-        for (const supId of supportingEntityIds) {
-            const supEntity = this.worldStateController.stateEntityController.getEntity(supId);
-            if (!supEntity) continue;
-            const supComp = supEntity.components[0];
-            if (supComp) {
-                allMembers.push({ componentId: supComp.id, entityId: supEntity.id, componentType: supComp.type, isPrimary: false });
-            }
-        }
-
-        if (allMembers.length < 2) return 1.0;
-
-        const multiplier = this.calculator.computeMultiplier(
-            allMembers.length, config.scaling || 'linear', 1.0, groupDef.perUnitBonus || config.perUnitBonus || 0.1
-        );
-
-        for (const member of allMembers) {
-            contributingComponents.push({
-                componentId: member.componentId, entityId: member.entityId,
-                componentType: member.componentType, contribution: multiplier / allMembers.length, isPrimary: member.isPrimary
-            });
-        }
-
-        return multiplier;
-    }
-
-    // =========================================================================
     // PRIVATE: CAPS & SUMMARY
     // =========================================================================
 
@@ -343,13 +293,9 @@ class SynergyController {
     }
 
     _buildSummary(actionName, multiplier, contributingComponents) {
-        const entityIds = [...new Set(contributingComponents.map(c => c.entityId))];
-        const entityCount = entityIds.length;
         const componentCount = contributingComponents.length;
         let parts = [`Synergy: ${multiplier.toFixed(2)}x`];
-        if (entityCount > 1) parts.push(`${entityCount} entities`);
         parts.push(`${componentCount} component${componentCount !== 1 ? 's' : ''}`);
-        if (contributingComponents.some(c => c.isPrimary)) parts.push('(primary collaboration)');
         return parts.join(', ');
     }
 }
