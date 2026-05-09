@@ -220,43 +220,19 @@ Client → Server → ActionController.executeAction("grab")
     └── ComponentCapabilityController.reEvaluateEntityCapabilities()
 ```
 
-**Backpack Grab Flow:**
-```
-Client → Server → ActionController.executeAction("grabToBackpack")
-    ├── _checkGrabRange() → validate proximity
-    ├── _checkRequirementsForComponent() → Physical.volume ≥ 1
-    ├── ConsequenceHandlers.grabToBackpack()
-    │   └── EquipmentController.grabToBackpack()
-    │       ├── Check backpack capacity (usedVolume + itemVolume ≤ backpackVolume)
-    │       ├── initializeComponent() from item blueprint
-    │       ├── addComponentToEntity() — item becomes entity component
-    │       └── Store backpack entry in _backpackRegistry
-    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
-```
-
-**Drop All Flow:**
-```
-Client → Server → ActionController.executeAction("dropAll")
-    ├── ConsequenceHandlers.dropAll()
-    │   └── EquipmentController.dropAll()
-    │       ├── Release all hand grabs → respawn items in world
-    │       ├── Release all backpack items → respawn items in world
-    │       ├── Restore all hand strengths
-    │       └── Clear _grabRegistry and _backpackRegistry entries
-    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
-```
-
 **EquipmentController Key Methods:**
 | Method | Description |
 |--------|-------------|
 | `grabItem(entityId, handComponentId, itemEntity)` | Add item as component to entity (hand grab) |
-| `grabToBackpack(entityId, backpackComponentId, itemEntity)` | Add item to backpack (volume-checked) |
-| `releaseItem(componentId)` | Remove item from entity, respawn in world |
-| `dropAll(entityId)` | Release ALL items (hand + backpack) |
+| `releaseItem(componentId)` | Remove hand-grabbed item from entity and respawn in world |
+| `releaseBackpackItem(componentId)` | Remove backpack-stored item from entity and respawn in world |
 | `getBackpackItems(entityId)` | Get backpack items array |
 | `getBackpackVolume(entityId, backpackComponentId)` | Get {total, used, remaining} volume info |
+| `isHoldingItem(componentId)` | Check if holding an item |
+| `getActiveGrabCount()` | Number of active grabs |
+| `releaseEntityGrabs(entityId)` | Release all hand grabs for entity |
 
-### 🔵 Multi-Component Selection Flow (Client-Side)
+### 🔵 Multi-Component Selection Flow (
 
 The client uses a **click-to-toggle** model for multi-component selection:
 ```

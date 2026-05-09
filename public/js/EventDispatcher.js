@@ -14,7 +14,6 @@
  * @property {function(string, string, Object): Promise<void>} [moveToTarget]
  * @property {function(string, string, string[], Object): Promise<void>} [executeMultiComponentSpatial]
  * @property {function(Object, number, number): Promise<void>} [executeGrab]
- * @property {function(Object, number, number): Promise<void>} [executeGrabToBackpack]
  * @property {function(Object, number, number, Set<string>): Promise<void>} [executePunch]
  */
 
@@ -230,7 +229,7 @@ class EventDispatcher {
 
     /**
      * Handles component targeting map clicks.
-     * Dispatches to grab/grabToBackpack/punch handlers based on action name.
+     * Dispatches to grab/punch handlers based on action name.
      * Uses this.handlers (wired in constructor) for action execution.
      *
      * @param {Object} pending - The pending action object.
@@ -243,8 +242,6 @@ class EventDispatcher {
 
         if (actionName === 'grab' && this.handlers.executeGrab) {
             this.handlers.executeGrab(pending, targetX, targetY);
-        } else if (actionName === 'grabToBackpack' && this.handlers.executeGrabToBackpack) {
-            this.handlers.executeGrabToBackpack(pending, targetX, targetY);
         } else if ((actionName === 'cut' || actionName === 'droid punch') && this.handlers.executePunch) {
             this.handlers.executePunch(pending, targetX, targetY);
         }

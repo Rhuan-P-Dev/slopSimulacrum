@@ -36,9 +36,8 @@ export class ActionExecutor {
     }
 
     /**
-     * Executes a self-targeting action (e.g., selfHeal, dropAll).
-     * For dropAll: calls actions.executeDropAll() with entity-level params.
-     * For others: uses _sendActionRequest with targetComponentId.
+     * Executes a self-targeting action (e.g., selfHeal).
+     * Uses _sendActionRequest with targetComponentId.
      *
      * @param {string} actionName - The name of the action to execute.
      * @param {string} entityId - The entity ID performing the action.
@@ -48,12 +47,6 @@ export class ActionExecutor {
      */
     async executeSelfTarget(actionName, entityId, componentId, componentIdentifier) {
         try {
-            if (actionName === 'dropAll') {
-                const result = await this.actions.executeDropAll(actionName, entityId);
-                console.log(`[ActionExecutor] Drop all executed for entity ${entityId}`, { actionName, entityId });
-                return;
-            }
-
             const result = await this.actions._sendActionRequest({
                 actionName,
                 entityId,
@@ -161,79 +154,6 @@ export class ActionExecutor {
             console.log(`[ActionExecutor] Grab executed: entity ${closestEntity.id} grabbed by entity ${pending.entityId}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, handComponentId: handCompId });
         } catch (error) {
             console.error(`[ActionExecutor] Grab failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity?.id, error: error.message });
-        }
-    }
-
-    /**
-     * Executes a grab-to-backpack action.
-     * Same as grab + checks for droidBackpack component on the droid.
-     *
-     * @param {Object} pending - The pending action object.
-     * @param {number} targetX - The target X coordinate.
-     * @param {number} targetY - The target Y coordinate.
-     * @returns {Promise<void>}
-     */
-     async executeGrabToBackpack(pending, targetX, targetY) {
-        const droid = this.worldState.getActiveDroid();
-        const state = this.worldState.getState();
-        if (!droid || !state) {
-            console.warn('[ActionExecutor] No active droid or state for grab-to-backpack action');
-            return;
-        }
-
-        // Use availableActions cache passed from App.js (BUG-031 prevention)
-        const actionData = this.availableActions[pending.actionName] || {};
-        const range = actionData?.range || 100;
-
-        const distance = this.actions.calculateDistance(targetX, targetY, droid.spatial.x, droid.spatial.y);
-
-        if (distance > range) {
-            this.errorController.handleError({
-                code: 'TARGET_OUT_OF_RANGE',
-                details: {
-                    distance: Math.round(distance),
-                    range: range
-                }
-            });
-            this.actions.clearPendingAction();
-            console.warn(`[ActionExecutor] Grab-to-backpack out of range: distance=${Math.round(distance)}, range=${range}`);
-            return;
-        }
-
-        const closestEntity = this.actions.findClosestEntity(
-            state.entities,
-            targetX,
-            targetY,
-            AppConfig.TARGETING.PUNCH_TOLERANCE
-        );
-
-        if (!closestEntity) {
-            this.errorController.handleError({ code: 'NO_TARGET_FOUND' });
-            this.actions.clearPendingAction();
-            console.warn('[ActionExecutor] No target found for grab-to-backpack action');
-            return;
-        }
-
-        try {
-            const backpackComp = droid.components.find(c => c.type === 'droidBackpack');
-            if (!backpackComp) {
-                this.errorController.handleError({
-                    code: 'BACKPACK_NOT_FOUND',
-                    message: 'No backpack component found on this entity.'
-                });
-                this.actions.clearPendingAction();
-                console.warn('[ActionExecutor] No backpack component found on droid');
-                return;
-            }
-
-            await this.actions.executeGrabToBackpack(pending.actionName, pending.entityId, backpackComp.id, closestEntity.id);
-
-            this.actions.clearPendingAction();
-            await this.refreshCallback();
-
-            console.log(`[ActionExecutor] Grab-to-backpack executed: entity ${closestEntity.id} stored in backpack of entity ${pending.entityId}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, backpackComponentId: backpackComp.id });
-        } catch (error) {
-            console.error(`[ActionExecutor] Grab-to-backpack failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity?.id, error: error.message });
         }
     }
 

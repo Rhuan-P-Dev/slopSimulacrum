@@ -5,7 +5,7 @@
 The Equipment/Grab system allows entities to grab item entities (like knives) and add them as components, unlocking new action capabilities based on the item's traits.
 
 **Key Controllers:**
-- `EquipmentController`: Manages grabbing items, backpack storage, and dropping items
+- `EquipmentController`: Manages grabbing items and dropping items
 - `WorldStateController`: Root injector providing access to all sub-controllers
 
 ---
@@ -19,21 +19,10 @@ Client → Server → ActionController.executeAction("grab")
     → EquipmentController.grabItem()
     → ComponentController.initializeComponent() + StateEntityController.addComponentToEntity()
 
-Client → Server → ActionController.executeAction("grabToBackpack")
-    → ActionController._checkGrabRange() (validate proximity)
-    → ConsequenceHandlers._handleGrabToBackpack()
-    → EquipmentController.grabToBackpack()
-    → ComponentController.initializeComponent() + StateEntityController.addComponentToEntity()
-
 Client → Server → ActionController.executeAction("release")
     → ConsequenceHandlers._handleReleaseItem()
     → EquipmentController.releaseItem()
     → StateEntityController.removeComponentFromEntity()
-
-Client → Server → ActionController.executeAction("dropAll")
-    → ConsequenceHandlers._handleDropAll()
-    → EquipmentController.dropAll()
-    → Multiple items respawned in world
 ```
 
 ---
@@ -49,32 +38,13 @@ When a player grabs an item (e.g., knife) with their hand:
 4. **Debuff**: The hand suffers a strength debuff from carrying weight
 5. **Capability Re-scan**: New actions are discovered based on the item's traits
 
-### 3.2. Backpack Grab Flow
-When a player grabs an item into the backpack:
-
-1. **Range Check**: The item must be within the action's `range` property (default: 100 units)
-2. **Requirements**: The backpack component must have `Physical.volume >= 1`
-3. **Capacity Check**: The backpack must have enough remaining volume for the item
-4. **Component Addition**: The item's traits become a new component on the entity
-5. **No Debuff**: No strength debuff (backpack handles the weight)
-6. **Capability Re-scan**: New actions are discovered based on the item's traits
-
-### 3.3. Release Flow (self_target)
+### 3.2. Release Flow (self_target)
 The **release** action is `targetingType: 'self_target'`, meaning it executes **instantly** when a grabbed item component row is clicked in the action list — no map targeting needed.
 
 1. **Component Removal**: The item component is removed from the entity
 2. **Item Respawn**: A new world entity is spawned at the releasing entity's position (+5, +5 offset)
 3. **Strength Restoration**: The hand's original strength is restored
 4. **Capability Re-scan**: Item traits are no longer available for actions
-
-### 3.4. Drop All Flow (self_target)
-The **dropAll** action is `targetingType: 'self_target'`, executing instantly when clicked.
-
-1. **Release Hand Grabs**: All hand-grabbed items are released (respawned in world)
-2. **Release Backpack Items**: All backpack items are released (respawned in world)
-3. **Strength Restoration**: All affected hand strengths are restored
-4. **Capability Re-scan**: All item traits are no longer available
-5. **Cleanup**: All grab and backpack tracking is cleared
 
 ---
 
@@ -97,14 +67,12 @@ class EquipmentController {
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `grabItem(entityId, handComponentId, itemEntity)` | `string`, `string`, `Object` | `{ success, componentId? }` | Add item as component to entity (hand grab) |
-| `grabToBackpack(entityId, backpackComponentId, itemEntity)` | `string`, `string`, `Object` | `{ success, componentId? }` | Add item to backpack (backpack grab) |
-| `releaseItem(componentId)` | `string` | `{ success, grabInfo?, error? }` | Remove hand-grabbed item from entity and respawn in world |
-| `releaseBackpackItem(componentId)` | `string` | `{ success, entry?, error? }` | Remove backpack-stored item from entity and respawn in world |
+| `releaseItem(componentId)` | `string` | `{ success, grabInfo?, error?, spawnedEntityId? }` | Remove hand-grabbed item from entity and respawn in world |
+| `releaseBackpackItem(componentId)` | `string` | `{ success, entry?, error?, spawnedEntityId? }` | Remove backpack-stored item from entity and respawn in world |
 | `getGrabInfo(componentId)` | `string` | `GrabEntry|null` | Get grab tracking info |
 | `getGrabInfoByEntity(entityId)` | `string` | `Array<GrabEntry>` | Get all hand grabs for entity |
 | `getBackpackItems(entityId)` | `string` | `Array<BackpackEntry>` | Get all backpack items for entity |
 | `getBackpackVolume(entityId, backpackComponentId)` | `string`, `string` | `{ total, used, remaining }` | Get backpack volume info |
-| `dropAll(entityId)` | `string` | `{ success, droppedItems, releasedHandGrabs, releasedBackpackItems }` | Drop ALL items (hand + backpack) |
 | `isHoldingItem(componentId)` | `string` | `boolean` | Check if holding an item |
 | `getActiveGrabCount()` | — | `number` | Number of active grabs |
 | `releaseEntityGrabs(entityId)` | `string` | `number` | Release all hand grabs for entity |
@@ -133,12 +101,6 @@ _backpackRegistry: Map<entityId, Array<BackpackEntry>>
 "grab": {
   "targetingType": "component",
   "range": 100,
-  "componentBinding": {
-    "roles": ["source", "target"],
-    "sourceRole": "source",
-    "targetRole": "target",
-    "description": "Grab binds to a Physical component as source (hand) and an item entity as target. The item becomes a component of the entity. The hand suffers a strength debuff from carrying weight."
-  },
   "requirements": [
     { "trait": "Physical", "stat": "strength", "minValue": 1 }
   ],
@@ -155,43 +117,13 @@ _backpackRegistry: Map<entityId, Array<BackpackEntry>>
 }
 ```
 
-### 5.2. Grab to Backpack Action
-
-```json
-"grabToBackpack": {
-  "targetingType": "component",
-  "range": 100,
-  "componentBinding": {
-    "roles": ["source", "target"],
-    "sourceRole": "self_target",
-    "targetRole": "target",
-    "description": "Grab binds to the droidBackpack component as source and an item entity as target. The item is stored in the backpack instead of the hand. The backpack's Physical.volume determines total storage capacity."
-  },
-  "requirements": [
-    { "trait": "Physical", "stat": "volume", "minValue": 1 }
-  ],
-  "consequences": [
-    { "type": "grabToBackpack", "params": {} },
-    { "type": "log", "level": "info", "message": "Item stored in droid backpack." }
-  ],
-  "failureConsequences": [
-    { "type": "log", "level": "warn", "message": "Grab to backpack failed — item out of range or backpack full" }
-  ]
-}
-```
-
-### 5.3. Release Action (self_target)
+### 5.2. Release Action (self_target)
 
 The release action is `targetingType: 'self_target'`, executing instantly on component click.
 
 ```json
 "release": {
   "targetingType": "self_target",
-  "componentBinding": {
-    "roles": ["self_target"],
-    "selfTargetRole": "self_target",
-    "description": "Release is a self-targeting action that executes instantly when a grabbed item component is clicked. The item is dropped back into the world and strength is restored."
-  },
   "requirements": [],
   "consequences": [
     { "type": "releaseItem", "params": {} },
@@ -199,29 +131,6 @@ The release action is `targetingType: 'self_target'`, executing instantly on com
   ],
   "failureConsequences": [
     { "type": "log", "level": "warn", "message": "Release failed — no item equipped" }
-  ]
-}
-```
-
-### 5.4. Drop All Action (self_target)
-
-The dropAll action is `targetingType: 'self_target'`, executing instantly when clicked.
-
-```json
-"dropAll": {
-  "targetingType": "self_target",
-  "componentBinding": {
-    "roles": ["self_target"],
-    "selfTargetRole": "self_target",
-    "description": "Drop all is a self-targeting action that executes instantly when clicked. All grabbed items and backpack items are dropped into the world."
-  },
-  "requirements": [],
-  "consequences": [
-    { "type": "dropAll", "params": {} },
-    { "type": "log", "level": "info", "message": "All items dropped." }
-  ],
-  "failureConsequences": [
-    { "type": "log", "level": "warn", "message": "Drop all failed — nothing to drop" }
   ]
 }
 ```
@@ -245,22 +154,7 @@ _handleGrabItem(targetId, params, context) {
 }
 ```
 
-### 6.2. grabToBackpack
-
-```javascript
-_handleGrabToBackpack(targetId, params, context) {
-    // targetId = backpack component ID
-    // context.actionParams.entityId = main entity
-    // context.actionParams.targetEntityId = item entity being grabbed
-    // context.actionParams.targetComponentId = backpack component ID
-    
-    // 1. Check backpack volume capacity
-    // 2. Grab item: add to backpack
-    // 3. Re-scan capabilities
-}
-```
-
-### 6.3. releaseItem
+### 6.2. releaseItem
 
 ```javascript
 _handleReleaseItem(targetId, params, context) {
@@ -275,22 +169,6 @@ _handleReleaseItem(targetId, params, context) {
     //   - Backpack item → releaseBackpackItem(componentId)
     // Step 4: Restore hand strength (only for hand grabs, not backpack)
     // Step 5: Re-scan capabilities
-}
-```
-
-### 6.4. dropAll
-
-```javascript
-_handleDropAll(targetId, params, context) {
-    // targetId = component/entity ID associated with the drop
-    // context.actionParams.entityId = main entity
-    
-    // 1. Drop all: call equipmentController.dropAll(entityId)
-    //    - Releases all hand grabs (respawn items in world)
-    //    - Releases all backpack items (respawn items in world)
-    // 2. Restore all hand strengths
-    // 3. Re-scan capabilities
-    // 4. Clear all tracking
 }
 ```
 
@@ -357,7 +235,6 @@ removeComponentFromEntity(entityId, componentId) {
 ```
 Entity: droid-123
 Components: [centralBall, droidBackpack, droidHead, droidArm(left), droidHand(left), droidRollingBall(left), droidRollingBall(right)]
-Backpack: {} (empty, 0/5 volume used)
 Actions available: move, dash, selfHeal, droid punch
 
 Item: knife-456
@@ -369,26 +246,7 @@ Position: { x: -50, y: 30 }
 Entity: droid-123
 Components: [centralBall, droidBackpack, droidHead, droidArm(left), droidHand(left), droidRollingBall(left), droidRollingBall(right), knife-new-uuid]
 Hand strength: 25 → 20 (debuff)
-Backpack: {} (empty)
 Actions available: move, dash, selfHeal, droid punch, slash (from knife's sharpness!)
-```
-
-### After Grab to Backpack (knife within range, backpack has volume):
-```
-Entity: droid-123
-Components: [centralBall, droidBackpack, droidHead, droidArm(left), droidHand(left), droidRollingBall(left), droidRollingBall(right), knife-new-uuid]
-Hand strength: 25 (no debuff)
-Backpack: [{ itemBlueprint: "knife", itemVolume: 1 }] (1/5 volume used)
-Actions available: move, dash, selfHeal, droid punch, slash (from knife's sharpness!)
-```
-
-### After Drop All:
-```
-Entity: droid-123
-Components: [centralBall, droidBackpack, droidHead, droidArm(left), droidHand(left), droidRollingBall(left), droidRollingBall(right)]
-Hand strength: 25 (restored)
-Backpack: {} (empty)
-Items in world: knife-1, knife-2 (respawned at droid position +5,+5 offset)
 ```
 
 ---
@@ -405,42 +263,37 @@ sequenceDiagram
     participant SEC as StateEntityController
     participant CCC as CapabilityController
 
-    %% Grab to Backpack
-    U->>C: Select backpack component
+    %% Grab
+    U->>C: Select hand component
     U->>C: Click knife entity
-    C->>S: POST /execute-action {actionName: "grabToBackpack", targetEntityId: knife}
+    C->>S: POST /execute-action {actionName: "grab", targetEntityId: knife}
     S->>AC: executeAction()
     AC->>AC: Check range (distance ≤ 100?)
-    AC->>AC: Check Physical.volume ≥ 1
-    AC->>EC: grabToBackpack(droid, backpack, knife)
-    EC->>EC: Check backpack capacity (0+1 ≤ 5?)
+    AC->>AC: Check Physical.strength ≥ 1
+    AC->>EC: grabItem(droid, hand, knife)
     EC->>SEC: addComponentToEntity(droid, newKnifeComp, "knife")
     SEC->>SEC: droid.components.push({id: newKnifeComp, type: "knife"})
-    EC->>SEC: despawnEntity(knife)
-    EC->>EC: Store backpack entry
+    EC->>EC: Store grab entry
     AC->>CCC: reEvaluateEntityCapabilities()
     CCC->>CCC: Knife's traits → new actions discovered (slash!)
     AC->>S: Return success
     S->>C: Broadcast state
-    C->>C: Show backpack inventory (1/5)
     C->>C: Show new "slash" action
 
-    %% Drop All
-    U->>C: Click "dropAll" action
-    U->>C: Click backpack component (self_target)
-    C->>S: POST /execute-action {actionName: "dropAll"}
+    %% Release
+    U->>C: Click release action
+    U->>C: Click grabbed item component
+    C->>S: POST /execute-action {actionName: "release"}
     S->>AC: executeAction()
-    AC->>EC: dropAll(droid)
-    EC->>EC: Release all hand grabs
-    EC->>EC: Release all backpack items
-    EC->>SEC: spawnEntity(knife, room) × N
-    SEC->>SEC: Set spatial for each respawned item
-    EC->>EC: Restore all hand strengths
-    EC->>EC: Clear all tracking
+    AC->>EC: releaseItem(knife-comp)
+    EC->>SEC: removeComponentFromEntity(droid, knife-comp)
+    EC->>SEC: spawnEntity(knife, room)
+    SEC->>SEC: Set spatial for respawned item
+    EC->>EC: Restore hand strength
     AC->>CCC: reEvaluateEntityCapabilities()
     AC->>S: Return success
     S->>C: Broadcast state
-    C->>C: Show items in world
+    C->>C: Show item in world
 ```
 
 ---
@@ -455,8 +308,6 @@ sequenceDiagram
 | droid punch | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | **grab** | ✅ Implemented | ✅ Implemented | ✅ Implemented |
 | **release** | ✅ Implemented (self_target) | ✅ Implemented | ✅ Implemented |
-| **grabToBackpack** | ✅ Implemented | ✅ Implemented | ✅ Implemented |
-| **dropAll** | ✅ Implemented (self_target) | ✅ Implemented | ✅ Implemented |
 | **cut** | ✅ Implemented (requires Physical.sharpness ≥ 20) | ✅ Implemented | ✅ Implemented |
 
 ---
@@ -482,9 +333,3 @@ sequenceDiagram
 - `releaseBackpackItem(componentId)` handles backpack-stored items (from `_backpackRegistry`)
 - `_handleReleaseItem` checks both registries — first `_grabRegistry`, then `_backpackRegistry`
 - Backpack releases do NOT restore hand strength (no debuff applied for backpack grabs)
-
-**Volume System:** 
-- Backpack `Physical.volume` determines total storage capacity
-- Items default to volume 1 if not specified in their component definition
-- Items with `Physical.volume` defined use that value
-- Backpack capacity is checked before allowing a grabToBackpack

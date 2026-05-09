@@ -125,17 +125,6 @@ class EquipmentController {
     // =========================================================================
 
     /**
-     * Grab an item entity into a backpack component.
-     * @param {string} entityId - The ID of the entity receiving the item.
-     * @param {string} backpackComponentId - The backpack component ID.
-     * @param {Object} itemEntity - The item entity being grabbed.
-     * @returns {{ success: boolean, componentId?: string, error?: string }}
-     */
-    grabToBackpack(entityId, backpackComponentId, itemEntity) {
-        return this.backpackInventory.grabToBackpack(entityId, backpackComponentId, itemEntity);
-    }
-
-    /**
      * Release a backpack item and respawn it in the world.
      * @param {string} componentId - The item component ID stored in the backpack.
      * @returns {{ success: boolean, entry?: BackpackEntry, error?: string, spawnedEntityId?: string }}
@@ -225,63 +214,6 @@ class EquipmentController {
         return result;
     }
 
-    /**
-     * Drop all items from both hand grabs and backpack for an entity.
-     * Items are respawned in the world at the entity's position.
-     *
-     * @param {string} entityId - The entity ID.
-     * @returns {{ success: boolean, droppedItems: Array, error?: string }}
-     */
-    dropAll(entityId) {
-        const result = {
-            success: false,
-            droppedItems: [],
-            releasedHandGrabs: 0,
-            releasedBackpackItems: 0
-        };
-
-        // Step 1: Release all hand grabs
-        const handGrabs = this.handEquipment.getGrabInfoByEntity(entityId);
-        result.releasedHandGrabs = handGrabs.length;
-
-        for (const grab of handGrabs) {
-            const releaseResult = this.handEquipment.releaseItem(grab.componentId);
-            if (releaseResult.success && releaseResult.spawnedEntityId) {
-                result.droppedItems.push({
-                    type: 'handGrab',
-                    itemBlueprint: grab.itemBlueprint,
-                    spawnedEntityId: releaseResult.spawnedEntityId
-                });
-            }
-        }
-
-        // Step 2: Release all backpack items
-        const backpackEntries = this.backpackInventory.getBackpackItems(entityId);
-        result.releasedBackpackItems = backpackEntries.length;
-
-        for (const entry of backpackEntries) {
-            const releaseResult = this.backpackInventory.releaseBackpackItem(entry.componentId);
-            if (releaseResult.success && releaseResult.spawnedEntityId) {
-                result.droppedItems.push({
-                    type: 'backpack',
-                    itemBlueprint: entry.itemBlueprint,
-                    spawnedEntityId: releaseResult.spawnedEntityId
-                });
-            }
-        }
-
-        const totalDropped = result.droppedItems.length;
-        result.success = totalDropped > 0;
-
-        Logger.info('[EquipmentController] Drop all executed', {
-            entityId,
-            totalDropped,
-            releasedHandGrabs: result.releasedHandGrabs,
-            releasedBackpackItems: result.releasedBackpackItems
-        });
-
-        return result;
-    }
 }
 
 /**

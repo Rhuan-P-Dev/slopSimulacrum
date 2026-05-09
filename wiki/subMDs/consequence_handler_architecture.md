@@ -28,7 +28,6 @@ src/controllers/
 | `DamageConsequenceHandler` | `damageComponent` | Damage application to specific target components |
 | `LogConsequenceHandler` | `log` | Structured log messages at specified severity levels |
 | `EventConsequenceHandler` | `triggerEvent` | Event triggering for logging/notification |
-| `EquipmentConsequenceHandler` | `grabItem`, `releaseItem`, `grabToBackpack`, `dropAll` | Equipment grab, release, and drop operations |
 
 ## Target Resolution System
 
@@ -69,7 +68,6 @@ Each handler interprets the `targetId` based on its `consequenceTarget` context:
 | `log` | Log with source context | Log with target context | Log with entity context |
 | `grabItem` | N/A (uses hand component) | Grab target entity | N/A |
 | `releaseItem` | Release from source | Release target item | N/A |
-| `dropAll` | Drop entity items | N/A | Drop entity items |
 
 ## Dispatcher Pattern
 

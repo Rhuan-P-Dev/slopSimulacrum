@@ -63,8 +63,6 @@ export class ClientApp {
                 this.executor.executeMultiComponentSpatial(actionName, entityId, componentIds, extraParams),
             executeGrab: (pending, targetX, targetY) =>
                 this.executor.executeGrab(pending, targetX, targetY),
-            executeGrabToBackpack: (pending, targetX, targetY) =>
-                this.executor.executeGrabToBackpack(pending, targetX, targetY),
             executePunch: (pending, targetX, targetY) =>
                 this.executor.executePunch(pending, targetX, targetY, this.selection.getSelectedComponentIds()),
             getMyEntityId: () => this.worldState.getMyEntityId(),

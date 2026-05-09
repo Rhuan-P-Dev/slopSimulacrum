@@ -53,8 +53,6 @@ class ConsequenceHandlers {
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
             grabItem: (targetId, params, context) => this.equipmentHandler._handleGrabItem(targetId, params, context),
             releaseItem: (targetId, params, context) => this.equipmentHandler._handleReleaseItem(targetId, params, context),
-            grabToBackpack: (targetId, params, context) => this.equipmentHandler._handleGrabToBackpack(targetId, params, context),
-            dropAll: (targetId, params, context) => this.equipmentHandler._handleDropAll(targetId, params, context),
         };
     }
 }

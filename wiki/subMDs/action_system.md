@@ -827,52 +827,6 @@ Releases a grabbed item: removes the item component from the entity and restores
 
 📖 See [Equipment System Wiki](./equipment_system.md) for full details.
 
-### 6.9. grabToBackpack
-
-Grabs an item entity and stores it in the entity's backpack. The item's traits become available for action requirement checking. The backpack's `Physical.volume` determines total storage capacity.
-
-**Parameters:**
-| Property | Type | Description |
-|----------|------|-------------|
-| (none required) | — | — |
-
-**Context Parameters:**
-- `context.actionParams.entityId` — Main entity receiving the item
-- `context.actionParams.targetEntityId` — Item entity being grabbed
-- `context.actionParams.targetComponentId` — Backpack component ID
-
-**Example:**
-```javascript
-{
-  type: "grabToBackpack",
-  params: {}
-}
-```
-
-📖 See [Equipment System Wiki](./equipment_system.md) for full details.
-
-### 6.10. dropAll
-
-Drops all grabbed items (hand grabs + backpack items) into the world. Items are respawned at the entity's position.
-
-**Parameters:**
-| Property | Type | Description |
-|----------|------|-------------|
-| (none required) | — | — |
-
-**Context Parameters:**
-- `context.actionParams.entityId` — Main entity that was holding the items
-
-**Example:**
-```javascript
-{
-  type: "dropAll",
-  params: {}
-}
-```
-
-📖 See [Equipment System Wiki](./equipment_system.md) for full details.
-
 ---
 
 ## 7. Adding New Actions
