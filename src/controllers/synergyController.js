@@ -203,9 +203,20 @@ class SynergyController {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return [];
 
-        // First pass: find the component type from the first valid component (auto-detect type)
-        // and filter by roleFilter. Only include same-type components for synergy.
+        // First pass: find the component type from the first valid component in providedComponentIds
+        // (regardless of roleFilter) - this makes type detection deterministic and independent
+        // of array order / component stats.
         let detectedType = null;
+        for (const { componentId } of providedComponentIds) {
+            if (lockedComponentIds.has(componentId)) continue;
+            const component = entity.components.find(c => c.id === componentId);
+            if (component) {
+                detectedType = component.type;
+                break;
+            }
+        }
+
+        // Second pass: filter by roleFilter and same type
         const validComponents = providedComponentIds
             .filter(({ componentId, role }) => {
                 if (lockedComponentIds.has(componentId)) return false;
@@ -219,13 +230,10 @@ class SynergyController {
                     if (!this._matchesRoleFilter(stats, groupDef.roleFilter)) return false;
                 }
 
-                // Auto-detect type from first valid component
-                if (detectedType === null) {
-                    detectedType = component.type;
-                }
-
                 // Only include same-type components
-                return component.type === detectedType;
+                if (detectedType && component.type !== detectedType) return false;
+
+                return true;
             })
             .map(({ componentId, role }) => ({
                 componentId, entityId, componentType: entity.components.find(c => c.id === componentId)?.type,

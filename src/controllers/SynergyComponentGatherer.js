@@ -81,7 +81,29 @@ class SynergyComponentGatherer {
         }
 
         // No sourceComponentId: gather all components (fallback for non-spatial actions).
-        // Without a source component, we cannot auto-detect the type, so include all components.
+        if (allowedComponentIds && allowedComponentIds.size > 0) {
+            // allowedComponentIds provided but no source: filter to allowed set only
+            const members = entity.components
+                .filter(c => {
+                    if (lockedComponentIds.has(c.id)) return false;
+                    if (!allowedComponentIds.has(c.id)) return false;
+                    if (roleFilter) {
+                        const stats = this.worldStateController.componentController.getComponentStats(c.id);
+                        if (!stats) return false;
+                        if (!this._passesRoleFilter(stats, roleFilter)) return false;
+                    }
+                    return true;
+                })
+                .map(c => ({
+                    componentId: c.id,
+                    entityId: entity.id,
+                    componentType: c.type,
+                    stats: this.worldStateController.componentController.getComponentStats(c.id)
+                }));
+            return members;
+        }
+
+        // No sourceComponentId and no allowedComponentIds: apply roleFilter-based filtering
         const members = entity.components
             .filter(c => {
                 if (lockedComponentIds.has(c.id)) return false;

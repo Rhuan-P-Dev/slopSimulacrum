@@ -1,13 +1,13 @@
 # BUG-051: _filterProvidedForGroup missing sameComponentType matching after groupType unification
 
 - **Severity**: HIGH
-- **Status**: ⚠️ Known
+- **Status**: ✅ Fixed (Round 2)
 - **Fixed In**: `pending`
-- **Related Files**: `synergyController.js` (lines 187-220)
+- **Related Files**: `synergyController.js` (lines 201-245)
 
 ## Symptoms
 
-When synergy computation takes the `providedComponentIds` code path (used by `ActionExecutor` during action execution), component type filtering is no longer applied after unifying all groupTypes to `sameComponentType`. This means components of different types than the source component may be incorrectly included in synergy calculations.
+When synergy computation takes the `providedComponentIds` code path (used by `ActionExecutor` during action execution), component type filtering was no longer applied after unifying all groupTypes to `sameComponentType`. This meant components of different types than the source component could be incorrectly included in synergy calculations.
 
 ## Root Cause
 
@@ -16,33 +16,30 @@ After unifying all `groupType` values to `sameComponentType` and removing the `c
 1. The `_evaluateComponentGroups` path correctly delegates to `gatherSameComponentType()`, which auto-detects the component type from the source and matches same-type siblings.
 2. The `_filterProvidedForGroup` path (used by `_evaluateProvidedComponents`) had its `componentType` filter removed but was **not updated** to perform equivalent type matching.
 
-```javascript
-// synergyController.js - _filterProvidedForGroup (line ~187)
-// BEFORE: Had componentType filter check
-// if (groupDef.componentType && component.type !== groupDef.componentType) return false;
-
-// AFTER: Filter removed, but no replacement type-checking logic added
-// Components pass through without type validation
-```
-
-The two evaluation paths now have **asymmetric filtering**:
+The two evaluation paths had **asymmetric filtering**:
 - `_evaluateComponentGroups` → `gatherSameComponentType()` → type-matches from source
 - `_filterProvidedForGroup` → no type filtering → all role-passing components included
 
-## Fix
+## Fix (Round 2: Deterministic Type Detection)
 
-Add type auto-detection to `_filterProvidedForGroup` that mirrors the behavior in `gatherSameComponentType`:
+### Phase 1: Initial Fix (Round 2a)
+Added type auto-detection to `_filterProvidedForGroup` that mirrors the behavior in `gatherSameComponentType`:
 
 ```javascript
 _filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef) {
-    const lockedComponentIds = this.componentGatherer.getLockedComponentIds(actionName);
-    const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-    if (!entity) return [];
-
-    // Auto-detect the expected type from the first provided component
-    // that passes the role filter (acts as the "source" for type detection)
+    // First pass: detect type from first valid component (regardless of roleFilter)
     let detectedType = null;
-    const roleFiltered = providedComponentIds
+    for (const { componentId } of providedComponentIds) {
+        if (lockedComponentIds.has(componentId)) continue;
+        const component = entity.components.find(c => c.id === componentId);
+        if (component) {
+            detectedType = component.type;
+            break;
+        }
+    }
+
+    // Second pass: filter by roleFilter and same type
+    const validComponents = providedComponentIds
         .filter(({ componentId, role }) => {
             if (lockedComponentIds.has(componentId)) return false;
             const component = entity.components.find(c => c.id === componentId);
@@ -54,27 +51,23 @@ _filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef) {
                 if (!this._matchesRoleFilter(stats, groupDef.roleFilter)) return false;
             }
 
-            // Auto-detect type from first passing component
-            if (detectedType === null) {
-                detectedType = component.type;
-            }
-
+            if (detectedType && component.type !== detectedType) return false;
             return true;
-        });
-
-    // Filter to only same-type components
-    return roleFiltered
-        .filter(({ componentId }) => {
-            const component = entity.components.find(c => c.id === componentId);
-            return component && component.type === detectedType;
         })
-        .map(({ componentId, role }) => ({
-            componentId, entityId,
-            componentType: entity.components.find(c => c.id === componentId)?.type,
-            role
-        }));
+        .map(...);
+
+    return validComponents;
 }
 ```
+
+### Phase 2: Preview Path Fixes
+Added `sourceComponentId` to all synergy preview paths:
+
+1. **`actionController.js`**: `previewActionData()` now passes `sourceComponentId` to `computeSynergy()`.
+2. **`synergyRoutes.js`**: Both `/synergy/preview` and `/synergy/preview-data` routes now pass `sourceComponentId`.
+
+### Phase 3: Fallback Path Fix
+Added `allowedComponentIds` filtering to `SynergyComponentGatherer.gatherSameComponentType()` fallback path.
 
 ## Prevention
 

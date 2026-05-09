@@ -500,7 +500,10 @@ class ActionController {
 
         let synergyResult = null;
         if (this.synergyController) {
-            synergyResult = this.synergyController.computeSynergy(actionName, entityId, context);
+            synergyResult = this.synergyController.computeSynergy(actionName, entityId, {
+                ...context,
+                sourceComponentId: resolveComponentId
+            });
         }
 
         return {

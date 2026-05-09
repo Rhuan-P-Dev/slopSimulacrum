@@ -22,11 +22,13 @@ Synergy configs are defined in `data/synergy.json` (separate from actions.json f
     "caps": {},
     "componentGroups": [
       {
-        "groupType": "movementComponents",
+        "groupType": "sameComponentType",
         "minCount": 1,
+        "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
         "perUnitBonus": 0.3,
-        "roleFilter": "source"
+        "roleFilter": "source",
+        "description": "Multiple movement components on the entity boost speed."
       }
     ]
   },
@@ -39,16 +41,19 @@ Synergy configs are defined in `data/synergy.json` (separate from actions.json f
     "componentGroups": [
       {
         "groupType": "sameComponentType",
-        "componentType": "droidHand",
         "minCount": 2,
+        "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
         "perUnitBonus": 0.05,
-        "roleFilter": "source"
+        "roleFilter": "source",
+        "description": "Multiple droidHand components boost punch damage."
       }
     ]
   }
 }
 ```
+
+**Note:** All `groupType` values use `"sameComponentType"`. The component type is **auto-detected** from the source component at runtime — no `componentType` field is needed in config.
 
 ## Synergy Application
 
@@ -142,10 +147,28 @@ Defined in `src/utils/SynergyScaling.js`:
 
 | Action | Synergy Type | Effect |
 |--------|-------------|--------|
-| `move` | Movement components | `speed * multiplier` → increased move distance |
-| `dash` | droidRollingBall (2+) + Movement (2+) | `speed * multiplier` → increased dash distance (requires 2+ of each group) |
-| `droid punch` | droidHand (2+) | Each hand deals `strength * multiplier` damage |
-| `selfHeal` | Physical components | `value * multiplier` → increased healing (capped at 50) |
+| `move` | sameComponentType (minCount=1) | `speed * multiplier` → increased move distance |
+| `dash` | sameComponentType (2+ RollingBall + 2+ Movement) | `speed * multiplier` → increased dash distance |
+| `droid punch` | sameComponentType (2+ droidHand) | Each hand deals `strength * multiplier` damage |
+| `selfHeal` | sameComponentType (self_target) | `value * multiplier` → increased healing (capped at 50) |
+
+## Synergy Evaluation Paths
+
+There are two code paths for computing synergy:
+
+### Path 1: `_evaluateComponentGroups` (No providedComponentIds)
+Used when `computeSynergy()` is called **without** `providedComponentIds`. This path:
+1. Delegates to `SynergyComponentGatherer.gatherSameComponentType()`
+2. Auto-detects component type from `sourceComponentId`
+3. Applies `allowedComponentIds` filtering for client-selected components
+
+### Path 2: `_evaluateProvidedComponents` (With providedComponentIds)
+Used when `computeSynergy()` is called **with** `providedComponentIds` (e.g., from action execution). This path:
+1. Filters provided components via `_filterProvidedForGroup()`
+2. Auto-detects component type from the first valid component in the array
+3. Applies role filter + same-type filtering
+
+**Critical:** Both paths must maintain **symmetric filtering behavior** — they should produce the same results for the same inputs.
 
 ## Bug Fixes
 
@@ -159,7 +182,7 @@ Defined in `src/utils/SynergyScaling.js`:
 
 **Problem:** When 4 components were selected for punch, only the last component's strength value was used for damage. Expected: each component deals its own damage (25+25+10+10=70). Actual: only 10 damage.
 
-**Solution:** 
+**Solution:**
 1. Added `_executeMultiAttackerConsequences()` method that iterates over all attacker components
 2. Each attacker deals separate damage based on its own `Physical.strength`
 3. Frontend updated to send all attacker component IDs via `executeMultiPunch()`
@@ -245,7 +268,7 @@ return { multiplier: totalMultiplier, components: unique };
 
 ### Fix 10: Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy (2026-05-04)
 
-**Problem:** The `SynergyComponentGatherer` methods (`gatherMovementComponents`, `gatherSameComponentType`) gathered **ALL matching components on the entity**, not just the source component that was selected. For spatial actions, component selection validation is skipped (so no components are locked), meaning ALL Movement components on the entity contribute to synergy even when only 1 was selected.
+**Problem:** The `SynergyComponentGatherer` methods gathered **ALL matching components on the entity**, not just the source component that was selected. For spatial actions, component selection validation is skipped (so no components are locked), meaning ALL Movement components on the entity contribute to synergy even when only 1 was selected.
 
 **Impact:** With an entity that has 2 `droidRollingBall` components (move=10):
 - Expected dash speed: 10 × 2 × 1.0 = **20** (1 component, no synergy)
@@ -262,3 +285,76 @@ return { multiplier: totalMultiplier, components: unique };
 **Expected behavior after fix:**
 - 1 droidRollingBall: synergy = 1.0x → speed = 20
 - 2 droidRollingBalls: synergy = 1.5 × 1.3 = 1.95x → speed = 39
+
+### Fix 11: GroupType Unification — All Groups Use `sameComponentType` (2026-05-09)
+
+**Problem:** The synergy system had multiple `groupType` values (`movementComponents`, `anyPhysical`, `sameComponentType`) that duplicated filtering logic. Each type required a separate gatherer method with its own type-checking logic.
+
+**Solution:** Unified all `groupType` values to `"sameComponentType"`. The component type is now **auto-detected** from the source component at runtime:
+
+1. **`SynergyComponentGatherer.gatherSameComponentType()`**: Accepts `sourceComponentId` and `allowedComponentIds`. Auto-detects type from source, includes same-type siblings filtered by `allowedComponentIds`.
+
+2. **`synergyController.js`**: `_gatherGroupMembers()` delegates to `gatherSameComponentType()` for all groupTypes. Builds `allowedComponentIds` from `providedComponentIds` to ensure only client-selected components count.
+
+3. **`data/synergy.json`**: All groups now use `"sameComponentType"`. The `componentType` field has been removed — type is inferred at runtime.
+
+**Prevention:** When adding new synergy behaviors, prefer extending the auto-detection logic rather than adding new groupTypes.
+
+### Fix 12: `_filterProvidedForGroup` Type Detection Made Deterministic (2026-05-09)
+
+**Problem:** The `_filterProvidedForGroup` method detected the component type from the **first** component that passed the role filter. This made type detection dependent on array order and component stats, leading to non-deterministic results.
+
+**Example Bug:** If `providedComponentIds` = `[droidArm, droidRollingBall, droidHand]` with `roleFilter: 'source'`, and `droidArm` happened to pass first, all `droidRollingBall` components would be excluded even if they were the intended synergy type.
+
+**Solution:** Changed to a **two-pass** approach:
+1. **First pass**: Find the component type from the first valid component in `providedComponentIds` (regardless of roleFilter) — deterministic.
+2. **Second pass**: Filter by roleFilter AND same type.
+
+```javascript
+// First pass: detect type deterministically
+let detectedType = null;
+for (const { componentId } of providedComponentIds) {
+    if (lockedComponentIds.has(componentId)) continue;
+    const component = entity.components.find(c => c.id === componentId);
+    if (component) {
+        detectedType = component.type;
+        break;
+    }
+}
+
+// Second pass: filter by roleFilter + same type
+const validComponents = providedComponentIds
+    .filter(({ componentId, role }) => {
+        // ... roleFilter check ...
+        if (detectedType && component.type !== detectedType) return false;
+        return true;
+    });
+```
+
+**Prevention:** When refactoring synergy filtering logic, always ensure both evaluation paths (`_evaluateComponentGroups` and `_filterProvidedForGroup`) maintain **symmetric filtering behavior**.
+
+### Fix 13: Fallback Path Respects `allowedComponentIds` (2026-05-09)
+
+**Problem:** When `sourceComponentId` was not provided, `gatherSameComponentType()`'s fallback path included ALL components on the entity without filtering by `allowedComponentIds`. This meant non-spatial actions could incorrectly include components the client didn't select.
+
+**Solution:** Added a new branch in the fallback path:
+1. If `allowedComponentIds` is provided but no `sourceComponentId`: filter to the allowed set only.
+2. If neither is provided: apply roleFilter-based filtering (original behavior).
+
+```javascript
+// No sourceComponentId: gather all components (fallback for non-spatial actions).
+if (allowedComponentIds && allowedComponentIds.size > 0) {
+    // Filter to allowed set only
+    const members = entity.components
+        .filter(c => !lockedComponentIds.has(c.id) && allowedComponentIds.has(c.id) && ...);
+    return members;
+}
+// Original fallback behavior...
+```
+
+**Prevention:** All gather methods must respect `allowedComponentIds` when provided, regardless of whether `sourceComponentId` is set.
+
+## References
+- Related wiki: `wiki/subMDs/synergy_preview.md`
+- Related controller: `SynergyController`
+- Related bug: [BUG-051](../bugfixWiki/architectural/BUG-051-provided-components-missing-type-filter.md)

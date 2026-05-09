@@ -65,7 +65,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-042](medium/BUG-042-synergyController-srp-violation.md) | SynergyController SRP Violation — Extracted 4 Modules | ✅ Fixed | `pending` | `synergyController.js`, `SynergyConfigManager.js`, `SynergyComponentGatherer.js`, `SynergyCalculator.js`, `SynergyCacheManager.js` |
 | [BUG-043](medium/BUG-043-previewActionData-missing-resolvePlaceholders.md) | ActionController.previewActionData calls missing _resolvePlaceholders | ✅ Fixed | `pending` | `actionController.js` |
 | [BUG-044](medium/BUG-044-actionSelectController-missing-getLockedComponentsForAction.md) | ActionSelectController missing getLockedComponentsForAction method | ✅ Fixed | `pending` | `actionSelectController.js`, `SynergyComponentGatherer.js` |
-| [BUG-048](medium/BUG-048-dash-1-component-moves-4x.md) | Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy | ✅ Fixed | `pending` | `SynergyComponentGatherer.js`, `synergyController.js`, `synergy.json` |
+| [BUG-048](medium/BUG-048-dash-1-component-moves-4x.md) | Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy | ✅ Fixed (Round 2) | `pending` | `SynergyComponentGatherer.js`, `synergyController.js`, `data/synergy.json` |
 | [BUG-049](medium/BUG-049-consequenceHandlers-srp-violation.md) | ConsequenceHandlers SRP Violation — Monolithic Handler Class | ✅ Fixed | `pending` | `consequenceHandlers.js`, 6 new focused modules |
 
 ### 🟢 Low Severity
@@ -83,7 +83,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-018](architectural/BUG-018-actions-not-generic.md) | Hardcoded Actions (Not Data-Driven) | ✅ Fixed | `462ecc5`, `be6858d` | `actions.json`, `actionController.js` |
 | [BUG-029](architectural/BUG-029-server-monolith-srp-violation.md) | Server Monolith Violates SRP | ✅ Fixed | `pending` | `src/server.js` |
 | [BUG-030](architectural/BUG-030-css-monolith-srp-violation.md) | CSS Monolith Violates SRP | ✅ Fixed | `pending` | `public/styles.css`, `public/css/` |
-| [BUG-051](architectural/BUG-051-provided-components-missing-type-filter.md) | _filterProvidedForGroup Missing Type Filter After groupType Unification | ⚠️ Known | `pending` | `synergyController.js` |
+| [BUG-051](architectural/BUG-051-provided-components-missing-type-filter.md) | _filterProvidedForGroup Missing Type Filter After groupType Unification | ✅ Fixed (Round 2) | `pending` | `synergyController.js`, `SynergyComponentGatherer.js` |
 
 ---
 

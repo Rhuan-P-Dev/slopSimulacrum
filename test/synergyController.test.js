@@ -53,7 +53,7 @@ const mockActionRegistry = {
         ],
         consequences: [{ type: 'deltaSpatial', params: { speed: ':Movement.move*2' } }]
     },
-    'punch': {
+    'droid punch': {
         targetingType: 'component',
         requirements: [{ trait: 'Physical', stat: 'strength', minValue: 1 }],
         consequences: [{ type: 'damageComponent', params: { trait: 'Physical', stat: 'durability', value: '-:Physical.strength' } }]
@@ -66,6 +66,10 @@ const mockActionRegistry = {
 
 /**
  * Synergy registry — standalone synergy definitions (from data/synergy.json).
+ * Updated to match actual data/synergy.json structure:
+ * - All groupTypes use 'sameComponentType'
+ * - All groups have roleFilter
+ * - No componentType field (type auto-detected from source)
  */
 const mockSynergyRegistry = {
     'move': {
@@ -74,11 +78,13 @@ const mockSynergyRegistry = {
         caps: {},
         componentGroups: [
             {
-                groupType: 'movementComponents',
+                groupType: 'sameComponentType',
                 minCount: 1,
                 scaling: 'diminishingReturns',
                 baseMultiplier: 1.0,
-                perUnitBonus: 0.3
+                perUnitBonus: 0.3,
+                roleFilter: 'source',
+                description: 'Multiple movement components on the entity boost speed.'
             }
         ]
     },
@@ -89,22 +95,25 @@ const mockSynergyRegistry = {
         componentGroups: [
             {
                 groupType: 'sameComponentType',
-                componentType: 'droidRollingBall',
                 minCount: 2,
                 scaling: 'linear',
                 baseMultiplier: 1.0,
-                perUnitBonus: 0.5
+                perUnitBonus: 0.5,
+                roleFilter: 'source',
+                description: 'Multiple droidRollingBall components on the same entity boost dash distance.'
             },
             {
-                groupType: 'movementComponents',
-                minCount: 1,
+                groupType: 'sameComponentType',
+                minCount: 2,
                 scaling: 'linear',
                 baseMultiplier: 1.0,
-                perUnitBonus: 0.3
+                perUnitBonus: 0.3,
+                roleFilter: 'source',
+                description: 'Multiple Movement components on the entity boost dash speed.'
             }
         ]
     },
-    'punch': {
+    'droid punch': {
         enabled: true,
         scaling: 'diminishingReturns',
         caps: {
@@ -116,7 +125,9 @@ const mockSynergyRegistry = {
                 minCount: 2,
                 scaling: 'diminishingReturns',
                 baseMultiplier: 1.0,
-                perUnitBonus: 0.05
+                perUnitBonus: 0.05,
+                roleFilter: 'source',
+                description: 'Multiple droidHand components boost punch damage.'
             }
         ]
     }
@@ -156,6 +167,14 @@ const mockEntityWithPhysical = {
                 Physical: { durability: 40, strength: 25 }
             },
             Spatial: { x: 30, y: 0 }
+        },
+        {
+            id: 'comp-hand-2',
+            type: 'droidHand',
+            stats: {
+                Physical: { durability: 40, strength: 25 }
+            },
+            Spatial: { x: 25, y: 5 }
         },
         {
             id: 'comp-arm-1',
@@ -251,8 +270,6 @@ describe('SynergyController', () => {
             expect(result.capped).toBe(false);
         });
 
-        // Removed: multi-entity synergy test (multiEntity logic removed from codebase)
-
         it('should return result with summary string', () => {
             mockWSC._addEntity(mockEntityWithMovement);
             const result = controller.computeSynergy('move', 'entity-1');
@@ -279,7 +296,7 @@ describe('SynergyController', () => {
 
         it('should apply multiplier to base value', () => {
             const mockResult = {
-                actionName: 'punch',
+                actionName: 'droid punch',
                 synergyMultiplier: 2.0,
                 capped: false,
                 capKey: null,
@@ -314,7 +331,7 @@ describe('SynergyController', () => {
             const actions = controller.getActionsWithSynergy();
             expect(actions).toContain('move');
             expect(actions).toContain('dash');
-            expect(actions).toContain('punch');
+            expect(actions).toContain('droid punch');
             expect(actions).not.toContain('noSynergyAction');
         });
     });
@@ -348,8 +365,6 @@ describe('Synergy Integration Scenarios', () => {
         mockWSC = createMockWorldStateController();
         controller = new SynergyController(mockWSC, mockActionRegistry, mockSynergyRegistry);
     });
-
-    // Removed: multi-entity dash test (multiEntity logic removed from codebase)
 
     it('should handle single entity with multiple movement components', () => {
         const entity = {
@@ -410,7 +425,7 @@ describe('Synergy Integration Scenarios', () => {
         mockWSC._addEntity(entity);
 
         // Punch requires minCount: 2 of sameComponentType
-        const result = controller.computeSynergy('punch', 'single-comp');
+        const result = controller.computeSynergy('droid punch', 'single-comp');
 
         // Only 1 droidHand, minCount is 2, so no synergy from that group
         expect(result.synergyMultiplier).toBe(1.0);
@@ -444,9 +459,9 @@ describe('Synergy Integration Scenarios', () => {
 
         const result = controller.computeSynergy('dash', 'dual-roll-droid');
 
-        // Group 1 (sameComponentType droidRollingBall, minCount=2, linear, base=1.0, bonus=0.5):
+        // Group 1 (sameComponentType, minCount=2, linear, base=1.0, bonus=0.5):
         //   2 components → 1.0 + 0.5 * (2-1) = 1.5x
-        // Group 2 (movementComponents, minCount=1, linear, base=1.0, bonus=0.3):
+        // Group 2 (sameComponentType Movement, minCount=2, linear, base=1.0, bonus=0.3):
         //   2 movement components → 1.0 + 0.3 * (2-1) = 1.3x
         // Total: 1.5 * 1.3 = 1.95x
         // Components: 2 unique (deduplicated across groups)
@@ -474,10 +489,88 @@ describe('Synergy Integration Scenarios', () => {
 
         const result = controller.computeSynergy('dash', 'single-roll-droid');
 
-        // Group 1 (sameComponentType droidRollingBall, minCount=2): SKIPPED (only 1 component)
-        // Group 2 (movementComponents, minCount=1, linear, base=1.0, bonus=0.3):
-        //   1 movement component → 1.0x
+        // Group 1 (sameComponentType, minCount=2): SKIPPED (only 1 component)
+        // Group 2 (sameComponentType Movement, minCount=2): SKIPPED (only 1 component)
         // Total: 1.0 * 1.0 = 1.0x
+        expect(result.synergyMultiplier).toBe(1.0);
+    });
+
+    // ─── New Test Cases: providedComponentIds Code Path ──────────────────────
+
+    it('should compute synergy using providedComponentIds with sourceComponentId', () => {
+        mockWSC._addEntity(mockEntityWithPhysical);
+
+        const providedComponentIds = [
+            { componentId: 'comp-hand-1', role: 'source' },
+            { componentId: 'comp-hand-2', role: 'source' }
+        ];
+
+        const result = controller.computeSynergy('droid punch', 'entity-2', {
+            providedComponentIds,
+            sourceComponentId: 'comp-hand-1'
+        });
+
+        // 2 droidHand components → diminishingReturns: 1.0 + 0.05 * (1 - e^(-2*1)) ≈ 1.093
+        expect(result.synergyMultiplier).toBeGreaterThan(1.0);
+        expect(result.synergyMultiplier).toBeLessThan(1.2);
+        expect(result.contributingComponents.length).toBe(2);
+    });
+
+    it('should return synergy=1.0 with single provided component', () => {
+        mockWSC._addEntity(mockEntityWithPhysical);
+
+        const providedComponentIds = [
+            { componentId: 'comp-hand-1', role: 'source' }
+        ];
+
+        const result = controller.computeSynergy('droid punch', 'entity-2', {
+            providedComponentIds,
+            sourceComponentId: 'comp-hand-1'
+        });
+
+        // Only 1 component, minCount is 2 → no synergy
+        expect(result.synergyMultiplier).toBe(1.0);
+        expect(result.contributingComponents.length).toBe(0);
+    });
+
+    it('should filter mixed-type providedComponentIds to same type only', () => {
+        mockWSC._addEntity(mockEntityWithPhysical);
+
+        // Mix of droidHand and droidArm — only droidHand should count
+        const providedComponentIds = [
+            { componentId: 'comp-hand-1', role: 'source' },
+            { componentId: 'comp-hand-2', role: 'source' },
+            { componentId: 'comp-arm-1', role: 'source' }
+        ];
+
+        const result = controller.computeSynergy('droid punch', 'entity-2', {
+            providedComponentIds,
+            sourceComponentId: 'comp-hand-1'
+        });
+
+        // Type detected from source: 'droidHand'
+        // Only comp-hand-1 and comp-hand-2 match (comp-arm-1 is 'droidArm')
+        // 2 droidHand components → synergy computed
+        expect(result.synergyMultiplier).toBeGreaterThan(1.0);
+        expect(result.contributingComponents.length).toBe(2);
+        // Verify droidArm is not included
+        const armComponents = result.contributingComponents.filter(c => c.componentType === 'droidArm');
+        expect(armComponents.length).toBe(0);
+    });
+
+    it('should only count provided components (not all same-type siblings)', () => {
+        mockWSC._addEntity(mockEntityWithPhysical);
+
+        // Only provide 1 of 2 droidHands — synergy should NOT trigger (minCount=2)
+        const providedComponentIds = [
+            { componentId: 'comp-hand-1', role: 'source' }
+        ];
+
+        const result = controller.computeSynergy('droid punch', 'entity-2', {
+            providedComponentIds,
+            sourceComponentId: 'comp-hand-1'
+        });
+
         expect(result.synergyMultiplier).toBe(1.0);
     });
 });

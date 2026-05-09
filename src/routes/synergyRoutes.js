@@ -62,6 +62,7 @@ export function register(router, { worldStateController }) {
 			const context = {};
 			if (componentIds && Array.isArray(componentIds) && componentIds.length > 0) {
 				context.providedComponentIds = componentIds;
+				context.sourceComponentId = componentIds[0].componentId;
 			}
 			if (synergyGroups) {
 				context.synergyGroups = synergyGroups;
@@ -99,6 +100,7 @@ export function register(router, { worldStateController }) {
 			const context = {};
 			if (componentIds && Array.isArray(componentIds) && componentIds.length > 0) {
 				context.providedComponentIds = componentIds;
+				context.sourceComponentId = componentIds[0].componentId;
 			}
 
 			const previewData = worldStateController.previewActionData(actionName, entityId, context);
