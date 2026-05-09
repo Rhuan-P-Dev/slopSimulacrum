@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * LLMController handles all communication with the Large Language Model backend.

@@ -7,8 +7,8 @@
  * @module SynergyConfigManager
  */
 
-import Logger from '../utils/Logger.js';
-import DataLoader from '../utils/DataLoader.js';
+import Logger from '../../utils/Logger.js';
+import DataLoader from '../../utils/DataLoader.js';
 
 const DEFAULT_SYNERGY_CONFIG = {
     enabled: false,

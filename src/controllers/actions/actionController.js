@@ -1,11 +1,11 @@
-import Logger from '../utils/Logger.js';
-import { resolvePlaceholders } from '../utils/PlaceholderResolver.js';
-import { componentSatisfiesRequirements } from '../utils/RequirementChecker.js';
-import { SYNERGY_BONUS_THRESHOLD } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
+import { componentSatisfiesRequirements } from '../../utils/RequirementChecker.js';
+import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
 import RangeValidator from './RangeValidator.js';
 import ComponentResolver from './ComponentResolver.js';
 import RequirementResolver from './RequirementResolver.js';
-import ConsequenceDispatcher from './ConsequenceDispatcher.js';
+import ConsequenceDispatcher from '../consequences/ConsequenceDispatcher.js';
 
 /**
  * Component action binding roles — defines which body part participates in which action.

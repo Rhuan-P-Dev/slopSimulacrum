@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * SocketLifecycleController manages WebSocket connection lifecycle events.

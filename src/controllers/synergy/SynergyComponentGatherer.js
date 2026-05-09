@@ -7,7 +7,7 @@
  * @module SynergyComponentGatherer
  */
 
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 class SynergyComponentGatherer {
     /**

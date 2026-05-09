@@ -13,9 +13,9 @@
  * @module ConsequenceDispatcher
  */
 
-import Logger from '../utils/Logger.js';
-import { resolvePlaceholders } from '../utils/PlaceholderResolver.js';
-import { SYNERGY_BONUS_THRESHOLD } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
+import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
 
 class ConsequenceDispatcher {
     /**

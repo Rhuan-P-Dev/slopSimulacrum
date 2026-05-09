@@ -7,8 +7,8 @@
  * @module RangeValidator
  */
 
-import Logger from '../utils/Logger.js';
-import { checkGrabRange } from '../utils/RangeChecker.js';
+import Logger from '../../utils/Logger.js';
+import { checkGrabRange } from '../../utils/RangeChecker.js';
 
 class RangeValidator {
     /**

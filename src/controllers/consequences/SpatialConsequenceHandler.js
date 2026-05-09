@@ -12,8 +12,8 @@
  * @module SpatialConsequenceHandler
  */
 
-import Logger from '../utils/Logger.js';
-import { MIN_MOVEMENT_DISTANCE } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import { MIN_MOVEMENT_DISTANCE } from '../../utils/Constants.js';
 
 class SpatialConsequenceHandler {
     /**

@@ -1,6 +1,6 @@
 import EntityController from './entityController.js';
-import { generateUID } from '../utils/idGenerator.js';
-import Logger from '../utils/Logger.js';
+import { generateUID } from '../../utils/idGenerator.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.

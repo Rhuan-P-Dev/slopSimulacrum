@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import ActionController from '../src/controllers/actionController.js';
+import ActionController from '../src/controllers/actions/actionController.js';
 import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../src/utils/ActionScoring.js';
 
 // ============================================================================

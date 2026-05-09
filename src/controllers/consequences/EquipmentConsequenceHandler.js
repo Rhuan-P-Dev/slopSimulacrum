@@ -12,8 +12,8 @@
  * @module EquipmentConsequenceHandler
  */
 
-import Logger from '../utils/Logger.js';
-import { MIN_STRENGTH_DELTA } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import { MIN_STRENGTH_DELTA } from '../../utils/Constants.js';
 
 class EquipmentConsequenceHandler {
     /**

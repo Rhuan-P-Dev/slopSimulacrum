@@ -7,8 +7,8 @@
  * @module HandEquipment
  */
 
-import Logger from '../utils/Logger.js';
-import generateUID from '../utils/idGenerator.js';
+import Logger from '../../utils/Logger.js';
+import generateUID from '../../utils/idGenerator.js';
 
 class HandEquipment {
     /**

@@ -7,9 +7,9 @@
  * @module BackpackInventory
  */
 
-import Logger from '../utils/Logger.js';
-import generateUID from '../utils/idGenerator.js';
-import { DEFAULT_ITEM_VOLUME } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import generateUID from '../../utils/idGenerator.js';
+import { DEFAULT_ITEM_VOLUME } from '../../utils/Constants.js';
 
 class BackpackInventory {
     /**

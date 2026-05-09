@@ -7,8 +7,8 @@
  * @module SynergyCacheManager
  */
 
-import Logger from '../utils/Logger.js';
-import { SYNERGY_CACHE_TTL_MS, SYNERGY_CACHE_MAX_SIZE } from '../utils/Constants.js';
+import Logger from '../../utils/Logger.js';
+import { SYNERGY_CACHE_TTL_MS, SYNERGY_CACHE_MAX_SIZE } from '../../utils/Constants.js';
 
 class SynergyCacheManager {
     constructor() {

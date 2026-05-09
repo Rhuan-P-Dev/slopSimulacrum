@@ -1,7 +1,7 @@
 import bootstrapServer from './utils/serverBootstrap.js';
-import LLMController from './controllers/LLMController.js';
+import LLMController from './controllers/networking/LLMController.js';
 import WorldStateController from './controllers/WorldStateController.js';
-import SocketLifecycleController from './controllers/SocketLifecycleController.js';
+import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
 import { registerRoutes } from './routes/index.js';
 

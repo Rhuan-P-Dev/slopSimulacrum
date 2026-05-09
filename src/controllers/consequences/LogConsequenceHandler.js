@@ -12,7 +12,7 @@
  * @module LogConsequenceHandler
  */
 
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 class LogConsequenceHandler {
     /**

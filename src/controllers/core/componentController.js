@@ -1,6 +1,6 @@
 import ComponentStatsController from './componentStatsController.js';
-import TraitsController from './traitsController.js';
-import Logger from '../utils/Logger.js';
+import TraitsController from '../traits/TraitsController.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * ComponentController is responsible for communicating with all subcontrollers

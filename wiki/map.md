@@ -339,9 +339,5 @@ Returns complete preview data including action definition, resolved values, and 
 
 | Date | Change | Files |
 |------|--------|-------|
-| 2026-04-30 | **Bug #1 Fix:** Blueprint expansion now uses per-branch `visited` Sets so sibling components (left/right arms) expand independently | `entityController.js` |
-| 2026-04-30 | **Bug #2 Fix:** `release` action changed to `self_target` (executes instantly on component click); items respawn in world when released | `actions.json`, `equipmentController.js`, `consequenceHandlers.js`, `componentCapabilityController.js` |
-| 2026-04-30 | **Bug #3 Fix:** New `cut` action added (requires `Physical.sharpness ≥ 20`); synergy config added | `actions.json`, `synergy.json` |
-| 2026-04-30 | **UI:** Release button added for grabbed items; `cut` action integrated with map click targeting | `App.js`, `UIManager.js`, `ActionManager.js`, `styles.css` |
-| 2026-05-01 | **Feature:** Inventory system — droidBackpack component, grabToBackpack action, dropAll action | `components.json`, `blueprints.json`, `actions.json`, `equipmentController.js`, `componentController.js`, `consequenceHandlers.js`, `App.js`, `ActionManager.js`, `equipment_system.md`, `map.md` |
+| 2026-05-09 | **Refactor:** Organized `src/controllers/` into subdirectories by subsystem per SRP. Created barrel export (`index.js`). Updated all import paths across codebase. | `src/controllers/WorldStateController.js`, `src/controllers/index.js`, `src/controllers/core/*`, `src/controllers/traits/*`, `src/controllers/actions/*`, `src/controllers/capabilities/*`, `src/controllers/synergy/*`, `src/controllers/equipment/*`, `src/controllers/consequences/*`, `src/controllers/networking/*`, `src/server.js`, `test/*.test.js` |
 | 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 6 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `EquipmentConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |

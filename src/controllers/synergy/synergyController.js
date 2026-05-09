@@ -12,7 +12,7 @@
  * @module SynergyController
  */
 
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 import SynergyConfigManager from './SynergyConfigManager.js';
 import SynergyComponentGatherer from './SynergyComponentGatherer.js';
 import SynergyCalculator from './SynergyCalculator.js';

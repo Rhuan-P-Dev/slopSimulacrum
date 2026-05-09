@@ -12,7 +12,7 @@
  * @module EventConsequenceHandler
  */
 
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 class EventConsequenceHandler {
     /**

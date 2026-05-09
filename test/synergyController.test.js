@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import SynergyController from '../src/controllers/synergyController.js';
+import SynergyController from '../src/controllers/synergy/synergyController.js';
 import {
     calculateSynergyMultiplier,
     SCALING_CURVES,

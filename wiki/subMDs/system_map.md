@@ -16,6 +16,22 @@ graph TD
     style TC fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
+### Directory Structure (After BUG-052 Reorganization)
+
+```
+src/controllers/
+├── WorldStateController.js          # Root injector (stays at top level)
+├── index.js                         # Barrel export
+├── core/                            # Core state management (Rooms, stateEntity, entity, Component, ComponentStats)
+├── traits/                          # Traits subsystem (TraitsController)
+├── actions/                         # Action execution system (ActionController, actionSelect, ComponentResolver, RequirementResolver, RangeValidator)
+├── capabilities/                    # Capability caching (ComponentCapabilityController)
+├── synergy/                         # Synergy system (SynergyController + 4 extracted modules)
+├── equipment/                       # Equipment system (EquipmentController, HandEquipment, BackpackInventory)
+├── consequences/                    # Consequence system (ConsequenceHandlers + 6 handlers + Dispatcher)
+└── networking/                      # Network layer (LLMController, SocketLifecycleController)
+```
+
 **Injection Order (Root Injector — Bottom-Up):**
 `ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` (injected with ComponentController + blueprintRegistry from `data/blueprints.json`) → `stateEntityController` → `WorldStateController`
 

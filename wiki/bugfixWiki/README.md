@@ -84,6 +84,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-029](architectural/BUG-029-server-monolith-srp-violation.md) | Server Monolith Violates SRP | ✅ Fixed | `pending` | `src/server.js` |
 | [BUG-030](architectural/BUG-030-css-monolith-srp-violation.md) | CSS Monolith Violates SRP | ✅ Fixed | `pending` | `public/styles.css`, `public/css/` |
 | [BUG-051](architectural/BUG-051-provided-components-missing-type-filter.md) | _filterProvidedForGroup Missing Type Filter After groupType Unification | ✅ Fixed (Round 2) | `pending` | `synergyController.js`, `SynergyComponentGatherer.js` |
+| [BUG-052](architectural/BUG-052-controllers-directory-structure-srp-violation.md) | Controllers Directory Structure SRP Violation — Organized into Subdirectories | ✅ Fixed | `pending` | `src/controllers/` (all 30 files) |
 
 ---
 

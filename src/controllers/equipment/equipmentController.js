@@ -13,7 +13,7 @@
  * //     → EquipmentController.grabItem()
  * //     → HandEquipment.grabItem() → ComponentController.initializeComponent() + StateEntityController.addComponentToEntity()
  */
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 import HandEquipment from './HandEquipment.js';
 import BackpackInventory from './BackpackInventory.js';
 

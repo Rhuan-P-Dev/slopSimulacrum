@@ -7,7 +7,7 @@
  * @module SynergyCalculator
  */
 
-import { calculateSynergyMultiplier } from '../utils/SynergyScaling.js';
+import { calculateSynergyMultiplier } from '../../utils/SynergyScaling.js';
 
 class SynergyCalculator {
     /**

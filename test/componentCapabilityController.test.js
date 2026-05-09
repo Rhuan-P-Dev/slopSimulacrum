@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import ComponentCapabilityController from '../src/controllers/componentCapabilityController.js';
+import ComponentCapabilityController from '../src/controllers/capabilities/componentCapabilityController.js';
 import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../src/utils/ActionScoring.js';
 
 // ============================================================================

@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * Default time-to-live (in milliseconds) for selections before they expire.

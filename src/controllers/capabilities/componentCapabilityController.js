@@ -1,5 +1,5 @@
-import Logger from '../utils/Logger.js';
-import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../utils/ActionScoring.js';
+import Logger from '../../utils/Logger.js';
+import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../../utils/ActionScoring.js';
 
 /**
  * ComponentCapabilityController manages the capability cache that maps each action

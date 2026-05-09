@@ -1,6 +1,6 @@
 import ComponentController from './componentController.js';
-import { generateUID } from '../utils/idGenerator.js';
-import DataLoader from '../utils/DataLoader.js';
+import { generateUID } from '../../utils/idGenerator.js';
+import DataLoader from '../../utils/DataLoader.js';
 
 /**
  * EntityController is responsible for storing entity blueprints and

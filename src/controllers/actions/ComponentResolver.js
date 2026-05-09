@@ -7,8 +7,8 @@
  * @module ComponentResolver
  */
 
-import Logger from '../utils/Logger.js';
-import { componentSatisfiesRequirements } from '../utils/RequirementChecker.js';
+import Logger from '../../utils/Logger.js';
+import { componentSatisfiesRequirements } from '../../utils/RequirementChecker.js';
 
 class ComponentResolver {
     /**
