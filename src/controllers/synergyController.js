@@ -72,14 +72,28 @@ class SynergyController {
         let totalMultiplier = 1.0;
 
         const sourceComponentId = context?.sourceComponentId;
+        const providedComponentIds = context.providedComponentIds;
 
-        if (context.providedComponentIds && context.providedComponentIds.length > 0) {
+        // Build allowedComponentIds set from client-selected components.
+        // This ensures synergy only counts components the client actually selected,
+        // not all same-type siblings on the entity.
+        let allowedComponentIds = null;
+        if (providedComponentIds && providedComponentIds.length > 0) {
+            allowedComponentIds = new Set(providedComponentIds.map(c => c.componentId));
+        } else if (sourceComponentId) {
+            // When no providedComponentIds but sourceComponentId is set (e.g., spatial actions
+            // where the client sends targetComponentId but not componentIds), only count the
+            // source component itself — never auto-include same-type siblings.
+            allowedComponentIds = new Set([sourceComponentId]);
+        }
+
+        if (providedComponentIds && providedComponentIds.length > 0) {
             totalMultiplier *= this._evaluateProvidedComponents(
-                actionName, entityId, context.providedComponentIds, config, contributingComponents
+                actionName, entityId, providedComponentIds, config, contributingComponents
             );
         } else {
             totalMultiplier *= this._evaluateComponentGroups(
-                actionName, entityId, config.componentGroups, contributingComponents, sourceComponentId
+                actionName, entityId, config.componentGroups, contributingComponents, sourceComponentId, allowedComponentIds
             );
         }
 
@@ -189,7 +203,10 @@ class SynergyController {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return [];
 
-        return providedComponentIds
+        // First pass: find the component type from the first valid component (auto-detect type)
+        // and filter by roleFilter. Only include same-type components for synergy.
+        let detectedType = null;
+        const validComponents = providedComponentIds
             .filter(({ componentId, role }) => {
                 if (lockedComponentIds.has(componentId)) return false;
                 const component = entity.components.find(c => c.id === componentId);
@@ -197,26 +214,25 @@ class SynergyController {
                 const stats = this.worldStateController.componentController.getComponentStats(componentId);
                 if (!stats) return false;
 
-                // Check componentType filter for sameComponentType groups
-                if (groupDef.componentType && component.type !== groupDef.componentType) return false;
-
-                // Check groupType-specific filters
-                if (groupDef.groupType === 'movementComponents') {
-                    if (!stats.Movement || Object.keys(stats.Movement).length === 0) return false;
-                } else if (groupDef.groupType === 'anyPhysical') {
-                    if (!stats.Physical || Object.keys(stats.Physical).length === 0) return false;
-                }
-
                 // Check roleFilter
                 if (groupDef.roleFilter) {
-                    return this._matchesRoleFilter(stats, groupDef.roleFilter);
+                    if (!this._matchesRoleFilter(stats, groupDef.roleFilter)) return false;
                 }
-                return true;
+
+                // Auto-detect type from first valid component
+                if (detectedType === null) {
+                    detectedType = component.type;
+                }
+
+                // Only include same-type components
+                return component.type === detectedType;
             })
             .map(({ componentId, role }) => ({
                 componentId, entityId, componentType: entity.components.find(c => c.id === componentId)?.type,
                 role
             }));
+
+        return validComponents;
     }
 
     _matchesRoleFilter(stats, roleFilter) {
@@ -230,13 +246,13 @@ class SynergyController {
         }
     }
 
-    _evaluateComponentGroups(actionName, entityId, groups, contributingComponents, sourceComponentId) {
+    _evaluateComponentGroups(actionName, entityId, groups, contributingComponents, sourceComponentId, allowedComponentIds) {
         let totalMultiplier = 1.0;
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return 1.0;
 
         for (const groupDef of groups) {
-            const members = this._gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId);
+            const members = this._gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId, allowedComponentIds);
             if (members.length < groupDef.minCount) continue;
 
             const multiplier = this.calculator.computeMultiplier(
@@ -259,23 +275,17 @@ class SynergyController {
         return totalMultiplier;
     }
 
-    _gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId) {
+    _gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId, allowedComponentIds) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return [];
 
         const roleFilter = groupDef.roleFilter;
         const lockedComponentIds = this.componentGatherer.getLockedComponentIds(actionName);
 
-        switch (groupDef.groupType) {
-            case 'sameComponentType':
-                return this.componentGatherer.gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId);
-            case 'movementComponents':
-                return this.componentGatherer.gatherMovementComponents(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId);
-            case 'anyPhysical':
-                return this.componentGatherer.gatherAnyPhysicalComponent(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId);
-            default:
-                return this.componentGatherer.gatherAllComponents(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId);
-        }
+        // Default to sameComponentType for all groupTypes (auto-detects component type from source).
+        // Pass allowedComponentIds to ensure only client-selected components count toward synergy.
+        // Future groupTypes can be added here when needed.
+        return this.componentGatherer.gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds);
     }
 
 

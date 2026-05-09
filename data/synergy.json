@@ -5,7 +5,7 @@
     "caps": {},
     "componentGroups": [
       {
-        "groupType": "movementComponents",
+        "groupType": "sameComponentType",
         "minCount": 1,
         "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
@@ -22,7 +22,6 @@
     "componentGroups": [
       {
         "groupType": "sameComponentType",
-        "componentType": "droidRollingBall",
         "minCount": 2,
         "scaling": "linear",
         "baseMultiplier": 1.0,
@@ -31,7 +30,7 @@
         "description": "Multiple droidRollingBall components on the same entity boost dash distance (both legs working together)."
       },
       {
-        "groupType": "movementComponents",
+        "groupType": "sameComponentType",
         "minCount": 2,
         "scaling": "linear",
         "baseMultiplier": 1.0,
@@ -49,13 +48,13 @@
     },
     "componentGroups": [
       {
-        "groupType": "anyPhysical",
+        "groupType": "sameComponentType",
         "minCount": 1,
         "scaling": "linear",
         "baseMultiplier": 1.0,
         "perUnitBonus": 0.5,
         "roleFilter": "self_target",
-        "description": "Only Physical components bound as 'self_target' contribute to self-heal synergy. Multiple Physical components on the entity enhance healing."
+        "description": "Components bound as 'self_target' contribute to self-heal synergy. Multiple matching components on the entity enhance healing."
       }
     ]
   },
@@ -68,7 +67,6 @@
     "componentGroups": [
       {
         "groupType": "sameComponentType",
-        "componentType": "droidHand",
         "minCount": 2,
         "scaling": "diminishingReturns",
         "baseMultiplier": 1.0,
@@ -87,7 +85,6 @@
     "componentGroups": [
       {
         "groupType": "sameComponentType",
-        "componentType": "knife",
         "minCount": 1,
         "scaling": "linear",
         "baseMultiplier": 1.0,
@@ -96,13 +93,13 @@
         "description": "Multiple knife components on the entity boost cut damage (extra weapons)."
       },
       {
-        "groupType": "anyPhysical",
+        "groupType": "sameComponentType",
         "minCount": 1,
         "scaling": "linear",
         "baseMultiplier": 1.0,
         "perUnitBonus": 0.1,
         "roleFilter": "source",
-        "description": "Any Physical component bound as source provides structural support for cutting."
+        "description": "Physical components bound as source provide structural support for cutting."
       }
     ]
   }

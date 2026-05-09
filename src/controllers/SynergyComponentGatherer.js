@@ -21,19 +21,20 @@ class SynergyComponentGatherer {
 
     /**
      * Gather members for a "sameComponentType" group.
+     * Auto-detects the component type from the source component and includes
+     * all components of that same type on the entity.
      *
      * @param {Object} entity - The entity object.
      * @param {Object} groupDef - The group definition from synergy config.
      * @param {string} roleFilter - The role filter (source, spatial, self_target).
      * @param {Set<string>} lockedComponentIds - Set of locked component IDs to exclude.
      * @param {string} [sourceComponentId] - The explicitly selected source component ID.
+     * @param {Set<string>} [allowedComponentIds] - Set of allowed component IDs to include (client-selected components).
      * @returns {Array} Array of member objects.
      */
-    gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId) {
-        const typeFilter = groupDef.componentType;
-
-        // When sourceComponentId is provided, only include the source component
-        // plus any other components of the SAME type (for multi-component synergy on same entity).
+    gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds) {
+        // When sourceComponentId is provided, auto-detect the type from the source
+        // and include components of that same type (for multi-component synergy).
         if (sourceComponentId) {
             const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
             if (!sourceComponent) return [];
@@ -41,8 +42,8 @@ class SynergyComponentGatherer {
             const sourceStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
             if (!sourceStats) return [];
 
-            // Check if the source component satisfies the type filter
-            if (typeFilter && sourceComponent.type !== typeFilter) return [];
+            // Auto-detect the component type from the source component
+            const detectedType = sourceComponent.type;
 
             // Check role filter on the source component
             if (roleFilter && !this._passesRoleFilter(sourceStats, roleFilter)) return [];
@@ -54,36 +55,36 @@ class SynergyComponentGatherer {
             const members = [{
                 componentId: sourceComponentId,
                 entityId: entity.id,
-                componentType: sourceComponent.type,
+                componentType: detectedType,
                 stats: sourceStats
             }];
 
-            // Also include SAME-TYPE siblings of the source component
-            // This allows multi-component synergy when entity has multiple of the same type
+            // Include SAME-TYPE siblings only if they are in the allowed set
+            // This ensures synergy only counts client-selected components
             for (const comp of entity.components) {
                 if (comp.id === sourceComponentId) continue;
                 if (lockedComponentIds.has(comp.id)) continue;
-                if (comp.type === typeFilter && comp.type === sourceComponent.type) {
-                    const compStats = this.worldStateController.componentController.getComponentStats(comp.id);
-                    if (compStats && this._passesRoleFilter(compStats, roleFilter)) {
-                        members.push({
-                            componentId: comp.id,
-                            entityId: entity.id,
-                            componentType: comp.type,
-                            stats: compStats
-                        });
-                    }
+                if (comp.type !== detectedType) continue;
+                if (allowedComponentIds && !allowedComponentIds.has(comp.id)) continue;
+                const compStats = this.worldStateController.componentController.getComponentStats(comp.id);
+                if (compStats && this._passesRoleFilter(compStats, roleFilter)) {
+                    members.push({
+                        componentId: comp.id,
+                        entityId: entity.id,
+                        componentType: comp.type,
+                        stats: compStats
+                    });
                 }
             }
 
             return members;
         }
 
-        // No sourceComponentId: gather all matching components (original behavior for non-spatial actions)
+        // No sourceComponentId: gather all components (fallback for non-spatial actions).
+        // Without a source component, we cannot auto-detect the type, so include all components.
         const members = entity.components
             .filter(c => {
                 if (lockedComponentIds.has(c.id)) return false;
-                if (typeFilter && c.type !== typeFilter) return false;
                 if (roleFilter) {
                     const stats = this.worldStateController.componentController.getComponentStats(c.id);
                     if (!stats) return false;
@@ -98,100 +99,6 @@ class SynergyComponentGatherer {
                 stats: this.worldStateController.componentController.getComponentStats(c.id)
             }));
         return members;
-    }
-
-    /**
-     * Gather members for a "movementComponents" group.
-     *
-     * @param {Object} entity - The entity object.
-     * @param {Object} groupDef - The group definition from synergy config.
-     * @param {string} roleFilter - The role filter (source, spatial, self_target).
-     * @param {Set<string>} lockedComponentIds - Set of locked component IDs to exclude.
-     * @param {string} [sourceComponentId] - The explicitly selected source component ID.
-     * @returns {Array} Array of member objects.
-     */
-    gatherMovementComponents(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId) {
-        // When sourceComponentId is provided, only include that specific component
-        // (if it has Movement stats and passes the role filter).
-        if (sourceComponentId) {
-            const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
-            if (!sourceComponent) return [];
-
-            const sourceStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
-            if (!sourceStats || !sourceStats.Movement || Object.keys(sourceStats.Movement).length === 0) return [];
-            if (lockedComponentIds.has(sourceComponentId)) return [];
-            if (roleFilter && roleFilter !== 'source' && roleFilter !== 'spatial') return [];
-
-            return [{
-                componentId: sourceComponentId,
-                entityId: entity.id,
-                componentType: sourceComponent.type,
-                stats: sourceStats
-            }];
-        }
-
-        // No sourceComponentId: gather all movement components (original behavior)
-        return entity.components
-            .filter(c => {
-                if (lockedComponentIds.has(c.id)) return false;
-                const stats = this.worldStateController.componentController.getComponentStats(c.id);
-                if (!stats || !stats.Movement || Object.keys(stats.Movement).length === 0) return false;
-                if (roleFilter && roleFilter !== 'source' && roleFilter !== 'spatial') return false;
-                return true;
-            })
-            .map(c => ({
-                componentId: c.id,
-                entityId: entity.id,
-                componentType: c.type,
-                stats: this.worldStateController.componentController.getComponentStats(c.id)
-            }));
-    }
-
-    /**
-     * Gather members for an "anyPhysical" group.
-     *
-     * @param {Object} entity - The entity object.
-     * @param {Object} groupDef - The group definition from synergy config.
-     * @param {string} roleFilter - The role filter (source, spatial, self_target).
-     * @param {Set<string>} lockedComponentIds - Set of locked component IDs to exclude.
-     * @param {string} [sourceComponentId] - The explicitly selected source component ID.
-     * @returns {Array} Array of member objects.
-     */
-    gatherAnyPhysicalComponent(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId) {
-        // When sourceComponentId is provided, only include that specific component
-        // (if it has Physical stats and passes the role filter).
-        if (sourceComponentId) {
-            const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
-            if (!sourceComponent) return [];
-
-            const sourceStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
-            if (!sourceStats || !sourceStats.Physical || Object.keys(sourceStats.Physical).length === 0) return [];
-            if (lockedComponentIds.has(sourceComponentId)) return [];
-            if (roleFilter && roleFilter !== 'self_target' && roleFilter !== 'source') return [];
-
-            return [{
-                componentId: sourceComponentId,
-                entityId: entity.id,
-                componentType: sourceComponent.type,
-                stats: sourceStats
-            }];
-        }
-
-        // No sourceComponentId: gather all physical components (original behavior)
-        return entity.components
-            .filter(c => {
-                if (lockedComponentIds.has(c.id)) return false;
-                const stats = this.worldStateController.componentController.getComponentStats(c.id);
-                if (!stats || !stats.Physical || Object.keys(stats.Physical).length === 0) return false;
-                if (roleFilter && roleFilter !== 'self_target' && roleFilter !== 'source') return false;
-                return true;
-            })
-            .map(c => ({
-                componentId: c.id,
-                entityId: entity.id,
-                componentType: c.type,
-                stats: this.worldStateController.componentController.getComponentStats(c.id)
-            }));
     }
 
     /**

@@ -1,13 +1,12 @@
 # BUG-048: Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy
 
 - **Severity**: MEDIUM
-- **Status**: ✅ Fixed
+- **Status**: ✅ Fixed (Round 2)
 - **Fixed In**: `pending`
 - **Related Files**:
-  - `src/controllers/SynergyComponentGatherer.js` (lines 25-108, 110-150, 152-194, 196-250)
-  - `src/controllers/synergyController.js` (lines 270-287)
-  - `data/synergy.json` (lines 35-43)
-  - `src/controllers/ConsequenceDispatcher.js` (lines 215-227)
+  - `src/controllers/SynergyComponentGatherer.js` (lines 34-101)
+  - `src/controllers/synergyController.js` (lines 64-98, 158-210, 223-262)
+  - `data/synergy.json` (lines 18-41)
 
 ## Symptoms
 
@@ -46,9 +45,25 @@ With 1 component:
 4. Total multiplier = **1.0**
 5. Final speed = 10 × 2 × 1.0 = **20** (correct)
 
-## Fix
+## Fix (Round 2: Post groupType Unification)
 
-### 1. `SynergyComponentGatherer.js` — Add `sourceComponentId` filtering
+### 1. `SynergyComponentGatherer.js` — Add `allowedComponentIds` filtering
+
+All gather methods now accept an `allowedComponentIds` parameter. When provided (from `providedComponentIds`), only those specific component IDs count toward synergy — not all same-type siblings on the entity.
+
+```javascript
+// Example: gatherSameComponentType with allowedComponentIds
+gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds) {
+    // ...source logic...
+    for (const comp of entity.components) {
+        if (comp.id === sourceComponentId) continue;
+        if (lockedComponentIds.has(comp.id)) continue;
+        if (comp.type !== detectedType) continue;
+        if (allowedComponentIds && !allowedComponentIds.has(comp.id)) continue; // NEW: filter siblings
+        // ...
+    }
+}
+```
 
 All gather methods now accept a `sourceComponentId` parameter. When provided:
 - **`gatherSameComponentType`**: Only includes the source component + same-type siblings (not all entity components)
@@ -70,36 +85,46 @@ if (sourceComponentId) {
 }
 ```
 
-### 2. `synergyController.js` — Pass `sourceComponentId` to gatherers
+### 2. `synergyController.js` — Add type filtering and `allowedComponentIds`
 
-Updated `_gatherGroupMembers` to pass `sourceComponentId` as the 5th parameter to all gatherer methods.
-
+#### a) `_filterProvidedForGroup`: Auto-detect component type
 ```javascript
-case 'movementComponents':
-    return this.componentGatherer.gatherMovementComponents(
-        entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId
-    );
+_filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef) {
+    let detectedType = null;
+    const validComponents = providedComponentIds
+        .filter(({ componentId, role }) => {
+            // ...role filter...
+            if (detectedType === null) detectedType = component.type; // NEW: auto-detect type
+            return component.type === detectedType; // NEW: same-type filter
+        })
+        .map(...);
+}
 ```
 
-### 3. `data/synergy.json` — Change `movementComponents` minCount
-
-Changed `minCount` from `1` to `2` for the `movementComponents` group in the dash synergy config.
-
-```json
-{
-    "groupType": "movementComponents",
-    "minCount": 2,  // Was: 1
-    "description": "Multiple Movement components bound as source contribute to dash synergy (both legs working together)."
+#### b) `computeSynergy`: Build `allowedComponentIds` set
+```javascript
+let allowedComponentIds = null;
+if (providedComponentIds && providedComponentIds.length > 0) {
+    allowedComponentIds = new Set(providedComponentIds.map(c => c.componentId));
 }
+```
+
+#### c) `_gatherGroupMembers`: Pass `allowedComponentIds` to gatherer
+```javascript
+return this.componentGatherer.gatherSameComponentType(
+    entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds
+);
 ```
 
 ## Prevention
 
-1. **Gatherer methods should always respect `sourceComponentId`**: When a source component is explicitly provided (as in spatial actions), gatherers must filter to only that component (plus same-type siblings for `sameComponentType` groups).
+1. **Gatherer methods must respect `allowedComponentIds`**: When a set of allowed component IDs is provided, only those specific components should count toward synergy — never auto-include all same-type siblings from the entity.
 
-2. **Synergy minCount should match the intended behavior**: Groups that require multi-component interaction should have `minCount: 2` or higher.
+2. **`_filterProvidedForGroup` must auto-detect component type**: Since `componentType` is no longer in synergy config, the filter must detect the type from the first valid component and only include same-type components.
 
-3. **Test with single-component scenarios**: Always verify synergy computation with exactly 1 component to ensure the multiplier is 1.0.
+3. **Synergy minCount should match the intended behavior**: Groups that require multi-component interaction should have `minCount: 2` or higher.
+
+4. **Test with single-component scenarios**: Always verify synergy computation with exactly 1 selected component to ensure the multiplier is 1.0.
 
 ## References
 
