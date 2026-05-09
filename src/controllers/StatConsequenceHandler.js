@@ -4,6 +4,11 @@
  *
  * Extracted from ConsequenceHandlers to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - 'self'    → Updates the source component that fulfilled the action's requirements.
+ * - 'target'  → Updates the explicitly targeted component (from actionParams).
+ * - 'entity'  → Updates ALL components of the target entity that have the trait.
+ *
  * @module StatConsequenceHandler
  */
 
@@ -20,52 +25,45 @@ class StatConsequenceHandler {
 
     /**
      * Updates a stat delta on the appropriate component.
-     * Resolution priority:
-     *   1. Explicit targetComponentId from actionParams (for targeted actions like damage)
-     *   2. Component that fulfilled the specific trait.stat requirement (for self-targeted actions)
-     *   3. Falls back to entity-wide stat update via _handleUpdateStat
-     *      (when no component context is available)
+     * Resolution priority based on consequence target type:
+     *   1. 'self'    → Component that fulfilled the specific trait.stat requirement
+     *   2. 'target'  → Explicit targetComponentId from actionParams
+     *   3. 'entity'  → All components on the entity with the trait
      *
-     * @param {string} targetId - Entity ID or Component ID.
+     * @param {string} targetId - Resolved target ID (component or entity ID based on target type).
      * @param {Object} deltaParams - Parameters containing trait, stat, and value.
      * @param {Object} context - Context containing fulfillingComponents and actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
     _handleUpdateComponentStatDelta(targetId, deltaParams, context) {
-        let componentId = null;
         const { trait, stat, value } = deltaParams;
+        const targetType = context?.actionParams?.consequenceTarget || 'target';
 
-        // Priority 1: Explicit targetComponentId from actionParams (e.g., damageComponent targeting an enemy)
-        if (context?.actionParams?.targetComponentId) {
-            componentId = context.actionParams.targetComponentId;
-        }
-        // Priority 2: Component that fulfilled the specific trait.stat requirement
-        else if (context?.fulfillingComponents) {
-            const key = `${trait}.${stat}`;
-            componentId = context.fulfillingComponents[key] || null;
+        // 'entity' target: update ALL components of the entity with this trait
+        if (targetType === 'entity') {
+            return this._updateEntityComponentsStat(targetId, trait, stat, value);
         }
 
-        // If no component was resolved, the action definition should use updateStat (entity-wide) instead.
-        // This prevents accidentally updating the wrong component on multi-component entities.
-        if (!componentId) {
+        // 'self' or 'target': update a specific component
+        if (!targetId) {
             return {
                 success: false,
-                message: `No component resolved for ${trait}.${stat} update. Use updateStat for entity-wide updates or provide targetComponentId for component-specific updates.`,
+                message: `No component resolved for ${trait}.${stat} update`,
                 data: null
             };
         }
 
-        // Validate that the resolved componentId is actually a component (has stats)
-        if (!this.worldStateController.componentController.getComponentStats(componentId)) {
-            Logger.warn(`[ConsequenceHandlers] Resolved componentId "${componentId}" has no stats. Falling back to entity-wide update.`);
+        // Validate that the resolved targetId is actually a component (has stats)
+        if (!this.worldStateController.componentController.getComponentStats(targetId)) {
+            Logger.warn(`[StatConsequenceHandler] Resolved targetId "${targetId}" has no stats. Falling back to entity-wide update.`);
             return this._handleUpdateStat(targetId, deltaParams, context);
         }
 
-        const success = this.worldStateController.componentController.updateComponentStatDelta(componentId, trait, stat, value);
+        const success = this.worldStateController.componentController.updateComponentStatDelta(targetId, trait, stat, value);
         return {
             success,
-            message: success ? `Updated ${componentId} ${trait}.${stat} by ${value}` : `Failed to update ${componentId}`,
-            data: success ? { componentId, trait, stat, value } : null
+            message: success ? `Updated ${targetId} ${trait}.${stat} by ${value}` : `Failed to update ${targetId}`,
+            data: success ? { targetId, trait, stat, value } : null
         };
     }
 
@@ -92,6 +90,26 @@ class StatConsequenceHandler {
             }
         }
         return { success: true, message: `Updated ${updatedCount} component(s) with ${trait}.${stat} = ${value}`, data: { updatedCount } };
+    }
+
+    /**
+     * Updates a stat delta on ALL components of an entity that have the trait.
+     * Used for 'entity' target type.
+     * @private
+     */
+    _updateEntityComponentsStat(entityId, trait, stat, value) {
+        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
+        if (!entity) return { success: false, message: `Entity "${entityId}" not found`, data: null };
+
+        let updatedCount = 0;
+        for (const component of entity.components) {
+            const stats = this.worldStateController.componentController.getComponentStats(component.id);
+            if (stats && stats[trait] && stats[trait][stat] !== undefined) {
+                this.worldStateController.componentController.updateComponentStatDelta(component.id, trait, stat, value);
+                updatedCount++;
+            }
+        }
+        return { success: true, message: `Updated ${updatedCount} component(s) with ${trait}.${stat} delta ${value}`, data: { entityId, trait, stat, value, updatedCount } };
     }
 }
 

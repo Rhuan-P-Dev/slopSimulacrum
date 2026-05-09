@@ -89,6 +89,8 @@ Each action is defined with three main components:
 ```javascript
 {
     "actionName": {
+        targetingType: "spatial" | "component" | "self_target" | "none",
+        range: 100,  // optional
         requirements: [
             {
                 trait: "TraitName",
@@ -99,18 +101,75 @@ Each action is defined with three main components:
         consequences: [
             {
                 type: "consequenceType",
+                target: "self" | "target" | "entity",
                 params: { /* parameters */ }
             }
         ],
         failureConsequences: [
             {
                 type: "consequenceType",
+                target: "self" | "target" | "entity",
                 params: { /* parameters */ }
             }
         ]
     }
 }
 ```
+
+**Target Field (`target`):** Every consequence and failureConsequence MUST include a `target` field that defines who is affected by the consequence:
+
+| Target | Meaning | Resolves To |
+|--------|---------|-------------|
+| `"self"` | The source component (fulfilling the requirement) | Source component ID from `fulfillingComponents` |
+| `"target"` | The explicitly targeted component/entity | `params.targetComponentId` or `params.targetEntityId` |
+| `"entity"` | The entire entity | `entityId` |
+
+**Example:**
+```json
+{
+  "droid punch": {
+    "targetingType": "component",
+    "range": 100,
+    "requirements": [
+      { "trait": "Physical", "stat": "strength", "minValue": 15 }
+    ],
+    "consequences": [
+      {
+        "type": "damageComponent",
+        "target": "target",
+        "params": { "trait": "Physical", "stat": "durability", "value": "-:Physical.strength" }
+      },
+      {
+        "type": "log",
+        "target": "self",
+        "level": "info",
+        "message": "Droid performed a punch dealing :Physical.strength damage!"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Punch failed - strength too low"
+      }
+    ]
+  }
+}
+```
+
+**Target Resolution Flow:**
+```mermaid
+graph TD
+    A[Consequence Execution] --> B{consequence.target?}
+    B -->|"self"| C[Resolve to source component from fulfillingComponents]
+    B -->|"target"| D[Resolve to targetComponentId or targetEntityId]
+    B -->|"entity"| E[Resolve to entityId]
+    B -->|Missing| F[ERROR: Missing target field]
+    C --> G[Handler receives resolved targetId]
+    D --> G
+    E --> G
+    F --> H[Log error, skip consequence]
 
 ---
 
@@ -147,12 +206,36 @@ This ensures that consequences targeting a trait/stat (like durability loss) are
 
 ### 4.1. Success Consequences
 
-When requirements are met, the action executes its success consequences. Consequences are defined as an array of objects with two properties:
+When requirements are met, the action executes its success consequences. Consequences are defined as an array of objects with three properties:
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `type` | string | The consequence type (e.g., "deltaSpatial", "log") |
+| `target` | string | Who is affected: `"self"`, `"target"`, or `"entity"` (MANDATORY) |
 | `params` | object | Parameters for the consequence, supports placeholder substitution |
+
+**Target Field (`target`) — MANDATORY:**
+Every consequence MUST specify a `target` field. The `ConsequenceDispatcher` validates this field and logs an error if missing, skipping that consequence.
+
+| Target | Meaning | Target ID Resolution |
+|--------|---------|---------------------|
+| `"self"` | The source component fulfilling the requirement | Source component ID from `fulfillingComponents` map |
+| `"target"` | The explicitly targeted entity/component | `params.targetComponentId` or `params.targetEntityId` |
+| `"entity"` | The entire entity performing the action | `entityId` |
+
+**Target Resolution Flow:**
+```mermaid
+graph TD
+    A[Consequence Execution] --> B{consequence.target?}
+    B -->|"self"| C[Resolve to source component from fulfillingComponents]
+    B -->|"target"| D[Resolve to targetComponentId or targetEntityId]
+    B -->|"entity"| E[Resolve to entityId]
+    B -->|Missing| F[ERROR: Log error, skip consequence]
+    C --> G[Handler receives resolved targetId]
+    D --> G
+    E --> G
+    F --> H[Continue to next consequence]
+```
 
 **Consequence Types:**
 - `deltaSpatial` - Adds delta values to current position (relative movement)
@@ -222,12 +305,13 @@ consequences: [
 
 ### 4.2. Failure Consequences (failureConsequences)
 
-When requirements fail, the failure consequences are executed using the same dispatcher pattern:
+When requirements fail, the failure consequences are executed using the same dispatcher pattern. Each failure consequence MUST also include a `target` field:
 
 ```javascript
 failureConsequences: [
     {
         type: "log",
+        target: "entity",
         level: "warn",
         message: "Action failed - requirement not met"
     }
@@ -795,10 +879,12 @@ Drops all grabbed items (hand grabs + backpack items) into the world. Items are 
 
 ### 7.1. Register a New Action
 
-Add to `data/actions.json`:
+Add to `data/actions.json`. **Every consequence MUST include a `target` field:**
 
 ```json
 "attack": {
+    "targetingType": "component",
+    "range": 100,
     "requirements": [
         {
             "trait": "Physical",
@@ -809,6 +895,7 @@ Add to `data/actions.json`:
     "consequences": [
         {
             "type": "log",
+            "target": "self",
             "level": "info",
             "message": "Entity attacked with strength :Physical.strength"
         }
@@ -816,12 +903,18 @@ Add to `data/actions.json`:
     "failureConsequences": [
         {
             "type": "log",
+            "target": "entity",
             "level": "warn",
             "message": "Attack failed - strength too low"
         }
     ]
 }
 ```
+
+**Target Selection Guidelines:**
+- Use `"target"` for consequences affecting an explicitly chosen enemy (e.g., `damageComponent`)
+- Use `"self"` for consequences affecting the source component (e.g., durability cost on the attacking limb)
+- Use `"entity"` for consequences affecting the entire entity (e.g., spatial movement, logging)
 
 ### 7.2. Adding New Consequence Types
 

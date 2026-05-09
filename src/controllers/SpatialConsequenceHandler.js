@@ -4,6 +4,11 @@
  *
  * Extracted from ConsequenceHandlers to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - 'entity'  → Moves the entire entity (primary use case for spatial operations).
+ * - 'self'    → Moves the source component's entity (same as entity for spatial).
+ * - 'target'  → Moves the explicitly targeted entity.
+ *
  * @module SpatialConsequenceHandler
  */
 
@@ -23,15 +28,15 @@ class SpatialConsequenceHandler {
      * Handles spatial coordinate updates for an entity (absolute positioning).
      * Sets the entity's x/y coordinates directly.
      *
-     * @param {string} entityId - The entity ID to update.
+     * @param {string} targetId - The entity ID to update (resolved from consequence target).
      * @param {Object} spatialUpdate - Object with x and/or y values.
      * @param {Object} context - Context containing action parameters (unused, kept for signature normalization).
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateSpatial(entityId, spatialUpdate, context) {
-        const success = this.worldStateController.stateEntityController.updateEntitySpatial(entityId, spatialUpdate);
+    _handleUpdateSpatial(targetId, spatialUpdate, context) {
+        const success = this.worldStateController.stateEntityController.updateEntitySpatial(targetId, spatialUpdate);
         if (success) {
-            const updatedEntity = this.worldStateController.stateEntityController.getEntity(entityId);
+            const updatedEntity = this.worldStateController.stateEntityController.getEntity(targetId);
             return {
                 success: true,
                 message: 'Spatial coordinates updated',
@@ -46,15 +51,15 @@ class SpatialConsequenceHandler {
      * If targetX/targetY are provided in actionParams, normalizes movement direction
      * toward the target, capped by the speed value.
      *
-     * @param {string} entityId - The entity ID to move.
+     * @param {string} targetId - The entity ID to move (resolved from consequence target).
      * @param {Object} deltaUpdate - Object with x, y delta values and/or speed.
      * @param {Object} context - Context containing actionParams with optional targetX/targetY.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleDeltaSpatial(entityId, deltaUpdate, context) {
-        const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-        if (!entity) return { success: false, message: `Entity "${entityId}" not found`, data: null };
-        if (!entity.spatial) return { success: false, message: `Entity "${entityId}" has no spatial data`, data: null };
+    _handleDeltaSpatial(targetId, deltaUpdate, context) {
+        const entity = this.worldStateController.stateEntityController.getEntity(targetId);
+        if (!entity) return { success: false, message: `Entity "${targetId}" not found`, data: null };
+        if (!entity.spatial) return { success: false, message: `Entity "${targetId}" has no spatial data`, data: null };
 
         const speed = (typeof deltaUpdate.speed === 'number') ? deltaUpdate.speed : 0;
         let moveX = deltaUpdate.x || 0;
@@ -75,7 +80,7 @@ class SpatialConsequenceHandler {
         }
 
         const success = this.worldStateController.stateEntityController.updateEntitySpatial(
-            entityId,
+            targetId,
             { x: entity.spatial.x + moveX, y: entity.spatial.y + moveY }
         );
 
@@ -83,7 +88,7 @@ class SpatialConsequenceHandler {
             ? {
                 success: true,
                 message: 'Entity moved',
-                data: { deltaUpdate: { x: moveX, y: moveY }, newSpatial: this.worldStateController.stateEntityController.getEntity(entityId)?.spatial }
+                data: { deltaUpdate: { x: moveX, y: moveY }, newSpatial: this.worldStateController.stateEntityController.getEntity(targetId)?.spatial }
             }
             : { success: false, message: 'Failed to update spatial coordinates', data: null };
     }

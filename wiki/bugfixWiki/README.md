@@ -40,6 +40,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-045](high/BUG-045-synergy-excludes-components-locked-to-current-action.md) | Synergy Excludes Components Locked to Current Action | ✅ Fixed | `pending` | `SynergyComponentGatherer.js`, `actionSelectController.js` |
 | [BUG-046](high/BUG-046-filterProvidedForGroup-missing-filters.md) | _filterProvidedForGroup missing componentType/groupType filters | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-047](high/BUG-047-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents | ✅ Fixed | `pending` | `synergyController.js` |
+| [BUG-050](high/BUG-050-consequences-missing-explicit-target-field.md) | Consequences Missing Explicit Target Field | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `data/actions.json`, 6 handler modules |
 
 ### 🟡 Medium Severity
 

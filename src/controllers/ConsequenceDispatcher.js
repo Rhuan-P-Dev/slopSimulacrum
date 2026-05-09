@@ -4,6 +4,12 @@
  *
  * Extracted from ActionController to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - Each consequence MUST have a 'target' field: 'self', 'target', or 'entity'.
+ * - 'self'    → The source component that fulfilled the action's requirements.
+ * - 'target'  → The explicitly targeted component/entity (from actionParams).
+ * - 'entity'  → The entire entity performing the action.
+ *
  * @module ConsequenceDispatcher
  */
 
@@ -59,13 +65,29 @@ class ConsequenceDispatcher {
 
             try {
                 const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-                const targetId = this._resolveTarget(consequence.type, entityId, params);
-                const result = handler(targetId, effectiveParams, context);
+                const targetResult = this._resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName);
+
+                if (!targetResult.success) {
+                    results.push({
+                        success: false,
+                        error: this._resolveError({
+                            code: 'CONSEQUENCE_EXECUTION_FAILED',
+                            details: { type: consequence.type, error: targetResult.error }
+                        }),
+                        type: consequence.type
+                    });
+                    continue;
+                }
+
+                // Pass the consequence target type to the handler for interpretation
+                const handlerContext = { ...context, actionParams: { ...context.actionParams, consequenceTarget: consequence.target } };
+                const result = handler(targetResult.targetId, effectiveParams, handlerContext);
 
                 results.push({
                     success: true,
                     type: consequence.type,
                     synergyApplied: synergyResult !== null,
+                    target: consequence.target,
                     ...result
                 });
             } catch (error) {
@@ -129,17 +151,35 @@ class ConsequenceDispatcher {
                     const resolvedParams = this._resolveParams(consequence.params, perAttackerReqValues, perAttackerParams);
                     const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
 
-                    const result = handler(targetComponentId, effectiveParams, {
+                    const targetResult = this._resolveTargetForConsequence(consequence, entityId, perAttackerParams, perAttackerFulfilling, action, actionName);
+
+                    if (!targetResult.success) {
+                        allResults.push({
+                            success: false,
+                            error: this._resolveError({
+                                code: 'CONSEQUENCE_EXECUTION_FAILED',
+                                details: { type: consequence.type, error: targetResult.error }
+                            }),
+                            type: consequence.type,
+                            attackerComponentId: attackerId
+                        });
+                        continue;
+                    }
+
+                    // Pass the consequence target type to the handler for interpretation
+                    const handlerContext = {
                         requirementValues: perAttackerReqValues,
-                        actionParams: perAttackerParams,
+                        actionParams: { ...perAttackerParams, consequenceTarget: consequence.target },
                         fulfillingComponents: perAttackerFulfilling,
                         synergyResult,
                         attackerComponentId: attackerId
-                    });
+                    };
+                    const result = handler(targetResult.targetId, effectiveParams, handlerContext);
 
                     allResults.push({
                         success: true,
                         type: consequence.type,
+                        target: consequence.target,
                         attackerComponentId: attackerId,
                         synergyApplied: synergyResult !== null,
                         ...result
@@ -184,13 +224,38 @@ class ConsequenceDispatcher {
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
             const handler = this.actionController.consequenceHandlers.handlers[consequence.type];
-            if (handler) {
+
+            if (!handler) {
                 results.push({
-                    success: true,
-                    type: consequence.type,
-                    ...handler(entityId, resolvedParams, {})
+                    success: false,
+                    error: `Unknown consequence type: "${consequence.type}"`,
+                    type: consequence.type
                 });
+                continue;
             }
+
+            const targetResult = this._resolveTargetForConsequence(consequence, entityId, {}, {}, action, actionName);
+
+            if (!targetResult.success) {
+                results.push({
+                    success: false,
+                    error: this._resolveError({
+                        code: 'CONSEQUENCE_EXECUTION_FAILED',
+                        details: { type: consequence.type, error: targetResult.error }
+                    }),
+                    type: consequence.type
+                });
+                continue;
+            }
+
+            // Pass the consequence target type to the handler for interpretation
+            const handlerContext = { actionParams: { consequenceTarget: consequence.target } };
+            results.push({
+                success: true,
+                type: consequence.type,
+                target: consequence.target,
+                ...handler(targetResult.targetId, resolvedParams, handlerContext)
+            });
         }
 
         return { success: false, executedFailureConsequences: results.length, results };
@@ -227,12 +292,48 @@ class ConsequenceDispatcher {
     }
 
     /**
-     * Resolves the target ID for a consequence.
+     * Resolves the target ID for a consequence based on its 'target' field.
+     *
+     * Target types:
+     * - 'self':    The source component that fulfilled the action's requirements.
+     * - 'target':  The explicitly targeted component/entity from action params.
+     * - 'entity':  The entire entity performing the action.
+     *
      * @private
      */
-    _resolveTarget(consequenceType, entityId, params) {
-        const spatialTypes = ['updateSpatial', 'deltaSpatial'];
-        return spatialTypes.includes(consequenceType) ? entityId : (params.targetComponentId || entityId);
+    _resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName) {
+        // MANDATORY: target field must be specified
+        if (!consequence.target) {
+            Logger.error(
+                `[ConsequenceDispatcher] Consequence type "${consequence.type}" in action "${actionName || 'unknown'}" ` +
+                `is missing required 'target' field. Expected: 'self', 'target', or 'entity'.`
+            );
+            return { success: false, error: 'Missing target field' };
+        }
+
+        const targetType = consequence.target;
+
+        switch (targetType) {
+            case 'self': {
+                // Find the source component that fulfilled the requirement
+                const selfKey = Object.keys(fulfillingComponents).find(k => fulfillingComponents[k]);
+                const componentId = fulfillingComponents[selfKey] || entityId;
+                return { success: true, targetId: componentId };
+            }
+            case 'target': {
+                // Use explicitly targeted component or entity
+                const targetId = params.targetComponentId || params.targetEntityId || entityId;
+                return { success: true, targetId };
+            }
+            case 'entity':
+                return { success: true, targetId: entityId };
+            default:
+                Logger.error(
+                    `[ConsequenceDispatcher] Unknown target type "${targetType}" for consequence ` +
+                    `"${consequence.type}" in action "${actionName || 'unknown'}". Expected: 'self', 'target', or 'entity'.`
+                );
+                return { success: false, error: `Unknown target type: ${targetType}` };
+        }
     }
 
     /**
@@ -244,6 +345,7 @@ class ConsequenceDispatcher {
             if (consequence.type === 'damageComponent') {
                 return {
                     type: 'damageComponent',
+                    target: consequence.target,
                     params: {
                         trait: consequence.params.trait,
                         stat: consequence.params.stat,
@@ -254,6 +356,7 @@ class ConsequenceDispatcher {
             if (consequence.type === 'log' && consequence?.params?.message) {
                 return {
                     type: 'log',
+                    target: consequence.target,
                     params: {
                         ...consequence.params,
                         message: consequence.params.message.replace(/:Physical\.strength/g, String(attackerStrength))

@@ -4,6 +4,11 @@
  *
  * Extracted from ConsequenceHandlers to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - 'self'    → The source component (hand/backpack) performing the equipment action.
+ * - 'target'  → The explicitly targeted entity/component (item to grab, item to release).
+ * - 'entity'  → The entire entity (used for dropAll operations).
+ *
  * @module EquipmentConsequenceHandler
  */
 
@@ -27,7 +32,7 @@ class EquipmentConsequenceHandler {
      * Handles grabbing an item entity and adding it as a component to the main entity.
      * The item's traits become available for action requirement checking.
      *
-     * @param {string} targetId - The hand component ID (source of the grab).
+     * @param {string} targetId - The resolved target ID (hand component for 'self'/'target', entity for 'entity').
      * @param {Object} params - Parameters containing debuff configuration.
      * @param {Object} context - Context containing actionParams (entityId, targetEntityId, attackerComponentId).
      * @returns {Object} { success: boolean, message: string, data: any }
@@ -118,7 +123,7 @@ class EquipmentConsequenceHandler {
      * Handles releasing a grabbed item: removing it from the entity and restoring the hand.
      * Checks both grab registry (hand grabs) and backpack registry (backpack items).
      *
-     * @param {string} targetId - The hand component ID or item component ID.
+     * @param {string} targetId - The resolved target ID (hand component or item component ID).
      * @param {Object} params - Parameters (reserved for future configuration).
      * @param {Object} context - Context containing actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
@@ -227,7 +232,7 @@ class EquipmentConsequenceHandler {
      * The item's traits become available for action requirement checking.
      * The backpack's Physical.volume determines total storage capacity.
      *
-     * @param {string} targetId - The backpack component ID.
+     * @param {string} targetId - The resolved target ID (backpack component for 'self', item for 'target').
      * @param {Object} params - Parameters (reserved for future configuration).
      * @param {Object} context - Context containing actionParams (entityId, targetEntityId, targetComponentId).
      * @returns {Object} { success: boolean, message: string, data: any }
@@ -300,14 +305,14 @@ class EquipmentConsequenceHandler {
      * Handles dropping all items from both hand grabs and backpack for an entity.
      * Items are respawned in the world at the entity's position.
      *
-     * @param {string} targetId - The component/entity ID associated with the drop.
+     * @param {string} targetId - The resolved target ID (entity ID for 'entity' target type).
      * @param {Object} params - Parameters (reserved for future configuration).
      * @param {Object} context - Context containing actionParams.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
     _handleDropAll(targetId, params, context) {
         const actionParams = context?.actionParams || {};
-        const entityId = actionParams.entityId;
+        const entityId = actionParams.entityId || targetId;
 
         // Validate required parameters
         if (!entityId) {

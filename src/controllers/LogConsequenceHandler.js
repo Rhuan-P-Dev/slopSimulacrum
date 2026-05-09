@@ -4,6 +4,11 @@
  *
  * Extracted from ConsequenceHandlers to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - 'self'    → Logs with the source component ID as context.
+ * - 'target'  → Logs with the explicitly targeted component/entity ID as context.
+ * - 'entity'  → Logs with the entity ID as context.
+ *
  * @module LogConsequenceHandler
  */
 
@@ -13,9 +18,9 @@ class LogConsequenceHandler {
     /**
      * Handles a log consequence, writing a message to the server log.
      *
-     * @param {string} targetId - The entity/component ID associated with the log entry.
+     * @param {string} targetId - The resolved target ID (component or entity ID based on target type).
      * @param {Object} params - Parameters containing message and log level.
-     * @param {Object} context - Context containing action parameters (unused, kept for signature normalization).
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
     _handleLog(targetId, params, context) {

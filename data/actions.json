@@ -1,11 +1,6 @@
 {
   "move": {
     "targetingType": "spatial",
-    "componentBinding": {
-      "roles": ["spatial"],
-      "spatialRole": "source",
-      "description": "Movement actions bind to components with Movement traits. The selected spatial component provides the move speed value."
-    },
     "requirements": [
       {
         "trait": "Movement",
@@ -16,12 +11,14 @@
     "consequences": [
       {
         "type": "deltaSpatial",
+        "target": "entity",
         "params": { "speed": ":Movement.move" }
       }
     ],
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Action 'move' failed - requirement not met"
       }
@@ -29,12 +26,6 @@
   },
   "dash": {
     "targetingType": "spatial",
-    "componentBinding": {
-      "roles": ["spatial", "self_target"],
-      "spatialRole": "source",
-      "selfTargetRole": "self_target",
-      "description": "Dash binds to a Movement component as source (provides speed) and a Physical component as self_target (absorbs durability cost). The selected spatial component determines which leg/arm drives the dash."
-    },
     "requirements": [
       {
         "trait": "Movement",
@@ -50,16 +41,19 @@
     "consequences": [
       {
         "type": "deltaSpatial",
+        "target": "entity",
         "params": { "speed": ":Movement.move*2" }
       },
       {
         "type": "updateComponentStatDelta",
+        "target": "self",
         "params": { "trait": "Physical", "stat": "durability", "value": -5 }
       }
     ],
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Action 'dash' failed - requirement not met"
       }
@@ -67,11 +61,6 @@
   },
   "selfHeal": {
     "targetingType": "self_target",
-    "componentBinding": {
-      "roles": ["self_target"],
-      "selfTargetRole": "self_target",
-      "description": "Self-heal binds to a Physical component as self_target. The selected component receives the durability restoration."
-    },
     "requirements": [
       {
         "trait": "Movement",
@@ -87,12 +76,14 @@
     "consequences": [
       {
         "type": "updateComponentStatDelta",
+        "target": "self",
         "params": { "trait": "Physical", "stat": "durability", "value": 10 }
       }
     ],
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Action 'selfHeal' failed - requirement not met"
       }
@@ -101,12 +92,6 @@
   "droid punch": {
     "targetingType": "component",
     "range": 100,
-    "componentBinding": {
-      "roles": ["source", "target"],
-      "sourceRole": "source",
-      "targetRole": "target",
-      "description": "Punch binds to a Physical component as source (provides strength for damage) and a target component on the enemy (receives durability damage). The attacker's component is selected first, then the target component is clicked on the map."
-    },
     "requirements": [
       {
         "trait": "Physical",
@@ -117,6 +102,7 @@
     "consequences": [
       {
         "type": "damageComponent",
+        "target": "target",
         "params": {
           "trait": "Physical",
           "stat": "durability",
@@ -125,6 +111,7 @@
       },
       {
         "type": "log",
+        "target": "self",
         "level": "info",
         "message": "Droid performed a punch dealing :Physical.strength damage!"
       }
@@ -132,6 +119,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Punch failed - strength too low"
       }
@@ -140,12 +128,6 @@
   "grab": {
     "targetingType": "component",
     "range": 100,
-    "componentBinding": {
-      "roles": ["source", "target"],
-      "sourceRole": "source",
-      "targetRole": "target",
-      "description": "Grab binds to a Physical component as source (hand) and an item entity as target. The item becomes a component of the entity. The hand suffers a strength debuff from carrying weight."
-    },
     "requirements": [
       {
         "trait": "Physical",
@@ -156,12 +138,14 @@
     "consequences": [
       {
         "type": "grabItem",
+        "target": "target",
         "params": {
           "debuff": { "trait": "Physical", "stat": "strength", "value": -5 }
         }
       },
       {
         "type": "log",
+        "target": "self",
         "level": "info",
         "message": "Entity grabbed item — new capabilities unlocked!"
       }
@@ -169,6 +153,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Grab failed — item out of range or strength too low"
       }
@@ -176,19 +161,16 @@
   },
   "release": {
     "targetingType": "self_target",
-    "componentBinding": {
-      "roles": ["self_target"],
-      "selfTargetRole": "self_target",
-      "description": "Release is a self-targeting action that executes instantly when a grabbed item component is clicked. The item is dropped back into the world and strength is restored."
-    },
     "requirements": [],
     "consequences": [
       {
         "type": "releaseItem",
+        "target": "self",
         "params": {}
       },
       {
         "type": "log",
+        "target": "entity",
         "level": "info",
         "message": "Entity dropped the held item."
       }
@@ -196,6 +178,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Release failed — no item equipped"
       }
@@ -204,12 +187,6 @@
   "cut": {
     "targetingType": "component",
     "range": 100,
-    "componentBinding": {
-      "roles": ["source", "target"],
-      "sourceRole": "source",
-      "targetRole": "target",
-      "description": "Cut binds to a Physical component with sharpness as source (hand holding the knife) and a target component on the enemy (being cut). The knife's sharpness stat determines the damage dealt. Requires Physical.sharpness ≥ 20."
-    },
     "requirements": [
       {
         "trait": "Physical",
@@ -220,6 +197,7 @@
     "consequences": [
       {
         "type": "damageComponent",
+        "target": "target",
         "params": {
           "trait": "Physical",
           "stat": "durability",
@@ -228,6 +206,7 @@
       },
       {
         "type": "updateComponentStatDelta",
+        "target": "self",
         "params": {
           "trait": "Physical",
           "stat": "sharpness",
@@ -236,6 +215,7 @@
       },
       {
         "type": "log",
+        "target": "self",
         "level": "info",
         "message": "Entity used a knife to cut dealing :Physical.sharpness damage! Knife sharpness reduced by 2."
       }
@@ -243,6 +223,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Cut failed - sharpness too low"
       }
@@ -251,12 +232,6 @@
   "grabToBackpack": {
     "targetingType": "component",
     "range": 100,
-    "componentBinding": {
-      "roles": ["source", "target"],
-      "sourceRole": "self_target",
-      "targetRole": "target",
-      "description": "Grab binds to the droidBackpack component as source and an item entity as target. The item is stored in the backpack instead of the hand. The backpack's Physical.volume determines total storage capacity."
-    },
     "requirements": [
       {
         "trait": "Physical",
@@ -267,10 +242,12 @@
     "consequences": [
       {
         "type": "grabToBackpack",
+        "target": "target",
         "params": {}
       },
       {
         "type": "log",
+        "target": "self",
         "level": "info",
         "message": "Item stored in droid backpack."
       }
@@ -278,6 +255,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Grab to backpack failed — item out of range or backpack full"
       }
@@ -285,19 +263,16 @@
   },
   "dropAll": {
     "targetingType": "self_target",
-    "componentBinding": {
-      "roles": ["self_target"],
-      "selfTargetRole": "self_target",
-      "description": "Drop all is a self-targeting action that executes instantly when clicked. All grabbed items and backpack items are dropped into the world."
-    },
     "requirements": [],
     "consequences": [
       {
         "type": "dropAll",
+        "target": "entity",
         "params": {}
       },
       {
         "type": "log",
+        "target": "entity",
         "level": "info",
         "message": "All items dropped."
       }
@@ -305,6 +280,7 @@
     "failureConsequences": [
       {
         "type": "log",
+        "target": "entity",
         "level": "warn",
         "message": "Drop all failed — nothing to drop"
       }

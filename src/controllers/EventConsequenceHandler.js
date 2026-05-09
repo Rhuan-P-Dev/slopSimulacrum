@@ -4,6 +4,11 @@
  *
  * Extracted from ConsequenceHandlers to adhere to the Single Responsibility Principle.
  *
+ * Target Resolution:
+ * - 'self'    → Event with source component context.
+ * - 'target'  → Event with explicitly targeted component/entity context.
+ * - 'entity'  → Event with entity context.
+ *
  * @module EventConsequenceHandler
  */
 
@@ -13,15 +18,15 @@ class EventConsequenceHandler {
     /**
      * Handles event triggering for logging/notification purposes.
      *
-     * @param {string} entityId - The entity ID associated with the event.
+     * @param {string} targetId - The resolved target ID (component or entity ID based on target type).
      * @param {Object} eventParams - Object containing eventType and optional data.
-     * @param {Object} context - Context containing action parameters (unused, kept for signature normalization).
+     * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleTriggerEvent(entityId, eventParams, context) {
+    _handleTriggerEvent(targetId, eventParams, context) {
         const { eventType, data } = eventParams;
-        Logger.info(`Event triggered: ${eventType} for entity ${entityId}`, data || {});
-        return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, entityId } };
+        Logger.info(`Event triggered: ${eventType} for target ${targetId}`, data || {});
+        return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, targetId } };
     }
 }
 
