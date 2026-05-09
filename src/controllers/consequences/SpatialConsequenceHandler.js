@@ -70,12 +70,17 @@ class SpatialConsequenceHandler {
             const dx = actionParams.targetX - entity.spatial.x;
             const dy = actionParams.targetY - entity.spatial.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > MIN_MOVEMENT_DISTANCE) {
-                moveX = (dx / distance) * speed;
-                moveY = (dy / distance) * speed;
-            } else {
+            if (distance <= MIN_MOVEMENT_DISTANCE) {
                 moveX = 0;
                 moveY = 0;
+            } else if (distance <= speed) {
+                // Target is within movement range — move directly to the clicked position
+                moveX = dx;
+                moveY = dy;
+            } else {
+                // Target is beyond range — move exactly `speed` units toward it
+                moveX = (dx / distance) * speed;
+                moveY = (dy / distance) * speed;
             }
         }
 

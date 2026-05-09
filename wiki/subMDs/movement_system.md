@@ -20,14 +20,23 @@ The `public/app.js` maintains a `pendingMovementAction` state:
 ## 3. Technical Implementation (Backend)
 
 ### 3.1. Target-Based Calculation
-Movement is handled by the `ActionController._handleDeltaSpatial` method. Instead of fixed directions, it calculates a normalized direction vector towards the target.
+Movement is handled by the `SpatialConsequenceHandler._handleDeltaSpatial` method. The entity moves toward the clicked target position, with behavior that depends on the relationship between the distance to the target and the movement speed.
 
 **Mathematical Logic:**
 1.  **Direction Vector:** $\vec{d} = (targetX - currentX, targetY - currentY)$
 2.  **Distance:** $dist = \sqrt{dx^2 + dy^2}$
-3.  **Normalization & Scaling:** 
-    - If $dist > 0$: $\text{move} = (\frac{dx}{dist}, \frac{dy}{dist}) \times \text{speed}$
-    - Else: $\text{move} = (0, 0)$
+3.  **Conditional Movement:**
+
+| Condition | Movement Result |
+|-----------|----------------|
+| $dist \leq 0$ | No movement ($\text{move} = (0, 0)$) |
+| $dist \leq \text{speed}$ | Entity moves directly to the clicked position ($\text{move} = (dx, dy)$) |
+| $dist > \text{speed}$ | Entity moves exactly `speed` units toward the target ($\text{move} = \frac{\vec{d}}{dist} \times \text{speed}$) |
+
+**Behavior:**
+- **Click within range:** The entity lands exactly on the clicked position, regardless of whether the distance is less than, equal to, or greater than the speed.
+- **Click beyond range:** The entity moves the maximum possible distance (`speed` units) in the direction of the clicked target.
+- **Click on the entity:** No movement occurs.
 
 ### 3.2. Speed and Multipliers
 The movement speed is determined by the action definition in the registry:
