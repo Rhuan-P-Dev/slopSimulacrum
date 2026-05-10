@@ -42,11 +42,5 @@
       "Physical": { "durability": 70, "mass": 15, "volume": 5 },
       "Spatial": { "x": 0, "y": -10 }
     } 
-  },
-  "knife": { 
-    "traits": { 
-      "Physical": { "durability": 60, "strength": 15, "mass": 2, "sharpness": 20 },
-      "Spatial": { "x": 0, "y": 0 }
-    } 
   }
 }

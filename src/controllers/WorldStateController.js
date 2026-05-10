@@ -9,7 +9,6 @@ import ComponentCapabilityController from './capabilities/componentCapabilityCon
 import SynergyController from './synergy/synergyController.js';
 import ActionSelectController from './actions/actionSelectController.js';
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
-import EquipmentController from './equipment/equipmentController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 
@@ -78,14 +77,9 @@ class WorldStateController {
         );
         this.actionController = actionController;
 
-        // 8. Instantiate EquipmentController (Equipment/Grab System)
-        // Manages grabbing items and adding them as components to entities.
-        const equipmentController = new EquipmentController(this);
-        this.equipmentController = equipmentController;
-
-        // 9. Instantiate stateEntityController with actionController and equipmentController (after ActionController is created)
+        // 8. Instantiate stateEntityController with actionController (after ActionController is created)
         // This follows proper DI pattern - no forward references needed
-        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, this.equipmentController);
+        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, null);
         this.stateEntityController = stateEntityControllerInstance;
 
         // 7. Wire up stat change notifications from ComponentController to ComponentCapabilityController
@@ -102,15 +96,11 @@ class WorldStateController {
             actions: this.actionController,
             capabilities: this.componentCapabilityController,
             synergy: this.synergyController,
-            selections: this.actionSelectController,
-            equipment: this.equipmentController
+            selections: this.actionSelectController
         };
 
         // Initialize world with a sample droid as requested
         this.initializeWorld();
-
-        // Spawn the knife entity on the floor of the entrance hall
-        this._spawnKnifeInStartRoom();
 
         // Perform initial capability scan after entities are spawned
         // Delegates to ComponentCapabilityController via ActionController wrapper
@@ -130,16 +120,6 @@ class WorldStateController {
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
-    }
-
-    /**
-     * Spawns a knife entity on the floor of the start room.
-     * @private
-     */
-    _spawnKnifeInStartRoom() {
-        const knifeRoomId = this.roomsController.getUidByLogicalId('start_room');
-        const knifeEntityId = this.stateEntityController.spawnEntity('knife', knifeRoomId);
-        this.stateEntityController.updateEntitySpatial(knifeEntityId, { x: -50, y: 30 });
     }
 
     /**

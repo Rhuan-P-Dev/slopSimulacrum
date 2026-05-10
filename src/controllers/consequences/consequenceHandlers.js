@@ -8,7 +8,6 @@
  * - DamageConsequenceHandler: Damage application to components
  * - LogConsequenceHandler: Logging of action events
  * - EventConsequenceHandler: Event triggering for logging/notification
- * - EquipmentConsequenceHandler: Equipment grab, release, and drop operations
  *
  * @module ConsequenceHandlers
  */
@@ -18,7 +17,6 @@ import StatConsequenceHandler from './StatConsequenceHandler.js';
 import DamageConsequenceHandler from './DamageConsequenceHandler.js';
 import LogConsequenceHandler from './LogConsequenceHandler.js';
 import EventConsequenceHandler from './EventConsequenceHandler.js';
-import EquipmentConsequenceHandler from './EquipmentConsequenceHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -34,7 +32,6 @@ class ConsequenceHandlers {
         this.damageHandler = new DamageConsequenceHandler(controllers);
         this.logHandler = new LogConsequenceHandler();
         this.eventHandler = new EventConsequenceHandler();
-        this.equipmentHandler = new EquipmentConsequenceHandler(controllers);
     }
 
     /**
@@ -51,8 +48,6 @@ class ConsequenceHandlers {
             updateComponentStatDelta: (targetId, params, context) => this.statHandler._handleUpdateComponentStatDelta(targetId, params, context),
             triggerEvent: (targetId, params, context) => this.eventHandler._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
-            grabItem: (targetId, params, context) => this.equipmentHandler._handleGrabItem(targetId, params, context),
-            releaseItem: (targetId, params, context) => this.equipmentHandler._handleReleaseItem(targetId, params, context),
         };
     }
 }

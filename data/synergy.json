@@ -75,32 +75,5 @@
         "description": "Multiple droidHand components (left + right) bound as 'source' increase punch damage with diminishing returns."
       }
     ]
-  },
-  "cut": {
-    "enabled": true,
-    "scaling": "linear",
-    "caps": {
-      "damage": { "max": 2.0 }
-    },
-    "componentGroups": [
-      {
-        "groupType": "sameComponentType",
-        "minCount": 1,
-        "scaling": "linear",
-        "baseMultiplier": 1.0,
-        "perUnitBonus": 0.3,
-        "roleFilter": "source",
-        "description": "Multiple knife components on the entity boost cut damage (extra weapons)."
-      },
-      {
-        "groupType": "sameComponentType",
-        "minCount": 1,
-        "scaling": "linear",
-        "baseMultiplier": 1.0,
-        "perUnitBonus": 0.1,
-        "roleFilter": "source",
-        "description": "Physical components bound as source provide structural support for cutting."
-      }
-    ]
   }
 }

@@ -61,8 +61,6 @@ export class ClientApp {
                 this.actions.moveToTarget(actionName, entityId, targetX, targetY),
             executeMultiComponentSpatial: (actionName, entityId, componentIds, extraParams) =>
                 this.executor.executeMultiComponentSpatial(actionName, entityId, componentIds, extraParams),
-            executeGrab: (pending, targetX, targetY) =>
-                this.executor.executeGrab(pending, targetX, targetY),
             executePunch: (pending, targetX, targetY) =>
                 this.executor.executePunch(pending, targetX, targetY, this.selection.getSelectedComponentIds()),
             getMyEntityId: () => this.worldState.getMyEntityId(),
@@ -101,14 +99,6 @@ export class ClientApp {
             );
         }
 
-        // Release handler (managed by EventDispatcher)
-        this.dispatcher.setupReleaseHandler(null, async (entityId, grabbedItemCompId) => {
-            const componentType = 'grabbedItem'; // fallback
-            const result = await this.actions.executeRelease('release', entityId, grabbedItemCompId);
-            console.log('[ClientApp] Release executed successfully:', result);
-            this.selection.clearAllSelections();
-            await this.refreshWorldAndActions();
-        });
     }
 
     /**

@@ -12,6 +12,5 @@
     ["humanoidDroidFinger", "left"],
     ["humanoidDroidFinger", "middle"],
     ["humanoidDroidFinger", "right"]
-  ],
-  "knife": ["knife"]
+  ]
 }

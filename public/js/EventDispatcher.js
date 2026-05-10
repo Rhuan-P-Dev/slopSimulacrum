@@ -13,7 +13,6 @@
  * @property {function(Object): void} [handleError]
  * @property {function(string, string, Object): Promise<void>} [moveToTarget]
  * @property {function(string, string, string[], Object): Promise<void>} [executeMultiComponentSpatial]
- * @property {function(Object, number, number): Promise<void>} [executeGrab]
  * @property {function(Object, number, number, Set<string>): Promise<void>} [executePunch]
  */
 
@@ -132,60 +131,6 @@ class EventDispatcher {
     }
 
     /**
-     * Sets up the release handler for grabbed items.
-     * Listens for the 'release-component' custom event from the detail overlay.
-     *
-     * @param {HTMLElement|null} detailOverlayElement - The detail overlay element, or null to auto-find.
-     * @param {function(string, string): Promise<void>} releaseCallback - Callback(entityId, componentType).
-     */
-    setupReleaseHandler(detailOverlayElement, releaseCallback) {
-        const attachListener = () => {
-            const overlay = detailOverlayElement || document.getElementById('detail-overlay');
-            if (!overlay) {
-                // Retry after a short delay
-                setTimeout(attachListener, 100);
-                return;
-            }
-
-            const releaseHandler = async (event) => {
-                const { componentId: grabbedItemCompId, componentType } = event.detail;
-                const entityId = this.handlers?.getMyEntityId?.();
-                if (!entityId) {
-                    console.error('[EventDispatcher] No active entity to release from');
-                    return;
-                }
-
-                console.log(`[EventDispatcher] Executing release for ${componentType} (grabbed item: ${grabbedItemCompId})`);
-
-                try {
-                    if (releaseCallback) {
-                        await releaseCallback(entityId, grabbedItemCompId);
-                    }
-                } catch (error) {
-                    console.error(`[EventDispatcher] Release failed: ${error.message}`);
-                    if (this.handlers.handleError) {
-                        this.handlers.handleError({
-                            code: 'RELEASE_FAILED',
-                            message: error.message
-                        });
-                    }
-                }
-            };
-
-            overlay.addEventListener('release-component', releaseHandler);
-            this._domListeners.push({
-                element: overlay,
-                event: 'release-component',
-                listener: releaseHandler
-            });
-
-            console.log('[EventDispatcher] Release handler attached to detail overlay.');
-        };
-
-        attachListener();
-    }
-
-    /**
      * Handles spatial targeting map clicks.
      * Clears pending, captures multi-component state, dispatches to handlers.
      *
@@ -240,9 +185,7 @@ class EventDispatcher {
     _handleComponentClick(pending, targetX, targetY) {
         const actionName = pending.actionName;
 
-        if (actionName === 'grab' && this.handlers.executeGrab) {
-            this.handlers.executeGrab(pending, targetX, targetY);
-        } else if ((actionName === 'cut' || actionName === 'droid punch') && this.handlers.executePunch) {
+        if (actionName === 'droid punch' && this.handlers.executePunch) {
             this.handlers.executePunch(pending, targetX, targetY);
         }
     }
