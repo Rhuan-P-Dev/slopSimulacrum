@@ -16,54 +16,77 @@
     <link rel="stylesheet" href="css/feedback.css">
 </head>
 <body>
-    <h1>🤖 SlopSimulacrum Terminal</h1>
     <div id="status" class="loading">Connecting to world state...</div>
-    
-    <div class="main-layout">
-        <!-- Left: Visual Map -->
-        <div class="section">
-            <div class="room-header">
-                <h2 style="margin: 0;">🛰️ Spatial Map</h2>
-                <span id="current-room-coords" style="color: #666; font-size: 0.8em;"></span>
-            </div>
-            <div class="map-container">
-                <svg id="world-map" viewBox="0 0 800 500">
-                    <defs>
-                        <filter id="glow">
-                            <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
-                            <feMerge>
-                                <feMergeNode in="coloredBlur"/>
-                                <feMergeNode in="SourceGraphic"/>
-                            </feMerge>
-                        </filter>
-                    </defs>
-                    <g id="room-layer"></g>
-                    <g id="entities-layer"></g>
-                    <g id="components-layer"></g>
-                </svg>
+
+    <!-- TOP: Config Bar -->
+    <div id="config-bar">
+        <div class="config-bar-left">
+            <button id="btn-component-viewer" class="config-btn" title="Component Viewer">🗿️</button>
+            <button id="btn-nav-actions" class="config-btn" title="Navigation & Actions">👍</button>
+        </div>
+        <div class="config-bar-center">
+            <span id="config-bar-title" style="color: var(--text-dim); font-size: 0.85em;">⚙️ Config Bar</span>
+        </div>
+        <div class="config-bar-right">
+            <button id="btn-add-stat" class="config-btn" title="Add Stat Bar">➕ Add Stat</button>
+            <button id="btn-color-scheme" class="config-btn" title="Color Scheme">🎨 Colors</button>
+        </div>
+    </div>
+
+    <!-- MIDDLE: Map Section -->
+    <div id="map-section">
+        <div class="room-header">
+            <h2 style="margin: 0;">🛰️ Spatial Map</h2>
+            <div class="room-info-inline">
+                <span id="current-room-name" style="color: var(--text-main); font-weight: bold; margin-right: 15px;"></span>
+                <span id="current-room-desc" style="color: var(--text-dim); font-size: 0.85em; margin-right: 15px;"></span>
+                <span id="current-room-coords" style="color: #666; font-size: 0.85em;"></span>
             </div>
         </div>
+        <div class="map-container">
+            <svg id="world-map" viewBox="0 0 800 500">
+                <defs>
+                    <filter id="glow">
+                        <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                        <feMerge>
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+                <g id="room-layer"></g>
+                <g id="entities-layer"></g>
+                <g id="components-layer"></g>
+            </svg>
+        </div>
+    </div>
 
-        <!-- Right: Control Console -->
-        <div class="section control-panel">
-            <div>
-                <h2 style="margin-top: 0;">🕹️ Navigation</h2>
-                <div class="room-info">
-                    <div id="current-room-name" class="room-name">Scanning...</div>
-                    <div id="current-room-desc" class="room-desc">Awaiting data...</div>
-                    <div id="nav-buttons" class="nav-buttons"></div>
-                </div>
-            </div>
-            <div style="border-top: 1px solid #333; padding-top: 20px; font-size: 0.8em; color: var(--text-dim);">
-                SYSTEM STATUS: <span style="color: var(--neon-green)">ONLINE</span><br>
-                ACTIVE UNIT: <span id="active-droid-id">None</span>
-            </div>
-            <div class="action-section">
-                <h2 style="margin-top: 0;">⚔️ Action Registry</h2>
-                <div class="action-list" id="action-list">
-                    <em style="color: #666;">Loading action data...</em>
-                </div>
-            </div>
+    <!-- BOTTOM: Stat Bars Section -->
+    <div id="stat-bars-section">
+        <div id="stat-bars-container">
+            <em style="color: var(--text-dim); font-size: 0.85em;">No stat bars configured. Click "➕ Add Stat" to begin.</em>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Component Viewer -->
+    <div id="component-viewer-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🗿️ Component Viewer</h3>
+            <button class="overlay-close-btn" onclick="document.getElementById('component-viewer-overlay').style.display='none'">✕</button>
+        </div>
+        <div id="component-viewer-content">
+            <em style="color: var(--text-dim);">No entity selected.</em>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Navigation & Actions -->
+    <div id="nav-actions-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">👍 Navigation & Actions</h3>
+            <button class="overlay-close-btn" onclick="document.getElementById('nav-actions-overlay').style.display='none'">✕</button>
+        </div>
+        <div class="nav-actions-content" id="nav-actions-content">
+            <!-- Populated by JS -->
         </div>
     </div>
 
@@ -76,6 +99,50 @@
             </div>
         </div>
     </div>
+
+    <!-- Add Stat Dialog -->
+    <div id="add-stat-dialog" class="add-stat-dialog" style="display:none;">
+        <h3 style="margin-top: 0; color: var(--neon-green);">➕ Add Stat Bar</h3>
+
+        <!-- Component selector -->
+        <div class="form-group">
+            <label for="add-stat-component-select" style="color: var(--text-dim); font-size: 0.85em;">Component:</label>
+            <select id="add-stat-component-select" style="width: 100%; padding: 6px; background: var(--bg-black); color: var(--text-main); border: 1px solid var(--neon-green);">
+                <option value="">-- Select Component --</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="stat-trait-select" style="color: var(--text-dim); font-size: 0.85em;">Trait:</label>
+            <select id="stat-trait-select" style="width: 100%; padding: 6px; background: var(--bg-black); color: var(--text-main); border: 1px solid var(--neon-green);">
+                <option value="">-- Select Trait --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="stat-select" style="color: var(--text-dim); font-size: 0.85em;">Stat:</label>
+            <select id="stat-select" style="width: 100%; padding: 6px; background: var(--bg-black); color: var(--text-main); border: 1px solid var(--neon-green);">
+                <option value="">-- Select Stat --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="stat-max-input" style="color: var(--text-dim); font-size: 0.85em;">Maximum Value:</label>
+            <input type="number" id="stat-max-input" style="width: 100%; padding: 6px; background: var(--bg-black); color: var(--text-main); border: 1px solid var(--neon-green);" placeholder="Auto or custom value">
+        </div>
+        <div class="form-group">
+            <label for="stat-label-input" style="color: var(--text-dim); font-size: 0.85em;">Display Label (optional):</label>
+            <input type="text" id="stat-label-input" style="width: 100%; padding: 6px; background: var(--bg-black); color: var(--text-main); border: 1px solid var(--neon-green);" placeholder="e.g., 'Mass'">
+        </div>
+        <div class="form-group">
+            <label for="stat-color-input" style="color: var(--text-dim); font-size: 0.85em;">Bar Color:</label>
+            <input type="color" id="stat-color-input" value="#ff00ff" style="width: 50px; height: 30px; border: 1px solid var(--neon-green); cursor: pointer;">
+            <span id="stat-color-hex" style="color: var(--text-dim); font-size: 0.85em; margin-left: 10px;">#ff00ff</span>
+        </div>
+        <div class="dialog-buttons">
+            <button id="btn-confirm-add-stat" class="config-btn" style="background: var(--neon-green); color: var(--bg-black);">Add Bar</button>
+            <button id="btn-cancel-add-stat" class="config-btn">Cancel</button>
+        </div>
+    </div>
+    <div id="add-stat-dialog-overlay" class="add-stat-dialog-overlay" style="display:none;"></div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="js/App.js"></script>

@@ -107,6 +107,7 @@ class SelectionController {
      * Toggles a component in/out of the selection for a given action.
      *
      * - If clicking a different action, moves current selections to cross map.
+     * - Clears stale entries for the NEW action from cross map (prevents duplicates).
      * - Toggles the component in/out of selected set.
      * - For spatial/component/self_target actions: sets pending action.
      * - For self_target with 1 component: executes immediately.
@@ -129,6 +130,10 @@ class SelectionController {
                 this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
             }
             this.selectedComponentIds.clear();
+
+            // Clear stale entries for the NEW action from cross map (prevents duplicate/stale state)
+            this.crossActionSelections.delete(actionName);
+
             this.activeActionName = actionName;
 
             // Clear pending action and synergy preview

@@ -67,6 +67,15 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-044](medium/BUG-044-actionSelectController-missing-getLockedComponentsForAction.md) | ActionSelectController missing getLockedComponentsForAction method | ✅ Fixed | `pending` | `actionSelectController.js`, `SynergyComponentGatherer.js` |
 | [BUG-048](medium/BUG-048-dash-1-component-moves-4x.md) | Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy | ✅ Fixed (Round 2) | `pending` | `SynergyComponentGatherer.js`, `synergyController.js`, `data/synergy.json` |
 | [BUG-049](medium/BUG-049-consequenceHandlers-srp-violation.md) | ConsequenceHandlers SRP Violation — Monolithic Handler Class | ✅ Fixed | `pending` | `consequenceHandlers.js`, 6 new focused modules |
+| [BUG-054](medium/BUG-054-ConfigBarManager-wrong-action-endpoint.md) | ConfigBarManager Calls Non-Existent Action Endpoint (`/api/world/actions/:id`) | ✅ Fixed | `pending` | `ConfigBarManager.js` |
+| [BUG-055](medium/BUG-055-nav-actions-panel-listeners-not-attached.md) | NavActionsPanel Navigation Buttons Non-Functional (Listeners Never Attached) | ✅ Fixed | `pending` | `NavActionsPanel.js` |
+| [BUG-056](medium/BUG-056-action-execution-callback-missing.md) | Action Execution Callback Missing from ConfigBarManager and App.js | ✅ Fixed | `pending` | `App.js`, `ConfigBarManager.js`, `NavActionsPanel.js` |
+| [BUG-057](medium/BUG-057-nav-panel-missing-selection-ui.md) | NavActionsPanel Missing Multi-Component Selection UI and Room Update | ✅ Fixed | `pending` | `NavActionsPanel.js`, `App.js`, `ConfigBarManager.js`, `actions.css` |
+| [BUG-058](medium/BUG-058-nav-panel-missing-grayed-component-click-handler.md) | NavActionsPanel Missing Grayed Component Click Handler | ✅ Fixed | `pending` | `NavActionsPanel.js`, `SelectionController.js`, `App.js`, `ConfigBarManager.js` |
+| [BUG-059](medium/BUG-059-dash-range-indicator-ignores-selected-components.md) | Dash Range Indicator Ignores Selected Component Count | ✅ Fixed | `pending` | `SynergyPreviewController.js`, `App.js` |
+| [BUG-060](medium/BUG-060-add-stat-not-component-related.md) | "➕ Add Stat" Dialog Not Related to Any Entity Component | ✅ Fixed | `pending` | `StatBarsManager.js`, `ComponentViewer.js`, `ConfigBarManager.js` |
+| [BUG-061](medium/BUG-061-stat-bar-not-updating-after-add.md) | Stat Bar Shows 0% After Adding (updateAll() Not Called) | ✅ Fixed | `pending` | `StatBarsManager.js` |
+| [BUG-062](medium/BUG-062-stat-bars-not-updating-after-component-change.md) | Stat Bars Don't Update When Component Stats Change | ✅ Fixed | `pending` | `server.js`, `WorldStateController.js`, `EventDispatcher.js`, `App.js` |
 
 ### 🟢 Low Severity
 
@@ -85,6 +94,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-030](architectural/BUG-030-css-monolith-srp-violation.md) | CSS Monolith Violates SRP | ✅ Fixed | `pending` | `public/styles.css`, `public/css/` |
 | [BUG-051](architectural/BUG-051-provided-components-missing-type-filter.md) | _filterProvidedForGroup Missing Type Filter After groupType Unification | ✅ Fixed (Round 2) | `pending` | `synergyController.js`, `SynergyComponentGatherer.js` |
 | [BUG-052](architectural/BUG-052-controllers-directory-structure-srp-violation.md) | Controllers Directory Structure SRP Violation — Organized into Subdirectories | ✅ Fixed | `pending` | `src/controllers/` (all 30 files) |
+| [BUG-053](architectural/BUG-053-client-ui-layout-srp-violation.md) | Client UI Layout SRP Violation — Refactored to Three-Section Vertical Layout | ✅ Fixed | `pending` | `public/index.html`, `public/css/layout.css`, `public/js/App.js`, `public/js/UIManager.js` |
 
 ---
 

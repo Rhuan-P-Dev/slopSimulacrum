@@ -1,16 +1,202 @@
 /* =========================================================================
-   Layout Styles — Page grid and panel containers
+   Layout Styles — Three-section vertical layout
    Single Responsibility: Top-level page layout structure
    ========================================================================= */
 
+/* =========================================================================
+   Config Bar (top)
+   ========================================================================= */
 
-.main-layout {
-    display: grid;
-    grid-template-columns: 1fr 350px;
-    gap: 20px;
+#config-bar {
+    height: 50px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: var(--config-bar-bg);
+    border-bottom: 1px solid var(--config-bar-border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
     width: 100%;
-    max-width: 1300px;
+    box-sizing: border-box;
 }
+
+.config-bar-left,
+.config-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.config-bar-center {
+    display: flex;
+    align-items: center;
+}
+
+/* =========================================================================
+   Map Section (middle)
+   ========================================================================= */
+
+#map-section {
+    flex-grow: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#map-section .room-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid var(--config-bar-border);
+}
+
+#map-section .room-header h2 {
+    margin: 0;
+    font-size: 1em;
+    color: var(--text-main);
+}
+
+.map-container {
+    flex-grow: 1;
+    min-height: 0;
+    position: relative;
+    background: var(--bg-black);
+}
+
+.map-container svg#world-map {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* =========================================================================
+   Stat Bars Section (bottom)
+   ========================================================================= */
+
+#stat-bars-section {
+    height: 150px;
+    overflow-y: auto;
+    background: var(--stat-bar-bg);
+    border-top: 1px solid var(--config-bar-border);
+    padding: 8px 12px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#stat-bars-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 100%;
+    overflow-y: auto;
+}
+
+/* =========================================================================
+   Overlay Panels
+   ========================================================================= */
+
+.overlay-panel {
+    position: absolute;
+    top: 60px;
+    right: 20px;
+    z-index: 100;
+    background: var(--overlay-bg);
+    border: 1px solid var(--neon-green);
+    border-radius: 4px;
+    max-height: 500px;
+    overflow-y: auto;
+    padding: 15px;
+    min-width: 320px;
+    max-width: 450px;
+    box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+}
+
+.overlay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--config-bar-border);
+}
+
+.overlay-header h3 {
+    margin: 0;
+    color: var(--neon-green);
+    font-size: 0.95em;
+}
+
+.overlay-close-btn {
+    background: transparent;
+    border: 1px solid #444;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 0.8em;
+    font-family: 'Courier New', Courier, monospace;
+    transition: all 0.2s;
+}
+
+.overlay-close-btn:hover {
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+}
+
+/* =========================================================================
+   Add Stat Dialog
+   ========================================================================= */
+
+.add-stat-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--panel-bg);
+    border: 2px solid var(--neon-green);
+    padding: 20px;
+    z-index: 200;
+    min-width: 340px;
+    box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+    border-radius: 4px;
+}
+
+.add-stat-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 199;
+}
+
+.add-stat-dialog .form-group {
+    margin-bottom: 12px;
+}
+
+.add-stat-dialog .form-group label {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.add-stat-dialog .dialog-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+/* =========================================================================
+   Legacy: .section (kept for compatibility with existing JS references)
+   ========================================================================= */
 
 .section {
     background: var(--panel-bg);

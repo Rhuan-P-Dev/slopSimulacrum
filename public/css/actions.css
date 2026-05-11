@@ -111,3 +111,120 @@
     font-size: 12px;
     cursor: help;
 }
+/* =========================================================================
+   NavActionsPanel Multi-Component Selection Styles
+   ========================================================================= */
+
+/* Nav panel action items */
+.nav-action-item {
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+    padding-bottom: 8px;
+}
+
+.nav-action-item:hover {
+    background: rgba(0, 255, 0, 0.03);
+}
+
+.nav-action-name {
+    color: var(--text-main);
+    font-weight: bold;
+    margin-bottom: 4px;
+    font-size: 0.95em;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+.nav-action-name:hover {
+    color: var(--neon-green);
+    text-shadow: 0 0 5px var(--neon-green);
+}
+
+/* Nav panel component rows */
+.nav-component-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s ease-out;
+    font-size: 0.85em;
+    border: 1px solid transparent;
+}
+
+.nav-component-row:hover {
+    background: rgba(0, 255, 0, 0.12);
+    border-color: rgba(0, 255, 0, 0.3);
+    transform: translateX(3px);
+}
+
+/* Selected component in nav panel (green highlight) */
+.nav-component-row.nav-selected {
+    background: var(--neon-green) !important;
+    color: var(--bg-black) !important;
+    font-weight: bold;
+    border-color: #fff;
+    box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+}
+
+.nav-component-row.nav-selected .nav-comp-type,
+.nav-component-row.nav-selected .nav-comp-identifier {
+    color: var(--bg-black) !important;
+}
+
+/* Locked component in nav panel (grayed out) */
+.nav-component-row.nav-locked {
+    opacity: 0.35;
+    cursor: not-allowed;
+    background: rgba(255, 68, 68, 0.08);
+}
+
+.nav-component-row.nav-locked:hover {
+    opacity: 0.55;
+    background: rgba(255, 68, 68, 0.15);
+}
+
+.nav-component-row.nav-locked .lock-icon {
+    opacity: 1;
+}
+
+/* Nav panel lock icon */
+.nav-lock-icon {
+    font-size: 11px;
+    cursor: help;
+    flex-shrink: 0;
+}
+
+/* Nav panel component type and identifier */
+.nav-comp-type {
+    color: #ffff00;
+    font-weight: 500;
+}
+
+.nav-comp-identifier {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    margin-left: 4px;
+}
+
+/* Nav panel capable count badge */
+.nav-capable-count {
+    font-size: 0.75em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+/* Active action highlight in nav panel */
+.nav-action-item.nav-active {
+    border-left: 3px solid #ffff00;
+    background: rgba(255, 255, 0, 0.05);
+    padding-left: 6px;
+    margin-left: -6px;
+}
+
+.nav-action-item.nav-active .nav-action-name {
+    color: #ffff00;
+}

@@ -7,6 +7,10 @@ import { SelectionController } from './SelectionController.js';
 import { SynergyPreviewController } from './SynergyPreviewController.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { EventDispatcher } from './EventDispatcher.js';
+import { StatBarsManager } from './StatBarsManager.js';
+import { ComponentViewer } from './ComponentViewer.js';
+import { NavActionsPanel } from './NavActionsPanel.js';
+import { ConfigBarManager } from './ConfigBarManager.js';
 
 /**
  * ClientApp
@@ -18,10 +22,14 @@ import { EventDispatcher } from './EventDispatcher.js';
  * - SynergyPreviewController: Synergy preview + range calculation
  * - ActionExecutor: All action execution handlers
  * - EventDispatcher: Socket + DOM event listener management
+ * - StatBarsManager: Configurable stat bar visualization
+ * - ComponentViewer: Component detail overlay panel
+ * - NavActionsPanel: Navigation & actions overlay panel
+ * - ConfigBarManager: Top config bar management
  */
 export class ClientApp {
     constructor() {
-        // 1. Available actions cache (needed by ActionExecutor)
+        // 1. Available actions cache
         this.availableActions = {};
 
         // 2. Instantiate core modules
@@ -35,10 +43,16 @@ export class ClientApp {
             this.worldState,
             this.ui,
             this.actions,
-            null, // synergy controller (we pass this via fetchPreview)
+            null, // synergy controller (passed via fetchPreview)
             this // self-reference for callbacks
         );
         this.synergy = new SynergyPreviewController(this.actions, AppConfig);
+
+        // 4. New modules for three-section layout
+        this.statBars = new StatBarsManager(this.ui, this.worldState);
+        this.componentViewer = new ComponentViewer(this.ui, this.statBars);
+        this.navActions = new NavActionsPanel(this.ui);
+
         this.executor = new ActionExecutor(
             this.worldState,
             this.actions,
@@ -49,14 +63,55 @@ export class ClientApp {
             this.availableActions
         );
 
-        // 4. Socket connection
+        // 5. Config bar manager (wires everything together)
+        this.configBar = new ConfigBarManager({
+            uiManager: this.ui,
+            componentViewer: this.componentViewer,
+            statBarsManager: this.statBars,
+            navActionsPanel: this.navActions,
+            worldStateManager: this.worldState,
+            onMoveEntity: (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
+            onExecuteAction: (actionName, entityId, componentId, componentIdentifier) => {
+                // Toggle component selection for the action, then execute if components selected
+                if (entityId && actionName) {
+                    this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
+                    // If component was selected (not toggled off), execute the action
+                    if (this.selection.getSelectedComponentIds().size > 0) {
+                        const pending = this.actions.getPendingAction();
+                        if (pending) {
+                            // For non-targeting actions, execute immediately
+                            const actionData = this.availableActions[actionName];
+                            if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
+                                this.executor.executeAction(actionName, entityId, componentId, componentIdentifier);
+                            }
+                        }
+                    }
+                }
+            },
+            onGetSelectionState: () => ({
+                activeActionName: this.selection.getActiveActionName(),
+                selectedComponentIds: this.selection.getSelectedComponentIds(),
+                crossActionSelections: this.selection.crossActionSelections
+            }),
+            onGrayedComponentCallback: (lockedActionName, componentId) => {
+                this.selection.removeGrayedComponent(lockedActionName, componentId);
+            },
+        });
+
+        // 6. Socket connection
         this.socket = io();
 
-        // 5. Wire event dispatcher with handler callbacks
+        // 7. Wire event dispatcher with handler callbacks
         this.dispatcher = new EventDispatcher(this.socket, AppConfig, {
             setMyEntityId: (entityId) => this.worldState.setMyEntityId(entityId),
             refreshWorldAndActions: () => this.refreshWorldAndActions(),
             handleError: (err) => this.errorController.handleError(err),
+            // Immediate stat bar update from socket payload (before full refresh)
+            // Sync WorldStateManager.state first so getActiveDroid() reads fresh data
+            onStatBarsUpdate: (state) => {
+                this.worldState.state = state;
+                this.statBars.updateAll(state);
+            },
             moveToTarget: (actionName, entityId, targetX, targetY) =>
                 this.actions.moveToTarget(actionName, entityId, targetX, targetY),
             executeMultiComponentSpatial: (actionName, entityId, componentIds, extraParams) =>
@@ -75,7 +130,7 @@ export class ClientApp {
             _reRenderActionList: () => this.updateActionList()
         });
 
-        // 6. Setup event listeners
+        // 8. Setup event listeners
         this._setupListeners();
 
         console.log('%c[ClientApp] 🚀 Modules initialized', 'color: #00ff00; font-weight: bold;');
@@ -98,7 +153,6 @@ export class ClientApp {
                 {} // extraHandlers already wired in constructor
             );
         }
-
     }
 
     /**
@@ -107,6 +161,12 @@ export class ClientApp {
     async init() {
         console.log('%c[ClientApp] 🚀 Initializing System...', 'color: #00ff00; font-weight: bold;');
         try {
+            // Initialize new modules
+            this.statBars.init();
+            this.componentViewer.init();
+            this.navActions.init();
+            this.configBar.init();
+
             await this.refreshWorldAndActions();
         } catch (error) {
             this.errorController.handleError({
@@ -128,7 +188,7 @@ export class ClientApp {
             this.ui.updateWorldView(
                 this.worldState.getState(),
                 droid,
-                (entityId, targetId) => this.executor.executeMoveDroid(entityId, targetId)
+                (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId)
             );
 
             // Re-render entities and components with callbacks
@@ -143,9 +203,16 @@ export class ClientApp {
                     (entity) => this.ui.showEntityDetails(entity, state),
                     (comp, stats) => this.ui.showComponentDetails(comp, stats)
                 );
+
+                // Update stat bars with current state
+                this.statBars.updateAll(state);
             }
 
             await this.updateActionList();
+
+            // Update NavActionsPanel if it's currently open
+            this._updateNavActionsPanelIfOpen();
+
             this.ui.hideStatus();
         } catch (error) {
             console.error('[ClientApp] Refresh failed:', error);
@@ -159,11 +226,16 @@ export class ClientApp {
     /**
      * Callback invoked by SelectionController after any selection change.
      * Triggers UI re-render and synergy preview update.
+     * Also updates NavActionsPanel if it's currently open so cross-action selection
+     * highlighting is immediately visible without a full refresh.
      * Called from: SelectionController.toggleComponent(), removeGrayedComponent(), clearAllSelections()
      * @private
      */
     onSelectionChange() {
         this.updateActionList();
+
+        // Update NavActionsPanel if it's open so cross-action highlighting updates immediately
+        this._updateNavActionsPanelIfOpen();
 
         const componentIds = this.selection.getSelectedComponentIdsArray();
         const entityId = this.worldState.getMyEntityId();
@@ -192,9 +264,13 @@ export class ClientApp {
                 const state = this.worldState.getState();
                 if (droid && state) {
                     const actionData = this.availableActions[pending.actionName];
-                    const synergyMultiplier = this.synergy.getCachedSynergyResult()
-                        ? parseFloat(this.synergy.getCachedSynergyResult().synergyMultiplier) || 1.0
+
+                    // Compute live synergy multiplier from selected components for accurate range
+                    const selectedIds = this.selection.getSelectedComponentIdsArray();
+                    const synergyMultiplier = selectedIds.length > 0
+                        ? await this.synergy.computeSynergyMultiplier(pending.actionName, entityId, selectedIds)
                         : 1.0;
+
                     const range = this.synergy.calculateRange(
                         pending.actionName, actionData, droid, state, synergyMultiplier
                     );
@@ -206,18 +282,7 @@ export class ClientApp {
                 }
             }
 
-            const crossMap = this.selection.buildCrossMap();
-
-            this.ui.renderActionList(
-                this.availableActions,
-                pending,
-                (actionName, entityId, compId, compIdentifier) =>
-                    this.selection.toggleComponent(actionName, entityId, compId, compIdentifier),
-                this.selection.getActiveActionName(),
-                this.selection.getSelectedComponentIds(),
-                crossMap,
-                (lockedActionName, compId) => this.selection.removeGrayedComponent(lockedActionName, compId)
-            );
+            // renderActionList removed: NavActionsPanel handles action list rendering
         } catch (error) {
             console.error('[ClientApp] Action list update failed:', error);
             this.errorController.handleError({
@@ -225,6 +290,47 @@ export class ClientApp {
                 message: error.message
             });
         }
+    }
+
+    /**
+     * Updates the NavActionsPanel if it's currently open.
+     * Re-renders the panel content with fresh room and action data.
+     * @private
+     */
+    _updateNavActionsPanelIfOpen() {
+        if (!this.navActions._overlay || this.navActions._overlay.style.display !== 'block') {
+            return;
+        }
+
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        const room = droid?.location ? state?.rooms?.[droid.location] : null;
+
+        this.navActions.updateRoom(
+            room,
+            this.availableActions,
+            this.worldState.getMyEntityId(),
+            (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
+            (actionName, entityId, compId, compIdentifier) => {
+                // Toggle component selection for the action, then execute if components selected
+                if (entityId && actionName) {
+                    this.selection.toggleComponent(actionName, entityId, compId, compIdentifier);
+                    if (this.selection.getSelectedComponentIds().size > 0) {
+                        const pending = this.actions.getPendingAction();
+                        if (pending) {
+                            const actionData = this.availableActions[actionName];
+                            if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
+                                this.executor.executeAction(actionName, entityId, compId, compIdentifier);
+                            }
+                        }
+                    }
+                }
+            },
+            this.selection.getActiveActionName(),
+            this.selection.getSelectedComponentIds(),
+            this.selection.buildCrossMap(),
+            (lockedActionName, compId) => this.selection.removeGrayedComponent(lockedActionName, compId)
+        );
     }
 
     /**

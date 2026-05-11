@@ -138,27 +138,61 @@ class SynergyPreviewController {
     }
 
     /**
+     * Computes the synergy multiplier from a list of component IDs.
+     * Uses the server-side synergy computation for accurate results.
+     *
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID.
+     * @param {Array<string>} componentIds - Array of component IDs.
+     * @returns {Promise<number>} The computed synergy multiplier (defaults to 1.0).
+     */
+    async computeSynergyMultiplier(actionName, entityId, componentIds) {
+        if (!componentIds || componentIds.length < 1) {
+            return 1.0;
+        }
+
+        try {
+            const componentPayload = componentIds.map(compId => ({
+                componentId: compId,
+                role: 'source'
+            }));
+
+            const preview = await this.actions.previewActionData(
+                actionName,
+                entityId,
+                componentPayload
+            );
+
+            if (preview && preview.synergyResult) {
+                const multiplier = parseFloat(preview.synergyResult.synergyMultiplier);
+                return isNaN(multiplier) ? 1.0 : multiplier;
+            }
+        } catch (error) {
+            console.warn('[SynergyPreviewController] computeSynergyMultiplier failed, using 1.0', error);
+        }
+
+        return 1.0;
+    }
+
+    /**
      * Calculates the effective range of an action.
      *
-     * For actions with explicit `range` in action data: returns that value.
      * For MOVE/DASH actions:
      * - Finds the component with the highest move stat
      * - Applies the synergy multiplier to the move stat
      * - Returns effective range (for DASH: effectiveMove * DASH_RANGE multiplier)
      *
+     * NOTE: For accurate range with synergy, use `computeSynergyMultiplier()` first
+     * and pass the result as synergyMultiplier. The cached result may be stale.
+     *
      * @param {string} actionName - The action name to calculate range for.
-     * @param {Object} actionData - The action definition (may contain explicit `range`).
+     * @param {Object} actionData - The action definition.
      * @param {DroidEntity} droid - The droid entity object.
      * @param {GameState} state - The game state object.
-     * @param {number} [synergyMultiplier=1.0] - Synergy multiplier from current preview.
+     * @param {number} [synergyMultiplier=1.0] - Synergy multiplier (should be from live computation).
      * @returns {number|null} Effective range, or null if calculation is not possible.
      */
     calculateRange(actionName, actionData, droid, state, synergyMultiplier = 1.0) {
-        // Return explicit range if defined in action data
-        if (actionData && typeof actionData.range === 'number' && actionData.range > 0) {
-            return actionData.range;
-        }
-
         // Check if config has ACTIONS constants, fall back to string comparison
         const isMove = actionName === (this.config.ACTIONS?.MOVE || 'move');
         const isDash = actionName === (this.config.ACTIONS?.DASH || 'dash');

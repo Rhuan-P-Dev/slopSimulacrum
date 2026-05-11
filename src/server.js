@@ -21,3 +21,6 @@ socketLifecycle.registerHandlers();
 
 // 5. Register all routes
 registerRoutes(app, llmController, worldStateController, broadcastService);
+
+// 6. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
+worldStateController.setBroadcastService(broadcastService);

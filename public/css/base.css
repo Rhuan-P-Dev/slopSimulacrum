@@ -11,6 +11,20 @@
     --text-main: #fff;
     --text-dim: #aaa;
     --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+
+    /* Config bar & layout */
+    --config-bar-bg: #1a1a1a;
+    --config-bar-border: #333;
+    --overlay-bg: rgba(10, 10, 10, 0.95);
+    --stat-bar-bg: #111;
+    --stat-bar-height: 32px;
+
+    /* Trait default colors */
+    --color-physical: #00ff00;
+    --color-mind: #00bfff;
+    --color-spatial: #888888;
+    --color-movement: #ffaa00;
+    --color-custom: #ff00ff;
 }
 
 body {
@@ -18,11 +32,12 @@ body {
     background-color: var(--bg-black);
     color: var(--neon-green);
     margin: 0;
-    padding: 20px;
+    padding: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     overflow-x: hidden;
+    min-height: 100vh;
 }
 
 h1 {
@@ -31,5 +46,8 @@ h1 {
     border-bottom: 2px solid var(--neon-green);
     padding-bottom: 10px;
     text-shadow: var(--glow);
-    margin-bottom: 30px;
+    margin: 15px 0 0 0;
+    width: 100%;
+    text-align: center;
+    font-size: 1.4em;
 }

@@ -86,7 +86,15 @@ class WorldStateController {
         // This enables automatic capability re-evaluation when component stats change
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+            // Trigger broadcast if broadcastService is available
+            if (this._broadcastService) {
+                this._broadcastService.broadcast();
+            }
         });
+
+        // 8. Broadcast service (injected via setBroadcastService() from server.js)
+        /** @private {WorldStateBroadcastService|null} */
+        this._broadcastService = null;
 
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
@@ -396,6 +404,19 @@ class WorldStateController {
      */
     getLockedComponents(entityId) {
         return this.actionSelectController.getLockedComponents(entityId);
+    }
+
+    // =========================================================================
+    // BROADCAST SERVICE INJECTION
+    // =========================================================================
+
+    /**
+     * Injects the broadcast service for stat-change-driven broadcasts.
+     * Called from server.js after WorldStateController is fully initialized.
+     * @param {WorldStateBroadcastService} broadcastService - The broadcast service instance.
+     */
+    setBroadcastService(broadcastService) {
+        this._broadcastService = broadcastService;
     }
 }
 

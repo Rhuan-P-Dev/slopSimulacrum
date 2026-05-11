@@ -11,6 +11,7 @@
  * @property {function(string): void} [setMyEntityId]
  * @property {function(): Promise<void>} [refreshWorldAndActions]
  * @property {function(Object): void} [handleError]
+ * @property {function(Object): void} [onStatBarsUpdate] - Called with state object to immediately update stat bars
  * @property {function(string, string, Object): Promise<void>} [moveToTarget]
  * @property {function(string, string, string[], Object): Promise<void>} [executeMultiComponentSpatial]
  * @property {function(Object, number, number, Set<string>): Promise<void>} [executePunch]
@@ -48,7 +49,7 @@ class EventDispatcher {
      * Sets up socket.io listeners for real-time server communication.
      *
      * - 'incarnate': Sets entity ID and triggers full refresh.
-     * - 'world-state-update': Triggers full refresh.
+     * - 'world-state-update': Triggers immediate stat bar update + full refresh.
      * - 'error': Delegates to error handler.
      */
     setupSocketListeners() {
@@ -62,8 +63,13 @@ class EventDispatcher {
                     this.handlers.refreshWorldAndActions();
                 }
             },
-            'world-state-update': () => {
-                console.log('[EventDispatcher] WORLD STATE UPDATE SIGNAL');
+            'world-state-update': (data) => {
+                console.log('[EventDispatcher] WORLD STATE UPDATE SIGNAL', data?.state ? '(with payload)' : '(no payload)');
+                // Immediately update stat bars with the state payload (fast path)
+                if (this.handlers.onStatBarsUpdate && data?.state) {
+                    this.handlers.onStatBarsUpdate(data.state);
+                }
+                // Then do full refresh for other UI components
                 if (this.handlers.refreshWorldAndActions) {
                     this.handlers.refreshWorldAndActions();
                 }

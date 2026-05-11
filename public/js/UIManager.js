@@ -9,19 +9,35 @@ export class UIManager {
     constructor() {
         // Cache frequently used DOM elements
         this.elements = {
+            // Status
             status: document.getElementById('status'),
+            // Room info
             roomName: document.getElementById('current-room-name'),
             roomDesc: document.getElementById('current-room-desc'),
             roomCoords: document.getElementById('current-room-coords'),
-            navButtons: document.getElementById('nav-buttons'),
-            activeDroidId: document.getElementById('active-droid-id'),
+            // SVG layers
             roomLayer: document.getElementById('room-layer'),
             entitiesLayer: document.getElementById('entities-layer'),
             componentsLayer: document.getElementById('components-layer'),
+            // Action list element (moved to NavActionsPanel, no longer used)
             actionList: document.getElementById('action-list'),
+            // Detail overlay
             detailOverlay: document.getElementById('detail-overlay'),
             detailContent: document.getElementById('detail-content'),
             closeDetailsBtn: document.getElementById('close-details-btn'),
+            // Config bar
+            configBar: document.getElementById('config-bar'),
+            // Stat bars
+            statBarsSection: document.getElementById('stat-bars-section'),
+            statBarsContainer: document.getElementById('stat-bars-container'),
+            // Overlays
+            componentViewerOverlay: document.getElementById('component-viewer-overlay'),
+            componentViewerContent: document.getElementById('component-viewer-content'),
+            navActionsOverlay: document.getElementById('nav-actions-overlay'),
+            navActionsContent: document.getElementById('nav-actions-content'),
+            // Add stat dialog
+            addStatDialog: document.getElementById('add-stat-dialog'),
+            addStatDialogOverlay: document.getElementById('add-stat-dialog-overlay'),
         };
 
         this._setupEventListeners();
@@ -41,7 +57,7 @@ export class UIManager {
      * @param {Function} onComponentClick
      */
     updateEntityAndComponentViews(room, entities, droid, state, onEntityClick, onComponentClick) {
-        this._renderEntities(room, entities, onEntityClick);
+        this._renderEntities(room, entities, onEntityClick, droid?.id);
         this._renderDroidComponents(droid, state, onComponentClick);
     }
 
@@ -65,22 +81,19 @@ export class UIManager {
         const room = state.rooms[droid.location];
 
         // Update Text Info
-        this.elements.activeDroidId.textContent = droid.id;
         this.elements.roomName.textContent = room.name;
         this.elements.roomDesc.textContent = room.description;
         this.elements.roomCoords.textContent = `Room Size: ${room.width}x${room.height}`;
 
-        this._renderNavButtons(room, droid.id, onMoveCallback);
+        // Render map layers
         this._renderRoom(room);
-        this._renderEntities(room, state.entities);
+        this._renderEntities(room, state.entities, null, droid.id);
         this._renderDroidComponents(droid, state);
     }
 
     _renderEmptyState() {
         this.elements.roomName.textContent = "No Droid Found";
         this.elements.roomDesc.textContent = "The simulation is empty.";
-        this.elements.navButtons.innerHTML = "";
-        this.elements.activeDroidId.textContent = "None";
         this.elements.roomCoords.textContent = "";
         this.elements.roomLayer.innerHTML = '';
         this.elements.entitiesLayer.innerHTML = '';
@@ -163,7 +176,7 @@ export class UIManager {
         roomLayer.appendChild(group);
     }
 
-    _renderEntities(room, entities, onEntityClick) {
+    _renderEntities(room, entities, onEntityClick, activeDroidId) {
         const entitiesLayer = this.elements.entitiesLayer;
         entitiesLayer.innerHTML = '';
 
@@ -177,7 +190,7 @@ export class UIManager {
             marker.setAttribute("cx", entityX);
             marker.setAttribute("cy", entityY);
             marker.setAttribute("r", AppConfig.MARKER_SIZES.ENTITY_RADIUS);
-            marker.setAttribute("fill", entity.id === this.elements.activeDroidId.textContent ? AppConfig.COLORS.ENTITY_ACTIVE : AppConfig.COLORS.ENTITY_DEFAULT);
+            marker.setAttribute("fill", entity.id === activeDroidId ? AppConfig.COLORS.ENTITY_ACTIVE : AppConfig.COLORS.ENTITY_DEFAULT);
             marker.setAttribute("class", `entity-marker`);
             marker.setAttribute("filter", "url(#glow)");
 
@@ -226,133 +239,6 @@ export class UIManager {
             }
 
             componentsLayer.appendChild(marker);
-        });
-    }
-
-    /**
-     * Renders the action list in the control panel.
-     * Uses click-to-toggle selection model:
-     * - Click component row → toggle selection in active action
-     * - Components selected in active action → highlighted
-     * - Components selected in OTHER actions → grayed out (cross-action conflict)
-     * - Click grayed component → clear the conflict (deselect from other action)
-     *
-     * @param {Object} actions The list of available actions.
-     * @param {Object|null} pendingAction The currently pending targeting action.
-     * @param {Function} onComponentToggle Callback when component is toggled: (actionName, entityId, componentId, componentIdentifier).
-     * @param {string|null} activeActionName The action currently being selected into.
-     * @param {Set<string>} selectedComponentIds Components currently selected for activeActionName.
-     * @param {Map<string, Set<string>>} crossActionSelections Map of actionName → Set of selected component IDs (for other actions).
-     * @param {Function} onGrayedComponentClick Callback when a grayed (cross-action) component is clicked.
-     */
-    renderActionList(actions, pendingAction, onComponentToggle, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
-        const actionListEl = this.elements.actionList;
-        if (!actions || Object.keys(actions).length === 0) {
-            actionListEl.innerHTML = '<em class="text-muted">No actions available.</em>';
-            return;
-        }
-
-        // Normalize
-        const selectedSet = selectedComponentIds ? new Set(selectedComponentIds) : new Set();
-
-        // Build a map: componentId → actionName (for cross-action graying)
-        const componentToActionMap = new Map();
-        if (crossActionSelections) {
-            for (const [actionName, compSet] of crossActionSelections) {
-                for (const compId of compSet) {
-                    componentToActionMap.set(compId, actionName);
-                }
-            }
-        }
-
-        let html = '';
-        for (const [actionName, actionData] of Object.entries(actions)) {
-            const isThisActive = actionName === activeActionName;
-
-            const capableHtml = (actionData.canExecute || []).map(entry => {
-                const canExecute = entry.requirementsStatus.every(rs => rs.current >= rs.required);
-                const isSelected = isThisActive && selectedSet.has(entry.componentId);
-                const grayedByAction = isSelected ? null : componentToActionMap.get(entry.componentId);
-
-                const reqStatusText = entry.requirementsStatus
-                    .map(rs => `${rs.trait}.${rs.stat}: ${rs.current}/${rs.required}`)
-                    .join('<br>');
-
-                // Determine row class
-                let rowClass = 'action-capable clickable';
-                if (isSelected) rowClass += ' action-selected';
-                if (grayedByAction) rowClass += ' component-locked';
-
-                // Lock icon with tooltip showing which action it's locked to
-                const lockIcon = grayedByAction
-                    ? `<span class="lock-icon" title="Selected in '${grayedByAction}'">🔒</span>`
-                    : '';
-
-                return `
-                    <div class="${rowClass}"
-                         data-action="${actionName}"
-                         data-entity="${entry.entityId}"
-                         data-comp-id="${entry.componentId}"
-                         data-comp-name="${entry.componentType}"
-                         data-comp-identifier="${entry.componentIdentifier}"
-                         data-can-execute="${canExecute}">
-                         ${lockIcon}
-                         <span class="component-name">${entry.componentType} (${entry.componentIdentifier})</span>
-                         <span class="${canExecute ? 'status-ok' : 'status-fail'}">${reqStatusText}</span>
-                     </div>`;
-            }).join('');
-
-            const incapableHtml = (actionData.cannotExecute || []).map(entity => {
-                let statusText = `${entity.componentName} (${entity.componentIdentifier}) cannot execute`;
-                if (entity.stats) {
-                    const statStrings = (actionData.requirements || []).filter(req =>
-                        entity.stats[req.trait] && entity.stats[req.trait][req.stat] !== undefined
-                    ).map(req => `${req.trait}.${req.stat}=${entity.stats[req.trait][req.stat]}`);
-
-                    if (statStrings.length > 0) {
-                        statusText = `${entity.componentName} (${entity.componentIdentifier}): ${statStrings.join(', ')} cannot execute`;
-                    }
-                }
-                return `<div class="action-req status-fail">${statusText}</div>`;
-            }).join('');
-
-            // Highlight the active action header
-            const actionItemClass = isThisActive ? 'action-item action-active' : 'action-item';
-
-            html += `
-                <div class="${actionItemClass}">
-                    <div class="action-name">${actionName}</div>
-                    <div class="action-capabilities">
-                        ${capableHtml || '<em class="text-muted-light">No capable components found</em>'}
-                    </div>
-                    ${incapableHtml}
-                </div>`;
-        }
-        actionListEl.innerHTML = html;
-
-        // Attach click events to component rows
-        actionListEl.querySelectorAll('.clickable').forEach(el => {
-            el.onclick = () => {
-                const actionName = el.dataset.action;
-                const entityId = el.dataset.entity;
-                const componentId = el.dataset.compId;
-                const componentIdentifier = el.dataset.compIdentifier;
-                const canExecute = el.dataset.canExecute === 'true';
-                const grayedByAction = componentToActionMap.get(componentId);
-
-                // If grayed (locked to another action), call the grayed handler
-                if (grayedByAction && actionName !== activeActionName) {
-                    if (onGrayedComponentClick) {
-                        onGrayedComponentClick(grayedByAction, componentId);
-                    }
-                    return;
-                }
-
-                // Normal toggle
-                if (canExecute) {
-                    onComponentToggle(actionName, entityId, componentId, componentIdentifier);
-                }
-            };
         });
     }
 
