@@ -21,11 +21,13 @@ To ensure maintainability and separation of concerns, the frontend utilizes a mo
     - `Config.js`: Centralized configuration and constants.
     - `WorldStateManager.js`: Manages state synchronization and the "Single Source of Truth".
     - `UIManager.js`: Handles all DOM/SVG rendering and user interface interactions.
-    - `ActionManager.js`: Manages action execution and the movement target-selection flow.
+    - `ActionExecutor.js`: Manages all action execution handlers with distinct logic patterns.
     - `ClientErrorController.js`: Handles the resolution and formatting of system errors.
     - `StatBarsManager.js`: Manages configurable stat bar visualization.
     - `ComponentViewer.js`: Manages the 🗿️ component viewer overlay panel.
-    - `NavActionsPanel.js`: Manages the 👍 navigation & actions floating panel.
+    - `NavActionsPanel.js`: Manages the ⚔️ actions floating panel.
+    - `WorldMapView.js`: Manages the 🌐 world map overlay panel.
+    - `RoomConnectionRenderer.js`: Renders connection arrows on the spatial map.
     - `ConfigBarManager.js`: Manages the top config bar and panel coordination.
 
 ## 2. Layout Architecture
@@ -38,7 +40,7 @@ The UI uses a three-section vertical layout:
 │  🤖 SlopSimulacrum Terminal                              │
 ├──────────────────────────────────────────────────────────┤
 │  TOP: ⚙️ Config Bar (height: 50px, sticky)              │
-│  [🗿️ Components] [👍 Nav/Actions] [➕ Add Stat] [🎨 Colors]│
+│  [🗿️ Components] [⚔️ Actions] [🌐 World Map] [➕ Add Stat] [🎨 Colors]│
 ├──────────────────────────────────────────────────────────┤
 │  MIDDLE: 🛰️ Spatial Map (flex-grow: 1, fills remaining)  │
 │  [SVG Map fills available space]                         │
@@ -64,9 +66,10 @@ Two overlay panels are accessible from the config bar:
 | Panel | Trigger | Description |
 |-------|---------|-------------|
 | 🗿️ Component Viewer | `#btn-component-viewer` | Clickable grid of all droid components with stats as clickable badges |
-| 👍 Nav/Actions | `#btn-nav-actions` | Navigation buttons + action registry (moved from old right panel) |
+| ⚔️ Actions | `#btn-nav-actions` | Action registry — panel title changed to "⚔️ Actions" (navigation moved to spatial map) |
+| 🌐 World Map | `#btn-world-map` | Full world map overlay showing all rooms and connections |
 
-Both panels are absolutely positioned floating divs (`position: absolute; top: 60px; right: 20px; z-index: 100`).
+Both panels and the world map overlay are absolutely positioned floating divs (`position: absolute; top: 60px; right: 20px; z-index: 100`).
 
 ### 2.3. Add Stat Dialog
 A centered modal dialog (`#add-stat-dialog`) for configuring new stat bars:
@@ -141,8 +144,9 @@ A toggleable overlay (`#detail-overlay`) that appears when a droid marker is cli
 - **Tactical Targeting HUD**: For component-targeted attacks.
 
 ### 3.5. Navigation Console
-Navigation buttons are now rendered inside the 👍 floating panel (`#nav-actions-overlay`).
-Buttons are dynamically generated based on the `connections` object of the current room.
+Navigation is now handled through two mechanisms:
+1. **Spatial Map Arrows**: Directional arrows drawn on the spatial map showing connections to adjacent rooms, labeled with the destination room name.
+2. **World Map Overlay**: The 🌐 overlay shows all rooms as nodes; clicking a room node moves the droid there.
 
 ### 3.6. NavActionsPanel Multi-Component Selection
 The NavActionsPanel supports multi-component selection with visual highlighting and cross-action locking.
@@ -180,16 +184,36 @@ sequenceDiagram
     App->>App: onSelectionChange() → updateActionList()
     App->>NavPanel: updateRoom(room, actions, selectionState)
     NavPanel->>NavPanel: Re-render with new selection state
-
-    User->>NavPanel: Click "Go [door]"
-    NavPanel->>App: executeMoveDroid(entityId, targetRoomId)
-    App->>Server: POST move entity
-    Server-->>App: Success
-    App->>Server: GET world-state + actions
-    Server-->>App: New state
-    App->>NavPanel: updateRoom(newRoom, newActions, selectionState)
-    NavPanel->>NavPanel: Re-render with new room data
 ```
+
+### 3.7. World Map Overlay Interaction
+
+| User Action | Result |
+|-------------|--------|
+| Click 🌐 button in config bar | Toggles world map overlay visibility |
+| Click room node on world map | Moves the droid to the selected room |
+| Drag on world map | Pans the map view |
+| Scroll on world map | Zooms the map view |
+| Click ✕ on overlay | Hides the overlay |
+
+### 3.8. World Map Overlay Integration
+
+**Config Bar Button:** 🌐 button (`#btn-world-map`) in `public/index.html`
+- Toggled via `ConfigBarManager._onWorldMapClick()`
+- Wires to `WorldMapView.toggle()` via `onToggleWorldMap` callback
+
+**Integration with App.js:**
+- `ClientApp.init()` calls `this.worldMap.init()` during boot sequence
+- `ConfigBarManager` receives `onToggleWorldMap` callback from `App.js`
+
+### 3.9. Room Connection Arrows (In-Map)
+
+**Renderer:** `RoomConnectionRenderer.js`
+- Draws SVG arrows between the current room and connected rooms
+- Called from `UIManager.renderRoomConnections()` → `UIManager.updateWorldView()`
+- Edge-to-edge line calculation based on room coordinates
+- Arrowhead at the destination edge
+- Label at midpoint showing `→ Destination Room Name`
 
 **CSS Files:**
 - `.nav-action-item` — panel action container

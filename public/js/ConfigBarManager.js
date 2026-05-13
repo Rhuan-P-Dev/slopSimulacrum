@@ -2,7 +2,8 @@
  * ConfigBarManager
  * Manages the top configuration bar with:
  * - 🗿️ Component Viewer toggle
- * - 👍 Navigation & Actions toggle
+ * - 👍 Actions toggle
+ * - 🌐 World Map toggle
  * - ➕ Add Stat Bar dialog
  * - 🎨 Color Scheme panel (placeholder)
  *
@@ -18,6 +19,7 @@ export class ConfigBarManager extends EventDispatcher {
      * @param {import('./ComponentViewer.js').ComponentViewer} options.componentViewer - The ComponentViewer instance.
      * @param {import('./StatBarsManager.js').StatBarsManager} options.statBarsManager - The StatBarsManager instance.
      * @param {import('./NavActionsPanel.js').NavActionsPanel} options.navActionsPanel - The NavActionsPanel instance.
+     * @param {import('./WorldMapView.js').WorldMapView} options.worldMapView - The WorldMapView instance.
      * @param {import('./WorldStateManager.js').WorldStateManager} options.worldStateManager - The WorldStateManager instance.
      * @param {Function} options.onMoveEntity - Callback for entity movement (entityId, targetRoomId).
      */
@@ -32,6 +34,8 @@ export class ConfigBarManager extends EventDispatcher {
         /** @private */
         this._navActionsPanel = options.navActionsPanel;
         /** @private */
+        this._worldMapView = options.worldMapView || null;
+        /** @private */
         this._worldStateManager = options.worldStateManager;
         /** @private */
         this._onMoveEntity = options.onMoveEntity || null;
@@ -41,6 +45,8 @@ export class ConfigBarManager extends EventDispatcher {
         this._onGetSelectionState = options.onGetSelectionState || null;
         /** @private {Function|null} */
         this._onGrayedComponentCallback = options.onGrayedComponentCallback || null;
+        /** @private {Function|null} */
+        this._onToggleWorldMap = options.onToggleWorldMap || null;
         /** @private {HTMLElement|null} */
         this._configBar = null;
     }
@@ -60,6 +66,7 @@ export class ConfigBarManager extends EventDispatcher {
     _setupListeners() {
         const btnComponentViewer = document.getElementById('btn-component-viewer');
         const btnNavActions = document.getElementById('btn-nav-actions');
+        const btnWorldMap = document.getElementById('btn-world-map');
         const btnAddStat = document.getElementById('btn-add-stat');
         const btnColorScheme = document.getElementById('btn-color-scheme');
 
@@ -68,6 +75,9 @@ export class ConfigBarManager extends EventDispatcher {
         }
         if (btnNavActions) {
             btnNavActions.onclick = () => this._onNavActionsClick();
+        }
+        if (btnWorldMap) {
+            btnWorldMap.onclick = () => this._onWorldMapClick();
         }
         if (btnAddStat) {
             btnAddStat.onclick = () => this._onAddStatClick();
@@ -92,15 +102,14 @@ export class ConfigBarManager extends EventDispatcher {
     }
 
     /**
-     * Handles the 👍 Nav Actions button click.
-     * Toggles the navigation & actions overlay, showing current room and actions.
+     * Handles the 👍 Actions button click.
+     * Toggles the actions overlay, showing current actions.
      * If the panel is already open, updates the content instead of re-showing.
      * @private
      */
     _onNavActionsClick() {
         const droid = this._worldStateManager.getActiveDroid();
         const state = this._worldStateManager.getState();
-        const room = droid?.location ? state?.rooms?.[droid.location] : null;
 
         // Check if panel is already open
         const isPanelOpen = this._navActionsPanel?._overlay?.style.display === 'block';
@@ -118,10 +127,8 @@ export class ConfigBarManager extends EventDispatcher {
                 if (isPanelOpen) {
                     // Panel is open - update content without re-showing
                     this._navActionsPanel.updateRoom(
-                        room,
                         actions,
                         droid?.id,
-                        this._onMoveEntity,
                         this._onExecuteAction,
                         activeActionName,
                         selectedComponentIds,
@@ -130,7 +137,7 @@ export class ConfigBarManager extends EventDispatcher {
                     );
                 } else {
                     // Panel is closed - show it fresh
-                    this._navActionsPanel.show(room, actions, droid?.id, this._onMoveEntity, this._onExecuteAction, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick);
+                    this._navActionsPanel.show(actions, droid?.id, this._onExecuteAction, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick);
                 }
             }
         }).catch(() => {
@@ -144,10 +151,8 @@ export class ConfigBarManager extends EventDispatcher {
 
                 if (isPanelOpen) {
                     this._navActionsPanel.updateRoom(
-                        room,
                         {},
                         droid?.id,
-                        this._onMoveEntity,
                         this._onExecuteAction,
                         activeActionName,
                         selectedComponentIds,
@@ -155,10 +160,23 @@ export class ConfigBarManager extends EventDispatcher {
                         onGrayedComponentClick
                     );
                 } else {
-                    this._navActionsPanel.show(room, {}, droid?.id, this._onMoveEntity, this._onExecuteAction, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick);
+                    this._navActionsPanel.show({}, droid?.id, this._onExecuteAction, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick);
                 }
             }
         });
+    }
+
+    /**
+     * Handles the 🌐 World Map button click.
+     * Toggles the world map overlay.
+     * @private
+     */
+    _onWorldMapClick() {
+        if (this._onToggleWorldMap) {
+            this._onToggleWorldMap();
+        } else if (this._worldMapView) {
+            this._worldMapView.toggle();
+        }
     }
 
     /**
@@ -238,11 +256,21 @@ export class ConfigBarManager extends EventDispatcher {
     }
 
     /**
+     * Closes the world map overlay.
+     */
+    closeWorldMap() {
+        if (this._worldMapView) {
+            this._worldMapView.hide();
+        }
+    }
+
+    /**
      * Closes all overlays.
      */
     closeAllOverlays() {
         this.closeComponentViewer();
         this.closeNavActions();
+        this.closeWorldMap();
     }
 
     /**

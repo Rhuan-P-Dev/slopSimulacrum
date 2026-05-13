@@ -38,7 +38,11 @@ src/controllers/
 **Note:** `ComponentStatsController` and `TraitsController` are both bottom-level data stores instantiated first. `ComponentController` receives both as injected dependencies. The order in the diagram shows the logical dependency chain, not the instantiation sequence.
 
 **Client-Side Architecture (Modular JS):**
-`Config.js` → `WorldStateManager` → `UIManager` → `ClientErrorController` → `ActionManager` → `ClientApp` (Orchestrator)
+```
+Config.js → WorldStateManager → UIManager → RoomConnectionRenderer → WorldMapView → ClientErrorController → ActionExecutor → ClientApp (Orchestrator)
+                                                  ↓                              ↓
+                                          ConfigBarManager ←→ NavActionsPanel → ComponentViewer
+```
 
 ---
 
@@ -53,7 +57,8 @@ src/controllers/
 | **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging + Stat Change Notifications | `componentRegistry` (blueprint traits) |
 | **componentStatsController** | Data Store | Persisting raw stats with deep trait-level merge | `componentStats` (instance IDs → values) |
 | **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
-| **ActionController** | Action Coordinator | Action execution, capability caching, stat change re-evaluation, event notifications | `_capabilityCache`, `_traitStatActionIndex`, `_actionSubscribers` |
+| **ActionController** | Action Coordinator | Action execution, consequence handling, requirement validation | `actionRegistry` (action definitions), `componentsToRelease` (lock tracking) |
+| **ComponentCapabilityController** | Capability Cache Manager | Capability scanning, scoring, caching, stat change re-evaluation, event notifications | `_capabilityCache`, `_traitStatActionIndex`, `_actionSubscribers` |
 
 ### Utility Layer (Extracted Business Logic)
 
@@ -65,6 +70,24 @@ src/controllers/
 | **Logger** | Structured Logging | Centralized logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`) | All controllers |
 | **DataLoader** | JSON Configuration | Loading and parsing JSON data files from `data/` directory | All controllers |
 | **Constants** | Application Constants | Magic numbers extracted to named constants (`MAX_FILE_LINES`, `SYNERGY_BONUS_THRESHOLD`, etc.) | All files |
+| **WorldGraphBuilder** | World Graph Construction | Constructs navigable graph structure from room data with resolved connection names | WorldStateController |
+
+### Client-Side Utilities (Extracted Business Logic)
+
+| Utility | Role | Key Responsibility | Source Module |
+|---------|---------|---------|---------|
+| **ConfigBarManager** | Config Bar Management | Manages top config bar buttons, overlay coordination, and panel toggling | ClientApp |
+| **NavActionsPanel** | Actions Overlay | Manages actions panel with multi-component selection and cross-action locking | ClientApp |
+| **SelectionController** | Selection State | Component selection state, cross-action selections, action list coordination | ClientApp |
+| **SynergyPreviewController** | Synergy Preview | Synergy preview fetching, caching, and range calculation | ClientApp |
+| **ActionExecutor** | Action Execution | All action execution handlers with distinct logic patterns | ClientApp |
+| **EventDispatcher** | Event Management | Socket.io and DOM event listener management | ClientApp |
+| **WorldStateManager** | State Sync | World state synchronization with server | ClientApp |
+| **WorldMapView** | World Map Overlay | Full-screen overlay with interactive SVG world map showing all rooms and connections | ClientApp |
+| **RoomConnectionRenderer** | Connection Arrows | Renders SVG arrows on the spatial map showing room connections | UIManager |
+| **ClientErrorController** | Error Handling | Client-side error resolution and formatting | ClientApp |
+| **StatBarsManager** | Stat Bars | Configurable stat bar visualization | ClientApp |
+| **ComponentViewer** | Component Viewer | Component detail overlay panel | ClientApp |
 
 ---
 
@@ -129,12 +152,12 @@ When a component stat changes:
 4. → `componentStatsController.setStats(instanceId, { [traitId]: { [statName]: newValue } })`
 5. **Deep Trait-Level Merge**: `setStats()` merges within each trait category, preserving other stats in the same trait (e.g., updating `Physical.durability` does not erase `Physical.mass` or `Physical.strength`). See `wiki/subMDs/traits.md` Section 5 for details.
 6. → `_notifyStatChangeListeners(instanceId, traitId, statName, newValue, oldValue)`
-7. → `ActionController.onStatChange()` → `reEvaluateActionForComponent()` (if action depends on changed trait.stat)
+7. → `ComponentCapabilityController.onStatChange()` → `reEvaluateActionForComponent()` (if action depends on changed trait.stat)
 8. → `_notifySubscribers(actionName, entryOrRemovalMarker)` — notifies event subscribers with the updated entry or a `RemovalMarker` if removed
 
 ### 3.3. Action Capability Cache Flow
 
-The `ActionController` maintains a cache of best components for each action:
+The `ComponentCapabilityController` maintains a cache of best components for each action:
 
 1. **Initial Scan**: Performed during `WorldStateController` initialization after entities are spawned
 2. **Lazy Scan**: `getActionsForEntity()` and `getActionCapabilities()` trigger scan if cache is empty or entity missing
@@ -255,7 +278,7 @@ ActionController.executeAction()
 - **No `new` Keywords**: Do not instantiate controllers inside other controllers. Only `WorldStateController` may use `new` for controller setup.
 - **One-Way Flow**: State modifications should generally flow from top to bottom.
 - **Single Source of Truth**: Always use the injected controllers to access data; never cache state in a way that could desynchronize with the `componentStatsController`.
-- **Capability Cache**: The `ActionController` capability cache is automatically maintained. Do not manually clear it; rely on `scanAllCapabilities()` or stat change notifications.
+- **Capability Cache**: The `ComponentCapabilityController` capability cache is automatically maintained. Do not manually clear it; rely on `scanAllCapabilities()` or stat change notifications.
 - **Server API Access**: The server (`src/server.js`) must use `WorldStateController` public API methods (`spawnEntity`, `despawnEntity`, `moveEntity`, `getRoomUidByLogicalId`) instead of directly accessing sub-controllers. See `subMDs/controller_patterns.md` Section 5.1.
 - **Logging Standard**: All controllers must use the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`). The `LLMController` now uses `Logger` instead of `console.*` calls.
 
@@ -266,6 +289,7 @@ ActionController.executeAction()
 | `GET /action-capabilities/:actionName` | Returns best component for a specific action |
 | `GET /action-capabilities/entity/:entityId` | Returns capabilities for a specific entity |
 | `POST /refresh-entity-capabilities` | Re-evaluates all capabilities for an entity |
+| `GET /world-map` | Returns the world graph with resolved room names for all connections |
 
 ### 📢 Notice for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.

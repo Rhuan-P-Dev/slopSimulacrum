@@ -11,6 +11,7 @@ import ActionSelectController from './actions/actionSelectController.js';
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -350,6 +351,16 @@ class WorldStateController {
      */
     getRooms() {
         return this.roomsController.getAll();
+    }
+
+    /**
+     * Returns the world graph with resolved room names for all connections.
+     * @returns {Object} World graph structure.
+     */
+    getWorldGraph() {
+        const rooms = this.roomsController.getAll();
+        const builder = new WorldGraphBuilder(rooms);
+        return builder.build();
     }
 
     // =========================================================================

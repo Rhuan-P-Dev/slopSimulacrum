@@ -1,4 +1,5 @@
 import { AppConfig } from './Config.js';
+import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 
 /**
  * UIManager
@@ -87,6 +88,7 @@ export class UIManager {
 
         // Render map layers
         this._renderRoom(room);
+        this.renderRoomConnections(room, state.rooms);
         this._renderEntities(room, state.entities, null, droid.id);
         this._renderDroidComponents(droid, state);
     }
@@ -174,6 +176,19 @@ export class UIManager {
         group.appendChild(label);
         group.appendChild(coords);
         roomLayer.appendChild(group);
+
+        // Store reference to roomLayer for connection rendering
+        this._currentRoomLayer = roomLayer;
+    }
+
+    /**
+     * Renders connection lines/arrows between the current room and adjacent rooms.
+     * @param {Object} room - The current room object.
+     * @param {Object} rooms - Map of all rooms.
+     */
+    renderRoomConnections(room, rooms) {
+        if (!this._currentRoomLayer) return;
+        RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer);
     }
 
     _renderEntities(room, entities, onEntityClick, activeDroidId) {

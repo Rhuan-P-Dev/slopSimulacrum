@@ -139,6 +139,32 @@ The server exposes the following REST API:
 }
 ```
 
+**Endpoint:** `GET /world-map`
+**Description:** Returns the world graph with resolved room names for all connections.
+**Successful Response (200 OK):**
+```json
+{
+  "rooms": [
+    {
+      "id": "uid-xxx",
+      "name": "The Entrance Hall",
+      "x": 200, "y": 250, "width": 300, "height": 200,
+      "connections": [
+        { "door": "right_door", "targetId": "uid-yyy", "targetName": "The Eastern Corridor" }
+      ]
+    }
+  ]
+}
+```
+**Error Response (500 Internal Server Error):**
+```json
+{
+  "error": "Internal Server Error",
+  "details": "Error message"
+}
+```
+**Error Handling:** The endpoint wraps processing in try/catch. On error, logs via `Logger.error('/world-map endpoint error', ...)` and returns 500 status.
+
 **Endpoint:** `POST /move-entity`
 **Description:** Moves a specific entity to a target room.
 **Payload:**
@@ -167,7 +193,7 @@ A Node.js Express server integrated with Socket.io that:
 - Serves a static front-end from the `/public` directory.
 
 ### 3.2. Client
-- **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, and `ActionManager.js`) that visualize the world state and handle action execution.
+- **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, `ActionExecutor.js`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `ConfigBarManager.js`, `NavActionsPanel.js`, `ComponentViewer.js`, `StatBarsManager.js`, `SelectionController.js`, `ClientErrorController.js`) that visualize the world state and handle action execution.
 
 ---
 

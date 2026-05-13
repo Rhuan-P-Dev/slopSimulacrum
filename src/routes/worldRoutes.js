@@ -43,6 +43,23 @@ export function register(router, { worldStateController, broadcastService }) {
 	});
 
 	/**
+	 * GET /world-map
+	 * Returns the world graph with resolved room names for all connections.
+	 */
+	router.get('/world-map', (req, res) => {
+		try {
+			const graph = worldStateController.getWorldGraph();
+			res.json(graph);
+		} catch (error) {
+			Logger.error('/world-map endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message,
+			});
+		}
+	});
+
+	/**
 	 * POST /move-entity
 	 * Moves an entity to a different room.
 	 */

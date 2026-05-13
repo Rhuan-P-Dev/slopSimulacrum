@@ -23,6 +23,7 @@ The `WorldStateController` acts as the primary entry point for all state-related
 - **Dependency Injection**: As the Root Injector, `WorldStateController` is responsible for instantiating all sub-controllers in the correct order (bottom-up) and passing dependencies via constructors to ensure a single source of truth.
 - **Maintenance Responsibility**: Because it is the Root Injector, `WorldStateController` is the **only** place where the `new` keyword is used for controller instantiation. If a sub-controller's dependencies change, the wiring must be updated here, not within the sub-controller itself.
 - **Entity Integration**: The `stateEntityController` handles the current state of all entities in memory, delegating blueprint and component logic to the Entity-Component-Stats hierarchy.
+- **World Graph**: `getWorldGraph()` — Instantiates `WorldGraphBuilder` with rooms data and returns the constructed graph (used by `GET /world-map` endpoint).
 
 ### 2.2. RoomsController (`src/controllers/RoomsController.js`)
 The `RoomsController` manages the spatial layout of the world.
@@ -38,6 +39,13 @@ The `RoomsController` manages the spatial layout of the world.
 - **Containment**: Rooms track the IDs of elements within them via:
   - `objects`: An array of unique IDs for items/objects in the room.
   - `entities`: An array of unique IDs for NPCs or players in the room.
+
+### 2.2.1. WorldGraphBuilder (`src/utils/WorldGraphBuilder.js`)
+A utility class that constructs a navigable graph structure from room data:
+- Takes a rooms object from `RoomsController.getAll()`
+- Resolves connection door names to destination room names
+- Returns a defensive copy via `structuredClone()`
+- Used by `WorldStateController.getWorldGraph()`
 
 ### 2.3. stateEntityController (`src/controllers/stateEntityController.js`)
 The `stateEntityController` manages active entity instances in memory.

@@ -22,7 +22,8 @@
     <div id="config-bar">
         <div class="config-bar-left">
             <button id="btn-component-viewer" class="config-btn" title="Component Viewer">🗿️</button>
-            <button id="btn-nav-actions" class="config-btn" title="Navigation & Actions">👍</button>
+            <button id="btn-nav-actions" class="config-btn" title="Actions">⚔️</button>
+            <button id="btn-world-map" class="config-btn" title="World Map">🌐</button>
         </div>
         <div class="config-bar-center">
             <span id="config-bar-title" style="color: var(--text-dim); font-size: 0.85em;">⚙️ Config Bar</span>
@@ -79,13 +80,24 @@
         </div>
     </div>
 
-    <!-- Floating Overlay: Navigation & Actions -->
+    <!-- Floating Overlay: Actions -->
     <div id="nav-actions-overlay" class="overlay-panel" style="display:none;">
         <div class="overlay-header">
-            <h3 style="margin: 0;">👍 Navigation & Actions</h3>
+            <h3 style="margin: 0;">⚔️ Actions</h3>
             <button class="overlay-close-btn" onclick="document.getElementById('nav-actions-overlay').style.display='none'">✕</button>
         </div>
         <div class="nav-actions-content" id="nav-actions-content">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <!-- Floating Overlay: World Map -->
+    <div id="world-map-overlay" class="overlay-panel world-map-overlay" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🌐 World Map</h3>
+            <button class="overlay-close-btn" onclick="document.getElementById('world-map-overlay').style.display='none'">✕</button>
+        </div>
+        <div id="world-map-content" style="width:100%; height:100%;">
             <!-- Populated by JS -->
         </div>
     </div>

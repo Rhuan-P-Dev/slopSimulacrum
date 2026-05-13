@@ -31,7 +31,7 @@ public/
 | `css/base.css` | ~30 | Reset, body typography, h1 styling |
 | `css/layout.css` | ~25 | Top-level grid layout, panel containers |
 | `css/map.css` | ~70 | SVG map visualization, room boundaries, entity/component markers |
-| `css/navigation.css` | ~100 | Navigation buttons, room info panels, detail overlays |
+| `css/navigation.css` | ~157 | Navigation buttons, room info panels, detail overlays, world map overlay, room connection arrows |
 | `css/actions.css` | ~90 | Action list rendering, capability status, multi-component selection |
 | `css/synergy.css` | ~115 | Synergy preview display, multiplier display, modified values |
 | `css/components.css` | ~115 | Component selection list, durability bars, tactical HUD |
@@ -87,7 +87,14 @@ All CSS variables are defined in `:root` in `public/styles.css` AND duplicated i
 3. **CSS variables**: Always use `var(--variable-name)` — never hard-code color values.
 4. **Section headers**: Each file must start with a `/* ========================================================================= ... */` comment block describing its responsibility.
 
+## Recent Changes
+
+| Date | Change |
+|------|--------|
+| 2026-05-13 | **Added:** World Map overlay styles (`.world-map-overlay`, `.world-map-room-node`) and Room Connection arrow styles (`.room-connection-line`, `.room-connection-label`, `.room-connection-label-bg`, `.room-connection-arrow`) |
+
 ## References
 
 - [Client UI Wiki](client_ui.md) — Frontend architecture
+- [World Map Wiki](world_map.md) — World Map System (CSS styles section)
 - [Code Quality Standards](../code_quality_and_best_practices.md) — SRP requirements

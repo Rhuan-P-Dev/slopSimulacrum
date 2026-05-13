@@ -263,6 +263,7 @@ User clicks map → _setupMapClickListener()
 | `despawnEntity(entityId)` | `string` | `boolean` |
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` |
+| `getWorldGraph()` | — | `Object` | Returns the world graph with resolved room names for all connections |
 
 #### `ActionController.previewActionData(actionName, entityId, context)`
 
@@ -293,6 +294,7 @@ Returns complete preview data including action definition, resolved values, and 
 | Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
 | Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
+| Build world graph | `WorldGraphBuilder` | Utility for constructing navigable room graph |
 
 ## 📁 Data Files
 
@@ -315,5 +317,6 @@ Returns complete preview data including action definition, resolved values, and 
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-05-13 | **Feature:** Added world map system — room connection arrows on spatial map, 🌐 world map overlay with pan/zoom, and `WorldGraphBuilder` utility. Removed navigation section from NavActionsPanel. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `src/utils/WorldGraphBuilder.js`, `src/controllers/WorldStateController.js`, `src/routes/worldRoutes.js`, `public/index.html`, `public/css/navigation.css`, `wiki/subMDs/world_map.md`, `wiki/bugfixWiki/medium/BUG-063-world-map-view-not-initialized.md` |
 | 2026-05-09 | **Refactor:** Organized `src/controllers/` into subdirectories by subsystem per SRP. Created barrel export (`index.js`). Updated all import paths across codebase. | `src/controllers/WorldStateController.js`, `src/controllers/index.js`, `src/controllers/core/*`, `src/controllers/traits/*`, `src/controllers/actions/*`, `src/controllers/capabilities/*`, `src/controllers/synergy/*`, `src/controllers/equipment/*`, `src/controllers/consequences/*`, `src/controllers/networking/*`, `src/server.js`, `test/*.test.js` |
 | 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 6 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `EquipmentConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |

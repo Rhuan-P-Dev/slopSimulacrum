@@ -66,6 +66,7 @@ The `WorldStateController` provides public API wrapper methods that the server (
 | `despawnEntity(entityId)` | `string` | `boolean` | Despawns an entity and cleans up capabilities |
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` | Moves an entity to a different room |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` | Resolves a logical room name to its UUID |
+| `getWorldGraph()` | — | `Object` | Returns the world graph with resolved room names for all connections (used by `GET /world-map` endpoint) |
 
 🐛 For fix details on the direct access pattern, see [BUG-009](../../bugfixWiki/high/BUG-009-server-direct-access.md).
 
@@ -219,3 +220,78 @@ When a new dependency is added to a sub-controller (e.g., `EntityController` now
     - Pass the `PhysicsController` instance into the `EntityController` constructor.
 
 This ensures that the dependency graph remains transparent and the Single Source of Truth is preserved across the entire simulation.
+
+## 9. Utility Classes: Exception to the DI Pattern
+
+### 9.1. WorldGraphBuilder Utility Class
+**File:** `src/utils/WorldGraphBuilder.js`
+
+`WorldGraphBuilder` is a pure utility class that constructs a navigable graph structure from room data. Unlike controllers, utility classes **do not** use dependency injection — they take raw data directly as constructor arguments and are instantiated on-demand.
+
+#### Pattern
+```javascript
+class WorldGraphBuilder {
+    constructor(rooms) {
+        // Takes raw data from RoomsController.getAll(), not a controller reference
+        this.rooms = rooms;
+        this.roomsById = new Map();
+        this.roomOrder = [];
+        this._buildIndex();
+    }
+
+    build() {
+        // Returns defensive copy via structuredClone()
+        return structuredClone({ rooms: graphRooms });
+    }
+}
+```
+
+#### Key Characteristics
+- **No DI**: Constructor takes a `rooms` object directly from `RoomsController.getAll()`, not a `RoomsController` instance.
+- **On-Demand Instantiation**: Created fresh via `new WorldGraphBuilder(rooms)` each time `WorldStateController.getWorldGraph()` is called.
+- **Defensive Copying**: Returns a deep copy via `structuredClone()` to prevent external mutation of internal state.
+- **No State Persistence**: Each instance is ephemeral — the result is a snapshot of the graph at the time of construction.
+
+#### Integration with WorldStateController
+```javascript
+// In WorldStateController.getWorldGraph():
+getWorldGraph() {
+    const rooms = this.roomsController.getAll();
+    const builder = new WorldGraphBuilder(rooms);
+    return builder.build();
+}
+```
+
+#### Data Structure
+The `build()` method returns a graph object with this structure:
+```json
+{
+  "rooms": [
+    {
+      "id": "uid-xxx",
+      "name": "The Entrance Hall",
+      "x": 200, "y": 250, "width": 300, "height": 200,
+      "connections": [
+        { "door": "right_door", "targetId": "uid-yyy", "targetName": "The Eastern Corridor" }
+      ]
+    }
+  ]
+}
+```
+
+#### Private Methods
+| Method | Description |
+|--------|-------------|
+| `_buildIndex()` | Creates a reverse lookup map from room IDs to room data; populates `roomsById` Map and `roomOrder` array |
+
+#### Constructor Validation
+- Throws `TypeError` if rooms parameter is null, undefined, or not an object
+
+### 9.2. Guidelines for Future Utility Classes
+Utility classes follow a different pattern than controllers:
+1. **No Dependency Injection**: Take raw data directly as constructor arguments.
+2. **No State Persistence**: Each instance is ephemeral — compute and return results.
+3. **Pure Functions**: Avoid side effects; use the centralized `Logger` utility for logging.
+4. **Defensive Copying**: Return deep copies of data to prevent external mutation.
+5. **Placement**: Located in `src/utils/` directory, not in `src/controllers/`.
+6. **Instantiation**: Created on-demand wherever needed, not wired through the Root Injector.

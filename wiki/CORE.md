@@ -34,6 +34,9 @@ This wiki is specifically designed for AI agents.
 - [Error Handling](subMDs/error_handling.md)
 - [Traits](subMDs/traits.md)
 - [World State](subMDs/world_state.md)
+- [World Map](subMDs/world_map.md)
+- [Config Bar Manager](subMDs/config_bar_manager.md)
+- [World State Manager](subMDs/world_state_manager.md)
 - [CSS Architecture](subMDs/css_architecture.md)
 - [Consequence Handler Architecture](subMDs/consequence_handler_architecture.md)
 
@@ -58,6 +61,9 @@ This wiki is specifically designed for AI agents.
 - [Error Handling](subMDs/error_handling.md)
 - [Traits](subMDs/traits.md)
 - [World State](subMDs/world_state.md)
+- [World Map](subMDs/world_map.md)
+- [Config Bar Manager](subMDs/config_bar_manager.md)
+- [World State Manager](subMDs/world_state_manager.md)
 - [CSS Architecture](subMDs/css_architecture.md)
 - [Client-Side Architecture](subMDs/client_side_architecture.md)
 

@@ -10,6 +10,7 @@ import { EventDispatcher } from './EventDispatcher.js';
 import { StatBarsManager } from './StatBarsManager.js';
 import { ComponentViewer } from './ComponentViewer.js';
 import { NavActionsPanel } from './NavActionsPanel.js';
+import { WorldMapView } from './WorldMapView.js';
 import { ConfigBarManager } from './ConfigBarManager.js';
 
 /**
@@ -52,6 +53,9 @@ export class ClientApp {
         this.statBars = new StatBarsManager(this.ui, this.worldState);
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
+        this.worldMap = new WorldMapView({
+            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
+        });
 
         this.executor = new ActionExecutor(
             this.worldState,
@@ -69,6 +73,7 @@ export class ClientApp {
             componentViewer: this.componentViewer,
             statBarsManager: this.statBars,
             navActionsPanel: this.navActions,
+            worldMapView: this.worldMap,
             worldStateManager: this.worldState,
             onMoveEntity: (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
             onExecuteAction: (actionName, entityId, componentId, componentIdentifier) => {
@@ -96,6 +101,7 @@ export class ClientApp {
             onGrayedComponentCallback: (lockedActionName, componentId) => {
                 this.selection.removeGrayedComponent(lockedActionName, componentId);
             },
+            onToggleWorldMap: () => this.worldMap.toggle(),
         });
 
         // 6. Socket connection
@@ -137,6 +143,21 @@ export class ClientApp {
     }
 
     /**
+     * Handles clicking a room node on the world map overlay.
+     * Moves the droid to the selected room.
+     * @private
+     */
+    _handleWorldMapRoomClick(roomId) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) return;
+
+        // Only move if it's a different room
+        if (droid.location === roomId) return;
+
+        this.executor.executeMoveDroid(droid.id, roomId);
+    }
+
+    /**
      * Sets up all event listeners after module instantiation.
      * @private
      */
@@ -165,6 +186,7 @@ export class ClientApp {
             this.statBars.init();
             this.componentViewer.init();
             this.navActions.init();
+            this.worldMap.init();
             this.configBar.init();
 
             await this.refreshWorldAndActions();
@@ -294,7 +316,7 @@ export class ClientApp {
 
     /**
      * Updates the NavActionsPanel if it's currently open.
-     * Re-renders the panel content with fresh room and action data.
+     * Re-renders the panel content with fresh action data.
      * @private
      */
     _updateNavActionsPanelIfOpen() {
@@ -302,15 +324,9 @@ export class ClientApp {
             return;
         }
 
-        const droid = this.worldState.getActiveDroid();
-        const state = this.worldState.getState();
-        const room = droid?.location ? state?.rooms?.[droid.location] : null;
-
         this.navActions.updateRoom(
-            room,
             this.availableActions,
             this.worldState.getMyEntityId(),
-            (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
             (actionName, entityId, compId, compIdentifier) => {
                 // Toggle component selection for the action, then execute if components selected
                 if (entityId && actionName) {

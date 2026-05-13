@@ -112,3 +112,46 @@
     align-items: center;
     margin-bottom: 15px;
 }
+
+/* =========================================================================
+   World Map Overlay Styles
+   ========================================================================= */
+
+.world-map-overlay {
+    z-index: 200;
+}
+
+.world-map-overlay #world-map-content {
+    background: var(--bg-black);
+    border: 2px solid var(--neon-green);
+    border-radius: 8px;
+    margin: 15px;
+    overflow: hidden;
+}
+
+/* Room nodes on the world map */
+.world-map-room-node {
+    transition: all 0.2s ease;
+}
+
+.world-map-room-node:hover {
+    filter: brightness(1.3);
+    stroke-width: 3;
+}
+
+/* Room connection lines on the spatial map */
+.room-connection-line {
+    pointer-events: none;
+}
+
+.room-connection-label {
+    font-family: inherit;
+}
+
+.room-connection-label-bg {
+    pointer-events: none;
+}
+
+.room-connection-arrow {
+    pointer-events: none;
+}
