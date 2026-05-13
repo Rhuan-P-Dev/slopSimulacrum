@@ -8,7 +8,29 @@ The Action System provides a centralized, extensible mechanism for executing gam
 - `ActionController`: Main coordinator for all actions
 - `WorldStateController`: Root injector providing access to all sub-controllers
 
-### 1.1. Action Capability Cache
+### 1.1. Room-Related Action Integration
+
+Actions that interact with rooms (e.g., `move`, `dash`) use the `RoomsController` for spatial validation and room transitions:
+
+**Target Room Resolution:**
+- Actions reference rooms by their **logical ID** (e.g., `'start_room'`)
+- `WorldStateController.moveEntity()` resolves via `RoomsController.getUidByLogicalId(logicalId)` → UID
+- The resolved UID is used to update `entity.location`
+
+**Spatial Consequence Handling:**
+- `updateSpatial` and `deltaSpatial` consequences always target the **entity ID**, not component ID
+- Component consequences (`updateComponentStatDelta`, `damageComponent`) use the selected component ID
+
+**Room Boundary Validation:**
+- Spatial movement (`deltaSpatial`) keeps entities within room boundaries
+- Room transitions require explicit `POST /move-entity` — not handled by spatial consequences
+
+**See also:**
+- [Movement System](movement_system.md) Section 1.1 for room transition data flow
+- [World Map System](world_map.md) for world map overlay navigation
+- [World State](world_state.md) Section 2.2.2 for the logical ID → UID mapping system
+
+### 1.2. Action Capability Cache
 
 > **SRP Refactor**: The capability cache logic has been extracted from `ActionController` into a dedicated [`ComponentCapabilityController`](./component_capability_controller.md). The `ActionController` now delegates all capability cache queries to it.
 

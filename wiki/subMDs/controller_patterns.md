@@ -32,22 +32,61 @@ The `WorldStateController` acts as the **Root Injector** for the entire system. 
 ### Initialization Sequence
 The Root Injector must follow this strict sequence to ensure all dependencies are available before they are injected:
 
-0. **Data Loading**: Use `DataLoader` to load JSON registries (e.g., `actions.json`, `components.json`).
-1. **Data Store**: `ComponentStatsController`
+ 0. **Data Loading**: Use `DataLoader.loadJsonSafe()` to load JSON registries (e.g., `actions.json`, `components.json`, `rooms.json`).
+    - **Standard Pattern**: All controllers that consume external data files must use `DataLoader.loadJsonSafe(filePath, fallback)` — never hardcode data literals in constructors.
+    - **Validation**: Controllers must validate loaded data via `_validate*()` methods before initialization.
+ 1. **Data Store**: `ComponentStatsController`
 2. **Leaf Logic**: `ComponentController` (Injected with `ComponentStatsController` and `componentRegistry`)
 3. **Mid-Level Logic**: `EntityController` (Injected with `ComponentController`)
 4. **Instance Manager**: `stateEntityController` (Injected with `EntityController`)
 5. **Coordinator**: `WorldStateController` (Owns all the above)
 
-## 4. State Ownership vs. Logic Coordination
-To maintain the Single Responsibility Principle (SRP):
+ ## 4. State Ownership vs. Logic Coordination
+ To maintain the Single Responsibility Principle (SRP):
 
-- **State Controllers (Data Stores)**: (e.g., `ComponentStatsController`, `RoomsController`) 
-    - Only store and retrieve raw data.
-    - No complex game logic.
-- **Logic Controllers (Coordinators)**: (e.g., `ComponentController`, `EntityController`)
-    - Process logic, perform calculations, and manipulate data stores.
-    - They do not store state themselves; they use their injected state controllers.
+ - **State Controllers (Data Stores)**: (e.g., `ComponentStatsController`, `RoomsController`) 
+     - Only store and retrieve raw data.
+     - No complex game logic.
+     - **Self-instantiate**: State Controllers do NOT use DI — they create their own internal storage and load data directly via `DataLoader.loadJsonSafe()`.
+ - **Logic Controllers (Coordinators)**: (e.g., `ComponentController`, `EntityController`)
+     - Process logic, perform calculations, and manipulate data stores.
+     - They do not store state themselves; they use their injected state controllers.
+
+ ### 4.1. State Controller Exception to DI Rule
+
+ State Controllers are the **only** controllers permitted to instantiate internally without dependency injection. This is because they represent the foundational data layer — they have no dependencies on other controllers.
+
+  **Example — RoomsController:**
+  ```javascript
+  import DataLoader from '../../utils/DataLoader.js';
+  import Logger from '../../utils/Logger.js';
+
+  class RoomsController {
+      constructor() {
+          // Allowed: State Controllers self-instantiate
+          this.rooms = {};
+          this.idMap = {};
+          const roomDefinitions = DataLoader.loadJsonSafe('data/rooms.json', {});
+          this._validateRoomDefinitions(roomDefinitions);
+          // ... initialization
+          Logger.info(`[RoomsController] Initialized with ${Object.keys(this.rooms).length} rooms`);
+      }
+  }
+  ```
+
+ **Example — ComponentStatsController:**
+ ```javascript
+ class ComponentStatsController {
+     constructor() {
+         // Allowed: State Controllers self-instantiate
+         this.componentStats = {};
+     }
+ }
+ ```
+
+ **Rule**: If a controller is a State Controller (stores raw data, no game logic), it may self-instantiate. If it performs any game logic, calculations, or coordination, it MUST use DI.
+
+ 📖 For the full RoomsController documentation, see [rooms_controller](./rooms_controller.md).
 
 ## 5. Communication Protocol
 - **Public APIs**: Controllers must communicate via public methods.
@@ -209,6 +248,34 @@ When adding `ComponentCapabilityController`:
 4. Inject into ActionController: Pass as 4th constructor argument
 5. Register: Add to `subControllers` map: `capabilities: this.componentCapabilityController`
 
+### 7.5. Defensive Copying Pattern for State Controllers
+
+State Controllers that expose data via public methods must return **defensive deep copies** to prevent external mutation of internal state. This is a mandatory pattern per `wiki/code_quality_and_best_practices.md` Section 1.2 (Loose Coupling).
+
+**Example — RoomsController defensive copying:**
+```javascript
+// getAll() returns a deep copy via structuredClone()
+getAll() {
+    return structuredClone(this.rooms);
+}
+
+// getRoom() returns a deep copy of a single room
+getRoom(roomId) {
+    const room = this.rooms[roomId];
+    return room ? structuredClone(room) : null;
+}
+```
+
+**Defensive Copying Rules:**
+| Rule | Implementation | Rationale |
+|------|---------------|-----------|
+| Return deep copies via `structuredClone()` | `return structuredClone(this.internalStore);` | Prevents external mutation of internal state |
+| Never return direct references | Never `return this.rooms` — always clone | Maintains data encapsulation |
+| Document defensive copying in method JSDoc | `@returns {Object} Deep copy of all rooms` | Consumers know the data is safe to modify |
+| Clone at the boundary | Clone on every public method return | Internal state is never directly exposed |
+
+🐛 For fix details on the direct mutation bug, see [BUG-014](../../bugfixWiki/medium/BUG-014-defensive-copying.md).
+
 ## 8. Maintaining the Root Injector
 The `WorldStateController` constructor is the **only** place in the entire system where the `new` keyword should be used to instantiate controllers.
 
@@ -221,7 +288,63 @@ When a new dependency is added to a sub-controller (e.g., `EntityController` now
 
 This ensures that the dependency graph remains transparent and the Single Source of Truth is preserved across the entire simulation.
 
-## 9. Utility Classes: Exception to the DI Pattern
+ ## 8.1. RoomsController Pattern
+
+ ### 8.1.1. State Controller — Self-Instantiating Data Store
+
+ The `RoomsController` is the canonical example of a State Controller. It manages room definitions loaded from `data/rooms.json`.
+
+ - **Role**: Spatial Data Store — single source of truth for world rooms and connections
+ - **Instantiation**: Self-instantiated in `WorldStateController` (no DI — State Controller exception)
+ - **Data Source**: `data/rooms.json` via `DataLoader.loadJsonSafe('data/rooms.json', {})`
+ - **Responsibility**: Store room definitions, resolve logical IDs to UIDs, provide defensive copies
+ - **Key Methods**: `getUidByLogicalId()`, `getAll()`, `getRoom()`
+ - **Validation**: `_validateRoomDefinitions()` — validates name, description, connections, coordinates before init
+
+ **Integration with WorldStateController:**
+ ```javascript
+ // In WorldStateController constructor:
+ this.roomsController = new RoomsController();
+ ```
+
+ **WorldStateController Delegation Methods:**
+ | WorldStateController Method | Delegates to |
+ |-----------------------------|-------------|
+ | `getRoomUidByLogicalId(logicalId)` | `this.roomsController.getUidByLogicalId(logicalId)` |
+ | `moveEntity(entityId, targetRoomId)` | Resolves target via `this.roomsController.getUidByLogicalId()` |
+
+ ### 8.1.2. Data Loading Pattern for State Controllers
+
+ All State Controllers follow this mandatory pattern:
+
+  ```javascript
+  import DataLoader from '../../utils/DataLoader.js';
+  import Logger from '../../utils/Logger.js';
+
+  class SomeController {
+      constructor() {
+          this.store = {};
+          const definitions = DataLoader.loadJsonSafe('data/some.json', {});
+          this._validateSomeDefinitions(definitions);  // Name specific to controller's data type
+          // ... process definitions
+          Logger.info(`[SomeController] Initialized with ${count} entries`);
+      }
+
+      _validateSomeDefinitions(defs) {  // Use _validate[ControllerName]Definitions() pattern
+          // Throw TypeError for invalid data
+      }
+  }
+  ```
+
+ **Rules:**
+ 1. Always use `DataLoader.loadJsonSafe(filePath, fallback)` — never use `require()` or `fs.readFileSync()` directly
+ 2. Always provide a fallback value (e.g., `{}` or `[]`) for the second argument
+ 3. Always validate with a `_validate*()` method before processing
+ 4. Always log initialization via `Logger.info()`
+
+ ---
+
+ ## 9. Utility Classes: Exception to the DI Pattern
 
 ### 9.1. WorldGraphBuilder Utility Class
 **File:** `src/utils/WorldGraphBuilder.js`

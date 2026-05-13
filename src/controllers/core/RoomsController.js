@@ -1,4 +1,6 @@
 import { generateUID } from '../../utils/idGenerator.js';
+import DataLoader from '../../utils/DataLoader.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * RoomsController handles the storage and management of rooms and their connections.
@@ -8,42 +10,21 @@ import { generateUID } from '../../utils/idGenerator.js';
  * following the State Ownership vs. Logic Coordination pattern.
  */
 class RoomsController {
+    /**
+     * Creates a new RoomsController instance.
+     * Loads room definitions from data/rooms.json and initializes the internal room store.
+     */
     constructor() {
         // Internal storage for rooms. 
         // Format: { roomId: { id, name, description, connections: { doorId: destinationRoomId }, x, y, width, height, objects: [], entities: [] } }
         this.rooms = {};
         this.idMap = {}; // Maps logical names to generated UIDs
 
-        // Initial room definitions for setup
-        const roomDefinitions = {
-            'start_room': {
-                name: 'The Entrance Hall',
-                description: 'A dimly lit hall. To your right, there is an open corridor.',
-                connections: { 'right_door': 'right_room' },
-                x: 200,
-                y: 250,
-                width: 300,
-                height: 200
-            },
-            'right_room': {
-                name: 'The Eastern Corridor',
-                description: 'A narrow corridor with flickering lights. To your left is the Entrance Hall, and to your right, another door leads deeper into the complex.',
-                connections: { 'left_door': 'start_room', 'right_door': 'far_right_room' },
-                x: 400,
-                y: 250,
-                width: 250,
-                height: 150
-            },
-            'far_right_room': {
-                name: 'The Deep Vault',
-                description: 'A cold, metallic chamber echoing with the hum of ancient machinery. To your left is the Eastern Corridor.',
-                connections: { 'left_door': 'right_room' },
-                x: 600,
-                y: 250,
-                width: 320,
-                height: 220
-            }
-        };
+        // Load room definitions from external data file (per DataLoader pattern used by WorldStateController)
+        const roomDefinitions = DataLoader.loadJsonSafe('data/rooms.json', {});
+
+        // Validate loaded definitions before initialization
+        this._validateRoomDefinitions(roomDefinitions);
 
         // 1. Generate Unique IDs for all defined rooms
         for (const logicalId in roomDefinitions) {
@@ -72,6 +53,45 @@ class RoomsController {
             const uid = this.idMap[logicalId];
             for (const [door, targetLogicalId] of Object.entries(data.connections)) {
                 this.rooms[uid].connections[door] = this.idMap[targetLogicalId];
+            }
+        }
+
+        Logger.info(`[RoomsController] Initialized with ${Object.keys(this.rooms).length} rooms`);
+    }
+
+    /**
+     * Validates room definitions loaded from the data file.
+     * @private
+     * @param {Object} defs - Room definitions to validate.
+     * @throws {TypeError} If validation fails.
+     */
+    _validateRoomDefinitions(defs) {
+        if (typeof defs !== 'object' || defs === null) {
+            throw new TypeError('Room definitions must be an object');
+        }
+        for (const [logicalId, def] of Object.entries(defs)) {
+            if (typeof def.name !== 'string' || def.name.trim() === '') {
+                throw new TypeError(`Room '${logicalId}' must have a non-empty name`);
+            }
+            if (typeof def.description !== 'string') {
+                throw new TypeError(`Room '${logicalId}' must have a description`);
+            }
+            if (typeof def.connections !== 'object' || def.connections === null) {
+                throw new TypeError(`Room '${logicalId}' must have a connections object`);
+            }
+            for (const [door, targetId] of Object.entries(def.connections)) {
+                if (typeof door !== 'string' || door.trim() === '') {
+                    throw new TypeError(`Room '${logicalId}' connection must have a non-empty door name`);
+                }
+                if (typeof targetId !== 'string') {
+                    throw new TypeError(`Room '${logicalId}' connection '${door}' must have a string targetId`);
+                }
+            }
+            if (typeof def.x !== 'number' || typeof def.y !== 'number') {
+                throw new TypeError(`Room '${logicalId}' must have numeric x, y coordinates`);
+            }
+            if (typeof def.width !== 'number' || typeof def.height !== 'number') {
+                throw new TypeError(`Room '${logicalId}' must have numeric width, height`);
             }
         }
     }

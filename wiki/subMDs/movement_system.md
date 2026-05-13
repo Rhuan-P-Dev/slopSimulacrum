@@ -3,6 +3,31 @@
 ## 1. Overview
 The movement system allows entities to navigate the spatial map of a room. It uses a target-based approach where the destination is selected via a user interface (map click), and the backend calculates the incremental movement based on the entity's traits.
 
+### 1.1. Room Transitions
+
+Entities can transition between rooms via two methods:
+
+**In-Room Movement:**
+- User clicks a location on the spatial map → `ActionExecutor.executeMoveDroid()` → `POST /move-entity`
+- Entity moves within its current room using `deltaSpatial` consequences
+
+**Room-to-Room Navigation:**
+- User clicks a room node on the 🌐 World Map overlay → `POST /move-entity` with target room ID
+- Server resolves target room via `WorldStateController.moveEntity()` → `RoomsController.getUidByLogicalId()` for logical ID resolution
+- Entity's `location` property is updated to the target room's UID
+
+**Data Flow for Room Transition:**
+```
+Client POST /move-entity { entityId, targetRoomId }
+    → Server → WorldStateController.moveEntity(entityId, targetRoomId)
+    → RoomsController.getUidByLogicalId(targetRoomId) → targetRoomUid
+    → stateEntityController.moveEntity(entityId, targetRoomUid)
+    → entity.location = targetRoomUid
+    → world-state-update broadcast
+```
+
+**Logical ID vs UID:** The `targetRoomId` in `data/rooms.json` uses logical IDs (e.g., `'start_room'`). `RoomsController.getUidByLogicalId()` resolves these to UIDs for internal state management. See [world_state.md](world_state.md) Section 2.2.2 for the ID mapping system details.
+
 **Alternative Navigation:** The 🌐 World Map overlay (`WorldMapView.js`) provides an alternative navigation method — clicking a room node on the full world map moves the droid to that room via `POST /move-entity`. See [World Map System](world_map.md) for details.
 
 ## 2. Interaction Flow (Client-Side)

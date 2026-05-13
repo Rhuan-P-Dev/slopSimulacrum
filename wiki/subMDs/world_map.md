@@ -64,6 +64,7 @@ Static utility class that draws SVG arrows between the current room and connecte
 - Arrowhead at the destination edge
 - Label at midpoint showing `→ Destination Room Name`
 - Semi-transparent dashed lines for visual clarity
+- **AppConfig Dependency:** Uses `AppConfig.VIEW.CENTER_X` and `AppConfig.VIEW.CENTER_Y` to offset room coordinates for SVG viewBox positioning
 
 **Methods:**
 | Method | Parameters | Returns | Description |
@@ -89,6 +90,7 @@ Full-screen overlay with interactive SVG world map:
 - Highlights the current room with neon-green border + glow filter
 - Supports pan (drag) and zoom (mouse wheel) for large maps
 - Clicking a room node moves the droid there via `_handleWorldMapRoomClick()` in App.js
+- **AppConfig Dependency:** Uses `AppConfig.VIEW.CENTER_X` and `AppConfig.VIEW.CENTER_Y` for viewBox coordinate transformation
 
 **Constructor:**
 ```javascript

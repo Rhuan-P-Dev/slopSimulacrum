@@ -67,6 +67,10 @@ graph TD
     CCC --> CC
     SC --> CC
     
+    %% WorldGraphBuilder consumes room data from RoomsController
+    RC -->|getAll()| WGB[WorldGraphBuilder]
+    WGB --> WSC
+    
     %% Stat change notification
     CC -.->|stat change| CCC
 ```
@@ -288,13 +292,13 @@ Returns complete preview data including action definition, resolved values, and 
 | Calculate component logic | `ComponentController` | Uses Stats & Traits |
 | Manage entity existence | `EntityController` | Uses Components + Blueprint Registry |
 | Spawn/Move entities | `stateEntityController` | Uses EntityController |
-| Modify room layout | `RoomsController` | Spatial state |
+| Modify room layout | [`RoomsController`](subMDs/rooms_controller.md) | Spatial state |
 | Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
 | Query component capabilities | `ComponentCapabilityController` | Manages capability cache, scoring, re-evaluation |
 | Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
 | Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
-| Build world graph | `WorldGraphBuilder` | Utility for constructing navigable room graph |
+| Build world graph | [`WorldGraphBuilder`](subMDs/world_map.md) | Utility for constructing navigable room graph from `RoomsController.getAll()` |
 
 ## 📁 Data Files
 
@@ -305,6 +309,28 @@ Returns complete preview data including action definition, resolved values, and 
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
+| `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
+
+### 🗺️ Spatial Coordinate System
+
+Rooms in `data/rooms.json` use a 2D Cartesian coordinate system for spatial rendering on the world map overlay:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `x` | `number` | Top-left X coordinate on the 2D canvas (SVG viewBox) |
+| `y` | `number` | Top-left Y coordinate on the 2D canvas (SVG viewBox) |
+| `width` | `number` | Room rectangle width in pixels |
+| `height` | `number` | Room rectangle height in pixels |
+
+**Rendering Pipeline:**
+```
+data/rooms.json → DataLoader.loadJsonSafe() → RoomsController → WorldStateController.getWorldGraph()
+    → WorldGraphBuilder.build() → GET /world-map endpoint → WorldMapView.js renders as SVG <rect> elements
+```
+
+**RoomConnectionRenderer** uses these coordinates to draw directional arrows between connected rooms. It applies `AppConfig.VIEW.CENTER_X/Y` offsets for SVG viewBox positioning.
+
+**Adding New Rooms:** When adding new rooms, ensure coordinates do not overlap with existing rooms (unless intentional for visual grouping). Connections reference other rooms by their **logical ID** (the JSON key), not UID. The system auto-resolves connections to UIDs during initialization. See [rooms_controller.md](subMDs/rooms_controller.md) Section 7.3 for full details.
 
 ## ⚠️ Critical Rule for Agents
 **Never instantiate a controller manually** inside another controller. Always use the instances provided by `WorldStateController` or injected via the constructor. This prevents the "Dual State" bug where two controllers think the world is in different states.
@@ -320,3 +346,5 @@ Returns complete preview data including action definition, resolved values, and 
 | 2026-05-13 | **Feature:** Added world map system — room connection arrows on spatial map, 🌐 world map overlay with pan/zoom, and `WorldGraphBuilder` utility. Removed navigation section from NavActionsPanel. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `src/utils/WorldGraphBuilder.js`, `src/controllers/WorldStateController.js`, `src/routes/worldRoutes.js`, `public/index.html`, `public/css/navigation.css`, `wiki/subMDs/world_map.md`, `wiki/bugfixWiki/medium/BUG-063-world-map-view-not-initialized.md` |
 | 2026-05-09 | **Refactor:** Organized `src/controllers/` into subdirectories by subsystem per SRP. Created barrel export (`index.js`). Updated all import paths across codebase. | `src/controllers/WorldStateController.js`, `src/controllers/index.js`, `src/controllers/core/*`, `src/controllers/traits/*`, `src/controllers/actions/*`, `src/controllers/capabilities/*`, `src/controllers/synergy/*`, `src/controllers/equipment/*`, `src/controllers/consequences/*`, `src/controllers/networking/*`, `src/server.js`, `test/*.test.js` |
 | 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 6 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `EquipmentConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |
+| 2026-05-13 | **Refactor:** Externalized hardcoded room definitions from `RoomsController.js` to `data/rooms.json`, added `_validateRoomDefinitions()` validation, and Logger integration | `src/controllers/core/RoomsController.js`, `data/rooms.json` |
+| 2026-05-13 | **Docs:** Added RC→WGB dependency edge to Mermaid diagram — `WorldGraphBuilder` consumes room data from `RoomsController.getAll()` to construct the navigable world graph | `wiki/map.md` |

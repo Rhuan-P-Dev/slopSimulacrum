@@ -192,6 +192,31 @@ A Node.js Express server integrated with Socket.io that:
 - Manages "Incarnation": maps WebSocket IDs to spawned entities and handles automatic despawning on disconnect.
 - Serves a static front-end from the `/public` directory.
 
+**Server-Side Controller Hierarchy:**
+```
+WorldStateController (Root Injector)
+├── RoomsController — Spatial data store, loads from data/rooms.json via DataLoader
+├── stateEntityController — Entity instance management
+│   └── EntityController — Blueprint-based entity creation
+│       └── ComponentController — Component logic coordination
+│           └── ComponentStatsController — Raw stat persistence
+├── ActionController — Action execution and consequence handling
+├── ComponentCapabilityController — Capability cache management
+├── SynergyController — Multi-component synergy computation
+├── ActionSelectController — Component selection/locking
+├── ConsequenceHandlers — Consequence dispatch system
+├── LLMController — LLM backend communication
+└── SocketLifecycleController — WebSocket lifecycle management
+```
+
+**RoomsController Integration:**
+- Self-instantiated State Controller (no DI — per `controller_patterns.md` Section 4.1)
+- Loads room definitions from `data/rooms.json` via `DataLoader.loadJsonSafe('data/rooms.json', {})`
+- Resolves logical IDs to UIDs via `this.idMap[logicalId]`
+- Provides `getUidByLogicalId()`, `getAll()`, `getRoom()` public methods
+- Used by `WorldStateController.moveEntity()` for room ID resolution
+- Consumed by `WorldGraphBuilder` for world map API response
+
 ### 3.2. Client
 - **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, `ActionExecutor.js`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `ConfigBarManager.js`, `NavActionsPanel.js`, `ComponentViewer.js`, `StatBarsManager.js`, `SelectionController.js`, `ClientErrorController.js`) that visualize the world state and handle action execution.
 

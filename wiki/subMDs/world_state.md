@@ -31,7 +31,7 @@ The `RoomsController` manages the spatial layout of the world.
 - **Data Structure**: Uses a keyed object (map) where each key is a unique `roomId` (UUID v4).
 - **IDs**: Room IDs are dynamically generated using `generateUID()` upon initialization to ensure global uniqueness.
 - **Spatial Coordinates**: Each room has position and size data for rendering:
-  - `x`, `y`: Screen coordinates for the room center.
+  - `x`, `y`: Top-left coordinates for the room rectangle (SVG viewBox).
   - `width`, `height`: Room dimensions in pixels.
 - **Connections**: Each room defines its exits via a `connections` object:
   - **Key**: The identifier of the door or path (e.g., `"north_door"`).
@@ -40,7 +40,41 @@ The `RoomsController` manages the spatial layout of the world.
   - `objects`: An array of unique IDs for items/objects in the room.
   - `entities`: An array of unique IDs for NPCs or players in the room.
 
-### 2.2.1. WorldGraphBuilder (`src/utils/WorldGraphBuilder.js`)
+### 2.2.2. Logical ID → UID Mapping System
+
+The `RoomsController` implements a two-phase ID mapping system that bridges developer-friendly logical IDs with runtime-unique UIDs:
+
+| Phase | Description | Implementation |
+|-------|-------------|----------------|
+| **Phase 1: Logical IDs** | Human-readable names in `data/rooms.json` (e.g., `'start_room'`, `'right_room'`) | JSON keys in the data file |
+| **Phase 2: UID Generation** | UUID v4 identifiers generated via `generateUID()` | `this.idMap[logicalId] = generateUID()` |
+| **Phase 3: Connection Resolution** | Connections resolved from logical IDs to UIDs during initialization | `connections[doorName] = this.idMap[targetLogicalId]` |
+
+**Internal `idMap` Structure:**
+```javascript
+this.idMap = {
+    'start_room': 'a1b2c3d4-...',
+    'right_room': 'e5f6g7h8-...',
+    'far_right_room': 'i9j0k1l2-...'
+};
+```
+
+**Access Pattern:**
+```javascript
+// Resolve logical ID to UID
+const uid = roomsController.getUidByLogicalId('start_room');
+// Returns: 'a1b2c3d4-...'
+```
+
+**Why Two-Phase Mapping:**
+- Logical IDs are developer-friendly and stable across restarts
+- UIDs ensure global uniqueness across the simulation
+- Connections are resolved at initialization time, not at runtime
+- The `getUidByLogicalId()` method provides reverse lookup (UID → logical ID is implicit via `idMap`)
+
+**Applicability:** This pattern is specific to `RoomsController` and may be extended to other state controllers that need to bridge configuration-time names with runtime identifiers. See [rooms_controller.md](rooms_controller.md) Section 2.3 for full details.
+
+### 2.2.3. WorldGraphBuilder (`src/utils/WorldGraphBuilder.js`)
 A utility class that constructs a navigable graph structure from room data:
 - Takes a rooms object from `RoomsController.getAll()`
 - Resolves connection door names to destination room names

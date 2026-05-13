@@ -39,6 +39,7 @@ This wiki is specifically designed for AI agents.
 - [World State Manager](subMDs/world_state_manager.md)
 - [CSS Architecture](subMDs/css_architecture.md)
 - [Consequence Handler Architecture](subMDs/consequence_handler_architecture.md)
+- [Rooms Controller](subMDs/rooms_controller.md)
 
 ## Sub-Documentation
 - [Code Quality and Best Practices](code_quality_and_best_practices.md)
@@ -75,6 +76,30 @@ This wiki is specifically designed for AI agents.
 
 **Logging Standard:** All controllers must use the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
 
+**Data Loading Standard:** All state controllers (controllers that store raw data, per `subMDs/controller_patterns.md` Section 4) must use `DataLoader.loadJsonSafe(filePath, fallback)` to load JSON data files from the `data/` directory. Direct use of `fs.readFileSync()` or `require()` for data loading in controllers is **prohibited**.
+
+- **Mandatory Pattern:**
+  ```javascript
+  import DataLoader from '../../utils/DataLoader.js';
+
+  class StateController {
+      constructor() {
+          this.store = {};
+          const definitions = DataLoader.loadJsonSafe('data/some.json', {});
+          this._validateDefinitions(definitions);
+          // ... process definitions
+      }
+  }
+  ```
+- **Rules:**
+  1. Always use `DataLoader.loadJsonSafe(filePath, fallback)` — never use `require()` or `fs.readFileSync()` directly in controllers
+  2. Always provide a fallback value (e.g., `{}` or `[]`) as the second argument
+  3. Always validate loaded data via a `_validate*()` method before processing
+  4. Always log initialization count via `Logger.info()`
+  5. Validation method names must be specific to the controller's data type (e.g., `_validateRoomDefinitions()`, `_validateComponentDefinitions()`)
+
+**Validation Pattern:** All state controllers must implement a `_validate*()` method that throws `TypeError` for invalid data before initialization proceeds. This prevents malformed data from corrupting the internal state. Per `wiki/code_quality_and_best_practices.md` Section 3.2, all external data must pass schema validation.
+
 **Map Maintenance:** The architecture maps (`map.md` and `subMDs/system_map.md`) must be kept up-to-date.
 
 **Server API Access:** The server (`src/server.js`) must use `WorldStateController` public API methods (`spawnEntity`, `despawnEntity`, `moveEntity`, `getRoomUidByLogicalId`) instead of directly accessing sub-controllers. See `subMDs/controller_patterns.md` Section 5.1.
@@ -94,4 +119,5 @@ The project employs a middleware architecture with two primary flows:
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
+| `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
 

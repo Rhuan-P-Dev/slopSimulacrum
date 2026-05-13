@@ -76,6 +76,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-060](medium/BUG-060-add-stat-not-component-related.md) | "➕ Add Stat" Dialog Not Related to Any Entity Component | ✅ Fixed | `pending` | `StatBarsManager.js`, `ComponentViewer.js`, `ConfigBarManager.js` |
 | [BUG-061](medium/BUG-061-stat-bar-not-updating-after-add.md) | Stat Bar Shows 0% After Adding (updateAll() Not Called) | ✅ Fixed | `pending` | `StatBarsManager.js` |
 | [BUG-062](medium/BUG-062-stat-bars-not-updating-after-component-change.md) | Stat Bars Don't Update When Component Stats Change | ✅ Fixed | `pending` | `server.js`, `WorldStateController.js`, `EventDispatcher.js`, `App.js` |
+| [BUG-063](medium/BUG-063-hardcoded-room-definitions.md) | Hardcoded Room Definitions in RoomsController | ✅ Fixed | `3267ec8` | `RoomsController.js`, `data/rooms.json` |
 
 ### 🟢 Low Severity
 

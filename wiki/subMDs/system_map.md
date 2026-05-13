@@ -51,7 +51,7 @@ Config.js → WorldStateManager → UIManager → RoomConnectionRenderer → Wor
 | Controller | Role | Key Responsibility | Primary Data Managed |
 | :--- | :--- | :--- | :--- |
 | **WorldStateController** | Root Coordinator | Root Injection, Global State Aggregation, Stat Change Wiring, Public API Wrappers | `subControllers` map |
-| **RoomsController** | Room Manager | Room definitions, coordinates, and connections | `rooms` (with x, y, width, height) |
+| **RoomsController** | Spatial Data Store | Data-driven initialization via DataLoader, validation, UID generation, logical ID → UID mapping | `rooms` (with x, y, width, height), `idMap` (logicalId → UID) |
 | **stateEntityController** | Instance Manager | Lifecycle (Spawn/Move/Despawn) of active entities | `entities` (active instances with spatial) |
 | **entityController** | Blueprint Registry | Loading entity blueprints from `data/blueprints.json` via DataLoader | `blueprints` (entity types from JSON data file) |
 | **componentController** | Logic Coordinator | Translating blueprints into stats via trait merging + Stat Change Notifications | `componentRegistry` (blueprint traits) |
