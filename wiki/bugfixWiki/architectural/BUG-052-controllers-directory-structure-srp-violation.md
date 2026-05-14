@@ -5,14 +5,14 @@
 | **Severity** | Architectural |
 | **Status** | ✅ Fixed |
 | **Fixed In** | `pending` |
-| **Related Files** | `src/controllers/` (all 30 files) |
+| **Related Files** | `src/controllers/` (all 26 files) |
 
 ---
 
 ## 📋 Symptoms
 
 - All 30 controller files were flat in `src/controllers/` directory
-- No logical grouping by subsystem (actions, synergy, equipment, consequences, etc.)
+- No logical grouping by subsystem (actions, synergy, consequences, etc.)
 - Difficult for new developers to locate specific controllers
 - No barrel export for clean imports
 - Violates the principle of organized, maintainable codebase structure
@@ -57,11 +57,6 @@ src/controllers/
 │   ├── SynergyCalculator.js
 │   └── SynergyCacheManager.js
 │
-├── equipment/                       # Equipment/grab system
-│   ├── EquipmentController.js
-│   ├── HandEquipment.js
-│   └── BackpackInventory.js
-│
 ├── consequences/                    # Consequence handling system
 │   ├── ConsequenceHandlers.js
 │   ├── ConsequenceDispatcher.js
@@ -69,8 +64,7 @@ src/controllers/
 │   ├── StatConsequenceHandler.js
 │   ├── SpatialConsequenceHandler.js
 │   ├── LogConsequenceHandler.js
-│   ├── EventConsequenceHandler.js
-│   └── EquipmentConsequenceHandler.js
+│   └── EventConsequenceHandler.js
 │
 └── networking/                      # Network/communication layer
     ├── SocketLifecycleController.js
@@ -88,7 +82,6 @@ All internal controller imports updated to use correct relative paths:
 | `./actionController.js` | `./actions/actionController.js` |
 | `./consequenceHandlers.js` | `./consequences/consequenceHandlers.js` |
 | `./synergyController.js` | `./synergy/synergyController.js` |
-| `./equipmentController.js` | `./equipment/equipmentController.js` |
 | `./componentCapabilityController.js` | `./capabilities/componentCapabilityController.js` |
 | `./LLMController.js` | `./networking/LLMController.js` |
 | `./SocketLifecycleController.js` | `./networking/SocketLifecycleController.js` |

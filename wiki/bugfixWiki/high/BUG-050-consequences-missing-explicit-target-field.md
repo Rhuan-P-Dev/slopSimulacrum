@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `pending`
-- **Related Files**: `src/controllers/ConsequenceDispatcher.js`, `data/actions.json`, `src/controllers/DamageConsequenceHandler.js`, `src/controllers/StatConsequenceHandler.js`, `src/controllers/EquipmentConsequenceHandler.js`, `src/controllers/SpatialConsequenceHandler.js`, `src/controllers/LogConsequenceHandler.js`, `src/controllers/EventConsequenceHandler.js`
+- **Related Files**: `src/controllers/ConsequenceDispatcher.js`, `data/actions.json`, `src/controllers/consequences/DamageConsequenceHandler.js`, `src/controllers/consequences/StatConsequenceHandler.js`, `src/controllers/consequences/SpatialConsequenceHandler.js`, `src/controllers/consequences/LogConsequenceHandler.js`, `src/controllers/consequences/EventConsequenceHandler.js`
 
 ## Symptoms
 
@@ -86,7 +86,7 @@ The `componentBinding` metadata was removed from `data/actions.json` as it was r
 
 ### 5. Updated `data/actions.json`
 
-All 9 actions updated with explicit `target` fields:
+All actions updated with explicit `target` fields:
 
 | Action | Consequence | New `target` |
 |--------|------------|----------|
@@ -96,11 +96,6 @@ All 9 actions updated with explicit `target` fields:
 | `selfHeal` | `updateComponentStatDelta` (durability) | `self` |
 | `droid punch` | `damageComponent` | `target` |
 | `droid punch` | `log` | `self` |
-| `grab` | `grabItem` | `target` |
-| `grab` | `log` | `self` |
-| `cut` | `damageComponent` | `target` |
-| `cut` | `updateComponentStatDelta` (sharpness) | `self` |
-| `dropAll` | `dropAll` | `entity` |
 | All | `failureConsequences` | Per-action definition |
 
 ## Prevention

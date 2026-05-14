@@ -1,6 +1,5 @@
 import EntityController from './entityController.js';
 import { generateUID } from '../../utils/idGenerator.js';
-import Logger from '../../utils/Logger.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -14,7 +13,7 @@ class stateEntityController {
      * @param {EntityController} entityController - The entity blueprint controller.
      * @param {import('../controllers/actionController.js').default|null} actionController - The action controller for capability re-evaluation.
      */
-    constructor(entityController, actionController = null, equipmentController = null) {
+    constructor(entityController, actionController = null) {
         this.entityController = entityController;
 
         /**
@@ -29,13 +28,6 @@ class stateEntityController {
          * @type {import('../controllers/actionController.js').default|null}
          */
         this.actionController = actionController;
-
-        /**
-         * Reference to the EquipmentController.
-         * Used to clean up equipment registries on entity despawn.
-         * @type {import('../controllers/equipmentController.js').default|null}
-         */
-        this.equipmentController = equipmentController;
     }
 
     /**
@@ -90,11 +82,6 @@ class stateEntityController {
      */
     despawnEntity(entityId) {
         if (this.entities[entityId]) {
-            // Clean up equipment registries (hand grabs + backpack) before despawning
-            if (this.equipmentController) {
-                this.equipmentController.releaseEntityGrabs(entityId);
-            }
-
             // Remove all capability entries for this entity before despawning
             if (this.actionController) {
                 this.actionController.removeEntityFromCache(entityId);
@@ -145,59 +132,6 @@ class stateEntityController {
      */
     getAll() {
         return structuredClone(this.entities);
-    }
-
-    // =========================================================================
-    // COMPONENT MANAGEMENT (for grab/equip system)
-    // =========================================================================
-
-    /**
-     * Adds a new component to an entity's component list.
-     * Used by the EquipmentController when an item is grabbed.
-     *
-     * @param {string} entityId - The ID of the entity.
-     * @param {string} componentId - The ID of the component to add.
-     * @param {string} componentType - The type of the component.
-     * @returns {boolean} True if the component was added successfully.
-     */
-    addComponentToEntity(entityId, componentId, componentType) {
-        const entity = this.entities[entityId];
-        if (!entity) {
-            Logger.warn(`Entity "${entityId}" not found. Cannot add component.`);
-            return false;
-        }
-
-        entity.components.push({ id: componentId, type: componentType });
-        Logger.info(`Added component "${componentType}" (${componentId}) to entity "${entityId}".`);
-
-        return true;
-    }
-
-    /**
-     * Removes a component from an entity's component list.
-     * Used by the EquipmentController when an item is released.
-     *
-     * @param {string} entityId - The ID of the entity.
-     * @param {string} componentId - The ID of the component to remove.
-     * @returns {boolean} True if the component was removed successfully.
-     */
-    removeComponentFromEntity(entityId, componentId) {
-        const entity = this.entities[entityId];
-        if (!entity) {
-            Logger.warn(`Entity "${entityId}" not found. Cannot remove component.`);
-            return false;
-        }
-
-        const beforeCount = entity.components.length;
-        entity.components = entity.components.filter((c) => c.id !== componentId);
-
-        if (entity.components.length === beforeCount) {
-            Logger.warn(`Component "${componentId}" not found on entity "${entityId}".`);
-            return false;
-        }
-
-        Logger.info(`Removed component "${componentId}" from entity "${entityId}".`);
-        return true;
     }
 }
 

@@ -36,7 +36,6 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-034](high/BUG-034-data-loader-silent-swallow.md) | DataLoader.loadJsonSafe Silently Swallows Errors | ✅ Fixed | `pending` | `DataLoader.js` |
 | [BUG-035](high/BUG-035-state-entity-get-all-direct-reference.md) | stateEntityController.getAll() Returns Direct Reference | ✅ Fixed | `pending` | `stateEntityController.js` |
 | [BUG-037](high/BUG-037-css-root-duplication.md) | CSS :root Variables Duplicated Across 10 Files | ✅ Fixed (partial) | `pending` | `public/css/*.css` |
-| [BUG-040](high/BUG-040-equipment-registry-memory-leak.md) | Equipment Registry Memory Leak on Entity Despawn | ✅ Fixed | `pending` | `equipmentController.js`, `stateEntityController.js`, `WorldStateController.js` |
 | [BUG-045](high/BUG-045-synergy-excludes-components-locked-to-current-action.md) | Synergy Excludes Components Locked to Current Action | ✅ Fixed | `pending` | `SynergyComponentGatherer.js`, `actionSelectController.js` |
 | [BUG-046](high/BUG-046-filterProvidedForGroup-missing-filters.md) | _filterProvidedForGroup missing componentType/groupType filters | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-047](high/BUG-047-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents | ✅ Fixed | `pending` | `synergyController.js` |
@@ -63,7 +62,6 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-033](medium/BUG-033-synergy-cache-never-expires.md) | Synergy Cache Never Expires | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-036](medium/BUG-036-hardcoded-business-logic-in-action-controller.md) | Hardcoded Business Logic in ActionController | ⚠️ Known | — | `actionController.js` |
 | [BUG-038](medium/BUG-038-hardcoded-colors-in-css.md) | Hardcoded Color Values in CSS | ⚠️ Known | — | `public/css/*.css` |
-| [BUG-041](medium/BUG-041-equipmentController-srp-violation.md) | EquipmentController SRP Violation — Extracted 2 Modules | ✅ Fixed | `pending` | `equipmentController.js`, `HandEquipment.js`, `BackpackInventory.js` |
 | [BUG-042](medium/BUG-042-synergyController-srp-violation.md) | SynergyController SRP Violation — Extracted 4 Modules | ✅ Fixed | `pending` | `synergyController.js`, `SynergyConfigManager.js`, `SynergyComponentGatherer.js`, `SynergyCalculator.js`, `SynergyCacheManager.js` |
 | [BUG-043](medium/BUG-043-previewActionData-missing-resolvePlaceholders.md) | ActionController.previewActionData calls missing _resolvePlaceholders | ✅ Fixed | `pending` | `actionController.js` |
 | [BUG-044](medium/BUG-044-actionSelectController-missing-getLockedComponentsForAction.md) | ActionSelectController missing getLockedComponentsForAction method | ✅ Fixed | `pending` | `actionSelectController.js`, `SynergyComponentGatherer.js` |

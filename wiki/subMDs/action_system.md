@@ -761,7 +761,7 @@ Deals damage to a specific component of a target entity.
 
 ### 6.5. updateComponentStatDelta
 
-Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific equipment (e.g., durability loss on legs during a dash).
+Updates a specific stat for the component that triggered the action (the "calling component"). This is used for costs associated with specific components (e.g., durability loss on movement components during a dash).
 
 **Component Resolution Priority:**
 1. **Explicit `targetComponentId`** from `actionParams` — Used for targeted actions like damage (e.g., punching an enemy's component)

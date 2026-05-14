@@ -43,11 +43,6 @@ import SynergyComponentGatherer from './synergy/SynergyComponentGatherer.js';
 import SynergyCalculator from './synergy/SynergyCalculator.js';
 import SynergyCacheManager from './synergy/SynergyCacheManager.js';
 
-// Equipment system
-import EquipmentController from './equipment/equipmentController.js';
-import HandEquipment from './equipment/HandEquipment.js';
-import BackpackInventory from './equipment/BackpackInventory.js';
-
 // Consequence system
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import ConsequenceDispatcher from './consequences/ConsequenceDispatcher.js';
@@ -56,7 +51,6 @@ import StatConsequenceHandler from './consequences/StatConsequenceHandler.js';
 import SpatialConsequenceHandler from './consequences/SpatialConsequenceHandler.js';
 import LogConsequenceHandler from './consequences/LogConsequenceHandler.js';
 import EventConsequenceHandler from './consequences/EventConsequenceHandler.js';
-import EquipmentConsequenceHandler from './consequences/EquipmentConsequenceHandler.js';
 
 // Networking
 import LLMController from './networking/LLMController.js';
@@ -93,11 +87,6 @@ export {
     SynergyCalculator,
     SynergyCacheManager,
 
-    // Equipment
-    EquipmentController,
-    HandEquipment,
-    BackpackInventory,
-
     // Consequences
     ConsequenceHandlers,
     ConsequenceDispatcher,
@@ -106,7 +95,6 @@ export {
     SpatialConsequenceHandler,
     LogConsequenceHandler,
     EventConsequenceHandler,
-    EquipmentConsequenceHandler,
 
     // Networking
     LLMController,
