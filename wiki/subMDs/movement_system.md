@@ -5,16 +5,23 @@ The movement system allows entities to navigate the spatial map of a room. It us
 
 ### 1.1. Room Transitions
 
-Entities can transition between rooms via two methods:
+Entities can transition between rooms via three methods:
 
 **In-Room Movement:**
 - User clicks a location on the spatial map → `ActionExecutor.executeMoveDroid()` → `POST /move-entity`
 - Entity moves within its current room using `deltaSpatial` consequences
 
-**Room-to-Room Navigation:**
+**Room-to-Room Navigation (World Map Overlay):**
 - User clicks a room node on the 🌐 World Map overlay → `POST /move-entity` with target room ID
 - Server resolves target room via `WorldStateController.moveEntity()` → `RoomsController.getUidByLogicalId()` for logical ID resolution
 - Entity's `location` property is updated to the target room's UID
+
+**Room-to-Room Navigation (Connection Click):**
+- User clicks a connection line/arrow on either the spatial map or world map overlay
+- **Spatial Map:** Click triggers `onConnectionClick(entityId, targetRoom)` callback → `onMoveCallback` → `ActionExecutor.executeMoveDroid(entityId, targetRoomId)`
+- **World Map:** Click triggers `_onRoomClick(conn.targetId)` → `App._handleWorldMapRoomClick(roomId)` → `ActionExecutor.executeMoveDroid(droid.id, roomId)`
+- Connection lines are interactive with `pointer-events: stroke`, hover highlight, and invisible hit-area lines (15px stroke) for reliable click detection
+- See [World Map System](world_map.md) and [Controller Patterns](controller_patterns.md) Section 10.1 for details.
 
 **Data Flow for Room Transition:**
 ```
@@ -35,9 +42,11 @@ Client POST /move-entity { entityId, targetRoomId }
 ### 2.1. World Map Navigation
 The world map overlay provides room-to-room navigation:
 1. User clicks 🌐 button to open world map overlay
-2. User clicks a room node on the map
+2. User clicks a room node OR connection line on the map
 3. Client sends `POST /move-entity` with the entity ID and target room ID
 4. Server updates state → `world-state-update` broadcast
+
+**Connection Click Navigation:** Connection lines on both the spatial map and world map overlay are now clickable (BUG-066 fix). Clicking a connection triggers room navigation to the connected room. Hover effects provide visual feedback (opacity → 1, stroke-width → 3).
 
 See [World Map System](world_map.md) for full details.
 

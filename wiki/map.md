@@ -206,36 +206,6 @@ Client → Server → ActionController.executeAction()
 
 **Data Decoupling**: Synergy configs are in `data/synergy.json` (standalone), not embedded in `data/actions.json`.
 
-### 🔵 Equipment/Inventory Flow
-
-The equipment system manages item grabbing, backpack storage, and dropping:
-
-**Hand Grab Flow:**
-```
-Client → Server → ActionController.executeAction("grab")
-    ├── _checkGrabRange() → validate proximity
-    ├── _checkRequirementsForComponent() → Physical.strength ≥ 1
-    ├── ConsequenceHandlers.grabItem()
-    │   └── EquipmentController.grabItem()
-    │       ├── initializeComponent() from item blueprint
-    │       ├── addComponentToEntity() — item becomes entity component
-    │       └── despawnEntity() — original item entity removed
-    ├── Apply debuff to hand (strength -5)
-    └── ComponentCapabilityController.reEvaluateEntityCapabilities()
-```
-
-**EquipmentController Key Methods:**
-| Method | Description |
-|--------|-------------|
-| `grabItem(entityId, handComponentId, itemEntity)` | Add item as component to entity (hand grab) |
-| `releaseItem(componentId)` | Remove hand-grabbed item from entity and respawn in world |
-| `releaseBackpackItem(componentId)` | Remove backpack-stored item from entity and respawn in world |
-| `getBackpackItems(entityId)` | Get backpack items array |
-| `getBackpackVolume(entityId, backpackComponentId)` | Get {total, used, remaining} volume info |
-| `isHoldingItem(componentId)` | Check if holding an item |
-| `getActiveGrabCount()` | Number of active grabs |
-| `releaseEntityGrabs(entityId)` | Release all hand grabs for entity |
-
 ### 🔵 Multi-Component Selection Flow (
 
 The client uses a **click-to-toggle** model for multi-component selection:
@@ -328,7 +298,7 @@ data/rooms.json → DataLoader.loadJsonSafe() → RoomsController → WorldState
     → WorldGraphBuilder.build() → GET /world-map endpoint → WorldMapView.js renders as SVG <rect> elements
 ```
 
-**RoomConnectionRenderer** uses these coordinates to draw directional arrows between connected rooms. It applies `AppConfig.VIEW.CENTER_X/Y` offsets for SVG viewBox positioning.
+**RoomConnectionRenderer** uses these coordinates to draw directional arrows between connected rooms. Uses edge-to-edge rendering with relative coordinates `(targetRoom.x - room.x)`. Current room center excludes `room.x`/`room.y` to match `_renderRoom()` positioning. Connections are clickable via invisible hit-area lines (15px stroke) with `onConnectionClick` callback pattern. Edge point clamping uses SVG-space bounds (`offsetX` to `offsetX + width`). Edge determination uses `>=` for tie-breaking. See [World Map System](subMDs/world_map.md) Section 3.1 for details.
 
 **Adding New Rooms:** When adding new rooms, ensure coordinates do not overlap with existing rooms (unless intentional for visual grouping). Connections reference other rooms by their **logical ID** (the JSON key), not UID. The system auto-resolves connections to UIDs during initialization. See [rooms_controller.md](subMDs/rooms_controller.md) Section 7.3 for full details.
 
@@ -343,8 +313,9 @@ data/rooms.json → DataLoader.loadJsonSafe() → RoomsController → WorldState
 
 | Date | Change | Files |
 |------|--------|-------|
+| 2026-05-14 | **BUG-065 Fix:** Fixed world map connection arrow direction — changed from center-to-center to edge-to-edge rendering. Current room center excludes `room.x`/`room.y`. Target coordinates use relative positioning `(targetRoom.x - room.x)`. Edge clamping uses `offsetX`/`offsetY` SVG bounds. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js` |
+| 2026-05-14 | **BUG-066 Fix:** Made map connections clickable. CSS `pointer-events: none` → `pointer-events: stroke` (lines) / `pointer-events: fill` (arrows). Added invisible hit-area lines (15px stroke) for click detection. Added `onConnectionClick` callback pattern through UIManager. Improved pan/zoom: 3px threshold, skip panning on interactive elements. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `public/js/UIManager.js`, `public/css/navigation.css`, `public/index.html` |
 | 2026-05-13 | **Feature:** Added world map system — room connection arrows on spatial map, 🌐 world map overlay with pan/zoom, and `WorldGraphBuilder` utility. Removed navigation section from NavActionsPanel. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `src/utils/WorldGraphBuilder.js`, `src/controllers/WorldStateController.js`, `src/routes/worldRoutes.js`, `public/index.html`, `public/css/navigation.css`, `wiki/subMDs/world_map.md`, `wiki/bugfixWiki/medium/BUG-063-world-map-view-not-initialized.md` |
-| 2026-05-09 | **Refactor:** Organized `src/controllers/` into subdirectories by subsystem per SRP. Created barrel export (`index.js`). Updated all import paths across codebase. | `src/controllers/WorldStateController.js`, `src/controllers/index.js`, `src/controllers/core/*`, `src/controllers/traits/*`, `src/controllers/actions/*`, `src/controllers/capabilities/*`, `src/controllers/synergy/*`, `src/controllers/equipment/*`, `src/controllers/consequences/*`, `src/controllers/networking/*`, `src/server.js`, `test/*.test.js` |
 | 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 6 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `EquipmentConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |
 | 2026-05-13 | **Refactor:** Externalized hardcoded room definitions from `RoomsController.js` to `data/rooms.json`, added `_validateRoomDefinitions()` validation, and Logger integration | `src/controllers/core/RoomsController.js`, `data/rooms.json` |
 | 2026-05-13 | **Docs:** Added RC→WGB dependency edge to Mermaid diagram — `WorldGraphBuilder` consumes room data from `RoomsController.getAll()` to construct the navigable world graph | `wiki/map.md` |

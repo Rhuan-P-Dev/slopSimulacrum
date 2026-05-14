@@ -23,8 +23,8 @@ Rooms are loaded from `data/rooms.json` via `DataLoader.loadJsonSafe()`, followi
     "connections": {
       "right_door": "right_room"
     },
-    "x": 200,
-    "y": 250,
+    "x": 0,
+    "y": 0,
     "width": 300,
     "height": 200
   }
@@ -55,7 +55,7 @@ After initialization, rooms are stored with generated UIDs and expanded schema:
     name: "The Entrance Hall",
     description: "A dimly lit hall...",
     connections: { right_door: "uid-yyy" },  // Logical IDs resolved to UIDs
-    x: 200, y: 250, width: 300, height: 200,
+    x: 0, y: 0, width: 300, height: 200,
     objects: [],    // Reserved for future room objects
     entities: []    // Reserved for future entity references
   }
@@ -205,7 +205,18 @@ WorldMapView → GET /world-map → WorldStateController.getWorldGraph()
 
 ### 6.7. RoomConnectionRenderer
 
-`RoomConnectionRenderer` draws connection arrows between rooms on the spatial map. It receives room data (including connections) from the world map API response and renders arrows between connected rooms based on room coordinates and connection data.
+`RoomConnectionRenderer` draws connection arrows between rooms on the spatial map. It uses **edge-to-edge rendering** with relative coordinates `(targetRoom.x - room.x)` to ensure arrows connect at room boundaries, not centers. The current room center excludes `room.x`/`room.y` to match `_renderRoom()` positioning.
+
+**Edge Determination:** Uses `>=` for tie-breaking — horizontal direction (left/right) takes priority over vertical when determining which edge to hit.
+
+**Clickability (BUG-066 Fix):** Connections are interactive and clickable for room navigation. Implementation uses:
+- **Invisible hit-area lines:** `stroke-width: 15`, `opacity: 0` enable reliable click detection on thin SVG lines
+- **CSS pointer-events:** `.room-connection-line` uses `pointer-events: stroke` with `cursor: pointer`; `.room-connection-arrow` uses `pointer-events: fill`
+- **Hover effects:** `stroke-opacity: 1`, `stroke-width: 3` on lines; `opacity: 1` on arrows
+- **Click callback:** `onConnectionClick(entityId, targetRoomId)` where `targetRoomId` is a string ID for room navigation
+- **Pan/zoom integration:** 3px `PAN_THRESHOLD` prevents accidental panning when clicking; panning skipped on interactive elements
+
+See [BUG-065](../bugfixWiki/high/BUG-065-world-map-connection-arrows-wrong-direction.md) and [BUG-066](../bugfixWiki/high/BUG-066-map-connections-not-clickable.md) for fix details.
 
 ## 7. Spatial Rendering
 
@@ -215,18 +226,25 @@ Each room definition includes spatial coordinates for rendering on the world map
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `x` | `number` | Top-left X coordinate on the 2D canvas |
-| `y` | `number` | Top-left Y coordinate on the 2D canvas |
+| `x` | `number` | X coordinate in world space (absolute data coordinate) |
+| `y` | `number` | Y coordinate in world space (absolute data coordinate) |
 | `width` | `number` | Room rectangle width in pixels |
 | `height` | `number` | Room rectangle height in pixels |
+
+**Coordinate System Notes:**
+- Room coordinates (`x`, `y`) are **absolute data coordinates** defined in `data/rooms.json`
+- On the **spatial map**, the current room is centered at viewport center (`AppConfig.VIEW.CENTER_X`, `AppConfig.VIEW.CENTER_Y`), ignoring `room.x`/`room.y`
+- In **connection rendering**, target rooms use relative coordinates: `(targetRoom.x - room.x)` relative to the current room
+- **Edge-to-edge rendering** ensures arrows connect at room boundaries, not centers (BUG-065 fix)
+- **Edge point clamping** uses SVG-space bounds (`offsetX` to `offsetX + width`, `offsetY` to `offsetY + height`), not world-space coordinates
 
 ### 7.2. Spatial Data Usage
 
 Room spatial data is consumed by:
 
-1. **`WorldMapView.js`** — Renders room rectangles at specified coordinates with pan/zoom support
-2. **`RoomConnectionRenderer.js`** — Draws directional arrows between connected rooms based on their spatial positions
-3. **`WorldGraphBuilder.js`** — Uses coordinates to compute arrow positioning and connection geometry
+1. **`WorldMapView.js`** — Renders room rectangles at specified coordinates on the world map overlay with pan/zoom support. Connections are clickable for room navigation.
+2. **`RoomConnectionRenderer.js`** — Draws directional arrows between connected rooms using edge-to-edge rendering with relative coordinates. Connections are interactive and clickable (BUG-065 and BUG-066 fixes).
+3. **`WorldGraphBuilder.js`** — Uses coordinates to compute graph structure and connection geometry.
 
 ### 7.3. Adding New Rooms
 
@@ -281,6 +299,8 @@ graph TD
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | **BUG-065 Fix:** Connection arrows now use edge-to-edge rendering with relative coordinates `(targetRoom.x - room.x)`. Current room center excludes `room.x`/`room.y`. Edge clamping uses SVG-space bounds (`offsetX`/`offsetY`). Edge determination uses `>=` for tie-breaking. |
+| 2026-05-14 | **BUG-066 Fix:** Connections are now clickable. Added invisible hit-area lines (15px stroke), CSS `pointer-events: stroke/fill`, hover effects, and `onConnectionClick` callback pattern. Pan/zoom improved with 3px threshold and interactive element skipping. |
 | 2026-05-13 | **Refactor:** Externalized hardcoded room definitions to `data/rooms.json`, added `_validateRoomDefinitions()` validation, and Logger integration. See [BUG-063](../bugfixWiki/medium/BUG-063-hardcoded-room-definitions.md). |
 
 ## 10. Related Documentation

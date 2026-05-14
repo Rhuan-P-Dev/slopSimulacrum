@@ -82,8 +82,8 @@ The server exposes the following REST API:
         "id": "uuid-1234-5678",
         "name": "Room Name",
         "description": "Room description",
-        "x": 200,
-        "y": 250,
+        "x": 0,
+        "y": 0,
         "width": 300,
         "height": 200,
         "connections": { ... },
@@ -117,8 +117,8 @@ The server exposes the following REST API:
     "uuid-1234-5678": {
       "id": "uuid-1234-5678",
       "name": "The Entrance Hall",
-      "x": 200,
-      "y": 250,
+      "x": 0,
+      "y": 0,
       "width": 300,
       "height": 200,
       "connections": { ... }
@@ -140,7 +140,7 @@ The server exposes the following REST API:
 ```
 
 **Endpoint:** `GET /world-map`
-**Description:** Returns the world graph with resolved room names for all connections.
+**Description:** Returns the world graph with resolved room names for all connections. Room coordinates use relative positioning for edge-to-edge connection rendering. Connections are clickable for room navigation (BUG-066 fix).
 **Successful Response (200 OK):**
 ```json
 {
@@ -148,7 +148,7 @@ The server exposes the following REST API:
     {
       "id": "uid-xxx",
       "name": "The Entrance Hall",
-      "x": 200, "y": 250, "width": 300, "height": 200,
+      "x": 0, "y": 0, "width": 300, "height": 200,
       "connections": [
         { "door": "right_door", "targetId": "uid-yyy", "targetName": "The Eastern Corridor" }
       ]
@@ -219,6 +219,10 @@ WorldStateController (Root Injector)
 
 ### 3.2. Client
 - **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, `ActionExecutor.js`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `ConfigBarManager.js`, `NavActionsPanel.js`, `ComponentViewer.js`, `StatBarsManager.js`, `SelectionController.js`, `ClientErrorController.js`) that visualize the world state and handle action execution.
+  - **World Map System:** `WorldMapView.js` renders all rooms as an interactive SVG overlay with pan/zoom. Connections are clickable for room navigation via invisible hit-area lines (15px stroke) and `onConnectionClick` callback pattern.
+  - **Spatial Map Connections:** `RoomConnectionRenderer.js` draws edge-to-edge connection arrows on the spatial map. Connections are interactive with CSS `pointer-events: stroke/fill`, hover effects, and click handlers for room navigation.
+  - **Pan/Zoom:** 3px `PAN_THRESHOLD` prevents accidental panning. Panning skipped on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`).
+  - **Connection Click Callback Chain:** `UIManager.updateWorldView()` → `RoomConnectionRenderer.renderRoomConnections()` → `_drawConnection()` → `onConnectionClick(entityId, targetRoomId)`. See [Controller Patterns](subMDs/controller_patterns.md) Section 10.1 for details.
 
 ---
 

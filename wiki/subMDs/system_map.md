@@ -27,7 +27,6 @@ src/controllers/
 ├── actions/                         # Action execution system (ActionController, actionSelect, ComponentResolver, RequirementResolver, RangeValidator)
 ├── capabilities/                    # Capability caching (ComponentCapabilityController)
 ├── synergy/                         # Synergy system (SynergyController + 4 extracted modules)
-├── equipment/                       # Equipment system (EquipmentController, HandEquipment, BackpackInventory)
 ├── consequences/                    # Consequence system (ConsequenceHandlers + 6 handlers + Dispatcher)
 └── networking/                      # Network layer (LLMController, SocketLifecycleController)
 ```
@@ -94,15 +93,17 @@ Config.js → WorldStateManager → UIManager → RoomConnectionRenderer → Wor
 ## 2.1. Spatial Data Schema
 
 ### Rooms
-Rooms now include spatial information for rendering:
+Rooms include spatial information for rendering. Coordinates define the room's position in the world coordinate space:
 ```json
 {
-  "x": 200,
-  "y": 250,
+  "x": 0,
+  "y": 0,
   "width": 300,
   "height": 200
 }
 ```
+
+**Coordinate System:** Room coordinates (`x`, `y`) are absolute data coordinates. On the spatial map, the current room is centered at the viewport center (`AppConfig.VIEW.CENTER_X`, `AppConfig.VIEW.CENTER_Y`), ignoring `room.x`/`room.y`. Target rooms in connection rendering use relative coordinates: `(targetRoom.x - room.x)`. Edge-to-edge line drawing with `>=` tie-breaking ensures arrows connect at room boundaries, not centers. See `wiki/subMDs/world_map.md` for details on connection arrow rendering.
 
 ### Entities
 Entities store position relative to their room:

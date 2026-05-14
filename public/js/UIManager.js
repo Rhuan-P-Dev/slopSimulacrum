@@ -88,7 +88,7 @@ export class UIManager {
 
         // Render map layers
         this._renderRoom(room);
-        this.renderRoomConnections(room, state.rooms);
+        this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id);
         this._renderEntities(room, state.entities, null, droid.id);
         this._renderDroidComponents(droid, state);
     }
@@ -185,10 +185,12 @@ export class UIManager {
      * Renders connection lines/arrows between the current room and adjacent rooms.
      * @param {Object} room - The current room object.
      * @param {Object} rooms - Map of all rooms.
+     * @param {Function} [onConnectionClick] - Optional callback when a connection is clicked (entityId, targetRoomId)
+     * @param {string} [entityId] - The entity ID to pass to the click callback
      */
-    renderRoomConnections(room, rooms) {
+    renderRoomConnections(room, rooms, onConnectionClick = null, entityId = null) {
         if (!this._currentRoomLayer) return;
-        RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer);
+        RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer, onConnectionClick, entityId);
     }
 
     _renderEntities(room, entities, onEntityClick, activeDroidId) {

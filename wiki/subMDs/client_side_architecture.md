@@ -109,9 +109,9 @@ public/js/
 | `getState()` | `Object|null` | Returns the full world state |
 
 ### 4.6. `WorldMapView.js`
-**Responsibility:** Full-screen overlay with interactive SVG world map showing all rooms and connections. Supports pan/zoom.
+**Responsibility:** Full-screen overlay with interactive SVG world map showing all rooms and connections. Supports pan/zoom. Connections are clickable for room navigation.
 
-**Constructor DI:** `constructor(deps)` where `deps.onRoomClick` is a callback function triggered when a room node is clicked.
+**Constructor DI:** `constructor(deps)` where `deps.onRoomClick` is a callback function triggered when a room node or connection is clicked.
 
 **Public API:**
 | Method | Returns | Description |
@@ -123,17 +123,29 @@ public/js/
 | `hide()` | `void` | Hides the overlay |
 | `toggle()` | `void` | Toggles overlay visibility |
 
-**Private Methods:** `_renderMap()`, `_drawConnection()`, `_drawRoomNode()`, `_getEdgePoint()`, `_setupPanZoom()`
+**Private Methods:**
+| Method | Description |
+|--------|-------------|
+| `_renderMap()` | Renders the full SVG world map |
+| `_drawConnection(group, room, conn, allRooms)` | Draws connection line with CSS class `world-map-connection-line`, `data-target-room` attribute, hover effects, and click handler calling `_onRoomClick(conn.targetId)` |
+| `_drawRoomNode(group, room)` | Draws room rectangle with click handler |
+| `_getEdgePoint(room, otherRoom, roomCX, roomCY)` | Calculates edge point on room boundary |
+| `_setupPanZoom(svg, group)` | Pan/zoom with 3px threshold. Skips panning on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`) |
 
 ### 4.7. `RoomConnectionRenderer.js`
-**Responsibility:** Renders SVG arrows on the spatial map showing room connections.
+**Responsibility:** Renders SVG arrows on the spatial map showing room connections. Connections are clickable and use edge-to-edge coordinate system with invisible hit-area lines for click detection.
 
 **Public API:**
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `renderRoomConnections(room, rooms, roomLayer)` | `Object room`, `Object rooms`, `SVGElement roomLayer` | `void` | Renders connection lines, arrowheads, and labels for all connections of the given room |
+| `renderRoomConnections(room, rooms, roomLayer, onConnectionClick, entityId)` | `Object room`, `Object rooms`, `SVGElement roomLayer`, `Function onConnectionClick` (optional), `string entityId` (optional) | `void` | Renders connection lines, arrowheads, and labels. Connections are clickable via invisible hit-area lines (15px stroke). Callback receives `(entityId, targetRoomId)` where `targetRoomId` is a string ID. |
 
-**Private Methods:** `_drawConnection()`, `_drawArrowhead()`, `_getEdgePoint()`
+**Private Methods:**
+| Method | Description |
+|--------|-------------|
+| `_drawConnection(room, targetRoom, door, offsetX, offsetY, layer, onConnectionClick, entityId)` | Draws edge-to-edge connection with invisible hit-area line for click detection. Uses relative coordinates `(targetRoom.x - room.x)`. Current room center excludes `room.x`/`room.y`. |
+| `_drawArrowhead(startX, startY, endX, endY, layer)` | Draws 3-point polyline arrowhead |
+| `_getEdgePoint(room, otherRoom, roomCX, roomCY, offsetX, offsetY)` | Calculates edge point using relative coordinates and SVG-space clamping |
 
 ### 4.8. `ConfigBarManager.js`
 **Responsibility:** Manages the top config bar buttons, overlay coordination, and panel toggling.
@@ -267,7 +279,7 @@ All extracted modules follow the **Dependency Injection (DI)** pattern defined i
 | `EventDispatcher` | `socket`, `config`, `handlers` |
 | `WorldStateManager` | `config` |
 | `WorldMapView` | `config`, `deps.onRoomClick` |
-| `RoomConnectionRenderer` | — (static utility) |
+| `RoomConnectionRenderer` | — (static utility, accepts callback parameters) |
 | `ConfigBarManager` | `uiManager`, `componentViewer`, `statBarsManager`, `navActionsPanel`, `worldMapView`, `worldStateManager`, callbacks |
 | `NavActionsPanel` | `uiManager` |
 | `ClientApp` | — (instantiates all) |
@@ -295,5 +307,7 @@ Logger.error('[ModuleName] Message', { context: 'data' });
 
 | Date | Change | Related Files |
 |------|--------|---------------|
+| 2026-05-14 | **BUG-065 Fix:** Fixed connection arrow direction — edge-to-edge rendering, relative coordinates, SVG-space clamping | `RoomConnectionRenderer.js`, `WorldMapView.js` |
+| 2026-05-14 | **BUG-066 Fix:** Made connections clickable — added `onConnectionClick` callback parameters, invisible hit-area lines (15px stroke), CSS `pointer-events: stroke/fill`, improved pan/zoom (3px threshold, skip interactive elements) | `RoomConnectionRenderer.js`, `WorldMapView.js`, `UIManager.js`, `navigation.css` |
 | 2026-05-13 | **Feature:** Added world map system — `WorldMapView.js` overlay, `RoomConnectionRenderer.js` arrows, `WorldStateManager.js` state sync | `WorldMapView.js`, `RoomConnectionRenderer.js`, `WorldStateManager.js`, `App.js`, `ConfigBarManager.js` |
 | 2026-05-02 | **Refactor:** Split `App.js` into 4 single-responsibility modules | `App.js`, `SelectionController.js`, `SynergyPreviewController.js`, `ActionExecutor.js`, `EventDispatcher.js` |

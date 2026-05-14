@@ -31,7 +31,7 @@ public/
 | `css/base.css` | ~30 | Reset, body typography, h1 styling |
 | `css/layout.css` | ~25 | Top-level grid layout, panel containers |
 | `css/map.css` | ~70 | SVG map visualization, room boundaries, entity/component markers |
-| `css/navigation.css` | ~157 | Navigation buttons, room info panels, detail overlays, world map overlay, room connection arrows |
+| `css/navigation.css` | ~165 | Navigation buttons, room info panels, detail overlays, world map overlay, room connection arrows (interactive with pointer-events) |
 | `css/actions.css` | ~90 | Action list rendering, capability status, multi-component selection |
 | `css/synergy.css` | ~115 | Synergy preview display, multiplier display, modified values |
 | `css/components.css` | ~115 | Component selection list, durability bars, tactical HUD |
@@ -91,6 +91,8 @@ All CSS variables are defined in `:root` in `public/styles.css` AND duplicated i
 
 | Date | Change |
 |------|--------|
+| 2026-05-14 | **BUG-065 Fix:** Updated edge-to-edge rendering documentation — connection arrows now use relative coordinates `(targetRoom.x - room.x)` with SVG-space bounds clamping. No CSS changes required (visual rendering is JS-driven). |
+| 2026-05-14 | **BUG-066 Fix:** Updated `.room-connection-line` from `pointer-events: none` to `pointer-events: stroke` with `cursor: pointer` and hover transition (`stroke-opacity: 1`, `stroke-width: 3`). Updated `.room-connection-arrow` from `pointer-events: none` to `pointer-events: fill` with `cursor: pointer` and hover (`opacity: 1`). |
 | 2026-05-13 | **Added:** World Map overlay styles (`.world-map-overlay`, `.world-map-room-node`) and Room Connection arrow styles (`.room-connection-line`, `.room-connection-label`, `.room-connection-label-bg`, `.room-connection-arrow`) |
 
 ## References

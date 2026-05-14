@@ -23,7 +23,7 @@ A pure utility class that constructs a navigable graph structure from room data:
     {
       "id": "uid-xxx",
       "name": "The Entrance Hall",
-      "x": 200, "y": 250, "width": 300, "height": 200,
+      "x": 0, "y": 0, "width": 300, "height": 200,
       "connections": [
         { "door": "right_door", "targetId": "uid-yyy", "targetName": "The Eastern Corridor" }
       ]
@@ -69,16 +69,21 @@ Static utility class that draws SVG arrows between the current room and connecte
 **Methods:**
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `renderRoomConnections(room, rooms, roomLayer)` | `Object room`, `Object rooms`, `SVGElement roomLayer` | `void` | Renders connection lines, arrowheads, and labels for all connections of the given room |
+| `renderRoomConnections(room, rooms, roomLayer, onConnectionClick, entityId)` | `Object room`, `Object rooms`, `SVGElement roomLayer`, `Function onConnectionClick` (optional), `string entityId` (optional) | `void` | Renders connection lines, arrowheads, and labels for all connections of the given room. Connections are clickable and trigger `onConnectionClick(entityId, targetRoomId)` when clicked, where `targetRoomId` is a string ID. |
 
 **Private Methods:**
 | Method | Description |
 |--------|-------------|
-| `_drawConnection(room, targetRoom, door, offsetX, offsetY, layer)` | Draws a single connection with line, arrowhead, and label |
+| `_drawConnection(room, targetRoom, door, offsetX, offsetY, layer, onConnectionClick, entityId)` | Draws a single connection with edge-to-edge line, arrowhead, label, and invisible hit-area line for click detection. Uses relative coordinates: target position is `(targetRoom.x - room.x)` relative to the current room. Current room center excludes `room.x`/`room.y` to match `_renderRoom()` positioning. |
 | `_drawArrowhead(startX, startY, endX, endY, layer)` | Draws a 3-point polyline arrowhead at the destination edge, oriented toward the incoming line direction |
-| `_getEdgePoint(room, otherRoom, roomCX, roomCY)` | Calculates the edge point on a room's boundary toward another room |
+| `_getEdgePoint(room, otherRoom, roomCX, roomCY, offsetX, offsetY)` | Calculates the edge point on a room's boundary toward another room. Uses relative coordinates `(otherRoom.x - room.x)`. Clamps to `offsetX`/`offsetY` SVG coordinate bounds (not `offsetX + room.x`). Changed edge determination from `>` to `>=` to handle tie cases (horizontal direction hits left/right edge). |
 
-**Integration:** Called from `UIManager.renderRoomConnections()` which is invoked from `UIManager.updateWorldView()`.
+**Integration:** Called from `UIManager.renderRoomConnections(room, rooms, onConnectionClick, entityId)` which passes the callback and entity ID through to `_drawConnection()`. `UIManager.updateWorldView()` passes `onMoveCallback` as the connection click handler.
+
+**Click Handling:**
+- Invisible hit-area line (`stroke-width: 15`, `opacity: 0`) enables reliable click detection on thin SVG lines
+- Click event calls `e.stopPropagation()` to prevent pan interaction
+- Callback receives `(entityId, targetRoomId)` where `targetRoomId` is a string ID of the destination room
 
 ### 3.2. World Map Overlay
 **File:** `public/js/WorldMapView.js`
@@ -88,7 +93,9 @@ Full-screen overlay with interactive SVG world map:
 - Renders all rooms as labeled rectangles on an SVG canvas
 - Draws directed connection arrows with door name labels
 - Highlights the current room with neon-green border + glow filter
+- **Clickable connections:** Connection lines have `pointer-events: stroke`, `cursor: pointer`, hover highlight (opacity → 1, stroke-width → 3), and click handler that calls `_onRoomClick(conn.targetId)` for room navigation
 - Supports pan (drag) and zoom (mouse wheel) for large maps
+- **Improved pan/zoom:** Skips panning when clicking on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`). 3-pixel `PAN_THRESHOLD` movement before panning starts to distinguish clicks from drags.
 - Clicking a room node moves the droid there via `_handleWorldMapRoomClick()` in App.js
 - **AppConfig Dependency:** Uses `AppConfig.VIEW.CENTER_X` and `AppConfig.VIEW.CENTER_Y` for viewBox coordinate transformation
 
@@ -130,10 +137,10 @@ constructor(deps = {}) {
 | Method | Description |
 |--------|-------------|
 | `_renderMap()` | Renders the full SVG world map: calculates bounds for auto-scaling, creates SVG with `<defs>` for arrow markers, draws connections then room nodes, sets up pan/zoom |
-| `_drawConnection(group, room, conn, allRooms)` | Draws a single connection: edge-to-edge line with dashed stroke, SVG arrow marker, door name label at midpoint |
+| `_drawConnection(group, room, conn, allRooms)` | Draws a single connection: edge-to-edge line with dashed stroke, SVG arrow marker, door name label at midpoint. Connection line has CSS class `world-map-connection-line`, data attribute `data-target-room`, `pointerEvents: 'stroke'`, `cursor: 'pointer'`, hover highlight effects, and click handler calling `_onRoomClick(conn.targetId)`. Label text has `pointerEvents: 'none'`. |
 | `_drawRoomNode(group, room)` | Draws a room rectangle with name label. Current room gets neon-green border, glow filter, and higher opacity. Non-current rooms get dim border. Click handler wired to `_onRoomClick` callback. |
 | `_getEdgePoint(room, otherRoom, roomCX, roomCY)` | Calculates the edge point on a room's boundary toward another room (same logic as RoomConnectionRenderer but without center offset) |
-| `_setupPanZoom(svg, group)` | Sets up pan (mousedown + mousemove + mouseup) and zoom (wheel event) interactions. Pan modifies the `transform` attribute; zoom adjusts the SVG `viewBox` |
+| `_setupPanZoom(svg, group)` | Sets up pan (mousedown + mousemove + mouseup) and zoom (wheel event). **Improved:** Checks `e.target.className` to skip panning on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`). 3-pixel `PAN_THRESHOLD` minimum movement before panning starts. |
 
 **SVG Rendering Details:**
 - **Arrow Marker:** `<marker id="world-map-arrow">` defined in `<defs>` with `orient="auto"`
@@ -149,6 +156,7 @@ constructor(deps = {}) {
 | `world-map-svg` | `#world-map-svg` | SVG element |
 | `world-map-group` | `#world-map-group` | Main transform group |
 | `world-map-room-node` | `.world-map-room-node` | Room rectangle node |
+| `world-map-connection-line` | `.world-map-connection-line` | Connection line with `pointer-events: stroke`, `cursor: pointer`, hover highlight (opacity → 1, stroke-width → 3) |
 
 **Data Flow:**
 1. User clicks 🌐 button → `ConfigBarManager._onWorldMapClick()` → `onToggleWorldMap` callback
@@ -191,14 +199,17 @@ graph TD
 ## 5. CSS Styles
 **File:** `public/css/navigation.css`
 
-- `.room-connection-line`: Dashed line for room connections
-- `.room-connection-label`: Text label styling
+- `.room-connection-line`: `pointer-events: stroke`, `cursor: pointer`, `transition: stroke-opacity 0.2s ease`. Hover: `stroke-opacity: 1`, `stroke-width: 3`.
+- `.room-connection-label`: `pointer-events: none` (click-through to line/arrow beneath)
 - `.room-connection-label-bg`: Background for text readability
-- `.room-connection-arrow`: Arrowhead styling
+- `.room-connection-arrow`: `pointer-events: fill`, `cursor: pointer`, `transition: opacity 0.2s ease`. Hover: `opacity: 1`.
 - `.world-map-room-node`: Room node hover effects
 - `.world-map-overlay`: Overlay container styling
+- `.world-map-connection-line`: Same as `.room-connection-line` (defined inline via JS `style` property)
 
 ## 6. Recent Changes
 | Date | Change |
 |------|--------|
 | 2026-05-13 | **Feature:** Added room connection arrows to spatial map and 🌐 world map overlay. Removed navigation section from NavActionsPanel. |
+| 2026-05-14 | **BUG-065 Fix:** Fixed world map connection arrows direction. Changed from center-to-center to edge-to-edge rendering. Current room center now excludes `room.x`/`room.y`. Target coordinates use relative positioning `(targetRoom.x - room.x)`. Edge clamping uses `offsetX`/`offsetY` SVG bounds. |
+| 2026-05-14 | **BUG-066 Fix:** Made map connections clickable. CSS `pointer-events: none` → `pointer-events: stroke` (lines) / `pointer-events: fill` (arrows). Added invisible hit-area lines (15px stroke) for click detection. Added click handlers on connections. Improved pan/zoom: 3px threshold, skip panning on interactive elements. |

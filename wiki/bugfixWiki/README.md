@@ -41,6 +41,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-046](high/BUG-046-filterProvidedForGroup-missing-filters.md) | _filterProvidedForGroup missing componentType/groupType filters | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-047](high/BUG-047-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-050](high/BUG-050-consequences-missing-explicit-target-field.md) | Consequences Missing Explicit Target Field | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `data/actions.json`, 6 handler modules |
+| [BUG-065](high/BUG-065-world-map-connection-arrows-wrong-direction.md) | World Map Connection Arrows Drawn with Wrong Direction (Center-to-Center) | ✅ Fixed | `pending` | `WorldMapView.js`, `RoomConnectionRenderer.js` |
+| [BUG-066](high/BUG-066-map-connections-not-clickable.md) | Map Connection Arrows Not Clickable (CSS pointer-events Blocks Interaction) | ✅ Fixed | `pending` | `navigation.css`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `UIManager.js` |
 
 ### 🟡 Medium Severity
 

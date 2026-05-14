@@ -15,13 +15,14 @@ This wiki is specifically designed for AI agents.
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
 - [Synergy Preview System](subMDs/synergy_preview.md)
-- [Equipment/Grab System](subMDs/equipment_system.md)
 - **Recent Fixes:**
   - Bug 1: deltaSpatial action name rendering (`_name` property)
   - Bug 2: deltaSpatial speed property handling in preview
   - Bug 3: Multi-component spatial action race condition
   - Bug 4: Duplicate contributing components in synergy
   - Bug 5: Synergy-aware range indicator
+  - Bug 065: World map connection arrows wrong direction — fixed edge-to-edge rendering with relative coordinates
+  - Bug 066: Map connections not clickable — added pointer-events, invisible hit-area lines, and click handlers
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
@@ -52,8 +53,6 @@ This wiki is specifically designed for AI agents.
 - [Component Capability Controller](subMDs/component_capability_controller.md)
 - [Synergy System](subMDs/synergy_system.md)
 - [Synergy Preview System](subMDs/synergy_preview.md)
-- [Equipment/Grab System](subMDs/equipment_system.md)
-- [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
 - [Server Splitting Architecture](subMDs/server_splitting.md)

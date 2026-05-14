@@ -2,7 +2,7 @@
 
 ## Overview
 
-The consequence handler system was refactored from a single monolithic class (`ConsequenceHandlers.js`) into **6 single-focused modules** following the **Single Responsibility Principle (SRP)**. The original class contained 11 handler methods spanning 4 distinct responsibility categories (397 lines). The new architecture distributes these across dedicated modules while maintaining backward compatibility via a lightweight dispatcher.
+The consequence handler system was refactored from a single monolithic class (`ConsequenceHandlers.js`) into **5 single-focused modules** following the **Single Responsibility Principle (SRP)**. The original class contained 11 handler methods spanning 4 distinct responsibility categories (397 lines). The new architecture distributes these across dedicated modules while maintaining backward compatibility via a lightweight dispatcher.
 
 **Target Resolution:** Each consequence in `data/actions.json` MUST include a `target` field (`"self"`, `"target"`, or `"entity"`) that defines who is affected by the consequence. The `ConsequenceDispatcher` resolves this to a concrete `targetId` before dispatching to handlers.
 
@@ -15,8 +15,7 @@ src/controllers/
 ├── StatConsequenceHandler.js           ← Stat value updates (~100 lines)
 ├── DamageConsequenceHandler.js         ← Damage application (~90 lines)
 ├── LogConsequenceHandler.js            ← Logging (~35 lines)
-├── EventConsequenceHandler.js          ← Event triggering (~30 lines)
-└── EquipmentConsequenceHandler.js      ← Equipment operations (~360 lines)
+└── EventConsequenceHandler.js          ← Event triggering (~30 lines)
 ```
 
 ## Module Responsibilities
@@ -66,8 +65,6 @@ Each handler interprets the `targetId` based on its `consequenceTarget` context:
 | `updateComponentStatDelta` | Update source component | Update target component | Update ALL entity components |
 | `deltaSpatial` | Move source entity | Move target entity | Move entity |
 | `log` | Log with source context | Log with target context | Log with entity context |
-| `grabItem` | N/A (uses hand component) | Grab target entity | N/A |
-| `releaseItem` | Release from source | Release target item | N/A |
 
 ## Dispatcher Pattern
 
@@ -118,7 +115,6 @@ All handlers follow a normalized signature and return format:
 | `DamageConsequenceHandler` | `worldStateController` |
 | `LogConsequenceHandler` | `Logger` (standalone utility) |
 | `EventConsequenceHandler` | `Logger` (standalone utility) |
-| `EquipmentConsequenceHandler` | `worldStateController`, `MIN_STRENGTH_DELTA` |
 
 ## Integration Points
 
@@ -130,7 +126,7 @@ All handlers follow a normalized signature and return format:
 
 1. **SRP Compliance**: Each module has exactly one reason to change
 2. **Testability**: Individual handlers can be tested in isolation
-3. **Maintainability**: Changes to equipment logic don't risk spatial logic
+3. **Maintainability**: Changes to one type of consequence don't risk others
 4. **Discoverability**: Developers can find relevant code by module name
 5. **Backward Compatibility**: Existing `handlers` map access pattern unchanged
 6. **Explicit Targeting**: Each consequence explicitly declares who it affects
@@ -145,7 +141,7 @@ All handlers follow a normalized signature and return format:
 
 | Date | Change |
 |------|--------|
-| 2026-05-05 | **Refactored:** Split `consequenceHandlers.js` into 6 focused modules |
+| 2026-05-05 | **Refactored:** Split `consequenceHandlers.js` into 5 focused modules |
 | 2026-05-08 | **Added:** Mandatory `target` field on all consequences (`self`, `target`, `entity`) |
 | 2026-05-08 | **Added:** `ConsequenceDispatcher._resolveTargetForConsequence()` for target resolution |
 | 2026-05-08 | **Removed:** `componentBinding` from action definitions |

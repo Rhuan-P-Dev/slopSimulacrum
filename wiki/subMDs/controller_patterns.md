@@ -393,7 +393,7 @@ The `build()` method returns a graph object with this structure:
     {
       "id": "uid-xxx",
       "name": "The Entrance Hall",
-      "x": 200, "y": 250, "width": 300, "height": 200,
+      "x": 0, "y": 0, "width": 300, "height": 200,
       "connections": [
         { "door": "right_door", "targetId": "uid-yyy", "targetName": "The Eastern Corridor" }
       ]
@@ -418,3 +418,35 @@ Utility classes follow a different pattern than controllers:
 4. **Defensive Copying**: Return deep copies of data to prevent external mutation.
 5. **Placement**: Located in `src/utils/` directory, not in `src/controllers/`.
 6. **Instantiation**: Created on-demand wherever needed, not wired through the Root Injector.
+
+## 10. Client-Side Callback Patterns
+
+### 10.1. Connection Click Callback Pattern
+
+The connection click callback pattern allows UI interactions on map connections to trigger navigation or other actions. The callback flows through: `UIManager → RoomConnectionRenderer → WorldMapView`.
+
+**Pattern:**
+```javascript
+// UIManager.renderRoomConnections() accepts optional callback
+renderRoomConnections(room, rooms, onConnectionClick = null, entityId = null) {
+    RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer, onConnectionClick, entityId);
+}
+
+// WorldMapView._drawConnection() attaches click handler
+line.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (this._onRoomClick) {
+        this._onRoomClick(conn.targetId);
+    }
+});
+```
+
+**Callback Chain:**
+1. `UIManager.updateWorldView()` passes `onMoveCallback` as `onConnectionClick`
+2. `RoomConnectionRenderer.renderRoomConnections()` passes callback to `_drawConnection()`
+3. `_drawConnection()` creates invisible hit-area line with click listener
+4. Click calls `onConnectionClick(entityId, targetRoomId)` where `targetRoomId` is a string ID, with `e.stopPropagation()` to prevent pan
+
+**Hit-Area Pattern:** Invisible hit-area lines (`stroke-width: 15`, `stroke: 'transparent'`) enable reliable click detection on thin SVG lines. This is the standard approach for making SVG elements interactive.
+
+**Prevention:** See BUG-065 and BUG-066 in `wiki/bugfixWiki/high/` for fixes on connection direction and clickability.

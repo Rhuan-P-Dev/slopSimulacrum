@@ -192,9 +192,14 @@ sequenceDiagram
 |-------------|--------|
 | Click 🌐 button in config bar | Toggles world map overlay visibility |
 | Click room node on world map | Moves the droid to the selected room |
-| Drag on world map | Pans the map view |
+| Click connection line on world map | Moves the droid to the target room (hover highlight: opacity → 1, stroke-width → 3) |
+| Drag on world map | Pans the map view (3px minimum movement threshold to distinguish clicks from drags) |
 | Scroll on world map | Zooms the map view |
 | Click ✕ on overlay | Hides the overlay |
+
+**Pan/Zoom Improvements:**
+- Panning is skipped when clicking on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`)
+- 3-pixel `PAN_THRESHOLD` prevents accidental panning when the user intends to click a connection or room node
 
 ### 3.8. World Map Overlay Integration
 
@@ -210,11 +215,23 @@ sequenceDiagram
 
 **Renderer:** `RoomConnectionRenderer.js`
 - Draws SVG arrows between the current room and connected rooms
-- Called from `UIManager.renderRoomConnections()` → `UIManager.updateWorldView()`
-- Edge-to-edge line calculation based on room coordinates
+- Called from `UIManager.renderRoomConnections(room, rooms, onConnectionClick, entityId)` → `UIManager.updateWorldView()`
+- **Clickable connections:** Invisible hit-area lines (`stroke-width: 15`, `opacity: 0`) enable reliable click detection
+- Click triggers `onConnectionClick(entityId, targetRoomId)` callback where `targetRoomId` is a string ID for room navigation
+- Edge-to-edge line calculation using relative coordinates `(targetRoom.x - room.x)`
+- Current room center excludes `room.x`/`room.y` (matches `_renderRoom()` positioning)
 - Arrowhead at the destination edge
 - Label at midpoint showing `→ Destination Room Name`
 
+**CSS Interaction (Spatial Map Connections):**
+- `.room-connection-line`: `pointer-events: stroke`, `cursor: pointer`, hover: `stroke-opacity: 1`, `stroke-width: 3`
+- `.room-connection-arrow`: `pointer-events: fill`, `cursor: pointer`, hover: `opacity: 1`
+- `.room-connection-label`: `pointer-events: none` (click-through to line/arrow beneath)
+
+**CSS Interaction (World Map Connections — applied inline in WorldMapView.js):**
+- `.world-map-connection-line`: `pointer-events: stroke`, `cursor: pointer`, hover: `stroke-opacity: 1`, `stroke-width: 3` (same as `.room-connection-line`)
+- `.world-map-room-node`: hover effects for room rectangles
+- Connection labels have `pointer-events: none` to allow click-through to underlying connection line
 **CSS Files:**
 - `.nav-action-item` — panel action container
 - `.nav-action-name` — action name header (hoverable)
@@ -249,6 +266,13 @@ Entity and component positions are calculated relative to room origins:
 - **Entity Position**: `screenY = room.y + entity.spatial.y`
 - **Component Position**: `screenX = entity.screenX + component.spatial.x`
 - **Component Position**: `screenY = entity.screenY + component.spatial.y`
+
+**Connection Coordinate System:**
+- Room connection arrows use edge-to-edge rendering with relative coordinates
+- Current room is centered at viewport center (`AppConfig.VIEW.CENTER_X`, `AppConfig.VIEW.CENTER_Y`), ignoring `room.x`/`room.y`
+- Target room positions are relative: `(targetRoom.x - room.x)`
+- Edge point clamping uses SVG coordinate bounds (`offsetX` to `offsetX + width`, `offsetY` to `offsetY + height`)
+- Edge determination uses `>=` for tie-breaking (horizontal direction hits left/right edge)
 
 ### 4.3. Interaction Flow
 

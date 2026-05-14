@@ -216,7 +216,7 @@ export class WorldMapView {
         const [startX, startY] = this._getEdgePoint(room, targetRoom, roomCX, roomCY);
         const [endX, endY] = this._getEdgePoint(targetRoom, room, targetCX, targetCY);
 
-        // Draw line
+        // Draw single visible connection line with pointer-events for click detection
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         line.setAttribute('x1', startX);
         line.setAttribute('y1', startY);
@@ -227,7 +227,29 @@ export class WorldMapView {
         line.setAttribute('stroke-dasharray', '8,4');
         line.setAttribute('opacity', '0.5');
         line.setAttribute('marker-end', 'url(#world-map-arrow)');
+        line.setAttribute('class', 'world-map-connection-line');
+        line.setAttribute('data-target-room', conn.targetId);
+        line.style.pointerEvents = 'stroke';
+        line.style.cursor = 'pointer';
         group.appendChild(line);
+
+        // Hover highlight
+        line.addEventListener('mouseenter', () => {
+            line.setAttribute('opacity', '1');
+            line.setAttribute('stroke-width', '3');
+        });
+        line.addEventListener('mouseleave', () => {
+            line.setAttribute('opacity', '0.5');
+            line.setAttribute('stroke-width', '2');
+        });
+
+        // Click handler to navigate to target room
+        line.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this._onRoomClick) {
+                this._onRoomClick(conn.targetId);
+            }
+        });
 
         // Draw label
         const midX = (startX + endX) / 2;
@@ -240,6 +262,7 @@ export class WorldMapView {
         text.setAttribute('text-anchor', 'middle');
         text.setAttribute('fill', 'var(--text-dim)');
         text.setAttribute('font-size', '10');
+        text.style.pointerEvents = 'none';
         text.textContent = labelText;
         group.appendChild(text);
     }
@@ -325,19 +348,39 @@ export class WorldMapView {
 
     /**
      * Sets up pan (drag) and zoom (mouse wheel) interactions.
+     * Skips panning when clicking on interactive elements (room nodes, connections).
      * @private
      */
     _setupPanZoom(svg, group) {
+        let panStartX = 0;
+        let panStartY = 0;
+        const PAN_THRESHOLD = 3; // Minimum pixels to move before panning starts
+
         svg.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
+            // Skip panning if clicking on interactive elements (room nodes, connections)
+            const targetClass = e.target.className?.baseVal || '';
+            if (targetClass.includes('world-map-room-node') ||
+                targetClass.includes('world-map-connection-line') ||
+                targetClass.includes('room-connection-line') ||
+                targetClass.includes('room-connection-arrow')) {
+                return;
+            }
             this._isPanning = true;
             this._lastMouseX = e.clientX;
             this._lastMouseY = e.clientY;
+            panStartX = e.clientX;
+            panStartY = e.clientY;
             svg.style.cursor = 'grabbing';
         });
 
         window.addEventListener('mousemove', (e) => {
             if (!this._isPanning) return;
+            // Check if mouse moved past threshold before starting pan
+            const dxTotal = Math.abs(e.clientX - panStartX);
+            const dyTotal = Math.abs(e.clientY - panStartY);
+            if (dxTotal < PAN_THRESHOLD && dyTotal < PAN_THRESHOLD) return;
+
             const dx = e.clientX - this._lastMouseX;
             const dy = e.clientY - this._lastMouseY;
             this._lastMouseX = e.clientX;
