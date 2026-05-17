@@ -181,6 +181,91 @@ The server exposes the following REST API:
 }
 ```
 
+**Endpoint:** `GET /api/internal-components/registry`
+**Description:** Returns all internal component type definitions from the registry with human-readable descriptions.
+**Successful Response (200 OK):**
+```json
+{
+  "durabilityRepairSphere": {
+    "volume": 2,
+    "repairInterval": 5,
+    "repairAmount": 1,
+    "description": "Auto-installs on non-finger components. Repairs +1 durability every 5 seconds."
+  }
+}
+```
+
+**Endpoint:** `GET /api/internal-components/:entityId/:hostComponentId`
+**Description:** Returns internal components for a specific host component.
+**Successful Response (200 OK):**
+```json
+[
+  {
+    "id": "internal-uuid",
+    "type": "durabilityRepairSphere",
+    "hostComponentId": "comp-uuid",
+    "hostComponentType": "centralBall",
+    "hostComponentIdentifier": "default",
+    "installedAt": 1715789012345
+  }
+]
+```
+
+**Endpoint:** `GET /api/internal-components/:entityId`
+**Description:** Returns all internal components for an entity.
+**Successful Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "comp-uuid-1": [
+      {
+        "id": "internal-uuid-1",
+        "type": "durabilityRepairSphere",
+        "hostComponentId": "comp-uuid-1",
+        "hostComponentType": "centralBall",
+        "hostComponentIdentifier": "default",
+        "installedAt": 1715789012345
+      }
+    ]
+  }
+}
+```
+
+**Endpoint:** `POST /api/internal-components/:entityId/:hostComponentId/add`
+**Description:** Adds an internal component to a host component.
+**Payload:**
+```json
+{
+  "internalComponentType": "durabilityRepairSphere"
+}
+```
+**Successful Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Internal component durabilityRepairSphere added",
+  "data": {
+    "id": "internal-uuid",
+    "type": "durabilityRepairSphere",
+    "hostComponentId": "comp-uuid",
+    "hostComponentType": "centralBall",
+    "hostComponentIdentifier": "default",
+    "installedAt": 1715789012345
+  }
+}
+```
+
+**Endpoint:** `DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId`
+**Description:** Removes a specific internal component.
+**Successful Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Internal component removed"
+}
+```
+
 ---
 
 ## 3. Components
@@ -204,6 +289,7 @@ WorldStateController (Root Injector)
 ├── ComponentCapabilityController — Capability cache management
 ├── SynergyController — Multi-component synergy computation
 ├── ActionSelectController — Component selection/locking
+├── InternalComponentController — Internal component state (volume-based auto-install, repair system)
 ├── ConsequenceHandlers — Consequence dispatch system
 ├── LLMController — LLM backend communication
 └── SocketLifecycleController — WebSocket lifecycle management
@@ -219,6 +305,7 @@ WorldStateController (Root Injector)
 
 ### 3.2. Client
 - **Web Front-end (`public/`)**: A cyber-terminal interface utilizing a modular JavaScript architecture. It consists of `index.html` (structure), `styles.css` (styling), and a set of managers in `public/js/` (`App.js`, `Config.js`, `WorldStateManager.js`, `UIManager.js`, `ActionExecutor.js`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `ConfigBarManager.js`, `NavActionsPanel.js`, `ComponentViewer.js`, `StatBarsManager.js`, `SelectionController.js`, `ClientErrorController.js`) that visualize the world state and handle action execution.
+- **Internal Components Client Integration**: `ComponentViewer.js` provides 🔮 button for expandable internal component panels. Internal component data flows through world state broadcasts (`internalComponents` property) and REST API endpoints (`/api/internal-components/*`).
   - **World Map System:** `WorldMapView.js` renders all rooms as an interactive SVG overlay with pan/zoom. Connections are clickable for room navigation via invisible hit-area lines (15px stroke) and `onConnectionClick` callback pattern.
   - **Spatial Map Connections:** `RoomConnectionRenderer.js` draws edge-to-edge connection arrows on the spatial map. Connections are interactive with CSS `pointer-events: stroke/fill`, hover effects, and click handlers for room navigation.
   - **Pan/Zoom:** 3px `PAN_THRESHOLD` prevents accidental panning. Panning skipped on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`).

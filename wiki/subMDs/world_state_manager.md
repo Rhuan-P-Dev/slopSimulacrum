@@ -81,10 +81,28 @@ async fetchState() {
     "rooms": { "room_id": { ... } },
     "entities": { "entity_id": { ... } },
     "components": { "instances": { ... } },
-    "actions": { ... }
+    "actions": { ... },
+    "internalComponents": {
+      "entity_id": {
+        "component_id": [
+          {
+            "id": "internal-uuid",
+            "type": "durabilityRepairSphere",
+            "hostComponentId": "component_id",
+            "hostComponentType": "centralBall",
+            "hostComponentIdentifier": "default",
+            "installedAt": 1715789012345
+          }
+        ]
+      }
+    }
   }
 }
 ```
+
+**Internal Components in State**: The `internalComponents` property is included in the world state response. It is keyed by entity ID, then by host component ID, containing an array of internal component instances. The `WorldStateManager` stores this alongside other state properties without modification — it acts as a passive state storage layer.
+
+**⚠️ Client-Side Data Source Clarification**: The client's `ComponentViewer` accesses internal components from `entity.internalComponents` (the `internalComponents` property attached to individual entity objects within `state.entities`), NOT directly from `state.internalComponents`. When `ComponentViewer.show(entity)` is called, the entity object has an `internalComponents` property populated by the server's `InternalComponentController._syncToEntityStore()` method. The top-level `state.internalComponents` is used for the aggregated world state, but component-level UI rendering uses the entity-scoped version.
 
 ## 6. Integration with Other Modules
 
@@ -97,10 +115,12 @@ async fetchState() {
 ### 6.2. UIManager
 - Receives state from `WorldStateManager` via `App.js`
 - Uses `state.rooms`, `state.entities`, `state.components` for rendering
+- Displays internal components via `UIManager.showEntityDetails()` which renders internal components in the entity details overlay panel
 
 ### 6.3. WorldMapView
 - Uses `WorldStateManager` indirectly through `App.js`
 - `setCurrentRoomId()` receives the room ID from the active droid's location
+
 
 ## 7. Data Flow Diagram
 
@@ -133,6 +153,7 @@ graph TD
 | Date | Change |
 |------|--------|
 | 2026-05-13 | **Feature:** Added as part of world map system — provides state synchronization for world map rendering |
+| 2026-05-15 | **Feature:** Internal Components state synchronization — `internalComponents` property now included in world state response, consumed by `ComponentViewer` for expandable internal component panels |
 
 ## 9. Design Notes
 

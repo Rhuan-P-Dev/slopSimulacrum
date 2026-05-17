@@ -1,0 +1,182 @@
+/* Internal Component Styles */
+/* Internal components are rendered as nested circles inside host component markers */
+
+/* ============================================
+   ComponentViewer Internal Components Panel
+   ============================================ */
+
+/* Internal component button on component cards */
+.component-internal-btn {
+    background: var(--neon-cyan, #00ccff);
+    color: var(--bg-black, #0a0a0a);
+    border: none;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.85em;
+    margin-left: 4px;
+    transition: all 0.2s ease;
+}
+
+.component-internal-btn:hover {
+    filter: brightness(1.2);
+    transform: scale(1.05);
+}
+
+/* Container for internal component cards within a component card */
+.component-internal-container {
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(0, 204, 255, 0.03);
+    border-top: 1px solid rgba(0, 204, 255, 0.15);
+}
+
+/* List of internal component detail cards */
+.internal-components-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Individual internal component detail card */
+.internal-component-detail-card {
+    background: rgba(0, 204, 255, 0.06);
+    border: 1px solid rgba(0, 204, 255, 0.2);
+    border-radius: 4px;
+    padding: 8px;
+    transition: all 0.2s ease;
+}
+
+.internal-component-detail-card:hover {
+    background: rgba(0, 204, 255, 0.1);
+    border-color: rgba(0, 204, 255, 0.35);
+}
+
+/* Internal component card header */
+.internal-component-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+/* Type badge for internal component */
+.internal-component-type-badge {
+    color: var(--neon-cyan, #00ccff);
+    font-weight: bold;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+/* Host component reference */
+.internal-component-host {
+    color: var(--text-dim);
+    font-size: 0.8em;
+}
+
+/* Description text */
+.internal-component-description {
+    color: var(--text-primary);
+    font-size: 0.85em;
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+
+/* Meta information (ID, installed time) */
+.internal-component-meta {
+    color: var(--text-dim);
+    font-size: 0.75em;
+    margin-top: 2px;
+}
+
+/* Empty state message */
+.internal-components-empty {
+    padding: 8px 0;
+    text-align: center;
+}
+
+/* ============================================
+   SVG Internal Components (Map View)
+   ============================================ */
+
+/* Internal component connection lines */
+.internal-component-connection {
+    stroke-width: 0.5;
+    stroke-dasharray: 1, 1;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Base internal component circle */
+.internal-component {
+    stroke-width: 1;
+    opacity: 0.9;
+    transition: opacity 0.3s ease;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.internal-component:hover {
+    opacity: 1;
+    filter: url(#glow);
+}
+
+/* Durability Repair Sphere */
+.internal-component-durability-repair-sphere {
+    fill: #00ccff;
+    stroke: #0099cc;
+    animation: internal-component-pulse 5s ease-in-out infinite;
+}
+
+@keyframes internal-component-pulse {
+    0%, 100% {
+        opacity: 0.7;
+        stroke-width: 1;
+    }
+    50% {
+        opacity: 1;
+        stroke-width: 1.5;
+    }
+}
+
+/* Internal component tooltip */
+.internal-component-tooltip {
+    position: absolute;
+    background: var(--bg-primary);
+    border: 1px solid var(--neon-green);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-primary);
+    pointer-events: none;
+    z-index: 1000;
+    white-space: nowrap;
+}
+
+/* Internal Component items in entity details view */
+.internal-components-list {
+    margin-top: 6px;
+    padding: 4px;
+    background: rgba(0, 204, 255, 0.05);
+    border: 1px solid rgba(0, 204, 255, 0.2);
+    border-radius: 3px;
+}
+
+.internal-component-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 0.85em;
+}
+
+.internal-component-badge {
+    color: #00ccff;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.internal-component-info {
+    color: var(--text-dim);
+    font-size: 0.9em;
+}

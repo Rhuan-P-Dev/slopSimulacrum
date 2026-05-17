@@ -20,7 +20,8 @@ public/
 │   ├── synergy.css      ← Synergy preview: multipliers, modified values
 │   ├── components.css   ← Component HUD: tactical targeting, durability
 │   ├── utilities.css    ← Micro-utilities: text colors, alignment
-│   └── feedback.css     ← Feedback: error popups, release buttons, animations
+│   ├── feedback.css       ← Feedback: error popups, release buttons, animations
+│   └── internal-components.css ← Internal Components: SVG rendering, ComponentViewer panel, pulsing animation
 ```
 
 ## Module Responsibilities
@@ -37,6 +38,7 @@ public/
 | `css/components.css` | ~115 | Component selection list, durability bars, tactical HUD |
 | `css/utilities.css` | ~20 | Reusable micro-utilities (text colors, alignment) |
 | `css/feedback.css` | ~60 | Error popups, release buttons, animation keyframes |
+| `css/internal-components.css` | ~180 | SVG internal component rendering (hover glow, tooltip, pulsing animation), ComponentViewer internal component panel (🔮 button, expandable cards, type badges, host info) |
 
 ## Loading Mechanism
 
@@ -94,6 +96,7 @@ All CSS variables are defined in `:root` in `public/styles.css` AND duplicated i
 | 2026-05-14 | **BUG-065 Fix:** Updated edge-to-edge rendering documentation — connection arrows now use relative coordinates `(targetRoom.x - room.x)` with SVG-space bounds clamping. No CSS changes required (visual rendering is JS-driven). |
 | 2026-05-14 | **BUG-066 Fix:** Updated `.room-connection-line` from `pointer-events: none` to `pointer-events: stroke` with `cursor: pointer` and hover transition (`stroke-opacity: 1`, `stroke-width: 3`). Updated `.room-connection-arrow` from `pointer-events: none` to `pointer-events: fill` with `cursor: pointer` and hover (`opacity: 1`). |
 | 2026-05-13 | **Added:** World Map overlay styles (`.world-map-overlay`, `.world-map-room-node`) and Room Connection arrow styles (`.room-connection-line`, `.room-connection-label`, `.room-connection-label-bg`, `.room-connection-arrow`) |
+| 2026-05-15 | **Feature:** Added `internal-components.css` — SVG internal component rendering (`.internal-component`, `.internal-component-connection`, `.internal-component:hover` glow, `.internal-component-tooltip`), ComponentViewer internal component panel (`.component-internal-btn`, `.internal-components-list`, `.internal-component-type-badge`, `.internal-component-host`, `.internal-component-description`, `.internal-component-meta`, `.internal-components-empty`), 5s pulsing animation (`@keyframes internalPulse`) |
 
 ## References
 

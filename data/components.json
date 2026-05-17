@@ -1,38 +1,38 @@
 {
   "centralBall": { 
     "traits": { 
-      "Physical": { "mass": 20, "durability": 100 },
+      "Physical": { "mass": 20, "durability": 100, "volume": 10 },
       "Spatial": { "x": 0, "y": 0 }
     } 
   },
   "droidHead": { 
     "traits": { 
-      "Physical": { "durability": 80 },
+      "Physical": { "durability": 80, "volume": 8 },
       "Mind": { "think_level": 5},
       "Spatial": { "x": 0, "y": -20 }
     } 
   },
   "droidArm": { 
     "traits": { 
-      "Physical": { "durability": 50 },
+      "Physical": { "durability": 50, "volume": 8 },
       "Spatial": { "x": 20, "y": 10 }
     } 
   },
   "droidHand": { 
     "traits": { 
-      "Physical": { "durability": 40, "strength": 25 },
+      "Physical": { "durability": 40, "strength": 25, "volume": 6 },
       "Spatial": { "x": 30, "y": 0 }
     } 
   },
   "humanoidDroidFinger": { 
     "traits": { 
-      "Physical": { "durability": 30 },
+      "Physical": { "durability": 30, "volume": 4 },
       "Spatial": { "x": 40, "y": 0 }
     } 
   },
   "droidRollingBall": { 
     "traits": { 
-      "Physical": { "durability": 120 },
+      "Physical": { "durability": 120, "volume": 12 },
       "Spatial": { "x": 0, "y": 20 },
       "Movement": { "move": 20 }
     } 

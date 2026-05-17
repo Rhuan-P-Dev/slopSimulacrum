@@ -42,6 +42,11 @@ export class UIManager {
         };
 
         this._setupEventListeners();
+
+        // Internal component definitions for display in details view
+        this._internalComponentDefs = {
+            'durabilityRepairSphere': { repairAmount: 1, repairInterval: 5 }
+        };
     }
 
     _setupEventListeners() {
@@ -257,6 +262,7 @@ export class UIManager {
 
             componentsLayer.appendChild(marker);
         });
+
     }
 
     /**
@@ -512,6 +518,21 @@ export class UIManager {
                     }
                 }
 
+                // Show internal components for this host
+                let internalCompHtml = '';
+                if (entity.internalComponents && entity.internalComponents[comp.id] && entity.internalComponents[comp.id].length > 0) {
+                    internalCompHtml = '<div class="internal-components-list">';
+                    entity.internalComponents[comp.id].forEach(ic => {
+                        const sphereDef = this._internalComponentDefs?.[ic.type] || { repairAmount: 1, repairInterval: 5 };
+                        internalCompHtml += `
+                            <div class="internal-component-item">
+                                <span class="internal-component-badge">🔮 ${ic.type}</span>
+                                <span class="internal-component-info">Repairs +${sphereDef.repairAmount} durability every ${sphereDef.repairInterval}s</span>
+                            </div>`;
+                    });
+                    internalCompHtml += '</div>';
+                }
+
                 // Check if this is a grabbed item (e.g., knife) that can be released
                 const isGrabbedItem = this._isGrabbedItemComponent(comp.type);
                 const releaseButton = isGrabbedItem
@@ -525,6 +546,7 @@ export class UIManager {
                             <span class="id-text">ID: ${comp.identifier}</span>
                         </div>
                         ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
+                        ${internalCompHtml}
                         ${releaseButton}
                     </div>`;
             });

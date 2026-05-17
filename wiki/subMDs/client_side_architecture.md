@@ -24,7 +24,8 @@ public/js/
 ├── WorldMapView.js                 → Full world map overlay with pan/zoom (~370 lines)
 ├── RoomConnectionRenderer.js       → In-map connection arrow rendering (~165 lines)
 ├── ConfigBarManager.js             → Config bar and overlay coordination (~293 lines)
-└── NavActionsPanel.js              → Actions overlay panel (~300 lines)
+├── NavActionsPanel.js              → Actions overlay panel (~300 lines)
+└── ComponentViewer.js              → Component viewer overlay with 🔮 internal component panel (~400 lines)
 ```
 
 ## Module Responsibilities
@@ -132,21 +133,6 @@ public/js/
 | `_getEdgePoint(room, otherRoom, roomCX, roomCY)` | Calculates edge point on room boundary |
 | `_setupPanZoom(svg, group)` | Pan/zoom with 3px threshold. Skips panning on interactive elements (`world-map-room-node`, `world-map-connection-line`, `room-connection-line`, `room-connection-arrow`) |
 
-### 4.7. `RoomConnectionRenderer.js`
-**Responsibility:** Renders SVG arrows on the spatial map showing room connections. Connections are clickable and use edge-to-edge coordinate system with invisible hit-area lines for click detection.
-
-**Public API:**
-| Method | Parameters | Returns | Description |
-|--------|-----------|---------|-------------|
-| `renderRoomConnections(room, rooms, roomLayer, onConnectionClick, entityId)` | `Object room`, `Object rooms`, `SVGElement roomLayer`, `Function onConnectionClick` (optional), `string entityId` (optional) | `void` | Renders connection lines, arrowheads, and labels. Connections are clickable via invisible hit-area lines (15px stroke). Callback receives `(entityId, targetRoomId)` where `targetRoomId` is a string ID. |
-
-**Private Methods:**
-| Method | Description |
-|--------|-------------|
-| `_drawConnection(room, targetRoom, door, offsetX, offsetY, layer, onConnectionClick, entityId)` | Draws edge-to-edge connection with invisible hit-area line for click detection. Uses relative coordinates `(targetRoom.x - room.x)`. Current room center excludes `room.x`/`room.y`. |
-| `_drawArrowhead(startX, startY, endX, endY, layer)` | Draws 3-point polyline arrowhead |
-| `_getEdgePoint(room, otherRoom, roomCX, roomCY, offsetX, offsetY)` | Calculates edge point using relative coordinates and SVG-space clamping |
-
 ### 4.8. `ConfigBarManager.js`
 **Responsibility:** Manages the top config bar buttons, overlay coordination, and panel toggling.
 
@@ -191,7 +177,51 @@ public/js/
 
 **Note:** Navigation section was removed from this panel. Navigation arrows now appear on the spatial map via `RoomConnectionRenderer`. Panel title changed from "👍 Navigation & Actions" to "⚔️ Actions".
 
-### 5. `App.js` (Minimal Orchestrator)
+### 5. `ComponentViewer.js`
+**Responsibility:** Manages the 🗿️ component viewer overlay panel with 🔮 internal component button and expandable internal component panel.
+
+**Public API:**
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `show(entity)` | `Promise<void>` | Shows the component viewer with entity data. Loads internal component registry. Resets `_internalComponentCache`. |
+| `hide()` | `void` | Hides the component viewer overlay |
+| `toggle()` | `void` | Toggles the component viewer visibility |
+
+**Private Methods:**
+| Method | Description |
+|--------|-------------|
+| `_renderComponentGrid(entity)` | Renders component cards with 🔮 button for components that have internal components |
+| `_onToggleInternalComponents(componentId)` | Handles 🔮 button click — toggles expand/collapse of internal component panel |
+| `_renderInternalComponentPanel(componentId, internalComps, hostComponent)` | Renders internal component cards with type badge, description, host info, and metadata |
+| `_loadInternalComponentRegistry()` | Fetches `/api/internal-components/registry` for human-readable descriptions |
+
+**State Variables:**
+- `_expandedInternalComponents` (Map<string, boolean>) — Tracks expand/collapse state per component
+- `_internalComponentCache` (Map<string, Array>) — Caches fetched internal component data per component
+- `_internalComponentDescriptions` (Map<string, string>) — Caches fetched registry descriptions
+
+**Internal Components API URL:**
+- ⚠️ **Gap**: The internal components API base URL (`/api/internal-components`) is **hardcoded directly** in `ComponentViewer.js` (lines 282 and 373) instead of being defined as `INTERNAL_COMPONENTS_API_URL` in `Config.js`.
+- **Current hardcoded usage**: `fetch('/api/internal-components/registry')` and `fetch(\`/api/internal-components/${this._currentEntityId}/${componentId}\`)`
+- **Recommended fix**: Add `INTERNAL_COMPONENTS_API_URL: '/api/internal-components'` to `Config.js` and import it in `ComponentViewer.js` for consistency with other endpoint constants.
+
+**Internal Components Data Flow:**
+```
+WorldStateController.getAll() → subControllers.internalComponents → WorldStateBroadcastService
+  → world-state-update socket event → WorldStateManager.state.internalComponents
+  → ComponentViewer.show(entity) → entity.internalComponents (from world state)
+  → ComponentViewer._renderComponentGrid() → 🔮 button per component with internal comps
+  → User clicks 🔮 → _onToggleInternalComponents(componentId, component)
+  → Tier 1: Check _internalComponentCache[componentId]
+  → Tier 2: Use entity.internalComponents parameter
+  → Tier 3: Fetch(`/api/internal-components/${entityId}/${componentId}`) as fallback
+```
+
+**Data Source Priority:**
+1. **Primary**: `entity.internalComponents` from the `show()` method's entity object (from world state broadcast)
+2. **Fallback**: REST API fetch from `/api/internal-components/${entityId}/${componentId}` when entity reference is unavailable
+
+### 6. `App.js` (Minimal Orchestrator)
 **Responsibility:** Lifecycle management, module wiring, data flow coordination.
 
 **Constructor Wiring Order:**
@@ -282,6 +312,7 @@ All extracted modules follow the **Dependency Injection (DI)** pattern defined i
 | `RoomConnectionRenderer` | — (static utility, accepts callback parameters) |
 | `ConfigBarManager` | `uiManager`, `componentViewer`, `statBarsManager`, `navActionsPanel`, `worldMapView`, `worldStateManager`, callbacks |
 | `NavActionsPanel` | `uiManager` |
+| `ComponentViewer` | `uiManager`, `config` |
 | `ClientApp` | — (instantiates all) |
 
 **No module instantiates its dependencies internally.** All dependencies are passed via the constructor.
@@ -310,4 +341,5 @@ Logger.error('[ModuleName] Message', { context: 'data' });
 | 2026-05-14 | **BUG-065 Fix:** Fixed connection arrow direction — edge-to-edge rendering, relative coordinates, SVG-space clamping | `RoomConnectionRenderer.js`, `WorldMapView.js` |
 | 2026-05-14 | **BUG-066 Fix:** Made connections clickable — added `onConnectionClick` callback parameters, invisible hit-area lines (15px stroke), CSS `pointer-events: stroke/fill`, improved pan/zoom (3px threshold, skip interactive elements) | `RoomConnectionRenderer.js`, `WorldMapView.js`, `UIManager.js`, `navigation.css` |
 | 2026-05-13 | **Feature:** Added world map system — `WorldMapView.js` overlay, `RoomConnectionRenderer.js` arrows, `WorldStateManager.js` state sync | `WorldMapView.js`, `RoomConnectionRenderer.js`, `WorldStateManager.js`, `App.js`, `ConfigBarManager.js` |
+| 2026-05-15 | **Feature:** Added internal components client architecture — `ComponentViewer.js` 🔮 internal component panel, DI compliance updates | `ComponentViewer.js`, `UIManager.js` |
 | 2026-05-02 | **Refactor:** Split `App.js` into 4 single-responsibility modules | `App.js`, `SelectionController.js`, `SynergyPreviewController.js`, `ActionExecutor.js`, `EventDispatcher.js` |

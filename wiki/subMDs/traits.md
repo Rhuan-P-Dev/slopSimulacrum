@@ -97,3 +97,55 @@ After update:
 **Reference:** `src/controllers/componentStatsController.js` — `setStats()` method.
 
 🐛 For fix details on the deep trait-level merge implementation, see [BUG-005](../../bugfixWiki/high/BUG-005-deep-trait-merge.md).
+
+## 6. Internal Component Traits
+
+### 6.1. Overview
+Internal component definitions (from `data/internalComponents.json`) may include a `traits` property that defines the physical characteristics of the **internal component object itself**. These traits are stored separately from the host component's traits and are NOT merged into the host's trait values.
+
+### 6.2. Structure
+Internal components are defined in `data/internalComponents.json`. Each definition may include a `traits` field:
+
+```json
+{
+  "durabilityRepairSphere": {
+    "volume": 2,
+    "repairInterval": 5,
+    "repairAmount": 1,
+    "traits": {
+      "Physical": { "mass": 5, "durability": 50 }
+    },
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": true
+  }
+}
+```
+
+### 6.3. Key Distinction from Host Component Traits
+Internal component traits are **NOT merged** into the host component's trait values. Instead, they represent the internal component's own independent physical characteristics:
+
+| Aspect | Host Component Traits | Internal Component Traits |
+|--------|----------------------|---------------------------|
+| **Storage** | In `ComponentStatsController` keyed by component ID | Stored in `InternalComponentController.registry` as type definition |
+| **Merge** | Deep trait-level merge with global defaults | No merge — traits are type-level metadata |
+| **Runtime Updates** | Updated via `updateComponentStatDelta` consequences | Not directly updated — the repair system updates the HOST component's stats |
+| **Synergy Scoring** | Included in synergy calculations | NOT included in synergy calculations |
+
+### 6.4. Repair System Integration
+The `durabilityRepairSphere` repair system uses the internal component's `repairAmount` and `repairInterval` to modify the **host component's** stats:
+
+1. Every 5 seconds, `_processRepairTick()` iterates over all entities' internal components
+2. For each `durabilityRepairSphere`, it calls `ComponentController.updateComponentStatDelta()` on the **host component**
+3. The host component's `Physical.durability` is increased by `repairAmount` (1 for durabilityRepairSphere)
+4. The internal component's own `traits.Physical.durability` (50) represents the sphere's own durability, NOT the host's
+
+### 6.5. Volume System Integration
+Internal component traits also include the `volume` property (separate from `traits`), which determines the space the internal component occupies within the host:
+
+| Property | Purpose |
+|----------|---------|
+| `volume` | Space occupied by the internal component (used for capacity checking) |
+| `traits.Physical.mass` | Mass of the internal component itself (metadata, not added to host) |
+| `traits.Physical.durability` | Durability of the internal component itself (metadata, not added to host) |
+
+**Reference:** `data/internalComponents.json` — Internal component type definitions. `src/controllers/core/InternalComponentController.js` — `_validateRegistry()` validates required fields.

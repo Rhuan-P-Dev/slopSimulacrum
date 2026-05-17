@@ -620,13 +620,77 @@ Subscribe/unsubscribe to capability change events for a specific action.
 
 ---
 
-## 12. Best Practices
+## 12. Internal Component Lifecycle Impact on Capability Cache
 
-### 12.1. Use Cached Data
+### 12.1. Overview
+Internal components (e.g., `durabilityRepairSphere`) modify host component stats on a recurring basis, which triggers cascading re-evaluations in the capability cache. The repair system runs every **5 seconds** and increases `Physical.durability` on host components, which can affect action capabilities that depend on `Physical.durability`.
+
+### 12.2. Repair System Architecture
+
+| Property | Value |
+|----------|-------|
+| **Tick Interval** | 5 seconds (global `setInterval`) |
+| **Repair Amount** | Configurable per internal component type (default: +1 durability) |
+| **Scope** | All `durabilityRepairSphere` instances across all entities |
+
+The system is started automatically when `WorldStateController` initializes:
+
+```javascript
+// In WorldStateController initialization:
+internalComponentController.startRepairSystem();
+```
+
+### 12.3. Stat Change Notification Chain
+
+When a repair tick occurs, the following chain is triggered:
+
+```
+InternalComponentController._processRepairTick()
+    → ComponentController.updateComponentStatDelta(hostComponentId, "Physical", "durability", +1)
+        → _notifyStatChangeListeners(componentId, "Physical", "durability", newValue, oldValue)
+            → ComponentCapabilityController.onStatChange(componentId, "Physical", "durability", newValue, oldValue)
+                → _getActionsForTraitStat("Physical", "durability")
+                    → reEvaluateActionForComponent(state, "dash", componentId)
+                    → reEvaluateActionForComponent(state, "selfHeal", componentId)
+                    → _notifySubscribers(actionName, capabilityEntry)
+```
+
+### 12.4. Impact on Action Capabilities
+
+Since `Physical.durability` is used in action requirements (e.g., `dash` requires `Physical.durability > 30`), repair ticks can cause:
+
+1. **Newly Capable**: A component with durability just below a threshold (e.g., 31) may cross into capable territory after several repair ticks
+2. **No Longer Capable**: Unlikely from repairs (durability only increases), but possible if other systems reduce durability simultaneously
+3. **Score Changes**: Component scores may change slightly as `requirementValues` are re-evaluated with new durability values
+
+### 12.5. Client-Side Effects
+
+The capability cache changes propagate to clients via:
+
+1. **World State Broadcast**: After each repair tick, `_syncToEntityStore()` syncs internal components to the entity store, and the world state is broadcast via `world-state-update` socket event
+2. **Capability Notifications**: Subscribers to capability changes receive updates when actions become newly capable or scores change
+3. **UI Updates**: The client's action list may show newly available actions after a repair tick
+
+### 12.6. Timing Considerations
+
+| Scenario | Effect |
+|----------|--------|
+| Entity with 5+ repair spheres | +5 durability every 5 seconds |
+| Entity with 0 repair spheres | No repair effect |
+| Entity under heavy damage | Repair may lag behind damage |
+| Entity with durability > 100 | No practical benefit from further repairs |
+
+**Note**: The 5-second repair interval means durability values in the capability cache can change rapidly during combat or high-stress scenarios. Clients should refresh capability data periodically rather than caching indefinitely.
+
+---
+
+## 13. Best Practices
+
+### 13.1. Use Cached Data
 
 Always prefer `getCachedCapabilities()` over recomputing. The cache is automatically maintained.
 
-### 12.2. Subscribe to Changes
+### 13.2. Subscribe to Changes
 
 For UI components, subscribe to capability changes rather than polling:
 
@@ -640,7 +704,7 @@ actionController.on('dash', (actionName, capability) => {
 });
 ```
 
-### 12.3. Refresh on Component Changes
+### 13.3. Refresh on Component Changes
 
 When an entity picks up or drops an item, trigger a refresh:
 

@@ -32,14 +32,15 @@ The `WorldStateController` acts as the **Root Injector** for the entire system. 
 ### Initialization Sequence
 The Root Injector must follow this strict sequence to ensure all dependencies are available before they are injected:
 
- 0. **Data Loading**: Use `DataLoader.loadJsonSafe()` to load JSON registries (e.g., `actions.json`, `components.json`, `rooms.json`).
-    - **Standard Pattern**: All controllers that consume external data files must use `DataLoader.loadJsonSafe(filePath, fallback)` — never hardcode data literals in constructors.
-    - **Validation**: Controllers must validate loaded data via `_validate*()` methods before initialization.
- 1. **Data Store**: `ComponentStatsController`
-2. **Leaf Logic**: `ComponentController` (Injected with `ComponentStatsController` and `componentRegistry`)
-3. **Mid-Level Logic**: `EntityController` (Injected with `ComponentController`)
-4. **Instance Manager**: `stateEntityController` (Injected with `EntityController`)
-5. **Coordinator**: `WorldStateController` (Owns all the above)
+ 0. **Data Loading**: Use `DataLoader.loadJsonSafe()` to load JSON registries (e.g., `actions.json`, `components.json`, `rooms.json`, `internalComponents.json`).
+     - **Standard Pattern**: All controllers that consume external data files must use `DataLoader.loadJsonSafe(filePath, fallback)` — never hardcode data literals in constructors.
+     - **Validation**: Controllers must validate loaded data via `_validate*()` methods before initialization.
+  1. **Data Store**: `ComponentStatsController`
+ 2. **Leaf Logic**: `ComponentController` (Injected with `ComponentStatsController` and `componentRegistry`)
+ 3. **Mid-Level Logic**: `EntityController` (Injected with `ComponentController`)
+ 4. **Instance Manager**: `stateEntityController` (Injected with `EntityController`)
+ 5. **Internal Component State**: `InternalComponentController` (Self-instantiating State Controller with logic — uses `setWorldStateController()` DI setter after initialization)
+ 6. **Coordinator**: `WorldStateController` (Owns all the above, starts repair system via `internalComponentController.startRepairSystem()` after initialization)
 
  ## 4. State Ownership vs. Logic Coordination
  To maintain the Single Responsibility Principle (SRP):
@@ -52,11 +53,13 @@ The Root Injector must follow this strict sequence to ensure all dependencies ar
      - Process logic, perform calculations, and manipulate data stores.
      - They do not store state themselves; they use their injected state controllers.
 
- ### 4.1. State Controller Exception to DI Rule
+  ### 4.1. State Controller Exception to DI Rule
 
- State Controllers are the **only** controllers permitted to instantiate internally without dependency injection. This is because they represent the foundational data layer — they have no dependencies on other controllers.
+  State Controllers are the **only** controllers permitted to instantiate internally without dependency injection. This is because they represent the foundational data layer — they have no dependencies on other controllers.
 
-  **Example — RoomsController:**
+  **⚠️ Extended Exception for Logic-Enhanced State Controllers:** Some State Controllers (e.g., `InternalComponentController`) store data AND perform game logic (repair ticks, auto-installation). They still self-instantiate but must use DI via `setWorldStateController()` to access other controllers for inter-controller communication.
+
+   **Example — RoomsController:**
   ```javascript
   import DataLoader from '../../utils/DataLoader.js';
   import Logger from '../../utils/Logger.js';
@@ -288,32 +291,198 @@ When a new dependency is added to a sub-controller (e.g., `EntityController` now
 
 This ensures that the dependency graph remains transparent and the Single Source of Truth is preserved across the entire simulation.
 
- ## 8.1. RoomsController Pattern
+  ## 8.1. RoomsController Pattern
 
- ### 8.1.1. State Controller — Self-Instantiating Data Store
+  ### 8.1.1. State Controller — Self-Instantiating Data Store
 
- The `RoomsController` is the canonical example of a State Controller. It manages room definitions loaded from `data/rooms.json`.
+  The `RoomsController` is the canonical example of a State Controller. It manages room definitions loaded from `data/rooms.json`.
 
- - **Role**: Spatial Data Store — single source of truth for world rooms and connections
- - **Instantiation**: Self-instantiated in `WorldStateController` (no DI — State Controller exception)
- - **Data Source**: `data/rooms.json` via `DataLoader.loadJsonSafe('data/rooms.json', {})`
- - **Responsibility**: Store room definitions, resolve logical IDs to UIDs, provide defensive copies
- - **Key Methods**: `getUidByLogicalId()`, `getAll()`, `getRoom()`
- - **Validation**: `_validateRoomDefinitions()` — validates name, description, connections, coordinates before init
+  - **Role**: Spatial Data Store — single source of truth for world rooms and connections
+  - **Instantiation**: Self-instantiated in `WorldStateController` (no DI — State Controller exception)
+  - **Data Source**: `data/rooms.json` via `DataLoader.loadJsonSafe('data/rooms.json', {})`
+  - **Responsibility**: Store room definitions, resolve logical IDs to UIDs, provide defensive copies
+  - **Key Methods**: `getUidByLogicalId()`, `getAll()`, `getRoom()`
+  - **Validation**: `_validateRoomDefinitions()` — validates name, description, connections, coordinates before init
 
- **Integration with WorldStateController:**
- ```javascript
- // In WorldStateController constructor:
- this.roomsController = new RoomsController();
- ```
+  **Integration with WorldStateController:**
+  ```javascript
+  // In WorldStateController constructor:
+  this.roomsController = new RoomsController();
+  ```
 
- **WorldStateController Delegation Methods:**
- | WorldStateController Method | Delegates to |
- |-----------------------------|-------------|
- | `getRoomUidByLogicalId(logicalId)` | `this.roomsController.getUidByLogicalId(logicalId)` |
- | `moveEntity(entityId, targetRoomId)` | Resolves target via `this.roomsController.getUidByLogicalId()` |
+  **WorldStateController Delegation Methods:**
+  | WorldStateController Method | Delegates to |
+  |-----------------------------|-------------|
+  | `getRoomUidByLogicalId(logicalId)` | `this.roomsController.getUidByLogicalId(logicalId)` |
+  | `moveEntity(entityId, targetRoomId)` | Resolves target via `this.roomsController.getUidByLogicalId()` |
 
- ### 8.1.2. Data Loading Pattern for State Controllers
+  ---
+
+  ## 8.2. InternalComponentController Pattern
+
+  ### 8.2.1. State Controller — Self-Instantiating with Logic
+
+  The `InternalComponentController` is a State Controller that stores internal component data AND performs game logic (repair ticks, auto-installation). It self-instantiates but uses DI via `setWorldStateController()` for inter-controller communication.
+
+  - **Role**: Internal Component State — volume-based auto-installation, lifecycle management, 5-second repair system
+  - **Instantiation**: Self-instantiated in `WorldStateController` (no DI in constructor — State Controller exception)
+  - **Data Source**: `data/internalComponents.json` via `DataLoader.loadJsonSafe('data/internalComponents.json', {})`
+  - **Responsibility**: Auto-install internal components on entity spawn, manage repair intervals, provide defensive copies
+  - **Key Methods**: `autoInstallOnEntitySpawn()`, `addInternalComponent()`, `removeInternalComponent()`, `getInternalComponents()`, `getInternalComponentsForEntity()`, `hasInternalComponent()`, `cleanupEntity()`, `startRepairSystem()`, `stopRepairSystem()`, `_processRepairTick()`, `getAll()`
+   - **Validation**: `_validateRegistry()` — throws `TypeError` if registry is null, undefined, or not an object. For each definition, logs `Logger.warn()` if `volume`, `repairInterval`, or `repairAmount` are missing or invalid (does NOT throw for missing fields). `traits` and `excludedComponentTypes` are optional and not validated.
+
+  **Integration with WorldStateController:**
+  ```javascript
+  // In WorldStateController constructor:
+  const internalComponentController = new InternalComponentController();
+  this.internalComponentController = internalComponentController;
+
+  // After initialization:
+  internalComponentController.setWorldStateController(this);
+  internalComponentController.startRepairSystem();
+  ```
+
+  **Registration in subControllers:**
+  ```javascript
+  this.subControllers = {
+      // ...
+      internalComponents: this.internalComponentController,
+      // ...
+  };
+  ```
+
+  ### 8.2.2. Constructor
+
+  ```javascript
+  class InternalComponentController {
+      constructor(internalComponentRegistry = null) {
+          // internalComponentRegistry: Optional pre-loaded registry for testing
+          // If null, loads from data/internalComponents.json via DataLoader.loadJsonSafe()
+      }
+  }
+  ```
+
+  The constructor accepts an optional `internalComponentRegistry` parameter. When provided, it bypasses the `DataLoader.loadJsonSafe()` call and uses the injected registry directly — useful for unit testing.
+
+  ---
+
+   ### 8.2.3. Public API Methods
+
+   | Method | Parameters | Returns | Description |
+   |--------|-----------|---------|-------------|
+   | `autoInstallOnEntitySpawn(entityId, components, componentVolumeProvider)` | `string`, `Array`, `Function\|null` | `Array` | Auto-installs spheres on eligible components based on volume + exclusions. Returns `Array` of installed internal component instances. `componentVolumeProvider` is an optional function `(componentType) => number` for volume lookup |
+   | `addInternalComponent(entityId, hostComponentId, internalComponentType)` | `string`, `string`, `string` | `Object\|null` | Manually add an internal component; returns added component or null if rejected |
+   | `removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId)` | `string`, `string`, `string` | `boolean` | Remove a specific internal component instance |
+   | `getInternalComponents(entityId, hostComponentId)` | `string`, `string` | `Array` | Get internal components for a specific host component (**defensive deep copy** via `structuredClone()`) |
+   | `getInternalComponentsForEntity(entityId)` | `string` | `Object` | Get all internal components for an entity (**defensive deep copy** via `structuredClone()`) |
+   | `hasInternalComponent(entityId, hostComponentId, internalComponentType)` | `string`, `string`, `string` | `boolean` | Check if host has a specific internal component type |
+  | `cleanupEntity(entityId)` | `string` | `boolean` | Clean up all internal components when entity despawns |
+   | `startRepairSystem()` | — | `void` | Start the 5-second repair interval via `setInterval` |
+   | `stopRepairSystem()` | — | `void` | Stop the repair interval |
+   | `setWorldStateController(worldStateController)` | `WorldStateController` | `void` | DI setter — called by WorldStateController after initialization |
+  | `getAll()` | — | `Object` | Return defensive deep copy of all internal components |
+
+  ---
+
+   ### 8.2.4. Private Methods
+
+   | Method | Parameters | Returns | Description |
+   |--------|-----------|---------|-------------|
+   | `_validateRegistry(registry)` | `Object` | `void` | Validates registry structure — throws `TypeError` if not an object; logs warnings for missing/invalid required fields |
+   | `_processRepairTick()` | — | `void` | Execute one repair cycle across all entities |
+   | `_syncToEntityStore()` | — | `void` | Syncs internal components back to entity store for world-state broadcasts |
+   | `_processDefinitions(definitions)` | `Object` | `void` | Processes registry definitions from JSON into internal structure |
+
+   ---
+
+   ### 8.2.5. WorldStateController Delegation Methods
+
+  These methods delegate to `InternalComponentController` and are available on `WorldStateController`:
+       
+
+  | WorldStateController Method | Delegates to |
+  |-----------------------------|-------------|
+  | `addInternalComponent(entityId, hostComponentId, internalComponentType)` | `this.internalComponentController.addInternalComponent(...)` |
+  | `getInternalComponents(entityId, hostComponentId)` | `this.internalComponentController.getInternalComponents(...)` |
+  | `getInternalComponentsForEntity(entityId)` | `this.internalComponentController.getInternalComponentsForEntity(...)` |
+  | `removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId)` | `this.internalComponentController.removeInternalComponent(...)` |
+  | `hasInternalComponent(entityId, hostComponentId, internalComponentType)` | `this.internalComponentController.hasInternalComponent(...)` |
+  | `cleanupInternalComponents(entityId)` | `this.internalComponentController.cleanupEntity(...)` |
+  | `startInternalComponentRepairSystem()` | `this.internalComponentController.startRepairSystem()` |
+  | `stopInternalComponentRepairSystem()` | `this.internalComponentController.stopRepairSystem()` |
+
+  ---
+
+  ### 8.2.6. Volume-Based Capacity Checking
+
+  Internal components are installed only when:
+  1. `hostComponent.Physical.volume >= internalComponentType.volume`
+  2. `hostComponent.type` is NOT in `internalComponentType.excludedComponentTypes`
+
+  ```javascript
+  // In autoInstallOnEntitySpawn():
+  const internalDef = this.registry[type];
+  const hostVolume = hostComponent.traits?.Physical?.volume || 0;
+  if (hostVolume < internalDef.volume) {
+      Logger.warn(`[InternalComponent] Host ${hostComponent.type} volume ${hostVolume} < required ${internalDef.volume}`);
+      return false;
+  }
+  if (internalDef.excludedComponentTypes?.includes(hostComponent.type)) {
+      Logger.info(`[InternalComponent] Skipping excluded type ${hostComponent.type}`);
+      return false;
+  }
+  ```
+
+  ### 8.2.7. Defensive Copying Pattern
+
+  All public data-exposing methods return deep copies via `structuredClone()`:
+  ```javascript
+  getAll() {
+      return structuredClone(this.internalComponents);
+  }
+
+  getInternalComponents(entityId, hostId) {
+      const components = this.internalComponents[entityId]?.[hostId] || [];
+      return structuredClone(components);
+  }
+  ```
+
+  ### 8.2.8. Repair System Lifecycle
+
+  The repair system runs every 5 seconds (`setInterval(5000)`):
+  1. `startRepairSystem()` is called by `WorldStateController` after initialization
+  2. `_processRepairTick()` iterates all entities
+  3. For each entity's internal components, calls `ComponentController.updateComponentStatDelta()` on the host
+  4. Increases `Physical.durability` by `repairAmount` (1 for durabilityRepairSphere)
+  5. Stat change triggers broadcast automatically via existing listener system
+  6. `stopRepairSystem()` clears the interval on shutdown
+
+  ### 8.2.9. Data Loading Pattern
+
+  Following the standard State Controller pattern:
+  ```javascript
+  import DataLoader from '../../utils/DataLoader.js';
+  import Logger from '../../utils/Logger.js';
+
+  class InternalComponentController {
+      constructor() {
+          this.internalComponents = {};
+          this.registry = {};
+          this.worldStateController = null;
+          this.repairIntervalId = null;
+
+          const definitions = DataLoader.loadJsonSafe('data/internalComponents.json', {});
+          this._validateRegistry(definitions);
+          this._processDefinitions(definitions);
+
+          Logger.info(`[InternalComponentController] Initialized with ${Object.keys(this.registry).length} internal component types`);
+      }
+  }
+  ```
+
+  ---
+
+  ## 8.1.2. Data Loading Pattern for State Controllers
 
  All State Controllers follow this mandatory pattern:
 

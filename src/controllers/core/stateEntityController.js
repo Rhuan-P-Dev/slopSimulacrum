@@ -7,18 +7,22 @@ import { generateUID } from '../../utils/idGenerator.js';
  *
  * When entities are spawned or despawned, this controller triggers capability cache
  * re-evaluation to keep the ActionController's cache in sync.
+ *
+ * Internal Components: Automatically installs internal components (e.g., durabilityRepairSpheres)
+ * on eligible components via the injected InternalComponentController.
  */
 class stateEntityController {
     /**
      * @param {EntityController} entityController - The entity blueprint controller.
      * @param {import('../controllers/actionController.js').default|null} actionController - The action controller for capability re-evaluation.
+     * @param {any|null} internalComponentController - The internal component controller for auto-installing components.
      */
-    constructor(entityController, actionController = null) {
+    constructor(entityController, actionController = null, internalComponentController = null) {
         this.entityController = entityController;
 
         /**
          * Active entities in the game.
-         * Format: { [entityId]: { id: string, blueprint: string, components: Array, location: string, spatial: { x, y }, status: string } }
+         * Format: { [entityId]: { id: string, blueprint: string, components: Array, location: string, spatial: { x, y }, status: string, internalComponents: Object } }
          * @type {Object<string, Object>}
          */
         this.entities = {};
@@ -28,11 +32,18 @@ class stateEntityController {
          * @type {import('../controllers/actionController.js').default|null}
          */
         this.actionController = actionController;
+
+        /**
+         * Reference to the InternalComponentController for auto-installation.
+         * @type {any|null}
+         */
+        this.internalComponentController = internalComponentController;
     }
 
     /**
      * Spawns a new entity into the world based on a blueprint.
-     * After spawning, triggers capability cache re-evaluation for the new entity.
+     * After spawning, triggers capability cache re-evaluation for the new entity
+     * and auto-installs internal components.
      *
      * @param {string} blueprintName - The name of the entity blueprint to use.
      * @param {string} roomId - The initial room where the entity is located.
@@ -45,10 +56,22 @@ class stateEntityController {
         this.entities[entityId] = {
             id: entityId,
             ...entityData,
+            internalComponents: {}, // Internal components stored per entity
             location: roomId,
             spatial: { x: 0, y: 0 },
             status: 'active'
         };
+
+        // Auto-install internal components (e.g., durabilityRepairSpheres)
+        if (this.internalComponentController) {
+            try {
+                this.internalComponentController.autoInstallOnEntitySpawn(entityId, entityData.components);
+                // Sync internal components from controller to entity so client receives them in broadcast
+                this.entities[entityId].internalComponents = this.internalComponentController.getInternalComponentsForEntity(entityId);
+            } catch (error) {
+                console.error(`[stateEntityController] Auto-install failed for entity ${entityId}: ${error.message}`);
+            }
+        }
 
         // Trigger capability cache re-evaluation for the newly spawned entity
         if (this.actionController) {
@@ -75,7 +98,8 @@ class stateEntityController {
 
     /**
      * Removes an entity from the game.
-     * Before removing, triggers cache cleanup to remove all capability entries for this entity.
+     * Before removing, triggers cache cleanup to remove all capability entries for this entity
+     * and cleans up internal component data.
      *
      * @param {string} entityId - The ID of the entity to remove.
      * @returns {boolean} True if the entity was removed.
@@ -85,6 +109,11 @@ class stateEntityController {
             // Remove all capability entries for this entity before despawning
             if (this.actionController) {
                 this.actionController.removeEntityFromCache(entityId);
+            }
+
+            // Clean up internal components for this entity
+            if (this.internalComponentController) {
+                this.internalComponentController.cleanupEntity(entityId);
             }
 
             delete this.entities[entityId];
@@ -121,11 +150,6 @@ class stateEntityController {
         return false;
     }
 
-    /**
-     * Returns the current state of all active entities.
-     * This is called by WorldStateController.getAll().
-     * @returns {Object}
-     */
     /**
      * Returns a deep clone of all active entities to prevent direct mutation of internal state.
      * @returns {Object} Deep clone of the entities store.

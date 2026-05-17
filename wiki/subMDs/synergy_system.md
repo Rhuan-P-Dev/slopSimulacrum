@@ -354,6 +354,49 @@ if (allowedComponentIds && allowedComponentIds.size > 0) {
 
 **Prevention:** All gather methods must respect `allowedComponentIds` when provided, regardless of whether `sourceComponentId` is set.
 
+## Internal Component Synergy Impact
+
+### Overview
+Internal components (e.g., `durabilityRepairSphere`) do **NOT** directly participate in synergy calculations. The synergy system only evaluates **host components** via `getComponentStats(componentId)`.
+
+### Key Points
+
+| Aspect | Detail |
+|--------|--------|
+| **Direct Participation** | Internal components are NOT included in synergy calculations |
+| **Indirect Impact** | Repair system modifies host component `Physical.durability` every 5 seconds, which can affect component scores in synergy calculations |
+| **Internal Component Traits** | `durabilityRepairSphere.traits.Physical.durability = 50` and `traits.Physical.mass = 5` are NOT included in synergy scoring |
+| **Scoring Source** | Only the host component's current effective stats are used for synergy scoring |
+
+### Repair System Interaction
+
+The `InternalComponentController` runs a global repair tick every **5 seconds** (`_processRepairTick()`):
+
+1. Each `durabilityRepairSphere` repairs its host component's `Physical.durability` by `repairAmount` (default: +1)
+2. Higher durability values can affect component scores in synergy calculations
+3. This is an **indirect** effect — the internal component itself is not a synergy participant
+
+### Configuration
+
+Internal component definitions are in `data/internalComponents.json`:
+
+```json
+{
+  "durabilityRepairSphere": {
+    "volume": 2,
+    "repairInterval": 5,
+    "repairAmount": 1,
+    "traits": {
+      "Physical": { "mass": 5, "durability": 50 }
+    },
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": true
+  }
+}
+```
+
+The `traits` property represents the internal component's own physical characteristics — these are **not merged** into the host component's trait values for synergy scoring.
+
 ## References
 - Related wiki: `wiki/subMDs/synergy_preview.md`
 - Related controller: `SynergyController`

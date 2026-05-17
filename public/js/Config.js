@@ -18,10 +18,15 @@ export const AppConfig = {
         ENTITY_DEFAULT: "#00ff00",
         COMPONENT_DEFAULT: "#66ff66",
         NEON_GREEN: "var(--neon-green)",
+        INTERNAL_COMPONENT: {
+            DURABILITY_REPAIR_SPHERE_FILL: '#00ccff',
+            DURABILITY_REPAIR_SPHERE_STROKE: '#0099cc',
+        },
     },
     MARKER_SIZES: {
         ENTITY_RADIUS: 12,
         COMPONENT_RADIUS: 5,
+        INTERNAL_COMPONENT_RADIUS: 3,
     },
     TARGETING: {
         PUNCH_TOLERANCE: 20,

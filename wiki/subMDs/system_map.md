@@ -11,9 +11,15 @@ graph TD
     CC --> CSC[componentStatsController]
     CC --> TC[traitsController]
     
+    %% Internal Components (State Controller — self-instantiating)
+    ICE[InternalComponentController]
+    SEC -.->|auto-installs on spawn| ICE
+    ICE -->|repairs via| CC
+    
     style WSC fill:#f9f,stroke:#333,stroke-width:4px
     style CSC fill:#bbf,stroke:#333,stroke-width:2px
     style TC fill:#bbf,stroke:#333,stroke-width:2px
+    style ICE fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ### Directory Structure (After BUG-052 Reorganization)
@@ -22,7 +28,7 @@ graph TD
 src/controllers/
 ├── WorldStateController.js          # Root injector (stays at top level)
 ├── index.js                         # Barrel export
-├── core/                            # Core state management (Rooms, stateEntity, entity, Component, ComponentStats)
+├── core/                            # Core state management (Rooms, stateEntity, entity, Component, ComponentStats, InternalComponent)
 ├── traits/                          # Traits subsystem (TraitsController)
 ├── actions/                         # Action execution system (ActionController, actionSelect, ComponentResolver, RequirementResolver, RangeValidator)
 ├── capabilities/                    # Capability caching (ComponentCapabilityController)
@@ -32,7 +38,7 @@ src/controllers/
 ```
 
 **Injection Order (Root Injector — Bottom-Up):**
-`ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` (injected with ComponentController + blueprintRegistry from `data/blueprints.json`) → `stateEntityController` → `WorldStateController`
+`ComponentStatsController` → `TraitsController` → `ComponentController` (injected with both) → `EntityController` (injected with ComponentController + blueprintRegistry from `data/blueprints.json`) → `stateEntityController` → `InternalComponentController` (self-instantiating State Controller) → `WorldStateController`
 
 **Note:** `ComponentStatsController` and `TraitsController` are both bottom-level data stores instantiated first. `ComponentController` receives both as injected dependencies. The order in the diagram shows the logical dependency chain, not the instantiation sequence.
 
@@ -58,6 +64,7 @@ Config.js → WorldStateManager → UIManager → RoomConnectionRenderer → Wor
 | **traitsController** | Data Store/Molds | Maintaining global attribute defaults | `globalTraits` (molds including Spatial) |
 | **ActionController** | Action Coordinator | Action execution, consequence handling, requirement validation | `actionRegistry` (action definitions), `componentsToRelease` (lock tracking) |
 | **ComponentCapabilityController** | Capability Cache Manager | Capability scanning, scoring, caching, stat change re-evaluation, event notifications | `_capabilityCache`, `_traitStatActionIndex`, `_actionSubscribers` |
+| **InternalComponentController** | Internal Component State | Volume-based auto-installation, lifecycle management, 5-second repair system | `internalComponents`, `registry`, `_repairInterval` |
 
 ### Utility Layer (Extracted Business Logic)
 
@@ -86,11 +93,40 @@ Config.js → WorldStateManager → UIManager → RoomConnectionRenderer → Wor
 | **RoomConnectionRenderer** | Connection Arrows | Renders SVG arrows on the spatial map showing room connections | UIManager |
 | **ClientErrorController** | Error Handling | Client-side error resolution and formatting | ClientApp |
 | **StatBarsManager** | Stat Bars | Configurable stat bar visualization | ClientApp |
-| **ComponentViewer** | Component Viewer | Component detail overlay panel | ClientApp |
+| **ComponentViewer** | Component Viewer | Component detail overlay panel with 🔮 internal component panel | ClientApp |
 
 ---
 
-## 2.1. Spatial Data Schema
+## 2.1. Internal Components Data Model
+
+### Storage Structure
+```
+internalComponents = {
+    [entityId]: {
+        [hostComponentId]: [
+            {
+                id: "internal-component-uid",
+                type: "durabilityRepairSphere",
+                hostComponentId: "host-component-uid",
+                hostComponentType: "centralBall",
+                hostComponentIdentifier: "default",
+                installedAt: timestamp
+            }
+        ]
+    }
+}
+```
+
+### Volume System
+- Each component has a `Physical.volume` property representing internal capacity (required for the volume-based system)
+- Each internal component type has a `volume` property representing space occupied (from `data/internalComponents.json`)
+- **Auto-install rule**: Internal components install only if `hostComponent.Physical.volume >= internalComponent.volume` AND host type is NOT in `excludedComponentTypes`
+- **Note**: Volume checking is enforced during `autoInstallOnEntitySpawn()`. The manual `addInternalComponent()` method does not perform volume validation.
+- **VolumeProvider pattern**: `autoInstallOnEntitySpawn()` accepts an optional `componentVolumeProvider` function `(componentType) => number` for volume lookup, with a fallback default of `10`
+
+---
+
+## 2.2. Spatial Data Schema
 
 ### Rooms
 Rooms include spatial information for rendering. Coordinates define the room's position in the world coordinate space:
@@ -255,9 +291,17 @@ Server Request → WorldStateController.spawnEntity() / despawnEntity() / moveEn
 | `despawnEntity(entityId)` | `string` | `boolean` |
 | `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
 | `getRoomUidByLogicalId(logicalId)` | `string` | `string|null` |
-| `getEntity(entityId)` | `string` | `Object|null` |
-| `getComponent(componentId)` | `string` | `Object|null` |
-| `getComponentStats(componentId)` | `string` | `Object|null` |
+| `getEntity(entityId)` | `string` | `Object\|null` | Gets entity by ID |
+| `getComponent(componentId)` | `string` | `Object\|null` | Gets component by ID |
+| `getComponentStats(componentId)` | `string` | `Object\|null` | Gets component stats by ID |
+| `addInternalComponent(entityId, hostComponentId, internalComponentType)` | `string`, `string`, `string` | `Object\|null` | Adds an internal component to a host |
+| `getInternalComponents(entityId, hostComponentId)` | `string`, `string` | `Array` | Gets internal components for a host (defensive deep copy) |
+| `getInternalComponentsForEntity(entityId)` | `string` | `Object` | Gets all internal components for an entity (defensive deep copy) |
+| `removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId)` | `string`, `string`, `string` | `boolean` | Removes a specific internal component |
+| `hasInternalComponent(entityId, hostComponentId, internalComponentType)` | `string`, `string`, `string` | `boolean` | Checks if host has a specific internal component type |
+| `cleanupInternalComponents(entityId)` | `string` | `boolean` | Cleans up all internal components for an entity |
+| `startInternalComponentRepairSystem()` | — | `void` | Starts the 5-second repair interval |
+| `stopInternalComponentRepairSystem()` | — | `void` | Stops the repair interval |
 
 ### 3.8. ActionController Extracted Utility Flow
 
@@ -272,6 +316,27 @@ ActionController.executeAction()
     ├── _checkGrabRange() → RangeChecker.checkGrabRange()
     └── SYNERGY_BONUS_THRESHOLD → Constants.SYNERGY_BONUS_THRESHOLD
 ```
+
+### 3.9. Internal Component Repair System Flow
+
+The `InternalComponentController` runs a 5-second repair interval via `setInterval` to heal damaged components:
+
+```
+setInterval(5000) → _processRepairTick()
+    ├── Iterate over all entities
+    ├── For each entity's internal components:
+    │   ├── Get host component via hostComponentId
+    │   ├── Call this.worldStateController.componentController.updateComponentStatDelta() on host
+    │   └── Increase Physical.durability by repairAmount (1 for durabilityRepairSphere)
+    └── Stat change triggers broadcast via existing listener system
+    └── _syncToEntityStore() — syncs internal components back to entity store for world-state broadcasts
+```
+
+**Lifecycle:**
+- **Auto-install**: On entity spawn via `stateEntityController` → `InternalComponentController.autoInstallOnEntitySpawn()`
+- **Volume check**: Only installs if `hostComponent.volume >= internalComponent.volume`
+- **Exclusions**: Components in `excludedComponentTypes` (e.g., `humanoidDroidFinger`) skip installation
+- **Cleanup**: On entity despawn, `InternalComponentController.cleanupEntity(entityId)` removes all internal components
 
 ---
 
@@ -291,6 +356,11 @@ ActionController.executeAction()
 | `GET /action-capabilities/entity/:entityId` | Returns capabilities for a specific entity |
 | `POST /refresh-entity-capabilities` | Re-evaluates all capabilities for an entity |
 | `GET /world-map` | Returns the world graph with resolved room names for all connections |
+| `GET /api/internal-components/registry` | Returns internal component type definitions with descriptions |
+| `GET /api/internal-components/:entityId` | Returns all internal components for an entity |
+| `GET /api/internal-components/:entityId/:hostComponentId` | Returns internal components for a specific host component |
+| `POST /api/internal-components/:entityId/:hostComponentId/add` | Adds an internal component to a host |
+| `DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId` | Removes an internal component |
 
 ### 📢 Notice for Future Agents
 **Language Requirement:** All source code in this project must be written in **JavaScript**.

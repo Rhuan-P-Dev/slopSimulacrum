@@ -34,6 +34,7 @@ graph TD
         CAP[src/routes/capabilityRoutes.js]
         SYNERGY[src/routes/synergyRoutes.js]
         SELECT[src/routes/selectionRoutes.js]
+        ICOMP[src/routes/internalComponentRoutes.js]
     end
 
     SERVER --> BOOT
@@ -46,6 +47,7 @@ graph TD
     ROUTES --> CAP
     ROUTES --> SYNERGY
     ROUTES --> SELECT
+    ROUTES --> ICOMP
 ```
 
 ## File Structure
@@ -63,6 +65,7 @@ graph TD
 | `src/routes/capabilityRoutes.js` | ~105 | GET/POST /action-capabilities/*, POST /refresh-entity-capabilities |
 | `src/routes/synergyRoutes.js` | ~110 | GET/POST /synergy/* |
 | `src/routes/selectionRoutes.js` | ~120 | GET/POST /select-component*, POST /release-selection, GET /selections/* |
+| `src/routes/internalComponentRoutes.js` | ~127 | GET /api/internal-components/*, POST /api/internal-components/:entityId/:hostComponentId/add, DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId |
 
 ## Route Dependencies
 
@@ -74,6 +77,7 @@ graph TD
 | `capabilityRoutes.js` | `worldStateController` |
 | `synergyRoutes.js` | `worldStateController` |
 | `selectionRoutes.js` | `worldStateController` |
+| `internalComponentRoutes.js` | `worldStateController` (via `req.app.locals`) |
 
 ## Route Registration Pattern
 
@@ -98,6 +102,33 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 }
 ```
 
+### Internal Component Routes Module Pattern
+
+The `internalComponentRoutes.js` module uses a slightly different registration pattern — it exports the Express Router directly rather than using a `register()` function:
+
+```javascript
+// In src/routes/internalComponentRoutes.js:
+import express from 'express';
+const router = express.Router();
+
+// Route handlers use req.app.locals.worldStateController
+router.get('/registry', (req, res) => { ... });
+router.get('/:entityId', (req, res) => { ... });
+router.get('/:entityId/:hostComponentId', (req, res) => { ... });
+router.post('/:entityId/:hostComponentId/add', (req, res) => { ... });
+router.delete('/:entityId/:hostComponentId/:internalComponentId', (req, res) => { ... });
+
+export default router;
+```
+
+**Mounting in `src/server.js`:**
+```javascript
+import internalComponentRoutes from './routes/internalComponentRoutes.js';
+app.use('/api/internal-components', internalComponentRoutes);
+```
+
+This pattern is used for standalone route modules that don't need dependency injection — they access `worldStateController` via `req.app.locals` instead of constructor parameters.
+
 ## Quality Standards Compliance
 
 - **SRP**: Each module has exactly one reason to change
@@ -106,6 +137,12 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 - **Public API**: All routes use `WorldStateController` public methods only
 - **Error Handling**: Consistent try/catch + Logger.error pattern across all endpoints
 - **Input Validation**: All POST endpoints validate required fields before processing
+
+## Recent Changes
+
+| Date | Change | Related Files |
+|------|--------|---------------|
+| 2026-05-15 | **Feature:** Added internal components REST API — `internalComponentRoutes.js` with 5 endpoints, route registration in `index.js`, `worldStateController` dependency | `src/routes/internalComponentRoutes.js`, `src/routes/index.js` |
 
 ## References
 

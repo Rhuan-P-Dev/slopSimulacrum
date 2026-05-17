@@ -3,6 +3,7 @@
  * Manages the 🗿️ component viewer overlay panel.
  * Displays all components of the active droid as clickable cards with stat badges.
  * Each card has a ➕ button to add a stat bar for that specific component.
+ * Each card has a 🔮 button to expand/collapse internal components.
  * Clicking a stat badge opens the StatBarsManager's add dialog pre-filled with that trait/stat.
  *
  * @module ComponentViewer
@@ -24,6 +25,16 @@ export class ComponentViewer {
         this._content = null;
         /** @private {string|null} */
         this._lastComponentId = null;
+        /** @private {string|null} */
+        this._currentEntityId = null;
+        /** @private {Object|null} */
+        this._currentEntity = null;
+        /** @private {Object<string, Object>} */
+        this._internalComponentCache = {};
+        /** @private {Object<string, boolean>} */
+        this._expandedInternalComponents = {};
+        /** @private {Object|null} */
+        this._internalComponentRegistry = null;
     }
 
     /**
@@ -39,7 +50,7 @@ export class ComponentViewer {
      * @param {Object} entity - The active droid entity.
      * @param {Object} state - The complete world state.
      */
-    show(entity, state) {
+    async show(entity, state) {
         if (!this._overlay) return;
 
         if (!entity || !entity.components) {
@@ -48,9 +59,20 @@ export class ComponentViewer {
             return;
         }
 
+        // Store entity reference for internal component access
+        // Using the same entity object ensures we read the same internalComponents source
+        this._currentEntityId = entity.id;
+        this._currentEntity = entity;
+        // Reset cache and expanded state
+        this._internalComponentCache = {};
+        this._expandedInternalComponents = {};
+
         this._renderComponentGrid(entity, state);
         this._lastComponentId = entity.components?.[0]?.id || null;
         this._overlay.style.display = 'block';
+
+        // Pre-fetch internal component registry for descriptions
+        await this._loadInternalComponentRegistry();
     }
 
     /**
@@ -89,10 +111,17 @@ export class ComponentViewer {
      * @param {Object} state - The complete world state.
      * @private
      */
-    _renderComponentGrid(entity, state) {
+    async _renderComponentGrid(entity, state) {
         if (!this._content) return;
 
         const instances = state?.components?.instances || {};
+
+        // Internal components are stored directly on the entity object as entity.internalComponents
+        // { [hostComponentId]: [internalComponentInstances] }
+        // This is the same source that UIManager.showEntityDetails() uses to display internal components.
+        // We must NOT use state.internalComponents[entity.id] because that structure may not
+        // be synchronized with the entity object's internalComponents property.
+        const entityInternalComponents = entity?.internalComponents || {};
 
         let html = '<div class="component-viewer-grid">';
 
@@ -100,16 +129,22 @@ export class ComponentViewer {
             const stats = instances[comp.id] || {};
             const statsHtml = this._renderStatsAsBadges(stats, comp.id);
 
+            // Check if this component has internal components from the entity object
+            const compInternalComps = entityInternalComponents[comp.id] || [];
+            const hasInternalComps = compInternalComps.length > 0;
+
             html += `
                 <div class="component-card" data-comp-id="${comp.id}">
                     <div class="component-card-header">
                         <span class="component-card-type">${comp.type}</span>
                         <span class="component-card-id" style="color: var(--text-dim); font-size: 0.8em;">${comp.identifier}</span>
-                        <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component" style="background: var(--neon-green); color: var(--bg-black); border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 8px;">➕</button>
+                        ${hasInternalComps ? `<button class="component-internal-btn" data-comp-id="${comp.id}" title="View internal components" style="background: var(--neon-cyan); color: var(--bg-black); border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 4px;">🔮</button>` : ''}
+                        <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component" style="background: var(--neon-green); color: var(--bg-black); border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 4px;">➕</button>
                     </div>
                     <div class="component-card-stats">
                         ${statsHtml || '<em style="color: var(--text-dim); font-size: 0.8em;">No stats</em>'}
                     </div>
+                    ${hasInternalComps ? `<div class="component-internal-container" data-comp-id="${comp.id}" style="display: none;"></div>` : ''}
                 </div>`;
         }
 
@@ -121,6 +156,14 @@ export class ComponentViewer {
             btn.onclick = (e) => {
                 e.stopPropagation();
                 this._onAddStatFromComponent(btn.dataset.compId);
+            };
+        });
+
+        // Attach event listeners for the internal component buttons
+        this._content.querySelectorAll('.component-internal-btn').forEach((btn) => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                this._onToggleInternalComponents(btn.dataset.compId, entity.internalComponents);
             };
         });
     }
@@ -227,6 +270,173 @@ export class ComponentViewer {
             label: '',
             color: '',
         });
+    }
+
+    /**
+     * Loads the internal component registry from the server.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _loadInternalComponentRegistry() {
+        try {
+            const response = await fetch('/api/internal-components/registry');
+            if (response.ok) {
+                this._internalComponentRegistry = await response.json();
+            } else {
+                // Fallback: use hardcoded descriptions
+                this._internalComponentRegistry = {
+                    'durabilityRepairSphere': {
+                        repairAmount: 1,
+                        repairInterval: 5,
+                        description: 'Repairs +1 durability every 5 seconds'
+                    }
+                };
+            }
+        } catch (error) {
+            console.warn('[ComponentViewer] Failed to load internal component registry:', error);
+            // Fallback registry
+            this._internalComponentRegistry = {
+                'durabilityRepairSphere': {
+                    repairAmount: 1,
+                    repairInterval: 5,
+                    description: 'Repairs +1 durability every 5 seconds'
+                }
+            };
+        }
+    }
+
+    /**
+     * Gets a human-readable description for an internal component type.
+     * @param {string} type - The internal component type.
+     * @returns {string} Description string.
+     * @private
+     */
+    _getInternalComponentDescription(type) {
+        const registry = this._internalComponentRegistry;
+        if (!registry || !registry[type]) {
+            return 'Unknown internal component.';
+        }
+
+        const def = registry[type];
+        const parts = [];
+
+        if (type === 'durabilityRepairSphere') {
+            parts.push(`Repairs +${def.repairAmount || 1} durability every ${def.repairInterval || 5}s`);
+        }
+
+        if (def.description) {
+            parts.push(def.description);
+        }
+
+        return parts.join(' | ') || 'Passive internal component.';
+    }
+
+    /**
+     * Handles the 🔮 button click — toggles internal components panel.
+     * Uses the entity internalComponents reference passed from _renderComponentGrid
+     * to ensure we read from the same source that rendered the 🔮 button.
+     * Falls back to API fetch if entity reference is not available.
+     * @param {string} componentId - The host component ID.
+     * @param {Object} [entityInternalComponents] - Optional direct reference to entity.internalComponents.
+     * @private
+     */
+    async _onToggleInternalComponents(componentId, entityInternalComponents) {
+        const container = this._content.querySelector(`.component-internal-container[data-comp-id="${componentId}"]`);
+        if (!container) return;
+
+        const isExpanded = this._expandedInternalComponents[componentId];
+
+        if (isExpanded) {
+            // Collapse
+            this._expandedInternalComponents[componentId] = false;
+            container.style.display = 'none';
+            return;
+        }
+
+        // Expand
+        this._expandedInternalComponents[componentId] = true;
+
+        let internalComps = [];
+
+        // Check cache first
+        if (this._internalComponentCache[componentId]) {
+            internalComps = this._internalComponentCache[componentId];
+        } else {
+            // Use the entity internalComponents reference passed from the button click handler
+            // This guarantees we read from the same source that _renderComponentGrid used
+            if (entityInternalComponents && Array.isArray(entityInternalComponents[componentId])) {
+                internalComps = entityInternalComponents[componentId];
+                this._internalComponentCache[componentId] = internalComps;
+            } else {
+                // Fall back to API fetch if entity reference not available
+                try {
+                    const response = await fetch(`/api/internal-components/${this._currentEntityId}/${componentId}`);
+                    if (response.ok) {
+                        internalComps = await response.json();
+                        this._internalComponentCache[componentId] = internalComps;
+                    } else {
+                        console.error('[ComponentViewer] API returned error:', response.status, response.statusText);
+                        this._internalComponentCache[componentId] = [];
+                    }
+                } catch (error) {
+                    console.error('[ComponentViewer] Failed to fetch internal components:', error);
+                    this._internalComponentCache[componentId] = [];
+                }
+            }
+        }
+
+        this._renderInternalComponentPanel(container, componentId, internalComps);
+    }
+
+    /**
+     * Renders the internal components panel for a host component.
+     * @param {HTMLElement} container - The container element.
+     * @param {string} hostComponentId - The host component ID.
+     * @param {Array} internalComps - Array of internal component instances.
+     * @private
+     */
+    _renderInternalComponentPanel(container, hostComponentId, internalComps) {
+        if (!container || !internalComps || internalComps.length === 0) {
+            container.innerHTML = '<div class="internal-components-empty"><em style="color: var(--text-dim); font-size: 0.85em;">No internal components</em></div>';
+            container.style.display = 'block';
+            return;
+        }
+
+        let html = '<div class="internal-components-list">';
+
+        for (const ic of internalComps) {
+            const description = this._getInternalComponentDescription(ic.type);
+            const typeLabel = this._formatInternalComponentType(ic.type);
+
+            html += `
+                <div class="internal-component-detail-card">
+                    <div class="internal-component-header">
+                        <span class="internal-component-type-badge">${typeLabel}</span>
+                        <span class="internal-component-host" style="color: var(--text-dim); font-size: 0.8em;">Host: ${ic.hostComponentType || 'unknown'}</span>
+                    </div>
+                    <div class="internal-component-description">${description}</div>
+                    ${ic.id ? `<div class="internal-component-meta">ID: ${ic.id.substring(0, 12)}...</div>` : ''}
+                    ${ic.installedAt ? `<div class="internal-component-meta">Installed: ${new Date(ic.installedAt).toLocaleString()}</div>` : ''}
+                </div>`;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+        container.style.display = 'block';
+    }
+
+    /**
+     * Formats an internal component type into a readable label.
+     * @param {string} type - The internal component type.
+     * @returns {string} Formatted label.
+     * @private
+     */
+    _formatInternalComponentType(type) {
+        // Convert camelCase to readable format: durabilityRepairSphere → Durability Repair Sphere
+        const formatted = type
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/^./, str => str.toUpperCase());
+        return formatted;
     }
 
     /**

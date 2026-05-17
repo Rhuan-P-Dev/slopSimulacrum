@@ -9,6 +9,7 @@ import ComponentCapabilityController from './capabilities/componentCapabilityCon
 import SynergyController from './synergy/synergyController.js';
 import ActionSelectController from './actions/actionSelectController.js';
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
+import InternalComponentController from './core/InternalComponentController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
@@ -36,6 +37,10 @@ class WorldStateController {
         // 1. Instantiate Data Stores (Bottom level)
         const statsController = new ComponentStatsController();
         const traitsController = new TraitsController(traitsRegistry);
+
+        // Internal Components — State Controller (self-instantiating, no DI)
+        const internalComponentController = new InternalComponentController();
+        this.internalComponentController = internalComponentController;
 
         // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
         const blueprintRegistry = DataLoader.loadJsonSafe('data/blueprints.json', {});
@@ -78,12 +83,12 @@ class WorldStateController {
         );
         this.actionController = actionController;
 
-        // 8. Instantiate stateEntityController with actionController (after ActionController is created)
+        // 8. Instantiate stateEntityController with actionController and internalComponentController
         // This follows proper DI pattern - no forward references needed
-        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, null);
+        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
         this.stateEntityController = stateEntityControllerInstance;
 
-        // 7. Wire up stat change notifications from ComponentController to ComponentCapabilityController
+        // Wire up stat change notifications from ComponentController to ComponentCapabilityController
         // This enables automatic capability re-evaluation when component stats change
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
@@ -92,6 +97,9 @@ class WorldStateController {
                 this._broadcastService.broadcast();
             }
         });
+
+        // Set worldStateController reference on InternalComponentController for repair system access
+        internalComponentController.setWorldStateController(this);
 
         // 8. Broadcast service (injected via setBroadcastService() from server.js)
         /** @private {WorldStateBroadcastService|null} */
@@ -102,6 +110,7 @@ class WorldStateController {
             rooms: this.roomsController,
             entities: this.stateEntityController,
             components: this.componentController,
+            internalComponents: this.internalComponentController,
             actions: this.actionController,
             capabilities: this.componentCapabilityController,
             synergy: this.synergyController,
@@ -110,6 +119,9 @@ class WorldStateController {
 
         // Initialize world with a sample droid as requested
         this.initializeWorld();
+
+        // Start the internal component repair system after entities are spawned
+        internalComponentController.startRepairSystem();
 
         // Perform initial capability scan after entities are spawned
         // Delegates to ComponentCapabilityController via ActionController wrapper
@@ -217,6 +229,91 @@ class WorldStateController {
      */
     getComponentStats(componentId) {
         return this.componentController.getComponentStats(componentId);
+    }
+
+    // =========================================================================
+    // INTERNAL COMPONENT API (for internal components system)
+    // =========================================================================
+
+    /**
+     * Adds an internal component to a host component.
+     * @param {string} entityId - The entity ID.
+     * @param {string} hostComponentId - The host component ID.
+     * @param {string} internalComponentType - The internal component type to add.
+     * @returns {Object|null} The created instance, or null if failed.
+     */
+    addInternalComponent(entityId, hostComponentId, internalComponentType) {
+        return this.internalComponentController.addInternalComponent(entityId, hostComponentId, internalComponentType);
+    }
+
+    /**
+     * Gets internal components for a specific host component.
+     * Returns a defensive deep copy to prevent external mutation.
+     * @param {string} entityId - The entity ID.
+     * @param {string} hostComponentId - The host component ID.
+     * @returns {Array} Deep copy of internal component instances for the host.
+     */
+    getInternalComponents(entityId, hostComponentId) {
+        return this.internalComponentController.getInternalComponents(entityId, hostComponentId);
+    }
+
+    /**
+     * Gets all internal components for an entity.
+     * Returns a defensive deep copy to prevent external mutation.
+     * @param {string} entityId - The entity ID.
+     * @returns {Object} Deep copy of all internal components for the entity.
+     */
+    getInternalComponentsForEntity(entityId) {
+        return this.internalComponentController.getInternalComponentsForEntity(entityId);
+    }
+
+    /**
+     * Removes an internal component from a host component.
+     * @param {string} entityId - The entity ID.
+     * @param {string} hostComponentId - The host component ID.
+     * @param {string} internalComponentInstanceId - The internal component instance ID to remove.
+     * @returns {boolean} True if removed successfully.
+     */
+    removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId) {
+        return this.internalComponentController.removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId);
+    }
+
+    /**
+     * Checks if a host component has a specific type of internal component.
+     * @param {string} entityId - The entity ID.
+     * @param {string} hostComponentId - The host component ID.
+     * @param {string} internalComponentType - The internal component type to check.
+     * @returns {boolean} True if the host has the specified internal component type.
+     */
+    hasInternalComponent(entityId, hostComponentId, internalComponentType) {
+        return this.internalComponentController.hasInternalComponent(entityId, hostComponentId, internalComponentType);
+    }
+
+    /**
+     * Cleans up all internal components for a specific entity.
+     * Called when an entity is despawned.
+     * @param {string} entityId - The entity ID to clean up.
+     * @returns {boolean} True if cleanup was performed.
+     */
+    cleanupInternalComponents(entityId) {
+        return this.internalComponentController.cleanupEntity(entityId);
+    }
+
+    /**
+     * Starts the global repair tick system (5-second interval).
+     * Each tick processes all durabilityRepairSpheres and heals their host components.
+     * @returns {void}
+     */
+    startInternalComponentRepairSystem() {
+        return this.internalComponentController.startRepairSystem();
+    }
+
+    /**
+     * Stops the repair system and clears the interval.
+     * @returns {void}
+     */
+    stopInternalComponentRepairSystem() {
+        return this.internalComponentController.stopRepairSystem();
     }
 
     // =========================================================================

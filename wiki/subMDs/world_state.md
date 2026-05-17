@@ -86,6 +86,19 @@ The `stateEntityController` manages active entity instances in memory.
 - **Role**: Instance Manager.
 - **Spatial Data**: Each entity stores position relative to its room via `spatial: { x, y }`.
 - **Entity Lifecycle**: Methods include `spawnEntity()`, `moveEntity()`, `despawnEntity()`, and `getEntity()`.
+- **Internal Component Integration**: On entity spawn, calls `InternalComponentController.autoInstallOnEntitySpawn()` to auto-install internal components on eligible components. On entity despawn, triggers `InternalComponentController.cleanupEntity()` to remove all internal components.
+
+### 2.4. InternalComponentController (`src/controllers/core/InternalComponentController.js`)
+The `InternalComponentController` manages the volume-based internal component system.
+- **Role**: Internal Component State — volume-based auto-installation, lifecycle management, 5-second repair system.
+- **Data Structure**: `internalComponents = { [entityId]: { [hostComponentId]: [internalComponentInstances] } }`
+- **Self-Instantiating**: Follows the State Controller exception to the DI rule — instantiates itself in `WorldStateController`.
+- **DI via Setter**: Uses `setWorldStateController()` to receive `WorldStateController` reference after initialization.
+- **Repair System**: Runs a 5-second `setInterval` that calls `_processRepairTick()` to heal damaged components via `this.worldStateController.componentController.updateComponentStatDelta()`.
+- **Key Methods**: `autoInstallOnEntitySpawn()`, `addInternalComponent()`, `removeInternalComponent()`, `getInternalComponents()`, `getInternalComponentsForEntity()`, `hasInternalComponent()`, `cleanupEntity()`, `startRepairSystem()`, `stopRepairSystem()`, `getAll()`.
+- **Defensive Copying**: `getInternalComponents()` and `getInternalComponentsForEntity()` return deep copies via `structuredClone()` to prevent external mutation.
+- **Volume System**: Internal components install only when `hostComponent.Physical.volume >= internalComponent.volume` AND host type is NOT in `excludedComponentTypes`.
+- **Integration**: Registered in `WorldStateController.subControllers` as `internalComponents`.
 
 ## 3. Implementation Guidelines for Agents
 
@@ -120,3 +133,40 @@ If you need to track a new type of global state (e.g., Global Weather, Game Time
   }
 }
 ```
+
+## 5. Internal Components Data Schema
+
+The `getAll()` method from `WorldStateController` includes `internalComponents` in the aggregated world state:
+
+```json
+{
+  "internalComponents": {
+    "ent_uuid_1": {
+      "comp_uuid_1": [
+        {
+          "id": "internal-uuid-1",
+          "type": "durabilityRepairSphere",
+          "hostComponentId": "comp_uuid_1",
+          "hostComponentType": "centralBall",
+          "hostComponentIdentifier": "default",
+          "installedAt": 1715789012345
+        }
+      ],
+      "comp_uuid_2": [
+        {
+          "id": "internal-uuid-2",
+          "type": "durabilityRepairSphere",
+          "hostComponentId": "comp_uuid_2",
+          "hostComponentType": "droidHead",
+          "hostComponentIdentifier": "default",
+          "installedAt": 1715789012345
+        }
+      ]
+    }
+  }
+}
+```
+
+**Broadcast Integration**: Internal components are included in world state broadcasts. The repair system modifies host component stats via `ComponentController.updateComponentStatDelta()`, which triggers the existing stat change broadcast listener automatically. After repairs, `_syncToEntityStore()` syncs internal components back to the entity store so clients receive them in subsequent world-state broadcasts.
+
+**Defensive Copying**: All `WorldStateController` internal component methods return deep copies via `structuredClone()` to prevent external mutation of internal state, per `wiki/code_quality_and_best_practices.md` Section 1.2 (Loose Coupling).

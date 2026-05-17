@@ -16,6 +16,7 @@ To ensure maintainability and separation of concerns, the frontend utilizes a mo
     - `synergy.css`: Synergy preview styling.
     - `utilities.css`: Utility classes.
     - `feedback.css`: Error popups and feedback.
+    - `internal-components.css`: Internal component SVG rendering, ComponentViewer internal panel styles, pulsing animations.
 - `public/js/`: Contains the modular logic split into specialized managers:
     - `App.js`: The main orchestrator (`ClientApp`) that coordinates all managers.
     - `Config.js`: Centralized configuration and constants.
@@ -24,7 +25,7 @@ To ensure maintainability and separation of concerns, the frontend utilizes a mo
     - `ActionExecutor.js`: Manages all action execution handlers with distinct logic patterns.
     - `ClientErrorController.js`: Handles the resolution and formatting of system errors.
     - `StatBarsManager.js`: Manages configurable stat bar visualization.
-    - `ComponentViewer.js`: Manages the 🗿️ component viewer overlay panel.
+    - `ComponentViewer.js`: Manages the 🗿️ component viewer overlay panel with 🔮 internal component button and expandable internal component panel.
     - `NavActionsPanel.js`: Manages the ⚔️ actions floating panel.
     - `WorldMapView.js`: Manages the 🌐 world map overlay panel.
     - `RoomConnectionRenderer.js`: Renders connection arrows on the spatial map.
@@ -89,6 +90,13 @@ The map is rendered using a Scalable Vector Graphics (SVG) element.
 - **Range Indicators**: When a targeted action is selected, a dashed circle is rendered:
     - **Red**: Used for attack actions.
     - **White**: Used for movement actions (`move`, `dash`).
+- **Internal Components**: Rendered as nested cyan circles inside host component markers:
+    - **Host Component**: Existing green circle (5px radius from Config)
+    - **Internal Component**: Smaller cyan circle (3px radius) inside the host
+    - **Connection Line**: Dashed line (stroke-dasharray "1,1", stroke-width 0.5) from host center to internal component
+    - **Layout**: Multi-component internal components arranged in a circular pattern around host center (offsetRadius: 4px, angle distributed evenly)
+    - **Animation**: 5s pulsing cycle matching repair interval via `@keyframes internalPulse`
+    - **Interactivity**: Each circle has a `<title>` tooltip and click event invoking `onComponentClick` callback with enriched component data
 
 ### 3.2. Configurable Stat Bars
 Stat bars display the percentage of a component's stat value relative to a user-defined maximum.
@@ -135,6 +143,11 @@ The component viewer displays all components of the active droid as a grid of ca
 - Each card shows the component type and identifier.
 - Stats are displayed as clickable badges (`component-stat-clickable`).
 - Clicking a stat badge opens the add stat dialog pre-filled with that trait/stat.
+- **Internal Components Button (🔮)**: Components with internal components show a 🔮 button. Clicking it toggles an expandable panel displaying internal components.
+- **Internal Component Panel**: Shows internal component type badge, description, host info, and metadata (installedAt, ID).
+- **Data Flow**: `ComponentViewer.show()` → `_renderComponentGrid()` → [🔮 button per component with internal comps] → User clicks 🔮 → `_onToggleInternalComponents()` → If cached: use `this._internalComponentCache[componentId]`, else: fetch from `/api/internal-components/${entityId}/${componentId}` → `_renderInternalComponentPanel()` → displays type badge, description, host info, meta.
+- **Registry Loading**: `ComponentViewer.show()` → `_loadInternalComponentRegistry()` → fetches `/api/internal-components/registry` for human-readable descriptions.
+- **Cache**: Results cached in `this._internalComponentCache[componentId]` — cache is reset on every `show()` call. `_expandedInternalComponents` Map tracks expand/collapse state per component.
 
 ### 3.4. Droid Detail Panel
 A toggleable overlay (`#detail-overlay`) that appears when a droid marker is clicked. It displays:

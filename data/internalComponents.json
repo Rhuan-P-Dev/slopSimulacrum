@@ -1,0 +1,12 @@
+{
+  "durabilityRepairSphere": {
+    "volume": 2,
+    "repairInterval": 5,
+    "repairAmount": 1,
+    "traits": {
+      "Physical": { "mass": 5, "durability": 50 }
+    },
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": true
+  }
+}

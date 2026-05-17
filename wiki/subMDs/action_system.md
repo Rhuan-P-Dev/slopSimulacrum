@@ -213,6 +213,8 @@ The `ActionController` checks each entity's components for the required traits a
 
 **Component Tracking:** When requirements are met, the system identifies and tracks which specific components satisfied each requirement using a `fulfillingComponents` map (e.g., `{"Physical.durability": "component_id"}`). This map is passed to consequence handlers via a `context` object.
 
+**Internal Component Trait Contributions:** Internal components (e.g., `durabilityRepairSphere`) have their own `traits` property that contributes to the host component's effective traits. When checking requirements or resolving values (e.g., `:Physical.strength`), the host component's base traits are used — internal component traits are applied via the repair system's stat updates. The `durabilityRepairSphere.traits.Physical.durability` (50) and `durabilityRepairSphere.traits.Physical.mass` (5) are managed separately through the 5-second repair interval, which calls `ComponentController.updateComponentStatDelta()` on the host.
+
 To ensure the "most capable" component is prioritized (e.g., avoiding the case where a general-purpose body component takes a penalty for an action performed by a specialized limb), the system uses a **Priority Scoring Mechanism**:
 1. **Scoring**: Every component is scored based on how many of the action's total requirements it satisfies.
 2. **Prioritization**: Components are sorted by score in descending order.
@@ -229,6 +231,11 @@ This ensures that consequences targeting a trait/stat (like durability loss) are
 ### 4.1. Success Consequences
 
 When requirements are met, the action executes its success consequences. Consequences are defined as an array of objects with three properties:
+
+**Internal Component Impact on Consequences:**
+When consequences modify component stats (e.g., `damageComponent` reducing `Physical.durability`), the `InternalComponentController` repair system automatically compensates via its 5-second interval. Each `_processRepairTick()` calls `ComponentController.updateComponentStatDelta()` on host components containing `durabilityRepairSphere` internal components, increasing `Physical.durability` by `repairAmount` (1 for durabilityRepairSphere). This means damage consequences are partially offset by the repair system, creating a dynamic where entities with internal components recover durability over time.
+
+**Auto-Installation Lifecycle:** When an entity spawns, `InternalComponentController.autoInstallOnEntitySpawn()` automatically installs `durabilityRepairSphere` instances on eligible components (non-finger, volume-compatible). These internal components then continuously repair their host components via the repair system, affecting the long-term durability values used in action requirement checking and consequence resolution.
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -463,12 +470,12 @@ Role validation is skipped for `spatial` and `none` targetingType actions becaus
 }
 ```
 
-#### 5.1.2. ActionController._executeConsequences()
+#### 5.1.2. ActionController Consequence Execution
 
-Executes success consequences by reading from the action registry and dispatching to the injected `ConsequenceHandlers`.
+Success consequences are executed via `this.consequenceDispatcher.execute()` (line 361-363 in `actionController.js`), which dispatches to the appropriate handler based on consequence type.
 
 **Target ID Resolution by Consequence Type:**
-Different consequence types operate on different scopes. The `_executeConsequences` method resolves the correct `targetId` based on the consequence type:
+Different consequence types operate on different scopes. The ConsequenceDispatcher resolves the correct `targetId` based on the consequence type:
 
 | Consequence Type | Target ID Used |
 |------------------|----------------|
@@ -476,11 +483,6 @@ Different consequence types operate on different scopes. The `_executeConsequenc
 | `updateComponentStatDelta`, `damageComponent`, `updateStat`, `log`, `triggerEvent` | `targetComponentId` (from `params`) or `entityId` as fallback |
 
 This ensures that spatial actions (like `move`, `dash`) correctly operate on the entity even when `targetComponentId` is present in the action params (e.g., when the user selected a specific component for multi-component entities).
-
-```javascript
-/**
- * @param {string} actionName - The name of the action.
- * @param {string} entityId - The ID of the entity.
  * @param {Object} requirementValues - Map of trait.stat values for substitution.
  * @param {Object} params - Additional action parameters.
  * @returns {Object} Result of consequence execution.
@@ -1013,20 +1015,13 @@ Re-evaluates all action capabilities for a specific entity.
 ## 11. Placeholder Substitution Logic
 
 ### 11.1. Implementation
-The `_resolvePlaceholders` method uses a regular expression to identify and resolve `:trait.stat` markers within strings. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
+The `_resolvePlaceholders` method uses **string prefix checking** to identify and resolve `:trait.stat` markers within values. This ensures that the resulting value is a **number**, preventing string concatenation bugs during spatial calculations.
 
 **Current Logic:**
 ```javascript
-const match = params.match(/^(-)?(:[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)(?:\*(-?\d+))?$/);
-if (match) {
-    const sign = match[1] === '-' ? -1 : 1;
-    const placeholder = match[2].substring(1);
-    const multiplier = match[3] ? parseInt(match[3], 10) : 1;
-    const value = requirementValues[placeholder];
-    if (value !== undefined) {
-        return sign * value * multiplier;
-    }
-}
+if (typeof value === 'string' && value.startsWith(':')) { /* positive */ }
+else if (typeof value === 'string' && value.startsWith('-:')) { /* negative */ }
+else if (typeof value === 'string' && value.startsWith('*:')) { /* multiplier */ }
 ```
 
 ### 11.2. Supported Patterns

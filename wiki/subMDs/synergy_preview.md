@@ -274,6 +274,71 @@ The preview system uses these CSS classes (defined in `public/styles.css`):
 
 6. **Synergy-aware range indicator**: The frontend `_calculateActionRange()` applies the synergy multiplier to movement stats. When 2+ components are selected with synergy, the range indicator reflects the boosted effective move distance: `effectiveMove = maxMoveStat * synergyMultiplier`.
 
+## Internal Component Impact on Synergy Preview
+
+### Overview
+The synergy preview system reflects the **current state** of component stats at the exact moment a preview request is processed. Since internal components (e.g., `durabilityRepairSphere`) modify host component stats on a recurring basis, the values shown in synergy previews may differ slightly between requests if an internal component tick occurred in between.
+
+### Key Principles
+
+| Aspect | Detail |
+|--------|--------|
+| **Direct Participation** | Internal components are NOT included in synergy preview calculations |
+| **Indirect Impact** | Repair system modifies host component `Physical.durability` every 5 seconds, which can affect component scores in synergy calculations |
+| **Internal Component Traits** | `durabilityRepairSphere.traits.Physical.durability = 50` and `traits.Physical.mass = 5` are NOT merged into host component stats and NOT included in synergy scoring |
+| **Scoring Source** | Only the host component's current effective stats (from `getComponentStats(componentId)`) are used for synergy scoring |
+
+### Configuration
+
+Internal component definitions are in `data/internalComponents.json`:
+
+```json
+{
+  "durabilityRepairSphere": {
+    "volume": 2,
+    "repairInterval": 5,
+    "repairAmount": 1,
+    "traits": {
+      "Physical": { "mass": 5, "durability": 50 }
+    },
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": true
+  }
+}
+```
+
+**Fields affecting synergy indirectly:** `repairAmount` (how much durability increases), `repairInterval` (timing of repairs)
+**Fields excluded from synergy:** `traits.Physical.mass`, `traits.Physical.durability` (internal component's own traits are NOT merged into host)
+
+### Repair System Interaction
+
+The `durabilityRepairSphere` internal component runs every **5 seconds** and increases the `Physical.durability` stat of its host component. This means:
+
+1. **Preview values are a snapshot in time**: Each synergy preview request captures the component stats at the moment of calculation. If a repair tick occurred between two preview requests, durability values may differ.
+2. **Internal components are NOT included in synergy preview calculations**: The synergy preview shows the host component's effective stats, which may have been boosted by recent repair ticks.
+3. **Indirect impact**: Higher durability values from repair can affect component scores in synergy calculations, but the internal component itself is not a synergy participant.
+
+### Timing Considerations
+
+| Scenario | Effect |
+|----------|--------|
+| Entity with 5+ repair spheres | +5 durability every 5 seconds — preview values increase over time |
+| Entity with 0 repair spheres | No repair effect — preview values remain stable |
+| Entity under heavy damage | Repair may lag behind damage — preview values may decrease |
+| Entity with durability > 100 | No practical benefit from further repairs — preview values capped |
+
+### Example
+
+For a `dash` action preview on an entity with `durabilityRepairSphere`:
+
+```
+Request at T=0s:    Physical.durability = 80 → synergy preview shows base values
+Request at T=5s:    Physical.durability = 85 → synergy preview shows +5 durability
+Request at T=10s:   Physical.durability = 90 → synergy preview shows +10 durability
+```
+
+**Note**: The `speed` property for `deltaSpatial` consequences is **not** affected by durability repairs — only actions that depend on `Physical.durability` thresholds (e.g., `dash` requires `Physical.durability > 30`) may show capability changes.
+
 ## deltaSpatial Consequence Handling
 
 The `deltaSpatial` consequence uses a `speed` property instead of `value`:

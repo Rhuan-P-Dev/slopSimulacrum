@@ -41,7 +41,7 @@ graph TD
     %% Relationships
     SVR --> LLMC
     SVR --> WSC
-    
+
     WSC --> RC
     WSC --> SEC
     WSC --> CC
@@ -70,9 +70,14 @@ graph TD
     %% WorldGraphBuilder consumes room data from RoomsController
     RC -->|getAll()| WGB[WorldGraphBuilder]
     WGB --> WSC
-    
+
     %% Stat change notification
     CC -.->|stat change| CCC
+
+    %% Internal Components
+    ICE[InternalComponentController]
+    SEC -->|auto-installs| ICE
+    ICE -->|repairs| CC
 ```
 
 ---
@@ -269,6 +274,7 @@ Returns complete preview data including action definition, resolved values, and 
 | Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
 | Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
 | Build world graph | [`WorldGraphBuilder`](subMDs/world_map.md) | Utility for constructing navigable room graph from `RoomsController.getAll()` |
+| Manage internal components | `InternalComponentController` | Volume-based internal component system with auto-install |
 
 ## 📁 Data Files
 
@@ -280,6 +286,7 @@ Returns complete preview data including action definition, resolved values, and 
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
+| `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
 
 ### 🗺️ Spatial Coordinate System
 
@@ -319,3 +326,8 @@ data/rooms.json → DataLoader.loadJsonSafe() → RoomsController → WorldState
 | 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 5 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |
 | 2026-05-13 | **Refactor:** Externalized hardcoded room definitions from `RoomsController.js` to `data/rooms.json`, added `_validateRoomDefinitions()` validation, and Logger integration | `src/controllers/core/RoomsController.js`, `data/rooms.json` |
 | 2026-05-13 | **Docs:** Added RC→WGB dependency edge to Mermaid diagram — `WorldGraphBuilder` consumes room data from `RoomsController.getAll()` to construct the navigable world graph | `wiki/map.md` |
+| 2026-05-15 | **Feature:** Internal Components system — volume-based internal component architecture with auto-installation, 5-second repair interval, and ComponentViewer UI integration | `data/internalComponents.json`, `data/components.json`, `src/controllers/core/InternalComponentController.js`, `src/controllers/core/stateEntityController.js`, `src/controllers/WorldStateController.js`, `src/routes/internalComponentRoutes.js`, `public/js/UIManager.js`, `public/js/Config.js`, `public/js/ComponentViewer.js`, `public/css/internal-components.css`, `wiki/subMDs/internal_components.md`, `wiki/bugfixWiki/medium/BUG-067-internal-components-system.md`, `wiki/bugfixWiki/medium/BUG-068-component-viewer-missing-internal-components.md` |
+| 2026-05-15 | **Fix:** InternalComponentController defensive copying — `getInternalComponents()` and `getInternalComponentsForEntity()` now return `structuredClone()` deep copies per wiki policy | `src/controllers/core/InternalComponentController.js` |
+| 2026-05-15 | **Fix:** WorldStateController — added missing Internal Component API delegation methods (`removeInternalComponent`, `hasInternalComponent`, `cleanupInternalComponents`, `startInternalComponentRepairSystem`, `stopInternalComponentRepairSystem`) | `src/controllers/WorldStateController.js` |
+| 2026-05-15 | **BUG-068 Fix:** Component Viewer UI for Internal Components — added 🔮 button, expandable internal component panel, registry loading, caching, and fallback API fetch | `public/js/ComponentViewer.js`, `wiki/bugfixWiki/medium/BUG-068-component-viewer-missing-internal-components.md` |
+| 2026-05-16 | **Docs:** Updated `wiki/subMDs/controller_patterns.md` — moved `_processRepairTick()` from Public API Methods to Private Methods, corrected `_validateRegistry()` description (throws TypeError only for null/undefined/not-object; logs warnings for missing fields). Added BUG-069 wiki entry for internal component routes server configuration bug | `wiki/subMDs/controller_patterns.md`, `wiki/bugfixWiki/high/BUG-069-server-missing-worldStateController-locals.md` |

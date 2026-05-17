@@ -41,6 +41,13 @@ Common codes used in `ActionController`:
 - `SYSTEM_RUNTIME_ERROR`: An unexpected exception occurred during processing.
 - `COMPONENT_BINDING_MISMATCH`: The selected component does not match the action's binding roles.
 
+## 4.2. Internal Component Error Codes
+Common codes used in `InternalComponentController` and internal component API routes:
+- `INTERNAL_COMPONENT_NOT_FOUND`: The requested internal component type is not registered in the component registry.
+- `INTERNAL_COMPONENT_VOLUME_EXCEEDED`: The host component's available volume is insufficient for the required internal component volume.
+- `INTERNAL_COMPONENT_TYPE_EXCLUDED`: The host component type is listed in the internal component's `excludedComponentTypes` array.
+- `INTERNAL_COMPONENT_NOT_FOUND_IN_HOST`: The specified internal component instance ID does not exist within the host component's registry.
+
 ## 4.1. Client-Side Error Codes
 Common codes used in `ClientErrorController` and `ActionManager`:
 - `SELECTION_FAILED`: Component lock conflict — the component is already locked to a different action.

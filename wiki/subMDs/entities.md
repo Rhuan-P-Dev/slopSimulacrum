@@ -14,6 +14,7 @@ An **Entity** represents a complete game object or character that exists in the 
 - **Location**: Entities exist in a specific room (`location` property).
 - **Spatial Position**: Entities have a `spatial` property (`x`, `y`) defining their position relative to the room center.
 - **Composition**: Entities are made up of one or more components stored in the `components` array.
+- **Internal Components**: Entities may have internal components stored in the `internalComponents` object, keyed by host component ID.
 
 **Example Entity:**
 ```json
@@ -29,7 +30,19 @@ An **Entity** represents a complete game object or character that exists in the 
       "identifier": "default",
       "id": "uuid-comp-1"
     }
-  ]
+  ],
+  "internalComponents": {
+    "uuid-comp-1": [
+      {
+        "id": "internal-uuid-1",
+        "type": "durabilityRepairSphere",
+        "hostComponentId": "uuid-comp-1",
+        "hostComponentType": "centralBall",
+        "hostComponentIdentifier": "default",
+        "installedAt": 1715789012345
+      }
+    ]
+  }
 }
 ```
 
@@ -71,21 +84,61 @@ A **Component** is a modular part or attribute that makes up an entity. Componen
 ```
 Entity: smallBallDroid
 ├── Component: centralBall (body center)
-│   ├── Component: droidHead (x:0, y:-20 - above center)
-│   ├── Component: droidArm (left) (x:20, y:10 - right side)
-│   ├── Component: droidArm (right) (x:20, y:10 - right side)
-│   └── Component: droidRollingBall (x:0, y:20 - below center)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 10)
+├── Component: droidHead (x:0, y:-20 - above center)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 8)
+├── Component: droidArm (left) (x:20, y:10 - right side)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 8)
+├── Component: droidArm (right) (x:20, y:10 - right side)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 8)
+├── Component: droidRollingBall (x:0, y:20 - below center)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 12)
+├── Component: droidHand (left_left)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 6)
+├── Component: droidHand (right_left)
+│   └── Internal: durabilityRepairSphere (volume: 2, host volume: 6)
+└── Component: humanoidDroidFinger (* — excluded from internal components)
 ```
+
+### 2.5. Internal Components
+
+Entities have an `internalComponents` property that stores internal components organized by host component ID:
+
+```javascript
+internalComponents = {
+    [entityId]: {
+        [hostComponentId]: [
+            {
+                id: "internal-component-uid",
+                type: "durabilityRepairSphere",
+                hostComponentId: "host-component-uid",
+                hostComponentType: "centralBall",
+                hostComponentIdentifier: "default",
+                installedAt: timestamp
+            }
+        ]
+    }
+}
+```
+
+**Volume-Based Installation**: Internal components install only when `hostComponent.Physical.volume >= internalComponent.volume` AND the host type is NOT in the internal component's `excludedComponentTypes` list.
+
+**Auto-Installation**: When a `smallBallDroid` entity spawns, the `InternalComponentController.autoInstallOnEntitySpawn()` method automatically installs `durabilityRepairSphere` internal components on all non-finger components based on volume capacity and exclusion rules. See [Internal Components](./internal_components.md) for full details.
 
 ## 3. Architecture Hierarchy
 The system operates through a chain of specialized controllers:
 
 `WorldStateController` $\rightarrow$ `stateEntityController` $\rightarrow$ `entityController` $\rightarrow$ `componentController` $\rightarrow$ `componentStatsController`
 
+Additionally, the `InternalComponentController` manages internal components and integrates with `stateEntityController` for auto-installation on entity spawn:
+
+`stateEntityController` $\rightarrow$ `InternalComponentController.autoInstallOnEntitySpawn()` $\rightarrow$ `componentController` (for stat updates via repair system)
+
 ### 2.1. stateEntityController (`src/controllers/stateEntityController.js`)
 - **Role**: Instance Manager.
 - **Responsibility**: Manages all active entity instances currently present in the game world.
 - **Functions**: Tracking entity positions (via `RoomsController`), handling entity lifecycles (including dynamic "Incarnation" upon client connection), and providing the current state of all active entities to the `WorldStateController`.
+- **Internal Component Integration**: On entity spawn, calls `InternalComponentController.autoInstallOnEntitySpawn(entityId, components, componentVolumeProvider)` to auto-install durability repair spheres on eligible components. On entity despawn, triggers `InternalComponentController.cleanupEntity(entityId)` to remove all internal components.
 
 ### 2.2. entityController (`src/controllers/entityController.js`)
 - **Role**: Blueprint Registry.
@@ -113,9 +166,24 @@ The system operates through a chain of specialized controllers:
 ## 3. Implementation Guidelines
 
 ### 3.1. Creating a New Entity (Data-Driven)
-1. **Define the Component**: Add the component definition to `data/components.json` with traits (Physical, Spatial, Mind, Movement).
+1. **Define the Component**: Add the component definition to `data/components.json` with traits (Physical, Spatial, Mind, Movement). Include `Physical.volume` property to enable internal component installation capacity.
 2. **Define the Blueprint**: Add the blueprint entry to `data/blueprints.json` specifying the component hierarchy.
 3. **Initialize Stats**: Stats are automatically initialized via `ComponentStatsController` when the entity spawns (uses deep trait-level merge).
+4. **Auto-Install Internal Components**: Internal components (e.g., `durabilityRepairSphere`) are automatically installed on eligible components during entity spawn via `InternalComponentController.autoInstallOnEntitySpawn()`. Components with `Physical.volume` less than the internal component's volume, or listed in the internal component's `excludedComponentTypes`, are skipped.
+
+### 3.6. Managing Internal Components
+Internal components can be managed via `WorldStateController` public API methods:
+
+| Method | Description |
+|--------|-------------|
+| `addInternalComponent(entityId, hostComponentId, internalComponentType)` | Manually add an internal component to a host |
+| `getInternalComponents(entityId, hostComponentId)` | Get internal components for a specific host |
+| `getInternalComponentsForEntity(entityId)` | Get all internal components for an entity |
+| `removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId)` | Remove a specific internal component |
+| `hasInternalComponent(entityId, hostComponentId, internalComponentType)` | Check if host has a specific internal component type |
+| `cleanupInternalComponents(entityId)` | Clean up all internal components for an entity |
+
+See [Internal Components](./internal_components.md) for full details on the internal components system.
 
 **Example — Adding a New Item (Knife):**
 ```json

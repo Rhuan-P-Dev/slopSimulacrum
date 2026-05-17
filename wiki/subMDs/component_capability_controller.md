@@ -227,7 +227,49 @@ Where E = entities, C = components per entity, A = actions.
 
 ---
 
-## 9. Testing
+## 9. Internal Component Lifecycle Impact
+
+### 9.1. Repair System Integration
+
+The `ComponentCapabilityController` is directly affected by the `InternalComponentController` repair system. Every 5 seconds, the repair system triggers stat changes that cascade through the capability cache:
+
+```
+InternalComponentController._processRepairTick()
+    → ComponentController.updateComponentStatDelta(hostComponentId, "Physical", "durability", +1)
+        → _notifyStatChangeListeners(componentId, "Physical", "durability", newValue, oldValue)
+            → ComponentCapabilityController.onStatChange(componentId, "Physical", "durability", newValue, oldValue)
+                → _getActionsForTraitStat("Physical", "durability")
+                    → reEvaluateActionForComponent(state, "dash", componentId)
+                    → reEvaluateActionForComponent(state, "selfHeal", componentId)
+                    → _notifySubscribers(actionName, entryOrRemovalMarker)
+```
+
+### 9.2. Impact on Action Capabilities
+
+Since `Physical.durability` is used in action requirements (e.g., `dash` requires `Physical.durability > 30`), repair ticks can cause:
+
+| Scenario | Effect |
+|----------|--------|
+| Entity with 5+ repair spheres | +5 durability every 5 seconds |
+| Entity with 0 repair spheres | No repair effect |
+| Entity under heavy damage | Repair may lag behind damage |
+| Entity with durability > 100 | No practical benefit from further repairs |
+
+**Newly Capable**: A component with durability just below a threshold (e.g., 31) may cross into capable territory after several repair ticks, triggering `_notifySubscribers()` with a new capability entry.
+
+**Score Changes**: Component scores may change slightly as `requirementValues` are re-evaluated with new durability values.
+
+### 9.3. Client-Side Effects
+
+The capability cache changes propagate to clients via:
+
+1. **World State Broadcast**: After each repair tick, `_syncToEntityStore()` syncs internal components to the entity store, and the world state is broadcast via `world-state-update` socket event
+2. **Capability Notifications**: Subscribers to capability changes receive updates when actions become newly capable or scores change
+3. **UI Updates**: The client's action list may show newly available actions after a repair tick
+
+---
+
+## 10. Testing
 
 Unit tests are located in `test/componentCapabilityController.test.js` covering:
 - Constructor & initialization

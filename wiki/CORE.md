@@ -23,6 +23,9 @@ This wiki is specifically designed for AI agents.
   - Bug 5: Synergy-aware range indicator
   - Bug 065: World map connection arrows wrong direction — fixed edge-to-edge rendering with relative coordinates
   - Bug 066: Map connections not clickable — added pointer-events, invisible hit-area lines, and click handlers
+  - Bug 067: Internal Components system — volume-based internal component architecture with durabilityRepairSphere auto-install
+  - Bug 068: Component Viewer UI for Internal Components — 🔮 button, expandable panel, registry integration
+  - Bug 069: Internal component routes use `app.locals.worldStateController` which is never set — all CRUD endpoints return 503
 - [Component Selection](subMDs/component_selection.md)
 - [Client Action Execution](subMDs/client_action_execution.md)
 - [Server-Client Architecture](subMDs/server_client_architecture.md)
@@ -33,6 +36,7 @@ This wiki is specifically designed for AI agents.
 - [Client-Side Architecture](subMDs/client_side_architecture.md)
 - [Entities](subMDs/entities.md)
 - [Error Handling](subMDs/error_handling.md)
+- [Internal Components](subMDs/internal_components.md)
 - [Traits](subMDs/traits.md)
 - [World State](subMDs/world_state.md)
 - [World Map](subMDs/world_map.md)
@@ -68,7 +72,10 @@ This wiki is specifically designed for AI agents.
 - [Client-Side Architecture](subMDs/client_side_architecture.md)
 
 ### 📢 Note for Future Agents
+
 **Language Requirement:** All source code in this project must be written in **JavaScript**.
+
+**New Feature — Internal Components:** The `InternalComponentController` implements a volume-based internal component system. Durability repair spheres are auto-installed on all non-finger components of smallBallDroid entities. See [Internal Components](subMDs/internal_components.md) for details.
 **Single Source of Truth:** Always refer to the wiki and its `subMDs` before implementing or modifying code.
 **It is a strict requirement to read and analyze the relevant sections of the wiki and sub-wikis BEFORE writing or modifying any code.**
 
@@ -119,4 +126,5 @@ The project employs a middleware architecture with two primary flows:
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
+| `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
 
