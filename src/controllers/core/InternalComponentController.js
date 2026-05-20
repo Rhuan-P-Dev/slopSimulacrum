@@ -6,14 +6,19 @@ import Logger from '../../utils/Logger.js';
  * InternalComponentController handles the storage, management, and lifecycle
  * of internal components attached to host components on entities.
  *
- * Internal components (e.g., durability repair spheres) are nested within
- * host components and provide passive effects like repair over time.
+ * Internal components (e.g., durability repair spheres, speed cores) are nested within
+ * host components and provide passive effects over time via a unified tick system.
  *
  * Per wiki/CORE.md: InternalComponentController is a State Controller (data store only),
  * following the State Ownership vs. Logic Coordination pattern — self-instantiating
  * without dependency injection.
  *
  * Storage format: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
+ *
+ * Tick System: A single 1-second interval iterates over all internal components.
+ * Each component type defines its own `tickInterval` and `tickEffects` in the registry.
+ * Effects are applied when `(Math.floor(Date.now() / 1000) % tickInterval) === 0`.
+ * Effects support: "add" (increment), "set" (assign), "multiply" (scale).
  */
 class InternalComponentController {
     /**
@@ -28,8 +33,8 @@ class InternalComponentController {
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
         this.internalComponents = {};
 
-        // Repair timer management: { [intervalId] } — single global interval
-        this._repairInterval = null;
+        // Unified tick timer management — single 1-second interval drives all effects
+        this._unifiedTickInterval = null;
 
         Logger.info(`[InternalComponentController] Initialized with ${Object.keys(this.registry).length} internal component types`);
     }
@@ -45,88 +50,148 @@ class InternalComponentController {
         }
 
         for (const [type, definition] of Object.entries(registry)) {
+            // Validate volume
             if (!definition.volume || typeof definition.volume !== 'number') {
                 Logger.warn(`[InternalComponentController] Internal component "${type}" missing valid volume property`);
             }
-            if (!definition.repairInterval || typeof definition.repairInterval !== 'number') {
-                Logger.warn(`[InternalComponentController] Internal component "${type}" missing valid repairInterval property`);
+
+            // Validate tickInterval
+            if (definition.tickInterval && typeof definition.tickInterval !== 'number') {
+                Logger.warn(`[InternalComponentController] Internal component "${type}" has invalid tickInterval`);
             }
-            if (!definition.repairAmount || typeof definition.repairAmount !== 'number') {
-                Logger.warn(`[InternalComponentController] Internal component "${type}" missing valid repairAmount property`);
+
+            // Validate tickEffects
+            if (definition.tickEffects !== undefined) {
+                if (!Array.isArray(definition.tickEffects)) {
+                    Logger.warn(`[InternalComponentController] Internal component "${type}" tickEffects must be an array`);
+                } else {
+                    for (const effect of definition.tickEffects) {
+                        if (!effect.targetTrait) {
+                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing targetTrait`);
+                        }
+                        if (!effect.targetStat) {
+                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing targetStat`);
+                        }
+                        if (!effect.effect) {
+                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing effect type`);
+                        } else if (!['add', 'set', 'multiply'].includes(effect.effect)) {
+                            Logger.warn(`[InternalComponentController] Internal component "${type}" has invalid effect type: ${effect.effect}`);
+                        }
+                        if (effect.amount === undefined || effect.amount === null) {
+                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing amount`);
+                        }
+                    }
+                }
+            }
+
+            // Validate targetBlueprintTypes (optional — if present, must be an array)
+            if (definition.targetBlueprintTypes !== undefined) {
+                if (!Array.isArray(definition.targetBlueprintTypes)) {
+                    Logger.warn(`[InternalComponentController] Internal component "${type}" targetBlueprintTypes must be an array`);
+                }
             }
         }
     }
 
     /**
-     * Auto-installs durabilityRepairSpheres on eligible components of a newly spawned entity.
-     * Skips components in excludedComponentTypes and components with insufficient volume.
+     * Auto-installs eligible internal components on a newly spawned entity.
+     * Processes all registry entries with autoInstallOnSpawn: true, filtering by:
+     * - excludedComponentTypes (skip certain host component types)
+     * - targetBlueprintTypes (only install on matching entity blueprints)
+     * - volume capacity (skip components with insufficient volume)
      *
      * @param {string} entityId - The entity ID.
-     * @param {Array} components - Array of component objects with type and id.
+     * @param {Array} components - Array of component objects with type, id, and optionally identifier.
+     * @param {string|null} [entityType] - The blueprint type of the entity (e.g., 'smallBallDroid').
      * @param {Object} [componentVolumeProvider] - Function to get component volume: (componentType) => number
-     * @returns {Array} Array of installed internal component instances.
+     * @returns {Object} Map of { [internalComponentType]: [installedInstances] }
      */
-    autoInstallOnEntitySpawn(entityId, components, componentVolumeProvider = null) {
-        if (!this.registry['durabilityRepairSphere']) {
-            Logger.warn('[InternalComponentController] durabilityRepairSphere not found in registry — skipping auto-install');
-            return [];
-        }
-
-        const sphereDef = this.registry['durabilityRepairSphere'];
-        const excludedTypes = sphereDef.excludedComponentTypes || [];
-        const sphereVolume = sphereDef.volume;
-        const installed = [];
-
+    autoInstallOnEntitySpawn(entityId, components, entityType = null, componentVolumeProvider = null) {
         // Initialize entity entry if not exists
         if (!this.internalComponents[entityId]) {
             this.internalComponents[entityId] = {};
         }
 
-        for (const component of components) {
-            // Skip excluded component types (e.g., fingers)
-            if (excludedTypes.includes(component.type)) {
-                Logger.info(`[InternalComponentController] Skipping ${component.type} (${component.identifier}) — excluded from auto-install`);
-                continue;
+        const allInstalled = {};
+
+        // Process each registered internal component type
+        for (const [compType, compDef] of Object.entries(this.registry)) {
+            if (!compDef.autoInstallOnSpawn) continue;
+
+            // Filter by targetBlueprintTypes
+            if (compDef.targetBlueprintTypes && Array.isArray(compDef.targetBlueprintTypes)) {
+                if (!compDef.targetBlueprintTypes.includes(entityType)) {
+                    Logger.info(`[InternalComponentController] Skipping ${compType} — entity type "${entityType}" not in targetBlueprintTypes`);
+                    continue;
+                }
             }
 
-            // Check volume capacity
-            let hostVolume = 0;
-            if (componentVolumeProvider) {
-                hostVolume = componentVolumeProvider(component.type);
-            } else {
-                // Fallback: use registry volume defaults
-                hostVolume = 10; // Default assumption for non-registered components
+            const excludedTypes = compDef.excludedComponentTypes || [];
+            const volume = compDef.volume;
+            const installed = [];
+
+            if (!this.internalComponents[entityId]) {
+                this.internalComponents[entityId] = {};
             }
 
-            if (hostVolume < sphereVolume) {
-                Logger.info(`[InternalComponentController] Skipping ${component.type} — volume ${hostVolume} < ${sphereVolume}`);
-                continue;
+            for (const component of components) {
+                // Skip excluded component types (e.g., fingers)
+                if (excludedTypes.includes(component.type)) {
+                    Logger.info(`[InternalComponentController] Skipping ${component.type} — excluded from ${compType} auto-install`);
+                    continue;
+                }
+
+                // Check volume capacity
+                let hostVolume = 0;
+                if (componentVolumeProvider) {
+                    hostVolume = componentVolumeProvider(component.type);
+                } else {
+                    // Fallback: use default assumption
+                    hostVolume = 10;
+                }
+
+                if (hostVolume < volume) {
+                    Logger.info(`[InternalComponentController] Skipping ${component.type} — volume ${hostVolume} < ${volume} for ${compType}`);
+                    continue;
+                }
+
+                // Initialize host component array if not exists
+                if (!this.internalComponents[entityId][component.id]) {
+                    this.internalComponents[entityId][component.id] = [];
+                }
+
+                // Skip if already has an internal component of this type on this host
+                const existing = this.internalComponents[entityId][component.id];
+                if (existing.some(ic => ic.type === compType)) {
+                    Logger.info(`[InternalComponentController] ${component.type} already has ${compType} — skipping`);
+                    continue;
+                }
+
+                // Create internal component instance
+                const instanceId = generateUID();
+                const instance = {
+                    id: instanceId,
+                    type: compType,
+                    hostComponentId: component.id,
+                    hostComponentType: component.type,
+                    hostComponentIdentifier: component.identifier,
+                    installedAt: Date.now()
+                };
+
+                this.internalComponents[entityId][component.id].push(instance);
+                installed.push(instance);
+
+                Logger.info(`[InternalComponentController] Auto-installed ${compType} in ${component.type} (${component.identifier}) of entity ${entityId}`);
             }
 
-            // Check if already has an internal component of this type
-            if (!this.internalComponents[entityId][component.id]) {
-                this.internalComponents[entityId][component.id] = [];
+            if (installed.length > 0) {
+                allInstalled[compType] = installed;
             }
-
-            // Create internal component instance
-            const instanceId = generateUID();
-            const instance = {
-                id: instanceId,
-                type: 'durabilityRepairSphere',
-                hostComponentId: component.id,
-                hostComponentType: component.type,
-                hostComponentIdentifier: component.identifier,
-                installedAt: Date.now()
-            };
-
-            this.internalComponents[entityId][component.id].push(instance);
-            installed.push(instance);
-
-            Logger.info(`[InternalComponentController] Auto-installed durabilityRepairSphere in ${component.type} (${component.identifier}) of entity ${entityId}`);
         }
 
-        Logger.info(`[InternalComponentController] Installed ${installed.length} internal components on entity ${entityId}`);
-        return installed;
+        const totalInstalled = Object.values(allInstalled).reduce((sum, arr) => sum + arr.length, 0);
+        Logger.info(`[InternalComponentController] Installed ${totalInstalled} internal components on entity ${entityId}`);
+        return allInstalled;
     }
 
     /**
@@ -264,86 +329,130 @@ class InternalComponentController {
     }
 
     // =========================================================================
-    // REPAIR SYSTEM
+    // UNIFIED TICK SYSTEM
     // =========================================================================
 
     /**
-     * Starts the global repair tick system (5-second interval).
-     * Each tick processes all durabilityRepairSpheres and heals their host components.
+     * Starts the unified tick system.
+     * A single 1-second interval processes all internal component effects
+     * based on their individual tickInterval from the registry.
+     *
+     * @returns {void}
      */
-    startRepairSystem() {
-        if (this._repairInterval) {
-            Logger.warn('[InternalComponentController] Repair system already running');
+    startTickSystem() {
+        if (this._unifiedTickInterval) {
+            Logger.warn('[InternalComponentController] Unified tick system already running');
             return;
         }
 
-        this._repairInterval = setInterval(() => {
-            this._processRepairTick();
-        }, 5000);
+        this._unifiedTickInterval = setInterval(() => {
+            this._processUnifiedTick();
+        }, 1000);
 
-        Logger.info('[InternalComponentController] Repair system started (5s interval)');
+        Logger.info('[InternalComponentController] Unified tick system started (1s interval)');
     }
 
     /**
-     * Stops the repair system and clears the interval.
+     * Stops the unified tick system and clears the interval.
+     *
+     * @returns {void}
      */
-    stopRepairSystem() {
-        if (this._repairInterval) {
-            clearInterval(this._repairInterval);
-            this._repairInterval = null;
-            Logger.info('[InternalComponentController] Repair system stopped');
+    stopTickSystem() {
+        if (this._unifiedTickInterval) {
+            clearInterval(this._unifiedTickInterval);
+            this._unifiedTickInterval = null;
+            Logger.info('[InternalComponentController] Unified tick system stopped');
         }
     }
 
     /**
-     * Called every 5 seconds: processes all repair spheres and heals host components.
-     * Uses the centralized Logger for structured logging.
+     * Called every second: processes all internal component effects
+     * based on their tickInterval from the registry definition.
+     * Only applies effects when (currentSecond % tickInterval) === 0.
      *
      * @private
      */
-    _processRepairTick() {
-        let totalRepairs = 0;
+    _processUnifiedTick() {
+        const currentSecond = Math.floor(Date.now() / 1000);
+        let totalEffects = 0;
 
         for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {
             for (const [hostComponentId, internalComponents] of Object.entries(hostComponents)) {
                 for (const internalComp of internalComponents) {
-                    if (internalComp.type !== 'durabilityRepairSphere') continue;
+                    const compDef = this.registry[internalComp.type];
+                    if (!compDef || !compDef.tickEffects || !Array.isArray(compDef.tickEffects)) continue;
 
-                    const sphereDef = this.registry['durabilityRepairSphere'];
-                    if (!sphereDef) continue;
+                    // Check if this tick interval has arrived
+                    if (currentSecond % compDef.tickInterval !== 0) continue;
 
-                    const repairAmount = sphereDef.repairAmount;
-
-                    // Attempt to repair the host component
-                    if (this.worldStateController) {
+                    // Apply each tick effect defined for this component type
+                    for (const effect of compDef.tickEffects) {
                         try {
-                            const stats = this.worldStateController.getComponentStats(hostComponentId);
-                            if (stats && stats.Physical && typeof stats.Physical.durability === 'number') {
-                                const newDurability = stats.Physical.durability + repairAmount;
-                                this.worldStateController.componentController.updateComponentStatDelta(
-                                    hostComponentId,
-                                    'Physical',
-                                    'durability',
-                                    repairAmount
-                                );
-                                totalRepairs++;
-                                Logger.info(
-                                    `[InternalComponentController] Repair tick: ${internalComp.type} healed ${internalComp.hostComponentType} (${hostComponentId}) +${repairAmount} durability → ${newDurability}`
-                                );
-                            }
+                            this._applyTickEffect(internalComp, compDef, effect, hostComponentId);
+                            totalEffects++;
                         } catch (error) {
-                            Logger.error(`[InternalComponentController] Repair tick failed for ${hostComponentId}: ${error.message}`);
+                            Logger.error(`[InternalComponentController] Tick effect failed for ${hostComponentId} (${internalComp.type}): ${error.message}`);
                         }
                     }
                 }
             }
         }
 
-        if (totalRepairs > 0) {
+        if (totalEffects > 0) {
             // Sync internal components back to entity store so client receives them in broadcast
             this._syncToEntityStore();
-            Logger.info(`[InternalComponentController] Repair tick complete: ${totalRepairs} repairs applied`);
+            Logger.info(`[InternalComponentController] Unified tick complete: ${totalEffects} effects applied`);
         }
+    }
+
+    /**
+     * Applies a single tick effect to a host component.
+     * Supports "add", "set", and "multiply" effect types.
+     *
+     * @param {Object} internalComp - The internal component instance.
+     * @param {Object} compDef - The component type definition from registry.
+     * @param {Object} effect - The effect definition (targetTrait, targetStat, effect, amount).
+     * @param {string} hostComponentId - The host component instance ID.
+     * @private
+     */
+    _applyTickEffect(internalComp, compDef, effect, hostComponentId) {
+        if (!this.worldStateController) return;
+
+        const stats = this.worldStateController.getComponentStats(hostComponentId);
+        if (!stats || !stats[effect.targetTrait] || typeof stats[effect.targetTrait][effect.targetStat] !== 'number') {
+            return; // Stat doesn't exist or isn't a number — skip
+        }
+
+        const oldValue = stats[effect.targetTrait][effect.targetStat];
+        let delta = 0;
+
+        switch (effect.effect) {
+            case 'add':
+                delta = effect.amount;
+                break;
+            case 'set':
+                delta = effect.amount - oldValue;
+                break;
+            case 'multiply':
+                delta = oldValue * (effect.amount - 1);
+                break;
+            default:
+                Logger.warn(`[InternalComponentController] Unknown tick effect type: ${effect.effect}`);
+                return;
+        }
+
+        const newValue = oldValue + delta;
+
+        this.worldStateController.componentController.updateComponentStatDelta(
+            hostComponentId,
+            effect.targetTrait,
+            effect.targetStat,
+            delta
+        );
+
+        Logger.info(
+            `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${newValue} (${delta >= 0 ? '+' : ''}${delta})`
+        );
     }
 
     /**
@@ -364,7 +473,7 @@ class InternalComponentController {
     }
 
     /**
-     * Sets the worldStateController reference for repair system access.
+     * Sets the worldStateController reference for tick system access.
      * Called by WorldStateController during initialization.
      *
      * @param {any} worldStateController - The WorldStateController instance.

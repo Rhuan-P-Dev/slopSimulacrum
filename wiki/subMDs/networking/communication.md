@@ -2,53 +2,25 @@
 
 ## 1. LLM Integration
 
-### Overview
+### Why LLM Responses Must Be Validated
 
-An LLM controller communicates with an OpenAI-compatible Chat Completion API via HTTP POST. It is the single source of truth for LLM interaction on the server side.
+LLM responses are untrusted external data. The Chat Completion API is a third-party service that can return malformed, incomplete, or adversarial payloads. **Every response must be validated before consumption** to prevent cascading failures when the LLM returns unexpected structures. Validation is the single defense against corrupted data entering the game state.
 
-### Communication
+### Why Centralized LLM Interaction
 
-- **Endpoint**: Configurable OpenAI-compatible Chat Completion API URL
-- **Request shape**: Model name, messages array with role/content pairs, temperature, max tokens, streaming flag
-- **Response shape**: Choices array with role/content message, usage statistics for prompts/completion/total
+Centralizing LLM interaction in one controller prevents scattered HTTP logic, inconsistent timeout handling, and duplicated validation. Without this, every caller would reimplement their own error handling, leading to divergent behavior and silent failures.
 
-### Best Practices
+## 2. Error Handling Philosophy
 
-- Implement timeout to prevent hanging
-- Validate response choices exist before accessing message content
-- Use centralized logger for all logging
+Error handling is **layered**: validation errors are caught early at the API boundary, network errors are classified by recoverability, and application-level errors propagate with structured codes. This layering exists because:
 
----
+- **Different error types require different responses**: A validation error should reject the input; a network error should retry; an application error should log and propagate
+- **Structured codes enable client awareness**: The client can distinguish "retry this" from "this will never work" without parsing error messages
 
-## Error Handling Standard
+## 3. Error Classification
 
-### Overview
-
-All errors are structured objects with `code`, `message`, `details`, and `level` fields. The `level` enum is `INFO`, `WARN`, `ERROR`, or `CRITICAL`.
-
-### Server Error Codes
-
-| Code | Description |
-|------|-------------|
-| `ENTITY_NOT_FOUND` | Entity ID not in world state |
-| `ACTION_NOT_FOUND` | Action name not registered |
-| `MISSING_TRAIT_STAT` | Entity lacks required trait/stat |
-| `INSUFFICIENT_DURABILITY` | Component below durability threshold |
-| `UNKNOWN_REQUIREMENT_FAILURE` | Requirement check failed |
-| `CONSEQUENCE_EXECUTION_FAILED` | Consequence handler error |
-| `COMPONENT_BINDING_MISMATCH` | Selected component doesn't match binding roles |
-| `SYSTEM_RUNTIME_ERROR` | Unexpected exception |
-
-### Internal Component Error Codes
-
-| Code | Description |
-|------|-------------|
-| `INTERNAL_COMPONENT_NOT_FOUND` | Type not in registry |
-| `INTERNAL_COMPONENT_VOLUME_EXCEEDED` | Host volume insufficient |
-| `INTERNAL_COMPONENT_TYPE_EXCLUDED` | Host type in excluded list |
-
-### Client-Side Error Handling
-
-A client error controller maps error codes to human-readable templates. Errors are displayed as notification pop-ups on the screen.
-
-**Client error codes**: `SELECTION_FAILED`, `ACTION_FAILED`, `MOVEMENT_FAILED`, `PUNCH_FAILED`, `TARGET_OUT_OF_RANGE`, `NO_TARGET_FOUND`, `SOCKET_ERROR`, `CONNECTION_ERROR`, `INITIALIZATION_ERROR`, `ACTION_LIST_UPDATE_FAILED`
+| Layer | Error Type | Action |
+|-------|-----------|--------|
+| Validation | Malformed structure | Reject input, request correction |
+| Network | Connection failure | Classify as recoverable or terminal |
+| Application | Business rule violation | Log, propagate to caller |

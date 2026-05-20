@@ -1,70 +1,58 @@
 # Synergy System
 
-## 1. Overview
+## 1. Design Philosophy
 
-Computes combined effect multipliers when multiple components of the same type collaborate. The synergy configuration defines scaling curves, caps, and group behavior for each action type.
+The synergy system exists to reward **component diversity** and **tactical clustering**. When multiple components of the same type are positioned to work together, they should produce a compound effect greater than the sum of their parts — but not so great that it breaks game balance.
 
-## 2. Multiplier Curves
+Synergies are scoped per **action type**. Each type defines its own curve, cap, and group behavior, allowing distinct design intent for movement, damage, defense, and other categories.
 
-Three scaling curves are available:
+## 2. Scaling Curve Intent
 
-| Curve | Behavior |
-|-------|----------|
-| `linear` | Multiplier grows proportionally with component count |
-| `diminishingReturns` | Multiplier grows but at a decreasing rate |
-| `increasingReturns` | Multiplier grows at an accelerating rate |
+Three curve shapes shape how synergy multipliers grow with group size:
 
-## 3. Synergy Application
+- **Linear** — Predictable, player-friendly scaling. Each additional component adds a fixed bonus.
+- **Diminishing Returns** — Prevents runaway power from large clusters while still rewarding small groups. Encourages spread-out positioning.
+- **Increasing Returns** — Creates high-risk, high-reward "stack or go home" scenarios. Rewards committing to a single focused group.
 
-The computed multiplier is applied to all numeric consequence properties, including movement distance, damage values, stat delta changes, and any future numeric parameters. The dispatcher iterates over resolved consequence parameters and applies the multiplier to each numeric value.
+Non-linear curves were chosen to prevent simple arithmetic scaling from dominating strategy. The curve shape becomes a **design lever** that developers can adjust to shape player behavior without touching code.
+
+### Curve Configuration
+
+Each curve is defined in `data/synergy.json` with these parameters:
+
+| Parameter | Purpose |
+|-----------|---------|
+| `baseMultiplier` | Starting multiplier at 1 component |
+| `perComponentBonus` | Additional multiplier per component added |
+| `cap` | Maximum multiplier regardless of group size |
+| `curve` | Shape function name |
+
+## 3. Synergy Group Types
+
+Synergy groups unify `componentType` and `groupType` into a single classification system. This unification exists because:
+
+- **Simplified configuration**: One classification instead of two overlapping concepts
+- **Clearer intent**: The group name directly expresses the synergy category
+- **Easier maintenance**: Changes to group behavior require only one field update
 
 ## 4. Evaluation Paths
 
-Two evaluation paths exist depending on context:
+Components contribute to synergies through two paths:
 
-| Path | When | Behavior |
-|------|------|----------|
-| Explicit component list | Client provides component IDs | Filters provided list for synergy groups |
-| Auto-detection | No components specified | Auto-detects from the source component |
+- **Provided components**: Components that actively participate in a synergy group
+- **Contribution groups**: Components that support synergy scoring without being directly involved
 
-Both paths use same-component-type grouping with auto-detected component type.
+This dual-path design exists because some components provide passive synergy benefits while others require active participation.
 
-## 5. Synergy Integration with Locks
+## 5. Synergy Preview System
 
-Locked components are excluded from synergy pools. Components locked to the current action are allowed to participate.
+### Why Preview Exists
 
-## 6. Internal Component Synergy
+The preview system allows players to understand the impact of component selection before committing to an action. This serves two purposes:
 
-Internal components do not directly participate in synergy calculations. Only host component stats are used. The repair system indirectly affects synergy by modifying component durability over time.
+- **Player feedback**: Players learn the game's mechanics through informed experimentation
+- **Strategic planning**: Players can evaluate trade-offs between different component groupings
 
----
+### System Flow
 
-## Enhanced Synergy Preview System
-
-### 1. Overview
-
-Real-time synergy preview in the UI. Two display modes depending on the number of selected components:
-
-| Mode | Components | Display |
-|------|-----------|---------|
-| **Action Data** | 1 | Action definition, resolved values, requirements |
-| **Synergy** | 2+ | Multiplier, modified values, contributing components |
-
-### 2. API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/synergy/preview-data` | POST | Full preview with action data, resolved values, and synergy |
-| `/synergy/preview` | POST | Legacy: synergy result only |
-
-### 3. Frontend Display
-
-A UI manager method routes to either the action data HTML builder (1 component) or the synergy preview HTML builder (2+ components).
-
-**CSS classes**: Preview panel (yellow border, persistent), result display (green border, auto-hide).
-
-**Synergy-aware range**: Movement range indicators apply the synergy multiplier for accurate distance display.
-
-### 4. Internal Component Impact
-
-The preview reflects current stats at request time. The repair system may change durability between requests, affecting dash capability display. Internal component traits are not merged into host stats.
+The preview system queries `SynergyComponentGatherer` to collect components, `SynergyCalculator` to compute multipliers, and presents results through the frontend without executing any action consequences. This decoupling ensures preview is read-only and side-effect free.

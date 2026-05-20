@@ -1,12 +1,37 @@
 {
   "durabilityRepairSphere": {
     "volume": 2,
-    "repairInterval": 5,
-    "repairAmount": 1,
+    "tickInterval": 5,
+    "tickEffects": [
+      {
+        "targetTrait": "Physical",
+        "targetStat": "durability",
+        "effect": "add",
+        "amount": 1
+      }
+    ],
     "traits": {
       "Physical": { "mass": 5, "durability": 50 }
     },
     "excludedComponentTypes": ["humanoidDroidFinger"],
     "autoInstallOnSpawn": true
+  },
+  "transcendentSpeedCore": {
+    "volume": 1,
+    "tickInterval": 10,
+    "tickEffects": [
+      {
+        "targetTrait": "Movement",
+        "targetStat": "move",
+        "effect": "add",
+        "amount": 1
+      }
+    ],
+    "traits": {
+      "Physical": { "mass": 3, "durability": 30 }
+    },
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": true,
+    "targetBlueprintTypes": ["smallBallDroid"]
   }
 }

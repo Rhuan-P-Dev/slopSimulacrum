@@ -1,46 +1,35 @@
-# 🎨 CSS Architecture
+# CSS Architecture
 
 ## 1. Overview
 
-Modular CSS split into single-responsibility modules. Each file is self-contained with no cross-file dependencies.
+CSS is split into single-responsibility modules, each responsible for one visual domain. No file depends on another — all cross-file values are accessed via CSS custom properties in the root.
 
-## 2. File Organization
+## 2. Why CSS Was Split
+
+The monolithic stylesheet was split into modules for three reasons:
+
+- **Single Responsibility**: Each file owns one visual concern. A change to synergy styling never affects navigation styling.
+- **Collision avoidance**: Multiple agents editing the same file concurrently would cause merge conflicts. Modular files isolate edits.
+- **Onboarding clarity**: New developers can open a single file to understand one visual domain without scrolling through unrelated styles.
+
+## 3. Module Responsibilities
 
 | Module | Responsibility |
 |--------|---------------|
-| `styles.css` | Global CSS custom properties (theme variables) |
-| `base.css` | Reset, body typography, heading styles |
-| `layout.css` | Top-level grid/flex layout |
-| `map.css` | SVG map visualization |
-| `navigation.css` | Navigation buttons, overlays, world map, connection arrows |
-| `actions.css` | Action list, capability status, selection states |
-| `synergy.css` | Synergy preview, multipliers, modified values |
-| `components.css` | Component selection, durability bars, tactical HUD |
+| `styles.css` | Global theme variables (colors, typography, spacing) |
+| `base.css` | Reset, typography, heading normalization |
+| `layout.css` | Top-level page grid and flex containers |
+| `map.css` | SVG map visualization styles |
+| `navigation.css` | Navigation controls and overlays |
+| `actions.css` | Action list and selection states |
+| `synergy.css` | Synergy preview and result display |
+| `components.css` | Component cards, durability bars, HUD |
 | `utilities.css` | Micro-utilities (text colors, alignment) |
-| `feedback.css` | Error notifications, release buttons, animations |
-| `internal-components.css` | SVG internal component rendering, component viewer panel |
+| `feedback.css` | Error notifications, animations |
+| `internal-components.css` | Internal component rendering and viewer |
 
-## 3. Loading
-
-Individual link tags in the main HTML file. No build tools.
-
-## 4. Key CSS Classes
-
-| Class | Purpose |
-|-------|---------|
-| `.nav-selected` | Selected component highlight |
-| `.nav-locked` | Cross-action grayed component |
-| `.action-active` | Active action header |
-| `.synergy-preview-display` | Live synergy preview panel (yellow, persistent) |
-| `.synergy-result-display` | Post-execution result (green, auto-hide) |
-| `.world-map-overlay` | World map overlay container |
-| `.world-map-connection-line` | Clickable connection line |
-| `.room-connection-line` | In-map connection arrow |
-| `.internal-component` | SVG internal component circle |
-| `.internal-component-pulse` | Pulsing animation for internal components |
-
-## 5. Styling Philosophy
+## 4. Styling Philosophy
 
 - **Theme**: Cyber-terminal aesthetic with dark background and neon accents
-- **Font**: Monospaced throughout
-- **Variables**: All colors via CSS custom properties in the root selector
+- **Font**: Monospaced throughout for terminal authenticity
+- **Variables**: All colors via CSS custom properties in the root selector, enabling theme switching without modifying individual rules

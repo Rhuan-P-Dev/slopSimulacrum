@@ -1,18 +1,26 @@
-# 🛠️ Controller Patterns and Dependency Management
+# Controller Patterns and Dependency Management
 
 ## 1. Overview
 
-All controllers must use **Dependency Injection** rather than internal instantiation of other controllers, to maintain a single source of truth throughout the system.
+All controllers use **Dependency Injection** rather than internal instantiation of other controllers. This maintains a single source of truth and prevents state desynchronization.
 
-**Exception**: **State Controllers** that hold raw data and have no cross-controller dependencies self-instantiate.
+**Exception**: **State Controllers** that hold raw data and have no cross-controller dependencies self-instantiate. See wiki/CORE.md.
 
-## 2. Dependency Injection Standard
+## 2. Why Dependency Injection Is Mandatory
 
-Dependencies are accepted via constructor parameters. No controller creates another controller internally with direct instantiation.
+DI is enforced because:
+
+- **Single source of truth**: When the root controller wires all dependencies, every controller references the same state objects. Internal instantiation creates duplicate state — the #1 cause of desynchronization bugs.
+- **Testability**: Controllers can be tested in isolation by injecting mock dependencies.
+- **Explicit contracts**: Dependencies listed in the constructor define the controller's interface — no hidden dependencies.
 
 ## 3. Root Injector Pattern
 
-A single root controller is responsible for all controller instantiation. It wires everything in a bottom-up order, from leaf state controllers up to coordinating logic controllers.
+A single root controller (`WorldStateController`) is responsible for all controller instantiation. It wires everything in a bottom-up order, from leaf state controllers up to coordinating logic controllers. This exists because:
+
+- **Lifecycle clarity**: One controller owns the creation and destruction of all others
+- **Dependency ordering**: Leaf controllers are ready before dependents are wired
+- **Debuggability**: The dependency graph is visible in one place
 
 ## 4. State Controllers vs. Logic Controllers
 
@@ -21,64 +29,36 @@ A single root controller is responsible for all controller instantiation. It wir
 | **State Controller** | Self-instantiates (no DI) | Data storage, raw data access |
 | **Logic Controller** | Uses DI | Computation, coordination, game logic |
 
-**Rule**: State Controllers store data and have zero cross-controller dependencies. Logic Controllers receive dependencies via injection.
-
-📖 Full RoomsController docs: [rooms_controller.md](./rooms_controller.md)
+**Why this distinction**: State Controllers own data — injecting state creates circular dependencies. Logic Controllers need access to state — injection provides it without coupling.
 
 ## 5. Communication Protocol
 
-Use **public methods only** — never access another controller's private or internal fields. Communication flows through the root controller down to dependency controllers.
+Use **public methods only** — never access another controller's private or internal fields. Communication flows through the root controller to maintain loose coupling and the Single Source of Truth principle.
 
-## 5.1. WorldStateController Public API
+### WorldStateController Public API
 
-The WorldStateController provides public API wrapper methods that the server uses instead of directly accessing sub-controllers. This maintains loose coupling and the Single Source of Truth principle.
+| Method | Purpose |
+|--------|---------|
+| `spawnEntity` | Creates an entity from a blueprint |
+| `despawnEntity` | Removes an entity and cleans up |
+| `moveEntity` | Moves entity to a different room |
+| `getRoomUidByLogicalId` | Resolves a logical name to its UUID |
+| `getWorldGraph` | Returns the world graph with resolved room names |
 
-**Available Public Methods:**
+## 6. Controller Roles
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `spawnEntity` | entity ID | Creates an entity from a blueprint |
-| `despawnEntity` | success boolean | Removes an entity and cleans up |
-| `moveEntity` | success boolean | Moves entity to a different room |
-| `getRoomUidByLogicalId` | room UUID | Resolves a logical name to its UUID |
-| `getWorldGraph` | graph object | Returns the world graph with resolved room names |
+### ActionController — Action Execution Coordinator
 
-## 6. ActionController Pattern
+Coordinates action execution, delegates capability cache queries to the capability controller, and synergy computation to the synergy controller.
 
-### 6.1. Role
+### ComponentCapabilityController — Capability Cache Manager
 
-The ActionController is an **Action Execution Coordinator**. It delegates capability cache queries to the capability controller and synergy computation to the synergy controller.
+Responsible for scanning, scoring, caching, and re-evaluating component capabilities. Subscribes to stat change events from the component controller for efficient incremental re-evaluation.
 
-### 6.2. Constructor Injection Pattern
+## 7. Defensive Copying
 
-All dependencies are passed via constructor parameters, including the world state controller, consequence handlers, action registry, capability controller, synergy controller, and selection controller.
+State Controllers that expose data via public methods must return **defensive deep copies** to prevent external mutation of internal state. This exists because JavaScript passes objects by reference — without copying, any consumer can corrupt the controller's data.
 
-### 6.3. Component Lock Tracking
+## 8. Utility Classes
 
-The action execution method tracks locked components and releases them after completion. Spatial actions track components differently from non-spatial actions based on how the source component is resolved.
-
-### 6.4. Component Binding Resolution Priority
-
-Components are resolved through a priority chain: explicit attacker component, explicit target component, auto-detection of spatial components, auto-detection of self-targeting components, and finally entity-wide fallback.
-
-## 7. ComponentCapabilityController Pattern
-
-### 7.1. Role
-
-The **Capability Cache Manager** — responsible for scanning, scoring, caching, and re-evaluating component capabilities.
-
-### 7.2. Stat Change Listener Integration
-
-The controller subscribes to stat change events from the component controller. A reverse index maps trait-stat combinations to dependent actions, enabling efficient incremental re-evaluation.
-
-## 8. State Controller Defensive Copying
-
-State Controllers that expose data via public methods must return **defensive deep copies** to prevent external mutation of internal state.
-
-## 9. Utility Classes
-
-Utility classes take raw data directly as constructor arguments and are instantiated on-demand. They do not use dependency injection. Results are returned as defensive deep copies.
-
-## 10. Client-Side Callback Patterns
-
-Connection click callbacks flow through the UI layer, then to the room connection renderer, and finally to the world map view. Invisible hit-area elements enable reliable click detection on thin visual connections.
+Utility classes take raw data directly as constructor arguments and are instantiated on-demand. They do not use dependency injection because they are stateless functions — there is no state to synchronize.

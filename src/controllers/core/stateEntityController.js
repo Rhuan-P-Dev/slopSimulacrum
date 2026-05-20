@@ -62,10 +62,10 @@ class stateEntityController {
             status: 'active'
         };
 
-        // Auto-install internal components (e.g., durabilityRepairSpheres)
+        // Auto-install internal components (e.g., durabilityRepairSpheres, transcendentSpeedCores)
         if (this.internalComponentController) {
             try {
-                this.internalComponentController.autoInstallOnEntitySpawn(entityId, entityData.components);
+                this.internalComponentController.autoInstallOnEntitySpawn(entityId, entityData.components, entityData.blueprint || null);
                 // Sync internal components from controller to entity so client receives them in broadcast
                 this.entities[entityId].internalComponents = this.internalComponentController.getInternalComponentsForEntity(entityId);
             } catch (error) {

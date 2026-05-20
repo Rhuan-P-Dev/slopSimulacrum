@@ -1,34 +1,30 @@
-# 🌐 World Map System
+# World Map System
 
 ## 1. Overview
 
-Two levels of spatial visualization:
-1. **In-room connection arrows** — directional arrows on the spatial map showing adjacent rooms
-2. **Full world map overlay** — toggleable overlay showing all rooms as nodes with pan/zoom
+Two levels of spatial visualization exist to serve different cognitive needs:
 
-## 2. Server Side
+- **In-room connection arrows**: Directional arrows on the spatial map showing adjacent rooms — supports navigation without leaving the current view
+- **Full world map overlay**: Toggleable overlay showing all rooms as nodes — supports strategic planning and long-distance navigation
 
-A world graph builder utility constructs a navigable graph from room data. An endpoint serves the world graph with resolved room names.
+## 2. Design Rationale
 
-## 3. Client Side
+### Why Spatial Visualization Is Decoupled
 
-### Room Connection Arrows (In-Map)
+The room graph data lives on the server, but rendering is delegated to the client. This separation exists because:
 
-SVG arrows with labels are drawn edge-to-edge between rooms. Connections are clickable via invisible hit-area elements.
+- **Server is the source of truth**: Room connections are authoritative game state; rendering is a presentation concern
+- **Multiple visualizations**: The same graph data can support different renderers (spatial map, world overlay, mini-map)
+- **Network efficiency**: The server sends the graph once; the client handles all pan/zoom/interaction locally
 
-### World Map Overlay
+### Why Room Graph Is Server-Side
 
-The world map view fetches the graph from the server, renders all rooms as labeled rectangles, highlights the current room, and supports pan/zoom. Clicking a room triggers a callback that moves the player's entity there.
+The world graph builder constructs the room connectivity graph from `data/rooms.json` on the server. This exists because:
 
-**Pan/Zoom**: Uses a threshold for pan movement, skipping panning on interactive elements.
+- **Consistency**: All clients receive the same graph, preventing visual desynchronization
+- **Validation**: Room connections can be validated server-side before being exposed to clients
+- **Single source**: The graph is derived from room data, not duplicated in a separate format
 
-## 4. CSS Classes
+## 3. CSS Architecture
 
-| Class | Purpose |
-|-------|---------|
-| `.room-connection-line` | Clickable connection arrow |
-| `.room-connection-arrow` | Arrowhead |
-| `.room-connection-label` | Label text |
-| `.world-map-overlay` | Overlay container |
-| `.world-map-room-node` | Room node |
-| `.world-map-connection-line` | World map connection |
+Room connection elements use CSS classes for styling. The class names follow a consistent pattern: `.room-connection-*` for in-map arrows and `.world-map-*` for the overlay.

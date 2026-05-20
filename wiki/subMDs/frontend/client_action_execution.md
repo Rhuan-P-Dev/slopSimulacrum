@@ -1,22 +1,34 @@
-# ⚡ Client-Side Action Execution
+# Client-Side Action Execution
 
 ## 1. Overview
 
-Action execution lifecycle: user selects an action, optionally selects a target, sends a request to the server for validation and execution, receives consequences, and refreshes the display via a broadcast update.
+Action execution flows from user input through the server to a broadcast refresh. The server is the authority — the client never mutates game state directly.
 
-## 2. Execution Types
+## 2. Why Action Execution Is Asynchronous
 
-| Type | Flow | Examples |
-|------|------|----------|
-| **Direct** | Click component → instant execution → refresh | Melee attacks |
-| **Spatial** | Select action → range indicator → click map → execute | Movement, dashes |
-| **Self-Target** | Click component → instant self-execution → refresh | Self-healing |
-| **Multi-Component** | Toggle multiple components → synergy preview → execute → refresh | Coordinated attacks |
+Actions are sent to the server for validation because:
 
-## 3. Component Selection
+- **Server authority**: The server holds the single source of truth for entity state, room connectivity, and action requirements
+- **Security**: Client-initiated actions cannot be trusted — the server must validate every action against current game state
+- **Consistency**: All clients receive the same update via broadcast, preventing visual desynchronization
 
-A selection controller manages the active action, a set of selected component IDs, and cross-action selection state. Selected components are highlighted in the active action's UI and grayed out in others to prevent reuse. Live synergy previews appear when two or more components are selected. Selections are cleaned up on action failure.
+## 3. Execution Types
 
-## 4. Error Handling
+| Type | Purpose |
+|------|---------|
+| **Direct** | Instant execution for actions with no target or spatial consideration |
+| **Spatial** | Targeted actions requiring a map click (movement, ranged attacks) |
+| **Self-Target** | Actions that affect only the executing entity |
+| **Multi-Component** | Actions requiring multiple selected components with synergy computation |
 
-All execution errors are routed through a centralized client error controller that displays notification pop-ups. Error types cover selection failures, action execution failures, movement failures, range violations, and socket connection errors.
+## 4. Component Selection
+
+A selection controller manages which components are locked to a given action. Components are highlighted in the active action and grayed out in others to prevent reuse. This selection UI exists because players need to see and control which components participate in each action.
+
+## 5. Error Handling
+
+All execution errors are routed through a centralized client error controller. This centralization exists because:
+
+- **Consistent UX**: Players receive errors in a uniform format
+- **Error classification**: Different error types (selection, execution, movement, range, socket) can be handled differently by the UI
+- **Debugging**: A single error pathway makes it easier to trace failures

@@ -26,41 +26,41 @@ registerRoutes(app, llmController, worldStateController, broadcastService);
 // 6. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
 worldStateController.setBroadcastService(broadcastService);
 
-// 7. Graceful shutdown for repair timer
-let isShuttingDown = false;
+    // 7. Graceful shutdown for unified tick system
+    let isShuttingDown = false;
 
-function gracefulShutdown(signal) {
-    // Prevent duplicate shutdown sequences
-    if (isShuttingDown) {
-        Logger.warn(`[Server] ${signal} received during shutdown — ignoring duplicate`);
-        return;
+    function gracefulShutdown(signal) {
+        // Prevent duplicate shutdown sequences
+        if (isShuttingDown) {
+            Logger.warn(`[Server] ${signal} received during shutdown — ignoring duplicate`);
+            return;
+        }
+        isShuttingDown = true;
+
+        Logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
+
+        // Stop unified internal component tick system
+        if (worldStateController?.internalComponentController) {
+            worldStateController.internalComponentController.stopTickSystem();
+        }
+
+        // Disconnect all Socket.IO clients
+        if (io) {
+            io.close();
+        }
+
+        // Close HTTP server
+        server.close(() => {
+            Logger.info('[Server] Server closed.');
+            process.exit(0);
+        });
+
+        // Force exit after 60 seconds if server.close() hangs
+        setTimeout(() => {
+            Logger.error('[Server] Forced shutdown after timeout.');
+            process.exit(1);
+        }, 60000);
     }
-    isShuttingDown = true;
 
-    Logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
-
-    // Stop repair timer
-    if (worldStateController?.internalComponentController) {
-        worldStateController.internalComponentController.stopRepairSystem();
-    }
-
-    // Disconnect all Socket.IO clients
-    if (io) {
-        io.close();
-    }
-
-    // Close HTTP server
-    server.close(() => {
-        Logger.info('[Server] Server closed.');
-        process.exit(0);
-    });
-
-    // Force exit after 60 seconds if server.close() hangs
-    setTimeout(() => {
-        Logger.error('[Server] Forced shutdown after timeout.');
-        process.exit(1);
-    }, 60000);
-}
-
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

@@ -59,20 +59,9 @@ All **state controllers** (controllers that store raw data, per [Controller Patt
 
 **Prohibited:** Direct use of `fs.readFileSync()` or `require()` for data loading in controllers.
 
-### 5.1. Mandatory Pattern
+### 5.1. Pattern Description
 
-```javascript
-import DataLoader from '../../utils/DataLoader.js';
-
-class StateController {
-    constructor() {
-        this.store = {};
-        const definitions = DataLoader.loadJsonSafe('data/some.json', {});
-        this._validateDefinitions(definitions);
-        // ... process definitions
-    }
-}
-```
+State controllers import `DataLoader`, call `loadJsonSafe(filePath, fallback)` with a fallback value, validate via `_validate*()`, log the count, and use controller-specific validation method names.
 
 ### 5.2. Rules
 
@@ -105,7 +94,41 @@ The architecture maps must be kept up-to-date whenever the system structure chan
 
 ---
 
-## 8. Summary Checklist for Agents
+## 8. Wiki Writing Standards ("Why" over "How")
+
+The wiki documents **why** design decisions were made, not **how** code works. The code itself explains the "how" through JSDoc comments, method names, and structure.
+
+### 8.1. Prohibited Wiki Content
+
+| Rule | Description |
+|------|-------------|
+| No code snippets | The code IS the implementation documentation. Never duplicate code logic in wiki |
+| No JSON schemas | Data file structures are self-evident from reading the JSON |
+| No method-by-method explanations | Method names and JSDoc explain themselves |
+| No step-by-step processing flow | Describe purpose, not iteration order |
+| No API endpoint tables | API contracts belong in code comments or OpenAPI specs |
+| No calculation formulas | The math is self-evident from code |
+
+### 8.2. Required Wiki Content
+
+The wiki must document:
+- Design decisions and their rationale
+- Why a pattern was chosen over alternatives
+- Why data structures exist (purpose, not shape)
+- Why systems are decoupled and how they interact at a conceptual level
+- Why certain constraints are enforced (e.g., no direct instantiation)
+
+### 8.3. Self-Check Before Writing Wiki
+
+Before adding wiki content, verify:
+- [ ] Does this explain WHY, or does it explain HOW? (Must be WHY)
+- [ ] Could a developer understand this from reading the code instead? (If yes, remove from wiki)
+- [ ] Is there a code snippet that should be removed? (Code IS the documentation)
+- [ ] Am I documenting intent, or am I documenting implementation?
+
+---
+
+## 9. Summary Checklist for Agents
 
 Before writing or modifying any code:
 

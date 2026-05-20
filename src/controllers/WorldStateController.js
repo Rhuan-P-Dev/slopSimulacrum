@@ -120,8 +120,8 @@ class WorldStateController {
         // Initialize world with a sample droid as requested
         this.initializeWorld();
 
-        // Start the internal component repair system after entities are spawned
-        internalComponentController.startRepairSystem();
+        // Start the unified internal component tick system after entities are spawned
+        internalComponentController.startTickSystem();
 
         // Perform initial capability scan after entities are spawned
         // Delegates to ComponentCapabilityController via ActionController wrapper
@@ -300,20 +300,21 @@ class WorldStateController {
     }
 
     /**
-     * Starts the global repair tick system (5-second interval).
-     * Each tick processes all durabilityRepairSpheres and heals their host components.
+     * Starts the unified internal component tick system.
+     * A single 1-second interval processes all internal component effects
+     * based on their individual tickInterval from the registry.
      * @returns {void}
      */
-    startInternalComponentRepairSystem() {
-        return this.internalComponentController.startRepairSystem();
+    startInternalComponentTickSystem() {
+        return this.internalComponentController.startTickSystem();
     }
 
     /**
-     * Stops the repair system and clears the interval.
+     * Stops the unified internal component tick system and clears the interval.
      * @returns {void}
      */
-    stopInternalComponentRepairSystem() {
-        return this.internalComponentController.stopRepairSystem();
+    stopInternalComponentTickSystem() {
+        return this.internalComponentController.stopTickSystem();
     }
 
     // =========================================================================

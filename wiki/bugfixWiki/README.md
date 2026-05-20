@@ -45,6 +45,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-066](high/BUG-066-map-connections-not-clickable.md) | Map Connection Arrows Not Clickable (CSS pointer-events Blocks Interaction) | ✅ Fixed | `pending` | `navigation.css`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `UIManager.js` |
 | [BUG-069](high/BUG-069-server-missing-worldStateController-locals.md) | Server Missing `worldStateController` in Express `app.locals` | 🔴 Open | — | `internalComponentRoutes.js`, `server.js`, `routes/index.js` |
 | [BUG-070](high/BUG-070-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents (duplicate BUG-047) | ✅ Fixed | `pending` | `synergyController.js` |
+| [BUG-071](architectural/BUG-071-internal-component-tick-system-srp-violation.md) | Internal Component Tick System — SRP Violation / Lack of Data-Driven Design | ✅ Fixed | `pending` | `InternalComponentController.js`, `data/internalComponents.json` |
+| [BUG-072](architectural/BUG-072-wiki-violates-why-over-how-principle.md) | Wiki Violates "Why Over How" Documentation Principle — Too Many Code Snippets | ✅ Fixed | `pending` | 11 wiki files, `project_rules.md` |
 
 ### 🟡 Medium Severity
 
