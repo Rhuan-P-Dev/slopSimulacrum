@@ -2,6 +2,9 @@ import { generateUID } from '../../utils/idGenerator.js';
 import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 
+// Load component definitions for trait requirement checking
+const componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+
 /**
  * InternalComponentController handles the storage, management, and lifecycle
  * of internal components attached to host components on entities.
@@ -128,6 +131,7 @@ class InternalComponentController {
 
             const excludedTypes = compDef.excludedComponentTypes || [];
             const volume = compDef.volume;
+            const requiredTraits = compDef.requiredTraits || null;
             const installed = [];
 
             if (!this.internalComponents[entityId]) {
@@ -138,6 +142,12 @@ class InternalComponentController {
                 // Skip excluded component types (e.g., fingers)
                 if (excludedTypes.includes(component.type)) {
                     Logger.info(`[InternalComponentController] Skipping ${component.type} — excluded from ${compType} auto-install`);
+                    continue;
+                }
+
+                // Check required traits on this component type
+                if (requiredTraits && !this._checkRequiredTraits(component.type, requiredTraits)) {
+                    Logger.info(`[InternalComponentController] Skipping ${component.type} — missing required traits for ${compType} auto-install`);
                     continue;
                 }
 
@@ -480,6 +490,50 @@ class InternalComponentController {
      */
     setWorldStateController(worldStateController) {
         this.worldStateController = worldStateController;
+    }
+
+    // =========================================================================
+    // REQUIRED TRAITS CHECKING
+    // =========================================================================
+
+    /**
+     * Checks if a component type has all the required traits for an internal component.
+     * Reads trait definitions from data/components.json and verifies each required
+     * trait has the stat with a value >= minValue.
+     *
+     * @param {string} componentType - The component type to check.
+     * @param {Object} requiredTraits - Required traits configuration: { [traitName]: { [statName]: { minValue: number } } }
+     * @returns {boolean} True if the component has all required traits with sufficient values.
+     * @private
+     */
+    _checkRequiredTraits(componentType, requiredTraits) {
+        const compDef = componentDefinitions[componentType];
+        if (!compDef || !compDef.traits) {
+            Logger.info(`[InternalComponentController] Component "${componentType}" has no trait definitions — required traits check fails`);
+            return false;
+        }
+
+        for (const [traitName, statRequirements] of Object.entries(requiredTraits)) {
+            const traitData = compDef.traits[traitName];
+            if (!traitData) {
+                Logger.info(`[InternalComponentController] Component "${componentType}" missing required trait "${traitName}"`);
+                return false;
+            }
+
+            for (const [statName, { minValue }] of Object.entries(statRequirements)) {
+                const statValue = traitData[statName];
+                if (statValue === undefined || statValue === null || typeof statValue !== 'number') {
+                    Logger.info(`[InternalComponentController] Component "${componentType}" trait "${traitName}" missing required stat "${statName}"`);
+                    return false;
+                }
+                if (statValue < minValue) {
+                    Logger.info(`[InternalComponentController] Component "${componentType}" trait "${traitName}" stat "${statName}" value ${statValue} < required ${minValue}`);
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 }
 

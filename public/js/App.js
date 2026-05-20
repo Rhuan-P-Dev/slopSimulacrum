@@ -189,6 +189,9 @@ export class ClientApp {
             this.worldMap.init();
             this.configBar.init();
 
+            // Pre-fetch internal component registry so Entity Analysis has descriptions
+            await this._loadInternalComponentRegistry();
+
             await this.refreshWorldAndActions();
         } catch (error) {
             this.errorController.handleError({
@@ -366,6 +369,31 @@ export class ClientApp {
             this.ui.renderSynergyPreview(preview);
         } else {
             this.ui.clearSynergyPreview();
+        }
+    }
+
+    /**
+     * Loads the internal component registry from the server and distributes it
+     * to both ComponentViewer and UIManager so Entity Analysis shows descriptions.
+     * @private
+     */
+    async _loadInternalComponentRegistry() {
+        try {
+            const response = await fetch('/api/internal-components/registry');
+            if (response.ok) {
+                const registry = await response.json();
+                // Set on UIManager so Entity Analysis can render descriptions
+                if (this.ui.setInternalComponentRegistry) {
+                    this.ui.setInternalComponentRegistry(registry);
+                }
+                // Store on ComponentViewer so it doesn't need to re-fetch
+                this.componentViewer._internalComponentRegistry = registry;
+                console.log('%c[ClientApp] Internal component registry loaded', 'color: #00ff00;');
+            } else {
+                console.warn('[ClientApp] Registry fetch failed, Entity Analysis will not show descriptions');
+            }
+        } catch (error) {
+            console.warn('[ClientApp] Failed to load internal component registry:', error);
         }
     }
 

@@ -32,6 +32,11 @@
     },
     "excludedComponentTypes": ["humanoidDroidFinger"],
     "autoInstallOnSpawn": true,
-    "targetBlueprintTypes": ["smallBallDroid"]
+    "targetBlueprintTypes": ["smallBallDroid"],
+    "requiredTraits": {
+      "Movement": {
+        "move": { "minValue": 1 }
+      }
+    }
   }
 }

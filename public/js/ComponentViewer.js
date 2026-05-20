@@ -282,26 +282,17 @@ export class ComponentViewer {
             const response = await fetch('/api/internal-components/registry');
             if (response.ok) {
                 this._internalComponentRegistry = await response.json();
+                // Share registry with UIManager so Entity Analysis also shows descriptions
+                if (this._uiManager.setInternalComponentRegistry) {
+                    this._uiManager.setInternalComponentRegistry(this._internalComponentRegistry);
+                }
             } else {
-                // Fallback: use hardcoded descriptions
-                this._internalComponentRegistry = {
-                    'durabilityRepairSphere': {
-                        repairAmount: 1,
-                        repairInterval: 5,
-                        description: 'Repairs +1 durability every 5 seconds'
-                    }
-                };
+                console.warn('[ComponentViewer] Registry fetch failed, using minimal fallback');
+                this._internalComponentRegistry = {};
             }
         } catch (error) {
             console.warn('[ComponentViewer] Failed to load internal component registry:', error);
-            // Fallback registry
-            this._internalComponentRegistry = {
-                'durabilityRepairSphere': {
-                    repairAmount: 1,
-                    repairInterval: 5,
-                    description: 'Repairs +1 durability every 5 seconds'
-                }
-            };
+            this._internalComponentRegistry = {};
         }
     }
 
@@ -314,21 +305,32 @@ export class ComponentViewer {
     _getInternalComponentDescription(type) {
         const registry = this._internalComponentRegistry;
         if (!registry || !registry[type]) {
-            return 'Unknown internal component.';
+            return 'Passive internal component.';
         }
 
         const def = registry[type];
         const parts = [];
 
-        if (type === 'durabilityRepairSphere') {
-            parts.push(`Repairs +${def.repairAmount || 1} durability every ${def.repairInterval || 5}s`);
+        // Generate description from tickEffects only (no human-readable descriptions from registry)
+        if (def.tickEffects && Array.isArray(def.tickEffects) && def.tickEffects.length > 0) {
+            const effectDescriptions = def.tickEffects.map((effect) => {
+                const amount = effect.amount ?? 1;
+                const interval = def.tickInterval ? `every ${def.tickInterval}s` : '';
+                switch (effect.effect) {
+                    case 'add':
+                        return `+${amount} ${effect.targetStat} ${interval}`;
+                    case 'set':
+                        return `Set ${effect.targetStat} to ${amount}`;
+                    case 'multiply':
+                        return `x${amount} ${effect.targetStat}`;
+                    default:
+                        return `${effect.targetStat} ${effect.effect} ${amount}`;
+                }
+            });
+            return effectDescriptions.join(', ');
         }
 
-        if (def.description) {
-            parts.push(def.description);
-        }
-
-        return parts.join(' | ') || 'Passive internal component.';
+        return 'Passive internal component.';
     }
 
     /**

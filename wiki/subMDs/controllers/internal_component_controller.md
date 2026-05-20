@@ -38,11 +38,22 @@ Internal components auto-install on eligible host components during entity spawn
 
 - **Lifecycle flag**: Only types with `autoInstallOnSpawn` are considered
 - **Blueprint targeting**: Optional `targetBlueprintTypes` restricts installation to specific entity types
+- **Required traits**: Optional `requiredTraits` restricts installation to host components that expose specific stats with minimum values
 - **Type exclusions**: `excludedComponentTypes` prevents installation on incompatible hosts
 - **Volume capacity**: The host must have sufficient free volume
 - **Uniqueness**: A host cannot receive duplicate instances of the same internal component type
 
 This filtering pipeline exists because auto-installation is a **declarative intent** — the registry says "this component should be on these hosts," and the controller resolves the actual installation at runtime.
+
+### Filter Pipeline Rationale
+
+The filter order follows a **fail-fast, low-cost-to-high-cost** progression. Early filters (lifecycle, blueprint targeting, required traits) reject mismatches using cheap property lookups before expensive volume calculations or uniqueness checks execute. This minimizes computational overhead during entity spawn, which occurs frequently during gameplay.
+
+### Required Traits Filter Rationale
+
+The `requiredTraits` filter ensures internal components only auto-install on host components that possess specific capabilities. For example, a mobility-enhancing internal component should only attach to components that define a `Movement` trait with sufficient `move` stat value. This declarative constraint eliminates the need for post-spawn validation or corrective logic — if a component lacks the required traits, the internal component simply does not install.
+
+The filter operates at component type resolution time, checking against `data/components.json` trait definitions. This decouples eligibility requirements from the component type definitions, allowing internal component constraints to evolve independently.
 
 ## 4. Instance Management
 

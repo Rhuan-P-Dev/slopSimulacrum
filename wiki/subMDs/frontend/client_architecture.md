@@ -29,6 +29,12 @@ The orchestrator initializes core modules first, then selection and synergy cont
 
 User interactions flow through the event dispatcher into the selection controller, which triggers UI updates and synergy preview fetching. The action executor sends HTTP requests for action execution. Server updates flow through the WebSocket into the state manager, which triggers UI updates.
 
+**Registry Pre-Fetch Distribution Pattern:**
+
+Upon initialization, the client performs a dedicated HTTP GET request to `/api/internal-components/registry` before the world state refresh. The raw internal component type registry is fetched once and distributed to both `ComponentViewer` and `UIManager`. This single pre-fetch eliminates per-component redundant API calls, and ensures all UI modules have access to type definitions for description rendering.
+
+**Why server returns raw data (no descriptions):** Description generation is a **presentation concern**, not a data concern. The server provides raw type definitions; clients compute human-readable descriptions from `tickEffects` data. This separation ensures the API contract remains stable while presentation logic adapts independently on the client side.
+
 ## 4. Logger Standard
 
 All modules use a centralized logging utility.

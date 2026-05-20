@@ -26,6 +26,17 @@ Internal components consume volume on their host component. This model exists be
 - **Balance through scarcity**: Volume limits prevent unlimited internal component stacking, forcing meaningful trade-offs during entity construction
 - **Exclusion-based flexibility**: Specific component types can be excluded from receiving certain internal components, representing physical or logical incompatibilities
 
+### Dual Constraint System: Volume + Traits
+
+Internal component installation uses a **dual constraint system** to determine whether a component can attach to a host:
+
+| Constraint | Purpose | Definition |
+|------------|---------|------------|
+| **Volume** | Physical/space capacity | Host must have remaining volume capacity greater than or equal to the internal component's volume value |
+| **Traits** | Capability compatibility | Host must satisfy all trait requirements defined by the internal component's `requiredTraits` configuration |
+
+The volume constraint ensures physical fit; the trait constraint ensures capability compatibility. Both must pass for auto-installation to succeed. This dual system provides two independent axes of control: space limits prevent stacking abuse, while trait requirements ensure internal components only attach to components that can meaningfully benefit from them.
+
 ## 4. Architecture
 
 Injection follows a bottom-up chain from state controllers up to logic controllers.

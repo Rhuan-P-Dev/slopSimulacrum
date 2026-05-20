@@ -13,18 +13,8 @@ router.get('/registry', (req, res) => {
     try {
         const registry = DataLoader.loadJsonSafe('data/internalComponents.json', {});
 
-        // Enhance registry with human-readable descriptions
-        const enhancedRegistry = {};
-        for (const [type, definition] of Object.entries(registry)) {
-            enhancedRegistry[type] = { ...definition };
-
-            // Generate description based on type
-            if (type === 'durabilityRepairSphere') {
-                enhancedRegistry[type].description = `Repairs +${definition.repairAmount || 1} durability every ${definition.repairInterval || 5} seconds`;
-            }
-        }
-
-        return res.json(enhancedRegistry);
+        // Return raw registry (no human-readable descriptions)
+        return res.json(registry);
     } catch (error) {
         Logger.error(`[InternalComponentRoutes] GET /registry error: ${error.message}`);
         return res.status(500).json({ error: 'Internal server error', message: error.message });

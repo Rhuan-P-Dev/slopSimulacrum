@@ -43,10 +43,52 @@ export class UIManager {
 
         this._setupEventListeners();
 
-        // Internal component definitions for display in details view
-        this._internalComponentDefs = {
-            'durabilityRepairSphere': { repairAmount: 1, repairInterval: 5 }
-        };
+        // Internal component registry (populated via setInternalComponentRegistry)
+        this._internalComponentRegistry = null;
+    }
+
+    /**
+     * Sets the internal component registry for description generation.
+     * @param {Object} registry - The internal component type definitions from /api/internal-components/registry.
+     */
+    setInternalComponentRegistry(registry) {
+        this._internalComponentRegistry = registry;
+    }
+
+    /**
+     * Generates a description for an internal component type from its tickEffects.
+     * @param {string} type - The internal component type.
+     * @returns {string} Description string.
+     * @private
+     */
+    _getInternalComponentDescription(type) {
+        const registry = this._internalComponentRegistry;
+        if (!registry || !registry[type]) {
+            return '';
+        }
+
+        const def = registry[type];
+
+        // Generate description from tickEffects only
+        if (def.tickEffects && Array.isArray(def.tickEffects) && def.tickEffects.length > 0) {
+            const effectDescriptions = def.tickEffects.map((effect) => {
+                const amount = effect.amount ?? 1;
+                const interval = def.tickInterval ? `every ${def.tickInterval}s` : '';
+                switch (effect.effect) {
+                    case 'add':
+                        return `+${amount} ${effect.targetStat} ${interval}`;
+                    case 'set':
+                        return `Set ${effect.targetStat} to ${amount}`;
+                    case 'multiply':
+                        return `x${amount} ${effect.targetStat}`;
+                    default:
+                        return `${effect.targetStat} ${effect.effect} ${amount}`;
+                }
+            });
+            return effectDescriptions.join(', ');
+        }
+
+        return '';
     }
 
     _setupEventListeners() {
@@ -523,11 +565,12 @@ export class UIManager {
                 if (entity.internalComponents && entity.internalComponents[comp.id] && entity.internalComponents[comp.id].length > 0) {
                     internalCompHtml = '<div class="internal-components-list">';
                     entity.internalComponents[comp.id].forEach(ic => {
-                        const sphereDef = this._internalComponentDefs?.[ic.type] || { repairAmount: 1, repairInterval: 5 };
+                        const description = this._getInternalComponentDescription(ic.type);
                         internalCompHtml += `
                             <div class="internal-component-item">
                                 <span class="internal-component-badge">🔮 ${ic.type}</span>
-                                <span class="internal-component-info">Repairs +${sphereDef.repairAmount} durability every ${sphereDef.repairInterval}s</span>
+                                <span class="internal-component-meta">ID: ${ic.id ? ic.id.substring(0, 12) + '...' : 'N/A'}</span>
+                                ${description ? `<span class="internal-component-info">${description}</span>` : ''}
                             </div>`;
                     });
                     internalCompHtml += '</div>';
