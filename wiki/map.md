@@ -12,33 +12,23 @@ The system follows a **hierarchical dependency injection** pattern. The `WorldSt
 
 ```mermaid
 graph TD
-    %% Root
     WSC[WorldStateController]
-
-    %% Data Level
     CSC[ComponentStatsController]
     TC[TraitsController]
-
-    %% Logic Level
     CC[ComponentController]
     EC[EntityController]
-
-    %% Instance Level
     SEC[stateEntityController]
     RC[RoomsController]
-
-    %% Action Layer
     AC[ActionController]
     CCC[ComponentCapabilityController]
     CH[ConsequenceHandlers]
     SC[SynergyController]
     ASC[ActionSelectController]
-
-    %% LLM Layer (Parallel)
     LLMC[LLMController]
     SVR[Server]
+    WGB[WorldGraphBuilder]
+    ICE[InternalComponentController]
 
-    %% Relationships
     SVR --> LLMC
     SVR --> WSC
 
@@ -60,221 +50,21 @@ graph TD
     EC --> CC
     CC --> CSC
     CC --> TC
-    
+
     AC --> SEC
     AC --> CC
     AC --> RC
     CCC --> CC
     SC --> CC
-    
-    %% WorldGraphBuilder consumes room data from RoomsController
-    RC -->|getAll()| WGB[WorldGraphBuilder]
+
+    RC -->|getAll| WGB
     WGB --> WSC
 
-    %% Stat change notification
     CC -.->|stat change| CCC
 
-    %% Internal Components
-    ICE[InternalComponentController]
     SEC -->|auto-installs| ICE
     ICE -->|repairs| CC
 ```
-
----
-
-## ⛓️ Detailed Dependency Chain
-
-### 🟢 The World State Hierarchy (Bottom-Up)
-To understand how a piece of data is retrieved, follow this chain:
-
-0.  **JSON Data Files (Configuration)**:
-    - `data/actions.json`: Action definitions with requirements and consequences.
-    - `data/components.json`: Component type definitions with trait templates.
-    - `data/blueprints.json`: Entity blueprint definitions (component hierarchies).
-    - `data/traits.json`: Global trait molds.
-    - `data/synergy.json`: Synergy configurations.
-1.  **Data Layer (Bottom)**:
-    - `ComponentStatsController`: Manages raw numeric values with **deep trait-level merge** (updating one stat preserves others in the same trait). See `wiki/subMDs/traits.md` Section 5.
-    - `TraitsController`: Manages entity traits and their properties.
-2.  **Logic Layer (Middle)**:
-    - `ComponentController` → depends on `ComponentStatsController` & `TraitsController` & `componentRegistry`.
-    - `EntityController` → depends on `ComponentController` & `blueprintRegistry` (loaded from `data/blueprints.json`).
-3.  **Instance Layer (Top)**:
-    - `stateEntityController` → depends on `EntityController`.
-    - `RoomsController`: Manages spatial layout and room connectivity.
-4.  **Coordination Layer (Root)**:
-    - `WorldStateController`: The master controller that instantiates and holds references to all the above.
-
-### 🔵 The Action Execution Flow
-When an action is executed:
-```
-Server → WorldStateController
-    ├── ActionSelectController.expireStaleSelections()
-    ├── ActionController.executeAction()
-    │   ├── resolveSourceComponent()
-    │   ├── Track spatial components for release (spatial actions only)
-    │   ├── validateSelection (skip for spatial actions)
-    │   ├── validateComponentBinding (skip role mismatch for spatial/none)
-    │   ├── _checkRequirements / _checkRequirementsForComponent
-    │   ├── SynergyController.computeSynergy() (excludes locked components)
-    │   └── ConsequenceHandlers (with synergy-applied values)
-    └── ActionSelectController.releaseSelections([all tracked components]) (finally block)
-```
-
-**Component Selection Validation:**
-- **Spatial actions** (`move`, `dash`): Skip pre-locking validation because they auto-resolve components via `_resolveSourceComponent()`
-- **Non-spatial actions**: Validate component selection via `ActionSelectController.validateSelection()`
-
-**Component Lock Tracking & Release:**
-All actions track their component locks in `componentsToRelease` array, released in the `finally` block:
-- **Non-spatial actions**: Components tracked during validation
-- **Spatial actions**: Components explicitly tracked after `resolveSourceComponent()` (lines 301-317 in `actionController.js`):
-  - Multi-component spatial: Each component from `componentList` is added
-  - Single-component spatial: The resolved `resolvedSourceComponentId` is added
-- **Self-targeting actions** (`selfHeal`): Components from `targetComponentId` tracked during validation
-
-**⚠️ Critical Fix**: Previously, spatial actions skipped the validation block entirely, causing their locks to never be released. This broke subsequent actions (e.g., `selfHeal` failed because `droidRollingBall` was still locked to "move"). The fix adds explicit spatial component tracking after component resolution.
-
-**Role Mismatch Skip:**
-Role validation is skipped for `spatial`, `none`, and `self_target` targetingType actions because client/server role resolution differs:
-- Spatial: Client sends `'spatial'`, server resolves to `'source'`
-- None: Client sends `'source'`, server resolves to `'self_target'`
-- Self-Target: Client sends `'self_target'`, server resolves to `'self_target'` (selfHeal executes instantly on component selection)
-
-**Self-Targeting Action Flow (selfHeal):**
-For `targetingType: 'self_target'` actions:
-1. User clicks a component row in the action list → component selected, action executes instantly
-2. Client sends `POST /execute-action` with `targetComponentId` and `componentIdentifier`
-3. `ActionController.executeAction()` resolves via Priority 2 (explicit targetComponentId)
-4. `ConsequenceHandlers.updateComponentStatDelta()` applies heal to the selected component
-5. `WorldStateController` broadcasts updated state
-
-**updateComponentStatDelta Handler**: Component resolution priority:
-1. **Explicit `targetComponentId`** from `actionParams` (targeted actions like damage)
-2. **Fulfilling component** from `context.fulfillingComponents` (self-targeting actions)
-3. **Fallback to entity-wide update** via `_handleUpdateStat`
-
-**⚠️ Note:** The old "first component with the trait" fallback has been removed to prevent unpredictable behavior.
-
-**Stat Persistence**: When consequences update component stats (e.g., `updateComponentStatDelta` for durability loss), the `ComponentStatsController.setStats()` method performs a **deep trait-level merge**, ensuring that updating one stat (e.g., `Physical.durability`) does not erase other stats in the same trait (e.g., `Physical.mass`, `Physical.strength`). See `wiki/subMDs/traits.md` Section 5 for details.
-
-**Attack Action Flow (e.g., droid punch):**
-For attack actions with both attacker and target components:
-1. Client sends `POST /execute-action` with `attackerComponentId` and `targetComponentId`
-2. `ActionController.executeAction()` uses `attackerComponentId` for **requirement value resolution** (e.g., damage = `:Physical.strength` from attacker)
-3. `ConsequenceHandlers.damageComponent()` applies damage to `targetComponentId`
-4. `WorldStateController` broadcasts updated state
-
-**Data Flow Diagram:**
-```
-Client → Server → ActionController.executeAction()
-    ├── attackerComponentId → _checkRequirementsForComponent() → requirementValues
-    ├── _resolvePlaceholders("-:Physical.strength") → -25 (from attacker's droidHand)
-    └── ConsequenceHandlers.damageComponent(targetComponentId) → reduce target durability
-```
-
-**Spatial Action Component Resolution (e.g., move, dash with multi-component entities):**
-For spatial actions on entities with multiple components of the same type (e.g., left and right `droidRollingBall`):
-1. User selects a component in the UI → `componentId` stored in pending action
-2. Client sends `POST /execute-action` with `targetX`, `targetY`, `targetComponentId`, `componentIdentifier`
-3. `ActionController.executeAction()` uses `targetComponentId` for **requirement value resolution**
-4. `ActionController._executeConsequences()` resolves target ID by consequence type:
-   - Spatial consequences (`updateSpatial`, `deltaSpatial`) → always use `entityId`
-   - Component consequences (`updateComponentStatDelta`, `damageComponent`) → use `targetComponentId`
-5. `WorldStateController` broadcasts updated state
-
-**Data Flow Diagram (Spatial):**
-```
-Client → Server → ActionController.executeAction()
-    ├── targetComponentId → _checkRequirementsForComponent() → requirementValues
-    ├── _executeConsequences()
-    │   ├── deltaSpatial → entityId (entity moves)
-    │   └── updateComponentStatDelta → targetComponentId (component durability updated)
-```
-
-**Stat Change Notification Flow:**
-When component stats change, the `ComponentCapabilityController` automatically re-evaluates capabilities:
-`ComponentController` → `ComponentCapabilityController.onStatChange()` → `reEvaluateActionForComponent()` → `_notifySubscribers(actionName, entryOrRemovalMarker)`
-
-**Removal Markers**: When capability entries are removed, subscribers receive a `RemovalMarker` object (`{ _type: 'REMOVAL', componentId, entityId }`) instead of `null`.
-
-### 🔵 Synergy Execution Flow
-
-When synergy-enabled actions execute, synergy is computed before consequences:
-```
-Client → Server → ActionController.executeAction()
-    ├── _checkRequirements() → requirementValues
-    ├── SynergyController.computeSynergy() → SynergyResult
-    ├── _executeConsequences() → apply synergy multiplier to values
-    └── WorldStateController.broadcast() → updated state
-```
-
-**Data Decoupling**: Synergy configs are in `data/synergy.json` (standalone), not embedded in `data/actions.json`.
-
-### 🔵 Multi-Component Selection Flow (
-
-The client uses a **click-to-toggle** model for multi-component selection:
-```
-User clicks component row → App._handleComponentToggle()
-    ├── Toggle component in/out of selectedComponentIds
-    ├── Switch active action if clicking different action
-    ├── Set pending action (for spatial/component targeting)
-    ├── Build crossMap (active selections + cross-action selections)
-    ├── Re-render action list (selected=green, grayed=locked)
-    └── If 1+ selected: POST /synergy/preview-data → renderSynergyPreview()
-        - 1 component: action data preview
-        - 2+ components: synergy with modified values
-
-User clicks map → _setupMapClickListener()
-    ├── If 2+ components selected: _executeMultiComponentSpatial()
-    │   ├── POST /select-components (batch lock)
-    │   └── POST /execute-action with componentIds
-    └── Clear selections, refresh UI
-```
-
-### 🔵 The Action Execution Flow
-
-**Available Public Methods:**
-
-| Method | Parameters | Returns |
-|--------|-----------|---------|
-| `spawnEntity(blueprintName, roomId)` | `string`, `string` | `string` (entityId) |
-| `despawnEntity(entityId)` | `string` | `boolean` |
-| `moveEntity(entityId, targetRoomId)` | `string`, `string` | `boolean` |
-| `getRoomUidByLogicalId(logicalId)` | `string` | `string\|null` |
-| `getWorldGraph()` | — | `Object` | Returns the world graph with resolved room names for all connections |
-
-#### `ActionController.previewActionData(actionName, entityId, context)`
-
-Returns complete preview data including action definition, resolved values, and synergy.
-
-**Returns:** `{ actionData: { _name, ...actionDef }, resolvedValues, synergyResult }`
-
-- `_name`: The action name string (added for UI display)
-- `resolvedValues`: Consequence values with placeholders resolved
-  - For `deltaSpatial`: `{ speed: number }`
-  - For other consequences: `{ value: number }`
-- `synergyResult`: Computed synergy with deduplicated `contributingComponents` (each component appears at most once)
-
----
-
-## 🛠️ Agent Quick-Reference
-
-| If you need to... | Use this Controller | Dependency Note |
-| :--- | :--- | :--- |
-| Modify raw stats | `ComponentStatsController` | Lowest level |
-| Change entity traits | `TraitsController` | Lowest level |
-| Calculate component logic | `ComponentController` | Uses Stats & Traits |
-| Manage entity existence | `EntityController` | Uses Components + Blueprint Registry |
-| Spawn/Move entities | `stateEntityController` | Uses EntityController |
-| Modify room layout | [`RoomsController`](subMDs/rooms_controller.md) | Spatial state |
-| Execute a game action | `ActionController` | Executes actions, validates requirements, runs consequences |
-| Query component capabilities | `ComponentCapabilityController` | Manages capability cache, scoring, re-evaluation |
-| Compute synergy multipliers | `SynergyController` | Multi-entity/component synergy computation |
-| Lock/release component selections | `ActionSelectController` | Enforces "one component, one action" rule |
-| Send a prompt to LLM | `LLMController` | Independent API wrapper (uses Logger) |
-| Build world graph | [`WorldGraphBuilder`](subMDs/world_map.md) | Utility for constructing navigable room graph from `RoomsController.getAll()` |
-| Manage internal components | `InternalComponentController` | Volume-based internal component system with auto-install |
 
 ## 📁 Data Files
 
@@ -287,47 +77,3 @@ Returns complete preview data including action definition, resolved values, and 
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
 | `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
-
-### 🗺️ Spatial Coordinate System
-
-Rooms in `data/rooms.json` use a 2D Cartesian coordinate system for spatial rendering on the world map overlay:
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `x` | `number` | Top-left X coordinate on the 2D canvas (SVG viewBox) |
-| `y` | `number` | Top-left Y coordinate on the 2D canvas (SVG viewBox) |
-| `width` | `number` | Room rectangle width in pixels |
-| `height` | `number` | Room rectangle height in pixels |
-
-**Rendering Pipeline:**
-```
-data/rooms.json → DataLoader.loadJsonSafe() → RoomsController → WorldStateController.getWorldGraph()
-    → WorldGraphBuilder.build() → GET /world-map endpoint → WorldMapView.js renders as SVG <rect> elements
-```
-
-**RoomConnectionRenderer** uses these coordinates to draw directional arrows between connected rooms. Uses edge-to-edge rendering with relative coordinates `(targetRoom.x - room.x)`. Current room center excludes `room.x`/`room.y` to match `_renderRoom()` positioning. Connections are clickable via invisible hit-area lines (15px stroke) with `onConnectionClick` callback pattern. Edge point clamping uses SVG-space bounds (`offsetX` to `offsetX + width`). Edge determination uses `>=` for tie-breaking. See [World Map System](subMDs/world_map.md) Section 3.1 for details.
-
-**Adding New Rooms:** When adding new rooms, ensure coordinates do not overlap with existing rooms (unless intentional for visual grouping). Connections reference other rooms by their **logical ID** (the JSON key), not UID. The system auto-resolves connections to UIDs during initialization. See [rooms_controller.md](subMDs/rooms_controller.md) Section 7.3 for full details.
-
-## ⚠️ Critical Rule for Agents
-**Never instantiate a controller manually** inside another controller. Always use the instances provided by `WorldStateController` or injected via the constructor. This prevents the "Dual State" bug where two controllers think the world is in different states.
-
-**Server API Access**: The server (`src/server.js`) must use `WorldStateController` public API methods (`spawnEntity`, `despawnEntity`, `moveEntity`, `getRoomUidByLogicalId`) instead of directly accessing sub-controllers. See `subMDs/controller_patterns.md` Section 5.1.
-
-**Logging Standard**: All controllers must use the centralized `Logger` utility (`src/utils/Logger.js`) for structured logging with severity levels (`INFO`, `WARN`, `ERROR`, `CRITICAL`).
-
-## 📋 Recent Changes Log
-
-| Date | Change | Files |
-|------|--------|-------|
-| 2026-05-14 | **BUG-065 Fix:** Fixed world map connection arrow direction — changed from center-to-center to edge-to-edge rendering. Current room center excludes `room.x`/`room.y`. Target coordinates use relative positioning `(targetRoom.x - room.x)`. Edge clamping uses `offsetX`/`offsetY` SVG bounds. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js` |
-| 2026-05-14 | **BUG-066 Fix:** Made map connections clickable. CSS `pointer-events: none` → `pointer-events: stroke` (lines) / `pointer-events: fill` (arrows). Added invisible hit-area lines (15px stroke) for click detection. Added `onConnectionClick` callback pattern through UIManager. Improved pan/zoom: 3px threshold, skip panning on interactive elements. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `public/js/UIManager.js`, `public/css/navigation.css`, `public/index.html` |
-| 2026-05-13 | **Feature:** Added world map system — room connection arrows on spatial map, 🌐 world map overlay with pan/zoom, and `WorldGraphBuilder` utility. Removed navigation section from NavActionsPanel. | `public/js/WorldMapView.js`, `public/js/RoomConnectionRenderer.js`, `src/utils/WorldGraphBuilder.js`, `src/controllers/WorldStateController.js`, `src/routes/worldRoutes.js`, `public/index.html`, `public/css/navigation.css`, `wiki/subMDs/world_map.md`, `wiki/bugfixWiki/medium/BUG-063-world-map-view-not-initialized.md` |
-| 2026-05-05 | **Refactor:** Split `ConsequenceHandlers` into 5 single-focused modules per SRP | `consequenceHandlers.js`, `SpatialConsequenceHandler.js`, `StatConsequenceHandler.js`, `DamageConsequenceHandler.js`, `LogConsequenceHandler.js`, `EventConsequenceHandler.js`, `wiki/subMDs/consequence_handler_architecture.md` |
-| 2026-05-13 | **Refactor:** Externalized hardcoded room definitions from `RoomsController.js` to `data/rooms.json`, added `_validateRoomDefinitions()` validation, and Logger integration | `src/controllers/core/RoomsController.js`, `data/rooms.json` |
-| 2026-05-13 | **Docs:** Added RC→WGB dependency edge to Mermaid diagram — `WorldGraphBuilder` consumes room data from `RoomsController.getAll()` to construct the navigable world graph | `wiki/map.md` |
-| 2026-05-15 | **Feature:** Internal Components system — volume-based internal component architecture with auto-installation, 5-second repair interval, and ComponentViewer UI integration | `data/internalComponents.json`, `data/components.json`, `src/controllers/core/InternalComponentController.js`, `src/controllers/core/stateEntityController.js`, `src/controllers/WorldStateController.js`, `src/routes/internalComponentRoutes.js`, `public/js/UIManager.js`, `public/js/Config.js`, `public/js/ComponentViewer.js`, `public/css/internal-components.css`, `wiki/subMDs/internal_components.md`, `wiki/bugfixWiki/medium/BUG-067-internal-components-system.md`, `wiki/bugfixWiki/medium/BUG-068-component-viewer-missing-internal-components.md` |
-| 2026-05-15 | **Fix:** InternalComponentController defensive copying — `getInternalComponents()` and `getInternalComponentsForEntity()` now return `structuredClone()` deep copies per wiki policy | `src/controllers/core/InternalComponentController.js` |
-| 2026-05-15 | **Fix:** WorldStateController — added missing Internal Component API delegation methods (`removeInternalComponent`, `hasInternalComponent`, `cleanupInternalComponents`, `startInternalComponentRepairSystem`, `stopInternalComponentRepairSystem`) | `src/controllers/WorldStateController.js` |
-| 2026-05-15 | **BUG-068 Fix:** Component Viewer UI for Internal Components — added 🔮 button, expandable internal component panel, registry loading, caching, and fallback API fetch | `public/js/ComponentViewer.js`, `wiki/bugfixWiki/medium/BUG-068-component-viewer-missing-internal-components.md` |
-| 2026-05-16 | **Docs:** Updated `wiki/subMDs/controller_patterns.md` — moved `_processRepairTick()` from Public API Methods to Private Methods, corrected `_validateRegistry()` description (throws TypeError only for null/undefined/not-object; logs warnings for missing fields). Added BUG-069 wiki entry for internal component routes server configuration bug | `wiki/subMDs/controller_patterns.md`, `wiki/bugfixWiki/high/BUG-069-server-missing-worldStateController-locals.md` |

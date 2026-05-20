@@ -1,83 +1,32 @@
 # ⚠️ Error Handling Standard
 
 ## 1. Overview
-To ensure maintainability and consistency across the system, all controllers must follow a structured approach to error reporting. Instead of returning plain strings, errors must be represented as structured objects that can be easily parsed by the system and formatted for the end-user.
 
-## 2. Error Object Structure
-All error responses must follow this schema:
+All errors are structured objects with `code`, `message`, `details`, and `level` fields. The `level` enum is `INFO`, `WARN`, `ERROR`, or `CRITICAL`.
 
-```javascript
-{
-    code: "ERROR_CODE_UPPER_SNAKE_CASE",
-    message: "Human-readable message (template)",
-    details: {
-        // Contextual data used to populate the message template
-        key: value
-    },
-    level: "INFO" | "WARN" | "ERROR" | "CRITICAL"
-}
-```
+## 2. Server Error Codes
 
-### 2.1. Logging Levels
-- **INFO**: Informational messages that do not indicate a problem.
-- **WARN**: Non-critical issues that may require attention but don't stop the process.
-- **ERROR**: Significant failures that prevent a specific operation from completing.
-- **CRITICAL**: System-wide failures that may cause crashes or data loss.
+| Code | Description |
+|------|-------------|
+| `ENTITY_NOT_FOUND` | Entity ID not in world state |
+| `ACTION_NOT_FOUND` | Action name not registered |
+| `MISSING_TRAIT_STAT` | Entity lacks required trait/stat |
+| `INSUFFICIENT_DURABILITY` | Component below durability threshold |
+| `UNKNOWN_REQUIREMENT_FAILURE` | Requirement check failed |
+| `CONSEQUENCE_EXECUTION_FAILED` | Consequence handler error |
+| `COMPONENT_BINDING_MISMATCH` | Selected component doesn't match binding roles |
+| `SYSTEM_RUNTIME_ERROR` | Unexpected exception |
 
-## 3. Error Resolution Process
-Controllers should separate **Error Detection** from **Error Formatting**.
+### Internal Component Error Codes
 
-1.  **Detection**: The logic identifies a failure and returns a structured error object with a `code` and `details`.
-2.  **Formatting**: A generic resolver (or a dedicated ErrorController) takes the `code` and `details` to produce the final human-readable string.
+| Code | Description |
+|------|-------------|
+| `INTERNAL_COMPONENT_NOT_FOUND` | Type not in registry |
+| `INTERNAL_COMPONENT_VOLUME_EXCEEDED` | Host volume insufficient |
+| `INTERNAL_COMPONENT_TYPE_EXCLUDED` | Host type in excluded list |
 
-## 4. Action System Error Codes
-Common codes used in `ActionController`:
-- `ENTITY_NOT_FOUND`: The requested entity ID does not exist in the world state.
-- `ACTION_NOT_FOUND`: The requested action name is not registered.
-- `MISSING_TRAIT_STAT`: The entity lacks the required trait or stat for the action.
-- `INSUFFICIENT_DURABILITY`: The entity has the trait but lacks minimum durability.
-- `UNKNOWN_REQUIREMENT_FAILURE`: A requirement check failed for an unspecified reason.
-- `CONSEQUENCE_EXECUTION_FAILED`: An error occurred during the execution of an action's consequences.
-- `SYSTEM_RUNTIME_ERROR`: An unexpected exception occurred during processing.
-- `COMPONENT_BINDING_MISMATCH`: The selected component does not match the action's binding roles.
+## 3. Client-Side Error Handling
 
-## 4.2. Internal Component Error Codes
-Common codes used in `InternalComponentController` and internal component API routes:
-- `INTERNAL_COMPONENT_NOT_FOUND`: The requested internal component type is not registered in the component registry.
-- `INTERNAL_COMPONENT_VOLUME_EXCEEDED`: The host component's available volume is insufficient for the required internal component volume.
-- `INTERNAL_COMPONENT_TYPE_EXCLUDED`: The host component type is listed in the internal component's `excludedComponentTypes` array.
-- `INTERNAL_COMPONENT_NOT_FOUND_IN_HOST`: The specified internal component instance ID does not exist within the host component's registry.
+A client error controller maps error codes to human-readable templates. Errors are displayed as notification pop-ups on the screen.
 
-## 4.1. Client-Side Error Codes
-Common codes used in `ClientErrorController` and `ActionManager`:
-- `SELECTION_FAILED`: Component lock conflict — the component is already locked to a different action.
-  - **Cause**: Spatial actions (move/dash) previously failed to release their component locks, causing subsequent actions (selfHeal) to fail.
-  - **Fix**: Spatial actions now explicitly track components for release in `componentsToRelease` array.
-- `ACTION_FAILED`: General action execution failure.
-- `MOVEMENT_FAILED`: Movement action execution failure.
-- `PUNCH_FAILED`: Punch action execution failure.
-- `TARGET_OUT_OF_RANGE`: Target is outside the action's range.
-- `NO_TARGET_FOUND`: No valid target found within tolerance.
-- `SOCKET_ERROR`: Socket.io communication error.
-- `CONNECTION_ERROR`: World state refresh failure.
-- `INITIALIZATION_ERROR`: Application initialization failure.
-- `ACTION_LIST_UPDATE_FAILED`: Action list refresh failure.
-
-## 5. Template Syntax
-Templates use curly braces for variable injection:
-`"Entity {entityId} not found."` $\rightarrow$ `details: { entityId: "uuid-123" }`
-
-## 6. Client-Side Implementation
-
-The client implements the Error Handling Standard through the `ClientErrorController`.
-
-### 6.1. The ClientErrorController
-This controller acts as the **Formatting** layer for the frontend. Its primary responsibilities are:
-- **Template Resolution**: Mapping structured error codes (e.g., `TARGET_OUT_OF_RANGE`) to human-readable templates.
-- **Variable Injection**: Replacing placeholders in templates (e.g., `{distance}`) with values from the `details` object.
-- **UI Coordination**: Triggering the visual display of the error via the `UIManager`.
-
-**Mandatory Routing**: To prevent silent failures in the user experience, all critical paths in the client orchestrator (`ClientApp`) and managers (`ActionManager`) must explicitly route caught exceptions to the `ClientErrorController`. No critical failure should be swallowed by a `console.error` without also triggering a user-facing error notification.
-
-### 6.2. Visual Representation
-Errors are presented to the player as **Red Pop-ups** in the bottom-right corner of the screen. This ensures that critical feedback is immediately visible without interrupting the main game flow or being lost in the status bar.
+**Client error codes**: `SELECTION_FAILED`, `ACTION_FAILED`, `MOVEMENT_FAILED`, `PUNCH_FAILED`, `TARGET_OUT_OF_RANGE`, `NO_TARGET_FOUND`, `SOCKET_ERROR`, `CONNECTION_ERROR`, `INITIALIZATION_ERROR`, `ACTION_LIST_UPDATE_FAILED`
