@@ -2,7 +2,7 @@
 
 This document serves as a high-level architectural map of the `slopSimulacrum` controller ecosystem. It is designed to help AI agents quickly understand the dependency chain and the flow of data and commands.
 
-**Note:** For a more detailed, technical breakdown of the architecture, refer to the [System Architecture Map](subMDs/system_map.md), which serves as the "deep version" of this map.
+**Note:** For a more detailed, technical breakdown of the architecture, refer to the [System Architecture Map](subMDs/architecture/system_map.md), which serves as the "deep version" of this map.
 
 ## 📐 Architectural Overview
 

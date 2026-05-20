@@ -1,10 +1,32 @@
-# ⚠️ Error Handling Standard
+# Communication and Error Handling
 
-## 1. Overview
+## 1. LLM Integration
+
+### Overview
+
+An LLM controller communicates with an OpenAI-compatible Chat Completion API via HTTP POST. It is the single source of truth for LLM interaction on the server side.
+
+### Communication
+
+- **Endpoint**: Configurable OpenAI-compatible Chat Completion API URL
+- **Request shape**: Model name, messages array with role/content pairs, temperature, max tokens, streaming flag
+- **Response shape**: Choices array with role/content message, usage statistics for prompts/completion/total
+
+### Best Practices
+
+- Implement timeout to prevent hanging
+- Validate response choices exist before accessing message content
+- Use centralized logger for all logging
+
+---
+
+## Error Handling Standard
+
+### Overview
 
 All errors are structured objects with `code`, `message`, `details`, and `level` fields. The `level` enum is `INFO`, `WARN`, `ERROR`, or `CRITICAL`.
 
-## 2. Server Error Codes
+### Server Error Codes
 
 | Code | Description |
 |------|-------------|
@@ -25,7 +47,7 @@ All errors are structured objects with `code`, `message`, `details`, and `level`
 | `INTERNAL_COMPONENT_VOLUME_EXCEEDED` | Host volume insufficient |
 | `INTERNAL_COMPONENT_TYPE_EXCLUDED` | Host type in excluded list |
 
-## 3. Client-Side Error Handling
+### Client-Side Error Handling
 
 A client error controller maps error codes to human-readable templates. Errors are displayed as notification pop-ups on the screen.
 

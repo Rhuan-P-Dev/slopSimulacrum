@@ -9,7 +9,7 @@ This wiki is specifically designed for AI agents interacting with the `slopSimul
 This wiki contains **architectural maps** that describe the system structure, controller relationships, and data flow. All agents **must** reference these maps before making any code changes:
 
 - **[Controller Relationship Map](map.md)** — High-level map of the controller ecosystem, dependency graph, and data files. Shows the dependency chain and flow of data/commands across the system.
-- **[System Architecture Map](subMDs/system_map.md)** — Deep-detailed version of the architecture. Includes controller hierarchy, responsibility matrix, key operational flows, and client-side architecture breakdown.
+- **[System Architecture Map](subMDs/architecture/system_map.md)** — Deep-detailed version of the architecture. Includes controller hierarchy, responsibility matrix, key operational flows, and client-side architecture breakdown.
 
 These maps must be kept up-to-date. If you modify the architecture, update both maps accordingly.
 
@@ -27,7 +27,7 @@ This project has **mandatory rules** and **code quality standards** that **all a
   - Defensive copying requirement for state controllers
   - Data loading standard (use `DataLoader.loadJsonSafe`, never `fs.readFileSync` directly)
   - Validation pattern (all state controllers must implement `_validate*()` methods)
-  - Special notice: `subMDs/controller_patterns.md` is **obligatory**
+  - Special notice: `subMDs/controllers/controller_patterns.md` is **obligatory**
 
 - **[Code Quality and Best Practices](code_quality_and_best_practices.md)** — Engineering standards including:
   - Single Responsibility Principle (SRP)
@@ -47,25 +47,39 @@ This project has **mandatory rules** and **code quality standards** that **all a
 
 ## 📚 Sub-Documentation
 
-Additional reference documentation for specific systems and components:
+Additional reference documentation for specific systems and components, organized by category:
+
+### 🏛️ Architecture & System Design
+- [System Architecture Map](subMDs/architecture/system_map.md) — Deep-detailed system architecture
+- [Server-Client Architecture](subMDs/architecture/server_client_architecture.md) — Client-server communication
+- [Server Splitting Architecture](subMDs/architecture/server_splitting.md) — Multiplayer/server split
+- [Action System](subMDs/architecture/action_system.md) — Action pipeline architecture
+
+### 🧩 Controllers
+- [Controller Patterns](subMDs/controllers/controller_patterns.md) — **Obligatory** design patterns
+- [Capability Controller](subMDs/controllers/capability_controller.md) — Component capability cache + scoring
+- [Component Selection](subMDs/controllers/component_selection.md) — Selection & locking
+- [Config Bar Manager](subMDs/controllers/config_bar_manager.md) — Config bar logic
+- [Rooms Controller](subMDs/controllers/rooms_controller.md) — Room management
+- [World State Manager](subMDs/controllers/world_state_manager.md) — Client-side state sync
+- [Consequence Handler Architecture](subMDs/controllers/consequence_handler_architecture.md) — Consequence dispatch
+
+### 💾 Data Models
+- [Components & Entities](subMDs/data/components_and_entities.md) — Entity system + internal components
+- [Traits](subMDs/data/traits.md) — Trait system
+- [World State](subMDs/data/world_state.md) — World state data model
+
+### 🖥️ Frontend & UI
+- [Client Architecture](subMDs/frontend/client_architecture.md) — Client-side architecture + UI overview
+- [Client Action Execution](subMDs/frontend/client_action_execution.md) — Client action flow
+- [CSS Architecture](subMDs/frontend/css_architecture.md) — CSS module organization
+
+### 🌐 Networking & Communication
+- [Communication & Error Handling](subMDs/networking/communication.md) — LLM integration + error codes
+
+### 🎮 Systems & Mechanics
+- [Synergy System](subMDs/systems/synergy.md) — Synergy engine + preview UI
+- [Movement System](subMDs/systems/movement_system.md) — Movement mechanics
+- [World Map](subMDs/systems/world_map.md) — Map visualization
 
 - [Bugfix Wiki](bugfixWiki/README.md)
-- [Controller Patterns](subMDs/controller_patterns.md)
-- [Action System](subMDs/action_system.md)
-- [Action Capability Cache](subMDs/action_capability_cache.md)
-- [Component Capability Controller](subMDs/component_capability_controller.md)
-- [Synergy System](subMDs/synergy_system.md)
-- [Synergy Preview System](subMDs/synergy_preview.md)
-- [Client Action Execution](subMDs/client_action_execution.md)
-- [Server-Client Architecture](subMDs/server_client_architecture.md)
-- [Server Splitting Architecture](subMDs/server_splitting.md)
-- [LLM Integration](subMDs/llm_integration.md)
-- [Movement System](subMDs/movement_system.md)
-- [Error Handling](subMDs/error_handling.md)
-- [Traits](subMDs/traits.md)
-- [World State](subMDs/world_state.md)
-- [World Map](subMDs/world_map.md)
-- [Config Bar Manager](subMDs/config_bar_manager.md)
-- [World State Manager](subMDs/world_state_manager.md)
-- [CSS Architecture](subMDs/css_architecture.md)
-- [Client-Side Architecture](subMDs/client_side_architecture.md)
