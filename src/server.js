@@ -26,7 +26,10 @@ registerRoutes(app, llmController, worldStateController, broadcastService);
 // 6. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
 worldStateController.setBroadcastService(broadcastService);
 
-    // 7. Graceful shutdown for unified tick system
+// 7. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
+worldStateController.triggerInitialBroadcast();
+
+    // 8. Graceful shutdown for unified tick system
     let isShuttingDown = false;
 
     function gracefulShutdown(signal) {

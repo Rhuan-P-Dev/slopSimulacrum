@@ -68,6 +68,7 @@ Additional reference documentation for specific systems and components, organize
 - [Components & Entities](subMDs/data/components_and_entities.md) — Entity system + internal components
 - [Traits](subMDs/data/traits.md) — Trait system
 - [World State](subMDs/data/world_state.md) — World state data model
+- [Inventory System](subMDs/data/inventory_system.md) — Volume-based item storage on components
 
 ### 🖥️ Frontend & UI
 - [Client Architecture](subMDs/frontend/client_architecture.md) — Client-side architecture + UI overview

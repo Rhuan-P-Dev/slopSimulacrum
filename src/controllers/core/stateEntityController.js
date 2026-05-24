@@ -38,6 +38,25 @@ class stateEntityController {
          * @type {any|null}
          */
         this.internalComponentController = internalComponentController;
+
+        /**
+         * Spawn observers — functions called when an entity is spawned.
+         * Each observer receives (entityId, entityData).
+         * @type {Array<Function>}
+         */
+        this._spawnObservers = [];
+    }
+
+    /**
+     * Registers a callback that fires whenever an entity is spawned.
+     * Observers are useful for post-spawn side effects (e.g., adding test items).
+     * @param {Function} observer - A function that receives (entityId, entityData).
+     * @returns {void}
+     */
+    registerSpawnObserver(observer) {
+        if (typeof observer === 'function' && !this._spawnObservers.includes(observer)) {
+            this._spawnObservers.push(observer);
+        }
     }
 
     /**
@@ -77,6 +96,15 @@ class stateEntityController {
         if (this.actionController) {
             const state = this.actionController.worldStateController.getAll();
             this.actionController.reEvaluateEntityCapabilities(state, entityId);
+        }
+
+        // Call all registered spawn observers
+        for (const observer of this._spawnObservers) {
+            try {
+                observer(entityId, entityData);
+            } catch (error) {
+                console.error(`[stateEntityController] Spawn observer failed for entity ${entityId}: ${error.message}`);
+            }
         }
 
         return entityId;

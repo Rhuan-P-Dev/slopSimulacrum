@@ -36,13 +36,14 @@ Controller-specific documentation including design patterns, component managemen
 
 ## 💾 Data Models
 
-Data definitions for entities, components, traits, and world state.
+Data definitions for entities, components, traits, world state, and inventory.
 
 | Document | Description |
 |----------|-------------|
 | [Components & Entities](data/components_and_entities.md) | Entity vs component distinction, volume-based capacity model rationale, blueprint hierarchy |
 | [Traits](data/traits.md) | Trait system |
 | [World State](data/world_state.md) | World state data model |
+| [Inventory System](data/inventory_system.md) | Volume-based item storage on components |
 
 ---
 
@@ -84,11 +85,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 21 |
+| Total documents | 22 |
 | Categories | 6 |
 | Architecture docs | 4 |
-| Controller docs | 7 |
-| Data model docs | 3 |
+| Controller docs | 8 |
+| Data model docs | 4 |
 | Frontend docs | 3 |
 | Networking docs | 1 |
 | Systems docs | 3 |

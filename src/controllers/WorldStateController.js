@@ -13,6 +13,7 @@ import InternalComponentController from './core/InternalComponentController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
+import InventoryManager from '../utils/InventoryManager.js';
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -88,6 +89,36 @@ class WorldStateController {
         const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
         this.stateEntityController = stateEntityControllerInstance;
 
+        // Register test item spawn observer — adds testItem to every smallBallDroid on spawn
+        stateEntityControllerInstance.registerSpawnObserver((entityId, entityData) => {
+            if (entityData.blueprint !== 'smallBallDroid') return;
+            const entity = this.stateEntityController.getEntity(entityId);
+            if (!entity || !entity.components || !Array.isArray(entity.components)) return;
+
+            const centralBall = entity.components.find(c => c.type === 'centralBall');
+            if (!centralBall) return;
+
+            const result1 = this.inventoryManager.addItem(entity, 'testItem', centralBall.id, {
+                componentController: this.componentController
+            });
+
+            const result2 = this.inventoryManager.addItem(entity, 'testItem2', centralBall.id, {
+                componentController: this.componentController
+            });
+
+            if (result1.success) {
+                Logger.info(`[WorldStateController] Test item 1 auto-added to centralBall on spawned entity ${entityId}`);
+            } else {
+                Logger.warn(`[WorldStateController] Failed to add test item 1 to spawned entity ${entityId}: ${result1.message}`);
+            }
+
+            if (result2.success) {
+                Logger.info(`[WorldStateController] Test item 2 auto-added to centralBall on spawned entity ${entityId}`);
+            } else {
+                Logger.warn(`[WorldStateController] Failed to add test item 2 to spawned entity ${entityId}: ${result2.message}`);
+            }
+        });
+
         // Wire up stat change notifications from ComponentController to ComponentCapabilityController
         // This enables automatic capability re-evaluation when component stats change
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
@@ -101,7 +132,11 @@ class WorldStateController {
         // Set worldStateController reference on InternalComponentController for repair system access
         internalComponentController.setWorldStateController(this);
 
-        // 8. Broadcast service (injected via setBroadcastService() from server.js)
+        // 8. Instantiate InventoryManager (Inventory System)
+        // Manages item ownership, volume constraints, and item movements for entities.
+        this.inventoryManager = new InventoryManager();
+
+        // 9. Broadcast service (injected via setBroadcastService() from server.js)
         /** @private {WorldStateBroadcastService|null} */
         this._broadcastService = null;
 
@@ -114,7 +149,8 @@ class WorldStateController {
             actions: this.actionController,
             capabilities: this.componentCapabilityController,
             synergy: this.synergyController,
-            selections: this.actionSelectController
+            selections: this.actionSelectController,
+            inventory: this.inventoryManager
         };
 
         // Initialize world with a sample droid as requested
@@ -135,12 +171,44 @@ class WorldStateController {
         // Resolve the UUID for the start room to maintain spatial synchronization
         const startRoomId = this.roomsController.getUidByLogicalId('start_room');
 
-        // Spawn the small ball droid in the resolved start room UUID
-        this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+        // Spawn the client entity (small ball droid) in the start room
+        const clientEntityId = this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+
+        // Add test item (volume=2) to the client entity's centralBall component on spawn
+        this._addTestItemToClientEntity(clientEntityId);
 
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
+    }
+
+    /**
+     * Adds a test item to the client entity's centralBall component.
+     * Used for inventory system verification/testing.
+     * @param {string} clientEntityId - The client entity ID.
+     * @returns {void}
+     * @private
+     */
+    _addTestItemToClientEntity(clientEntityId) {
+        const entity = this.stateEntityController.getEntity(clientEntityId);
+        if (!entity || !entity.components || !Array.isArray(entity.components)) {
+            Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for test item.`);
+            return;
+        }
+
+        // Find the centralBall component
+        const centralBall = entity.components.find(c => c.type === 'centralBall');
+        if (!centralBall) {
+            Logger.warn(`[WorldStateController] centralBall component not found on entity "${clientEntityId}" for test item.`);
+            return;
+        }
+
+        const result = this.addItemToEntity(clientEntityId, 'testItem', centralBall.id);
+        if (result.success) {
+            Logger.info(`[WorldStateController] Test item added to centralBall (component: ${centralBall.id}) on entity ${clientEntityId}`);
+        } else {
+            Logger.warn(`[WorldStateController] Failed to add test item to centralBall: ${result.message}`);
+        }
     }
 
     /**
@@ -516,6 +584,107 @@ class WorldStateController {
     }
 
     // =========================================================================
+    // INVENTORY PUBLIC API (for server.js access)
+    // =========================================================================
+
+    /**
+     * Gets the item type definitions (registry).
+     * Returns a defensive deep copy.
+     * @returns {Object} Item definitions.
+     */
+    getItemRegistry() {
+        return this.inventoryManager.getItemDefinitions();
+    }
+
+    /**
+     * Gets inventory items for an entity grouped by host component.
+     * Returns a defensive deep copy.
+     * @param {string} entityId - The entity ID.
+     * @returns {Object} Item data grouped by component.
+     */
+    getEntityItems(entityId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for inventory query.`);
+            return {};
+        }
+        return this.inventoryManager.getEntityItems(entity);
+    }
+
+    /**
+     * Adds an item to an entity's inventory, attached to a specific component.
+     * All items must be associated with a component — there is no general/unassigned inventory.
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemType - The item type identifier.
+     * @param {string} componentId - The component ID to attach the item to (required).
+     * @returns {{ success: boolean, message?: string, item?: Object }}
+     */
+    addItemToEntity(entityId, itemType, componentId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for item addition.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.addItem(entity, itemType, componentId, {
+            componentController: this.componentController
+        });
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Removes an item from an entity's inventory.
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID to remove.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    removeItemFromEntity(entityId, itemId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for item removal.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.removeItem(entity, itemId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Moves an item to a different component within an entity.
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID to move.
+     * @param {string} targetComponentId - The target component ID.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    moveItemInEntity(entityId, itemId, targetComponentId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for item move.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.moveItem(entity, itemId, targetComponentId, {
+            componentController: this.componentController
+        });
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    // =========================================================================
     // BROADCAST SERVICE INJECTION
     // =========================================================================
 
@@ -526,6 +695,20 @@ class WorldStateController {
      */
     setBroadcastService(broadcastService) {
         this._broadcastService = broadcastService;
+    }
+
+    /**
+     * Triggers an initial broadcast of world state after the broadcast service is injected.
+     * Called from server.js after setBroadcastService() to sync initial state (including spawn items) to clients.
+     * @returns {void}
+     */
+    triggerInitialBroadcast() {
+        if (this._broadcastService) {
+            this._broadcastService.broadcast();
+            Logger.info('[WorldStateController] Initial broadcast triggered after broadcast service injection.');
+        } else {
+            Logger.warn('[WorldStateController] Broadcast service not available for initial broadcast.');
+        }
     }
 }
 

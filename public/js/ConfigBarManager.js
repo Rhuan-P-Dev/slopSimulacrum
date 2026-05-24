@@ -47,6 +47,8 @@ export class ConfigBarManager extends EventDispatcher {
         this._onGrayedComponentCallback = options.onGrayedComponentCallback || null;
         /** @private {Function|null} */
         this._onToggleWorldMap = options.onToggleWorldMap || null;
+        /** @private {Function|null} */
+        this._onToggleInventory = options.onToggleInventory || null;
         /** @private {HTMLElement|null} */
         this._configBar = null;
     }
@@ -84,6 +86,11 @@ export class ConfigBarManager extends EventDispatcher {
         }
         if (btnColorScheme) {
             btnColorScheme.onclick = () => this._onColorSchemeClick();
+        }
+
+        const btnInventory = document.getElementById('btn-inventory');
+        if (btnInventory) {
+            btnInventory.onclick = () => this._onInventoryClick();
         }
     }
 
@@ -238,6 +245,27 @@ export class ConfigBarManager extends EventDispatcher {
     }
 
     /**
+     * Handles the 🎒 Inventory button click.
+     * Toggles the inventory overlay.
+     * @private
+     */
+    _onInventoryClick() {
+        if (this._onToggleInventory) {
+            this._onToggleInventory();
+        }
+    }
+
+    /**
+     * Closes the inventory overlay.
+     */
+    closeInventory() {
+        if (this._onToggleInventory) {
+            // Inventory doesn't have a close method exposed, just rely on hide()
+            this._onToggleInventory();
+        }
+    }
+
+    /**
      * Closes the component viewer overlay.
      */
     closeComponentViewer() {
@@ -271,6 +299,7 @@ export class ConfigBarManager extends EventDispatcher {
         this.closeComponentViewer();
         this.closeNavActions();
         this.closeWorldMap();
+        this.closeInventory();
     }
 
     /**

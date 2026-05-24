@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="css/utilities.css">
     <link rel="stylesheet" href="css/feedback.css">
     <link rel="stylesheet" href="css/internal-components.css">
+    <link rel="stylesheet" href="css/inventory.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -32,6 +33,9 @@
         <div class="config-bar-right">
             <button id="btn-add-stat" class="config-btn" title="Add Stat Bar">➕ Add Stat</button>
             <button id="btn-color-scheme" class="config-btn" title="Color Scheme">🎨 Colors</button>
+        </div>
+        <div class="config-bar-inventory">
+            <button id="btn-inventory" class="config-btn" title="Inventory">🎒</button>
         </div>
     </div>
 
@@ -67,6 +71,17 @@
     <div id="stat-bars-section">
         <div id="stat-bars-container">
             <em style="color: var(--text-dim); font-size: 0.85em;">No stat bars configured. Click "➕ Add Stat" to begin.</em>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Inventory -->
+    <div id="inventory-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🎒 Inventory</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="inventory-content" class="inventory-root">
+            <!-- Populated by JS -->
         </div>
     </div>
 

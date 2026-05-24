@@ -27,8 +27,10 @@ class EventDispatcher {
      * @param {Object} socket - Socket.io client instance.
      * @param {Object} config - Application configuration (AppConfig).
      * @param {IHandlers} handlers - Business logic handler callbacks.
+     * @param {Object} [options] - Optional configurations.
+     * @param {Object} [options.worldStateManager] - WorldStateManager instance for emitting stateChanged events.
      */
-    constructor(socket, config, handlers) {
+    constructor(socket, config, handlers, options = {}) {
         /** @type {Object} Socket.io client instance. */
         this.socket = socket;
 
@@ -37,6 +39,9 @@ class EventDispatcher {
 
         /** @type {IHandlers} Business logic handler callbacks. */
         this.handlers = handlers;
+
+        /** @private {Object|null} WorldStateManager for emitting state events. */
+        this._worldStateManager = options.worldStateManager || null;
 
         /** @type {Map<string, Array<Function>>} Tracks socket listeners for cleanup. */
         this._socketListeners = new Map();
@@ -65,6 +70,11 @@ class EventDispatcher {
             },
             'world-state-update': (data) => {
                 console.log('[EventDispatcher] WORLD STATE UPDATE SIGNAL', data?.state ? '(with payload)' : '(no payload)');
+                // Sync world state and emit stateChanged event for subscribers (e.g., InventoryManager)
+                if (this._worldStateManager && data?.state) {
+                    this._worldStateManager.state = data.state;
+                    this._worldStateManager._emit('stateChanged', data.state);
+                }
                 // Immediately update stat bars with the state payload (fast path)
                 if (this.handlers.onStatBarsUpdate && data?.state) {
                     this.handlers.onStatBarsUpdate(data.state);

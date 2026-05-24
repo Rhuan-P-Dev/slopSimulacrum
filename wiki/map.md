@@ -28,6 +28,7 @@ graph TD
     SVR[Server]
     WGB[WorldGraphBuilder]
     ICE[InternalComponentController]
+    INV[InventoryManager]
 
     SVR --> LLMC
     SVR --> WSC
@@ -38,6 +39,7 @@ graph TD
     WSC --> AC
     WSC --> CCC
     WSC --> ASC
+    WSC --> INV
 
     AC --> CH
     AC --> CCC
@@ -64,6 +66,9 @@ graph TD
 
     SEC -->|auto-installs| ICE
     ICE -->|repairs| CC
+
+    INV --> CC
+    INV -.->|items array| SEC
 ```
 
 ## 📁 Data Files
@@ -77,3 +82,4 @@ graph TD
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
 | `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
+| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits) |

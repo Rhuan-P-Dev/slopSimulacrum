@@ -5,6 +5,7 @@ import { register as registerActionRoutes } from './actionRoutes.js';
 import { register as registerCapabilityRoutes } from './capabilityRoutes.js';
 import { register as registerSynergyRoutes } from './synergyRoutes.js';
 import { register as registerSelectionRoutes } from './selectionRoutes.js';
+import registerInventoryRoutes from './inventoryRoutes.js';
 import internalComponentRoutes from './internalComponentRoutes.js';
 
 /**
@@ -23,6 +24,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerCapabilityRoutes(router, { worldStateController });
 	registerSynergyRoutes(router, { worldStateController });
 	registerSelectionRoutes(router, { worldStateController });
+	registerInventoryRoutes(router, { worldStateController });
 	app.use('/api/internal-components', internalComponentRoutes);
 
 	app.use('/', router);

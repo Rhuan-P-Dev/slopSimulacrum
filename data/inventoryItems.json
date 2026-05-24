@@ -1,0 +1,50 @@
+{
+  "powerCell": {
+    "name": "Power Cell",
+    "description": "Compact power source for droid systems.",
+    "volume": 2,
+    "traits": {
+      "Physical": { "mass": 1, "durability": 50 }
+    }
+  },
+  "dataCrystal": {
+    "name": "Data Crystal",
+    "description": "High-density data storage unit.",
+    "volume": 1,
+    "traits": {
+      "Physical": { "mass": 0.5, "durability": 30 }
+    }
+  },
+  "toolKit": {
+    "name": "Toolkit",
+    "description": "Basic repair toolkit.",
+    "volume": 5,
+    "traits": {
+      "Physical": { "mass": 3, "durability": 80 }
+    }
+  },
+  "fuelCell": {
+    "name": "Fuel Cell",
+    "description": "Droid fuel cell.",
+    "volume": 3,
+    "traits": {
+      "Physical": { "mass": 2, "durability": 40 }
+    }
+  },
+  "testItem": {
+    "name": "Test Item",
+    "description": "Test item to verify inventory system functionality. Has volume=2.",
+    "volume": 2,
+    "traits": {
+      "Physical": { "mass": 0.5, "durability": 10 }
+    }
+  },
+  "testItem2": {
+    "name": "Test Item 2",
+    "description": "Second test item to verify inventory system functionality. has volume=4.",
+    "volume": 4,
+    "traits": {
+      "Physical": { "mass": 0.5, "durability": 10 }
+    }
+  }
+}

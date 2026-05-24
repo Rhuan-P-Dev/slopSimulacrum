@@ -1,0 +1,275 @@
+/* ============================================================
+   Inventory System Styles
+   Modular CSS for the inventory overlay and component-item tree.
+   Follows BEM naming, CSS variables, neon theme.
+   ============================================================ */
+
+/* --- Inventory Overlay --- */
+.inventory-root {
+    padding: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+.inventory-empty {
+    text-align: center;
+    padding: 30px 10px;
+    color: var(--text-dim);
+}
+
+.inventory-empty-icon {
+    font-size: 2em;
+    display: block;
+    margin-bottom: 10px;
+}
+
+/* --- Component Slot --- */
+.inventory-component-slot {
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inventory-component-slot.drop-hover {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 128, 0.3);
+}
+
+.inventory-component-slot.drop-invalid {
+    border-color: var(--neon-red);
+    box-shadow: 0 0 6px rgba(255, 0, 80, 0.3);
+}
+
+/* --- Component Header --- */
+.inventory-component-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: var(--bg-dark);
+    cursor: default;
+    user-select: none;
+}
+
+.inventory-component-name {
+    font-weight: bold;
+    color: var(--text-main);
+    font-size: 1em;
+}
+
+.inventory-component-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    color: var(--text-dim);
+}
+
+.inventory-component-type-badge {
+    color: var(--neon-cyan);
+    font-size: 0.9em;
+}
+
+/* --- Volume Bar --- */
+.inventory-volume-bar {
+    width: 120px;
+    height: 8px;
+    background: var(--bg-dark);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.inventory-volume-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.inventory-volume-bar-fill.low {
+    background: var(--neon-green);
+}
+
+.inventory-volume-bar-fill.medium {
+    background: #ffaa00;
+}
+
+.inventory-volume-bar-fill.high {
+    background: var(--neon-orange);
+}
+
+.inventory-volume-bar-fill.full {
+    background: var(--neon-red);
+}
+
+.inventory-volume-text {
+    font-size: 0.8em;
+    color: var(--text-dim);
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: right;
+}
+
+/* --- Items Container --- */
+.inventory-items-container {
+    padding: 6px 8px;
+    min-height: 24px;
+    background: rgba(0, 0, 0, 0.2);
+    transition: background 0.2s ease;
+    border-top: 1px solid transparent;
+}
+
+.inventory-items-container.has-items {
+    border-top-color: var(--panel-border);
+}
+
+/* Drop zone highlight */
+.inventory-items-container.drop-target-hover {
+    background: rgba(0, 255, 128, 0.08);
+}
+
+.inventory-items-container.drop-target-invalid {
+    background: rgba(255, 0, 80, 0.08);
+}
+
+.inventory-items-empty {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.8em;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.inventory-drag-hint {
+    opacity: 0.5;
+    font-size: 0.75em;
+}
+
+/* --- Item Card --- */
+.inventory-item-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    background: var(--bg-dark);
+    cursor: grab;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    user-select: none;
+    font-size: 0.85em;
+}
+
+.inventory-item-card:last-child {
+    margin-bottom: 0;
+}
+
+.inventory-item-card:hover {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 4px rgba(0, 255, 255, 0.2);
+}
+
+.inventory-item-card:active {
+    cursor: grabbing;
+}
+
+.inventory-item-card.dragging {
+    opacity: 0.4;
+    transform: scale(0.95);
+}
+
+.inventory-item-card .drag-handle {
+    color: var(--text-dim);
+    font-size: 0.75em;
+    cursor: grab;
+}
+
+/* --- Item Name --- */
+.inventory-item-name {
+    color: var(--text-main);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+}
+
+/* --- Item Volume --- */
+.inventory-item-volume {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+/* --- Item Volume Bar --- */
+.inventory-item-bar {
+    width: 50px;
+    height: 4px;
+    background: var(--bg-dark);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.inventory-item-bar-fill {
+    height: 100%;
+    background: var(--neon-cyan);
+    border-radius: 2px;
+    transition: width 0.2s ease;
+}
+
+/* --- Toast Notifications --- */
+.inventory-toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    z-index: 1000;
+    animation: inventory-toast-in 0.3s ease;
+    pointer-events: none;
+}
+
+.inventory-toast.success {
+    background: rgba(0, 128, 64, 0.9);
+    color: #fff;
+}
+
+.inventory-toast.error {
+    background: rgba(200, 0, 60, 0.9);
+    color: #fff;
+}
+
+@keyframes inventory-toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* --- Scrollbar Styling --- */
+.inventory-root::-webkit-scrollbar {
+    width: 6px;
+}
+
+.inventory-root::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+    border-radius: 3px;
+}
+
+.inventory-root::-webkit-scrollbar-thumb {
+    background: var(--panel-border);
+    border-radius: 3px;
+}
+
+.inventory-root::-webkit-scrollbar-thumb:hover {
+    background: var(--text-dim);
+}

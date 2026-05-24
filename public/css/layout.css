@@ -24,7 +24,8 @@
 }
 
 .config-bar-left,
-.config-bar-right {
+.config-bar-right,
+.config-bar-inventory {
     display: flex;
     align-items: center;
     gap: 8px;

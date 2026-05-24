@@ -12,6 +12,7 @@ import { ComponentViewer } from './ComponentViewer.js';
 import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
 import { ConfigBarManager } from './ConfigBarManager.js';
+import { InventoryManager } from './InventoryManager.js';
 
 /**
  * ClientApp
@@ -56,6 +57,9 @@ export class ClientApp {
         this.worldMap = new WorldMapView({
             onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
         });
+
+        // 4b. Inventory manager
+        this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
         this.executor = new ActionExecutor(
             this.worldState,
@@ -102,6 +106,7 @@ export class ClientApp {
                 this.selection.removeGrayedComponent(lockedActionName, componentId);
             },
             onToggleWorldMap: () => this.worldMap.toggle(),
+            onToggleInventory: () => this.inventory.toggle(),
         });
 
         // 6. Socket connection
@@ -134,6 +139,8 @@ export class ClientApp {
                 this.updateActionList();
             },
             _reRenderActionList: () => this.updateActionList()
+        }, {
+            worldStateManager: this.worldState
         });
 
         // 8. Setup event listeners
@@ -188,6 +195,7 @@ export class ClientApp {
             this.navActions.init();
             this.worldMap.init();
             this.configBar.init();
+            this.inventory.init();
 
             // Pre-fetch internal component registry so Entity Analysis has descriptions
             await this._loadInternalComponentRegistry();
