@@ -20,6 +20,7 @@ const TRAIT_DEFAULT_COLORS = Object.freeze({
     Mind: '#3b82f6',
     Spatial: '#6b7280',
     Movement: '#f59e0b',
+    Manipulation: '#a855f7',
 });
 
 /**

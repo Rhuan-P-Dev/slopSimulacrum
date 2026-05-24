@@ -15,5 +15,8 @@
   },
   "Movement": {
     "move": 10
+  },
+  "Manipulation": {
+    "fine_controls": 10
   }
 }

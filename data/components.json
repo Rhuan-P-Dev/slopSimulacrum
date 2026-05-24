@@ -21,13 +21,15 @@
   "droidHand": { 
     "traits": { 
       "Physical": { "durability": 40, "strength": 25, "volume": 6 },
-      "Spatial": { "x": 30, "y": 0 }
+      "Spatial": { "x": 30, "y": 0 },
+      "Manipulation": { "fine_controls": 50 }
     } 
   },
   "humanoidDroidFinger": { 
     "traits": { 
       "Physical": { "durability": 30, "volume": 4 },
-      "Spatial": { "x": 40, "y": 0 }
+      "Spatial": { "x": 40, "y": 0 },
+      "Manipulation": { "fine_controls": 30 }
     } 
   },
   "droidRollingBall": { 
