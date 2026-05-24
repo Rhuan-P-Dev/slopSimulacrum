@@ -124,5 +124,36 @@
         "message": "Punch failed - strength too low"
       }
     ]
+  },
+  "cut": {
+    "targetingType": "self_target",
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "sharpness",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "updateComponentStatDelta",
+        "target": "self",
+        "params": { "trait": "Physical", "stat": "sharpness", "value": -1 }
+      },
+      {
+        "type": "log",
+        "target": "self",
+        "level": "info",
+        "message": "The knife cuts, losing 1 sharpness."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Action 'cut' failed - sharpness too low to cut."
+      }
+    ]
   }
 }

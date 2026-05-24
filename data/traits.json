@@ -4,7 +4,8 @@
     "mass": 10,
     "volume": 1,
     "temperature": 20,
-    "strength": 10
+    "strength": 10,
+    "sharpness": 10
   },
   "Mind": {
     "think_level": 10
