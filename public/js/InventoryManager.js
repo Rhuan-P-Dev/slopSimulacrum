@@ -39,10 +39,18 @@ export class InventoryManager {
         /** @private {boolean} */
         this._initialized = false;
 
+        /** @private {Object|null} */
+        this._holdingCostRegistry = null;
+
+        /** @private {Object} */
+        this._equippedItems = {};
+
         /** Bind methods */
         this._onDrop = this._onDrop.bind(this);
         this._onDragOver = this._onDragOver.bind(this);
         this._onDragLeave = this._onDragLeave.bind(this);
+        this._onEquipClick = this._onEquipClick.bind(this);
+        this._onUnequipClick = this._onUnequipClick.bind(this);
     }
 
     /**
@@ -92,10 +100,12 @@ export class InventoryManager {
         this._currentEntityId = entityId || entity.id;
         this._overlay.style.display = 'block';
 
-        // Load registry and items
+        // Load registry, holding cost definitions, and items
         Promise.all([
             this._loadItemRegistry(),
-            this._loadEntityItems(this._currentEntityId)
+            this._loadHoldingCostRegistry(),
+            this._loadEntityItems(this._currentEntityId),
+            this._loadEquippedItems(this._currentEntityId)
         ]).then(() => {
             this._renderInventory();
         }).catch((err) => {
@@ -133,14 +143,74 @@ export class InventoryManager {
         try {
             const response = await fetch('/inventory/registry');
             if (!response.ok) {
-                console.warn('[InventoryManager] Failed to load item registry.');
+                console.error('[InventoryManager] Failed to load item registry. HTTP', response.status, response.statusText);
+                this._itemRegistry = {};
                 return;
             }
             const data = await response.json();
             this._itemRegistry = data.registry || {};
+
+            // Log the loaded registry for debugging
+            const itemTypes = Object.keys(this._itemRegistry);
+            console.log('[InventoryManager] Item registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
         } catch (error) {
-            console.warn('[InventoryManager] Error loading item registry:', error);
+            console.error('[InventoryManager] Error loading item registry:', error);
             this._itemRegistry = {};
+        }
+    }
+
+    /**
+     * Loads the holding cost definitions from the server.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _loadHoldingCostRegistry() {
+        try {
+            const response = await fetch('/inventory/holding-cost-registry');
+            if (!response.ok) {
+                console.error('[InventoryManager] Failed to load holding cost registry. HTTP', response.status, response.statusText);
+                this._holdingCostRegistry = {};
+                this._showToast('Holding cost registry unavailable — equip buttons will not appear. Server may need restart.', 'error');
+                return;
+            }
+            const data = await response.json();
+            this._holdingCostRegistry = data.registry || {};
+
+            // Log the loaded registry for debugging
+            const itemTypes = Object.keys(this._holdingCostRegistry);
+            console.log('[InventoryManager] Holding cost registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
+
+            if (itemTypes.length === 0) {
+                console.warn('[InventoryManager] Holding cost registry is empty — no equip buttons will appear.');
+            }
+        } catch (error) {
+            console.error('[InventoryManager] Error loading holding cost registry:', error);
+            this._holdingCostRegistry = {};
+        }
+    }
+
+    /**
+     * Loads equipped items for the entity.
+     * @param {string} entityId - The entity ID.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _loadEquippedItems(entityId) {
+        try {
+            const response = await fetch(`/inventory/${entityId}/equipped`);
+            if (!response.ok) {
+                console.warn(`[InventoryManager] Failed to load equipped items for entity ${entityId}.`);
+                this._equippedItems = {};
+                return;
+            }
+            const data = await response.json();
+            this._equippedItems = {};
+            for (const eq of (data.equipped || [])) {
+                this._equippedItems[eq.itemId] = eq;
+            }
+        } catch (error) {
+            console.warn(`[InventoryManager] Error loading equipped items for entity ${entityId}:`, error);
+            this._equippedItems = {};
         }
     }
 
@@ -154,14 +224,21 @@ export class InventoryManager {
         try {
             const response = await fetch(`/inventory/${entityId}`);
             if (!response.ok) {
-                console.warn(`[InventoryManager] Failed to load items for entity ${entityId}.`);
+                console.error(`[InventoryManager] Failed to load items for entity ${entityId}. HTTP`, response.status, response.statusText);
                 this._currentItems = {};
                 return;
             }
             const data = await response.json();
             this._currentItems = data.items || {};
+
+            // Log loaded items for debugging
+            let totalItems = 0;
+            for (const compId of Object.keys(this._currentItems)) {
+                totalItems += Array.isArray(this._currentItems[compId]) ? this._currentItems[compId].length : 0;
+            }
+            console.log('[InventoryManager] Entity items loaded:', totalItems, 'items across', Object.keys(this._currentItems).length, 'component(s)');
         } catch (error) {
-            console.warn(`[InventoryManager] Error loading items for entity ${entityId}:`, error);
+            console.error(`[InventoryManager] Error loading items for entity ${entityId}:`, error);
             this._currentItems = {};
         }
     }
@@ -337,6 +414,27 @@ export class InventoryManager {
             const itemDef = this._itemRegistry ? this._itemRegistry[item.type] : null;
             const itemVolume = item.volume || (itemDef ? itemDef.volume : 0);
             const percentageStr = itemVolume > 0 ? '100' : '0';
+            const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
+            const isEquipped = this._equippedItems[item.id];
+
+            // Build equip/unequip button only for items with holding cost
+            let equipButtonHtml = '';
+            if (hasHoldingCost) {
+                const btnText = isEquipped ? '🔓 Unequip' : '⚔️ Equip';
+                const btnClass = isEquipped ? 'equip-btn unequip' : 'equip-btn equip';
+                const btnTitle = isEquipped
+                    ? 'Click to unequip (remove holding cost debuffs)'
+                    : `Click to equip (requires: ${this._formatHoldingCost(item.type)})`;
+
+                equipButtonHtml = `
+                    <button class="${btnClass}"
+                            data-item-id="${item.id}"
+                            data-item-type="${item.type}"
+                            data-is-equipped="${isEquipped ? 'true' : 'false'}"
+                            title="${btnTitle}">
+                        ${btnText}
+                    </button>`;
+            }
 
             html += `
                 <div class="inventory-item-card"
@@ -344,16 +442,26 @@ export class InventoryManager {
                      data-item-id="${item.id}"
                      data-item-type="${item.type}"
                      data-item-volume="${itemVolume}"
-                     title="Drag to move to another component">
+                     title="${hasHoldingCost ? 'Drag to move to another component' : 'Drag to move to another component'}">
                     <span class="drag-handle">⠿</span>
                     <span class="inventory-item-name">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${itemVolume}v</span>
-                    <div class="inventory-item-bar">
-                        <div class="inventory-item-bar-fill" style="width: ${percentageStr}%;"></div>
-                    </div>
+                    ${equipButtonHtml}
                 </div>`;
         }
         return html;
+    }
+
+    /**
+     * Formats the holding cost requirements as a readable string.
+     * @param {string} itemType - The item type.
+     * @returns {string}
+     * @private
+     */
+    _formatHoldingCost(itemType) {
+        const def = this._holdingCostRegistry?.[itemType];
+        if (!def?.holdingCost) return '';
+        return def.holdingCost.map(entry => `${entry.stat}≥${entry.value}`).join(', ');
     }
 
     /**
@@ -391,6 +499,104 @@ export class InventoryManager {
             container.addEventListener('dragleave', this._onDragLeave);
             container.addEventListener('drop', this._onDrop);
         });
+
+        // Attach equip/unequip button listeners
+        const equipButtons = this._content.querySelectorAll('.equip-btn');
+        equipButtons.forEach(btn => {
+            const isEquipped = btn.dataset.isEquipped === 'true';
+            btn.addEventListener('click', isEquipped ? this._onUnequipClick : this._onEquipClick);
+        });
+    }
+
+    /**
+     * Handles equip button click.
+     * @param {Event} e - The click event.
+     * @private
+     */
+    async _onEquipClick(e) {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const itemId = btn.dataset.itemId;
+        const itemType = btn.dataset.itemType;
+        if (!this._currentEntityId) return;
+
+        // Find target component from the nearest container
+        const card = btn.closest('.inventory-item-card');
+        const container = card?.closest('.inventory-items-container');
+        const targetCompId = container?.dataset.compId;
+        if (!targetCompId) {
+            this._showToast('No component found to equip to', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/equip/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ itemType, componentId: targetCompId })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                this._showToast(result.message || 'Failed to equip item', 'error');
+                return;
+            }
+
+            this._showToast('Item equipped successfully', 'success');
+
+            // Reload BOTH item data and equipped state in parallel to avoid stale data
+            await Promise.all([
+                this._loadEntityItems(this._currentEntityId),
+                this._loadEquippedItems(this._currentEntityId)
+            ]);
+            await this._statBarsManager?.refreshCurrentEntity?.();
+            this._renderInventory();
+
+        } catch (error) {
+            console.error('[InventoryManager] Error equipping item:', error);
+            this._showToast('Failed to equip item', 'error');
+        }
+    }
+
+    /**
+     * Handles unequip button click.
+     * @param {Event} e - The click event.
+     * @private
+     */
+    async _onUnequipClick(e) {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const itemId = btn.dataset.itemId;
+        if (!this._currentEntityId) return;
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/unequip/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                this._showToast(result.message || 'Failed to unequip item', 'error');
+                return;
+            }
+
+            this._showToast('Item unequipped successfully', 'success');
+
+            // Reload BOTH item data and equipped state in parallel to avoid stale data
+            await Promise.all([
+                this._loadEntityItems(this._currentEntityId),
+                this._loadEquippedItems(this._currentEntityId)
+            ]);
+            await this._statBarsManager?.refreshCurrentEntity?.();
+            this._renderInventory();
+
+        } catch (error) {
+            console.error('[InventoryManager] Error unequipping item:', error);
+            this._showToast('Failed to unequip item', 'error');
+        }
     }
 
     /**
@@ -466,6 +672,8 @@ export class InventoryManager {
 
     /**
      * Handles drop on a drop zone.
+     * If the target component has any equipped items, they are auto-unequipped
+     * before moving the dragged item.
      * @param {DragEvent} e - The drop event.
      * @private
      */
@@ -487,6 +695,13 @@ export class InventoryManager {
         if (sourceCompId === targetCompId) {
             // Same component, no move needed
             return;
+        }
+
+        // Auto-unequip any equipped items on the target component
+        try {
+            await this._autoUnequipOnTarget(targetCompId);
+        } catch (error) {
+            console.error('[InventoryManager] Error auto-unequipping items on drop:', error);
         }
 
         // Send move request to server
@@ -513,6 +728,41 @@ export class InventoryManager {
         } catch (error) {
             console.error('[InventoryManager] Error moving item:', error);
             this._showToast('Failed to move item', 'error');
+        }
+    }
+
+    /**
+     * Auto-unequips all items equipped on a specific target component.
+     * @param {string} targetCompId - The target component ID.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _autoUnequipOnTarget(targetCompId) {
+        if (!this._currentEntityId) return;
+
+        // Find equipped items on the target component
+        const equippedOnTarget = [];
+        for (const [itemId, eq] of Object.entries(this._equippedItems)) {
+            if (eq.componentId === targetCompId) {
+                equippedOnTarget.push(itemId);
+            }
+        }
+
+        // Unequip each one
+        for (const itemId of equippedOnTarget) {
+            try {
+                const response = await fetch(`/inventory/${this._currentEntityId}/unequip/${itemId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    // Update local tracking
+                    delete this._equippedItems[itemId];
+                }
+            } catch (error) {
+                console.warn(`[InventoryManager] Failed to auto-unequip item ${itemId} on drop:`, error);
+            }
         }
     }
 

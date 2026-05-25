@@ -228,3 +228,24 @@
 .nav-action-item.nav-active .nav-action-name {
     color: #ffff00;
 }
+
+/* =========================================================================
+   Equipped Item Action Styles
+   ========================================================================= */
+
+/* Equipped item rows (knife, etc.) — orange left border */
+.nav-component-row.nav-equipped-item {
+    border-left: 3px solid var(--neon-orange);
+    padding-left: 8px;
+}
+
+.nav-component-row.nav-equipped-item:hover {
+    background: rgba(255, 140, 0, 0.15);
+    border-color: rgba(255, 140, 0, 0.4);
+}
+
+.nav-equipped-icon {
+    font-size: 12px;
+    flex-shrink: 0;
+    cursor: help;
+}

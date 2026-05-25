@@ -46,5 +46,13 @@
     "traits": {
       "Physical": { "mass": 0.5, "durability": 10 }
     }
+  },
+  "knife": {
+    "name": "Knife",
+    "description": "A sharp blade capable of cutting.",
+    "volume": 1,
+    "traits": {
+      "Physical": { "durability": 30, "sharpness": 50 }
+    }
   }
 }

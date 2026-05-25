@@ -10,6 +10,7 @@ import SynergyController from './synergy/synergyController.js';
 import ActionSelectController from './actions/actionSelectController.js';
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import InternalComponentController from './core/InternalComponentController.js';
+import HoldingCostController from './core/HoldingCostController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
@@ -89,33 +90,47 @@ class WorldStateController {
         const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
         this.stateEntityController = stateEntityControllerInstance;
 
-        // Register test item spawn observer — adds testItem to every smallBallDroid on spawn
+        // Register spawn observer — adds test items + knives to every spawned entity
         stateEntityControllerInstance.registerSpawnObserver((entityId, entityData) => {
-            if (entityData.blueprint !== 'smallBallDroid') return;
             const entity = this.stateEntityController.getEntity(entityId);
             if (!entity || !entity.components || !Array.isArray(entity.components)) return;
 
+            // Find components for item attachment
             const centralBall = entity.components.find(c => c.type === 'centralBall');
-            if (!centralBall) return;
+            let handComponent = entity.components.find(c => c.type === 'droidHand');
+            if (!handComponent) handComponent = entity.components.find(c => c.type === 'droidArm');
 
-            const result1 = this.inventoryManager.addItem(entity, 'testItem', centralBall.id, {
-                componentController: this.componentController
-            });
+            // Add test items to centralBall (if exists)
+            if (centralBall) {
+                const result1 = this.inventoryManager.addItem(entity, 'testItem', centralBall.id, {
+                    componentController: this.componentController
+                });
+                const result2 = this.inventoryManager.addItem(entity, 'testItem2', centralBall.id, {
+                    componentController: this.componentController
+                });
 
-            const result2 = this.inventoryManager.addItem(entity, 'testItem2', centralBall.id, {
-                componentController: this.componentController
-            });
-
-            if (result1.success) {
-                Logger.info(`[WorldStateController] Test item 1 auto-added to centralBall on spawned entity ${entityId}`);
-            } else {
-                Logger.warn(`[WorldStateController] Failed to add test item 1 to spawned entity ${entityId}: ${result1.message}`);
+                if (result1.success) {
+                    Logger.info(`[WorldStateController] Test item 1 auto-added to centralBall on spawned entity ${entityId}`);
+                } else {
+                    Logger.warn(`[WorldStateController] Failed to add test item 1 to spawned entity ${entityId}: ${result1.message}`);
+                }
+                if (result2.success) {
+                    Logger.info(`[WorldStateController] Test item 2 auto-added to centralBall on spawned entity ${entityId}`);
+                } else {
+                    Logger.warn(`[WorldStateController] Failed to add test item 2 to spawned entity ${entityId}: ${result2.message}`);
+                }
             }
 
-            if (result2.success) {
-                Logger.info(`[WorldStateController] Test item 2 auto-added to centralBall on spawned entity ${entityId}`);
-            } else {
-                Logger.warn(`[WorldStateController] Failed to add test item 2 to spawned entity ${entityId}: ${result2.message}`);
+            // Add knife to hand component (if exists) — every entity gets a knife
+            if (handComponent) {
+                const knifeResult = this.inventoryManager.addItem(entity, 'knife', handComponent.id, {
+                    componentController: this.componentController
+                });
+                if (knifeResult.success) {
+                    Logger.info(`[WorldStateController] Knife auto-added to ${handComponent.type} on spawned entity ${entityId}`);
+                } else {
+                    Logger.warn(`[WorldStateController] Failed to add knife to spawned entity ${entityId}: ${knifeResult.message}`);
+                }
             }
         });
 
@@ -136,7 +151,16 @@ class WorldStateController {
         // Manages item ownership, volume constraints, and item movements for entities.
         this.inventoryManager = new InventoryManager();
 
-        // 9. Broadcast service (injected via setBroadcastService() from server.js)
+        // 9. Instantiate HoldingCostController (Holding Cost System)
+        // Manages holding cost requirements, debuffs, and item equip/unequip for entities.
+        // Injected after actionController is available for capability re-evaluation.
+        const holdingCostController = new HoldingCostController({
+            worldStateController: this,
+            actionController: actionController
+        });
+        this.holdingCostController = holdingCostController;
+
+        // 10. Broadcast service (injected via setBroadcastService() from server.js)
         /** @private {WorldStateBroadcastService|null} */
         this._broadcastService = null;
 
@@ -150,7 +174,8 @@ class WorldStateController {
             capabilities: this.componentCapabilityController,
             synergy: this.synergyController,
             selections: this.actionSelectController,
-            inventory: this.inventoryManager
+            inventory: this.inventoryManager,
+            holdingCost: this.holdingCostController
         };
 
         // Initialize world with a sample droid as requested
@@ -174,12 +199,47 @@ class WorldStateController {
         // Spawn the client entity (small ball droid) in the start room
         const clientEntityId = this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-        // Add test item (volume=2) to the client entity's centralBall component on spawn
+        // Add test items (volume=2, volume=4) to the client entity's centralBall component on spawn
         this._addTestItemToClientEntity(clientEntityId);
+
+        // Add knife to the client entity's droidHand component on spawn (so it's available for equip)
+        this._addKnifeToClientEntity(clientEntityId);
 
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
+    }
+
+    /**
+     * Adds a knife to the client entity's droidHand component on spawn.
+     * The knife has holdingCost and can be equipped to enable the "cut" action.
+     * @param {string} clientEntityId - The client entity ID.
+     * @returns {void}
+     * @private
+     */
+    _addKnifeToClientEntity(clientEntityId) {
+        const entity = this.stateEntityController.getEntity(clientEntityId);
+        if (!entity || !entity.components || !Array.isArray(entity.components)) {
+            Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for knife.`);
+            return;
+        }
+
+        // Find the first droidHand component (or droidArm as fallback)
+        let handComponent = entity.components.find(c => c.type === 'droidHand');
+        if (!handComponent) {
+            handComponent = entity.components.find(c => c.type === 'droidArm');
+        }
+        if (!handComponent) {
+            Logger.warn(`[WorldStateController] droidHand/droidArm component not found on entity "${clientEntityId}" for knife.`);
+            return;
+        }
+
+        const result = this.addItemToEntity(clientEntityId, 'knife', handComponent.id);
+        if (result.success) {
+            Logger.info(`[WorldStateController] Knife added to ${handComponent.type} (component: ${handComponent.id}) on entity ${clientEntityId}`);
+        } else {
+            Logger.warn(`[WorldStateController] Failed to add knife to ${handComponent.type}: ${result.message}`);
+        }
     }
 
     /**
@@ -709,6 +769,120 @@ class WorldStateController {
         } else {
             Logger.warn('[WorldStateController] Broadcast service not available for initial broadcast.');
         }
+    }
+
+    // =========================================================================
+    // HOLDING COST PUBLIC API (for server.js access)
+    // =========================================================================
+
+    /**
+     * Equips an item on a component (applies holding cost debuffs, triggers capability re-evaluation).
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID being equipped.
+     * @param {string} itemType - The item type (e.g., "knife").
+     * @param {string} componentId - The component ID to equip on.
+     * @returns {{ success: boolean, message?: string, error?: string }}
+     */
+    equipItem(entityId, itemId, itemType, componentId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for equip.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.holdingCostController.equipItem(entityId, itemId, itemType, componentId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Unequips an item from its component (reverses debuffs, triggers capability re-evaluation).
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID being unequipped.
+     * @returns {{ success: boolean, message?: string, error?: string }}
+     */
+    unequipItem(entityId, itemId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for unequip.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.holdingCostController.unequipItem(entityId, itemId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Transfers an equipped item from one component to another (hand swap).
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID being transferred.
+     * @param {string} itemType - The item type.
+     * @param {string} fromComponentId - The source component ID.
+     * @param {string} toComponentId - The target component ID.
+     * @returns {{ success: boolean, message?: string, error?: string }}
+     */
+    transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for equip transfer.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.holdingCostController.transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Gets all equipped items for an entity.
+     * @param {string} entityId - The entity ID.
+     * @returns {Array<{ itemId: string, itemType: string, componentId: string }>}
+     */
+    getEquippedItems(entityId) {
+        return this.holdingCostController.getEquippedItems(entityId);
+    }
+
+    /**
+     * Gets all equipped items across all entities.
+     * Used by the capability controller to scan all equipped items for action resolution.
+     * @returns {Array<{ entityId: string, itemId: string, itemType: string, componentId: string }>}
+     */
+    getAllEquippedItems() {
+        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        if (!allEquipped || typeof allEquipped !== 'object') return [];
+        const allItems = [];
+        for (const [entityId, items] of Object.entries(allEquipped)) {
+            for (const [, item] of Object.entries(items)) {
+                allItems.push({
+                    entityId,
+                    itemId: item.itemId,
+                    itemType: item.itemType,
+                    componentId: item.componentId
+                });
+            }
+        }
+        return allItems;
+    }
+
+    /**
+     * Gets the holding cost definitions registry.
+     * @returns {Object} Holding cost definitions.
+     */
+    getHoldingCostRegistry() {
+        return this.holdingCostController.getHoldingCostRegistry();
     }
 }
 

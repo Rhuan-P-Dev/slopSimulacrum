@@ -307,10 +307,72 @@ class ActionController {
                 fulfillingComponents = requirementCheckResult.fulfillingComponents;
             }
 
-            // ─── Resolve Source Component (delegated to ComponentResolver) ────
+            // ─── Handle Equipped Item Actions ───────────────────────────────
+            // When a player clicks an equipped item in the UI, the componentId
+            // comes in the format "equipped-${itemId}-${itemType}" (e.g.,
+            // "equipped-abc123-knife"). We must validate this is a real equipped
+            // item before executing, and resolve to the host component for
+            // consequence handling.
             let resolvedSourceComponentId = this.componentResolver.resolveSourceComponent(
                 action, entityId, params, requirementCheckResult
             );
+
+            if (resolvedSourceComponentId && resolvedSourceComponentId.startsWith('equipped-')) {
+                const allEquipped = this.worldStateController.getAllEquippedItems();
+                let foundEquipped = null;
+
+                // Try to find the equipped item by matching componentId format:
+                // "equipped-${itemId}-${itemType}"
+                if (allEquipped) {
+                    for (const eq of allEquipped) {
+                        if (eq.itemId === resolvedSourceComponentId ||
+                            eq.itemType === resolvedSourceComponentId) {
+                            foundEquipped = eq;
+                            break;
+                        }
+                    }
+
+                    // Also try matching by extracting itemId+itemType from the ID
+                    if (!foundEquipped) {
+                        const prefix = 'equipped-';
+                        const afterPrefix = resolvedSourceComponentId.substring(prefix.length);
+                        // Try splitting from the right: last part is itemType
+                        const lastDash = afterPrefix.lastIndexOf('-');
+                        if (lastDash > 0) {
+                            const potentialItemId = afterPrefix.substring(0, lastDash);
+                            const potentialItemType = afterPrefix.substring(lastDash + 1);
+                            for (const eq of allEquipped) {
+                                if (eq.itemId === potentialItemId && eq.itemType === potentialItemType) {
+                                    foundEquipped = eq;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!foundEquipped) {
+                    Logger.warn(`[ActionController] Equipped item "${resolvedSourceComponentId}" not found on entity "${entityId}" for action "${actionName}".`);
+                    return {
+                        success: false,
+                        error: `Item not equipped: ${resolvedSourceComponentId}`,
+                        code: 'ITEM_NOT_EQUIPPED'
+                    };
+                }
+
+                // Use the host component for consequence handling
+                resolvedSourceComponentId = foundEquipped.componentId;
+
+                // Re-validate with the actual host component
+                if (action.componentBinding) {
+                    const bindingValidation = this.componentResolver.validateComponentBinding(
+                        action, entityId, resolvedSourceComponentId, params
+                    );
+                    if (!bindingValidation.valid) {
+                        return { success: false, error: bindingValidation.reason };
+                    }
+                }
+            }
 
             // ─── Track Spatial Components for Release ────────────────────────
             if (isSpatial && componentList && componentList.length > 0) {

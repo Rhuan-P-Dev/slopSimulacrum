@@ -12,6 +12,10 @@ import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../../utils/ActionSco
  * - Re-evaluating capabilities when component stats change
  * - Notifying subscribers of capability changes
  *
+ * Equipped items are also scanned — their traits satisfy action requirements
+ * independently from entity components. This allows items like knives to unlock
+ * actions (e.g., "cut") without merging traits into component stats.
+ *
  * @example
  * // Cache structure:
  * // {
@@ -69,9 +73,12 @@ class ComponentCapabilityController {
      * Each component that meets an action's requirements gets its own entry.
      * This is the main method for performing a full capability re-evaluation.
      *
-     * Each entry now includes `_resolvedRole` — the component-action binding role
+     * After scanning entity components, equipped items are also scanned for actions.
+     * Their traits satisfy action requirements independently — no trait merging occurs.
+     *
+     * Each entry includes `_resolvedRole` — the component-action binding role
      * that this component fulfills (e.g., 'source', 'target', 'spatial', 'self_target').
-     * This ensures the UI and server know which role the selected component plays.
+     * Equipped item entries include `_isEquippedItem: true` metadata.
      *
      * @param {Object} state - The current world state (contains entities).
      * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
@@ -132,6 +139,9 @@ class ComponentCapabilityController {
                 }
             }
         }
+
+        // Scan equipped items for actions — adds capability entries for items that satisfy action requirements
+        this._scanEquippedItemsForActions(state);
 
         // Sort each action's entries by score descending (best first)
         for (const actionName of Object.keys(this._capabilityCache)) {
@@ -250,6 +260,9 @@ class ComponentCapabilityController {
      * Called when an entity's component set changes (e.g., picks up/drops an item, spawns).
      * Removes all entries for this entity from all actions, then re-scans.
      *
+     * After re-scanning entity components, equipped items are also re-evaluated
+     * so newly equipped items appear in the action list.
+     *
      * @param {Object} state - The current world state.
      * @param {string} entityId - The entity to re-evaluate.
      * @returns {Array<ComponentCapabilityEntry>} List of updated capability entries.
@@ -285,28 +298,31 @@ class ComponentCapabilityController {
                     actionData.requirements, entityId, component.id
                 );
 
-                    if (requirementCheck.passed) {
-                        const entry = {
-                            entityId,
-                            componentId: component.id,
-                            componentType: component.type,
-                            componentIdentifier: component.identifier || 'default',
-                            score,
-                            requirementValues: requirementCheck.requirementValues,
-                            fulfillingComponents: requirementCheck.fulfillingComponents,
-                            requirementsStatus: actionData.requirements.map(req => ({
-                                trait: req.trait,
-                                stat: req.stat,
-                                current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
-                                required: req.minValue
-                            })),
-                            _resolvedRole: this._resolveComponentRole(actionData, component)
-                        };
-                        this._capabilityCache[actionName].push(entry);
-                        updatedEntries.push(entry);
+                if (requirementCheck.passed) {
+                    const entry = {
+                        entityId,
+                        componentId: component.id,
+                        componentType: component.type,
+                        componentIdentifier: component.identifier || 'default',
+                        score,
+                        requirementValues: requirementCheck.requirementValues,
+                        fulfillingComponents: requirementCheck.fulfillingComponents,
+                        requirementsStatus: actionData.requirements.map(req => ({
+                            trait: req.trait,
+                            stat: req.stat,
+                            current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                            required: req.minValue
+                        })),
+                        _resolvedRole: this._resolveComponentRole(actionData, component)
+                    };
+                    this._capabilityCache[actionName].push(entry);
+                    updatedEntries.push(entry);
                 }
             }
         }
+
+        // Also scan equipped items for this entity
+        this._scanEquippedItemsForActions(state);
 
         // Re-sort each action's entries by score descending
         for (const actionName of Object.keys(this._capabilityCache)) {
@@ -803,6 +819,145 @@ class ComponentCapabilityController {
             }
         }
         return false;
+    }
+
+    // =========================================================================
+    // PRIVATE: EQUIPPED ITEM ACTION SCANNING
+    // =========================================================================
+
+    /**
+     * Scans equipped items for each entity and adds capability entries for actions
+     * that match the item's traits. Equipped items are checked independently
+     * from entity components — their traits satisfy action requirements directly.
+     *
+     * When an item is equipped, its traits (from data/inventoryItems.json) are
+     * checked against all registered actions. If the item's traits satisfy an
+     * action's requirements, that action becomes available in the capability cache
+     * as an equipped item entry.
+     *
+     * On unequip, this method is called again and the _removeEntityFromAllActionCaches
+     * step (called before this method) removes old entries.
+     *
+     * @param {Object} state - The current world state.
+     * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
+     * @private
+     */
+    _scanEquippedItemsForActions(state) {
+        const entities = state.entities || {};
+        const actions = this.getActionRegistry();
+        const allEquipped = this.worldStateController.getAllEquippedItems();
+
+        // Group equipped items by entity
+        const equippedByEntity = {};
+        for (const item of allEquipped || []) {
+            if (!equippedByEntity[item.entityId]) {
+                equippedByEntity[item.entityId] = [];
+            }
+            equippedByEntity[item.entityId].push(item);
+        }
+
+        for (const [entityId, items] of Object.entries(equippedByEntity)) {
+            const entity = entities[entityId];
+            if (!entity) continue;
+
+            const inventoryItems = this.worldStateController.getItemRegistry();
+
+            for (const equipped of items) {
+                // Look up item definition from inventory items
+                const itemDef = inventoryItems[equipped.itemType];
+                if (!itemDef?.traits) continue;
+
+                // Convert item traits to a stats-like object for score calculation
+                const itemStats = this._convertTraitsToStats(itemDef.traits);
+
+                // Check each action against item traits
+                for (const [actionName, actionData] of Object.entries(actions)) {
+                    if (!actionData.requirements || actionData.requirements.length === 0) continue;
+
+                    const score = this._calculateComponentScore(itemStats, actionData.requirements);
+                    if (score <= 0) continue;
+
+                    // Check requirements for this item
+                    const reqCheck = this._checkEquippedItemRequirements(
+                        actionData.requirements, itemStats, equipped
+                    );
+                    if (!reqCheck.passed) continue;
+
+                    const entry = {
+                        entityId,
+                        componentId: `equipped-${equipped.itemId}-${equipped.itemType}`,
+                        componentType: equipped.itemType,
+                        componentIdentifier: equipped.itemType,
+                        score,
+                        requirementValues: reqCheck.requirementValues,
+                        fulfillingComponents: reqCheck.fulfillingComponents,
+                        requirementsStatus: actionData.requirements.map(req => ({
+                            trait: req.trait,
+                            stat: req.stat,
+                            current: reqCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                            required: req.minValue
+                        })),
+                        _resolvedRole: 'source',
+                        _isEquippedItem: true,
+                        _equippedItemId: equipped.itemId,
+                        _equippedItemType: equipped.itemType,
+                        _equippedComponentId: equipped.componentId
+                    };
+
+                    if (!this._capabilityCache[actionName]) {
+                        this._capabilityCache[actionName] = [];
+                    }
+                    this._capabilityCache[actionName].push(entry);
+                }
+            }
+        }
+
+        return this._capabilityCache;
+    }
+
+    /**
+     * Converts item traits object to a stats-like format compatible with _calculateComponentScore.
+     * Performs a shallow copy of each trait to prevent reference sharing.
+     *
+     * @param {Object} traits - Item traits from inventoryItems.json.
+     * @returns {Object} Stats-like object.
+     * @private
+     */
+    _convertTraitsToStats(traits) {
+        const stats = {};
+        for (const [traitId, traitData] of Object.entries(traits)) {
+            stats[traitId] = { ...traitData };
+        }
+        return stats;
+    }
+
+    /**
+     * Checks if equipped item traits satisfy all action requirements.
+     * Uses the item's traits directly without merging with component stats.
+     *
+     * @param {Array<Object>} requirements - Action requirements.
+     * @param {Object} itemStats - Item traits as stats object.
+     * @param {Object} equipped - Equipped item data.
+     * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object}}
+     * @private
+     */
+    _checkEquippedItemRequirements(requirements, itemStats, equipped) {
+        const reqList = Array.isArray(requirements) ? requirements : [requirements];
+        const requirementValues = {};
+        const fulfillingComponents = {};
+
+        for (const req of reqList) {
+            const key = `${req.trait}.${req.stat}`;
+            if (!itemStats[req.trait] ||
+                itemStats[req.trait][req.stat] === undefined ||
+                itemStats[req.trait][req.stat] < req.minValue) {
+                return { passed: false };
+            }
+            requirementValues[key] = itemStats[req.trait][req.stat];
+            fulfillingComponents[key] = `equipped-${equipped.itemId}`;
+        }
+
+        return { passed: true, requirementValues, fulfillingComponents };
     }
 
     // =========================================================================

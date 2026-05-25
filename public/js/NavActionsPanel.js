@@ -219,10 +219,19 @@ export class NavActionsPanel {
                     if (isSelected) rowClass += ' nav-selected';
                     if (grayedByAction) rowClass += ' nav-locked';
 
+                    // Detect equipped items (componentId starts with "equipped-")
+                    const isEquipped = typeof entry.componentId === 'string' && entry.componentId.startsWith('equipped-');
+                    if (isEquipped) {
+                        rowClass += ' nav-equipped-item';
+                    }
+
                     // Lock icon with tooltip showing which action it's locked to
                     const lockIcon = grayedByAction
                         ? `<span class="nav-lock-icon" title="Selected in '${grayedByAction}'">🔒</span>`
                         : '';
+
+                    // Equipped item indicator (knife icon)
+                    const equippedIcon = isEquipped ? '<span class="nav-equipped-icon" title="Equipped item">🔪</span>' : '';
 
                     html += `
                         <div class="${rowClass}"
@@ -231,8 +240,10 @@ export class NavActionsPanel {
                              data-comp-id="${entry.componentId}"
                              data-comp-name="${entry.componentType}"
                              data-comp-identifier="${entry.componentIdentifier}"
-                             data-can-execute="${canExecute}">
+                             data-can-execute="${canExecute}"
+                             data-equipped-type="${isEquipped ? entry.componentType : ''}">
                             ${lockIcon}
+                            ${equippedIcon}
                             <span class="nav-comp-type">${entry.componentType}</span>
                             <span class="nav-comp-identifier">(${entry.componentIdentifier})</span>
                         </div>`;

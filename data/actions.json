@@ -131,7 +131,7 @@
       {
         "trait": "Physical",
         "stat": "sharpness",
-        "minValue": 1
+        "minValue": 20
       }
     ],
     "consequences": [
