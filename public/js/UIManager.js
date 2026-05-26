@@ -167,7 +167,16 @@ export class UIManager {
         }
     }
 
-    renderRangeIndicator(droid, range, color = 'red') {
+    /**
+     * Renders a range indicator circle on the entities layer.
+     * Supports different colors and types for different action modes.
+     *
+     * @param {Object} droid - The droid entity object with spatial coordinates.
+     * @param {number} range - The radius of the range indicator.
+     * @param {string} color - The stroke color ('red' for drop, 'white' for movement, etc.).
+     * @param {string} [indicatorType='default'] - The type of indicator ('drop', 'pickup', 'default').
+     */
+    renderRangeIndicator(droid, range, color = 'red', indicatorType = 'default') {
         const entitiesLayer = this.elements.entitiesLayer;
 
         // Remove existing range indicators if any
@@ -182,13 +191,67 @@ export class UIManager {
         circle.setAttribute("cy", entityY);
         circle.setAttribute("r", range);
         circle.setAttribute("fill", "none");
-        circle.setAttribute("stroke", color);
-        circle.setAttribute("stroke-width", "2");
-        circle.setAttribute("stroke-dasharray", "5,5");
-        circle.setAttribute("class", "range-indicator");
-        circle.setAttribute("style", "pointer-events: none; opacity: 0.6;");
+
+        // Color-based styling
+        const strokeColor = indicatorType === 'drop' ? '#ff4444' : color;
+        const opacity = indicatorType === 'drop' ? 0.8 : 0.6;
+        const dasharray = indicatorType === 'drop' ? '8,4' : '5,5';
+
+        circle.setAttribute("stroke", strokeColor);
+        circle.setAttribute("stroke-width", "3");
+        circle.setAttribute("stroke-dasharray", dasharray);
+        circle.setAttribute("class", `range-indicator range-${indicatorType}`);
+        circle.setAttribute("style", `pointer-events: none; opacity: ${opacity};`);
 
         entitiesLayer.appendChild(circle);
+    }
+
+    /**
+     * Renders dropped items as small item icons on the map.
+     * Each dropped item is displayed as a small circle with an item indicator.
+     *
+     * @param {Object} droppedItems - Map of dropped items { [droppedItemId]: {id, itemType, x, y, ownerId} }.
+     * @param {Function} [onDroppedItemClick] - Callback when a dropped item is clicked.
+     */
+    renderDroppedItems(droppedItems, onDroppedItemClick) {
+        const entitiesLayer = this.elements.entitiesLayer;
+
+        // Remove existing dropped item indicators
+        const existing = entitiesLayer.querySelectorAll('.dropped-item-indicator');
+        existing.forEach(el => el.remove());
+
+        if (!droppedItems || typeof droppedItems !== 'object') return;
+
+        for (const [id, item] of Object.entries(droppedItems)) {
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            const x = AppConfig.VIEW.CENTER_X + (item.x || 0);
+            const y = AppConfig.VIEW.CENTER_Y + (item.y || 0);
+
+            circle.setAttribute("cx", x);
+            circle.setAttribute("cy", y);
+            circle.setAttribute("r", 8);
+            circle.setAttribute("fill", "#ffaa00");
+            circle.setAttribute("stroke", "#ff8800");
+            circle.setAttribute("stroke-width", "2");
+            circle.setAttribute("class", "dropped-item-indicator");
+            circle.setAttribute("data-dropped-id", id);
+            circle.setAttribute("style", "pointer-events: all; cursor: pointer; opacity: 0.9;");
+
+            // Click handler for dropped items
+            if (onDroppedItemClick) {
+                circle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onDroppedItemClick(id, item);
+                });
+            }
+
+            // Tooltip text
+            const tooltip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            tooltip.textContent = `${item.itemType} (dropped item)`;
+            circle.appendChild(tooltip);
+
+            entitiesLayer.appendChild(circle);
+        }
     }
 
     _renderRoom(room) {

@@ -884,6 +884,78 @@ class WorldStateController {
     getHoldingCostRegistry() {
         return this.holdingCostController.getHoldingCostRegistry();
     }
+
+    // =========================================================================
+    // DROPPED ITEMS PUBLIC API
+    // =========================================================================
+
+    /**
+     * Gets all dropped items in the world.
+     * Returns a defensive deep copy to prevent external mutation.
+     * @returns {Object<string, {id: string, itemType: string, itemId: string, x: number, y: number, ownerId: string}>} Dropped items map.
+     */
+    getDroppedItems() {
+        // Initialize if not yet created
+        if (!this._droppedItems) {
+            this._droppedItems = {};
+        }
+        return structuredClone(this._droppedItems);
+    }
+
+    /**
+     * Sets all dropped items in the world.
+     * @param {Object} droppedItems - The dropped items map.
+     * @returns {void}
+     */
+    setDroppedItems(droppedItems) {
+        this._droppedItems = droppedItems;
+
+        if (this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+    }
+
+    /**
+     * Removes a dropped item from the world.
+     * @param {string} droppedItemId - The dropped item ID.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    removeDroppedItem(droppedItemId) {
+        const droppedItems = this.getDroppedItems();
+        if (!droppedItems[droppedItemId]) {
+            Logger.warn(`[WorldStateController] Dropped item "${droppedItemId}" not found.`);
+            return { success: false, message: `Dropped item "${droppedItemId}" not found.` };
+        }
+
+        delete droppedItems[droppedItemId];
+        this.setDroppedItems(droppedItems);
+
+        Logger.info(`[WorldStateController] Removed dropped item "${droppedItemId}".`);
+        return { success: true };
+    }
+
+    /**
+     * Finds all dropped items near a spatial coordinate.
+     * @param {number} x - The X coordinate.
+     * @param {number} y - The Y coordinate.
+     * @param {number} radius - Search radius.
+     * @returns {Array<{id: string, itemType: string, itemId: string, x: number, y: number, ownerId: string, distance: number}>}
+     */
+    findDroppedItemsNear(x, y, radius = 5) {
+        const droppedItems = this.getDroppedItems();
+        const nearby = [];
+
+        for (const [id, item] of Object.entries(droppedItems)) {
+            const dx = item.x - x;
+            const dy = item.y - y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= radius) {
+                nearby.push({ ...item, distance: Math.round(distance * 100) / 100 });
+            }
+        }
+
+        return nearby;
+    }
 }
 
 export default WorldStateController;

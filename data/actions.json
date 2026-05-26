@@ -155,5 +155,80 @@
         "message": "Action 'cut' failed - sharpness too low to cut."
       }
     ]
+  },
+  "dropItem": {
+    "targetingType": "spatial",
+    "range": ":Physical.strength*2+3",
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "dropItem",
+        "target": "target",
+        "params": { "entityId": ":entityId", "itemId": ":itemId", "itemType": ":itemType" }
+      },
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "info",
+        "message": "Item ':itemType' dropped at (:targetX, :targetY)"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Dropping item failed - no item equipped or range exceeded"
+      }
+    ]
+  },
+  "pickUpItem": {
+    "targetingType": "component",
+    "range": 50,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 5
+      },
+      {
+        "trait": "Physical",
+        "stat": "volume",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "pickUpItem",
+        "target": "target",
+        "params": {
+          "sourceEntityId": ":sourceEntityId",
+          "sourceItemId": ":sourceItemId",
+          "sourceComponentId": ":sourceComponentId",
+          "targetEntityId": ":entityId",
+          "targetComponentId": ":targetComponentId"
+        }
+      },
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "info",
+        "message": "Item ':itemType' picked up from entity ':sourceEntityId'"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Pick up failed - insufficient strength or volume, or target out of range"
+      }
+    ]
   }
 }

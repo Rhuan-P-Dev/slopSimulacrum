@@ -81,6 +81,12 @@ export class ClientApp {
             worldStateManager: this.worldState,
             onMoveEntity: (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
             onExecuteAction: (actionName, entityId, componentId, componentIdentifier) => {
+                // Check if this is an equipped item click (componentId starts with "equipped-")
+                if (componentId && componentId.startsWith('equipped-')) {
+                    this._handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier);
+                    return;
+                }
+
                 // Toggle component selection for the action, then execute if components selected
                 if (entityId && actionName) {
                     this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
@@ -146,6 +152,10 @@ export class ClientApp {
         // 8. Setup event listeners
         this._setupListeners();
 
+        // 9. Drop item state
+        /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentId } */
+        this._pendingDropItem = null;
+
         console.log('%c[ClientApp] 🚀 Modules initialized', 'color: #00ff00; font-weight: bold;');
     }
 
@@ -178,9 +188,30 @@ export class ClientApp {
             this.dispatcher.setupMapClickListener(
                 map,
                 () => this.actions.getPendingAction(),
-                {} // extraHandlers already wired in constructor
+                {
+                    hasPendingDropAction: () => this._pendingDropItem !== null,
+                    // Extra handler for drop item
+                    onDropItemClick: (targetX, targetY) => {
+                        const pending = this._pendingDropItem;
+                        if (pending) {
+                            const droid = this.worldState.getActiveDroid();
+                            const state = this.worldState.getState();
+                            this.executor.executeDropItem(pending, targetX, targetY, droid, state);
+                            this._pendingDropItem = null;
+                            // Clear range indicator
+                            if (droid) {
+                                this.ui.renderRangeIndicator(droid, 0, 'red', 'drop');
+                            }
+                        }
+                    }
+                }
             );
         }
+
+        // Listen for dropped items changes via socket
+        this.socket.on('dropped-items-update', (data) => {
+            console.log('[ClientApp] Dropped items updated:', data);
+        });
     }
 
     /**
@@ -403,6 +434,61 @@ export class ClientApp {
         } catch (error) {
             console.warn('[ClientApp] Failed to load internal component registry:', error);
         }
+    }
+
+    /**
+     * Handles clicking on an equipped item in the action list.
+     * Calculates drop range from strength stat and shows range indicator.
+     * @private
+     * @param {string} actionName - The action name
+     * @param {string} entityId - The entity ID
+     * @param {string} componentId - The equipped item component ID (format: "equipped-${itemId}-${itemType}")
+     * @param {string} componentIdentifier - The component identifier
+     */
+    _handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier) {
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        if (!droid || !state) return;
+
+        // Parse componentId format: "equipped-${itemId}-${itemType}"
+        const prefix = 'equipped-';
+        const afterPrefix = componentId.substring(prefix.length);
+        const lastDash = afterPrefix.lastIndexOf('-');
+        if (lastDash <= 0) {
+            console.warn('[ClientApp] Invalid equipped item componentId:', componentId);
+            return;
+        }
+
+        const itemId = afterPrefix.substring(0, lastDash);
+        const itemType = afterPrefix.substring(lastDash + 1);
+
+        // Calculate drop range from strength stat
+        let maxStrength = 0;
+        if (droid.components) {
+            for (const comp of droid.components) {
+                const stats = state.components?.instances?.[comp.id];
+                if (stats?.Physical?.strength) {
+                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                }
+            }
+        }
+
+        const dropRange = AppConfig.DROP.BASE_RANGE + (maxStrength * AppConfig.MULTIPLIERS.DROP_RANGE);
+
+        // Store pending drop item
+        this._pendingDropItem = {
+            actionName,
+            entityId,
+            itemId,
+            itemType,
+            componentId
+        };
+        this.actions.setPendingDropAction(this._pendingDropItem);
+
+        // Show range indicator
+        this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
+
+        console.log(`[ClientApp] Equipped item "${itemType}" clicked. Drop range: ${dropRange} (strength: ${maxStrength})`);
     }
 
     // ==================== Delegate Methods ====================

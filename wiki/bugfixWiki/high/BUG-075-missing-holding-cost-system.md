@@ -87,6 +87,28 @@ Added equipped item scanning to `ComponentCapabilityController`:
 - **Equipped Item Rule**: All equipped items are automatically scanned for action capabilities during capability re-evaluation. Adding traits to `data/inventoryItems.json` is sufficient to enable item actions.
 - Add defensive logging in client-side data loading to surface server-side issues
 
+## Bug Fix: Auto-Unequip Equipped Item on Drag-and-Drop
+
+### Symptom
+When dragging an equipped item (e.g., a knife) to another component, the item was physically moved but the equip tracking was NOT updated. The item remained tracked as equipped on the OLD component while physically residing on a NEW component. This caused:
+- Debuffs remaining on the old component after the item was moved
+- Capability actions still appearing as available from the wrong component
+- Inconsistent server/client state
+
+### Root Cause
+`InventoryManager._onDrop()` only called `_autoUnequipOnTarget()` which checked for equipped items on the **target** component. It did not check if the **dragged item itself** was equipped.
+
+### Fix
+Added `_autoUnequipDraggedItem(itemId)` method that:
+1. Checks if the dragged item exists in `this._equippedItems`
+2. If equipped, calls the unequip endpoint to remove debuffs
+3. Updates local `_equippedItems` tracking
+4. Called BEFORE `_autoUnequipOnTarget()` in `_onDrop()`
+
+### Prevention
+- Whenever drag-and-drop moves items, always check if the dragged item is equipped
+- Update client-side tracking immediately on successful server unequip
+
 ## Secondary Bug Fix: Unequip Re-applying Debuff
 
 ### Symptom
@@ -123,3 +145,4 @@ Changed to explicit ternary: `data-is-equipped="${isEquipped ? 'true' : 'false'}
 - Related wiki: `wiki/subMDs/data/holding_cost.md`
 - Related controller: `HoldingCostController`
 - Related method: `ComponentCapabilityController._scanEquippedItemsForActions()`
+- Related method: `InventoryManager._autoUnequipDraggedItem()`

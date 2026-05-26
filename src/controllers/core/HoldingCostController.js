@@ -89,6 +89,104 @@ class HoldingCostController {
     }
 
     /**
+     * Checks if a component's stats meet ALL holding cost requirements for a given item type.
+     *
+     * This method is NON-MUTATING — it only validates whether the component
+     * would be capable of holding the item. It does NOT apply debuffs or modify any state.
+     *
+     * @param {string} itemType - The item type identifier (e.g., "knife", "powerCell").
+     * @param {Object} componentStats - The component's current stats object.
+     *   Format: { [traitName]: { [statName]: value } }
+     *   Example: { Physical: { strength: 5, durability: 100 }, Manipulation: { fine_controls: 25 } }
+     * @returns {{ success: boolean, requiredCosts: Array<{trait: string, stat: string, value: number}>, missingStats?: Array<{trait: string, stat: string, required: number, available: number}>, message: string }}
+     *
+     * @example
+     * const result = holdingCostController.canHoldItem('knife', componentStats);
+     * if (result.success) {
+     *     console.log('Component can hold the item');
+     * } else {
+     *     console.log('Cannot hold:', result.message);
+     * }
+     */
+    canHoldItem(itemType, componentStats) {
+        if (!itemType || typeof itemType !== 'string') {
+            Logger.warn('[HoldingCostController] Invalid itemType for canHoldItem check.');
+            return {
+                success: false,
+                requiredCosts: [],
+                message: 'Invalid itemType.'
+            };
+        }
+
+        if (!componentStats || typeof componentStats !== 'object') {
+            Logger.warn('[HoldingCostController] Invalid componentStats for canHoldItem check.');
+            return {
+                success: false,
+                requiredCosts: [],
+                message: 'Invalid componentStats.'
+            };
+        }
+
+        const definition = this._holdingCostDefinitions[itemType];
+        if (!definition || !Array.isArray(definition.holdingCost)) {
+            // No holding cost definition — any item can be held
+            Logger.info(`[HoldingCostController] No holding cost definition for "${itemType}" — item can be held.`);
+            return {
+                success: true,
+                requiredCosts: [],
+                message: 'No holding cost requirements.'
+            };
+        }
+
+        const requiredCosts = definition.holdingCost;
+        const missingStats = [];
+
+        // Check ALL holding cost requirements
+        for (const costEntry of requiredCosts) {
+            const traitData = componentStats[costEntry.trait];
+            if (!traitData || traitData[costEntry.stat] === undefined) {
+                missingStats.push({
+                    trait: costEntry.trait,
+                    stat: costEntry.stat,
+                    required: costEntry.value,
+                    available: 0
+                });
+                continue;
+            }
+
+            const available = traitData[costEntry.stat];
+            if (available < costEntry.value) {
+                missingStats.push({
+                    trait: costEntry.trait,
+                    stat: costEntry.stat,
+                    required: costEntry.value,
+                    available
+                });
+            }
+        }
+
+        if (missingStats.length > 0) {
+            const details = missingStats.map(
+                s => `${s.trait}.${s.stat}: ${s.available} < ${s.required}`
+            ).join(', ');
+            Logger.info(`[HoldingCostController] Component cannot hold "${itemType}": ${details}`);
+            return {
+                success: false,
+                requiredCosts,
+                missingStats,
+                message: `Insufficient stats: ${details}`
+            };
+        }
+
+        Logger.info(`[HoldingCostController] Component can hold "${itemType}" — all ${requiredCosts.length} requirements met.`);
+        return {
+            success: true,
+            requiredCosts,
+            message: `All ${requiredCosts.length} holding cost requirements met.`
+        };
+    }
+
+    /**
      * Equips an item on a component.
      * Checks holding cost requirements first — if the component can't meet them, equip is denied.
      * If requirements pass, the item is added as a child component and debuffs are applied.

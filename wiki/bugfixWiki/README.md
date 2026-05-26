@@ -47,6 +47,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-070](high/BUG-070-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents (duplicate BUG-047) | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-073](high/BUG-073-missing-inventory-system.md) | Missing Inventory System — Volume-Based Item Storage | ✅ Fixed | — | `InventoryManager.js`, `inventoryRoutes.js`, `inventory.css` |
 | [BUG-074](high/BUG-074-test-item-not-broadcast-to-client.md) | Test Item Added to Server but Not Visible on Client (Broadcast Timing) | ✅ Fixed | `pending` | `WorldStateController.js`, `server.js` |
+| [BUG-075](high/BUG-075-missing-holding-cost-system.md) | Missing Holding Cost System — Equipped Item Stat Debuffs | ✅ Fixed | — | `HoldingCostController.js`, `data/holdingCost.json` |
+| [BUG-076](high/BUG-076-dropped-items-not-persisted.md) | Dropped Items Not Persisted Across Server Restarts | 🔴 Open | — | `WorldStateController.js`, `inventoryRoutes.js` |
 | [BUG-071](architectural/BUG-071-internal-component-tick-system-srp-violation.md) | Internal Component Tick System — SRP Violation / Lack of Data-Driven Design | ✅ Fixed | `pending` | `InternalComponentController.js`, `data/internalComponents.json` |
 | [BUG-072](architectural/BUG-072-wiki-violates-why-over-how-principle.md) | Wiki Violates "Why Over How" Documentation Principle — Too Many Code Snippets | ✅ Fixed | `pending` | 11 wiki files, `project_rules.md` |
 

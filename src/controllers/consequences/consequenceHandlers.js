@@ -17,6 +17,8 @@ import StatConsequenceHandler from './StatConsequenceHandler.js';
 import DamageConsequenceHandler from './DamageConsequenceHandler.js';
 import LogConsequenceHandler from './LogConsequenceHandler.js';
 import EventConsequenceHandler from './EventConsequenceHandler.js';
+import { handleDropItem } from './DropItemHandler.js';
+import { handlePickUpItem } from './PickUpItemHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -48,7 +50,40 @@ class ConsequenceHandlers {
             updateComponentStatDelta: (targetId, params, context) => this.statHandler._handleUpdateComponentStatDelta(targetId, params, context),
             triggerEvent: (targetId, params, context) => this.eventHandler._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
+            dropItem: (targetId, params, context) => this._handleDropItem(params, context),
+            pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
         };
+    }
+
+    // =========================================================================
+    // ITEM HANDLER WRAPPERS
+    // =========================================================================
+
+    /**
+     * Handles the dropItem consequence by delegating to DropItemHandler.
+     * @private
+     */
+    _handleDropItem(params, context) {
+        return handleDropItem(
+            { worldStateController: this.worldStateController },
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the pickUpItem consequence by delegating to PickUpItemHandler.
+     * @private
+     */
+    _handlePickUpItem(params, context) {
+        return handlePickUpItem(
+            {
+                worldStateController: this.worldStateController,
+                holdingCostController: this.worldStateController.holdingCostController
+            },
+            params,
+            context
+        );
     }
 }
 

@@ -697,6 +697,13 @@ export class InventoryManager {
             return;
         }
 
+        // Auto-unequip the dragged item if it's equipped (before it moves)
+        try {
+            await this._autoUnequipDraggedItem(itemId);
+        } catch (error) {
+            console.error('[InventoryManager] Error auto-unequipping dragged item on drop:', error);
+        }
+
         // Auto-unequip any equipped items on the target component
         try {
             await this._autoUnequipOnTarget(targetCompId);
@@ -728,6 +735,36 @@ export class InventoryManager {
         } catch (error) {
             console.error('[InventoryManager] Error moving item:', error);
             this._showToast('Failed to move item', 'error');
+        }
+    }
+
+    /**
+     * Auto-unequips the dragged item if it is currently equipped.
+     * This ensures the item is unequipped before it moves to a new component.
+     * @param {string} itemId - The item ID being dragged.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _autoUnequipDraggedItem(itemId) {
+        if (!this._currentEntityId) return;
+        if (!this._equippedItems[itemId]) return; // Not equipped, nothing to do
+
+        const eq = this._equippedItems[itemId];
+        const { itemType, componentId } = eq;
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/unequip/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (response.ok) {
+                // Update local tracking
+                delete this._equippedItems[itemId];
+                console.log(`[InventoryManager] Auto-unequipped ${itemType} from ${componentId} before move.`);
+            }
+        } catch (error) {
+            console.warn(`[InventoryManager] Failed to auto-unequip dragged item ${itemId}:`, error);
         }
     }
 

@@ -209,4 +209,75 @@ export class ActionExecutor {
             console.error(`[ActionExecutor] Move droid failed: ${error.message}`, { entityId, targetRoomId, error: error.message });
         }
     }
+
+    /**
+     * Executes a drop item action at target coordinates.
+     * Validates range, sends to server, refreshes world.
+     *
+     * @param {Object} pending - The pending drop item action object.
+     * @param {number} targetX - Target X coordinate on the map.
+     * @param {number} targetY - Target Y coordinate on the map.
+     * @param {Object} droid - The active droid entity.
+     * @param {Object} state - The current world state.
+     * @returns {Promise<void>}
+     */
+    async executeDropItem(pending, targetX, targetY, droid, state) {
+        if (!droid || !state) {
+            console.warn('[ActionExecutor] No active droid or state for drop item action');
+            return;
+        }
+
+        // Calculate drop range from strength stat
+        const strength = droid.components?.reduce((max, comp) => {
+            const stats = state.components?.instances?.[comp.id];
+            const str = stats?.Physical?.strength || 0;
+            return str > max ? str : max;
+        }, 0) || 0;
+
+        const dropRange = AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+
+        // Calculate distance to target
+        const droidX = AppConfig.VIEW.CENTER_X + (droid.spatial?.x || 0);
+        const droidY = AppConfig.VIEW.CENTER_Y + (droid.spatial?.y || 0);
+        const distance = Math.sqrt(Math.pow(targetX - droidX, 2) + Math.pow(targetY - droidY, 2));
+
+        if (distance > dropRange) {
+            this.errorController.handleError({
+                code: 'DROP_OUT_OF_RANGE',
+                details: {
+                    distance: Math.round(distance),
+                    range: dropRange,
+                    strength
+                }
+            });
+            console.warn(`[ActionExecutor] Drop out of range: distance=${Math.round(distance)}, range=${dropRange}`);
+            return;
+        }
+
+        try {
+            await this.actions.executeDropItem(
+                pending.actionName,
+                pending.entityId,
+                pending.itemId,
+                pending.itemType,
+                targetX,
+                targetY
+            );
+
+            console.log(`[ActionExecutor] Item "${pending.itemType}" dropped at (${targetX}, ${targetY})`);
+            this.actions.clearPendingDropAction();
+            // Clear range indicator
+            this.ui.renderRangeIndicator(droid, 0, 'red');
+            await this.refreshCallback();
+        } catch (error) {
+            console.error(`[ActionExecutor] Drop item failed: ${error.message}`, {
+                actionName: pending.actionName,
+                entityId: pending.entityId,
+                itemType: pending.itemType,
+                targetX,
+                targetY,
+                error: error.message
+            });
+        }
+    }
 }

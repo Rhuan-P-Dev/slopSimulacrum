@@ -105,18 +105,41 @@ class EventDispatcher {
     }
 
     /**
-     * Sets up the SVG map click handler for spatial targeting.
+     * Sets up the SVG map click handler for spatial targeting and drop item actions.
      *
      * Uses createSVGPoint + getScreenCTM().inverse() for coordinate transformation.
-     * Dispatches to action-specific handlers based on pending targetingType.
+     * Dispatches to action-specific handlers based on pending targetingType,
+     * or to the drop item handler when a pending drop item is active.
      *
      * @param {SVGElement} mapElement - The SVG map element.
-     * @param {function(): Object|null} getPendingAction - Callback to get current pending action.
+     * @param {function(): Object|null} getPendingAction - Callback to get current pending movement action.
+     * @param {Object} [options] - Optional configurations for drop item handling.
+     * @param {function(): boolean} [options.hasPendingDropAction] - Callback to check if a drop item action is pending.
+     * @param {function(number, number)} [options.onDropItemClick] - Callback invoked when map is clicked during drop item pending state.
      */
-    setupMapClickListener(mapElement, getPendingAction) {
+    setupMapClickListener(mapElement, getPendingAction, options = {}) {
         if (!mapElement) return;
 
         const clickHandler = (event) => {
+            // Check for pending drop item FIRST — before checking regular pending action.
+            // Drop item actions bypass pendingMovementAction and use _pendingDropItem in App.js instead.
+            const hasPendingDrop = options.hasPendingDropAction?.();
+            if (hasPendingDrop) {
+                // Transform screen coordinates to SVG world coordinates
+                const pt = mapElement.createSVGPoint();
+                pt.x = event.clientX;
+                pt.y = event.clientY;
+                const svgP = pt.matrixTransform(mapElement.getScreenCTM().inverse());
+
+                const targetX = svgP.x - this.config.VIEW.CENTER_X;
+                const targetY = svgP.y - this.config.VIEW.CENTER_Y;
+
+                if (options.onDropItemClick) {
+                    options.onDropItemClick(targetX, targetY);
+                }
+                return;
+            }
+
             const pending = getPendingAction();
             if (!pending) return;
 

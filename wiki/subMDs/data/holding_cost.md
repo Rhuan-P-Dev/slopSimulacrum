@@ -71,6 +71,18 @@ Equipped items have their own traits defined in `data/inventoryItems.json`. Thes
 3. If all pass → debuffs applied → capability controller re-evaluates → equipped item actions appear in UI
 4. If any fail → equip denied with error message
 
+## Drag-and-Drop Auto-Unequip
+
+When an equipped item is dragged to another component via inventory drag-and-drop:
+
+1. `_autoUnequipDraggedItem(itemId)` is called in `_onDrop()` — checks if the dragged item is currently equipped
+2. If equipped → calls `POST /inventory/:entityId/unequip/:itemId` to remove debuffs and clean tracking
+3. Then `_autoUnequipOnTarget(targetCompId)` is called — unequips any items already equipped on the target component
+4. Finally, `POST /inventory/:entityId/move/:itemId` moves the now-unequipped item to the target component
+5. Client reloads and re-renders inventory
+
+This ensures the item is never physically moved while still tracked as equipped, preventing state inconsistency.
+
 ## Hand Swap (Transfer)
 
 Moving an equipped item from one component to another:

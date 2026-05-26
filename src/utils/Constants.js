@@ -131,3 +131,39 @@ export const SYNERGY_CACHE_TTL_MS = 5000;
  * @type {number}
  */
 export const SYNERGY_CACHE_MAX_SIZE = 100;
+
+// =========================================================================
+// ITEM DROP / PICK-UP CONSTANTS
+// =========================================================================
+
+/**
+ * Base range for dropping items (minimum distance).
+ * Total drop range = DROP_BASE_RANGE + (Physical.strength × DROP_RANGE_MULTIPLIER).
+ * @type {number}
+ */
+export const DROP_BASE_RANGE = 3;
+
+/**
+ * Multiplier applied to Physical.strength for calculating drop range.
+ * Total drop range = DROP_BASE_RANGE + (Physical.strength × DROP_RANGE_MULTIPLIER).
+ * @type {number}
+ */
+export const DROP_RANGE_MULTIPLIER = 2;
+
+/**
+ * Range for picking up items (fixed distance from the picker).
+ * @type {number}
+ */
+export const PICKUP_ITEM_RANGE = 50;
+
+/**
+ * Minimum strength required to pick up an item.
+ * @type {number}
+ */
+export const MIN_STRENGTH_FOR_PICKUP = 5;
+
+/**
+ * Minimum volume required to pick up an item.
+ * @type {number}
+ */
+export const MIN_VOLUME_FOR_PICKUP = 1;

@@ -238,6 +238,82 @@ export class ActionManager {
         this.pendingMovementAction = null;
     }
 
+    /**
+     * Clears the pending drop item action state.
+     */
+    clearPendingDropAction() {
+        this._pendingDropAction = null;
+    }
+
+    /**
+     * Sets a pending drop item action state.
+     * Called when user clicks on an equipped item to drop it.
+     *
+     * @param {Object} dropParams - Drop action parameters.
+     * @param {string} dropParams.actionName - The action name (e.g., 'dropItem').
+     * @param {string} dropParams.entityId - The entity ID.
+     * @param {string} dropParams.componentId - The equipped item component ID.
+     * @param {string} dropParams.itemId - The item ID being dropped.
+     * @param {string} dropParams.itemType - The item type.
+     */
+    setPendingDropAction(dropParams) {
+        this._pendingDropAction = { ...dropParams };
+    }
+
+    /**
+     * Returns the currently pending drop item action.
+     * @returns {Object|null}
+     */
+    getPendingDropAction() {
+        return this._pendingDropAction || null;
+    }
+
+    /**
+     * Executes a drop item action at target coordinates.
+     * Sends POST /execute-action with spatial drop parameters.
+     *
+     * @param {string} actionName - The action name (e.g., 'dropItem').
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID being dropped.
+     * @param {string} itemType - The item type.
+     * @param {number} targetX - Target X coordinate.
+     * @param {number} targetY - Target Y coordinate.
+     * @returns {Promise<Object>} Server response.
+     */
+    async executeDropItem(actionName, entityId, itemId, itemType, targetX, targetY) {
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    actionName,
+                    entityId,
+                    params: {
+                        itemId,
+                        itemType,
+                        targetX,
+                        targetY
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.result?.error || err.error || 'Drop item failed');
+            }
+
+            const data = await response.json();
+            console.log(`[ActionManager] Item dropped at (${targetX}, ${targetY})`, data);
+            return data;
+        } catch (error) {
+            this.errorController.handleError({
+                code: 'DROP_ITEM_FAILED',
+                message: error.message
+            });
+            throw error;
+        }
+    }
+
     // =========================================================================
     // MULTI-COMPONENT SELECTION API
     // =========================================================================

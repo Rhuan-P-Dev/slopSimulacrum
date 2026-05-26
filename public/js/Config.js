@@ -12,6 +12,8 @@ export const AppConfig = {
     ACTIONS: {
         MOVE: 'move',
         DASH: 'dash',
+        DROP_ITEM: 'dropItem',
+        PICK_UP_ITEM: 'pickUpItem',
     },
     COLORS: {
         ENTITY_ACTIVE: "#fff",
@@ -33,6 +35,10 @@ export const AppConfig = {
     },
     MULTIPLIERS: {
         DASH_RANGE: 2,
+        DROP_RANGE: 2,
+    },
+    DROP: {
+        BASE_RANGE: 3,
     },
     ENDPOINTS: {
         WORLD_STATE: '/world-state',
@@ -44,6 +50,7 @@ export const AppConfig = {
         RELEASE_SELECTION: '/release-selection',
         SYNERGY_PREVIEW: '/synergy/preview',
         SYNERGY_PREVIEW_DATA: '/synergy/preview-data',
+        DROPPED_ITEMS: '/dropped-items',
     },
     DEFAULTS: {
         DROID_BLUEPRINT: 'smallBallDroid',
