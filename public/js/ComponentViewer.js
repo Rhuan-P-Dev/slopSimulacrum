@@ -19,8 +19,8 @@ export class ComponentViewer {
         this._uiManager = uiManager;
         /** @private */
         this._statBarsManager = statBarsManager;
-        /** @private {HTMLElement|null} */
-        this._overlay = null;
+        /** @public {HTMLElement|null} */
+        this.overlay = null;
         /** @private {HTMLElement|null} */
         this._content = null;
         /** @private {string|null} */
@@ -38,24 +38,35 @@ export class ComponentViewer {
     }
 
     /**
-     * Initializes the component viewer overlay DOM element.
+     * Initializes the component viewer overlay DOM element and attaches close button listener.
      */
     init() {
-        this._overlay = document.getElementById('component-viewer-overlay');
+        this.overlay = document.getElementById('component-viewer-overlay');
         this._content = document.getElementById('component-viewer-content');
+
+        // Attach close button listener
+        if (this.overlay) {
+            const closeBtn = this.overlay.querySelector('.overlay-close-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => this.hide());
+            }
+        }
     }
 
     /**
-     * Shows the component viewer overlay with the given entity and state.
-     * @param {Object} entity - The active droid entity.
-     * @param {Object} state - The complete world state.
+     * Shows the component viewer overlay with the given data.
+     * @param {Object} [data] - Data object { entity, state } or legacy positional args.
      */
-    async show(entity, state) {
-        if (!this._overlay) return;
+    async show(data) {
+        if (!this.overlay) return;
+
+        // Support both { entity, state } data object and legacy (entity, state) calls
+        const entity = data?.entity || (data && arguments[0]);
+        const state = data?.state || (data && arguments[1]);
 
         if (!entity || !entity.components) {
             this._content.innerHTML = '<em style="color: var(--text-dim);">No components found for this entity.</em>';
-            this._overlay.style.display = 'block';
+            this.overlay.style.display = 'block';
             return;
         }
 
@@ -69,7 +80,7 @@ export class ComponentViewer {
 
         this._renderComponentGrid(entity, state);
         this._lastComponentId = entity.components?.[0]?.id || null;
-        this._overlay.style.display = 'block';
+        this.overlay.style.display = 'block';
 
         // Pre-fetch internal component registry for descriptions
         await this._loadInternalComponentRegistry();
@@ -79,21 +90,20 @@ export class ComponentViewer {
      * Hides the component viewer overlay.
      */
     hide() {
-        if (this._overlay) {
-            this._overlay.style.display = 'none';
+        if (this.overlay) {
+            this.overlay.style.display = 'none';
         }
     }
 
     /**
      * Toggles the component viewer overlay.
-     * @param {Object} entity - The active droid entity.
-     * @param {Object} state - The complete world state.
+     * @param {Object} [data] - Optional data object { entity, state }.
      */
-    toggle(entity, state) {
-        if (this._overlay && this._overlay.style.display === 'block') {
+    toggle(data) {
+        if (this.overlay && this.overlay.style.display === 'block') {
             this.hide();
         } else {
-            this.show(entity, state);
+            this.show(data);
         }
     }
 
@@ -274,26 +284,14 @@ export class ComponentViewer {
 
     /**
      * Loads the internal component registry from the server.
+     * Note: Registry is pre-fetched by App.js and distributed globally.
+     * This method is a no-op unless the registry is not yet set.
      * @returns {Promise<void>}
      * @private
      */
     async _loadInternalComponentRegistry() {
-        try {
-            const response = await fetch('/api/internal-components/registry');
-            if (response.ok) {
-                this._internalComponentRegistry = await response.json();
-                // Share registry with UIManager so Entity Analysis also shows descriptions
-                if (this._uiManager.setInternalComponentRegistry) {
-                    this._uiManager.setInternalComponentRegistry(this._internalComponentRegistry);
-                }
-            } else {
-                console.warn('[ComponentViewer] Registry fetch failed, using minimal fallback');
-                this._internalComponentRegistry = {};
-            }
-        } catch (error) {
-            console.warn('[ComponentViewer] Failed to load internal component registry:', error);
-            this._internalComponentRegistry = {};
-        }
+        // Registry is pre-fetched by App.js — nothing to do if already set
+        if (this._internalComponentRegistry) return;
     }
 
     /**
@@ -377,11 +375,11 @@ export class ComponentViewer {
                         internalComps = await response.json();
                         this._internalComponentCache[componentId] = internalComps;
                     } else {
-                        console.error('[ComponentViewer] API returned error:', response.status, response.statusText);
+                        // API returned error — cache empty to prevent repeated fetches
                         this._internalComponentCache[componentId] = [];
                     }
                 } catch (error) {
-                    console.error('[ComponentViewer] Failed to fetch internal components:', error);
+                    // Fetch failed — cache empty to prevent repeated attempts
                     this._internalComponentCache[componentId] = [];
                 }
             }

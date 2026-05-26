@@ -25,8 +25,8 @@ export class NavActionsPanel {
     constructor(uiManager) {
         /** @private */
         this._uiManager = uiManager;
-        /** @private {HTMLElement|null} */
-        this._overlay = null;
+        /** @public {HTMLElement|null} */
+        this.overlay = null;
         /** @private {HTMLElement|null} */
         this._content = null;
         /** @private {string|null} */
@@ -37,35 +37,74 @@ export class NavActionsPanel {
         this._onGrayedComponentClick = null;
         /** @private {Map<string, Set<string>>|null} */
         this._crossActionSelections = null;
+        /** @private {Function|null} Callback for action execution (replaces _onActionClick after delegation) */
+        this._actionCallback = null;
+        /** @private {Function|null} Callback for grayed component click (replaces _onGrayedComponentClick after delegation) */
+        this._grayedComponentCallback = null;
     }
 
     /**
-     * Initializes the overlay DOM element.
+     * Initializes the overlay DOM element and attaches close button listener.
      */
     init() {
-        this._overlay = document.getElementById('nav-actions-overlay');
+        this.overlay = document.getElementById('nav-actions-overlay');
         this._content = document.getElementById('nav-actions-content');
+
+        // Attach close button listener
+        if (this.overlay) {
+            const closeBtn = this.overlay.querySelector('.overlay-close-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => this.hide());
+            }
+        }
+    }
+
+    /**
+     * Sets the action execution callback (called when a component row is clicked).
+     * @param {Function} callback - The callback function.
+     */
+    setExecuteActionCallback(callback) {
+        this._actionCallback = callback;
+    }
+
+    /**
+     * Sets the grayed component click callback.
+     * @param {Function} callback - The callback function.
+     */
+    setGrayedComponentCallback(callback) {
+        this._grayedComponentCallback = callback;
     }
 
     /**
      * Shows the actions panel.
      * Renders the available actions with component selection state.
      *
-     * @param {Object} actions - The available actions data.
-     * @param {string} entityId - The active droid entity ID.
-     * @param {Function} onActionClick - Callback for action component clicks (actionName, entityId, componentId, componentIdentifier).
-     * @param {string|null} [activeActionName] - The action currently being selected into.
-     * @param {Set<string>} [selectedComponentIds] - Components currently selected for the active action.
-     * @param {Map<string, Set<string>>} [crossActionSelections] - Map of actionName → Set of selected component IDs (for other actions).
-     * @param {Function} [onGrayedComponentClick] - Callback when a grayed (locked) component is clicked (lockedActionName, componentId).
+     * @param {Object} [data] - Data object with keys: actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick.
      */
-    show(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
-        if (!this._overlay) return;
+    show(data) {
+        if (!this.overlay) return;
 
-        this._entityId = entityId;
-        this._onActionClick = onActionClick;
-        this._onGrayedComponentClick = onGrayedComponentClick;
-        this._crossActionSelections = crossActionSelections;
+        // Support both { ...data } object and legacy positional arguments
+        const actions = data?.actions || (arguments[0] && !arguments[0].actions ? arguments[0] : null);
+        const entityId = data?.entityId || arguments[1];
+        const onActionClick = data?.onActionClick || arguments[2];
+        const activeActionName = data?.activeActionName || arguments[3];
+        const selectedComponentIds = data?.selectedComponentIds || arguments[4];
+        const crossActionSelections = data?.crossActionSelections || arguments[5];
+        const onGrayedComponentClick = data?.onGrayedComponentClick || arguments[6];
+
+        // If data is provided, use it; otherwise fall back to legacy positional args
+        if (data && data.actions) {
+            this._entityId = data.entityId || null;
+            this._onActionClick = data.onActionClick || null;
+            this._onGrayedComponentClick = data.onGrayedComponentClick || null;
+            this._crossActionSelections = data.crossActionSelections || null;
+        } else if (actions !== null) {
+            this._entityId = entityId || null;
+            this._onActionClick = onActionClick || null;
+            this._onGrayedComponentClick = onGrayedComponentClick || null;
+            this._crossActionSelections = crossActionSelections || null;
+        }
 
         let html = '';
 
@@ -76,7 +115,7 @@ export class NavActionsPanel {
         html += '</div>';
 
         this._content.innerHTML = html;
-        this._overlay.style.display = 'block';
+        this.overlay.style.display = 'block';
 
         // Attach listeners after DOM is rendered
         this._attachActionListeners();
@@ -105,7 +144,7 @@ export class NavActionsPanel {
      * @param {Function} [onGrayedComponentClick] - Callback when a grayed (locked) component is clicked.
      */
     updateRoom(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
-        if (!this._overlay || !this._content) return;
+        if (!this.overlay || !this._content) return;
 
         // Update stored references if provided
         if (entityId) this._entityId = entityId;
@@ -131,26 +170,20 @@ export class NavActionsPanel {
      * Hides the actions panel.
      */
     hide() {
-        if (this._overlay) {
-            this._overlay.style.display = 'none';
+        if (this.overlay) {
+            this.overlay.style.display = 'none';
         }
     }
 
     /**
      * Toggles the actions panel.
-     * @param {Object} actions - The available actions data.
-     * @param {string} entityId - The active droid entity ID.
-     * @param {Function} onActionClick - Callback for action clicks.
-     * @param {string|null} [activeActionName] - The action currently being selected into.
-     * @param {Set<string>} [selectedComponentIds] - Components currently selected for the active action.
-     * @param {Map<string, Set<string>>} [crossActionSelections] - Cross-action selection map.
-     * @param {Function} [onGrayedComponentClick] - Callback when a grayed (locked) component is clicked.
+     * @param {Object} [data] - Optional data object for show().
      */
-    toggle(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
-        if (this._overlay && this._overlay.style.display === 'block') {
+    toggle(data) {
+        if (this.overlay && this.overlay.style.display === 'block') {
             this.hide();
         } else {
-            this.show(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick);
+            this.show(data);
         }
     }
 
@@ -290,22 +323,26 @@ export class NavActionsPanel {
                 const componentIdentifier = row.dataset.compIdentifier;
                 const canExecute = row.dataset.canExecute === 'true';
 
-                // Check if this component is grayed (locked to another action)
-                const grayedByAction = componentToActionMap.get(componentId);
+            // Check if this component is grayed (locked to another action)
+            const grayedByAction = componentToActionMap.get(componentId);
 
-                // If grayed (locked to another action), handle conflict resolution
-                if (grayedByAction && this._onGrayedComponentClick) {
-                    this._onGrayedComponentClick(grayedByAction, componentId);
-                    return;
+            // If grayed (locked to another action), handle conflict resolution
+            if (grayedByAction && this._onGrayedComponentClick) {
+                this._onGrayedComponentClick(grayedByAction, componentId);
+                return;
+            }
+
+            // Only allow toggling capable non-grayed components
+            if (!canExecute) return;
+
+            // Call the action click callback for selection toggling
+            // Prefer the new delegated callback (_actionCallback), fall back to legacy (_onActionClick)
+            if (componentId && entityId) {
+                const callback = this._actionCallback || this._onActionClick;
+                if (callback) {
+                    callback(actionName, entityId, componentId, componentIdentifier);
                 }
-
-                // Only allow toggling capable non-grayed components
-                if (!canExecute) return;
-
-                // Call the action click callback for selection toggling
-                if (componentId && entityId) {
-                    this._onActionClick(actionName, entityId, componentId, componentIdentifier);
-                }
+            }
             };
         });
     }

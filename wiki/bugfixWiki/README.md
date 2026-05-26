@@ -49,6 +49,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-074](high/BUG-074-test-item-not-broadcast-to-client.md) | Test Item Added to Server but Not Visible on Client (Broadcast Timing) | ✅ Fixed | `pending` | `WorldStateController.js`, `server.js` |
 | [BUG-075](high/BUG-075-missing-holding-cost-system.md) | Missing Holding Cost System — Equipped Item Stat Debuffs | ✅ Fixed | — | `HoldingCostController.js`, `data/holdingCost.json` |
 | [BUG-076](high/BUG-076-dropped-items-not-persisted.md) | Dropped Items Not Persisted Across Server Restarts | 🔴 Open | — | `WorldStateController.js`, `inventoryRoutes.js` |
+| [BUG-078](high/BUG-078-overlay-panel-data-flow-regression.md) | Overlay Panel Data Flow Regression | ✅ Fixed | `pending` | `OverlayManager.js`, `App.js`, `ComponentViewer.js`, `NavActionsPanel.js` |
 | [BUG-071](architectural/BUG-071-internal-component-tick-system-srp-violation.md) | Internal Component Tick System — SRP Violation / Lack of Data-Driven Design | ✅ Fixed | `pending` | `InternalComponentController.js`, `data/internalComponents.json` |
 | [BUG-072](architectural/BUG-072-wiki-violates-why-over-how-principle.md) | Wiki Violates "Why Over How" Documentation Principle — Too Many Code Snippets | ✅ Fixed | `pending` | 11 wiki files, `project_rules.md` |
 
@@ -107,6 +108,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-051](architectural/BUG-051-provided-components-missing-type-filter.md) | _filterProvidedForGroup Missing Type Filter After groupType Unification | ✅ Fixed (Round 2) | `pending` | `synergyController.js`, `SynergyComponentGatherer.js` |
 | [BUG-052](architectural/BUG-052-controllers-directory-structure-srp-violation.md) | Controllers Directory Structure SRP Violation — Organized into Subdirectories | ✅ Fixed | `pending` | `src/controllers/` (all 30 files) |
 | [BUG-053](architectural/BUG-053-client-ui-layout-srp-violation.md) | Client UI Layout SRP Violation — Refactored to Three-Section Vertical Layout | ✅ Fixed | `pending` | `public/index.html`, `public/css/layout.css`, `public/js/App.js`, `public/js/UIManager.js` |
+| [BUG-077](architectural/BUG-077-missing-overlay-manager.md) | Missing Overlay Manager — Floating Window Coordination | ✅ Fixed | `pending` | `OverlayManager.js`, `floating-windows.css`, `ConfigBarManager.js` |
 
 ---
 

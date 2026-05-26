@@ -18,55 +18,26 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Component Viewer | Component detail overlay with internal component panel |
 | Navigation Actions Panel | Actions overlay with multi-component selection |
 | World Map View | Full-screen world map overlay with pan/zoom |
-| Config Bar Manager | Top config bar, overlay coordination |
+| Inventory Manager | Inventory overlay with drag-and-drop items |
+| Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
 | Client Error Controller | Error resolution and formatting |
 
 ## 2. Dependency Injection Wiring Order
 
-The orchestrator initializes core modules first, then selection and synergy controllers, then UI modules, then the action executor with a refresh callback, wires the config bar to all modules, and finally establishes the WebSocket connection and event dispatcher with handler callbacks.
+The orchestrator initializes core modules first, then selection and synergy controllers, then UI modules, then the overlay manager registers all panels with their config bar buttons, establishes the WebSocket connection, and finally the event dispatcher with handler callbacks.
 
 ## 3. Data Flow
 
 User interactions flow through the event dispatcher into the selection controller, which triggers UI updates and synergy preview fetching. The action executor sends HTTP requests for action execution. Server updates flow through the WebSocket into the state manager, which triggers UI updates.
 
-**Registry Pre-Fetch Distribution Pattern:**
+**Overlay Registration Flow**:
+1. All panel controllers are instantiated
+2. `OverlayManager.register()` is called for each panel with: panel ID, controller reference, config bar button ID, keyboard shortcut key
+3. `OverlayManager.init()` attaches click listeners to config bar buttons, creates the shared backdrop element, and sets up keyboard shortcuts
+4. Panel toggle requests go through `OverlayManager.toggle()` which ensures exclusive visibility (only one panel open at a time)
 
-Upon initialization, the client performs a dedicated HTTP GET request to `/api/internal-components/registry` before the world state refresh. The raw internal component type registry is fetched once and distributed to both `ComponentViewer` and `UIManager`. This single pre-fetch eliminates per-component redundant API calls, and ensures all UI modules have access to type definitions for description rendering.
-
-**Why server returns raw data (no descriptions):** Description generation is a **presentation concern**, not a data concern. The server provides raw type definitions; clients compute human-readable descriptions from `tickEffects` data. This separation ensures the API contract remains stable while presentation logic adapts independently on the client side.
+**Why centralized overlay coordination**: Previously, each panel managed its own visibility independently, allowing multiple panels to overlap. The OverlayManager enforces exclusive visibility, manages z-index stacking, provides keyboard shortcuts (1-4 for panels, Escape to close all), and click-outside dismissal via a shared backdrop.
 
 ## 4. Logger Standard
 
 All modules use a centralized logging utility.
-
----
-
-## Client UI
-
-### 1. Overview
-
-A cyber-terminal styled single-page application built with HTML5, CSS3, and vanilla JavaScript. The layout consists of a top config bar, a middle spatial map area, and a bottom stat bars panel.
-
-**CSS modules**: Single-responsibility stylesheets covering base resets, layout, map visualization, navigation, actions, synergy, components, utilities, feedback, and internal components.
-
-### 2. Layout
-
-The top section holds the config bar with buttons for each overlay. The middle section is a flexible SVG-based spatial map displaying rooms, entities, and components. The bottom section is a fixed-height scrollable stat bars panel.
-
-Floating overlays appear on demand: component viewer, actions panel, and world map.
-
-### 3. Key UI Features
-
-- **Map rendering**: SVG with rooms, entities, components, and internal components rendered as colored circles
-- **Range indicators**: Color-coded circles for movement range and attack range
-- **Stat bars**: Configurable, percentage-based bars colored by trait
-- **Component Viewer**: Grid of component cards with an expandable internal component panel
-- **Multi-component selection**: Click-to-toggle with cross-action graying and synergy preview
-- **World Map overlay**: Pan and zoom navigation with clickable room connections
-- **Error display**: Notification pop-ups in the corner of the screen
-
-### 4. Styling
-
-- **Theme**: Cyber-terminal aesthetic with a dark background and neon accent colors
-- **Font**: Monospaced typeface
-- **Variables**: All colors defined as CSS custom properties

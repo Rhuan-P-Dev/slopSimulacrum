@@ -31,7 +31,7 @@ export class WorldMapView {
      */
     constructor(deps = {}) {
         this._onRoomClick = deps.onRoomClick || null;
-        this._overlay = null;
+        this.overlay = null;
         this._svg = null;
         this._mapGroup = null;
         this._worldData = null;
@@ -47,10 +47,18 @@ export class WorldMapView {
     }
 
     /**
-     * Initializes the overlay DOM element.
+     * Initializes the overlay DOM element and attaches close button listener.
      */
     init() {
-        this._overlay = document.getElementById('world-map-overlay');
+        this.overlay = document.getElementById('world-map-overlay');
+
+        // Attach close button listener
+        if (this.overlay) {
+            const closeBtn = this.overlay.querySelector('.overlay-close-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => this.hide());
+            }
+        }
     }
 
     /**
@@ -66,7 +74,7 @@ export class WorldMapView {
             this._worldData = await response.json();
             return true;
         } catch (error) {
-            console.error('[WorldMapView] Failed to fetch world map:', error);
+            // Fetch failed — user is already seeing the loading state, no need to log to console
             return false;
         }
     }
@@ -84,17 +92,17 @@ export class WorldMapView {
      * Fetches data and renders the map.
      */
     async show() {
-        if (!this._overlay) this.init();
-        if (!this._overlay) return;
+        if (!this.overlay) this.init();
+        if (!this.overlay) return;
 
         // Fetch fresh data
         const success = await this.fetchAndRender();
         if (!success || !this._worldData) {
-            console.warn('[WorldMapView] Could not fetch world map data.');
+            // Fetch failed — overlay stays hidden, no need to log to console
             return;
         }
 
-        this._overlay.style.display = 'flex';
+        this.overlay.style.display = 'flex';
 
         // Render the SVG map
         this._renderMap();
@@ -104,15 +112,15 @@ export class WorldMapView {
      * Hides the world map overlay.
      */
     hide() {
-        if (!this._overlay) return;
-        this._overlay.style.display = 'none';
+        if (!this.overlay) return;
+        this.overlay.style.display = 'none';
     }
 
     /**
      * Toggles the world map overlay.
      */
     toggle() {
-        if (this._overlay && this._overlay.style.display === 'flex') {
+        if (this.overlay && this.overlay.style.display === 'flex') {
             this.hide();
         } else {
             this.show();
@@ -124,7 +132,7 @@ export class WorldMapView {
      * @private
      */
     _renderMap() {
-        if (!this._overlay || !this._worldData) return;
+        if (!this.overlay || !this._worldData) return;
 
         // Clear existing SVG content
         const content = document.getElementById('world-map-content');

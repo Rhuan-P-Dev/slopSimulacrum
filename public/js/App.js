@@ -1,3 +1,18 @@
+/**
+ * ClientApp
+ * The main orchestrator for the SlopSimulacrum client.
+ * Coordinates communication between all modules.
+ *
+ * Module Architecture:
+ * - SelectionController: Component selection state management
+ * - SynergyPreviewController: Synergy preview + range calculation
+ * - ActionExecutor: All action execution handlers
+ * - EventDispatcher: Socket + DOM event listener management
+ * - StatBarsManager: Configurable stat bar visualization
+ * - ComponentViewer: Component detail overlay with internal component panel
+ * - NavActionsPanel: Navigation & actions overlay
+ * - OverlayManager: Floating window coordination (exclusive visibility, shortcuts)
+ */
 import { AppConfig } from './Config.js';
 import { WorldStateManager } from './WorldStateManager.js';
 import { UIManager } from './UIManager.js';
@@ -11,56 +26,40 @@ import { StatBarsManager } from './StatBarsManager.js';
 import { ComponentViewer } from './ComponentViewer.js';
 import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
-import { ConfigBarManager } from './ConfigBarManager.js';
 import { InventoryManager } from './InventoryManager.js';
+import { OverlayManager } from './OverlayManager.js';
 
-/**
- * ClientApp
- * The main orchestrator for the SlopSimulacrum client.
- * Coordinates communication between all extracted modules.
- *
- * Module Architecture:
- * - SelectionController: Component selection state management
- * - SynergyPreviewController: Synergy preview + range calculation
- * - ActionExecutor: All action execution handlers
- * - EventDispatcher: Socket + DOM event listener management
- * - StatBarsManager: Configurable stat bar visualization
- * - ComponentViewer: Component detail overlay panel
- * - NavActionsPanel: Navigation & actions overlay panel
- * - ConfigBarManager: Top config bar management
- */
 export class ClientApp {
     constructor() {
         // 1. Available actions cache
         this.availableActions = {};
 
-        // 2. Instantiate core modules
+        // 2. Core modules
         this.worldState = new WorldStateManager();
         this.ui = new UIManager();
         this.errorController = new ClientErrorController(this.ui);
         this.actions = new ActionManager(this.ui, this.errorController);
 
-        // 3. Extracted modules
+        // 3. Controllers
         this.selection = new SelectionController(
             this.worldState,
             this.ui,
             this.actions,
             null, // synergy controller (passed via fetchPreview)
-            this // self-reference for callbacks
+            this  // self-reference for callbacks
         );
         this.synergy = new SynergyPreviewController(this.actions, AppConfig);
 
-        // 4. New modules for three-section layout
+        // 4. UI modules
         this.statBars = new StatBarsManager(this.ui, this.worldState);
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
         this.worldMap = new WorldMapView({
             onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
         });
-
-        // 4b. Inventory manager
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
+        // 5. Action executor
         this.executor = new ActionExecutor(
             this.worldState,
             this.actions,
@@ -71,60 +70,20 @@ export class ClientApp {
             this.availableActions
         );
 
-        // 5. Config bar manager (wires everything together)
-        this.configBar = new ConfigBarManager({
-            uiManager: this.ui,
-            componentViewer: this.componentViewer,
-            statBarsManager: this.statBars,
-            navActionsPanel: this.navActions,
-            worldMapView: this.worldMap,
-            worldStateManager: this.worldState,
-            onMoveEntity: (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId),
-            onExecuteAction: (actionName, entityId, componentId, componentIdentifier) => {
-                // Check if this is an equipped item click (componentId starts with "equipped-")
-                if (componentId && componentId.startsWith('equipped-')) {
-                    this._handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier);
-                    return;
-                }
+        // 6. Overlay manager (replaces ConfigBarManager)
+        this.overlayManager = new OverlayManager();
 
-                // Toggle component selection for the action, then execute if components selected
-                if (entityId && actionName) {
-                    this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
-                    // If component was selected (not toggled off), execute the action
-                    if (this.selection.getSelectedComponentIds().size > 0) {
-                        const pending = this.actions.getPendingAction();
-                        if (pending) {
-                            // For non-targeting actions, execute immediately
-                            const actionData = this.availableActions[actionName];
-                            if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
-                                this.executor.executeAction(actionName, entityId, componentId, componentIdentifier);
-                            }
-                        }
-                    }
-                }
-            },
-            onGetSelectionState: () => ({
-                activeActionName: this.selection.getActiveActionName(),
-                selectedComponentIds: this.selection.getSelectedComponentIds(),
-                crossActionSelections: this.selection.crossActionSelections
-            }),
-            onGrayedComponentCallback: (lockedActionName, componentId) => {
-                this.selection.removeGrayedComponent(lockedActionName, componentId);
-            },
-            onToggleWorldMap: () => this.worldMap.toggle(),
-            onToggleInventory: () => this.inventory.toggle(),
-        });
+        // 7. Wire action execution callback to NavActionsPanel
+        this._setupActionCallback();
 
-        // 6. Socket connection
+        // 8. Socket connection
         this.socket = io();
 
-        // 7. Wire event dispatcher with handler callbacks
+        // 9. Wire event dispatcher
         this.dispatcher = new EventDispatcher(this.socket, AppConfig, {
             setMyEntityId: (entityId) => this.worldState.setMyEntityId(entityId),
             refreshWorldAndActions: () => this.refreshWorldAndActions(),
             handleError: (err) => this.errorController.handleError(err),
-            // Immediate stat bar update from socket payload (before full refresh)
-            // Sync WorldStateManager.state first so getActiveDroid() reads fresh data
             onStatBarsUpdate: (state) => {
                 this.worldState.state = state;
                 this.statBars.updateAll(state);
@@ -149,28 +108,54 @@ export class ClientApp {
             worldStateManager: this.worldState
         });
 
-        // 8. Setup event listeners
+        // 10. Setup listeners
         this._setupListeners();
 
-        // 9. Drop item state
+        // 11. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentId } */
         this._pendingDropItem = null;
+    }
 
-        console.log('%c[ClientApp] 🚀 Modules initialized', 'color: #00ff00; font-weight: bold;');
+    /**
+     * Sets up the action execution callback for NavActionsPanel.
+     * @private
+     */
+    _setupActionCallback() {
+        this.navActions.setExecuteActionCallback((actionName, entityId, componentId, componentIdentifier) => {
+            // Check if this is an equipped item click
+            if (componentId && componentId.startsWith('equipped-')) {
+                this._handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier);
+                return;
+            }
+
+            // Toggle component selection, then execute if selected
+            if (entityId && actionName) {
+                this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
+                if (this.selection.getSelectedComponentIds().size > 0) {
+                    const pending = this.actions.getPendingAction();
+                    if (pending) {
+                        const actionData = this.availableActions[actionName];
+                        if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
+                            this.executor.executeAction(actionName, entityId, componentId, componentIdentifier);
+                        }
+                    }
+                }
+            }
+        });
+
+        this.navActions.setGrayedComponentCallback((lockedActionName, compId) => {
+            this.selection.removeGrayedComponent(lockedActionName, compId);
+        });
     }
 
     /**
      * Handles clicking a room node on the world map overlay.
-     * Moves the droid to the selected room.
      * @private
      */
     _handleWorldMapRoomClick(roomId) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
-
-        // Only move if it's a different room
         if (droid.location === roomId) return;
-
         this.executor.executeMoveDroid(droid.id, roomId);
     }
 
@@ -179,10 +164,8 @@ export class ClientApp {
      * @private
      */
     _setupListeners() {
-        // Socket.io listeners (managed by EventDispatcher)
         this.dispatcher.setupSocketListeners();
 
-        // Map click listener (managed by EventDispatcher)
         const map = document.getElementById('world-map');
         if (map) {
             this.dispatcher.setupMapClickListener(
@@ -190,7 +173,6 @@ export class ClientApp {
                 () => this.actions.getPendingAction(),
                 {
                     hasPendingDropAction: () => this._pendingDropItem !== null,
-                    // Extra handler for drop item
                     onDropItemClick: (targetX, targetY) => {
                         const pending = this._pendingDropItem;
                         if (pending) {
@@ -198,7 +180,6 @@ export class ClientApp {
                             const state = this.worldState.getState();
                             this.executor.executeDropItem(pending, targetX, targetY, droid, state);
                             this._pendingDropItem = null;
-                            // Clear range indicator
                             if (droid) {
                                 this.ui.renderRangeIndicator(droid, 0, 'red', 'drop');
                             }
@@ -208,9 +189,8 @@ export class ClientApp {
             );
         }
 
-        // Listen for dropped items changes via socket
         this.socket.on('dropped-items-update', (data) => {
-            console.log('[ClientApp] Dropped items updated:', data);
+            // Handled by server-side tracking
         });
     }
 
@@ -218,18 +198,24 @@ export class ClientApp {
      * Initializes the application boot sequence.
      */
     async init() {
-        console.log('%c[ClientApp] 🚀 Initializing System...', 'color: #00ff00; font-weight: bold;');
         try {
-            // Initialize new modules
+            // Initialize modules
             this.statBars.init();
             this.componentViewer.init();
             this.navActions.init();
             this.worldMap.init();
-            this.configBar.init();
             this.inventory.init();
 
-            // Pre-fetch internal component registry so Entity Analysis has descriptions
-            await this._loadInternalComponentRegistry();
+            // Register panels with overlay manager
+            this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer', '1',
+                () => ({ entity: this.worldState.getActiveDroid(), state: this.worldState.getState() })
+            );
+            this.overlayManager.register('nav-actions', this.navActions, 'btn-nav-actions', '2',
+                () => this._buildNavActionsData()
+            );
+            this.overlayManager.register('world-map', this.worldMap, 'btn-world-map', '3');
+            this.overlayManager.register('inventory', this.inventory, 'btn-inventory', '4');
+            this.overlayManager.init();
 
             await this.refreshWorldAndActions();
         } catch (error) {
@@ -268,7 +254,7 @@ export class ClientApp {
                     (comp, stats) => this.ui.showComponentDetails(comp, stats)
                 );
 
-                // Update stat bars with current state
+                // Update stat bars
                 this.statBars.updateAll(state);
             }
 
@@ -279,7 +265,6 @@ export class ClientApp {
 
             this.ui.hideStatus();
         } catch (error) {
-            console.error('[ClientApp] Refresh failed:', error);
             this.errorController.handleError({
                 code: 'CONNECTION_ERROR',
                 message: error.message
@@ -290,15 +275,10 @@ export class ClientApp {
     /**
      * Callback invoked by SelectionController after any selection change.
      * Triggers UI re-render and synergy preview update.
-     * Also updates NavActionsPanel if it's currently open so cross-action selection
-     * highlighting is immediately visible without a full refresh.
-     * Called from: SelectionController.toggleComponent(), removeGrayedComponent(), clearAllSelections()
      * @private
      */
     onSelectionChange() {
         this.updateActionList();
-
-        // Update NavActionsPanel if it's open so cross-action highlighting updates immediately
         this._updateNavActionsPanelIfOpen();
 
         const componentIds = this.selection.getSelectedComponentIdsArray();
@@ -319,7 +299,6 @@ export class ClientApp {
         try {
             const entityId = this.worldState.getMyEntityId();
             this.availableActions = await this.actions.fetchActions(entityId);
-            // Sync with ActionExecutor so it has fresh action data for range checks
             this.executor.availableActions = this.availableActions;
 
             const pending = this.actions.getPendingAction();
@@ -329,7 +308,7 @@ export class ClientApp {
                 if (droid && state) {
                     const actionData = this.availableActions[pending.actionName];
 
-                    // Compute live synergy multiplier from selected components for accurate range
+                    // Compute live synergy multiplier from selected components
                     const selectedIds = this.selection.getSelectedComponentIdsArray();
                     const synergyMultiplier = selectedIds.length > 0
                         ? await this.synergy.computeSynergyMultiplier(pending.actionName, entityId, selectedIds)
@@ -345,10 +324,7 @@ export class ClientApp {
                     }
                 }
             }
-
-            // renderActionList removed: NavActionsPanel handles action list rendering
         } catch (error) {
-            console.error('[ClientApp] Action list update failed:', error);
             this.errorController.handleError({
                 code: 'ACTION_LIST_UPDATE_FAILED',
                 message: error.message
@@ -358,7 +334,6 @@ export class ClientApp {
 
     /**
      * Updates the NavActionsPanel if it's currently open.
-     * Re-renders the panel content with fresh action data.
      * @private
      */
     _updateNavActionsPanelIfOpen() {
@@ -370,19 +345,8 @@ export class ClientApp {
             this.availableActions,
             this.worldState.getMyEntityId(),
             (actionName, entityId, compId, compIdentifier) => {
-                // Toggle component selection for the action, then execute if components selected
-                if (entityId && actionName) {
-                    this.selection.toggleComponent(actionName, entityId, compId, compIdentifier);
-                    if (this.selection.getSelectedComponentIds().size > 0) {
-                        const pending = this.actions.getPendingAction();
-                        if (pending) {
-                            const actionData = this.availableActions[actionName];
-                            if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
-                                this.executor.executeAction(actionName, entityId, compId, compIdentifier);
-                            }
-                        }
-                    }
-                }
+                // Delegate to the callback set in _setupActionCallback
+                this.navActions._actionCallback?.(actionName, entityId, compId, compIdentifier);
             },
             this.selection.getActiveActionName(),
             this.selection.getSelectedComponentIds(),
@@ -412,52 +376,19 @@ export class ClientApp {
     }
 
     /**
-     * Loads the internal component registry from the server and distributes it
-     * to both ComponentViewer and UIManager so Entity Analysis shows descriptions.
-     * @private
-     */
-    async _loadInternalComponentRegistry() {
-        try {
-            const response = await fetch('/api/internal-components/registry');
-            if (response.ok) {
-                const registry = await response.json();
-                // Set on UIManager so Entity Analysis can render descriptions
-                if (this.ui.setInternalComponentRegistry) {
-                    this.ui.setInternalComponentRegistry(registry);
-                }
-                // Store on ComponentViewer so it doesn't need to re-fetch
-                this.componentViewer._internalComponentRegistry = registry;
-                console.log('%c[ClientApp] Internal component registry loaded', 'color: #00ff00;');
-            } else {
-                console.warn('[ClientApp] Registry fetch failed, Entity Analysis will not show descriptions');
-            }
-        } catch (error) {
-            console.warn('[ClientApp] Failed to load internal component registry:', error);
-        }
-    }
-
-    /**
      * Handles clicking on an equipped item in the action list.
-     * Calculates drop range from strength stat and shows range indicator.
      * @private
-     * @param {string} actionName - The action name
-     * @param {string} entityId - The entity ID
-     * @param {string} componentId - The equipped item component ID (format: "equipped-${itemId}-${itemType}")
-     * @param {string} componentIdentifier - The component identifier
      */
     _handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier) {
         const droid = this.worldState.getActiveDroid();
         const state = this.worldState.getState();
         if (!droid || !state) return;
 
-        // Parse componentId format: "equipped-${itemId}-${itemType}"
+        // Parse componentId: "equipped-${itemId}-${itemType}"
         const prefix = 'equipped-';
         const afterPrefix = componentId.substring(prefix.length);
         const lastDash = afterPrefix.lastIndexOf('-');
-        if (lastDash <= 0) {
-            console.warn('[ClientApp] Invalid equipped item componentId:', componentId);
-            return;
-        }
+        if (lastDash <= 0) return;
 
         const itemId = afterPrefix.substring(0, lastDash);
         const itemType = afterPrefix.substring(lastDash + 1);
@@ -475,42 +406,59 @@ export class ClientApp {
 
         const dropRange = AppConfig.DROP.BASE_RANGE + (maxStrength * AppConfig.MULTIPLIERS.DROP_RANGE);
 
-        // Store pending drop item
-        this._pendingDropItem = {
-            actionName,
-            entityId,
-            itemId,
-            itemType,
-            componentId
-        };
+        this._pendingDropItem = { actionName, entityId, itemId, itemType, componentId };
         this.actions.setPendingDropAction(this._pendingDropItem);
-
-        // Show range indicator
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
+    }
 
-        console.log(`[ClientApp] Equipped item "${itemType}" clicked. Drop range: ${dropRange} (strength: ${maxStrength})`);
+    /**
+     * Builds data object for NavActionsPanel show().
+     * @returns {Promise<Object>} Data object with actions, callbacks, selection state.
+     * @private
+     */
+    async _buildNavActionsData() {
+        const entityId = this.worldState.getMyEntityId();
+        const actions = await this.actions.fetchActions(entityId);
+        return {
+            actions,
+            entityId,
+            onActionClick: (actionName, entityId, compId, compIdentifier) => {
+                if (compId && compId.startsWith('equipped-')) {
+                    this._handleEquippedItemClick(actionName, entityId, compId, compIdentifier);
+                    return;
+                }
+                if (entityId && actionName) {
+                    this.selection.toggleComponent(actionName, entityId, compId, compIdentifier);
+                    if (this.selection.getSelectedComponentIds().size > 0) {
+                        const pending = this.actions.getPendingAction();
+                        if (pending) {
+                            const actionData = this.availableActions[actionName];
+                            if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
+                                this.executor.executeAction(actionName, entityId, compId, compIdentifier);
+                            }
+                        }
+                    }
+                }
+            },
+            activeActionName: this.selection.getActiveActionName(),
+            selectedComponentIds: this.selection.getSelectedComponentIds(),
+            crossActionSelections: this.selection.buildCrossMap(),
+            onGrayedComponentClick: (lockedActionName, compId) => {
+                this.selection.removeGrayedComponent(lockedActionName, compId);
+            }
+        };
     }
 
     // ==================== Delegate Methods ====================
-    // Backward-compatible delegates to WorldStateManager
 
-    /**
-     * @returns {Object|null}
-     */
     getActiveDroid() {
         return this.worldState.getActiveDroid();
     }
 
-    /**
-     * @returns {Object}
-     */
     getState() {
         return this.worldState.getState();
     }
 
-    /**
-     * @returns {string|null}
-     */
     getMyEntityId() {
         return this.worldState.getMyEntityId();
     }

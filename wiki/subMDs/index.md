@@ -26,7 +26,7 @@ Controller-specific documentation including design patterns, component managemen
 | [Controller Patterns](controllers/controller_patterns.md) | **Mandatory** controller design patterns (DI, root injector, defensive copying) |
 | [Capability Controller](controllers/capability_controller.md) | Component capability cache + scoring system |
 | [Component Selection](controllers/component_selection.md) | Component selection controller |
-| [Config Bar Manager](controllers/config_bar_manager.md) | Config bar UI manager |
+| [Config Bar Manager](controllers/config_bar_manager.md) | ~~Config bar UI manager~~ (Removed — replaced by OverlayManager) |
 | [Rooms Controller](controllers/rooms_controller.md) | Room management |
 | [World State Manager](controllers/world_state_manager.md) | Client-side state synchronization |
 | [Consequence Handler Architecture](controllers/consequence_handler_architecture.md) | Consequence dispatch system |
@@ -53,9 +53,10 @@ Client-side architecture, UI components, and CSS organization.
 
 | Document | Description |
 |----------|-------------|
-| [Client Architecture](frontend/client_architecture.md) | Client-side architecture + UI overview (13 modules, DI wiring, data flow) |
+| [Client Architecture](frontend/client_architecture.md) | Client-side architecture + UI overview (14 modules, DI wiring, data flow) |
 | [Client Action Execution](frontend/client_action_execution.md) | Asynchronous execution rationale, server authority principle, selection UI purpose |
 | [CSS Architecture](frontend/css_architecture.md) | Modular CSS philosophy, single-responsibility rationale, theme variable design |
+| [Overlay Manager](frontend/overlay_manager.md) | Floating window coordination — exclusive visibility, keyboard shortcuts, click-outside dismissal |
 
 ---
 
@@ -85,11 +86,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 22 |
+| Total documents | 23 |
 | Categories | 6 |
 | Architecture docs | 4 |
 | Controller docs | 8 |
 | Data model docs | 4 |
-| Frontend docs | 3 |
+| Frontend docs | 4 |
 | Networking docs | 1 |
 | Systems docs | 3 |

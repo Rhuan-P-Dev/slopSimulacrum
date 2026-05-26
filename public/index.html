@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="css/feedback.css">
     <link rel="stylesheet" href="css/internal-components.css">
     <link rel="stylesheet" href="css/inventory.css">
+    <link rel="stylesheet" href="css/floating-windows.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -86,10 +87,10 @@
     </div>
 
     <!-- Floating Overlay: Component Viewer -->
-    <div id="component-viewer-overlay" class="overlay-panel" style="display:none;">
+        <div id="component-viewer-overlay" class="overlay-panel" style="display:none;">
         <div class="overlay-header">
             <h3 style="margin: 0;">🗿️ Component Viewer</h3>
-            <button class="overlay-close-btn" onclick="document.getElementById('component-viewer-overlay').style.display='none'">✕</button>
+            <button class="overlay-close-btn">✕</button>
         </div>
         <div id="component-viewer-content">
             <em style="color: var(--text-dim);">No entity selected.</em>
@@ -97,10 +98,10 @@
     </div>
 
     <!-- Floating Overlay: Actions -->
-    <div id="nav-actions-overlay" class="overlay-panel" style="display:none;">
+        <div id="nav-actions-overlay" class="overlay-panel" style="display:none;">
         <div class="overlay-header">
             <h3 style="margin: 0;">⚔️ Actions</h3>
-            <button class="overlay-close-btn" onclick="document.getElementById('nav-actions-overlay').style.display='none'">✕</button>
+            <button class="overlay-close-btn">✕</button>
         </div>
         <div class="nav-actions-content" id="nav-actions-content">
             <!-- Populated by JS -->
@@ -108,10 +109,10 @@
     </div>
 
     <!-- Floating Overlay: World Map -->
-    <div id="world-map-overlay" class="overlay-panel world-map-overlay" style="display:none;">
+        <div id="world-map-overlay" class="overlay-panel world-map-overlay" style="display:none;">
         <div class="overlay-header">
             <h3 style="margin: 0;">🌐 World Map</h3>
-            <button class="overlay-close-btn" onclick="document.getElementById('world-map-overlay').style.display='none'">✕</button>
+            <button class="overlay-close-btn">✕</button>
         </div>
         <div id="world-map-content" style="width:100%; height:100%;">
             <!-- Populated by JS -->
