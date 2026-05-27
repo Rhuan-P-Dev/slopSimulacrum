@@ -2,14 +2,12 @@
  * WorldMapView
  * Manages a full-screen overlay with an SVG world map showing ALL rooms as nodes,
  * connections as directed arrows with door names, and the current room highlighted.
- * Also renders dropped items as blue squares on the map.
  *
  * Features:
  * - Fetches data from GET /world-map endpoint
  * - Renders rooms as labeled rectangles on an SVG canvas
  * - Draws directed connection arrows with door name labels
  * - Highlights the current room with a distinct border color
- * - Renders dropped items as blue square markers
  * - Supports pan (drag) and zoom (mouse wheel) for large maps
  * - Toggle via 🌐 button in the config bar
  *
@@ -30,17 +28,14 @@ export class WorldMapView {
      * Creates a new WorldMapView.
      * @param {Object} deps - Dependencies
      * @param {Function} deps.onRoomClick - Callback when a room is clicked (roomId)
-     * @param {Function} deps.onDroppedItemClick - Callback when a dropped item is clicked (droppedItemId)
      */
     constructor(deps = {}) {
         this._onRoomClick = deps.onRoomClick || null;
-        this._onDroppedItemClick = deps.onDroppedItemClick || null;
         this.overlay = null;
         this._svg = null;
         this._mapGroup = null;
         this._worldData = null;
         this._currentRoomId = null;
-        this._droppedItems = [];
 
         // Pan/zoom state
         this._panX = 0;
@@ -72,16 +67,13 @@ export class WorldMapView {
      */
     async fetchAndRender() {
         try {
-            // Fetch both rooms and dropped items from the combined endpoint
-            const response = await fetch('/world-map-with-items');
+            const response = await fetch('/world-map');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             this._worldData = await response.json();
-            this._droppedItems = this._worldData.droppedItems || [];
             return true;
         } catch (error) {
-            // Fetch failed — user is already seeing the loading state, no need to log to console
             return false;
         }
     }
@@ -105,7 +97,6 @@ export class WorldMapView {
         // Fetch fresh data
         const success = await this.fetchAndRender();
         if (!success || !this._worldData) {
-            // Fetch failed — overlay stays hidden, no need to log to console
             return;
         }
 
@@ -207,93 +198,11 @@ export class WorldMapView {
             this._drawRoomNode(mapGroup, room);
         }
 
-        // Draw dropped item markers (blue squares)
-        this._renderDroppedItems(mapGroup, offsetX, offsetY, svg);
-
         svg.appendChild(mapGroup);
         content.appendChild(svg);
 
         // Setup pan/zoom interactions
         this._setupPanZoom(svg, mapGroup);
-    }
-
-    /**
-     * Draws dropped item markers as blue squares on the SVG map.
-     * @private
-     */
-     _renderDroppedItems(group, offsetX, offsetY, svgElement) {
-        if (!this._droppedItems || this._droppedItems.length === 0) return;
-
-        const MARKER_SIZE = 16;
-        const HALF = MARKER_SIZE / 2;
-
-        for (const item of this._droppedItems) {
-            const x = item.x + offsetX;
-            const y = item.y + offsetY;
-
-            // Blue square marker
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', x - HALF);
-            rect.setAttribute('y', y - HALF);
-            rect.setAttribute('width', MARKER_SIZE);
-            rect.setAttribute('height', MARKER_SIZE);
-            rect.setAttribute('rx', '2');
-            rect.setAttribute('fill', '#4488ff');
-            rect.setAttribute('stroke', '#88bbff');
-            rect.setAttribute('stroke-width', '2');
-            rect.setAttribute('class', 'world-map-dropped-item');
-            rect.setAttribute('data-dropped-id', item.id);
-            rect.style.cursor = 'pointer';
-
-            // Glow filter for dropped items — add to the existing SVG defs
-            const glowFilter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
-            glowFilter.setAttribute('id', `glow-dropped-${item.id}`);
-            const feGlow = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
-            feGlow.setAttribute('stdDeviation', '2');
-            feGlow.setAttribute('result', 'coloredBlur');
-            glowFilter.appendChild(feGlow);
-            const feMerge = document.createElementNS('http://www.w3.org/2000/svg', 'feMerge');
-            const feMergeNode1 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
-            feMergeNode1.setAttribute('in', 'coloredBlur');
-            feMerge.appendChild(feMergeNode1);
-            const feMergeNode2 = document.createElementNS('http://www.w3.org/2000/svg', 'feMergeNode');
-            feMergeNode2.setAttribute('in', 'SourceGraphic');
-            feMerge.appendChild(feMergeNode2);
-            glowFilter.appendChild(feMerge);
-            svgElement.querySelector('defs').appendChild(glowFilter);
-            rect.setAttribute('filter', `url(#glow-dropped-${item.id})`);
-
-            // Hover effect
-            rect.addEventListener('mouseenter', () => {
-                rect.setAttribute('stroke-width', '3');
-                rect.setAttribute('stroke', '#aaddff');
-            });
-            rect.addEventListener('mouseleave', () => {
-                rect.setAttribute('stroke-width', '2');
-                rect.setAttribute('stroke', '#88bbff');
-            });
-
-            // Click handler to open pick-up overlay
-            rect.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (this._onDroppedItemClick) {
-                    this._onDroppedItemClick(item);
-                }
-            });
-
-            group.appendChild(rect);
-
-            // Add item name label below the square
-            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            label.setAttribute('x', x);
-            label.setAttribute('y', y + HALF + 12);
-            label.setAttribute('text-anchor', 'middle');
-            label.setAttribute('fill', '#88bbff');
-            label.setAttribute('font-size', '9');
-            label.style.pointerEvents = 'none';
-            label.textContent = item.name || item.itemType;
-            group.appendChild(label);
-        }
     }
 
     /**
@@ -445,7 +354,7 @@ export class WorldMapView {
 
     /**
      * Sets up pan (drag) and zoom (mouse wheel) interactions.
-     * Skips panning when clicking on interactive elements (room nodes, connections, dropped items).
+     * Skips panning when clicking on interactive elements (room nodes, connections).
      * @private
      */
     _setupPanZoom(svg, group) {
@@ -455,11 +364,10 @@ export class WorldMapView {
 
         svg.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
-            // Skip panning if clicking on interactive elements (room nodes, connections, dropped items)
+            // Skip panning if clicking on interactive elements (room nodes, connections)
             const targetClass = e.target.className?.baseVal || '';
             if (targetClass.includes('world-map-room-node') ||
                 targetClass.includes('world-map-connection-line') ||
-                targetClass.includes('world-map-dropped-item') ||
                 targetClass.includes('room-connection-line') ||
                 targetClass.includes('room-connection-arrow')) {
                 return;

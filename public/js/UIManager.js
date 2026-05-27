@@ -179,6 +179,11 @@ export class UIManager {
     renderRangeIndicator(droid, range, color = 'red', indicatorType = 'default') {
         const entitiesLayer = this.elements.entitiesLayer;
 
+        // Guard: prevent NaN/Infinity range values from breaking SVG
+        if (typeof range !== 'number' || isNaN(range) || !isFinite(range)) {
+            return;
+        }
+
         // Remove existing range indicators if any
         const existing = entitiesLayer.querySelector('.range-indicator');
         if (existing) existing.remove();
@@ -251,6 +256,75 @@ export class UIManager {
             circle.appendChild(tooltip);
 
             entitiesLayer.appendChild(circle);
+        }
+    }
+
+    /**
+     * Renders dropped items on the spatial map (#world-map SVG).
+     * Called from App.js after world state refresh to display dropped items.
+     * Renders as blue squares to distinguish from entity markers.
+     *
+     * @param {Object} droppedItems - Map of dropped items { [droppedItemId]: {id, itemType, x, y, name, ...} }.
+     * @param {Function} [onDroppedItemClick] - Callback when a dropped item is clicked (id, item).
+     */
+    renderDroppedItemsOnSpatialMap(droppedItems, onDroppedItemClick) {
+        const entitiesLayer = this.elements.entitiesLayer;
+
+        // Remove existing dropped item indicators
+        const existing = entitiesLayer.querySelectorAll('.dropped-item-indicator');
+        existing.forEach(el => el.remove());
+
+        if (!droppedItems || typeof droppedItems !== 'object') return;
+
+        const SIZE = 16;
+        const HALF = SIZE / 2;
+
+        for (const [id, item] of Object.entries(droppedItems)) {
+            const x = AppConfig.VIEW.CENTER_X + (item.x || 0);
+            const y = AppConfig.VIEW.CENTER_Y + (item.y || 0);
+
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute("x", x - HALF);
+            rect.setAttribute("y", y - HALF);
+            rect.setAttribute("width", SIZE);
+            rect.setAttribute("height", SIZE);
+            rect.setAttribute("rx", "2");
+            rect.setAttribute("fill", "#4488ff");
+            rect.setAttribute("stroke", "#88bbff");
+            rect.setAttribute("stroke-width", "2");
+            rect.setAttribute("class", "dropped-item-indicator");
+            rect.setAttribute("data-dropped-id", id);
+            rect.setAttribute("style", "pointer-events: all; cursor: pointer; opacity: 0.9;");
+
+            if (onDroppedItemClick) {
+                rect.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onDroppedItemClick(id, item);
+                });
+            }
+
+            // Hover effect
+            rect.addEventListener('mouseenter', () => {
+                rect.setAttribute("stroke-width", "3");
+                rect.setAttribute("stroke", "#aaddff");
+            });
+            rect.addEventListener('mouseleave', () => {
+                rect.setAttribute("stroke-width", "2");
+                rect.setAttribute("stroke", "#88bbff");
+            });
+
+            // Name label below the square
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", x);
+            label.setAttribute("y", y + HALF + 12);
+            label.setAttribute("text-anchor", "middle");
+            label.setAttribute("fill", "#88bbff");
+            label.setAttribute("font-size", "9");
+            label.style.pointerEvents = 'none';
+            label.textContent = item.name || item.itemType;
+
+            entitiesLayer.appendChild(rect);
+            entitiesLayer.appendChild(label);
         }
     }
 

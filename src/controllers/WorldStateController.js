@@ -286,6 +286,12 @@ class WorldStateController {
             }
         }
 
+        // Include dropped items in the global state for real-time broadcast
+        const droppedItems = this.getDroppedItems();
+        if (droppedItems && Object.keys(droppedItems).length > 0) {
+            globalState.droppedItems = droppedItems;
+        }
+
         return globalState;
     }
 

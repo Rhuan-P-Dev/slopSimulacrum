@@ -57,8 +57,7 @@ export class ClientApp {
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
         this.worldMap = new WorldMapView({
-            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId),
-            onDroppedItemClick: (droppedItem) => this._handleDroppedItemClick(droppedItem)
+            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
         });
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
@@ -292,6 +291,10 @@ export class ClientApp {
                     (entity) => this.ui.showEntityDetails(entity, state),
                     (comp, stats) => this.ui.showComponentDetails(comp, stats)
                 );
+
+                // Render dropped items on the spatial map
+                const droppedItems = state.droppedItems || {};
+                this.ui.renderDroppedItemsOnSpatialMap(droppedItems, (id, item) => this._handleDroppedItemClick(id, item));
 
                 // Update stat bars
                 this.statBars.updateAll(state);
@@ -536,14 +539,11 @@ export class ClientApp {
     }
 
     /**
-     * Handles clicking a dropped item marker on the world map.
+     * Handles clicking a dropped item marker on the spatial map.
      * Opens the pick-up overlay panel with item information.
      * @private
      */
-    _handleDroppedItemClick(droppedItem) {
-        // Close the world map overlay first
-        this.worldMap.hide();
-
+    _handleDroppedItemClick(droppedItemId, droppedItem) {
         // Show the pick-up overlay with item info
         this.pickUpOverlay.show(droppedItem);
     }

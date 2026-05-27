@@ -1,5 +1,25 @@
 # World Map System
 
+## Architecture
+
+The world map system has two distinct components:
+
+1. **Spatial Map (`#world-map`)** — In-game room-level map showing the current room, entities, components, and dropped items. Rendered in `UIManager.js` via `renderDroppedItemsOnSpatialMap()`.
+
+2. **World Map Overlay (`#world-map-svg`)** — Full-screen overlay showing ALL rooms as nodes with connections. Managed by `WorldMapView.js`. No longer renders dropped items (moved to spatial map).
+
+## Dropped Items Rendering
+
+Dropped items are rendered on the **spatial map** (`#world-map`) via `UIManager.renderDroppedItemsOnSpatialMap()`, not on the world map overlay. This follows the Single Responsibility Principle — the spatial map is responsible for showing all entities and items within the current context.
+
+**Data flow:**
+- Server: `WorldStateController.getDroppedItems()` → `getAll()` includes dropped items in broadcast
+- Socket: `world-state-update` event delivers dropped items to client
+- Client: `App.refreshWorldAndActions()` → `UIManager.renderDroppedItemsOnSpatialMap()` renders items on spatial map
+- Click: `UIManager.renderDroppedItemsOnSpatialMap()` callback → `App._handleDroppedItemClick()` → opens pick-up overlay
+
+See also: [World Map Pick-Up System](world_map_pickup.md)
+
 ## 1. Overview
 
 Two levels of spatial visualization exist to serve different cognitive needs:

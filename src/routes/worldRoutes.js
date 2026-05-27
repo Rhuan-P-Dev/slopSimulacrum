@@ -45,12 +45,35 @@ export function register(router, { worldStateController, broadcastService }) {
 
 	/**
 	 * GET /world-map
-	 * Returns the world graph with resolved room names for all connections.
+	 * Returns the world graph with resolved room names for all connections
+	 * and dropped items for spatial map rendering.
 	 */
 	router.get('/world-map', (req, res) => {
 		try {
 			const graph = worldStateController.getWorldGraph();
-			res.json(graph);
+			const droppedItems = worldStateController.getDroppedItems() || {};
+
+			// Transform dropped items into a flat array with item type info
+			const droppedItemsArray = [];
+			const itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+
+			for (const [id, item] of Object.entries(droppedItems)) {
+				const itemDef = itemDefinitions[item.itemType];
+				droppedItemsArray.push({
+					id,
+					itemType: item.itemType,
+					name: itemDef?.name || item.itemType,
+					description: itemDef?.description || '',
+					volume: itemDef?.volume || 1,
+					x: item.x,
+					y: item.y
+				});
+			}
+
+			res.json({
+				...graph,
+				droppedItems: droppedItemsArray
+			});
 		} catch (error) {
 			Logger.error('/world-map endpoint error', { error: error.message });
 			res.status(500).json({
