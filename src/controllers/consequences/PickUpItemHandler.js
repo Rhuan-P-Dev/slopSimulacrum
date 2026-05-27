@@ -1,8 +1,8 @@
 /**
- * PickUpItemHandler — Handles picking up items from other entities' components.
+ * PickUpItemHandler — Handles picking up dropped items from world map coordinates.
  *
- * Single Responsibility: Transfer an item from one entity's component to another
- * entity's component, with holding cost validation.
+ * Single Responsibility: Retrieve a dropped item from world coordinates and add it
+ * to an entity's inventory component, respecting volume constraints.
  *
  * Extracted from ConsequenceDispatcher to adhere to the Single Responsibility Principle.
  *
@@ -10,123 +10,163 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import DataLoader from '../../utils/DataLoader.js';
 
 /**
- * Handles the "pickUpItem" consequence type.
+ * Handles the "pickUpItem" consequence type for dropped items.
  *
  * @param {Object} deps - Dependencies injected by ConsequenceDispatcher
  * @param {Object} deps.worldStateController - WorldStateController for state access
- * @param {Object} deps.holdingCostController - HoldingCostController for validation
  * @param {Object} params - Consequence parameters
- * @param {string} params.sourceEntityId - The entity owning the source item
- * @param {string} params.sourceItemId - The item ID being picked up
- * @param {string} params.sourceComponentId - The component the item is on
- * @param {string} params.targetEntityId - The entity picking up the item
- * @param {string} params.targetComponentId - The component to attach the item to
+ * @param {string} params.entityId - The entity picking up the item
+ * @param {string} params.droppedItemId - The dropped item ID to pick up
+ * @param {string} params.componentId - The component ID to attach the item to
  * @param {Object} context - Action execution context
  * @param {Object} context.entityId - The entity executing the action
- * @returns {{ success: boolean, message?: string }}
+ * @returns {{ success: boolean, message?: string, pickedUpItem?: Object }}
  */
 function handlePickUpItem(deps, params, context) {
-    const { worldStateController, holdingCostController } = deps;
+    const { worldStateController } = deps;
 
     if (!worldStateController) {
         Logger.error('[PickUpItemHandler] WorldStateController not available.');
         return { success: false, message: 'WorldStateController not available.' };
     }
 
-    if (!holdingCostController) {
-        Logger.error('[PickUpItemHandler] HoldingCostController not available.');
-        return { success: false, message: 'HoldingCostController not available.' };
-    }
-
-    const {
-        sourceEntityId,
-        sourceItemId,
-        sourceComponentId,
-        targetEntityId,
-        targetComponentId
-    } = params;
+    const { entityId, droppedItemId, componentId } = params;
 
     // Validate required parameters
-    if (!sourceEntityId) {
-        Logger.warn('[PickUpItemHandler] Missing sourceEntityId for pickUpItem.');
-        return { success: false, message: 'Missing sourceEntityId.' };
+    if (!entityId) {
+        Logger.warn('[PickUpItemHandler] Missing entityId for pickUpItem.');
+        return { success: false, message: 'Missing entityId.' };
     }
 
-    if (!sourceItemId) {
-        Logger.warn('[PickUpItemHandler] Missing sourceItemId for pickUpItem.');
-        return { success: false, message: 'Missing sourceItemId.' };
+    if (!droppedItemId) {
+        Logger.warn('[PickUpItemHandler] Missing droppedItemId for pickUpItem.');
+        return { success: false, message: 'Missing droppedItemId.' };
     }
 
-    if (!targetEntityId) {
-        Logger.warn('[PickUpItemHandler] Missing targetEntityId for pickUpItem.');
-        return { success: false, message: 'Missing targetEntityId.' };
+    if (!componentId) {
+        Logger.warn('[PickUpItemHandler] Missing componentId for pickUpItem.');
+        return { success: false, message: 'Missing componentId.' };
     }
 
-    if (!targetComponentId) {
-        Logger.warn('[PickUpItemHandler] Missing targetComponentId for pickUpItem.');
-        return { success: false, message: 'Missing targetComponentId.' };
+    // Check if the entity exists
+    const entity = worldStateController.getEntity(entityId);
+    if (!entity) {
+        Logger.warn(`[PickUpItemHandler] Entity "${entityId}" not found for pickUpItem.`);
+        return { success: false, message: `Entity "${entityId}" not found.` };
     }
 
-    // Get source entity
-    const sourceEntity = worldStateController.getEntity(sourceEntityId);
-    if (!sourceEntity) {
-        Logger.warn(`[PickUpItemHandler] Source entity "${sourceEntityId}" not found.`);
-        return { success: false, message: `Source entity "${sourceEntityId}" not found.` };
+    // Check if the component exists and belongs to the entity
+    const component = worldStateController.getComponent(componentId);
+    if (!component) {
+        Logger.warn(`[PickUpItemHandler] Component "${componentId}" not found for pickUpItem.`);
+        return { success: false, message: `Component "${componentId}" not found.` };
     }
 
-    // Get target entity
-    const targetEntity = worldStateController.getEntity(targetEntityId);
-    if (!targetEntity) {
-        Logger.warn(`[PickUpItemHandler] Target entity "${targetEntityId}" not found.`);
-        return { success: false, message: `Target entity "${targetEntityId}" not found.` };
+    if (component.entityId !== entityId) {
+        Logger.warn(`[PickUpItemHandler] Component "${componentId}" does not belong to entity "${entityId}".`);
+        return { success: false, message: `Component "${componentId}" does not belong to entity "${entityId}".` };
     }
 
-    // Check that the source entity actually has the item
-    const sourceItems = worldStateController.getEntityItems(sourceEntityId);
-    const sourceComponentItems = sourceItems?.[sourceComponentId];
-    if (!sourceComponentItems || !sourceComponentItems[sourceItemId]) {
-        Logger.warn(`[PickUpItemHandler] Item "${sourceItemId}" not found on source component "${sourceComponentId}".`);
-        return { success: false, message: `Item "${sourceItemId}" not found on source component.` };
+    // Get dropped items and find the target
+    const droppedItems = worldStateController.getDroppedItems() || {};
+    const droppedItem = droppedItems[droppedItemId];
+
+    if (!droppedItem) {
+        Logger.warn(`[PickUpItemHandler] Dropped item "${droppedItemId}" not found.`);
+        return { success: false, message: `Dropped item "${droppedItemId}" not found.` };
     }
 
-    // Get item type from inventory items registry
-    const itemRegistry = worldStateController.getItemRegistry();
-    const itemDef = Object.values(itemRegistry || {}).find(
-        def => def._itemId === sourceItemId || def._itemType === sourceComponentItems[sourceItemId]?.type
-    );
-    const itemType = sourceComponentItems[sourceItemId]?.type || 'unknown';
-
-    // Check holding cost feasibility on target component
-    const targetComponentStats = worldStateController.getComponentStats(targetComponentId);
-    if (!targetComponentStats) {
-        Logger.warn(`[PickUpItemHandler] Target component "${targetComponentId}" stats not found.`);
-        return { success: false, message: `Target component "${targetComponentId}" stats not found.` };
+    // Get item definition from inventoryItems.json
+    const itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+    const itemDef = itemDefinitions[droppedItem.itemType];
+    if (!itemDef) {
+        Logger.warn(`[PickUpItemHandler] Item type "${droppedItem.itemType}" not found in inventoryItems.json.`);
+        return { success: false, message: `Item type "${droppedItem.itemType}" not found in registry.` };
     }
 
-    const holdingCostCheck = holdingCostController.canHoldItem(itemType, targetComponentStats);
-    if (!holdingCostCheck.success) {
-        Logger.warn(`[PickUpItemHandler] Target component cannot hold "${itemType}": ${holdingCostCheck.message}`);
-        return { success: false, message: `Cannot hold "${itemType}": ${holdingCostCheck.message}` };
+    const itemVolume = itemDef.volume || 1;
+    const itemName = itemDef.name || droppedItem.itemType;
+    const itemDescription = itemDef.description || '';
+
+    // Check if the target component has enough free volume
+    const componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+    const componentDef = componentDefinitions[component.type];
+    const maxVolume = _getComponentMaxVolume(componentDef) || 0;
+
+    if (maxVolume > 0) {
+        const currentVolume = _getCurrentComponentVolume(worldStateController, entityId, componentId);
+        if ((currentVolume + itemVolume) > maxVolume) {
+            const availableSpace = maxVolume - currentVolume;
+            Logger.warn(`[PickUpItemHandler] Component "${componentId}" does not have enough free volume. Need ${itemVolume}, have ${availableSpace}.`);
+            return { success: false, message: `Component "${componentId}" does not have enough free volume. Need ${itemVolume}, have ${availableSpace}.` };
+        }
     }
 
-    // Remove item from source component
-    const removeResult = worldStateController.removeItemFromEntity(sourceEntityId, sourceItemId);
-    if (!removeResult.success) {
-        Logger.warn(`[PickUpItemHandler] Failed to remove item "${sourceItemId}" from source: ${removeResult.message}`);
-        return { success: false, message: `Failed to remove from source: ${removeResult.message}` };
-    }
-
-    // Add item to target component
-    const addResult = worldStateController.addItemToEntity(targetEntityId, itemType, targetComponentId);
+    // Add item to entity inventory (attached to the target component)
+    const addResult = worldStateController.addItemToEntity(entityId, droppedItem.itemType, componentId);
     if (!addResult.success) {
-        Logger.warn(`[PickUpItemHandler] Failed to add item "${itemType}" to target: ${addResult.message}`);
-        return { success: false, message: `Failed to add to target: ${addResult.message}` };
+        Logger.warn(`[PickUpItemHandler] Failed to add item "${droppedItem.itemType}" to entity "${entityId}": ${addResult.message}`);
+        return { success: false, message: `Failed to add item: ${addResult.message}` };
     }
 
-    Logger.info(`[PickUpItemHandler] Picked up item "${itemType}" (${sourceItemId}) from entity "${sourceEntityId}" to entity "${targetEntityId}".`);
-    return { success: true, itemType, newItemId: addResult.item?.id };
+    // Remove the dropped item from world state
+    const removeResult = worldStateController.removeDroppedItem(droppedItemId);
+    if (!removeResult.success) {
+        Logger.warn(`[PickUpItemHandler] Failed to remove dropped item "${droppedItemId}" from world state.`);
+        return { success: false, message: `Failed to remove dropped item from world.` };
+    }
+
+    Logger.info(`[PickUpItemHandler] Picked up item "${itemName}" (${droppedItem.itemType}) from dropped position (${droppedItem.x}, ${droppedItem.y}) and attached to component "${componentId}" on entity "${entityId}".`);
+    return {
+        success: true,
+        message: `Picked up ${itemName}.`,
+        pickedUpItem: {
+            name: itemName,
+            description: itemDescription,
+            itemType: droppedItem.itemType,
+            volume: itemVolume,
+            componentId
+        }
+    };
+}
+
+/**
+ * Gets the maximum volume for a component from its definition.
+ * @private
+ * @param {Object} componentDef - The component type definition
+ * @returns {number} Maximum volume or 0 if not found
+ */
+function _getComponentMaxVolume(componentDef) {
+    if (!componentDef || !componentDef.traits) return 0;
+
+    // Check Physical.volume.maxVolume first (common pattern)
+    if (componentDef.traits.Physical && componentDef.traits.Physical.volume) {
+        return componentDef.traits.Physical.volume.maxVolume;
+    }
+
+    // Check volume.maxVolume as fallback
+    if (componentDef.traits.volume) {
+        return componentDef.traits.volume.maxVolume;
+    }
+
+    return 0;
+}
+
+/**
+ * Calculates the current total volume of items on a component.
+ * @private
+ * @param {Object} worldStateController - The WorldStateController instance
+ * @param {string} entityId - The entity ID
+ * @param {string} componentId - The component ID
+ * @returns {number} Current total volume
+ */
+function _getCurrentComponentVolume(worldStateController, entityId, componentId) {
+    const entityItems = worldStateController.getEntityItems(entityId);
+    const componentItems = entityItems?.[componentId] || [];
+    return componentItems.reduce((sum, invItem) => sum + (invItem.volume || 1), 0);
 }
 
 /**
@@ -140,23 +180,19 @@ function validateParams(params) {
         return { valid: false, error: 'Params must be an object.' };
     }
 
-    if (typeof params.sourceEntityId !== 'string' || params.sourceEntityId.trim() === '') {
-        return { valid: false, error: 'sourceEntityId must be a non-empty string.' };
+    if (typeof params.entityId !== 'string' || params.entityId.trim() === '') {
+        return { valid: false, error: 'entityId must be a non-empty string.' };
     }
 
-    if (typeof params.sourceItemId !== 'string' || params.sourceItemId.trim() === '') {
-        return { valid: false, error: 'sourceItemId must be a non-empty string.' };
+    if (typeof params.droppedItemId !== 'string' || params.droppedItemId.trim() === '') {
+        return { valid: false, error: 'droppedItemId must be a non-empty string.' };
     }
 
-    if (typeof params.targetEntityId !== 'string' || params.targetEntityId.trim() === '') {
-        return { valid: false, error: 'targetEntityId must be a non-empty string.' };
-    }
-
-    if (typeof params.targetComponentId !== 'string' || params.targetComponentId.trim() === '') {
-        return { valid: false, error: 'targetComponentId must be a non-empty string.' };
+    if (typeof params.componentId !== 'string' || params.componentId.trim() === '') {
+        return { valid: false, error: 'componentId must be a non-empty string.' };
     }
 
     return { valid: true };
 }
 
-export { handlePickUpItem, validateParams };
+export { handlePickUpItem, validateParams, _getComponentMaxVolume, _getCurrentComponentVolume };

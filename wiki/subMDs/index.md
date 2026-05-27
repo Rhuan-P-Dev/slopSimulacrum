@@ -79,6 +79,7 @@ Game mechanics, visualizations, and feature systems.
 | [Synergy System](systems/synergy.md) | Synergy scoring philosophy, scaling curve intent, preview system purpose, evaluation paths |
 | [Movement System](systems/movement_system.md) | Data-driven movement rationale, action-system separation, delta spatial design |
 | [World Map](systems/world_map.md) | Spatial visualization decoupling rationale, server-side graph design, two-level navigation |
+| [World Map Pick-Up System](systems/world_map_pickup.md) | Dropped items on map as blue squares, pick-up overlay flow, component selection |
 
 ---
 
@@ -86,11 +87,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 24 |
+| Total documents | 25 |
 | Categories | 6 |
 | Architecture docs | 4 |
 | Controller docs | 8 |
 | Data model docs | 4 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 3 |
+| Systems docs | 4 |

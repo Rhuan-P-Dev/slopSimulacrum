@@ -35,9 +35,15 @@ export const AppConfig = {
     },
     MULTIPLIERS: {
         DASH_RANGE: 2,
+        // NOTE: DROP_RANGE is a legacy fallback value. The actual drop range is now
+        // resolved from data/actions.json range expression (e.g., ":Physical.strength*2+3").
+        // This value is only used if no range expression is found in the action data.
         DROP_RANGE: 2,
     },
     DROP: {
+        // NOTE: BASE_RANGE is a legacy fallback value. The actual drop range is now
+        // resolved from data/actions.json range expression (e.g., ":Physical.strength*2+3").
+        // This value is only used if no range expression is found in the action data.
         BASE_RANGE: 3,
     },
     ENDPOINTS: {

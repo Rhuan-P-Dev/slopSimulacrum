@@ -19,6 +19,8 @@ export class ComponentViewer {
         this._uiManager = uiManager;
         /** @private */
         this._statBarsManager = statBarsManager;
+        /** @private {Function|null} Optional callback when a component is clicked for pick-up */
+        this._onPickUpComponentClick = null;
         /** @public {HTMLElement|null} */
         this.overlay = null;
         /** @private {HTMLElement|null} */
@@ -116,6 +118,14 @@ export class ComponentViewer {
     }
 
     /**
+     * Sets the callback for when a component card is clicked during pick-up flow.
+     * @param {Function} callback - Called with (componentId, entity)
+     */
+    setPickUpComponentCallback(callback) {
+        this._onPickUpComponentClick = callback;
+    }
+
+    /**
      * Renders the component grid inside the overlay content.
      * @param {Object} entity - The active droid entity.
      * @param {Object} state - The complete world state.
@@ -174,6 +184,18 @@ export class ComponentViewer {
             btn.onclick = (e) => {
                 e.stopPropagation();
                 this._onToggleInternalComponents(btn.dataset.compId, entity.internalComponents);
+            };
+        });
+
+        // Attach click listener to component cards for pick-up flow
+        this._content.querySelectorAll('.component-card').forEach((card) => {
+            card.onclick = (e) => {
+                // Don't trigger if clicking a button
+                if (e.target.tagName === 'BUTTON') return;
+                const compId = card.dataset.compId;
+                if (compId && this._onPickUpComponentClick) {
+                    this._onPickUpComponentClick(compId, entity);
+                }
             };
         });
     }

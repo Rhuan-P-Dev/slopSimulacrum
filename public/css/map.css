@@ -78,3 +78,94 @@
     stroke-width: 1;
     stroke-dasharray: 2,2;
 }
+
+/* =========================================================================
+   World Map Overlay (full-screen world map view)
+   ========================================================================= */
+
+#world-map-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 200;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+}
+
+#world-map-overlay.active {
+    display: flex;
+}
+
+.world-map-close-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    background: var(--color-surface);
+    border: 2px solid var(--neon-green);
+    border-radius: 50%;
+    color: var(--neon-green);
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 210;
+}
+
+.world-map-close-btn:hover {
+    background: var(--neon-green);
+    color: #000;
+}
+
+/* =========================================================================
+   Dropped Item Markers on World Map (blue squares)
+   ========================================================================= */
+
+.world-map-dropped-item {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.world-map-dropped-item:hover {
+    filter: drop-shadow(0 0 8px #4488ff);
+}
+
+/* =========================================================================
+   World Map Connection Lines (clickable)
+   ========================================================================= */
+
+.world-map-connection-line {
+    stroke: var(--neon-green);
+    stroke-width: 2;
+    stroke-dasharray: 8, 4;
+    opacity: 0.5;
+    pointer-events: stroke;
+    cursor: pointer;
+}
+
+.world-map-connection-line:hover {
+    opacity: 1;
+    stroke-width: 3;
+}
+
+/* =========================================================================
+   World Map Room Nodes
+   ========================================================================= */
+
+.world-map-room-node {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.world-map-room-node:hover {
+    filter: drop-shadow(0 0 6px var(--neon-green));
+}

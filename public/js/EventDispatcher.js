@@ -125,14 +125,22 @@ class EventDispatcher {
             // Drop item actions bypass pendingMovementAction and use _pendingDropItem in App.js instead.
             const hasPendingDrop = options.hasPendingDropAction?.();
             if (hasPendingDrop) {
-                // Transform screen coordinates to SVG world coordinates
+                // Transform screen coordinates to SVG world coordinates.
+                // The SVG world map viewBox uses room-space coordinates directly
+                // (e.g., rooms at x=0..1220, y=0..470), so we use the raw SVG
+                // coordinates without any center offset. This ensures dropped
+                // items render at the correct position on the world map.
                 const pt = mapElement.createSVGPoint();
                 pt.x = event.clientX;
                 pt.y = event.clientY;
                 const svgP = pt.matrixTransform(mapElement.getScreenCTM().inverse());
 
-                const targetX = svgP.x - this.config.VIEW.CENTER_X;
-                const targetY = svgP.y - this.config.VIEW.CENTER_Y;
+                // Convert SVG viewBox coordinates to room-space coordinates.
+                // The SVG uses translate(offsetX, offsetY) to position the room grid,
+                // where offsetX = -minX + 100 and offsetY = -minY + 100.
+                // To get room-space coords from viewBox coords, subtract these offsets.
+                const targetX = svgP.x - 100;
+                const targetY = svgP.y - 100;
 
                 if (options.onDropItemClick) {
                     options.onDropItemClick(targetX, targetY);
@@ -149,6 +157,7 @@ class EventDispatcher {
             pt.y = event.clientY;
             const svgP = pt.matrixTransform(mapElement.getScreenCTM().inverse());
 
+            // Convert SVG coordinates to world coordinates (relative to center).
             const targetX = svgP.x - this.config.VIEW.CENTER_X;
             const targetY = svgP.y - this.config.VIEW.CENTER_Y;
 

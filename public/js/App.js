@@ -29,6 +29,7 @@ import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
 import { OverlayManager } from './OverlayManager.js';
 import { DropSelectorController } from './DropSelectorController.js';
+import { PickUpOverlayController } from './PickUpOverlayController.js';
 
 export class ClientApp {
     constructor() {
@@ -56,7 +57,8 @@ export class ClientApp {
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
         this.worldMap = new WorldMapView({
-            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
+            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId),
+            onDroppedItemClick: (droppedItem) => this._handleDroppedItemClick(droppedItem)
         });
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
@@ -82,6 +84,12 @@ export class ClientApp {
 
         // 6. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
+
+        // 6b. Pick-up overlay controller for dropped items on world map
+        this.pickUpOverlay = new PickUpOverlayController({
+            onPickUp: (droppedItemInfo) => this._handlePickUpClick(droppedItemInfo),
+            onClose: () => this._handlePickUpClose()
+        });
 
         // 7. Wire action execution callback to NavActionsPanel
         this._setupActionCallback();
@@ -121,9 +129,16 @@ export class ClientApp {
         // 10. Setup listeners
         this._setupListeners();
 
+        // 10b. Register pick-up overlay with overlay manager
+        this.overlayManager.register('pick-up', this.pickUpOverlay, null, null);
+
         // 11. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
         this._pendingDropItem = null;
+
+        // 11b. Pending pick-up item state
+        /** @type {Object|null} Pending pick-up item { droppedItemId, itemType, name, volume } */
+        this._pendingPickUpItem = null;
     }
 
     /**
@@ -205,7 +220,7 @@ export class ClientApp {
         }
 
         this.socket.on('dropped-items-update', (data) => {
-            // Handled by server-side tracking
+            // Dropped items are refreshed when world-map is opened via /world-map-with-items
         });
     }
 
@@ -221,6 +236,7 @@ export class ClientApp {
             this.worldMap.init();
             this.inventory.init();
             this.dropSelector.init();
+            this.pickUpOverlay.init();
 
             // Wire drop selector to inventory manager
             this.inventory.setDropSelector(this.dropSelector);
@@ -416,7 +432,11 @@ export class ClientApp {
         const itemId = afterPrefix.substring(0, lastDash);
         const itemType = afterPrefix.substring(lastDash + 1);
 
-        // Calculate drop range from strength stat
+        // Resolve drop range from availableActions expression (BUG-084 fix)
+        const actionData = this.availableActions[actionName] || {};
+        const rangeExpression = actionData?.range;
+
+        // Calculate max Physical.strength from droid's components
         let maxStrength = 0;
         if (droid.components) {
             for (const comp of droid.components) {
@@ -427,7 +447,7 @@ export class ClientApp {
             }
         }
 
-        const dropRange = AppConfig.DROP.BASE_RANGE + (maxStrength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
 
         this._pendingDropItem = { actionName, entityId, itemId, itemType, componentId };
         this.actions.setPendingDropAction(this._pendingDropItem);
@@ -492,7 +512,10 @@ export class ClientApp {
             componentIds
         };
 
-        // Calculate drop range from strength stat
+        // Resolve drop range from availableActions expression (BUG-084 fix)
+        const actionData = this.availableActions[pendingDropItem.actionName] || {};
+        const rangeExpression = actionData?.range;
+
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
 
@@ -508,8 +531,158 @@ export class ClientApp {
             }
         }
 
-        const dropRange = AppConfig.DROP.BASE_RANGE + (maxStrength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
+    }
+
+    /**
+     * Handles clicking a dropped item marker on the world map.
+     * Opens the pick-up overlay panel with item information.
+     * @private
+     */
+    _handleDroppedItemClick(droppedItem) {
+        // Close the world map overlay first
+        this.worldMap.hide();
+
+        // Show the pick-up overlay with item info
+        this.pickUpOverlay.show(droppedItem);
+    }
+
+    /**
+     * Handles the "Pick Up" button click in the pick-up overlay.
+     * Opens component viewer for selecting which component to use.
+     * @private
+     */
+    async _handlePickUpClick(droppedItemInfo) {
+        const entityId = this.worldState.getMyEntityId();
+        if (!entityId) return;
+
+        // Fetch current entity components to show in component viewer
+        const state = this.worldState.getState();
+        const entity = state.entities?.[entityId];
+        if (!entity || !entity.components || entity.components.length === 0) {
+            this.errorController.handleError({
+                code: 'NO_COMPONENTS',
+                message: 'No components available to pick up this item.'
+            });
+            this.pickUpOverlay.hide();
+            return;
+        }
+
+        // Close pick-up overlay and open component viewer
+        this.pickUpOverlay.hide();
+
+        // Store dropped item info for later execution
+        this._pendingPickUpItem = droppedItemInfo;
+
+        // Set up the pick-up component callback on the component viewer
+        this.componentViewer.setPickUpComponentCallback(async (componentId, compEntity) => {
+            await this._executePickUp(componentId);
+        });
+
+        // Show component viewer so user can select a component
+        this.overlayManager.open('component-viewer', { entity, state });
+    }
+
+    /**
+     * Executes the pick-up action on the server.
+     * @private
+     */
+    async _executePickUp(componentId) {
+        if (!this._pendingPickUpItem) return;
+
+        const entityId = this.worldState.getMyEntityId();
+        if (!entityId) return;
+
+        try {
+            const response = await fetch('/pick-up-item', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    entityId,
+                    droppedItemId: this._pendingPickUpItem.id,
+                    componentId
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                this.errorController.handleError({
+                    code: 'PICKUP_FAILED',
+                    message: errorData.error || 'Failed to pick up item.'
+                });
+                return;
+            }
+
+            const result = await response.json();
+            this.errorController.handleError({
+                code: 'PICKUP_SUCCESS',
+                message: result.message || 'Item picked up successfully.'
+            });
+
+            // Refresh world state
+            await this.refreshWorldAndActions();
+
+            // Clear pending state
+            this._pendingPickUpItem = null;
+
+            // Close any open overlays
+            this.overlayManager.closeAll();
+        } catch (error) {
+            this.errorController.handleError({
+                code: 'PICKUP_ERROR',
+                message: error.message
+            });
+        }
+    }
+
+    /**
+     * Handles the pick-up overlay close event.
+     * @private
+     */
+    _handlePickUpClose() {
+        this._pendingPickUpItem = null;
+    }
+
+    /**
+     * Resolves drop range from the action's range expression.
+     * Reads from availableActions cache, falls back to hardcoded formula.
+     *
+     * @param {string} rangeExpression - The range expression (e.g., ":Physical.strength*2+3")
+     * @param {number} strength - The max Physical.strength value
+     * @returns {number} The resolved drop range
+     * @private
+     */
+    _resolveDropRange(rangeExpression, strength) {
+        if (!rangeExpression) {
+            return AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        }
+
+        // Match tokens: [+|-](:Placeholder[multiplier])
+        const tokenRegex = /([+])|(-)?(:[a-zA-Z0-9_.]+)(?:\*(-?\d+))?/g;
+        let result = 0;
+        let foundPlaceholder = false;
+
+        let match;
+        while ((match = tokenRegex.exec(rangeExpression)) !== null) {
+            if (match[1] === '+') continue;
+
+            const sign = match[2] === '-' ? -1 : 1;
+            const placeholder = match[3] ? match[3].substring(1) : null;
+            const multiplier = match[4] ? parseInt(match[4].substring(1), 10) : 1;
+
+            if (placeholder) {
+                const value = (placeholder === 'Physical.strength') ? strength : 0;
+                result += sign * value * multiplier;
+                foundPlaceholder = true;
+            }
+        }
+
+        if (!foundPlaceholder) {
+            return AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        }
+
+        return result;
     }
 
     // ==================== Delegate Methods ====================

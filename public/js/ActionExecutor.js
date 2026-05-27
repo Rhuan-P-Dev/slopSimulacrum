@@ -36,6 +36,57 @@ export class ActionExecutor {
     }
 
     /**
+     * Resolves a range expression string to a numeric value.
+     * Handles :Trait.stat expressions like ":Physical.strength*2+3".
+     * Falls back to a provided default value if no expression or resolution fails.
+     *
+     * @param {string} expression - The range expression (e.g., ":Physical.strength*2+3")
+     * @param {number} strength - The resolved Physical.strength value
+     * @param {number} fallback - Fallback range value if expression is undefined or invalid
+     * @returns {number} The resolved numeric range
+     * @private
+     */
+    _resolveRangeExpression(expression, strength, fallback) {
+        if (!expression) return fallback;
+
+        // Match tokens: [+|-](:Placeholder[multiplier])
+        // Pattern: optional +/-, then :Trait.stat, then optional *multiplier
+        const tokenRegex = /([+])|(-)?(:[a-zA-Z0-9_.]+)(?:\*(-?\d+))?/g;
+        let result = 0;
+        let foundPlaceholder = false;
+
+        let match;
+        while ((match = tokenRegex.exec(expression)) !== null) {
+            // Skip standalone '+' signs
+            if (match[1] === '+') continue;
+
+            const sign = match[2] === '-' ? -1 : 1;
+            const placeholder = match[3] ? match[3].substring(1) : null; // Remove leading ':'
+            const multiplier = match[4] ? parseInt(match[4].substring(1), 10) : 1;
+
+            if (placeholder) {
+                const value = (placeholder === 'Physical.strength') ? strength : 0;
+                result += sign * value * multiplier;
+                foundPlaceholder = true;
+            }
+        }
+
+        // If no placeholders found, try safe arithmetic evaluation
+        if (!foundPlaceholder) {
+            try {
+                if (/^[\d+\-*/(). ]+$/.test(expression)) {
+                    return Function('"use strict"; return (' + expression + ')')();
+                }
+            } catch (_) {
+                // Expression invalid — return fallback
+            }
+            return fallback;
+        }
+
+        return result;
+    }
+
+    /**
      * Executes a self-targeting action (e.g., selfHeal).
      * Uses _sendActionRequest with targetComponentId.
      *
@@ -227,20 +278,70 @@ export class ActionExecutor {
             return;
         }
 
-        // Calculate drop range from strength stat
+        // Read range expression from availableActions (same pattern as executePunch)
+        const actionData = this.availableActions[pending.actionName] || {};
+        const rangeExpression = actionData?.range;
+
+        // Calculate max Physical.strength from droid's components
         const strength = droid.components?.reduce((max, comp) => {
             const stats = state.components?.instances?.[comp.id];
             const str = stats?.Physical?.strength || 0;
             return str > max ? str : max;
         }, 0) || 0;
 
-        const dropRange = AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        // Use expression-based range if available, fallback to hardcoded formula
+        const dropRange = this._resolveRangeExpression(
+            rangeExpression,
+            strength,
+            AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE)
+        );
 
-        // Calculate distance to target
-        // targetX/Y are world-relative (offset from center), so droid position must also be world-relative
-        const droidX = droid.spatial?.x || 0;
-        const droidY = droid.spatial?.y || 0;
-        const distance = Math.sqrt(Math.pow(targetX - droidX, 2) + Math.pow(targetY - droidY, 2));
+        // Calculate distance in room-space coordinates.
+        //
+        // The SVG viewBox uses translate(offsetX, offsetY) where:
+        //   offsetX = -minX + 100  (minX = minimum room.x across all rooms)
+        //   offsetY = -minY + 100
+        //
+        // The drop target from EventDispatcher is: svgP.x - 100
+        // To convert to room-space: roomSpace = (svgP.x - 100) - offsetX
+        //                             = (svgP.x - 100) - (-minX + 100)
+        //                             = svgP.x - 100 + minX - 100
+        //                             = svgP.x + minX - 200
+        //
+        // But wait — the current targetX = svgP.x - 100, and room-space target
+        // should be: svgP.x - offsetX = svgP.x - (-minX + 100) = svgP.x + minX - 100
+        // So: roomSpaceTargetX = targetX + minX  (since targetX = svgP.x - 100)
+        //
+        // Droid room-space: room origin + room center + spatial offset
+        const rooms = state.rooms || {};
+        const roomEntries = Object.values(rooms);
+        let minX = Infinity, minY = Infinity;
+        for (const r of roomEntries) {
+            minX = Math.min(minX, r.x);
+            minY = Math.min(minY, r.y);
+        }
+
+        // Convert drop target from EventDispatcher coords to room-space
+        const targetRoomSpaceX = targetX + minX;
+        const targetRoomSpaceY = targetY + minY;
+
+        const droidRoomId = droid.location;
+        const room = state.rooms?.[droidRoomId];
+
+        let droidRoomSpaceX, droidRoomSpaceY;
+        if (room) {
+            // Droid room-space = room origin + room center + spatial offset
+            droidRoomSpaceX = room.x + (room.width / 2) + (droid.spatial?.x || 0);
+            droidRoomSpaceY = room.y + (room.height / 2) + (droid.spatial?.y || 0);
+        } else {
+            // Fallback: no room found — use spatial as-is
+            droidRoomSpaceX = droid.spatial?.x || 0;
+            droidRoomSpaceY = droid.spatial?.y || 0;
+        }
+
+        const distance = Math.sqrt(
+            Math.pow(targetRoomSpaceX - droidRoomSpaceX, 2) + Math.pow(targetRoomSpaceY - droidRoomSpaceY, 2)
+        );
 
         if (distance > dropRange) {
             this.errorController.handleError({

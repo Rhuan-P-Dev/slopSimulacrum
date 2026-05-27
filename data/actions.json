@@ -170,7 +170,7 @@
       {
         "type": "dropItem",
         "target": "target",
-        "params": { "entityId": ":entityId", "itemId": ":itemId", "itemType": ":itemType" }
+        "params": { "entityId": ":entityId", "itemId": ":itemId", "itemType": ":itemType", "targetX": ":targetX", "targetY": ":targetY" }
       },
       {
         "type": "log",
