@@ -126,7 +126,7 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * POST /pick-up-item
 	 * Picks up a dropped item from the map and adds it to an entity's inventory.
 	 */
-	router.post('/pick-up-item', (req, res) => {
+    router.post('/pick-up-item', (req, res) => {
 		const { entityId, droppedItemId, componentId } = req.body;
 
 		if (!entityId || !droppedItemId || !componentId) {
@@ -136,16 +136,8 @@ export function register(router, { worldStateController, broadcastService }) {
 		}
 
 		try {
-			// Access the consequence dispatcher's pickUpItem handler
-			const consequenceHandlers = worldStateController.actionController._consequenceHandlers;
-			const pickUpHandler = consequenceHandlers?.handlers?.pickUpItem;
-
-			let result;
-			if (typeof pickUpHandler === 'function') {
-				result = pickUpHandler(null, { entityId, droppedItemId, componentId }, { entityId });
-			} else {
-				throw new Error('PickUpItem consequence handler not registered.');
-			}
+			// Use the public API method on WorldStateController (avoids direct access to internal properties)
+			const result = worldStateController.executePickUpItem(entityId, droppedItemId, componentId);
 
 			if (result.success) {
 				broadcastService.broadcast();

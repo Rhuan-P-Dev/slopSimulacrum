@@ -348,15 +348,6 @@ class WorldStateController {
     }
 
     /**
-     * Retrieves an entity's component by its component ID.
-     * @param {string} componentId - The component ID.
-     * @returns {Object|null} The component object, or null if not found.
-     */
-    getComponent(componentId) {
-        return this.componentController.getComponent(componentId);
-    }
-
-    /**
      * Retrieves component stats by component ID.
      * @param {string} componentId - The component ID.
      * @returns {Object|null} The component stats object, or null if not found.
@@ -938,6 +929,47 @@ class WorldStateController {
 
         Logger.info(`[WorldStateController] Removed dropped item "${droppedItemId}".`);
         return { success: true };
+    }
+
+    /**
+     * Picks up a dropped item from the map and adds it to an entity's inventory component.
+     * This is the public API for the pick-up-item operation, delegating to the consequence handler system.
+     *
+     * @param {string} entityId - The entity picking up the item.
+     * @param {string} droppedItemId - The ID of the dropped item on the map.
+     * @param {string} componentId - The component ID to attach the item to.
+     * @returns {{ success: boolean, message?: string, pickedUpItem?: object }}
+     */
+    executePickUpItem(entityId, droppedItemId, componentId) {
+        // Access the consequence dispatcher's pickUpItem handler via the public consequenceHandlers property
+        const pickUpHandler = this.actionController?.consequenceHandlers?.handlers?.pickUpItem;
+
+        if (typeof pickUpHandler !== 'function') {
+            Logger.error('[WorldStateController] PickUpItem handler not available.');
+            return { success: false, message: 'PickUpItem handler not available.' };
+        }
+
+        return pickUpHandler(null, { entityId, droppedItemId, componentId }, { entityId });
+    }
+
+    /**
+     * Retrieves a component by its instance ID, searching across all active entities.
+     * Returns a defensive copy to prevent external mutation of internal state.
+     *
+     * @param {string} componentId - The component instance ID.
+     * @returns {Object|null} The component object with `id`, `type`, and `entityId` fields, or null if not found.
+     */
+    getComponent(componentId) {
+        const allEntities = this.stateEntityController.getAll();
+        for (const [, entity] of Object.entries(allEntities)) {
+            if (Array.isArray(entity.components)) {
+                const component = entity.components.find(c => c.id === componentId);
+                if (component) {
+                    return { ...component, entityId: entity.id };
+                }
+            }
+        }
+        return null;
     }
 
     /**

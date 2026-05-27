@@ -55,6 +55,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-082](high/BUG-082-dropped-items-render-off-screen.md) | Dropped Items Render Off-Screen — SVG Coordinate Mismatch | ✅ Fixed | `pending` | `EventDispatcher.js` |
 | [BUG-083](high/BUG-083-dropped-item-distance-check-coord-mismatch.md) | Drop Item Distance Check Fails — Droid Spatial vs SVG ViewBox Coordinate Mismatch | ✅ Fixed | `pending` | `ActionExecutor.js` |
 | [BUG-084](high/BUG-084-dropitem-range-ignored-actions-json.md) | dropItem Range Expression in actions.json Ignored on Client | ✅ Fixed | `pending` | `ActionExecutor.js`, `App.js`, `data/actions.json` |
+| [BUG-086](high/BUG-086-pickup-item-direct-consequence-handler-access-wrong-prop-name.md) | `/pick-up-item` Returns 500 — Wrong Property Name & Direct Handler Access | ✅ Fixed | `pending` | `WorldStateController.js`, `worldRoutes.js` |
+| [BUG-087](high/BUG-087-component-getComponent-missing-from-worldstatecontroller.md) | `getComponent` Missing from WorldStateController — Pick-Up Calls Non-Existent Method | ✅ Fixed | `pending` | `WorldStateController.js`, `PickUpItemHandler.js` |
 | [BUG-071](architectural/BUG-071-internal-component-tick-system-srp-violation.md) | Internal Component Tick System — SRP Violation / Lack of Data-Driven Design | ✅ Fixed | `pending` | `InternalComponentController.js`, `data/internalComponents.json` |
 | [BUG-072](architectural/BUG-072-wiki-violates-why-over-how-principle.md) | Wiki Violates "Why Over How" Documentation Principle — Too Many Code Snippets | ✅ Fixed | `pending` | 11 wiki files, `project_rules.md` |
 
