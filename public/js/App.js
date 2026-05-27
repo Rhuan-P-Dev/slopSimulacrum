@@ -28,6 +28,7 @@ import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
 import { OverlayManager } from './OverlayManager.js';
+import { DropSelectorController } from './DropSelectorController.js';
 
 export class ClientApp {
     constructor() {
@@ -59,7 +60,16 @@ export class ClientApp {
         });
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
-        // 5. Action executor
+        // 5. Drop selector controller
+        this.dropSelector = new DropSelectorController(
+            this.dispatcher,
+            this.worldState,
+            this.selection,
+            this.ui,
+            this.actions
+        );
+
+        // 6. Action executor
         this.executor = new ActionExecutor(
             this.worldState,
             this.actions,
@@ -112,7 +122,7 @@ export class ClientApp {
         this._setupListeners();
 
         // 11. Drop item state
-        /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentId } */
+        /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
         this._pendingDropItem = null;
     }
 
@@ -166,6 +176,11 @@ export class ClientApp {
     _setupListeners() {
         this.dispatcher.setupSocketListeners();
 
+        // Listen for drop selector execute event
+        document.addEventListener('drop-selector:execute', (event) => {
+            this._onDropSelectorExecute(event.detail);
+        });
+
         const map = document.getElementById('world-map');
         if (map) {
             this.dispatcher.setupMapClickListener(
@@ -205,6 +220,10 @@ export class ClientApp {
             this.navActions.init();
             this.worldMap.init();
             this.inventory.init();
+            this.dropSelector.init();
+
+            // Wire drop selector to inventory manager
+            this.inventory.setDropSelector(this.dropSelector);
 
             // Register panels with overlay manager
             this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer', '1',
@@ -215,6 +234,10 @@ export class ClientApp {
             );
             this.overlayManager.register('world-map', this.worldMap, 'btn-world-map', '3');
             this.overlayManager.register('inventory', this.inventory, 'btn-inventory', '4');
+
+            // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
+            // and has its own show/hide lifecycle
+
             this.overlayManager.init();
 
             await this.refreshWorldAndActions();
@@ -447,6 +470,46 @@ export class ClientApp {
                 this.selection.removeGrayedComponent(lockedActionName, compId);
             }
         };
+    }
+
+    /**
+     * Handles the drop selector "Execute" event.
+     * Stores pending drop item and shows the range indicator.
+     * @param {Object} detail - The event detail.
+     * @param {Object} detail.pendingDropItem - The pending drop item.
+     * @param {string[]} detail.componentIds - Selected component IDs.
+     * @private
+     */
+    _onDropSelectorExecute(detail) {
+        const { pendingDropItem, componentIds } = detail;
+        if (!pendingDropItem) return;
+
+        this._pendingDropItem = {
+            actionName: pendingDropItem.actionName,
+            entityId: pendingDropItem.entityId,
+            itemId: pendingDropItem.itemId,
+            itemType: pendingDropItem.itemType,
+            componentIds
+        };
+
+        // Calculate drop range from strength stat
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) return;
+
+        const state = this.worldState.getState();
+        let maxStrength = 0;
+        if (droid.components && Array.isArray(droid.components)) {
+            for (const comp of droid.components) {
+                const compId = comp.id || comp;
+                const stats = state.components?.instances?.[compId];
+                if (stats?.Physical?.strength) {
+                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                }
+            }
+        }
+
+        const dropRange = AppConfig.DROP.BASE_RANGE + (maxStrength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
     }
 
     // ==================== Delegate Methods ====================

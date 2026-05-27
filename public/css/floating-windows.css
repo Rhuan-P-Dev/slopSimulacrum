@@ -35,3 +35,185 @@
 .overlay-panel {
     transition: opacity 0.15s ease;
 }
+
+/* =========================================================================
+   Drop Selector Panel
+   ========================================================================= */
+
+/* Component list in drop selector */
+#drop-component-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.drop-component-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 2px solid var(--color-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--color-surface-elevated);
+    user-select: none;
+}
+
+.drop-component-item:hover {
+    border-color: var(--color-primary);
+    background: var(--color-surface-hover);
+}
+
+.drop-component-item.selected {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-elevated));
+    box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.drop-component-check {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--color-border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.drop-component-item.selected .drop-component-check {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.drop-component-check::after {
+    content: '✓';
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.drop-component-item.selected .drop-component-check::after {
+    opacity: 1;
+}
+
+.drop-component-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.drop-component-name {
+    font-weight: 600;
+    color: var(--color-text);
+    font-size: 14px;
+}
+
+.drop-component-type {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+/* Execute button for drop selector */
+#drop-execute-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+}
+
+#drop-execute-btn:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+
+#drop-execute-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+#drop-cancel-btn {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 6px;
+}
+
+#drop-cancel-btn:hover {
+    color: var(--color-text);
+    border-color: var(--color-text-secondary);
+}
+
+/* Empty state for drop selector */
+.drop-empty-state {
+    text-align: center;
+    padding: 30px 20px;
+    color: var(--color-text-secondary);
+    font-style: italic;
+}
+
+/* =========================================================================
+   Drop Selector Footer (buttons area)
+   ========================================================================= */
+
+.drop-selector-content {
+    padding: 8px;
+}
+
+.overlay-footer {
+    padding: 12px;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* Execute button for drop selector */
+#drop-execute-btn {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#drop-execute-btn:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+
+#drop-execute-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}

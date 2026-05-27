@@ -237,8 +237,9 @@ export class ActionExecutor {
         const dropRange = AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
 
         // Calculate distance to target
-        const droidX = AppConfig.VIEW.CENTER_X + (droid.spatial?.x || 0);
-        const droidY = AppConfig.VIEW.CENTER_Y + (droid.spatial?.y || 0);
+        // targetX/Y are world-relative (offset from center), so droid position must also be world-relative
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
         const distance = Math.sqrt(Math.pow(targetX - droidX, 2) + Math.pow(targetY - droidY, 2));
 
         if (distance > dropRange) {

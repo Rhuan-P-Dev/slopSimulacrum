@@ -55,7 +55,9 @@ class ConsequenceDispatcher {
         };
 
         for (const consequence of action.consequences) {
-            const resolvedParams = this._resolveParams(consequence.params, requirementValues, params);
+            // Use context.actionParams (which includes entityId) for resolution,
+            // so placeholders like :entityId, :itemId, :itemType resolve correctly.
+            const resolvedParams = this._resolveParams(consequence.params, requirementValues, context.actionParams);
 
             const handler = this.actionController.consequenceHandlers.handlers[consequence.type];
             if (!handler) {
@@ -267,10 +269,14 @@ class ConsequenceDispatcher {
 
     /**
      * Resolves placeholders in consequence params.
+     * Resolves :Trait.stat from requirementValues and :variable from actionParams.
      * @private
      */
     _resolveParams(params, requirementValues, actionParams) {
-        return resolvePlaceholders(params, requirementValues);
+        // Merge requirementValues and actionParams so both :Trait.stat and :entityId
+        // style placeholders can be resolved (e.g., :entityId, :itemId, :itemType).
+        const resolutionContext = { ...actionParams, ...requirementValues };
+        return resolvePlaceholders(params, resolutionContext);
     }
 
     /**

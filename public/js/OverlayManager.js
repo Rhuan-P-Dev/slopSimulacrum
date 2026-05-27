@@ -10,8 +10,6 @@
  * @module OverlayManager
  */
 
-import { Logger } from '../utils/Logger.js';
-
 export class OverlayManager {
     /**
      * Creates a new OverlayManager.
@@ -109,7 +107,7 @@ export class OverlayManager {
         try {
             panelData = showData ? await showData() : data;
         } catch (error) {
-            Logger.error('[OverlayManager]', `Error fetching data for panel '${panelId}':`, error);
+            console.error('[OverlayManager]', `Error fetching data for panel '${panelId}':`, error);
             panel.controller.show(null);
             return;
         }

@@ -53,7 +53,7 @@ Client-side architecture, UI components, and CSS organization.
 
 | Document | Description |
 |----------|-------------|
-| [Client Architecture](frontend/client_architecture.md) | Client-side architecture + UI overview (14 modules, DI wiring, data flow) |
+| [Client Architecture](frontend/client_architecture.md) | Client-side architecture + UI overview (15 modules, DI wiring, data flow) |
 | [Client Action Execution](frontend/client_action_execution.md) | Asynchronous execution rationale, server authority principle, selection UI purpose |
 | [CSS Architecture](frontend/css_architecture.md) | Modular CSS philosophy, single-responsibility rationale, theme variable design |
 | [Overlay Manager](frontend/overlay_manager.md) | Floating window coordination — exclusive visibility, keyboard shortcuts, click-outside dismissal |
@@ -86,7 +86,7 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 23 |
+| Total documents | 24 |
 | Categories | 6 |
 | Architecture docs | 4 |
 | Controller docs | 8 |

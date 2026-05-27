@@ -89,6 +89,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-063](medium/BUG-063-hardcoded-room-definitions.md) | Hardcoded Room Definitions in RoomsController | ✅ Fixed | `3267ec8` | `RoomsController.js`, `data/rooms.json` |
 | [BUG-067](medium/BUG-067-internal-components-system.md) | Internal Components System — durabilityRepairSphere | ✅ Implemented | `pending` | `InternalComponentController.js` |
 | [BUG-068](medium/BUG-068-component-viewer-missing-internal-components.md) | Component Viewer Missing Internal Components Display | ✅ Fixed | `pending` | `ComponentViewer.js`, `internal-components.css`, `internalComponentRoutes.js` |
+| [BUG-080](medium/BUG-080-drop-selector-executes-with-null-pending-item.md) | Drop Selector Execute: `pendingDropItem` Cleared Before Event Dispatch | ✅ Fixed | `pending` | `DropSelectorController.js` |
 
 ### 🟢 Low Severity
 

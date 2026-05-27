@@ -19,16 +19,29 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Navigation Actions Panel | Actions overlay with multi-component selection |
 | World Map View | Full-screen world map overlay with pan/zoom |
 | Inventory Manager | Inventory overlay with drag-and-drop items |
+| Drop Selector Controller | Drop component selection floating window |
 | Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
 | Client Error Controller | Error resolution and formatting |
 
 ## 2. Dependency Injection Wiring Order
 
-The orchestrator initializes core modules first, then selection and synergy controllers, then UI modules, then the overlay manager registers all panels with their config bar buttons, establishes the WebSocket connection, and finally the event dispatcher with handler callbacks.
+The orchestrator initializes core modules first, then selection and synergy controllers, then UI modules, then the drop selector and overlay manager, establishes the WebSocket connection, and finally the event dispatcher with handler callbacks.
+
+**Drop Selector Wiring**: The `DropSelectorController` is instantiated before the `ActionExecutor` and initialized in `init()`. The `InventoryManager` receives its reference via `setDropSelector()` after both controllers are initialized.
 
 ## 3. Data Flow
 
 User interactions flow through the event dispatcher into the selection controller, which triggers UI updates and synergy preview fetching. The action executor sends HTTP requests for action execution. Server updates flow through the WebSocket into the state manager, which triggers UI updates.
+
+**Drop Selector Data Flow**:
+1. User clicks "Drop" button on an inventory item card
+2. `InventoryManager._onDropClick()` creates a pending drop object and calls `DropSelectorController.show()`
+3. `DropSelectorController` fetches capable components from the server
+4. User selects components and clicks "Execute"
+5. `DropSelectorController` dispatches a `drop-selector:execute` custom event
+6. `App.js` receives the event, calculates the drop range, and shows the range indicator
+7. User clicks on the map to specify the drop location
+8. `ActionManager.executeDropItem()` sends the drop request to the server
 
 **Overlay Registration Flow**:
 1. All panel controllers are instantiated

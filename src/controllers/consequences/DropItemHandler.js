@@ -54,22 +54,33 @@ function handleDropItem(deps, params, context) {
         return { success: false, message: `Entity "${entityId}" not found.` };
     }
 
-    // Verify the entity has the item equipped
+    // Check if the item is equipped
     const equippedItems = worldStateController.getEquippedItems(entityId);
     const equippedItem = equippedItems?.find(eq => eq.itemId === itemId);
-    if (!equippedItem) {
-        Logger.warn(`[DropItemHandler] Item "${itemId}" is not equipped on entity "${entityId}".`);
-        return { success: false, message: `Item "${itemId}" is not equipped.` };
+
+    // If equipped, unequip it first
+    let usedItemType = itemType;
+    if (equippedItem) {
+        const unequipResult = worldStateController.unequipItem(entityId, itemId);
+        if (!unequipResult.success) {
+            Logger.warn(`[DropItemHandler] Failed to unequip item "${itemId}" from entity "${entityId}": ${unequipResult.message}`);
+            return { success: false, message: `Failed to unequip: ${unequipResult.message}` };
+        }
+        usedItemType = usedItemType || equippedItem.itemType;
+    } else {
+        // Item is in inventory but not equipped — check inventory exists
+        // getEntityItems() returns { componentId: [item1, item2] } — need to flatten
+        const inventory = worldStateController.getEntityItems(entityId);
+        const allItems = Object.values(inventory).flat();
+        const foundItem = allItems?.find(invItem => invItem.id === itemId);
+        if (!foundItem) {
+            Logger.warn(`[DropItemHandler] Item "${itemId}" not found in inventory or equipped items on entity "${entityId}".`);
+            return { success: false, message: `Item "${itemId}" not found.` };
+        }
+        usedItemType = usedItemType || foundItem.type;
     }
 
-    // Unequip the item
-    const unequipResult = worldStateController.unequipItem(entityId, itemId);
-    if (!unequipResult.success) {
-        Logger.warn(`[DropItemHandler] Failed to unequip item "${itemId}" from entity "${entityId}": ${unequipResult.message}`);
-        return { success: false, message: `Failed to unequip: ${unequipResult.message}` };
-    }
-
-    // Remove item from the component's inventory
+    // Remove item from the entity's inventory
     const inventoryResult = worldStateController.removeItemFromEntity(entityId, itemId);
     if (!inventoryResult.success) {
         Logger.warn(`[DropItemHandler] Failed to remove item "${itemId}" from entity "${entityId}": ${inventoryResult.message}`);
@@ -81,7 +92,7 @@ function handleDropItem(deps, params, context) {
     const droppedItemId = `dropped-${Date.now()}-${itemId.slice(0, 8)}`;
     droppedItems[droppedItemId] = {
         id: droppedItemId,
-        itemType: itemType || equippedItem.itemType,
+        itemType: usedItemType,
         itemId: itemId,
         x: targetX,
         y: targetY,
@@ -90,7 +101,7 @@ function handleDropItem(deps, params, context) {
 
     worldStateController.setDroppedItems(droppedItems);
 
-    Logger.info(`[DropItemHandler] Dropped item "${itemType || equippedItem.itemType}" (${itemId}) at (${targetX}, ${targetY}).`);
+    Logger.info(`[DropItemHandler] Dropped item "${usedItemType}" (${itemId}) at (${targetX}, ${targetY}).`);
     return { success: true, droppedItemId };
 }
 

@@ -20,6 +20,9 @@ export class InventoryManager {
         /** @private */
         this._statBarsManager = statBarsManager;
 
+        /** @private {import('./DropSelectorController.js').DropSelectorController|null} */
+        this._dropSelector = null;
+
         /** @private {HTMLElement|null} */
         this._overlay = null;
         /** @private {HTMLElement|null} */
@@ -51,6 +54,15 @@ export class InventoryManager {
         this._onDragLeave = this._onDragLeave.bind(this);
         this._onEquipClick = this._onEquipClick.bind(this);
         this._onUnequipClick = this._onUnequipClick.bind(this);
+        this._onDropClick = this._onDropClick.bind(this);
+    }
+
+    /**
+     * Sets the DropSelectorController instance for drop button integration.
+     * @param {import('./DropSelectorController.js').DropSelectorController|null} dropSelector - The DropSelectorController instance.
+     */
+    setDropSelector(dropSelector) {
+        this._dropSelector = dropSelector;
     }
 
     /**
@@ -436,6 +448,13 @@ export class InventoryManager {
                     </button>`;
             }
 
+            // Drop button for all items
+            const dropButtonHtml = `
+                <button class="equip-btn drop"
+                        data-item-id="${item.id}"
+                        data-item-type="${item.type}"
+                        title="Click to select a component and drop this item">📦 Drop</button>`;
+
             html += `
                 <div class="inventory-item-card"
                      draggable="true"
@@ -447,6 +466,7 @@ export class InventoryManager {
                     <span class="inventory-item-name">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${itemVolume}v</span>
                     ${equipButtonHtml}
+                    ${dropButtonHtml}
                 </div>`;
         }
         return html;
@@ -500,12 +520,58 @@ export class InventoryManager {
             container.addEventListener('drop', this._onDrop);
         });
 
-        // Attach equip/unequip button listeners
-        const equipButtons = this._content.querySelectorAll('.equip-btn');
+        // Attach equip/unequip button listeners (exclude drop buttons)
+        const equipButtons = this._content.querySelectorAll('.equip-btn.equip, .equip-btn.unequip');
         equipButtons.forEach(btn => {
             const isEquipped = btn.dataset.isEquipped === 'true';
             btn.addEventListener('click', isEquipped ? this._onUnequipClick : this._onEquipClick);
         });
+
+        // Attach drop button listeners
+        const dropButtons = this._content.querySelectorAll('.equip-btn.drop');
+        dropButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this._onDropClick(e, btn.closest('.inventory-item-card'));
+            });
+        });
+    }
+
+    /**
+     * Handles click on the Drop button for an inventory item.
+     * Opens the DropSelector floating window.
+     * @param {Event} e - The click event.
+     * @param {HTMLElement} card - The item card element.
+     * @private
+     */
+    _onDropClick(e, card) {
+        e.stopPropagation();
+        e.preventDefault();
+
+        if (!card || !this._currentEntityId) {
+            console.warn('[InventoryManager] No card or entity ID for drop action.');
+            this._showToast('No entity available for drop.', 'error');
+            return;
+        }
+
+        const itemId = card.dataset.itemId;
+        const itemType = card.dataset.itemType;
+
+        if (!itemId || !itemType) {
+            console.warn('[InventoryManager] Missing item data on drop button.');
+            this._showToast('Invalid item data.', 'error');
+            return;
+        }
+
+        // Create pending drop object
+        const pendingDropItem = {
+            actionName: 'dropItem',
+            entityId: this._currentEntityId,
+            itemId,
+            itemType
+        };
+
+        // Open the DropSelector panel
+        this._dropSelector?.show({ pendingDropItem });
     }
 
     /**

@@ -106,3 +106,57 @@ The inventory system follows the established patterns:
 - **WorldStateController extension**: Inventory methods follow the public API wrapper pattern — they delegate to InventoryManager and trigger broadcasts on success. Component ID is required.
 - **InventoryRoutes**: Express router following the same pattern as existing route modules. Registered through the central routes index. Validates componentId in the add endpoint.
 - **InventoryManager (client)**: Module following the same constructor pattern as ComponentViewer and other client modules. Uses HTML5 native Drag and Drop API.
+
+## Drop Selector Feature
+
+The drop selector provides a UI for dropping items from inventory onto the map. It follows this flow:
+
+1. User clicks the "Drop" button (📦) on an inventory item card
+2. A floating panel opens listing all components on the entity capable of dropping items (those with Physical, Movement, or Manipulation traits)
+3. User selects one or more components and clicks "Execute Drop"
+4. The panel closes, a range indicator appears on the map centered on the droid
+5. User clicks a map position to drop the item there
+6. The server receives the drop request and processes it via the `dropItem` consequence handler
+
+### Server API — Capable Drop Components
+
+The endpoint `GET /inventory/:entityId/capable-drop-components` returns all components on an entity that can perform drop actions. A component is considered "capable" if it has:
+
+- **Physical** trait (can interact with objects)
+- **Movement** trait (can carry items)
+- **Manipulation** trait (fine motor control)
+
+### Client Components
+
+| Component | Purpose |
+|-----------|---------|
+| `DropSelectorController.js` | Floating window controller for component selection |
+| `InventoryManager.js` | Drop button on each item card, wires to DropSelectorController |
+| `App.js` | Listens for `drop-selector:execute` custom event, calculates range, stores pending drop state |
+| `ActionManager.js` | `executeDropItem()` sends the actual drop request to server |
+
+### Data Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant IM as InventoryManager
+    participant DS as DropSelectorController
+    participant App as App.js
+    participant AM as ActionManager
+    participant S as Server
+
+    U->>IM: Click "Drop" button on item
+    IM->>DS: show({ pendingDropItem })
+    DS->>S: GET /inventory/:entityId/capable-drop-components
+    S-->>DS: { components: [...] }
+    DS->>DS: Render component list
+    U->>DS: Select components + "Execute"
+    DS->>App: CustomEvent 'drop-selector:execute'
+    App->>App: Calculate drop range, show indicator
+    U->>App: Click map position
+    App->>AM: executeDropItem(pending, x, y)
+    AM->>S: POST /actions/drop
+    S->>S: DropItemHandler.handleDropItem()
+    S-->>AM: Success
+    AM->>App: refreshWorldAndActions()
