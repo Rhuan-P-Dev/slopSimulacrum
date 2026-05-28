@@ -64,6 +64,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-088](medium/BUG-088-cross-action-selection-not-updating.md) | Cross-Action Component Graying Not Updating in Real-Time | ✅ Fixed | `pending` | `App.js` |
 | [BUG-011](medium/BUG-011-srp-violation.md) | ActionController SRP Violation | ✅ Refactored | — | `actionController.js`, `componentCapabilityController.js` |
 | [BUG-012](medium/BUG-012-removal-marker-null.md) | Removal Marker Sent as `null` Instead of Structured Object | ✅ Fixed | — | `componentCapabilityController.js` |
 | [BUG-013](medium/BUG-013-selection-persistence.md) | Component Selection Lost on Page Refresh | ✅ Fixed | `2573bea` | `App.js`, `actionController.js` |

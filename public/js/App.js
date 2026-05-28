@@ -379,7 +379,7 @@ export class ClientApp {
      * @private
      */
     _updateNavActionsPanelIfOpen() {
-        if (!this.navActions._overlay || this.navActions._overlay.style.display !== 'block') {
+        if (!this.navActions.overlay || this.navActions.overlay.style.display !== 'block') {
             return;
         }
 
