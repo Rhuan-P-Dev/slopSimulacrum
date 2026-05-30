@@ -35,8 +35,6 @@ export class ComponentViewer {
         this._internalComponentCache = {};
         /** @private {Object<string, boolean>} */
         this._expandedInternalComponents = {};
-        /** @private {Object|null} */
-        this._internalComponentRegistry = null;
     }
 
     /**
@@ -84,8 +82,6 @@ export class ComponentViewer {
         this._lastComponentId = entity.components?.[0]?.id || null;
         this.overlay.style.display = 'block';
 
-        // Pre-fetch internal component registry for descriptions
-        await this._loadInternalComponentRegistry();
     }
 
     /**
@@ -138,7 +134,7 @@ export class ComponentViewer {
 
         // Internal components are stored directly on the entity object as entity.internalComponents
         // { [hostComponentId]: [internalComponentInstances] }
-        // This is the same source that UIManager.showEntityDetails() uses to display internal components.
+        // This is the same source that the map's internal component rendering uses.
         // We must NOT use state.internalComponents[entity.id] because that structure may not
         // be synchronized with the entity object's internalComponents property.
         const entityInternalComponents = entity?.internalComponents || {};
@@ -273,83 +269,13 @@ export class ComponentViewer {
     }
 
     /**
-     * Gets the display value of a stat from a component's stats object.
-     * @param {string} trait - The trait name.
-     * @param {string} stat - The stat key.
-     * @param {Object} stats - The stats object.
-     * @returns {number|string} The stat value.
-     * @private
-     */
-    _getStatDisplayValue(trait, stat, stats) {
-        if (!stats || !stats[trait] || stats[trait][stat] === undefined) return 0;
-        return stats[trait][stat];
-    }
-
-    /**
-     * Handles a stat click - opens the add stat dialog pre-filled.
-     * @param {string} trait - The trait name.
-     * @param {string} stat - The stat key.
-     * @param {number} value - The current stat value (suggested max).
-     * @param {string} componentId - The component instance ID.
-     * @private
-     */
-    _onStatClick(trait, stat, value, componentId) {
-        this._statBarsManager.openAddDialog({
-            componentId,
-            trait,
-            stat,
-            max: value,
-            label: '',
-            color: '',
-        });
-    }
-
-    /**
-     * Loads the internal component registry from the server.
-     * Note: Registry is pre-fetched by App.js and distributed globally.
-     * This method is a no-op unless the registry is not yet set.
-     * @returns {Promise<void>}
-     * @private
-     */
-    async _loadInternalComponentRegistry() {
-        // Registry is pre-fetched by App.js — nothing to do if already set
-        if (this._internalComponentRegistry) return;
-    }
-
-    /**
      * Gets a human-readable description for an internal component type.
      * @param {string} type - The internal component type.
      * @returns {string} Description string.
      * @private
      */
     _getInternalComponentDescription(type) {
-        const registry = this._internalComponentRegistry;
-        if (!registry || !registry[type]) {
-            return 'Passive internal component.';
-        }
-
-        const def = registry[type];
-        const parts = [];
-
-        // Generate description from tickEffects only (no human-readable descriptions from registry)
-        if (def.tickEffects && Array.isArray(def.tickEffects) && def.tickEffects.length > 0) {
-            const effectDescriptions = def.tickEffects.map((effect) => {
-                const amount = effect.amount ?? 1;
-                const interval = def.tickInterval ? `every ${def.tickInterval}s` : '';
-                switch (effect.effect) {
-                    case 'add':
-                        return `+${amount} ${effect.targetStat} ${interval}`;
-                    case 'set':
-                        return `Set ${effect.targetStat} to ${amount}`;
-                    case 'multiply':
-                        return `x${amount} ${effect.targetStat}`;
-                    default:
-                        return `${effect.targetStat} ${effect.effect} ${amount}`;
-                }
-            });
-            return effectDescriptions.join(', ');
-        }
-
+        // Description is always generic — registry lookup removed as dead code
         return 'Passive internal component.';
     }
 

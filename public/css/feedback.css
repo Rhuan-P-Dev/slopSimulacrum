@@ -1,6 +1,6 @@
 /* =========================================================================
-   Feedback Styles — Error popups, release buttons, animation keyframes
-   Single Responsibility: User feedback elements (errors, releases, animations)
+   Feedback Styles — Error popups and animation keyframes
+   Single Responsibility: User feedback elements (errors, animations)
    ========================================================================= */
 
 /* Error Popup */
@@ -31,32 +31,4 @@
 @keyframes fadeOut {
     from { opacity: 1; }
     to { opacity: 0; }
-}
-
-/* Release Button */
-.release-btn {
-    background: rgba(255, 68, 68, 0.15);
-    border: 1px solid #ff4444;
-    color: #ff4444;
-    padding: 6px 12px;
-    margin-top: 8px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.8em;
-    text-transform: uppercase;
-    transition: all 0.2s;
-    border-radius: 2px;
-    width: 100%;
-    text-align: center;
-}
-
-.release-btn:hover {
-    background: rgba(255, 68, 68, 0.3);
-    box-shadow: 0 0 10px rgba(255, 68, 68, 0.4);
-    color: #fff;
-    border-color: #ff6666;
-}
-
-.release-btn:active {
-    transform: scale(0.98);
 }

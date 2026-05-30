@@ -90,22 +90,6 @@
     padding-bottom: 10px;
 }
 
-.entity-stat {
-    margin-bottom: 10px;
-    display: flex;
-    gap: 10px;
-}
-
-.stat-label {
-    color: var(--neon-green);
-    font-weight: bold;
-    min-width: 120px;
-}
-
-.stat-value {
-    color: var(--text-main);
-}
-
 .room-header {
     display: flex;
     justify-content: space-between;

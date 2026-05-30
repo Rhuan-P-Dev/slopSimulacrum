@@ -61,16 +61,10 @@ export class ClientApp {
         });
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
-        // 5. Drop selector controller
-        this.dropSelector = new DropSelectorController(
-            this.dispatcher,
-            this.worldState,
-            this.selection,
-            this.ui,
-            this.actions
-        );
+        // 5. Socket connection (must be before EventDispatcher)
+        this.socket = io();
 
-        // 6. Action executor
+        // 6. Action executor (must be before EventDispatcher — dispatcher callbacks reference this.executor)
         this.executor = new ActionExecutor(
             this.worldState,
             this.actions,
@@ -81,22 +75,7 @@ export class ClientApp {
             this.availableActions
         );
 
-        // 6. Overlay manager (replaces ConfigBarManager)
-        this.overlayManager = new OverlayManager();
-
-        // 6b. Pick-up overlay controller for dropped items on world map
-        this.pickUpOverlay = new PickUpOverlayController({
-            onPickUp: (droppedItemInfo) => this._handlePickUpClick(droppedItemInfo),
-            onClose: () => this._handlePickUpClose()
-        });
-
-        // 7. Wire action execution callback to NavActionsPanel
-        this._setupActionCallback();
-
-        // 8. Socket connection
-        this.socket = io();
-
-        // 9. Wire event dispatcher
+        // 7. Wire event dispatcher (must be after executor, before DropSelectorController)
         this.dispatcher = new EventDispatcher(this.socket, AppConfig, {
             setMyEntityId: (entityId) => this.worldState.setMyEntityId(entityId),
             refreshWorldAndActions: () => this.refreshWorldAndActions(),
@@ -125,13 +104,33 @@ export class ClientApp {
             worldStateManager: this.worldState
         });
 
-        // 10. Setup listeners
-        this._setupListeners();
+        // 8. Drop selector controller (depends on dispatcher)
+        this.dropSelector = new DropSelectorController(
+            this.dispatcher,
+            this.worldState,
+            this.selection,
+            this.ui,
+            this.actions
+        );
 
-        // 10b. Register pick-up overlay with overlay manager
+        // 10. Overlay manager (replaces ConfigBarManager)
+        this.overlayManager = new OverlayManager();
+        // 9. Pick-up overlay controller for dropped items on world map
+        this.pickUpOverlay = new PickUpOverlayController({
+            onPickUp: (droppedItemInfo) => this._handlePickUpClick(droppedItemInfo),
+            onClose: () => this._handlePickUpClose()
+        });
+
+        // 10. Wire action execution callback to NavActionsPanel
+        this._setupActionCallback();
+
+        // 11. Register pick-up overlay with overlay manager
         this.overlayManager.register('pick-up', this.pickUpOverlay, null, null);
 
-        // 11. Drop item state
+        // 12. Setup listeners
+        this._setupListeners();
+
+        // 13. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
         this._pendingDropItem = null;
 
@@ -287,9 +286,7 @@ export class ClientApp {
                     room,
                     state.entities,
                     droid,
-                    state,
-                    (entity) => this.ui.showEntityDetails(entity, state),
-                    (comp, stats) => this.ui.showComponentDetails(comp, stats)
+                    state
                 );
 
                 // Render dropped items on the spatial map

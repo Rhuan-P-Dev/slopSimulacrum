@@ -92,33 +92,14 @@
     text-align: right;
 }
 
-.component-title {
-    color: var(--text-main);
-    font-weight: bold;
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
+.component-section {
+    margin-top: 20px;
 }
 
 .trait-row {
     font-size: 0.9em;
     margin-left: 10px;
     color: var(--text-dim);
-}
-
-.trait-name {
-    color: var(--neon-green);
-}
-
-.component-section {
-    margin-top: 20px;
-}
-
-.component-item {
-    background: rgba(0, 255, 0, 0.05);
-    border-left: 3px solid var(--neon-green);
-    padding: 10px;
-    margin-bottom: 10px;
 }
 
 .loading {

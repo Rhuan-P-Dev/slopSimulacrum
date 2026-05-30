@@ -20,75 +20,13 @@ export class UIManager {
             roomLayer: document.getElementById('room-layer'),
             entitiesLayer: document.getElementById('entities-layer'),
             componentsLayer: document.getElementById('components-layer'),
-            // Action list element (moved to NavActionsPanel, no longer used)
-            actionList: document.getElementById('action-list'),
             // Detail overlay
             detailOverlay: document.getElementById('detail-overlay'),
             detailContent: document.getElementById('detail-content'),
             closeDetailsBtn: document.getElementById('close-details-btn'),
-            // Config bar
-            configBar: document.getElementById('config-bar'),
-            // Stat bars
-            statBarsSection: document.getElementById('stat-bars-section'),
-            statBarsContainer: document.getElementById('stat-bars-container'),
-            // Overlays
-            componentViewerOverlay: document.getElementById('component-viewer-overlay'),
-            componentViewerContent: document.getElementById('component-viewer-content'),
-            navActionsOverlay: document.getElementById('nav-actions-overlay'),
-            navActionsContent: document.getElementById('nav-actions-content'),
-            // Add stat dialog
-            addStatDialog: document.getElementById('add-stat-dialog'),
-            addStatDialogOverlay: document.getElementById('add-stat-dialog-overlay'),
         };
 
         this._setupEventListeners();
-
-        // Internal component registry (populated via setInternalComponentRegistry)
-        this._internalComponentRegistry = null;
-    }
-
-    /**
-     * Sets the internal component registry for description generation.
-     * @param {Object} registry - The internal component type definitions from /api/internal-components/registry.
-     */
-    setInternalComponentRegistry(registry) {
-        this._internalComponentRegistry = registry;
-    }
-
-    /**
-     * Generates a description for an internal component type from its tickEffects.
-     * @param {string} type - The internal component type.
-     * @returns {string} Description string.
-     * @private
-     */
-    _getInternalComponentDescription(type) {
-        const registry = this._internalComponentRegistry;
-        if (!registry || !registry[type]) {
-            return '';
-        }
-
-        const def = registry[type];
-
-        // Generate description from tickEffects only
-        if (def.tickEffects && Array.isArray(def.tickEffects) && def.tickEffects.length > 0) {
-            const effectDescriptions = def.tickEffects.map((effect) => {
-                const amount = effect.amount ?? 1;
-                const interval = def.tickInterval ? `every ${def.tickInterval}s` : '';
-                switch (effect.effect) {
-                    case 'add':
-                        return `+${amount} ${effect.targetStat} ${interval}`;
-                    case 'set':
-                        return `Set ${effect.targetStat} to ${amount}`;
-                    case 'multiply':
-                        return `x${amount} ${effect.targetStat}`;
-                    default:
-                        return `${effect.targetStat} ${effect.effect} ${amount}`;
-                }
-            });
-            return effectDescriptions.join(', ');
-        }
-
-        return '';
     }
 
     _setupEventListeners() {
@@ -101,12 +39,10 @@ export class UIManager {
      * @param {Object} entities
      * @param {Object} droid
      * @param {Object} state
-     * @param {Function} onEntityClick
-     * @param {Function} onComponentClick
      */
-    updateEntityAndComponentViews(room, entities, droid, state, onEntityClick, onComponentClick) {
-        this._renderEntities(room, entities, onEntityClick, droid?.id);
-        this._renderDroidComponents(droid, state, onComponentClick);
+    updateEntityAndComponentViews(room, entities, droid, state) {
+        this._renderEntities(room, entities, droid?.id);
+        this._renderDroidComponents(droid, state);
     }
 
     /**
@@ -136,7 +72,7 @@ export class UIManager {
         // Render map layers
         this._renderRoom(room);
         this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id);
-        this._renderEntities(room, state.entities, null, droid.id);
+        this._renderEntities(room, state.entities, droid.id);
         this._renderDroidComponents(droid, state);
     }
 
@@ -147,24 +83,6 @@ export class UIManager {
         this.elements.roomLayer.innerHTML = '';
         this.elements.entitiesLayer.innerHTML = '';
         this.elements.componentsLayer.innerHTML = '';
-    }
-
-    _renderNavButtons(room, entityId, onMoveCallback) {
-        const navEl = this.elements.navButtons;
-        navEl.innerHTML = '';
-        const connections = room.connections || {};
-
-        if (Object.keys(connections).length === 0) {
-            navEl.innerHTML = '<em class="text-muted">No exits available.</em>';
-        } else {
-            for (const [door, targetId] of Object.entries(connections)) {
-                const btn = document.createElement('button');
-                btn.className = 'nav-btn';
-                btn.textContent = `Go ${door.replace('_', ' ')}`;
-                btn.onclick = () => onMoveCallback(entityId, targetId);
-                navEl.appendChild(btn);
-            }
-        }
     }
 
     /**
@@ -377,7 +295,7 @@ export class UIManager {
         RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer, onConnectionClick, entityId);
     }
 
-    _renderEntities(room, entities, onEntityClick, activeDroidId) {
+    _renderEntities(room, entities, activeDroidId) {
         const entitiesLayer = this.elements.entitiesLayer;
         entitiesLayer.innerHTML = '';
 
@@ -395,15 +313,11 @@ export class UIManager {
             marker.setAttribute("class", `entity-marker`);
             marker.setAttribute("filter", "url(#glow)");
 
-            if (onEntityClick) {
-                marker.onclick = () => onEntityClick(entity);
-            }
-
             entitiesLayer.appendChild(marker);
         });
     }
 
-    _renderDroidComponents(droid, state, onComponentClick) {
+    _renderDroidComponents(droid, state) {
         const componentsLayer = this.elements.componentsLayer;
         componentsLayer.innerHTML = '';
 
@@ -435,13 +349,8 @@ export class UIManager {
             marker.setAttribute("class", "component-marker");
             marker.setAttribute("title", `${comp.type}: ${comp.identifier}`);
 
-            if (onComponentClick) {
-                marker.onclick = () => onComponentClick(comp, stats);
-            }
-
             componentsLayer.appendChild(marker);
         });
-
     }
 
     /**
@@ -664,142 +573,6 @@ export class UIManager {
         if (existing) existing.remove();
     }
 
-
-    /**
-     * Checks if a component is a grabbed item (not a standard droid component).
-     * Grabbed items like 'knife' are added as components to the entity but are not part of
-     * the base blueprint structure.
-     * @param {string} compType - The component type to check.
-     * @returns {boolean} True if the component is a grabbed item.
-     */
-    _isGrabbedItemComponent(compType) {
-        const standardComponents = [
-            'centralBall', 'droidHead', 'droidArm', 'droidHand',
-            'humanoidDroidFinger', 'droidRollingBall'
-        ];
-        return !standardComponents.includes(compType);
-    }
-
-    showEntityDetails(entity, state) {
-        let componentsHtml = '';
-        if (entity.components && state.components && state.components.instances) {
-            componentsHtml = '<div class="component-section"><h3 class="text-neon">🛠️ Installed Components</h3></div>';
-            entity.components.forEach(comp => {
-                const stats = state.components.instances[comp.id];
-                let statsHtml = '';
-                if (stats) {
-                    for (const [traitId, properties] of Object.entries(stats)) {
-                        let propsHtml = '';
-                        for (const [propKey, propVal] of Object.entries(properties)) {
-                            propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
-                        }
-                        statsHtml += `<div class="trait-row"><span class="trait-name">${traitId}</span>: ${propsHtml}</div>`;
-                    }
-                }
-
-                // Show internal components for this host
-                let internalCompHtml = '';
-                if (entity.internalComponents && entity.internalComponents[comp.id] && entity.internalComponents[comp.id].length > 0) {
-                    internalCompHtml = '<div class="internal-components-list">';
-                    entity.internalComponents[comp.id].forEach(ic => {
-                        const description = this._getInternalComponentDescription(ic.type);
-                        internalCompHtml += `
-                            <div class="internal-component-item">
-                                <span class="internal-component-badge">🔮 ${ic.type}</span>
-                                <span class="internal-component-meta">ID: ${ic.id ? ic.id.substring(0, 12) + '...' : 'N/A'}</span>
-                                ${description ? `<span class="internal-component-info">${description}</span>` : ''}
-                            </div>`;
-                    });
-                    internalCompHtml += '</div>';
-                }
-
-                // Check if this is a grabbed item (e.g., knife) that can be released
-                const isGrabbedItem = this._isGrabbedItemComponent(comp.type);
-                const releaseButton = isGrabbedItem
-                    ? `<button class="release-btn" data-comp-id="${comp.id}" data-comp-type="${comp.type}">🗑️ Release ${comp.type}</button>`
-                    : '';
-
-                componentsHtml += `
-                    <div class="component-item">
-                        <div class="component-title">
-                            <span>${comp.type}</span>
-                            <span class="id-text">ID: ${comp.identifier}</span>
-                        </div>
-                        ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
-                        ${internalCompHtml}
-                        ${releaseButton}
-                    </div>`;
-            });
-            componentsHtml += '</div>';
-        }
-
-        this.elements.detailContent.innerHTML = `
-            <div class="detail-header">
-                <h2 class="detail-header-main">Entity Analysis</h2>
-                <p class="detail-subheader">Unit: ${entity.id}</p>
-            </div>
-            <div class="entity-stat">
-                <span class="stat-label">Unit ID:</span>
-                <span class="stat-value">${entity.id}</span>
-            </div>
-            <div class="entity-stat">
-                <span class="stat-label">Blueprint:</span>
-                <span class="stat-value">${entity.blueprint}</span>
-            </div>
-            <div class="entity-stat">
-                <span class="stat-label">Current Zone:</span>
-                <span class="stat-value">${state.rooms[entity.location]?.name || 'Unknown'}</span>
-            </div>
-            ${componentsHtml}
-        `;
-        this.elements.detailOverlay.style.display = 'flex';
-
-        // Attach click events to release buttons
-        this.elements.detailContent.querySelectorAll('.release-btn').forEach(btn => {
-            btn.onclick = () => {
-                const componentId = btn.dataset.compId;
-                const compType = btn.dataset.compType;
-                console.log(`[UIManager] Release button clicked for ${compType} (component: ${componentId})`);
-                // Dispatch event for App.js to handle
-                this.elements.detailOverlay.dispatchEvent(new CustomEvent('release-component', {
-                    detail: { componentId, componentType: compType },
-                    bubbles: true
-                }));
-            };
-        });
-    }
-
-    showComponentDetails(component, stats) {
-        let statsHtml = '';
-        if (stats) {
-            for (const [traitId, properties] of Object.entries(stats)) {
-                let propsHtml = '';
-                for (const [propKey, propVal] of Object.entries(properties)) {
-                    propsHtml += `<span class="trait-stat">${propKey}: ${propVal}</span> `;
-                }
-                statsHtml += `<div class="trait-row"><span class="trait-name">${traitId}</span>: ${propsHtml}</div>`;
-            }
-        }
-
-        this.elements.detailContent.innerHTML = `
-            <div class="detail-header">
-                <h2 class="detail-header-main">Component Analysis</h2>
-                <p class="detail-subheader">Type: ${component.type}</p>
-            </div>
-            <div class="entity-stat">
-                <span class="stat-label">Component ID:</span>
-                <span class="stat-value">${component.id}</span>
-            </div>
-            <div class="entity-stat">
-                <span class="stat-label">Identifier:</span>
-                <span class="stat-value">${component.identifier}</span>
-            </div>
-            <div class="component-section">
-                ${statsHtml || '<div class="trait-row">No technical data available.</div>'}
-            </div>
-        `;
-        this.elements.detailOverlay.style.display = 'flex';
-    }
 
     showComponentSelection(entity, state, onComponentSelect) {
         let componentsHtml = '';

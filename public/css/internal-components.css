@@ -152,31 +152,3 @@
     z-index: 1000;
     white-space: nowrap;
 }
-
-/* Internal Component items in entity details view */
-.internal-components-list {
-    margin-top: 6px;
-    padding: 4px;
-    background: rgba(0, 204, 255, 0.05);
-    border: 1px solid rgba(0, 204, 255, 0.2);
-    border-radius: 3px;
-}
-
-.internal-component-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 2px 0;
-    font-size: 0.85em;
-}
-
-.internal-component-badge {
-    color: #00ccff;
-    font-weight: bold;
-    white-space: nowrap;
-}
-
-.internal-component-info {
-    color: var(--text-dim);
-    font-size: 0.9em;
-}
