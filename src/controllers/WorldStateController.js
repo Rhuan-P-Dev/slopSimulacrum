@@ -73,6 +73,13 @@ class WorldStateController {
         const synergyController = new SynergyController(this, actionRegistry, synergyRegistry, actionSelectController);
         this.synergyController = synergyController;
 
+        // 6.5. Instantiate EquippedItemStatsController BEFORE ActionController.
+        // Manages per-instance mutable stats (sharpness, durability) for equipped items.
+        // Must be available for injection into RequirementResolver so that
+        // requirementValues reflect CURRENT stats, not static inventoryItems.json definitions.
+        const equippedItemStats = new EquippedItemStatsController({ worldStateController: this });
+        this.equippedItemStats = equippedItemStats;
+
         // 7. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
         const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
@@ -82,7 +89,8 @@ class WorldStateController {
             actionRegistry,
             componentCapabilityController,
             synergyController,
-            actionSelectController
+            actionSelectController,
+            equippedItemStats
         );
         this.actionController = actionController;
 
@@ -151,12 +159,6 @@ class WorldStateController {
         // 8. Instantiate InventoryManager (Inventory System)
         // Manages item ownership, volume constraints, and item movements for entities.
         this.inventoryManager = new InventoryManager();
-
-        // 8.5. Instantiate EquippedItemStatsController (In-memory item stats)
-        // Manages per-instance mutable stats (sharpness, durability) for equipped items.
-        // Created before HoldingCostController since HoldingCostController depends on it.
-        const equippedItemStats = new EquippedItemStatsController({ worldStateController: this });
-        this.equippedItemStats = equippedItemStats;
 
         // Inject equippedItemStats into consequence handlers (needed after creation)
         // This allows StatConsequenceHandler to route equipped item stat deltas correctly

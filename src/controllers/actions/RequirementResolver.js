@@ -13,9 +13,11 @@ import { checkRequirements, checkRequirementsForComponent } from '../../utils/Re
 class RequirementResolver {
     /**
      * @param {WorldStateController} worldStateController - The root state controller.
+     * @param {EquippedItemStatsController} [equippedItemStats] - The equipped item stats manager (for mutable stats).
      */
-    constructor(worldStateController) {
+    constructor(worldStateController, equippedItemStats) {
         this.worldStateController = worldStateController;
+        this.equippedItemStats = equippedItemStats || null;
     }
 
     /**
@@ -68,18 +70,42 @@ class RequirementResolver {
             if (!equippedData) {
                 return { passed: false, error: { code: 'EQUIPPED_ITEM_NOT_FOUND', details: { componentId } } };
             }
-            componentStats = equippedData.traits;
-            // FIX (Round 3): Use the equipped item's itemId as resolvingTargetId so consequences
+            // Read CURRENT mutable stats from EquippedItemStatsController if available,
+            // so that requirementValues reflect actual sharpness (not static base value).
+            const itemId = equippedData.itemId;
+            if (this.equippedItemStats?.hasStats(itemId)) {
+                const currentStats = this.equippedItemStats.getStats(itemId);
+                if (currentStats) {
+                    componentStats = currentStats;
+                } else {
+                    componentStats = equippedData.traits;
+                }
+            } else {
+                componentStats = equippedData.traits;
+            }
+            // Use the equipped item's itemId as resolvingTargetId so consequences
             // (e.g., sharpness drain) route to the item's per-instance stats store, not the prefixed ID.
-            resolvingTargetId = equippedData.itemId;
+            resolvingTargetId = itemId;
         } else {
-            // Check if this host component has an equipped item — if so, use the item's stats
+            // Check if this host component has an equipped item — if so, use the item's CURRENT mutable stats
             const equipped = this._resolveEquippedItemForHostComponent(componentId, entityId);
             if (equipped) {
-                componentStats = equipped.traits;
+                const itemId = equipped.itemId;
+                // Read CURRENT mutable stats from EquippedItemStatsController if available,
+                // so that requirementValues reflect actual sharpness (not static base value).
+                if (this.equippedItemStats?.hasStats(itemId)) {
+                    const currentStats = this.equippedItemStats.getStats(itemId);
+                    if (currentStats) {
+                        componentStats = currentStats;
+                    } else {
+                        componentStats = equipped.traits;
+                    }
+                } else {
+                    componentStats = equipped.traits;
+                }
                 // Use the equipped item's itemId as the resolving target so consequences
                 // (e.g., sharpness drain) apply to the item, not the host component
-                resolvingTargetId = equipped.itemId;
+                resolvingTargetId = itemId;
             } else {
                 componentStats = this.worldStateController.getComponentStats(componentId);
                 if (!componentStats) {
@@ -115,12 +141,30 @@ class RequirementResolver {
         if (componentId.startsWith('equipped-')) {
             const equippedData = this._findEquippedItemData(componentId, null);
             if (!equippedData) return null;
-            stats = equippedData.traits;
+            // Read CURRENT mutable stats from EquippedItemStatsController if available,
+            // so that placeholder resolution reflects actual sharpness (not static base value).
+            if (this.equippedItemStats?.hasStats(equippedData.itemId)) {
+                const currentStats = this.equippedItemStats.getStats(equippedData.itemId);
+                if (currentStats) {
+                    stats = currentStats;
+                } else {
+                    stats = equippedData.traits;
+                }
+            } else {
+                stats = equippedData.traits;
+            }
         } else {
-            // Check if this host component has an equipped item — if so, use the item's stats directly
-            const equippedTraits = this._resolveEquippedTraitsForHostComponent(componentId, null);
-            if (equippedTraits) {
-                stats = equippedTraits;
+            // Check if this host component has an equipped item — if so, use the item's CURRENT mutable stats
+            const equipped = this._resolveEquippedItemForHostComponent(componentId, null);
+            if (equipped && this.equippedItemStats?.hasStats(equipped.itemId)) {
+                const currentStats = this.equippedItemStats.getStats(equipped.itemId);
+                if (currentStats) {
+                    stats = currentStats;
+                } else {
+                    stats = equipped.traits;
+                }
+            } else if (equipped) {
+                stats = equipped.traits;
             } else {
                 stats = this.worldStateController.getComponentStats(componentId);
                 if (!stats) return null;

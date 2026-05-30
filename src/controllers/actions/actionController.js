@@ -67,7 +67,7 @@ class ActionController {
      * @param {SynergyController} [synergyController] - The synergy system controller (optional).
      * @param {ActionSelectController} [actionSelectController] - The component selection/locking controller (optional).
      */
-    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController) {
+    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController, equippedItemStats) {
         this.worldStateController = worldStateController;
         this.consequenceHandlers = consequenceHandlers;
         this.actionRegistry = actionRegistry || {};
@@ -78,7 +78,8 @@ class ActionController {
         // Inject extracted modules
         this.rangeValidator = new RangeValidator(worldStateController, this);
         this.componentResolver = new ComponentResolver(worldStateController);
-        this.requirementResolver = new RequirementResolver(worldStateController);
+        // Pass equippedItemStats so RequirementResolver can read current mutable stats
+        this.requirementResolver = new RequirementResolver(worldStateController, equippedItemStats);
         this.consequenceDispatcher = new ConsequenceDispatcher(worldStateController, this, synergyController);
     }
 
