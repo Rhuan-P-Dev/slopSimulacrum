@@ -47,22 +47,37 @@ worldStateController.triggerInitialBroadcast();
             worldStateController.internalComponentController.stopTickSystem();
         }
 
-        // Disconnect all Socket.IO clients
+        // Force disconnect all connected Socket.IO clients.
+        // This prevents server.close() from hanging on browsers that do not
+        // close their WebSocket connections promptly during page unload.
+        if (io && io.sockets && io.sockets.sockets) {
+            const socketCount = io.sockets.sockets.size;
+            if (socketCount > 0) {
+                Logger.info(`[Server] Force disconnecting ${socketCount} connected client(s)...`);
+                // Iterate over connected sockets and call disconnect(true) on each.
+                // Socket.IO 4.x stores connected sockets in the 'sockets' Map.
+                for (const [socketId, socket] of io.sockets.sockets) {
+                    socket.disconnect(true); // true = force immediate disconnect, no close packet
+                }
+            }
+        }
+
+        // Close Socket.IO server
         if (io) {
             io.close();
         }
 
-        // Close HTTP server
+        // Close HTTP server (now fast because all clients are already disconnected)
         server.close(() => {
             Logger.info('[Server] Server closed.');
             process.exit(0);
         });
 
-        // Force exit after 60 seconds if server.close() hangs
+        // Force exit after 10 seconds if server.close() still hangs (safety net)
         setTimeout(() => {
             Logger.error('[Server] Forced shutdown after timeout.');
             process.exit(1);
-        }, 60000);
+        }, 10000);
     }
 
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));

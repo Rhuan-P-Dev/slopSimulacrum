@@ -62,6 +62,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-092](high/BUG-092-equipped-undefined-knife-malformed-component-id.md) | Equipped Item Component ID `equipped-undefined-knife` Causes Entity Not Found | ✅ Fixed | `pending` | `componentCapabilityController.js`, `HoldingCostController.js`, `actionController.js`, `actionSelectController.js`, `ComponentResolver.js` |
 | [BUG-096](high/BUG-096-knife-sharpness-drain-not-working.md) | Knife Sharpness Drain (-999) Not Working — Equipped Items Lack In-Memory Stats | ✅ Fixed | `pending` | `EquippedItemStatsController.js`, `HoldingCostController.js`, `StatConsequenceHandler.js`, `WorldStateController.js` |
 | [BUG-097](high/BUG-097-cut-action-disappears-after-use.md) | Cut Action Shows "0 capables · 1 incapable" After Use — Capability Cache Re-evaluation Missing Equipped Item Stats | ✅ Fixed | `pending` | `ComponentCapabilityController.js` |
+| [BUG-098](high/BUG-098-server-hangs-on-shutdown-with-connected-clients.md) | Server Hangs Indefinitely on Shutdown When Clients Are Connected | ✅ Fixed | `pending` | `server.js` |
 
 ### 🟡 Medium Severity
 
