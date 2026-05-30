@@ -334,3 +334,120 @@
     background: color-mix(in srgb, var(--color-danger, #e74c3c) 15%, transparent);
     border-color: var(--color-danger, #e74c3c);
 }
+
+/* =========================================================================
+   Item Stats Panel
+   ========================================================================= */
+
+.inventory-item-stats-panel {
+    padding: 6px 8px 8px 28px;
+    background: rgba(0, 0, 0, 0.35);
+    border-left: 2px solid var(--neon-cyan);
+    margin-bottom: 4px;
+    animation: stats-panel-in 0.2s ease;
+}
+
+@keyframes stats-panel-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.stats-loading,
+.stats-empty {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.stats-error {
+    color: var(--neon-red);
+    font-size: 0.8em;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+.stats-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.stats-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    transition: background 0.15s ease;
+}
+
+.stats-entry:hover {
+    background: rgba(0, 255, 255, 0.05);
+}
+
+.stats-name {
+    color: var(--neon-cyan);
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.stats-value {
+    color: var(--text-main);
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.stats-equipped-badge {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.75em;
+    color: var(--neon-orange);
+    font-weight: bold;
+}
+
+/* Stats toggle button styling */
+.equip-btn.stats-toggle {
+    background: rgba(128, 0, 255, 0.2);
+    border-color: #8844ff;
+    color: #aa66ff;
+}
+
+.equip-btn.stats-toggle:hover {
+    background: rgba(128, 0, 255, 0.35);
+    box-shadow: 0 0 4px rgba(136, 68, 255, 0.3);
+}
+
+/* --- Stats Sections --- */
+.stats-section {
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+}
+
+.stats-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.stats-section-title {
+    font-size: 0.75em;
+    font-weight: bold;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+    padding-left: 4px;
+}
+
+.stats-value.negative {
+    color: var(--neon-red);
+}

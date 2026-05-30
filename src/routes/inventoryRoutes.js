@@ -289,26 +289,56 @@ export default function register(router, { worldStateController }) {
 		}
 	});
 
-	/**
-	 * GET /inventory/:entityId/equipped
-	 * Returns all currently equipped items for an entity.
-	 */
-	router.get('/inventory/:entityId/equipped', (req, res) => {
-		try {
-			const { entityId } = req.params;
-			const equipped = worldStateController.getEquippedItems(entityId);
-			res.json({ equipped });
-		} catch (error) {
-			Logger.error('/inventory/:entityId/equipped endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
-		}
-	});
+    /**
+     * GET /inventory/:entityId/equipped
+     * Returns all currently equipped items for an entity.
+     */
+    router.get('/inventory/:entityId/equipped', (req, res) => {
+        try {
+            const { entityId } = req.params;
+            const equipped = worldStateController.getEquippedItems(entityId);
+            res.json({ equipped });
+        } catch (error) {
+            Logger.error('/inventory/:entityId/equipped endpoint error', { error: error.message });
+            res.status(500).json({
+                error: 'Internal Server Error',
+                details: error.message,
+            });
+        }
+    });
 
-	// =========================================================
-	// DROP SELECTOR — CAPABLE COMPONENTS
+    // =========================================================
+    // ITEM STATS — COMPUTED STATS FOR A SPECIFIC ITEM
+    // =========================================================
+
+    /**
+     * GET /inventory/:entityId/item-stats/:itemId
+     * Returns computed stats for a specific item instance, combining:
+     * - Base traits from inventoryItems.json
+     * - Dynamic equipped item stats (sharpness drain, durability current)
+     * - Holding cost debuffs (if equipped)
+     */
+    router.get('/inventory/:entityId/item-stats/:itemId', (req, res) => {
+        try {
+            const { entityId, itemId } = req.params;
+
+            const stats = worldStateController.getItemStats(entityId, itemId);
+            if (!stats) {
+                return res.status(404).json({ error: 'Not Found', message: `Item "${itemId}" not found on entity "${entityId}".` });
+            }
+
+            res.json({ success: true, stats });
+        } catch (error) {
+            Logger.error('/inventory/:entityId/item-stats/:itemId endpoint error', { error: error.message });
+            res.status(500).json({
+                error: 'Internal Server Error',
+                details: error.message,
+            });
+        }
+    });
+
+    // =========================================================
+    // DROP SELECTOR — CAPABLE COMPONENTS
 	// =========================================================
 
 	/**

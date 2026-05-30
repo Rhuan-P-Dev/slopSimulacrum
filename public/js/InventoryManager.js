@@ -465,8 +465,19 @@ export class InventoryManager {
                     <span class="drag-handle">⠿</span>
                     <span class="inventory-item-name">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${itemVolume}v</span>
+                    <button class="equip-btn stats-toggle"
+                            data-item-id="${item.id}"
+                            data-item-type="${item.type}"
+                            title="Click to view item stats">📊 Stats</button>
                     ${equipButtonHtml}
                     ${dropButtonHtml}
+                </div>
+                <!-- Expandable stats panel (hidden by default) -->
+                <div class="inventory-item-stats-panel"
+                     id="stats-${item.id}"
+                     data-item-id="${item.id}"
+                     style="display:none;">
+                    <div class="stats-loading">Loading stats...</div>
                 </div>`;
         }
         return html;
@@ -532,6 +543,14 @@ export class InventoryManager {
         dropButtons.forEach(btn => {
             btn.addEventListener('click', (e) => {
                 this._onDropClick(e, btn.closest('.inventory-item-card'));
+            });
+        });
+
+        // Attach stats toggle button listeners
+        const statsButtons = this._content.querySelectorAll('.equip-btn.stats-toggle');
+        statsButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this._onStatsClick(e, btn);
             });
         });
     }
@@ -923,19 +942,227 @@ export class InventoryManager {
     }
 
     /**
-     * Handles world state changes - re-renders if entity items changed.
+     * Handles click on the Stats button for an inventory item.
+     * Toggles the stats panel and loads stats from server if first open.
+     * @param {Event} e - The click event.
+     * @param {HTMLElement} btn - The stats toggle button.
      * @private
      */
-    _onWorldStateChange() {
+    async _onStatsClick(e, btn) {
+        e.stopPropagation();
+        const itemId = btn.dataset.itemId;
+        const panel = document.getElementById(`stats-${itemId}`);
+
+        if (!panel) return;
+
+        // Toggle visibility
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+
+            // Only fetch from server if panel hasn't been loaded yet
+            const hasLoaded = panel.dataset.loaded === 'true';
+            if (!hasLoaded) {
+                await this._loadItemStats(itemId, panel);
+                panel.dataset.loaded = 'true';
+            }
+        } else {
+            panel.style.display = 'none';
+        }
+    }
+
+    /**
+     * Loads item stats from server and renders them in the panel.
+     * @param {string} itemId - The item ID.
+     * @param {HTMLElement} panel - The stats panel element.
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _loadItemStats(itemId, panel) {
+        if (!this._currentEntityId) {
+            panel.innerHTML = '<div class="stats-error">No entity ID available.</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/item-stats/${itemId}`);
+            if (!response.ok) {
+                panel.innerHTML = `<div class="stats-error">Failed to load stats (HTTP ${response.status})</div>`;
+                return;
+            }
+
+            const data = await response.json();
+            if (!data.success || !data.stats) {
+                panel.innerHTML = '<div class="stats-error">No stats available.</div>';
+                return;
+            }
+
+            const stats = data.stats;
+            this._renderItemStats(panel, stats);
+        } catch (error) {
+            console.error('[InventoryManager] Error loading item stats:', error);
+            panel.innerHTML = '<div class="stats-error">Network error</div>';
+        }
+    }
+
+    /**
+     * Renders stat entries in the stats panel with merged view.
+     * When both base and dynamic values exist for a stat, shows: dynamic / base (percentage%)
+     * When only base exists (no dynamic), shows just the base value.
+     * @param {HTMLElement} panel - The stats panel element.
+     * @param {Object} stats - The stats object from server { _baseStats, _dynamicStats?, _holdingCostRequirements?, ...flatStats }.
+     * @private
+     */
+    _renderItemStats(panel, stats) {
+        const isEquipped = stats._isEquipped;
+        const baseStats = stats._baseStats && Object.keys(stats._baseStats).length > 0 ? stats._baseStats : {};
+        const dynamicStats = isEquipped && stats._dynamicStats && Object.keys(stats._dynamicStats).length > 0 ? stats._dynamicStats : {};
+        const holdingCostRequirements = isEquipped && stats._holdingCostRequirements && stats._holdingCostRequirements.length > 0 ? stats._holdingCostRequirements : [];
+
+        if (Object.keys(baseStats).length === 0 && Object.keys(dynamicStats).length === 0 && holdingCostRequirements.length === 0) {
+            panel.innerHTML = '<div class="stats-empty">No stats available for this item.</div>';
+            return;
+        }
+
+        let html = '';
+
+        // Section: Stats (merged base + dynamic into unified list)
+        if (Object.keys(baseStats).length > 0 || Object.keys(dynamicStats).length > 0) {
+            html += '<div class="stats-section">';
+            html += '<div class="stats-section-title">📊 Stats</div>';
+            html += '<div class="stats-grid">';
+
+            // Collect all unique stat names from both base and dynamic
+            const allStatNames = new Set([...Object.keys(baseStats), ...Object.keys(dynamicStats)]);
+
+            for (const statName of allStatNames) {
+                const baseValue = baseStats[statName];
+                const dynamicValue = dynamicStats[statName];
+                const hasBoth = typeof baseValue === 'number' && typeof dynamicValue === 'number';
+
+                let displayValue;
+                let valueClass = 'stats-value';
+
+                if (hasBoth) {
+                    // Show merged: current / max (percentage%)
+                    const ratio = baseValue !== 0 ? Math.abs(dynamicValue / baseValue) * 100 : 0;
+                    const percentage = Math.round(Math.min(ratio, 999) * 10) / 10;
+                    displayValue = `${dynamicValue} / ${baseValue} (${percentage}%)`;
+
+                    // Red if below 100%, green if at 100%, yellow if between 50-100%
+                    if (dynamicValue < 0) {
+                        valueClass = 'stats-value negative';
+                    } else if (ratio < 100) {
+                        valueClass = 'stats-value warning';
+                    } else {
+                        valueClass = 'stats-value healthy';
+                    }
+                } else if (typeof dynamicValue === 'number') {
+                    // Only dynamic (no base) — show dynamic value
+                    displayValue = dynamicValue;
+                    if (dynamicValue < 0) valueClass = 'stats-value negative';
+                } else {
+                    // Only base — show base value
+                    displayValue = baseValue;
+                }
+
+                html += `
+                    <div class="stats-entry">
+                        <span class="stats-name">${this._formatStatName(statName)}</span>
+                        <span class="${valueClass}">${displayValue}</span>
+                    </div>`;
+            }
+
+            html += '</div></div>';
+        }
+
+        // Section: Holding Cost Requirements (shown when equipped)
+        if (holdingCostRequirements.length > 0) {
+            html += '<div class="stats-section">';
+            html += '<div class="stats-section-title">🔒 Holding Cost Requirements</div>';
+            html += '<div class="stats-grid">';
+            for (const req of holdingCostRequirements) {
+                html += `
+                    <div class="stats-entry">
+                        <span class="stats-name">${this._formatStatName(req.stat)}</span>
+                        <span class="stats-value">≥${req.value}</span>
+                    </div>`;
+            }
+            html += '</div></div>';
+        }
+
+        // Show equipped badge if equipped
+        if (isEquipped) {
+            html += '<div class="stats-equipped-badge">⚔️ Equipped</div>';
+        }
+
+        panel.innerHTML = html;
+    }
+
+    /**
+     * Formats a camelCase/kebab-case stat name to readable format.
+     * @param {string} name - The stat name.
+     * @returns {string}
+     * @private
+     */
+    _formatStatName(name) {
+        return name
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/-/g, ' ')
+            .replace(/^./, str => str.toUpperCase());
+    }
+
+    /**
+     * Handles world state changes - re-renders if entity items changed.
+     * Also refreshes any open stats panels for equipped items so live stat changes
+     * (e.g., sharpness drain) are reflected without closing the panel.
+     * @private
+     */
+    async _onWorldStateChange() {
         if (!this._overlay || this._overlay.style.display !== 'block') return;
         if (!this._currentEntityId) return;
 
         // If we're viewing inventory, re-render to show any changes
-        this._loadEntityItems(this._currentEntityId).then(() => {
-            this._renderInventory();
-        }).catch((err) => {
+        await this._loadEntityItems(this._currentEntityId).catch((err) => {
             console.warn('[InventoryManager] Failed to refresh inventory on state change:', err);
         });
+        this._renderInventory();
+
+        // Refresh any open stats panels for equipped items so live stat changes
+        // (e.g., sharpness drain from cut action) are reflected immediately.
+        await this._refreshOpenStatsPanels();
+    }
+
+    /**
+     * Refreshes stats data for all currently visible (open) stats panels on equipped items.
+     * Used to update live stats after world state changes (e.g., sharpness drain).
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _refreshOpenStatsPanels() {
+        if (!this._currentEntityId) return;
+
+        // Find all open stats panels (display !== 'none')
+        const panels = this._content?.querySelectorAll('.inventory-item-stats-panel[style*="display: block"]') || [];
+
+        for (const panel of panels) {
+            const itemId = panel.dataset.itemId;
+            if (!itemId) continue;
+
+            // Only refresh if the item is equipped
+            if (!this._equippedItems[itemId]) continue;
+
+            try {
+                const response = await fetch(`/inventory/${this._currentEntityId}/item-stats/${itemId}`);
+                if (!response.ok) continue;
+
+                const data = await response.json();
+                if (data.success && data.stats) {
+                    this._renderItemStats(panel, data.stats);
+                }
+            } catch {
+                // Silently ignore errors for panel refresh — don't break the UI
+            }
+        }
     }
 
     /**

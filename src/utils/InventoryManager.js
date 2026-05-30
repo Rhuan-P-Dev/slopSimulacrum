@@ -217,6 +217,22 @@ class InventoryManager {
     }
 
     /**
+     * Gets a specific item instance by ID from an entity's inventory.
+     * Returns a defensive deep copy.
+     * @param {Object} entity - The entity object.
+     * @param {string} itemId - The item ID to find.
+     * @returns {Object|null} Deep clone of the item, or null if not found.
+     */
+    getItem(entity, itemId) {
+        if (!entity.items || !Array.isArray(entity.items)) {
+            return null;
+        }
+        const item = entity.items.find(i => i.id === itemId);
+        if (!item) return null;
+        return structuredClone(item);
+    }
+
+    /**
      * Gets items for an entity grouped by host component.
      * Returns a defensive deep copy.
      * @param {Object} entity - The entity object.
