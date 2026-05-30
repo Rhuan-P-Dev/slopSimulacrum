@@ -4,6 +4,8 @@
 
 Validates spatial range for proximity-based actions and executes failure consequences when range checks fail. Extracted from `ActionController` to adhere to the Single Responsibility Principle — range logic is decoupled from the main action execution pipeline.
 
+The `range` field in `data/actions.json` supports **expression syntax** (e.g., `":Physical.strength*2"`), which is resolved at check time using the same `PlaceholderResolver` logic used by `consequences` and `failureConsequences`. This ensures consistency across all data-driven expressions in the action system.
+
 ## Design Decisions
 
 ### Why a separate RangeValidator?
@@ -26,15 +28,37 @@ Range validation failures are not simple rejections — they trigger defined con
 
 | Method | Purpose |
 |--------|---------|
-| `checkGrabRange(sourceEntityId, targetEntityId, maxRange)` | Checks if a grab action is within range of the target entity |
+| `checkGrabRange(sourceEntityId, targetEntityId, maxRange)` | Checks if a grab action is within range of the target entity. Accepts a number or expression string (e.g., `":Physical.strength*2"`). |
 | `executeRangeFailureConsequences(entityId, actionName)` | Executes `rangeFailure` consequences defined in the action data |
+
+## Range Expression Resolution
+
+When `maxRange` is a string (e.g., `":Physical.strength*2"`), it is resolved to a numeric value before distance validation:
+
+1. `_resolveRequirementValues()` gathers all trait stats from the source entity's components, building a `"trait.stat"` → `value` map
+2. `resolvePlaceholders()` (from `PlaceholderResolver`) resolves the expression using this map
+3. The resolved numeric value is validated — negative, zero, NaN, or non-finite values are rejected with a graceful failure (not a thrown exception)
+4. The resolved numeric value is passed to `RangeChecker.checkGrabRange()` for distance validation
+
+This mirrors the consequence resolution path: `PlaceholderResolver` is the single resolution mechanism for all `:Trait.stat` expressions in the action system.
+
+### Edge Case Handling
+
+| Resolved Value | Behavior |
+|----------------|----------|
+| Valid positive number (e.g., `50`) | Proceeds to distance validation |
+| Negative number (e.g., `-:Physical.mass` → `-20`) | Returns `{ success: false, error: 'Invalid range value: -20' }` |
+| Unknown placeholder (e.g., `:Unknown.stat` → `NaN`) | Returns `{ success: false, error: 'Invalid range value: NaN' }` |
+| Literal number string (e.g., `"20"`) | Converted via `Number()` → `20`, proceeds to validation |
+| Unparseable string | Converted via `Number()` → `NaN`, returns validation error |
 
 ## Integration Points
 
 | Controller | Relationship |
 |------------|-------------|
-| **ActionController** | Calls `checkGrabRange()` and `executeRangeFailureConsequences()` during action execution |
-| **RangeChecker** | Utility module used by `checkGrabRange()` for distance computation |
+| **ActionController** | Calls `checkGrabRange()` and `executeRangeFailureConsequences()` during action execution. Passes raw range value (number or expression string). |
+| **RangeChecker** | Utility module used by `checkGrabRange()` for distance computation. Receives resolved numeric maxRange. |
+| **PlaceholderResolver** | Resolves `:Trait.stat` expressions in range strings using the same logic as consequences. |
 
 ## Validation
 

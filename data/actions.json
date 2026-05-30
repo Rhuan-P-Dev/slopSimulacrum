@@ -168,7 +168,7 @@
   },
   "dropItem": {
     "targetingType": "spatial",
-    "range": ":Physical.strength*2+3",
+    "range": 100,
     "requirements": [
       {
         "trait": "Physical",

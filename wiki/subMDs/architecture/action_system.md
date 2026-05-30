@@ -43,6 +43,34 @@ Some actions process multiple attacker components separately, each dealing damag
 
 ---
 
+### Range Expressions
+
+The `range` field in action definitions supports **expression syntax** using the same `PlaceholderResolver` mechanism as consequences:
+
+```json
+{
+  "dropItem": {
+    "range": ":Physical.strength*2"
+  }
+}
+```
+
+Supported patterns:
+- `:Trait.stat` — resolves to the stat value (e.g., `:Physical.strength` → `25`)
+- `:Trait.stat*N` — scales the stat value (e.g., `:Physical.strength*2` → `50`)
+- `-:Trait.stat` — negates the stat value (e.g., `-:Physical.mass` → `-20`)
+- Literal numbers — passed through unchanged (e.g., `10` → `10`)
+
+Resolution flow:
+1. `ActionController.executeAction()` passes the raw range value to `RangeValidator.checkGrabRange()`
+2. `RangeValidator._resolveRequirementValues()` gathers all `"trait.stat"` → `value` pairs from the source entity's components
+3. `resolvePlaceholders()` resolves the expression to a number
+4. The resolved number is passed to `RangeChecker.checkGrabRange()` for distance validation
+
+This design ensures range, consequences, and failureConsequences all share a single expression resolution mechanism.
+
+---
+
 ## 5. Public API Methods
 
 Methods for executing actions, checking requirements, retrieving actions for an entity, getting all capabilities, resolving dynamic values in consequences, and previewing action data with synergy. Cache management is delegated to the capability controller.

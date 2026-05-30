@@ -9,6 +9,7 @@
 
 import Logger from '../../utils/Logger.js';
 import { checkGrabRange } from '../../utils/RangeChecker.js';
+import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
 
 class RangeValidator {
     /**
@@ -22,9 +23,12 @@ class RangeValidator {
 
     /**
      * Checks if a grab action is within range of the target entity.
+     * Resolves range expressions (e.g., ":Physical.strength*2") using the same
+     * PlaceholderResolver logic used by consequences and failureConsequences.
+     *
      * @param {string} sourceEntityId - The entity performing the grab.
      * @param {string} targetEntityId - The entity being grabbed.
-     * @param {number} maxRange - The maximum allowed distance.
+     * @param {string|number} maxRange - The maximum allowed distance (number or expression string).
      * @returns {{ success: boolean, error?: string }}
      */
     checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
@@ -38,7 +42,50 @@ class RangeValidator {
             return { success: false, error: `Target entity "${targetEntityId}" not found.` };
         }
 
+        // Resolve range expression using PlaceholderResolver (same logic as consequences)
+        if (typeof maxRange === 'string') {
+            const requirementValues = this._resolveRequirementValues(sourceEntityId);
+            const resolved = resolvePlaceholders(maxRange, requirementValues);
+            maxRange = typeof resolved === 'number' ? resolved : Number(resolved);
+        }
+
+        // Guard: negative or NaN resolved values are invalid — fail the check
+        // rather than throwing, to allow graceful handling by the caller.
+        if (typeof maxRange !== 'number' || maxRange <= 0 || !isFinite(maxRange)) {
+            Logger.warn(`[RangeValidator] Invalid resolved range: ${maxRange}. Action cannot proceed.`);
+            return { success: false, error: `Invalid range value: ${maxRange}.` };
+        }
+
         return checkGrabRange(sourceEntity, targetEntity, maxRange);
+    }
+
+    /**
+     * Resolves requirement values for an entity by gathering all trait stats
+     * from its components. Builds a map of "trait.stat" → numeric value.
+     * Uses the same resolution pattern as RequirementResolver.resolveRequirementValues().
+     *
+     * @param {string} entityId - The entity ID.
+     * @returns {Object} Map of "trait.stat" → numeric value.
+     * @private
+     */
+    _resolveRequirementValues(entityId) {
+        const entity = this.worldStateController.getEntity(entityId);
+        if (!entity || !entity.components) return {};
+
+        const values = {};
+        for (const comp of entity.components) {
+            const stats = this.worldStateController.getComponentStats(comp.id);
+            if (stats) {
+                for (const [traitId, traitData] of Object.entries(stats)) {
+                    for (const [statName, statValue] of Object.entries(traitData)) {
+                        if (typeof statValue === 'number') {
+                            values[`${traitId}.${statName}`] = statValue;
+                        }
+                    }
+                }
+            }
+        }
+        return values;
     }
 
     /**
