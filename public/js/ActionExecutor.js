@@ -318,9 +318,13 @@ export class ActionExecutor {
      * Executes a drop item action at target coordinates.
      * Validates range, sends to server, refreshes world.
      *
+     * Coordinate system: Both targetX/targetY and droid.spatial.x/y are relative
+     * to the room center (same as how UIManager renders entities: CENTER_X + spatial.x).
+     * This matches the coordinate system used by SpatialConsequenceHandler for spatial actions.
+     *
      * @param {Object} pending - The pending drop item action object.
-     * @param {number} targetX - Target X coordinate on the map.
-     * @param {number} targetY - Target Y coordinate on the map.
+     * @param {number} targetX - Target X coordinate relative to room center.
+     * @param {number} targetY - Target Y coordinate relative to room center.
      * @param {Object} droid - The active droid entity.
      * @param {Object} state - The current world state.
      * @returns {Promise<void>}
@@ -351,51 +355,15 @@ export class ActionExecutor {
             AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE)
         );
 
-        // Calculate distance in room-space coordinates.
-        //
-        // The SVG viewBox uses translate(offsetX, offsetY) where:
-        //   offsetX = -minX + 100  (minX = minimum room.x across all rooms)
-        //   offsetY = -minY + 100
-        //
-        // The drop target from EventDispatcher is: svgP.x - 100
-        // To convert to room-space: roomSpace = (svgP.x - 100) - offsetX
-        //                             = (svgP.x - 100) - (-minX + 100)
-        //                             = svgP.x - 100 + minX - 100
-        //                             = svgP.x + minX - 200
-        //
-        // But wait — the current targetX = svgP.x - 100, and room-space target
-        // should be: svgP.x - offsetX = svgP.x - (-minX + 100) = svgP.x + minX - 100
-        // So: roomSpaceTargetX = targetX + minX  (since targetX = svgP.x - 100)
-        //
-        // Droid room-space: room origin + room center + spatial offset
-        const rooms = state.rooms || {};
-        const roomEntries = Object.values(rooms);
-        let minX = Infinity, minY = Infinity;
-        for (const r of roomEntries) {
-            minX = Math.min(minX, r.x);
-            minY = Math.min(minY, r.y);
-        }
+        // Get droid spatial position (relative to room center, same coordinate system as targetX/Y)
+        const droidSpatialX = droid.spatial?.x || 0;
+        const droidSpatialY = droid.spatial?.y || 0;
 
-        // Convert drop target from EventDispatcher coords to room-space
-        const targetRoomSpaceX = targetX + minX;
-        const targetRoomSpaceY = targetY + minY;
-
-        const droidRoomId = droid.location;
-        const room = state.rooms?.[droidRoomId];
-
-        let droidRoomSpaceX, droidRoomSpaceY;
-        if (room) {
-            // Droid room-space = room origin + room center + spatial offset
-            droidRoomSpaceX = room.x + (room.width / 2) + (droid.spatial?.x || 0);
-            droidRoomSpaceY = room.y + (room.height / 2) + (droid.spatial?.y || 0);
-        } else {
-            // Fallback: no room found — use spatial as-is
-            droidRoomSpaceX = droid.spatial?.x || 0;
-            droidRoomSpaceY = droid.spatial?.y || 0;
-        }
-
+        // Calculate Euclidean distance in room-center-relative coordinates.
+        // This matches the coordinate system used by SpatialConsequenceHandler
+        // for spatial actions like dash/move.
         const distance = Math.sqrt(
-            Math.pow(targetRoomSpaceX - droidRoomSpaceX, 2) + Math.pow(targetRoomSpaceY - droidRoomSpaceY, 2)
+            Math.pow(targetX - droidSpatialX, 2) + Math.pow(targetY - droidSpatialY, 2)
         );
 
         if (distance > dropRange) {

@@ -135,12 +135,12 @@ class EventDispatcher {
                 pt.y = event.clientY;
                 const svgP = pt.matrixTransform(mapElement.getScreenCTM().inverse());
 
-                // Convert SVG viewBox coordinates to room-space coordinates.
-                // The SVG uses translate(offsetX, offsetY) to position the room grid,
-                // where offsetX = -minX + 100 and offsetY = -minY + 100.
-                // To get room-space coords from viewBox coords, subtract these offsets.
-                const targetX = svgP.x - 100;
-                const targetY = svgP.y - 100;
+                // Convert SVG viewBox coordinates to room-relative coordinates.
+                // The main room SVG centers the room at (CENTER_X, CENTER_Y).
+                // Entity positions are calculated as: centerX + entity.spatial.x
+                // So we subtract CENTER_X/Y to get coords relative to room center.
+                const targetX = svgP.x - this.config.VIEW.CENTER_X;
+                const targetY = svgP.y - this.config.VIEW.CENTER_Y;
 
                 if (options.onDropItemClick) {
                     options.onDropItemClick(targetX, targetY);
