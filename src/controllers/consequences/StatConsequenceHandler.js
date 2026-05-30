@@ -18,9 +18,11 @@ class StatConsequenceHandler {
     /**
      * @param {Object} controllers - The set of available controllers.
      * @param {WorldStateController} controllers.worldStateController - The root state controller.
+     * @param {EquippedItemStatsController} [controllers.equippedItemStats] - The equipped item stats manager.
      */
     constructor(controllers) {
         this.worldStateController = controllers.worldStateController;
+        this.equippedItemStats = controllers.equippedItemStats || null;
     }
 
     /**
@@ -50,6 +52,16 @@ class StatConsequenceHandler {
                 success: false,
                 message: `No component resolved for ${trait}.${stat} update`,
                 data: null
+            };
+        }
+
+        // Check if target is an equipped item — route to EquippedItemStatsController
+        if (this.equippedItemStats?.hasStats(targetId)) {
+            const success = this.equippedItemStats.updateStatDelta(targetId, trait, stat, value);
+            return {
+                success,
+                message: success ? `Updated ${targetId} ${trait}.${stat} by ${value}` : `Failed to update ${targetId}`,
+                data: success ? { targetId, trait, stat, value } : null
             };
         }
 

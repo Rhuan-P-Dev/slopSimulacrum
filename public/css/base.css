@@ -25,6 +25,9 @@
     --color-spatial: #888888;
     --color-movement: #ffaa00;
     --color-custom: #ff00ff;
+
+    /* Equipped item / neon accents */
+    --neon-orange: #FF6600;
 }
 
 body {

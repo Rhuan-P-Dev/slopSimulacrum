@@ -29,6 +29,10 @@ graph TD
     WGB[WorldGraphBuilder]
     ICE[InternalComponentController]
     INV[InventoryManager]
+    EISC[EquippedItemStatsController]
+    HCC[HoldingCostController]
+    SCH[StatConsequenceHandler]
+    RNGV[RangeValidator]
 
     SVR --> LLMC
     SVR --> WSC
@@ -40,6 +44,7 @@ graph TD
     WSC --> CCC
     WSC --> ASC
     WSC --> INV
+    WSC --> EISC
 
     AC --> CH
     AC --> CCC
@@ -69,7 +74,15 @@ graph TD
 
     INV --> CC
     INV -.->|items array| SEC
-```
+
+    HCC --> EISC
+    SCH --> EISC
+    CCC -->|reads current stats| EISC
+    EISC -->|stat change callback| WSC
+
+    AC --> RNGV
+    RNGV -->|uses| WSC
+    ```
 
 ## 📁 Data Files
 

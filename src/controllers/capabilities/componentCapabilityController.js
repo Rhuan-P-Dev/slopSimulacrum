@@ -112,8 +112,9 @@ class ComponentCapabilityController {
                     const score = this._calculateComponentScore(componentStats, actionData.requirements);
                     if (score <= 0) continue; // Component doesn't satisfy this action
 
-                    // Check if this component meets all requirements
-                    const requirementCheck = this._checkRequirementsForComponent(
+                    // Check if this component meets all requirements using HOST stats only
+                    // (equipped item actions are handled separately by _scanEquippedItemsForActions)
+                    const requirementCheck = this._checkRequirementsForHostComponent(
                         actionData.requirements, entityId, component.id
                     );
 
@@ -156,6 +157,17 @@ class ComponentCapabilityController {
      * Called when a component stat changes. Finds the entry in the array and
      * updates or removes it. Only updates the affected action entry.
      *
+     * If the component hosts an equipped item whose traits satisfy the action
+     * requirements (e.g., a knife with Physical.sharpness for "cut"), the
+     * equipped item's traits are used instead of the host component's stats.
+     * This prevents equipped item actions from being incorrectly removed when
+     * a consequence modifies a stat on the host component.
+     *
+     * IMPORTANT: When the entry is an equipped item entry (_isEquippedItem: true),
+     * we preserve its metadata (componentType, componentIdentifier, _isEquippedItem,
+     * etc.) and only update the score and requirement-related fields. This ensures
+     * the UI correctly shows "knife" for cut instead of "droidHand".
+     *
      * @param {Object} state - The current world state.
      * @param {string} actionName - The action to re-evaluate.
      * @param {string} componentId - The component whose stats changed.
@@ -165,7 +177,11 @@ class ComponentCapabilityController {
         const actionData = this.actionRegistry[actionName];
         if (!actionData || !actionData.requirements || actionData.requirements.length === 0) return null;
 
-        const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
+        // Check if this component hosts an equipped item with relevant traits
+        const hasEquippedItemWithRelevantTraits = this._getEquippedTraitsForHostComponent(componentId) != null;
+
+        // Get stats: prefer equipped item traits if this component hosts one with relevant traits
+        const componentStats = this._getEffectiveStatsForAction(componentId, actionData);
         if (!componentStats) return null;
 
         const score = this._calculateComponentScore(componentStats, actionData.requirements);
@@ -199,35 +215,102 @@ class ComponentCapabilityController {
 
         const entity = entities[targetEntityId];
         const component = entity.components.find(c => c.id === componentId);
-        const newEntry = {
-            entityId: targetEntityId,
-            componentId,
-            componentType: component?.type || 'unknown',
-            componentIdentifier: component?.identifier || 'default',
-            score,
-            requirementValues: requirementCheck.requirementValues,
-            fulfillingComponents: requirementCheck.fulfillingComponents,
-            requirementsStatus: actionData.requirements.map(req => ({
-                trait: req.trait,
-                stat: req.stat,
-                current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
-                required: req.minValue
-            })),
-            _resolvedRole: this._resolveComponentRole(actionData, component)
-        };
 
-        // Find existing entry in the action array and update it in place
+        // Find existing entry in the action array
         const actionEntries = this._capabilityCache[actionName];
+        let existingEntry = null;
+        let existingIndex = -1;
+
         if (actionEntries) {
-            const existingIndex = actionEntries.findIndex(e => e.componentId === componentId);
+            existingIndex = actionEntries.findIndex(e => e.componentId === componentId);
             if (existingIndex !== -1) {
-                actionEntries[existingIndex] = newEntry;
-            } else {
-                // New entry — add to array
-                actionEntries.push(newEntry);
+                existingEntry = actionEntries[existingIndex];
             }
-            // Re-sort by score descending
-            actionEntries.sort((a, b) => b.score - a.score);
+        }
+
+        let newEntry;
+
+        if (hasEquippedItemWithRelevantTraits && existingEntry && existingEntry._isEquippedItem) {
+            // This is an equipped item entry — preserve its metadata and only update mutable fields
+            newEntry = {
+                ...existingEntry,
+                score,
+                requirementValues: requirementCheck.requirementValues,
+                fulfillingComponents: requirementCheck.fulfillingComponents,
+                requirementsStatus: actionData.requirements.map(req => ({
+                    trait: req.trait,
+                    stat: req.stat,
+                    current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                    required: req.minValue
+                }))
+            };
+        } else {
+            // Host component entry — use host component metadata
+            newEntry = {
+                entityId: targetEntityId,
+                componentId,
+                componentType: component?.type || 'unknown',
+                componentIdentifier: component?.identifier || 'default',
+                score,
+                requirementValues: requirementCheck.requirementValues,
+                fulfillingComponents: requirementCheck.fulfillingComponents,
+                requirementsStatus: actionData.requirements.map(req => ({
+                    trait: req.trait,
+                    stat: req.stat,
+                    current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                    required: req.minValue
+                })),
+                _resolvedRole: this._resolveComponentRole(actionData, component)
+            };
+
+            if (actionEntries) {
+                if (existingIndex !== -1) {
+                    actionEntries[existingIndex] = newEntry;
+                } else {
+                    actionEntries.push(newEntry);
+                }
+                actionEntries.sort((a, b) => b.score - a.score);
+            }
+
+            this._notifySubscribers(actionName, newEntry);
+            return newEntry;
+        }
+
+        // For equipped item entries: update in place or add new
+        if (existingIndex !== -1) {
+            actionEntries[existingIndex] = newEntry;
+        } else {
+            // New entry — create with equipped item metadata
+            const allEquipped = this.worldStateController.getAllEquippedItems() || [];
+            const equipped = allEquipped.find(eq => eq.componentId === componentId);
+            const itemRegistry = this.worldStateController.getItemRegistry() || {};
+            const itemType = equipped?.itemType || 'unknown';
+
+            newEntry = {
+                entityId: targetEntityId,
+                componentId: componentId,
+                componentType: itemType,
+                componentIdentifier: itemType,
+                score,
+                requirementValues: requirementCheck.requirementValues,
+                fulfillingComponents: requirementCheck.fulfillingComponents,
+                requirementsStatus: actionData.requirements.map(req => ({
+                    trait: req.trait,
+                    stat: req.stat,
+                    current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
+                    required: req.minValue
+                })),
+                _resolvedRole: 'source',
+                _isEquippedItem: true,
+                _equippedItemId: equipped?.itemId || componentId,
+                _equippedItemType: itemType,
+                _equippedComponentId: componentId
+            };
+
+            if (actionEntries) {
+                actionEntries.push(newEntry);
+                actionEntries.sort((a, b) => b.score - a.score);
+            }
         }
 
         this._notifySubscribers(actionName, newEntry);
@@ -294,7 +377,8 @@ class ComponentCapabilityController {
                 const score = this._calculateComponentScore(componentStats, actionData.requirements);
                 if (score <= 0) continue;
 
-                const requirementCheck = this._checkRequirementsForComponent(
+                // Check using host stats only (equipped item actions handled by _scanEquippedItemsForActions)
+                const requirementCheck = this._checkRequirementsForHostComponent(
                     actionData.requirements, entityId, component.id
                 );
 
@@ -587,9 +671,16 @@ class ComponentCapabilityController {
     // =========================================================================
 
     /**
-     * Checks if the specific component meets ALL of the action's requirements itself.
-     * A component is only eligible for caching if it possesses ALL required traits.
-     * This prevents components without the relevant traits from appearing in the capability list.
+     * Checks if a HOST component meets ALL of the action's requirements using
+     * ONLY the host component's stats — without any equipped item trait override.
+     *
+     * This method is used during full capability scans (scanAllCapabilities,
+     * reEvaluateEntityCapabilities) to ensure host component entries are evaluated
+     * against their own stats, not against equipped item stats. For example, a
+     * droidHand with Physical.strength=25 should still qualify for "punch" even
+     * when a knife (no strength) is equipped on it.
+     *
+     * Equipped item actions are handled separately by _scanEquippedItemsForActions().
      *
      * @param {Array<Object>} requirements - An array of requirement objects.
      * @param {string} entityId - The entity ID (used for error logging).
@@ -597,7 +688,8 @@ class ComponentCapabilityController {
      * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, error?: {code: string, details: Object}}}
      * @private
      */
-    _checkRequirementsForComponent(requirements, entityId, componentId) {
+    _checkRequirementsForHostComponent(requirements, entityId, componentId) {
+        // Use raw host component stats — no equipped item override
         const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
         if (!componentStats) {
             return { passed: false, error: { code: 'ENTITY_NOT_FOUND', details: { entityId } } };
@@ -717,29 +809,58 @@ class ComponentCapabilityController {
     }
 
     /**
-     * Gets all action names that depend on a specific component's traits.
-     * Uses the component's stats to build the trait.stat keys.
-     * @param {string} componentId - The component ID.
-     * @returns {Array<string>|null} Array of action names, or null if component not found.
+     * Checks if the specific component meets ALL of the action's requirements itself.
+     * A component is only eligible for caching if it possesses ALL required traits.
+     * This prevents components without the relevant traits from appearing in the capability list.
+     *
+     * If the component hosts an equipped item whose traits satisfy the action
+     * requirements, the equipped item's traits are used instead of the host
+     * component's stats. This ensures capability scoring is consistent with
+     * requirement checking in RequirementResolver — used during re-evaluation
+     * after stat changes (e.g., sharpness delta from cut action).
+     *
+     * For full capability scans, use _checkRequirementsForHostComponent() instead,
+     * which evaluates host components against their own stats only.
+     *
+     * @param {Array<Object>} requirements - An array of requirement objects.
+     * @param {string} entityId - The entity ID (used for error logging).
+     * @param {string} componentId - The specific component to evaluate.
+     * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, error?: {code: string, details: Object}}}
      * @private
      */
-    _getActionsForTraitStatFromComponent(componentId) {
-        const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
-        if (!componentStats) return null;
-
-        const actionSet = new Set();
-
-        // Iterate over all traits and stats for this component
-        for (const [traitId, stats] of Object.entries(componentStats)) {
-            for (const statName of Object.keys(stats)) {
-                const dependentActions = this._getActionsForTraitStat(traitId, statName);
-                for (const actionName of dependentActions) {
-                    actionSet.add(actionName);
-                }
-            }
+    _checkRequirementsForComponent(requirements, entityId, componentId) {
+        // Get effective stats: prefer equipped item traits if applicable
+        const componentStats = this._getEffectiveStatsForComponent(componentId);
+        if (!componentStats) {
+            return { passed: false, error: { code: 'ENTITY_NOT_FOUND', details: { entityId } } };
         }
 
-        return Array.from(actionSet);
+        const reqList = Array.isArray(requirements) ? requirements : [requirements];
+
+        const requirementValues = {};
+        const fulfillingComponents = {};
+
+        for (const req of reqList) {
+            const key = `${req.trait}.${req.stat}`;
+
+            // Strict check: this specific component MUST satisfy the requirement itself.
+            if (!componentStats[req.trait] ||
+                componentStats[req.trait][req.stat] === undefined ||
+                componentStats[req.trait][req.stat] < req.minValue) {
+                return {
+                    passed: false,
+                    error: {
+                        code: 'MISSING_TRAIT_STAT',
+                        details: { trait: req.trait, stat: req.stat, minValue: req.minValue }
+                    }
+                };
+            }
+
+            requirementValues[key] = componentStats[req.trait][req.stat];
+            fulfillingComponents[key] = componentId;
+        }
+
+        return { passed: true, requirementValues, fulfillingComponents };
     }
 
     // =========================================================================
@@ -863,12 +984,29 @@ class ComponentCapabilityController {
             const inventoryItems = this.worldStateController.getItemRegistry();
 
             for (const equipped of items) {
+                // Skip equipped items with invalid or missing itemId
+                if (!equipped.itemId || typeof equipped.itemId !== 'string' || equipped.itemId.trim() === '') {
+                    Logger.warn(`[ComponentCapabilityController] Skipping equipped item with invalid itemId for entity ${entityId}.`);
+                    continue;
+                }
+
                 // Look up item definition from inventory items
                 const itemDef = inventoryItems[equipped.itemType];
                 if (!itemDef?.traits) continue;
 
-                // Convert item traits to a stats-like object for score calculation
-                const itemStats = this._convertTraitsToStats(itemDef.traits);
+                // FIX (Round 4): Use CURRENT stats from EquippedItemStatsController instead of
+                // base stats from inventoryItems.json. This ensures that when an item's stats
+                // change (e.g., sharpness drain from cut), the capability cache reflects the
+                // actual current state, not the stale base values.
+                let itemStats;
+                const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.itemId);
+                if (currentStats) {
+                    // Use mutable copy of current stats (may have been drained/degraded)
+                    itemStats = currentStats;
+                } else {
+                    // Fallback: no mutable stats tracked — use base definition traits
+                    itemStats = this._convertTraitsToStats(itemDef.traits);
+                }
 
                 // Check each action against item traits
                 for (const [actionName, actionData] of Object.entries(actions)) {
@@ -885,7 +1023,8 @@ class ComponentCapabilityController {
 
                     const entry = {
                         entityId,
-                        componentId: `equipped-${equipped.itemId}-${equipped.itemType}`,
+                        // Prefer the actual host componentId; fall back to synthetic ID for legacy entries
+                        componentId: equipped.componentId || `equipped-${equipped.itemId}-${equipped.itemType}`,
                         componentType: equipped.itemType,
                         componentIdentifier: equipped.itemType,
                         score,
@@ -926,6 +1065,89 @@ class ComponentCapabilityController {
     _convertTraitsToStats(traits) {
         const stats = {};
         for (const [traitId, traitData] of Object.entries(traits)) {
+            stats[traitId] = { ...traitData };
+        }
+        return stats;
+    }
+
+    /**
+     * Gets effective stats for a component, preferring equipped item traits when
+     * the component hosts an equipped item with relevant traits for the action.
+     *
+     * This method solves the bug where onStatChange triggers reEvaluateActionForComponent
+     * which checks only host component stats — missing equipped item traits that satisfy
+     * action requirements (e.g., knife's Physical.sharpness for "cut").
+     *
+     * @param {string} componentId - The component ID.
+     * @param {Object} actionData - The action definition (for requirements check).
+     * @returns {Object|null} Effective stats object, or null if neither host nor equipped item has stats.
+     * @private
+     */
+    _getEffectiveStatsForAction(componentId, actionData) {
+        const hostStats = this.worldStateController.componentController.getComponentStats(componentId);
+
+        // Check if this component hosts an equipped item
+        const equippedTraits = this._getEquippedTraitsForHostComponent(componentId);
+        if (equippedTraits) {
+            // Equipped item exists — use its traits if they satisfy the action requirements
+            // Otherwise fall back to host stats (in case the item lacks relevant traits)
+            const score = this._calculateComponentScore(equippedTraits, actionData.requirements);
+            if (score > 0) {
+                return equippedTraits; // Use equipped item traits
+            }
+            // Item traits don't satisfy requirements — fall through to host stats
+        }
+
+        return hostStats || null;
+    }
+
+    /**
+     * Gets effective stats for a component, preferring equipped item traits
+     * when the component hosts an equipped item. Used by _checkRequirementsForComponent.
+     *
+     * @param {string} componentId - The component ID.
+     * @returns {Object|null} Effective stats object, or null if not found.
+     * @private
+     */
+    _getEffectiveStatsForComponent(componentId) {
+        const hostStats = this.worldStateController.componentController.getComponentStats(componentId);
+
+        const equippedTraits = this._getEquippedTraitsForHostComponent(componentId);
+        if (equippedTraits) {
+            return equippedTraits; // Equipped item traits take precedence
+        }
+
+        return hostStats || null;
+    }
+
+    /**
+     * Checks if a host component (non-prefixed ID) has an equipped item and returns
+     * the item's traits directly — without merging with the host component's stats.
+     *
+     * This method mirrors the logic in RequirementResolver._resolveEquippedTraitsForHostComponent()
+     * to ensure consistent trait resolution across capability scoring and requirement checking.
+     *
+     * @param {string} componentId - The host component ID (e.g., "droidHand-xyz").
+     * @returns {Object|null} Equipped item traits as a stats object, or null if no item is equipped on this component.
+     * @private
+     */
+    _getEquippedTraitsForHostComponent(componentId) {
+        const allEquipped = this.worldStateController.getAllEquippedItems() || [];
+
+        // Find equipped item hosted on this component by matching eq.componentId === componentId
+        const equipped = allEquipped.find(eq => eq.componentId === componentId);
+        if (!equipped) return null;
+
+        // Look up item definition from registry
+        const itemRegistry = this.worldStateController.getItemRegistry() || {};
+        const itemDef = itemRegistry[equipped.itemType];
+        if (!itemDef?.traits) {
+            return null;
+        }
+
+        // Return item traits directly (shallow copy per trait to prevent reference sharing)
+        const stats = {};
+        for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
             stats[traitId] = { ...traitData };
         }
         return stats;

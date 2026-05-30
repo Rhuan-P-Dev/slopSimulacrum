@@ -318,21 +318,29 @@ class ActionController {
             );
 
             if (resolvedSourceComponentId && resolvedSourceComponentId.startsWith('equipped-')) {
+                // Reject malformed equipped component IDs (e.g., "equipped-undefined-knife")
+                if (resolvedSourceComponentId.includes('undefined') || resolvedSourceComponentId.includes('null')) {
+                    Logger.warn(`[ActionController] Rejecting malformed equipped component ID: "${resolvedSourceComponentId}" for entity "${entityId}".`);
+                    return {
+                        success: false,
+                        error: `Invalid component ID: ${resolvedSourceComponentId}`,
+                        code: 'INVALID_COMPONENT_ID'
+                    };
+                }
+
                 const allEquipped = this.worldStateController.getAllEquippedItems();
                 let foundEquipped = null;
 
-                // Try to find the equipped item by matching componentId format:
-                // "equipped-${itemId}-${itemType}"
-                if (allEquipped) {
+                // Try to find the equipped item by matching componentId directly first
+                if (allEquipped && Array.isArray(allEquipped)) {
                     for (const eq of allEquipped) {
-                        if (eq.itemId === resolvedSourceComponentId ||
-                            eq.itemType === resolvedSourceComponentId) {
+                        if (eq.componentId === resolvedSourceComponentId) {
                             foundEquipped = eq;
                             break;
                         }
                     }
 
-                    // Also try matching by extracting itemId+itemType from the ID
+                    // Fallback: try matching by extracting itemId+itemType from the ID
                     if (!foundEquipped) {
                         const prefix = 'equipped-';
                         const afterPrefix = resolvedSourceComponentId.substring(prefix.length);
@@ -414,8 +422,9 @@ class ActionController {
             }
 
             // ─── Execute Consequences (delegated to ConsequenceDispatcher) ──
+            // Data-driven: ANY component-targeted action supports multi-attacker synergy
             let consequenceResult;
-            if (actionName === 'droid punch' && attackerComponentIds.length > 1 && params.targetComponentId) {
+            if (action.targetingType === 'component' && attackerComponentIds.length > 1 && params.targetComponentId) {
                 consequenceResult = this.consequenceDispatcher.executeMultiAttacker(
                     actionName, entityId, attackerComponentIds, params, synergyResult
                 );

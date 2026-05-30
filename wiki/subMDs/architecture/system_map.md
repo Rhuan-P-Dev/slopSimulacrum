@@ -5,13 +5,21 @@
 ```
 WorldStateController (Root Injector)
 ├── State Controllers (data storage, self-instantiating)
+│   ├── ComponentStatsController
+│   ├── TraitsController
+│   ├── stateEntityController
+│   ├── InternalComponentController
+│   └── EquippedItemStatsController
 ├── Logic Controllers (dependency-injected, coordinated by root)
 │   ├── ComponentController → State controllers
 │   ├── EntityController
 │   ├── CapabilityCacheController
 │   ├── SelectionController
 │   ├── SynergyController
-│   └── ActionController
+│   ├── ActionController
+│   ├── HoldingCostController → EquippedItemStatsController
+│   ├── StatConsequenceHandler → EquippedItemStatsController
+│   └── RangeValidator → WorldStateController (range checks)
 └── Consequence Dispatchers
 ```
 
@@ -31,6 +39,8 @@ WorldStateController (Root Injector)
 | **ActionSelectController** | Selection/Locking | Component locking per action |
 | **SynergyController** | Synergy | Multi-component bonus computation |
 | **InternalComponentController** | Internal State | Volume-based auto-install, repair system |
+| **EquippedItemStatsController** | Mutable Stats Store | Per-instance mutable stat tracking for equipped items (sharpness, durability degradation) |
+| **RangeValidator** | Range Validation | Spatial range checks for proximity-based actions with failure consequences |
 
 ## 3. Key Operational Flows
 
@@ -42,6 +52,9 @@ Validate requirements → resolve components → compute synergy → dispatch co
 
 ### Stat Change
 Notify listeners → identify dependent actions via reverse index → re-evaluate affected capabilities → notify subscribers → broadcast updates
+
+### Equipped Item Stat Change
+HoldingCostController.equipItem() → EquippedItemStatsController.initializeStats() → ConsequenceDispatcher routes damage to EquippedItemStatsController.updateStatDelta() → stat change callback fires → WorldStateController triggers reEvaluateEntityCapabilities() → ComponentCapabilityController rescans equipped items with current stats → broadcast to client
 
 ## 4. Client-Side Architecture
 

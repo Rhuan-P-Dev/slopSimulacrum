@@ -36,10 +36,12 @@ class HoldingCostController {
      * @param {Object} deps - Dependencies
      * @param {Object} deps.worldStateController - WorldStateController for component stats access
      * @param {Object} deps.actionController - ActionController for capability re-evaluation
+     * @param {EquippedItemStatsController} deps.equippedItemStats - EquippedItemStatsController for in-memory item stats
      */
-    constructor({ worldStateController, actionController }) {
+    constructor({ worldStateController, actionController, equippedItemStats }) {
         this.worldStateController = worldStateController;
         this.actionController = actionController;
+        this.equippedItemStats = equippedItemStats;
 
         /**
          * Holding cost definitions loaded from data/holdingCost.json
@@ -198,6 +200,12 @@ class HoldingCostController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     equipItem(entityId, itemId, itemType, componentId) {
+        // Validate itemId is present and a non-empty string
+        if (!itemId || typeof itemId !== 'string' || itemId.trim() === '') {
+            Logger.warn(`[HoldingCostController] Cannot equip item: itemId is invalid.`);
+            return { success: false, message: 'Invalid itemId. Must be a non-empty string.' };
+        }
+
         const definition = this._holdingCostDefinitions[itemType];
         if (!definition) {
             Logger.warn(`[HoldingCostController] No holding cost definition for item type "${itemType}". Cannot equip.`);
@@ -252,6 +260,9 @@ class HoldingCostController {
         }
         this._equippedItems[entityId][itemId] = { itemType, componentId };
 
+        // Initialize in-memory stats for the equipped item (sharpness, durability, etc.)
+        this.equippedItemStats.initializeStats(itemId, itemType);
+
         if (!this._preEquipStats[entityId]) {
             this._preEquipStats[entityId] = {};
         }
@@ -297,6 +308,7 @@ class HoldingCostController {
             // when the debuffs may still be active. Let the player know and keep tracking intact.
             return { success: false, message: `No original stats found for: ${itemId}` };
         }
+
 
         // Restore by calculating inverse deltas
         const currentStats = this.worldStateController.componentController.getComponentStats(componentId);
@@ -383,12 +395,24 @@ class HoldingCostController {
 
     /**
      * Gets all equipped items across all entities.
-     * Returns the raw internal tracking object for aggregation.
-     * @returns {Object<string, Array<{ itemId: string, itemType: string, componentId: string }>>}
+     * Returns a deep copy filtered to exclude entries with invalid/empty itemId keys.
+     * @returns {Object<string, Object<string, { itemType: string, componentId: string }>>}
      */
     getAllEquippedItems() {
-        // Return a deep copy to prevent external mutation
-        return structuredClone(this._equippedItems);
+        const cloned = structuredClone(this._equippedItems);
+        const filtered = {};
+        for (const [entityId, items] of Object.entries(cloned)) {
+            const validItems = {};
+            for (const [itemId, data] of Object.entries(items)) {
+                if (itemId && typeof itemId === 'string' && itemId.trim() !== '') {
+                    validItems[itemId] = data;
+                }
+            }
+            if (Object.keys(validItems).length > 0) {
+                filtered[entityId] = validItems;
+            }
+        }
+        return filtered;
     }
 
     /**

@@ -14,12 +14,25 @@ Actions are sent to the server for validation because:
 
 ## 3. Execution Types
 
-| Type | Purpose |
-|------|---------|
-| **Direct** | Instant execution for actions with no target or spatial consideration |
-| **Spatial** | Targeted actions requiring a map click (movement, ranged attacks) |
-| **Self-Target** | Actions that affect only the executing entity |
-| **Multi-Component** | Actions requiring multiple selected components with synergy computation |
+Actions are classified by their targeting requirements:
+
+- **Direct** — Instant execution for actions with no target or spatial consideration
+- **Spatial** — Targeted actions requiring a map click (movement, ranged attacks)
+- **Self-Target** — Actions that affect only the executing entity
+- **Multi-Component** — Actions requiring multiple selected components with synergy computation
+- **Component Attack** — Component-targeted attacks (punch, cut) with unified frontend handler
+
+### Component Attack Execution
+
+The component attack system provides a **generic, data-driven handler** for all component-targeted actions (`targetingType === 'component'`). Previously, each attack type had its own frontend handler, which violated the Single Responsibility Principle by coupling frontend logic to specific action names. The unified handler reads the action definition's `targetingType` and `range` from `data/actions.json` at runtime, enabling new attacks to be added without frontend code changes.
+
+### Range Resolution
+
+The component attack handler resolves range from the available actions registry, supporting both numeric values and runtime-resolved expressions. Expression-based ranges enable attacks whose reach scales with the entity's stats (e.g., a stronger character having a longer reach). This decouples range logic from hardcoded values.
+
+### Multi-Attacker Synergy
+
+When multiple attacker components are selected, the handler delegates to a batch execution path on the server. This enables cooperative attacks where multiple components contribute damage independently, with synergy computed server-side.
 
 ## 4. Component Selection
 

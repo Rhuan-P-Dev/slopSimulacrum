@@ -11,6 +11,7 @@ import ActionSelectController from './actions/actionSelectController.js';
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import InternalComponentController from './core/InternalComponentController.js';
 import HoldingCostController from './core/HoldingCostController.js';
+import EquippedItemStatsController from './core/EquippedItemStatsController.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
@@ -151,12 +152,48 @@ class WorldStateController {
         // Manages item ownership, volume constraints, and item movements for entities.
         this.inventoryManager = new InventoryManager();
 
+        // 8.5. Instantiate EquippedItemStatsController (In-memory item stats)
+        // Manages per-instance mutable stats (sharpness, durability) for equipped items.
+        // Created before HoldingCostController since HoldingCostController depends on it.
+        const equippedItemStats = new EquippedItemStatsController({ worldStateController: this });
+        this.equippedItemStats = equippedItemStats;
+
+        // Inject equippedItemStats into consequence handlers (needed after creation)
+        // This allows StatConsequenceHandler to route equipped item stat deltas correctly
+        if (consequenceHandlers?.statHandler) {
+            consequenceHandlers.statHandler.equippedItemStats = equippedItemStats;
+        }
+
+        // Wire equippedItemStats stat change callback to trigger capability re-evaluation.
+        // When an equipped item's stats change (e.g., sharpness drain from cut), this ensures
+        // the capability cache re-scans with CURRENT stats, not stale base stats.
+        // Without this wiring, the cache would show stale "canExecute" entries based on base item stats.
+        equippedItemStats.setStatChangeCallback((itemId, traitId, statName, newValue, oldValue) => {
+            // Find which entity this item belongs to by scanning equipped items
+            const allEquipped = this.holdingCostController.getAllEquippedItems();
+            for (const [entityId, items] of Object.entries(allEquipped)) {
+                for (const [id, item] of Object.entries(items)) {
+                    if (id === itemId) {
+                        // Entity found — re-evaluate its capabilities with current stats
+                        const state = this.getAll();
+                        this.actionController.reEvaluateEntityCapabilities(state, entityId);
+                        if (this._broadcastService) {
+                            this._broadcastService.broadcast();
+                        }
+                        Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
+                        return;
+                    }
+                }
+            }
+        });
+
         // 9. Instantiate HoldingCostController (Holding Cost System)
         // Manages holding cost requirements, debuffs, and item equip/unequip for entities.
         // Injected after actionController is available for capability re-evaluation.
         const holdingCostController = new HoldingCostController({
             worldStateController: this,
-            actionController: actionController
+            actionController: actionController,
+            equippedItemStats: equippedItemStats
         });
         this.holdingCostController = holdingCostController;
 
@@ -175,7 +212,8 @@ class WorldStateController {
             synergy: this.synergyController,
             selections: this.actionSelectController,
             inventory: this.inventoryManager,
-            holdingCost: this.holdingCostController
+            holdingCost: this.holdingCostController,
+            equippedItemStats: this.equippedItemStats
         };
 
         // Initialize world with a sample droid as requested
@@ -862,10 +900,10 @@ class WorldStateController {
         if (!allEquipped || typeof allEquipped !== 'object') return [];
         const allItems = [];
         for (const [entityId, items] of Object.entries(allEquipped)) {
-            for (const [, item] of Object.entries(items)) {
+            for (const [itemId, item] of Object.entries(items)) {
                 allItems.push({
                     entityId,
-                    itemId: item.itemId,
+                    itemId,
                     itemType: item.itemType,
                     componentId: item.componentId
                 });

@@ -180,6 +180,12 @@ class ActionSelectController {
      * @returns {{ valid: boolean, error?: string }} Validation result.
      */
     validateSelection(componentId, actionName) {
+        // Reject malformed component IDs containing undefined/null
+        if (componentId && (componentId.includes('undefined') || componentId.includes('null'))) {
+            Logger.warn(`[ActionSelectController] Rejecting malformed component ID: "${componentId}".`);
+            return { valid: false, error: `Invalid component ID: ${componentId}` };
+        }
+
         const selection = this._selectionRegistry.get(componentId);
 
         if (!selection) {
@@ -491,6 +497,15 @@ class ActionSelectController {
     validateSelections(actionName, componentIds) {
         if (!Array.isArray(componentIds) || componentIds.length === 0) {
             return { valid: false, error: 'componentIds must be a non-empty array.' };
+        }
+
+        // Filter out malformed component IDs
+        const validComponentIds = componentIds.filter(cid =>
+            cid && typeof cid === 'string' && !cid.includes('undefined') && !cid.includes('null')
+        );
+        if (validComponentIds.length === 0 && componentIds.length > 0) {
+            Logger.warn('[ActionSelectController] All provided component IDs are malformed.');
+            return { valid: false, error: 'All component IDs are invalid.' };
         }
 
         const invalidComponents = [];

@@ -109,8 +109,8 @@ export class ClientApp {
                 this.actions.moveToTarget(actionName, entityId, targetX, targetY),
             executeMultiComponentSpatial: (actionName, entityId, componentIds, extraParams) =>
                 this.executor.executeMultiComponentSpatial(actionName, entityId, componentIds, extraParams),
-            executePunch: (pending, targetX, targetY) =>
-                this.executor.executePunch(pending, targetX, targetY, this.selection.getSelectedComponentIds()),
+            executeComponentAttack: (pending, targetX, targetY) =>
+                this.executor.executeComponentAttack(pending, targetX, targetY),
             getMyEntityId: () => this.worldState.getMyEntityId(),
             _isMultiComponent: () => this.selection.getSelectedComponentIds().size >= 2 &&
                 this.selection.getActiveActionName() === this.actions.getPendingAction()?.actionName,
@@ -356,9 +356,16 @@ export class ClientApp {
                         ? await this.synergy.computeSynergyMultiplier(pending.actionName, entityId, selectedIds)
                         : 1.0;
 
-                    const range = this.synergy.calculateRange(
+                    // Resolve range using generic logic: synergy for MOVE/DASH, explicit for component attacks
+                    let range = this.synergy.calculateRange(
                         pending.actionName, actionData, droid, state, synergyMultiplier
                     );
+
+                    // For component-targeted actions, try explicit range if synergy calculation returned null
+                    if (range === null && actionData?.targetingType === 'component') {
+                        range = SynergyPreviewController.getExplicitRange(pending.actionName, this.availableActions);
+                    }
+
                     if (range !== null) {
                         const isMovement = pending.actionName === AppConfig.ACTIONS.MOVE || pending.actionName === AppConfig.ACTIONS.DASH;
                         const color = isMovement ? 'white' : 'red';
@@ -418,7 +425,10 @@ export class ClientApp {
     }
 
     /**
-     * Handles clicking on an equipped item in the action list.
+     * Handles clicking on an equipped item in the ⚔️ Actions panel.
+     * - For targetingType === 'component' actions (e.g., cut): trigger attack flow (toggle component selection)
+     * - For other actions: store drop info for Inventory drop button flow
+     *
      * @private
      */
     _handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier) {
@@ -435,9 +445,22 @@ export class ClientApp {
         const itemId = afterPrefix.substring(0, lastDash);
         const itemType = afterPrefix.substring(lastDash + 1);
 
-        // Resolve drop range from availableActions expression (BUG-084 fix)
         const actionData = this.availableActions[actionName] || {};
-        const rangeExpression = actionData?.range;
+
+        // Component-targeted actions (like 'cut') should trigger the attack flow, not the drop flow.
+        // The drop flow is handled exclusively by the Inventory drop button → DropSelector path.
+        if (actionData?.targetingType === 'component') {
+            // Toggle component selection for attack — the existing targeting flow handles map click → executeComponentAttack
+            this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
+            // No need to execute immediately — targetingType 'component' actions require map targeting
+            // which is handled by EventDispatcher._handleComponentClick → executeComponentAttack
+            return;
+        }
+
+        // For non-component actions (spatial, self_target), store drop info for Inventory-style drop flow
+        // Resolve drop range from dropItem action (NOT the item's primary action)
+        const dropActionData = this.availableActions['dropItem'] || {};
+        const rangeExpression = dropActionData?.range;
 
         // Calculate max Physical.strength from droid's components
         let maxStrength = 0;
@@ -452,7 +475,8 @@ export class ClientApp {
 
         const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
 
-        this._pendingDropItem = { actionName, entityId, itemId, itemType, componentId };
+        // Store drop info — this is a DROP operation, not the item's primary action
+        this._pendingDropItem = { actionName: 'dropItem', entityId, itemId, itemType, componentId };
         this.actions.setPendingDropAction(this._pendingDropItem);
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
     }
@@ -507,17 +531,18 @@ export class ClientApp {
         const { pendingDropItem, componentIds } = detail;
         if (!pendingDropItem) return;
 
+        // Store 'dropItem' as the actionName — this is a DROP operation, not the item's primary action
         this._pendingDropItem = {
-            actionName: pendingDropItem.actionName,
+            actionName: 'dropItem',
             entityId: pendingDropItem.entityId,
             itemId: pendingDropItem.itemId,
             itemType: pendingDropItem.itemType,
             componentIds
         };
 
-        // Resolve drop range from availableActions expression (BUG-084 fix)
-        const actionData = this.availableActions[pendingDropItem.actionName] || {};
-        const rangeExpression = actionData?.range;
+        // Resolve drop range from dropItem action (NOT the item's primary action)
+        const dropActionData = this.availableActions['dropItem'] || {};
+        const rangeExpression = dropActionData?.range;
 
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;

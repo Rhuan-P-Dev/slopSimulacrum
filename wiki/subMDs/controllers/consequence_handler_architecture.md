@@ -24,7 +24,40 @@ All handlers follow a common signature: they accept a target ID, a parameter obj
 
 **Context object** provides the handler with requirement values, action parameters, fulfilling component mappings, and synergy results.
 
-## 5. Benefits
+## Supported Consequence Types
+
+| Type | Handler Module | Responsibility |
+|------|---------------|----------------|
+| `updateStat` | `StatConsequenceHandler` | Direct stat assignment |
+| `updateComponentStatDelta` | `StatConsequenceHandler` | Stat delta modification (additive changes) |
+| `damageComponent` | `StatConsequenceHandler` | Component/item damage — applies trait-based damage to host components or equipped items |
+| `log` | `LogConsequenceHandler` | Server-side logging |
+| `triggerEvent` | `EventConsequenceHandler` | Event triggering |
+| `spatial` | `SpatialConsequenceHandler` | Delta movement and spatial translation |
+| `dropItem` | `DropItemHandler` | Item dropping on the world map |
+| `pickUpItem` | `PickUpItemHandler` | Item pickup from the world map |
+
+### damageComponent Consequence Type
+
+The `damageComponent` consequence deals damage to a target component or equipped item using a trait-based damage value. Unlike `updateComponentStatDelta` which applies a fixed numeric delta, `damageComponent` computes damage from a trait stat (e.g., using `Physical.sharpness` as the damage magnitude).
+
+The `value` parameter supports stat references like `:Physical.sharpness` and negated references like `-:Physical.sharpness`, enabling damage magnitudes that scale with the attacker's traits rather than using hardcoded numbers.
+
+When the target ID matches an equipped item (detected via `EquippedItemStatsController.hasStats()`), damage is applied to the item's per-instance stats instead of the host component. This ensures a knife's durability degrades from cutting, not the droid's hand.
+
+## Equipped Item Routing
+
+When `StatConsequenceHandler` processes a stat modification, it checks whether the target ID belongs to an equipped item via `this.equippedItemStats.hasStats(targetId)`. If true, the update is routed to `EquippedItemStatsController.updateStatDelta()` instead of modifying the host component's stats.
+
+This routing ensures:
+
+- Sharpness drain from the `cut` action affects the knife's tracked stats, not the host component
+- Durability degradation from damage consequences targets the correct item instance
+- Multiple item instances maintain independent stat values across equip/unequip cycles
+
+After the stat change, `EquippedItemStatsController` fires a callback that triggers capability re-evaluation, ensuring the UI reflects the updated capability state.
+
+## Benefits
 
 1. **SRP Compliance**: Each module has one reason to change
 2. **Testability**: Individual handlers tested in isolation

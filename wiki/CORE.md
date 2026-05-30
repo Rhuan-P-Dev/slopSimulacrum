@@ -54,18 +54,26 @@ Additional reference documentation for specific systems and components, organize
 - [Server-Client Architecture](subMDs/architecture/server_client_architecture.md) — Client-server communication
 - [Server Splitting Architecture](subMDs/architecture/server_splitting.md) — Multiplayer/server split
 - [Action System](subMDs/architecture/action_system.md) — Action pipeline architecture
+- [Attack System](subMDs/architecture/attack_system.md) — Generic component-targeted attack handler
 
 ### 🧩 Controllers
 - [Controller Patterns](subMDs/controllers/controller_patterns.md) — **Obligatory** design patterns
 - [Capability Controller](subMDs/controllers/capability_controller.md) — Component capability cache + scoring
 - [Component Selection](subMDs/controllers/component_selection.md) — Selection & locking
+- [EquippedItemStatsController](subMDs/controllers/equipped_item_stats_controller.md) — Per-instance mutable stat tracking for equipped items
+- [Requirement Resolver](subMDs/controllers/requirement_resolver.md) — Action requirement validation with equipped item trait resolution
+- [Component Resolver](subMDs/controllers/component_resolver.md) — Source/target component resolution with priority chain
 - [Config Bar Manager](subMDs/controllers/config_bar_manager.md) — Config bar logic
 - [Rooms Controller](subMDs/controllers/rooms_controller.md) — Room management
 - [World State Manager](subMDs/controllers/world_state_manager.md) — Client-side state sync
 - [Consequence Handler Architecture](subMDs/controllers/consequence_handler_architecture.md) — Consequence dispatch
+- [Internal Component Controller](subMDs/controllers/internal_component_controller.md) — State Controller pattern, unified tick system
+- [Range Validator](subMDs/controllers/range_validator.md) — Spatial range validation for proximity-based actions with failure consequences
 
 ### 💾 Data Models
 - [Components & Entities](subMDs/data/components_and_entities.md) — Entity system + internal components
+- [Holding Cost](subMDs/data/holding_cost.md) — Equipped item physical burden system
+- [Internal Components](subMDs/data/internal_components.md) — Passive data-driven augmentations, tick-based effects, auto-installation filters
 - [Traits](subMDs/data/traits.md) — Trait system
 - [World State](subMDs/data/world_state.md) — World state data model
 - [Inventory System](subMDs/data/inventory_system.md) — Volume-based item storage on components
@@ -74,6 +82,7 @@ Additional reference documentation for specific systems and components, organize
 - [Client Architecture](subMDs/frontend/client_architecture.md) — Client-side architecture + UI overview
 - [Client Action Execution](subMDs/frontend/client_action_execution.md) — Client action flow
 - [CSS Architecture](subMDs/frontend/css_architecture.md) — CSS module organization
+- [Overlay Manager](subMDs/frontend/overlay_manager.md) — Floating window coordination
 
 ### 🌐 Networking & Communication
 - [Communication & Error Handling](subMDs/networking/communication.md) — LLM integration + error codes
@@ -82,5 +91,7 @@ Additional reference documentation for specific systems and components, organize
 - [Synergy System](subMDs/systems/synergy.md) — Synergy engine + preview UI
 - [Movement System](subMDs/systems/movement_system.md) — Movement mechanics
 - [World Map](subMDs/systems/world_map.md) — Map visualization
+- [World Map Pick-Up System](subMDs/systems/world_map_pickup.md) — Dropped items pick-up flow
+- [Item Drop & Pickup System](subMDs/systems/item_drop_pickup.md) — Item drop range calculation and pickup
 
 - [Bugfix Wiki](bugfixWiki/README.md)

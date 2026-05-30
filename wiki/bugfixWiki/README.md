@@ -22,6 +22,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-093](high/BUG-093-equipped-item-stats-ignored-in-requirement-checks.md) | Equipped Item Stats Ignored in Action Requirement Checks | ✅ Fixed | `pending` | `RequirementResolver.js` |
+| [BUG-094](high/BUG-094-cut-action-disappears-after-unequip-reequip.md) | Cut Action Disappears After Unequip/Re-equip (Sharpness Resets) | ✅ Fixed | `pending` | `HoldingCostController.js` |
 | [BUG-004](high/BUG-004-role-mismatch-skip.md) | Role Mismatch: Client/Server Resolution Difference | ✅ Fixed | `2573bea` | `actionController.js` |
 | [BUG-005](high/BUG-005-deep-trait-merge.md) | Deep Trait-Level Merge: Stat Overwrite | ✅ Fixed | — | `componentStatsController.js` |
 | [BUG-006](high/BUG-006-schema-validation-gap.md) | Schema Validation Gap for LLM Responses | ✅ Documented | — | `LLMController.js` |
@@ -57,8 +59,9 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-084](high/BUG-084-dropitem-range-ignored-actions-json.md) | dropItem Range Expression in actions.json Ignored on Client | ✅ Fixed | `pending` | `ActionExecutor.js`, `App.js`, `data/actions.json` |
 | [BUG-086](high/BUG-086-pickup-item-direct-consequence-handler-access-wrong-prop-name.md) | `/pick-up-item` Returns 500 — Wrong Property Name & Direct Handler Access | ✅ Fixed | `pending` | `WorldStateController.js`, `worldRoutes.js` |
 | [BUG-087](high/BUG-087-component-getComponent-missing-from-worldstatecontroller.md) | `getComponent` Missing from WorldStateController — Pick-Up Calls Non-Existent Method | ✅ Fixed | `pending` | `WorldStateController.js`, `PickUpItemHandler.js` |
-| [BUG-071](architectural/BUG-071-internal-component-tick-system-srp-violation.md) | Internal Component Tick System — SRP Violation / Lack of Data-Driven Design | ✅ Fixed | `pending` | `InternalComponentController.js`, `data/internalComponents.json` |
-| [BUG-072](architectural/BUG-072-wiki-violates-why-over-how-principle.md) | Wiki Violates "Why Over How" Documentation Principle — Too Many Code Snippets | ✅ Fixed | `pending` | 11 wiki files, `project_rules.md` |
+| [BUG-092](high/BUG-092-equipped-undefined-knife-malformed-component-id.md) | Equipped Item Component ID `equipped-undefined-knife` Causes Entity Not Found | ✅ Fixed | `pending` | `componentCapabilityController.js`, `HoldingCostController.js`, `actionController.js`, `actionSelectController.js`, `ComponentResolver.js` |
+| [BUG-096](high/BUG-096-knife-sharpness-drain-not-working.md) | Knife Sharpness Drain (-999) Not Working — Equipped Items Lack In-Memory Stats | ✅ Fixed | `pending` | `EquippedItemStatsController.js`, `HoldingCostController.js`, `StatConsequenceHandler.js`, `WorldStateController.js` |
+| [BUG-097](high/BUG-097-cut-action-disappears-after-use.md) | Cut Action Shows "0 capables · 1 incapable" After Use — Capability Cache Re-evaluation Missing Equipped Item Stats | ✅ Fixed | `pending` | `ComponentCapabilityController.js` |
 
 ### 🟡 Medium Severity
 
@@ -118,6 +121,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-052](architectural/BUG-052-controllers-directory-structure-srp-violation.md) | Controllers Directory Structure SRP Violation — Organized into Subdirectories | ✅ Fixed | `pending` | `src/controllers/` (all 30 files) |
 | [BUG-053](architectural/BUG-053-client-ui-layout-srp-violation.md) | Client UI Layout SRP Violation — Refactored to Three-Section Vertical Layout | ✅ Fixed | `pending` | `public/index.html`, `public/css/layout.css`, `public/js/App.js`, `public/js/UIManager.js` |
 | [BUG-077](architectural/BUG-077-missing-overlay-manager.md) | Missing Overlay Manager — Floating Window Coordination | ✅ Fixed | `pending` | `OverlayManager.js`, `floating-windows.css`, `ConfigBarManager.js` |
+| [BUG-089](architectural/BUG-089-hardcoded-punch-handler-in-frontend.md) | Hardcoded Punch Handler in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `App.js`, `EventDispatcher.js`, `ActionExecutor.js` |
+| [BUG-090](architectural/BUG-090-hardcoded-punch-method-names-in-frontend.md) | Hardcoded Punch Method Names in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `ActionManager.js`, `ActionExecutor.js`, `actionController.js` |
 
 ---
 

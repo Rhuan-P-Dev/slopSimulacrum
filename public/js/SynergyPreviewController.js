@@ -182,6 +182,10 @@ class SynergyPreviewController {
      * - Applies the synergy multiplier to the move stat
      * - Returns effective range (for DASH: effectiveMove * DASH_RANGE multiplier)
      *
+     * For component-targeted actions:
+     * - Returns the numeric range from actionData.range if defined
+     * - Returns null for expression-based ranges (resolved by ActionExecutor)
+     *
      * NOTE: For accurate range with synergy, use `computeSynergyMultiplier()` first
      * and pass the result as synergyMultiplier. The cached result may be stale.
      *
@@ -197,50 +201,63 @@ class SynergyPreviewController {
         const isMove = actionName === (this.config.ACTIONS?.MOVE || 'move');
         const isDash = actionName === (this.config.ACTIONS?.DASH || 'dash');
 
-        if (!isMove && !isDash) {
-            return null;
-        }
+        if (isMove || isDash) {
+            // ─── MOVE/DASH: Calculate from move stats + synergy ─────────────
+            if (!droid || !droid.components || !state || !state.components || !state.components.instances) {
+                console.warn('[SynergyPreviewController] calculateRange: Missing required data', {
+                    hasDroid: !!droid,
+                    hasComponents: !!(droid?.components),
+                    hasState: !!state,
+                    hasComponentInstances: !!(state?.components?.instances)
+                });
+                return null;
+            }
 
-        if (!droid || !droid.components || !state || !state.components || !state.components.instances) {
-            console.warn('[SynergyPreviewController] calculateRange: Missing required data', {
-                hasDroid: !!droid,
-                hasComponents: !!(droid?.components),
-                hasState: !!state,
-                hasComponentInstances: !!(state?.components?.instances)
-            });
-            return null;
-        }
-
-        // Find the component with the highest move stat
-        let maxMoveStat = null;
-        for (const comp of droid.components) {
-            const stats = state.components.instances[comp.id];
-            if (stats && stats.Movement && stats.Movement.move !== undefined) {
-                if (maxMoveStat === null || stats.Movement.move > maxMoveStat) {
-                    maxMoveStat = stats.Movement.move;
+            // Find the component with the highest move stat
+            let maxMoveStat = null;
+            for (const comp of droid.components) {
+                const stats = state.components.instances[comp.id];
+                if (stats && stats.Movement && stats.Movement.move !== undefined) {
+                    if (maxMoveStat === null || stats.Movement.move > maxMoveStat) {
+                        maxMoveStat = stats.Movement.move;
+                    }
                 }
             }
+
+            if (maxMoveStat === null) {
+                console.warn('[SynergyPreviewController] calculateRange: No movement stat found');
+                return null;
+            }
+
+            // Apply synergy multiplier to the move stat before calculating range
+            const effectiveMove = maxMoveStat * synergyMultiplier;
+            const dashRangeMultiplier = this.config.MULTIPLIERS?.DASH_RANGE || 1.0;
+
+            console.log('[SynergyPreviewController] Range calculated', {
+                actionName,
+                maxMoveStat,
+                synergyMultiplier,
+                effectiveMove,
+                isDash,
+                finalRange: isDash ? effectiveMove * dashRangeMultiplier : effectiveMove
+            });
+
+            return isDash ? effectiveMove * dashRangeMultiplier : effectiveMove;
         }
 
-        if (maxMoveStat === null) {
-            console.warn('[SynergyPreviewController] calculateRange: No movement stat found');
+        // ─── Component-targeted actions: Return numeric range if defined ──
+        // For component attacks, the range is usually a fixed value from data/actions.json
+        // Expression-based ranges (e.g., ":Physical.strength*2+3") are resolved by ActionExecutor
+        if (actionData?.targetingType === 'component') {
+            const explicitRange = SynergyPreviewController.getExplicitRange(actionName, { [actionName]: actionData });
+            if (explicitRange !== null) {
+                return explicitRange;
+            }
+            // Range is an expression string — ActionExecutor will resolve it
             return null;
         }
 
-        // Apply synergy multiplier to the move stat before calculating range
-        const effectiveMove = maxMoveStat * synergyMultiplier;
-        const dashRangeMultiplier = this.config.MULTIPLIERS?.DASH_RANGE || 1.0;
-
-        console.log('[SynergyPreviewController] Range calculated', {
-            actionName,
-            maxMoveStat,
-            synergyMultiplier,
-            effectiveMove,
-            isDash,
-            finalRange: isDash ? effectiveMove * dashRangeMultiplier : effectiveMove
-        });
-
-        return isDash ? effectiveMove * dashRangeMultiplier : effectiveMove;
+        return null;
     }
 
     /**

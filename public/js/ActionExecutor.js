@@ -143,30 +143,75 @@ export class ActionExecutor {
     }
 
     /**
-     * Executes a punch action.
-     * Performs distance check, finds closest entity, shows component selection,
-     * supports multi-attacker via executeMultiPunch or executePunch.
+     * Executes an action directly without targeting (self-target with no targetingType,
+     * or action targetingType === 'none'). This is the generic fallback for all actions
+     * that don't require map interaction.
      *
-     * @param {Object} pending - The pending action object.
-     * @param {number} targetX - The target X coordinate.
-     * @param {number} targetY - The target Y coordinate.
-     * @param {Set<string>} selectedComponentIds - Set of selected attacker component IDs.
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID performing the action.
+     * @param {string} componentId - The component ID to use.
+     * @param {string} componentIdentifier - The component identifier.
      * @returns {Promise<void>}
      */
-     async executePunch(pending, targetX, targetY) {
+    async executeAction(actionName, entityId, componentId, componentIdentifier) {
+        try {
+            const result = await this.actions._sendActionRequest({
+                actionName,
+                entityId,
+                params: { targetComponentId: componentId, componentIdentifier }
+            }, 'ACTION_FAILED');
+
+            console.log(`[ActionExecutor] Action "${actionName}" executed successfully`, { actionName, entityId, componentId });
+        } catch (error) {
+            console.error(`[ActionExecutor] Action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
+        }
+    }
+
+    /**
+     * Executes a component-targeted action (e.g., punch, cut-attack, or any future
+     * action with targetingType === 'component').
+     *
+     * This is a generic handler that reads the action definition from availableActions,
+     * validates range, resolves the closest target entity, shows component selection,
+     * and dispatches to the server via the appropriate ActionManager method.
+     *
+     * @param {Object} pending - The pending action object { actionName, entityId, componentId, targetingType }.
+     * @param {number} targetX - The target X coordinate on the map.
+     * @param {number} targetY - The target Y coordinate on the map.
+     * @returns {Promise<void>}
+     */
+    async executeComponentAttack(pending, targetX, targetY) {
         const droid = this.worldState.getActiveDroid();
         const state = this.worldState.getState();
         if (!droid || !state) {
-            console.warn('[ActionExecutor] No active droid or state for punch action');
+            console.warn(`[ActionExecutor] No active droid or state for action "${pending.actionName}"`);
             return;
         }
 
-        // Use availableActions cache passed from App.js (BUG-031 prevention)
+        // Read range from action definition (data-driven, not hardcoded)
         const actionData = this.availableActions[pending.actionName] || {};
-        const range = actionData?.range || 0;
+        const rawRange = actionData?.range;
 
+        // Resolve range: support both numeric values and expressions like ":Physical.strength*2+3"
+        let range;
+        if (typeof rawRange === 'string' && rawRange.includes(':')) {
+            // Range is an expression — resolve it using droid stats
+            const strength = droid.components?.reduce((max, comp) => {
+                const stats = state.components?.instances?.[comp.id];
+                const str = stats?.Physical?.strength || 0;
+                return str > max ? str : max;
+            }, 0) || 0;
+            range = this._resolveRangeExpression(rawRange, strength, 0);
+        } else if (typeof rawRange === 'number' && rawRange > 0) {
+            // Range is a plain number
+            range = rawRange;
+        } else {
+            // Fallback: no range defined
+            range = 0;
+        }
+
+        // Validate distance
         const distance = this.actions.calculateDistance(targetX, targetY, droid.spatial.x, droid.spatial.y);
-
         if (distance > range) {
             this.errorController.handleError({
                 code: 'TARGET_OUT_OF_RANGE',
@@ -175,57 +220,65 @@ export class ActionExecutor {
                     range: range
                 }
             });
-            console.warn(`[ActionExecutor] Punch out of range: distance=${Math.round(distance)}, range=${range}`);
+            console.warn(`[ActionExecutor] Action "${pending.actionName}" out of range: distance=${Math.round(distance)}, range=${range}`);
             return;
         }
 
+        // Find closest entity to the clicked position
         const closestEntity = this.actions.findClosestEntity(
             state.entities,
             targetX,
             targetY,
             AppConfig.TARGETING.PUNCH_TOLERANCE
         );
-
         if (!closestEntity) {
             this.errorController.handleError({ code: 'NO_TARGET_FOUND' });
-            console.warn('[ActionExecutor] No target found for punch action');
+            console.warn(`[ActionExecutor] No target found for action "${pending.actionName}"`);
             return;
         }
 
+        // Show component selection for the target entity
         try {
             this.ui.showComponentSelection(closestEntity, state, async (targetCompId) => {
                 try {
-                    // Use selectionController public API instead of passed parameter
                     const selectedComponentIds = this.selectionController ? this.selectionController.getSelectedComponentIds() : new Set();
                     const attackerComponentIds = Array.from(selectedComponentIds);
 
+                    // Route to correct server method based on component count
                     if (attackerComponentIds.length > 1) {
+                        // Multi-attacker: use executeMultiComponentAttack with the action's own params
                         const components = attackerComponentIds.map(compId => ({
                             componentId: compId,
                             role: 'source'
                         }));
-                        await this.actions.executeMultiPunch(
+                        await this.actions.executeMultiComponentAttack(
                             pending.actionName,
                             pending.entityId,
                             components,
                             targetCompId
                         );
-                        console.log(`[ActionExecutor] Multi-attacker punch executed: ${attackerComponentIds.length} attackers vs target component ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerCount: attackerComponentIds.length, targetComponentId: targetCompId });
+                        console.log(`[ActionExecutor] Multi-component action "${pending.actionName}" executed: ${attackerComponentIds.length} attackers vs target component ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerCount: attackerComponentIds.length, targetComponentId: targetCompId });
                     } else {
+                        // Single attacker: use executeComponentAttack with the action's own params
                         const attackerCompId = attackerComponentIds[0] || pending.componentId;
-                        await this.actions.executePunch(pending.actionName, pending.entityId, attackerCompId, targetCompId);
-                        console.log(`[ActionExecutor] Single attacker punch executed: attacker component ${attackerCompId} vs target component ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerComponentId: attackerCompId, targetComponentId: targetCompId });
+                        await this.actions.executeComponentAttack(
+                            pending.actionName,
+                            pending.entityId,
+                            attackerCompId,
+                            targetCompId
+                        );
+                        console.log(`[ActionExecutor] Single attacker action "${pending.actionName}" executed: attacker ${attackerCompId} vs target ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerComponentId: attackerCompId, targetComponentId: targetCompId });
                     }
 
                     this.ui.closeDetails();
                     this.actions.clearPendingAction();
                     await this.refreshCallback();
                 } catch (error) {
-                    console.error(`[ActionExecutor] Punch action failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
+                    console.error(`[ActionExecutor] Action "${pending.actionName}" failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
                 }
             });
         } catch (error) {
-            console.error(`[ActionExecutor] Punch component selection failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
+            console.error(`[ActionExecutor] Action "${pending.actionName}" component selection failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
         }
     }
 
@@ -278,9 +331,11 @@ export class ActionExecutor {
             return;
         }
 
-        // Read range expression from availableActions (same pattern as executePunch)
-        const actionData = this.availableActions[pending.actionName] || {};
-        const rangeExpression = actionData?.range;
+        // Always use 'dropItem' action definition for range resolution.
+        // This defensive fix ensures the drop flow is resilient to pending.actionName mismatches
+        // (e.g., when _handleEquippedItemClick previously stored the item's action name like 'cut').
+        const dropActionData = this.availableActions['dropItem'] || {};
+        const rangeExpression = dropActionData?.range;
 
         // Calculate max Physical.strength from droid's components
         const strength = droid.components?.reduce((max, comp) => {

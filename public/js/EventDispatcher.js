@@ -14,7 +14,7 @@
  * @property {function(Object): void} [onStatBarsUpdate] - Called with state object to immediately update stat bars
  * @property {function(string, string, Object): Promise<void>} [moveToTarget]
  * @property {function(string, string, string[], Object): Promise<void>} [executeMultiComponentSpatial]
- * @property {function(Object, number, number, Set<string>): Promise<void>} [executePunch]
+ * @property {function(Object, number, number): Promise<void>} [executeComponentAttack]
  */
 
 /**
@@ -222,7 +222,8 @@ class EventDispatcher {
 
     /**
      * Handles component targeting map clicks.
-     * Dispatches to grab/punch handlers based on action name.
+     * Dispatches to the generic component attack handler for any action
+     * with targetingType === 'component' (e.g., punch, future attack actions).
      * Uses this.handlers (wired in constructor) for action execution.
      *
      * @param {Object} pending - The pending action object.
@@ -231,10 +232,8 @@ class EventDispatcher {
      * @private
      */
     _handleComponentClick(pending, targetX, targetY) {
-        const actionName = pending.actionName;
-
-        if (actionName === 'droid punch' && this.handlers.executePunch) {
-            this.handlers.executePunch(pending, targetX, targetY);
+        if (this.handlers.executeComponentAttack) {
+            this.handlers.executeComponentAttack(pending, targetX, targetY);
         }
     }
 

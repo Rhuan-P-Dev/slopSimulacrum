@@ -143,20 +143,21 @@ export class ActionManager {
     }
 
     /**
-     * Executes a punch action on a specific component of a target entity.
-     * @param {string} actionName
-     * @param {string} entityId
+     * Executes a component attack action on a specific component of a target entity.
+     * Generic handler for ANY targetingType === 'component' action (punch, cut, kick, etc.).
+     * @param {string} actionName - The action name.
+     * @param {string} entityId - The entity ID of the attacker.
      * @param {string} attackerComponentId - The component ID of the attacker (used for damage value resolution).
-     * @param {string} targetComponentId - The component ID of the target being punched.
+     * @param {string} targetComponentId - The component ID of the target being attacked.
      */
-    async executePunch(actionName, entityId, attackerComponentId, targetComponentId) {
+    async executeComponentAttack(actionName, entityId, attackerComponentId, targetComponentId) {
         try {
             const result = await this._sendActionRequest({
                 actionName: actionName,
                 entityId: entityId,
                 params: { attackerComponentId, targetComponentId }
-            }, 'PUNCH_FAILED');
-            console.log('[ActionManager] Punch executed successfully:', result);
+            }, 'ACTION_FAILED');
+            console.log(`[ActionManager] Component attack "${actionName}" executed successfully:`, result);
             return result;
         } catch (error) {
             throw error;
@@ -164,14 +165,15 @@ export class ActionManager {
     }
 
     /**
-     * Executes a multi-attacker punch action.
+     * Executes a multi-attacker component attack.
      * All selected attacker components deal their own separate damage to the target.
+     * Generic handler for ANY targetingType === 'component' action with multiple attackers.
      * @param {string} actionName - The action name (e.g., 'droid punch').
      * @param {string} entityId - The entity ID of the attacker.
      * @param {Array<{componentId: string, role: string}>} attackerComponents - Array of attacker component IDs with roles.
-     * @param {string} targetComponentId - The component ID of the target being punched.
+     * @param {string} targetComponentId - The component ID of the target being attacked.
      */
-    async executeMultiPunch(actionName, entityId, attackerComponents, targetComponentId) {
+    async executeMultiComponentAttack(actionName, entityId, attackerComponents, targetComponentId) {
         try {
             const result = await this._sendActionRequest({ 
                 actionName: actionName,
@@ -180,8 +182,8 @@ export class ActionManager {
                     componentIds: attackerComponents,
                     targetComponentId
                 }
-            }, 'PUNCH_FAILED');
-            console.log('[ActionManager] Multi-attacker punch executed successfully:', result);
+            }, 'ACTION_FAILED');
+            console.log(`[ActionManager] Multi-attacker component attack "${actionName}" executed successfully:`, result);
             return result;
         } catch (error) {
             throw error;

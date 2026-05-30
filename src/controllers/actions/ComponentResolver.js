@@ -25,9 +25,17 @@ class ComponentResolver {
      */
     buildComponentList(params) {
         if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
+            // Filter out malformed component IDs
+            const validComponentIds = params.componentIds.filter(c => 
+                c?.componentId && !c.componentId.includes('undefined') && !c.componentId.includes('null')
+            );
+            if (validComponentIds.length === 0 && params.componentIds.length > 0) {
+                Logger.warn(`[ComponentResolver] All provided component IDs are malformed for action.`);
+                return { componentList: null, sourceComponentId: null };
+            }
             return {
-                componentList: params.componentIds,
-                sourceComponentId: params.componentIds[0]?.componentId
+                componentList: validComponentIds.length > 0 ? validComponentIds : params.componentIds,
+                sourceComponentId: validComponentIds.length > 0 ? validComponentIds[0]?.componentId : params.componentIds[0]?.componentId
             };
         }
 
@@ -54,7 +62,7 @@ class ComponentResolver {
      * @param {Object} action - The action definition.
      * @param {string} entityId - The entity ID.
      * @param {Object} params - Action parameters.
-     * @param {Object} [fallbackResult] - Pre-computed fallback from requirement check.
+     * @param {Object} [fallbackResult] - Pre-computed fallback of requirement check.
      * @returns {string|null} The resolved source component ID, or null.
      */
     resolveSourceComponent(action, entityId, params, fallbackResult = null) {
@@ -62,6 +70,13 @@ class ComponentResolver {
         if (!entity) return null;
 
         const binding = action.componentBinding;
+
+        // Reject malformed component IDs that contain undefined/null placeholders
+        const resolvedSourceComponentId = params?.attackerComponentId || params?.targetComponentId || params?.componentIds?.[0]?.componentId;
+        if (entityId && (resolvedSourceComponentId?.includes('undefined') || resolvedSourceComponentId?.includes('null'))) {
+            Logger.warn(`[ComponentResolver] Rejecting malformed component ID: "${resolvedSourceComponentId}" for entity "${entityId}".`);
+            return null;
+        }
 
         // Priority 1: Punch actions with explicit attackerComponentId
         if (params?.attackerComponentId) {

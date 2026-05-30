@@ -14,6 +14,7 @@ System-level architecture documents describing the overall design, data flow, an
 | [Server-Client Architecture](architecture/server_client_architecture.md) | Client-server communication architecture (REST + WebSocket) |
 | [Server Splitting Architecture](architecture/server_splitting.md) | Server-side splitting/multiplayer architecture |
 | [Action System](architecture/action_system.md) | Action registry-based pipeline architecture |
+| [Attack System](architecture/attack_system.md) | Generic component-targeted attack handler — unified execution for punch, cut, and future attack types |
 
 ---
 
@@ -26,11 +27,15 @@ Controller-specific documentation including design patterns, component managemen
 | [Controller Patterns](controllers/controller_patterns.md) | **Mandatory** controller design patterns (DI, root injector, defensive copying) |
 | [Capability Controller](controllers/capability_controller.md) | Component capability cache + scoring system |
 | [Component Selection](controllers/component_selection.md) | Component selection controller |
+| [EquippedItemStatsController](controllers/equipped_item_stats_controller.md) | Per-instance mutable stat tracking for equipped items (sharpness, durability) |
+| [Requirement Resolver](controllers/requirement_resolver.md) | Action requirement validation with equipped item trait resolution |
+| [Component Resolver](controllers/component_resolver.md) | Source/target component resolution with priority chain and malformed ID filtering |
 | [Config Bar Manager](controllers/config_bar_manager.md) | ~~Config bar UI manager~~ (Removed — replaced by OverlayManager) |
 | [Rooms Controller](controllers/rooms_controller.md) | Room management |
 | [World State Manager](controllers/world_state_manager.md) | Client-side state synchronization |
 | [Consequence Handler Architecture](controllers/consequence_handler_architecture.md) | Consequence dispatch system |
 | [Internal Component Controller](controllers/internal_component_controller.md) | State Controller pattern, unified tick system design rationale, auto-installation filtering |
+| [Range Validator](controllers/range_validator.md) | Spatial range validation for proximity-based actions with failure consequences |
 
 ---
 
@@ -41,6 +46,8 @@ Data definitions for entities, components, traits, world state, and inventory.
 | Document | Description |
 |----------|-------------|
 | [Components & Entities](data/components_and_entities.md) | Entity vs component distinction, volume-based capacity model rationale, blueprint hierarchy |
+| [Holding Cost](data/holding_cost.md) | Equipped item physical burden system — holding cost traits, debuffs, equip/unequip flow, effective stats resolution |
+| [Internal Components](data/internal_components.md) | Passive data-driven augmentations — tick-based effects, auto-installation filters, trait templates |
 | [Traits](data/traits.md) | Trait system |
 | [World State](data/world_state.md) | World state data model |
 | [Inventory System](data/inventory_system.md) | Volume-based item storage on components |
@@ -80,6 +87,7 @@ Game mechanics, visualizations, and feature systems.
 | [Movement System](systems/movement_system.md) | Data-driven movement rationale, action-system separation, delta spatial design |
 | [World Map](systems/world_map.md) | Spatial visualization decoupling rationale, server-side graph design, two-level navigation |
 | [World Map Pick-Up System](systems/world_map_pickup.md) | Dropped items on map as blue squares, pick-up overlay flow, component selection |
+| [Item Drop & Pickup System](systems/item_drop_pickup.md) | Item drop range calculation, pickup overlay flow, component targeting for dropped items |
 
 ---
 
@@ -87,11 +95,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 25 |
+| Total documents | 33 |
 | Categories | 6 |
-| Architecture docs | 4 |
-| Controller docs | 8 |
-| Data model docs | 4 |
+| Architecture docs | 5 |
+| Controller docs | 12 |
+| Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 4 |
+| Systems docs | 5 |

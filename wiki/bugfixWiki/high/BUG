@@ -1,0 +1,35 @@
+# BUG-094: Cut Action Disappears After Unequip/Re-equip (Sharpness Resets)
+
+- **Severity**: HIGH
+- **Status**: ✅ Fixed
+- **Fixed In**: `pending`
+- **Related Files**: `src/controllers/core/HoldingCostController.js`
+
+## Symptoms
+
+After equipping a knife, using the `cut` action (which drains sharpness), and then unequipping/re-equipping the knife, the sharpness value reset to its base value (50). The `cut` action would reappear in the action panel with full capability score, undoing wear that the player had earned through use.
+
+## Root Cause
+
+`HoldingCostController.equipItem()` always re-initialized the equipped item's stats from the item's base definition, overwriting any accumulated stat degradation. When an item was unequipped and re-equipped, the `EquippedItemStatsController` would reset sharpness to 50, erasing the knife's wear history.
+
+This design treated equipment stats as a transient property of the equip action rather than a persistent property of the item instance. A damaged knife would fully restore every time the player removed and reinserted it.
+
+## Fix
+
+Changed `HoldingCostController.equipItem()` to only initialize stats when the item has no existing tracked stats (i.e., it's a brand-new equip). If stats already exist from a previous equip cycle, they are preserved. This ensures:
+
+- A knife that has lost 30 sharpness retains those 30 points even after unequipping and re-equipping
+- New items that have never been tracked still initialize correctly with base stats
+- The `EquippedItemStatsController` is the single source of truth for per-instance stat persistence
+
+## Prevention
+
+- Per-instance stats must survive equip/unequip cycles — stat degradation is a property of the item instance, not the equipment state
+- Initialization logic should check for existing state before overwriting
+- The `EquippedItemStatsController` is the authoritative store for equipped item mutable stats
+
+## References
+
+- Related wiki: `wiki/subMDs/data/holding_cost.md`
+- Related controller: `HoldingCostController`, `EquippedItemStatsController`

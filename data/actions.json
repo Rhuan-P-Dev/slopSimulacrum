@@ -126,7 +126,8 @@
     ]
   },
   "cut": {
-    "targetingType": "self_target",
+    "targetingType": "component",
+    "range": 50,
     "requirements": [
       {
         "trait": "Physical",
@@ -136,6 +137,15 @@
     ],
     "consequences": [
       {
+        "type": "damageComponent",
+        "target": "target",
+        "params": {
+          "trait": "Physical",
+          "stat": "durability",
+          "value": "-:Physical.sharpness"
+        }
+      },
+      {
         "type": "updateComponentStatDelta",
         "target": "self",
         "params": { "trait": "Physical", "stat": "sharpness", "value": -1 }
@@ -144,7 +154,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "The knife cuts, losing 1 sharpness."
+        "message": "The knife cuts, dealing :Physical.sharpness damage and losing -1 sharpness."
       }
     ],
     "failureConsequences": [
