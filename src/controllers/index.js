@@ -46,11 +46,7 @@ import SynergyCacheManager from './synergy/SynergyCacheManager.js';
 // Consequence system
 import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import ConsequenceDispatcher from './consequences/ConsequenceDispatcher.js';
-import DamageConsequenceHandler from './consequences/DamageConsequenceHandler.js';
 import StatConsequenceHandler from './consequences/StatConsequenceHandler.js';
-import SpatialConsequenceHandler from './consequences/SpatialConsequenceHandler.js';
-import LogConsequenceHandler from './consequences/LogConsequenceHandler.js';
-import EventConsequenceHandler from './consequences/EventConsequenceHandler.js';
 
 // Networking
 import LLMController from './networking/LLMController.js';
@@ -90,11 +86,7 @@ export {
     // Consequences
     ConsequenceHandlers,
     ConsequenceDispatcher,
-    DamageConsequenceHandler,
     StatConsequenceHandler,
-    SpatialConsequenceHandler,
-    LogConsequenceHandler,
-    EventConsequenceHandler,
 
     // Networking
     LLMController,

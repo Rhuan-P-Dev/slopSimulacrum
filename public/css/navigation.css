@@ -3,49 +3,6 @@
    Single Responsibility: Navigation buttons, room descriptions, detail overlays
    ========================================================================= */
 
-
-.nav-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-}
-
-.nav-btn {
-    background: var(--dark-green);
-    color: var(--neon-green);
-    border: 1px solid var(--neon-green);
-    padding: 8px 16px;
-    cursor: pointer;
-    font-family: inherit;
-    text-transform: uppercase;
-    transition: all 0.2s;
-}
-
-.nav-btn:hover {
-    background: var(--neon-green);
-    color: var(--bg-black);
-    box-shadow: var(--glow);
-}
-
-.room-info {
-    text-align: center;
-}
-
-.room-name {
-    font-size: 1.4em;
-    color: var(--text-main);
-    margin-bottom: 10px;
-    text-transform: uppercase;
-}
-
-.room-desc {
-    font-style: italic;
-    color: var(--text-dim);
-    margin-bottom: 20px;
-    min-height: 60px;
-}
-
 .detail-overlay {
     position: fixed;
     top: 0;

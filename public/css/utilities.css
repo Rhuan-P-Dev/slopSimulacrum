@@ -4,8 +4,6 @@
    ========================================================================= */
 
 
-.text-muted { color: #666; }
-.text-muted-light { color: #888; }
 .text-neon { color: var(--neon-green); }
 .text-center { text-align: center; }
 

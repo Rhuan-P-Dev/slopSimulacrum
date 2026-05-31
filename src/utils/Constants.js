@@ -11,45 +11,6 @@
 export const MIN_MOVEMENT_DISTANCE = 0;
 
 /**
- * Minimum strength delta required to trigger a stat update.
- * When delta is 0, no update is needed (strength is already correct).
- * @type {number}
- */
-export const MIN_STRENGTH_DELTA = 0;
-
-/**
- * Default volume consumed by an item when not explicitly specified.
- * Used for backpack capacity calculations.
- * @type {number}
- */
-export const DEFAULT_ITEM_VOLUME = 1;
-
-/**
- * Default speed for entity movement when not specified.
- * @type {number}
- */
-export const DEFAULT_SPEED = 0;
-
-/**
- * Default value for numeric stat initialization.
- * @type {number}
- */
-export const DEFAULT_STAT_VALUE = 0;
-
-/**
- * Default spatial coordinate value when not specified.
- * @type {number}
- */
-export const DEFAULT_COORDINATE = 0;
-
-/**
- * Spatial offset for respawning items when released.
- * Items spawn 5 units away from the releasing entity.
- * @type {number}
- */
-export const ITEM_SPAWN_OFFSET = 5;
-
-/**
  * Default base multiplier for synergy calculations when not specified.
  * Represents 100% base value (1.0x multiplier).
  * @type {number}
@@ -89,36 +50,6 @@ export const RELEASE_ACTION_SCORE = 10;
 export const INVALID_SCORE_THRESHOLD = 0;
 
 /**
- * Maximum allowed parameters for a function before refactoring is recommended.
- * @type {number}
- */
-export const MAX_FUNCTION_PARAMETERS = 4;
-
-/**
- * Maximum recommended lines for a single function before extraction is recommended.
- * @type {number}
- */
-export const MAX_FUNCTION_LINES = 50;
-
-/**
- * Maximum recommended lines for a single file before extraction is recommended.
- * @type {number}
- */
-export const MAX_FILE_LINES = 200;
-
-/**
- * Minimum indentation level before code should be refactored for readability.
- * @type {number}
- */
-export const MAX_INDENTATION_LEVEL = 4;
-
-/**
- * Minimum number of local variables in a function before refactoring is recommended.
- * @type {number}
- */
-export const MAX_LOCAL_VARIABLES = 10;
-
-/**
  * TTL for synergy computation cache in milliseconds (5 seconds).
  * Used by SynergyController to expire stale synergy results.
  * @type {number}
@@ -149,21 +80,3 @@ export const DROP_BASE_RANGE = 3;
  * @type {number}
  */
 export const DROP_RANGE_MULTIPLIER = 2;
-
-/**
- * Range for picking up items (fixed distance from the picker).
- * @type {number}
- */
-export const PICKUP_ITEM_RANGE = 50;
-
-/**
- * Minimum strength required to pick up an item.
- * @type {number}
- */
-export const MIN_STRENGTH_FOR_PICKUP = 5;
-
-/**
- * Minimum volume required to pick up an item.
- * @type {number}
- */
-export const MIN_VOLUME_FOR_PICKUP = 1;
