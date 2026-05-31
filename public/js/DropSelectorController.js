@@ -40,6 +40,8 @@ export class DropSelectorController {
 
         /** @private {Object|null} — Pending drop item { actionName, entityId, itemId, itemType } */
         this._pendingDropItem = null;
+        /** @private {Object|null} — Pending pick-up item { droppedItemId, itemType, name, volume, id } */
+        this._pendingPickUpItem = null;
         /** @private {Array} — Capable components fetched from server */
         this._capableComponents = [];
         /** @private {Set<string>} — Selected component IDs */
@@ -48,6 +50,8 @@ export class DropSelectorController {
         this._initialized = false;
         /** @private {Function|null} — Callback for execute action (signals App.js to show range) */
         this._onExecuteCallback = null;
+        /** @private {boolean} — Whether in pickup mode (true) or drop mode (false) */
+        this._isPickupMode = false;
     }
 
     /**
@@ -104,20 +108,45 @@ export class DropSelectorController {
     }
 
     /**
-     * Opens the drop selector panel, fetches capable components, and populates the list.
+     * Opens the drop selector panel in drop mode, fetches capable components, and populates the list.
      * @param {Object} data — Drop data object.
      * @param {Object} data.pendingDropItem — The pending drop item { actionName, entityId, itemId, itemType }.
      * @param {Object} [data.entityState] — The entity state (optional).
      */
     async show(data) {
-        if (!this._initialized || !this._overlay) return;
-
         if (!data?.pendingDropItem) {
             console.warn('[DropSelectorController] No pending drop item provided.');
             return;
         }
+        await this._showDropPanel(data);
+    }
 
+    /**
+     * Opens the drop selector panel in pickup mode, fetches capable components, and populates the list.
+     * Mirrors the drop flow: user selects a component, clicks Execute, range indicator appears on map, then map click completes pickup.
+     * @param {Object} data — Pick-up data object.
+     * @param {Object} data.pendingPickUpItem — The pending pick-up item { droppedItemId, itemType, name, volume, id }.
+     * @param {string} data.entityId — The entity ID to pick up the item with.
+     */
+    async showPickup(data) {
+        if (!data?.pendingPickUpItem || !data.entityId) {
+            console.warn('[DropSelectorController] No pending pick-up item or entityId provided.');
+            return;
+        }
+        await this._showPickupPanel(data);
+    }
+
+    /**
+     * Shows the drop selector panel (internal).
+     * @param {Object} data — Drop data object.
+     * @private
+     */
+    async _showDropPanel(data) {
+        if (!this._initialized || !this._overlay) return;
+
+        this._isPickupMode = false;
         this._pendingDropItem = data.pendingDropItem;
+        this._pendingPickUpItem = null;
         this._selectedComponentIds.clear();
         this._capableComponents = [];
 
@@ -165,7 +194,10 @@ export class DropSelectorController {
         if (!this._componentList) return;
 
         if (!components || components.length === 0) {
-            this._renderEmptyState('No components capable of dropping items.');
+            const msg = this._isPickupMode
+                ? 'No components capable of picking up items.'
+                : 'No components capable of dropping items.';
+            this._renderEmptyState(msg);
             return;
         }
 
@@ -235,8 +267,57 @@ export class DropSelectorController {
     }
 
     /**
+     * Shows the pickup selector panel (internal).
+     * @param {Object} data — Pick-up data object.
+     * @private
+     */
+    async _showPickupPanel(data) {
+        if (!this._initialized || !this._overlay) return;
+
+        this._isPickupMode = true;
+        this._pendingDropItem = null;
+        this._pendingPickUpItem = data.pendingPickUpItem;
+        this._selectedComponentIds.clear();
+        this._capableComponents = [];
+
+        // Update panel title with item name
+        const titleEl = this._overlay.querySelector('.overlay-title');
+        if (titleEl) {
+            titleEl.textContent = `Pick Up: ${this._pendingPickUpItem.name || this._pendingPickUpItem.itemType}`;
+        }
+
+        // Disable execute button until component selected
+        if (this._executeBtn) {
+            this._executeBtn.disabled = true;
+        }
+
+        // Fetch capable components from server for pick-up
+        try {
+            const response = await fetch(`/inventory/${data.entityId}/capable-pickup-components`);
+
+            if (!response.ok) {
+                console.error(`[DropSelectorController] Failed to fetch capable pick-up components: HTTP ${response.status}`);
+                this._renderEmptyState('Failed to load components.');
+                this._overlay.style.display = 'block';
+                return;
+            }
+
+            const json = await response.json();
+            this._capableComponents = json.components || [];
+            this._renderComponentList(this._capableComponents);
+        } catch (error) {
+            console.error(`[DropSelectorController] Error fetching capable pick-up components: ${error.message}`);
+            this._renderEmptyState('Error loading components.');
+        }
+
+        this._overlay.style.display = 'block';
+        console.info(`[DropSelectorController] Pick-up panel opened for item ${this._pendingPickUpItem.itemType}.`);
+    }
+
+    /**
      * Handles the Execute button click.
-     * Closes the panel and dispatches a custom event for App.js to handle drop range + map click.
+     * In drop mode: closes the panel and dispatches drop-selector:execute event.
+     * In pickup mode: closes the panel and dispatches pick-up-selector:execute event.
      * Does NOT interact with the action selection system to avoid preview panel interference.
      * @private
      */
@@ -246,22 +327,38 @@ export class DropSelectorController {
             return;
         }
 
-        // Capture state BEFORE hiding — hide() calls _clearSelection() which nullifies _pendingDropItem
-        const pendingDropItem = this._pendingDropItem;
+        // Capture state BEFORE hiding — hide() calls _clearSelection() which nullifies pending items
         const componentIds = Array.from(this._selectedComponentIds);
 
-        console.info(`[DropSelectorController] Execute clicked with ${componentIds.length} component(s).`);
+        if (this._isPickupMode) {
+            const pendingPickUpItem = this._pendingPickUpItem;
+            console.info(`[DropSelectorController] Pick-up Execute clicked with ${componentIds.length} component(s).`);
 
-        // Close the panel first
-        this.hide();
+            // Close the panel first
+            this.hide();
 
-        // Dispatch custom event — App.js handles range indicator + map click flow
-        document.dispatchEvent(new CustomEvent('drop-selector:execute', {
-            detail: {
-                pendingDropItem,
-                componentIds
-            }
-        }));
+            // Dispatch custom event — App.js handles range indicator + map click flow
+            document.dispatchEvent(new CustomEvent('pick-up-selector:execute', {
+                detail: {
+                    pendingPickUpItem,
+                    componentIds
+                }
+            }));
+        } else {
+            const pendingDropItem = this._pendingDropItem;
+            console.info(`[DropSelectorController] Execute clicked with ${componentIds.length} component(s).`);
+
+            // Close the panel first
+            this.hide();
+
+            // Dispatch custom event — App.js handles range indicator + map click flow
+            document.dispatchEvent(new CustomEvent('drop-selector:execute', {
+                detail: {
+                    pendingDropItem,
+                    componentIds
+                }
+            }));
+        }
     }
 
     /**
@@ -288,7 +385,9 @@ export class DropSelectorController {
             this._executeBtn.disabled = true;
         }
         this._pendingDropItem = null;
+        this._pendingPickUpItem = null;
         this._capableComponents = [];
+        this._isPickupMode = false;
     }
 
     /**

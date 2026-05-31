@@ -118,7 +118,7 @@ export class ClientApp {
         // 9. Pick-up overlay controller for dropped items on world map
         this.pickUpOverlay = new PickUpOverlayController({
             onPickUp: (droppedItemInfo) => this._handlePickUpClick(droppedItemInfo),
-            onClose: () => this._handlePickUpClose()
+            onClose: () => {}
         });
 
         // 10. Wire action execution callback to NavActionsPanel
@@ -134,9 +134,9 @@ export class ClientApp {
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
         this._pendingDropItem = null;
 
-        // 11b. Pending pick-up item state
-        /** @type {Object|null} Pending pick-up item { droppedItemId, itemType, name, volume } */
-        this._pendingPickUpItem = null;
+        // 11b. Pending pick-up selector state (pickup mode — mirrors drop flow)
+        /** @type {Object|null} Pending pick-up selector { droppedItemId, itemType, name, volume, id, componentIds } */
+        this._pendingPickUpSelector = null;
     }
 
     /**
@@ -212,6 +212,10 @@ export class ClientApp {
                                 this.ui.renderRangeIndicator(droid, 0, 'red', 'drop');
                             }
                         }
+                    },
+                    hasPendingPickUpAction: () => this._pendingPickUpSelector !== null,
+                    onPickUpItemClick: (targetX, targetY) => {
+                        this._onPickUpMapClick(targetX, targetY);
                     }
                 }
             );
@@ -219,6 +223,11 @@ export class ClientApp {
 
         this.socket.on('dropped-items-update', (data) => {
             // Dropped items are refreshed when world-map is opened via /world-map-with-items
+        });
+
+        // Listen for pick-up selector execute event (mirrors drop-selector:execute)
+        document.addEventListener('pick-up-selector:execute', (event) => {
+            this._onPickUpSelectorExecute(event.detail);
         });
     }
 
@@ -474,7 +483,6 @@ export class ClientApp {
 
         // Store drop info — this is a DROP operation, not the item's primary action
         this._pendingDropItem = { actionName: 'dropItem', entityId, itemId, itemType, componentId };
-        this.actions.setPendingDropAction(this._pendingDropItem);
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
     }
 
@@ -561,6 +569,50 @@ export class ClientApp {
     }
 
     /**
+     * Handles the pick-up selector "Execute" event.
+     * Mirrors the drop flow: stores pending pick-up, resolves range, shows range indicator.
+     * @param {Object} detail - The event detail.
+     * @param {Object} detail.pendingPickUpItem - The pending pick-up item.
+     * @param {string[]} detail.componentIds - Selected component IDs.
+     * @private
+     */
+    _onPickUpSelectorExecute(detail) {
+        const { pendingPickUpItem, componentIds } = detail;
+        if (!pendingPickUpItem) return;
+
+        // Store pick-up info with component IDs for execution
+        this._pendingPickUpSelector = {
+            droppedItemId: pendingPickUpItem.id,
+            itemType: pendingPickUpItem.itemType,
+            name: pendingPickUpItem.name,
+            volume: pendingPickUpItem.volume,
+            componentIds
+        };
+
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) return;
+
+        // Use the same range expression as dropItem — pickup uses the same drop range
+        const dropActionData = this.availableActions['dropItem'] || {};
+        const rangeExpression = dropActionData?.range;
+
+        const state = this.worldState.getState();
+        let maxStrength = 0;
+        if (droid.components && Array.isArray(droid.components)) {
+            for (const comp of droid.components) {
+                const compId = comp.id || comp;
+                const stats = state.components?.instances?.[compId];
+                if (stats?.Physical?.strength) {
+                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                }
+            }
+        }
+
+        const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
+        this.ui.renderRangeIndicator(droid, pickUpRange, '#44ff44', 'pickup');
+    }
+
+    /**
      * Handles clicking a dropped item marker on the spatial map.
      * Opens the pick-up overlay panel with item information.
      * @private
@@ -572,14 +624,14 @@ export class ClientApp {
 
     /**
      * Handles the "Pick Up" button click in the pick-up overlay.
-     * Opens component viewer for selecting which component to use.
+     * Opens the drop selector overlay in pickup mode — mirrors the drop flow.
+     * User selects a component, clicks Execute, range indicator appears on map, then map click picks up item.
      * @private
      */
     async _handlePickUpClick(droppedItemInfo) {
         const entityId = this.worldState.getMyEntityId();
         if (!entityId) return;
 
-        // Fetch current entity components to show in component viewer
         const state = this.worldState.getState();
         const entity = state.entities?.[entityId];
         if (!entity || !entity.components || entity.components.length === 0) {
@@ -591,79 +643,34 @@ export class ClientApp {
             return;
         }
 
-        // Close pick-up overlay and open component viewer
+        // Close pick-up overlay and open drop selector in pickup mode
         this.pickUpOverlay.hide();
 
-        // Store dropped item info for later execution
-        this._pendingPickUpItem = droppedItemInfo;
+        // Clear any pending pick-up selector state
+        this._pendingPickUpSelector = null;
 
-        // Set up the pick-up component callback on the component viewer
-        this.componentViewer.setPickUpComponentCallback(async (componentId, compEntity) => {
-            await this._executePickUp(componentId);
+        // Open the drop selector overlay in pickup mode
+        this.dropSelector.showPickup({
+            pendingPickUpItem: droppedItemInfo,
+            entityId
         });
-
-        // Show component viewer so user can select a component
-        this.overlayManager.open('component-viewer', { entity, state });
     }
 
     /**
-     * Executes the pick-up action on the server.
+     * Handles clicking on the map during pick-up selector pending state.
+     * Mirrors the drop flow: sends pickup request with component IDs.
+     * @param {number} targetX - Target X coordinate relative to room center.
+     * @param {number} targetY - Target Y coordinate relative to room center.
      * @private
      */
-    async _executePickUp(componentId) {
-        if (!this._pendingPickUpItem) return;
+    _onPickUpMapClick(targetX, targetY) {
+        if (!this._pendingPickUpSelector) return;
 
-        const entityId = this.worldState.getMyEntityId();
-        if (!entityId) return;
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
 
-        try {
-            const response = await fetch('/pick-up-item', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    entityId,
-                    droppedItemId: this._pendingPickUpItem.id,
-                    componentId
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                this.errorController.handleError({
-                    code: 'PICKUP_FAILED',
-                    message: errorData.error || 'Failed to pick up item.'
-                });
-                return;
-            }
-
-            const result = await response.json();
-            this.errorController.handleError({
-                code: 'PICKUP_SUCCESS',
-                message: result.message || 'Item picked up successfully.'
-            });
-
-            // Refresh world state
-            await this.refreshWorldAndActions();
-
-            // Clear pending state
-            this._pendingPickUpItem = null;
-
-            // Close any open overlays
-            this.overlayManager.closeAll();
-        } catch (error) {
-            this.errorController.handleError({
-                code: 'PICKUP_ERROR',
-                message: error.message
-            });
-        }
-    }
-
-    /**
-     * Handles the pick-up overlay close event.
-     * @private
-     */
-    _handlePickUpClose() {
-        this._pendingPickUpItem = null;
+        this.executor.executePickUpItem(this._pendingPickUpSelector, targetX, targetY, droid, state);
+        this._pendingPickUpSelector = null;
     }
 
     /**

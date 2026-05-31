@@ -1,50 +1,123 @@
-# Item Drop & Pick-Up System
+# Item Drop & Pickup System
 
 ## Overview
 
-The item drop and pick-up system extends the existing inventory architecture with two new spatial interaction modes:
-
-1. **Drop Item** — Players can drop equipped items at spatial coordinates, with range determined by `Physical.strength`
-2. **Pick-Up Item** — Entities can pick up items from other entities/components, validated against holding cost requirements
+The item drop/pickup system provides a symmetrical user experience for dropping and picking up items. Both flows use the same `DropSelectorController` overlay, the same range indicator rendering, and the same map-click execution pattern.
 
 ## Design Decisions
 
-### Why strength-based drop range?
+### Why Mirror the Drop Flow for Pickup?
 
-Strength is the most intuitive stat for physical reach and throwing distance. The formula `DROP_BASE_RANGE + (strength × DROP_RANGE_MULTIPLIER)` provides a linear scaling that feels natural — stronger entities can throw items farther.
+The pickup flow was redesigned to mirror the drop flow exactly:
 
-### Why holding cost validation on pick-up?
+1. **Consistency**: Users expect the same visual language for both operations
+2. **Reduced cognitive load**: One pattern for both actions
+3. **Code reuse**: The `DropSelectorController` handles both flows, reducing duplication
 
-Holding costs represent the physical/mental burden of carrying an item. If a component cannot meet the holding cost requirements, it cannot wield that item effectively. This check on pick-up (not just equip) ensures items can only enter components that can actually use them.
+### Why Not Use ComponentViewer for Pickup?
 
-### Why separate consequence handlers?
+The original pickup flow used `ComponentViewer` (a floating window showing component details), which was inconsistent with the drop flow. The new flow uses the drop selector overlay, providing:
 
-Following SRP, each consequence type has its own handler module:
-- `DropItemHandler.js` — Handles dropping items at world coordinates
-- `PickUpItemHandler.js` — Handles picking up items with validation
+- A single, unified component selection experience
+- Visual feedback via range indicator on the map
+- Consistent button labels and panel structure
 
-## Architecture
+## Flow Comparison
 
+### Drop Flow
 ```mermaid
-graph TD
-    A[Player clicks equipped item] --> B[Calculate range from strength]
-    B --> C[Render red range indicator]
-    C --> D[Player clicks map]
-    D --> E[ActionExecutor.executeDropItem]
-    E --> F[Server: dropItem handler]
-    F --> G[Store in droppedItems map]
-    
-    H[Pick-Up Action] --> I[Range check: 50 units]
-    I --> J[HoldCost.canHoldItem check]
-    J --> K[Transfer item via inventory]
+sequenceDiagram
+    participant U as User
+    participant I as Inventory
+    participant D as DropSelector
+    participant E as EventDispatcher
+    participant A as ActionExecutor
+
+    U->>I: Click Drop on item
+    I->>D: show(dropData)
+    D->>D: Fetch capable components
+    D->>U: Show component list
+    U->>D: Select component + Execute
+    D->>U: Close panel
+    D->>E: dispatch drop-selector:execute
+    E->>A: renderRangeIndicator()
+    U->>E: Click map
+    E->>A: executeDropItem()
+    A->>Server: POST /drop-item
 ```
 
-## Data Flow
+### Pickup Flow (New)
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant M as Map
+    participant P as PickUpOverlay
+    participant D as DropSelector
+    participant E as EventDispatcher
+    participant A as ActionExecutor
 
-1. **Drop**: Client sends `{itemId, itemType, targetX, targetY}` → Server validates equipped item → Unequips + removes from inventory → Stores at coordinates
-2. **Pick**: Client sends `{sourceEntityId, sourceItemId, sourceComponentId, targetEntityId, targetComponentId}` → Server validates holding cost → Removes from source → Adds to target
+    U->>M: Click dropped item
+    M->>P: show(itemInfo)
+    P->>U: Show item details + "Pick Up"
+    U->>P: Click "Pick Up"
+    P->>D: showPickup(pickupData)
+    D->>D: Fetch capable components
+    D->>U: Show component list
+    U->>D: Select component + Execute
+    D->>U: Close panel
+    D->>E: dispatch pick-up-selector:execute
+    E->>A: renderRangeIndicator()
+    U->>E: Click map
+    E->>A: executePickUpItem()
+    A->>Server: POST /pick-up-item
+```
 
-## See Also
+## Key Components
 
-- [Inventory System](../data/inventory_system.md)
-- [Holding Cost System](../controllers/internal_component_controller.md)
+### DropSelectorController (`public/js/DropSelectorController.js`)
+
+Handles both drop and pickup component selection:
+
+- **Drop Mode** (`show()`): Opens for dropping items from inventory
+- **Pickup Mode** (`showPickup()`): Opens for picking up dropped items from the map
+
+Both modes share:
+- The same overlay DOM element (`#drop-selector-overlay`)
+- The same component list rendering
+- The same selection toggling logic
+- The same execute/cancel handlers (dispatching different events)
+
+### Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/inventory/:entityId/capable-drop-components` | GET | Components capable of dropping |
+| `/inventory/:entityId/capable-pickup-components` | GET | Components capable of picking up |
+| `/pick-up-item` | POST | Execute pickup action |
+
+Both capable component endpoints return the same data structure — any component with Physical, Movement, or Manipulation traits is considered capable.
+
+## UI Elements
+
+The drop selector overlay (`#drop-selector-overlay`) is shared between both flows:
+
+- **Title**: Dynamically updated to show "Drop: {itemType}" or "Pick Up: {itemName}"
+- **Component list**: Same structure for both flows
+- **Execute button**: Label unchanged (just "Execute")
+- **Range indicator**: Drop uses red (`#ff4444`), pickup uses green (`#44ff44`) for visual distinction
+
+## Event System
+
+| Event | Dispatched By | Handled By |
+|-------|--------------|------------|
+| `drop-selector:execute` | DropSelectorController | App.js `_onDropSelectorExecute()` |
+| `pick-up-selector:execute` | DropSelectorController | App.js `_onPickUpSelectorExecute()` |
+
+## Related Files
+
+- `public/js/DropSelectorController.js` — Component selection overlay controller
+- `public/js/PickUpOverlayController.js` — Initial item info display
+- `public/js/ActionExecutor.js` — Execution handlers
+- `public/js/App.js` — Main orchestrator
+- `public/js/EventDispatcher.js` — Map click handling
+- `src/routes/inventoryRoutes.js` — Server endpoints

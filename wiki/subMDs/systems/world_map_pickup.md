@@ -2,7 +2,7 @@
 
 ## Why This System Exists
 
-> **Last Updated:** 2026-05-27 — Fixed coordinate system bug (BUG-082) and SVG rendering bug.
+> **Last Updated:** 2026-05-31 — Refactored pick-up flow to use DropSelectorController (mirrors drop flow).
 
 ---
 
@@ -22,16 +22,17 @@ Players need a visual way to locate dropped items on the world map and perform p
 - Squares are distinct from circular entity markers and rectangular room nodes
 - Size (16x16px) is large enough to see but doesn't overwhelm room markers
 
-### Why a separate pick-up flow instead of reusing drop flow?
-- Drop flow goes: inventory → map click → execute drop
-- Pick-up flow goes: map blue square → item info → component selection → execute pick-up
-- Different data sources (dropped items array vs. entity inventory)
-- Different selection requirements (pick-up needs component with free volume)
+### Why mirror the drop flow for pick-up?
+The pick-up flow was redesigned to reuse the `DropSelectorController` (same overlay, same component selection, same range indicator) for consistency:
 
-### Why component viewer for pick-up selection?
-- Reuses existing component rendering infrastructure
-- Shows component stats so players can make informed decisions
-- Follows the "use existing patterns" principle
+1. **User experience**: Same visual language for both drop and pick-up
+2. **Code reuse**: Single component selection overlay instead of duplicating in ComponentViewer
+3. **Reduced cognitive load**: Users expect the same interaction pattern
+
+### Why a separate overlay (PickUpOverlayController)?
+- The initial item info display is short-lived — user clicks "Pick Up" to continue
+- Separating info display from component selection keeps each module focused
+- PickUpOverlayController acts as a one-time bridge between map interaction and DropSelectorController
 
 ## Coordinate Systems
 
@@ -47,35 +48,51 @@ The drop item click handler uses raw SVG coordinates to match the room-space sys
 
 ```mermaid
 sequenceDiagram
-    participant Player
+    participant User
     participant WorldMapView
     participant PickUpOverlay
-    participant ComponentViewer
-    participant App
+    participant DropSelector
+    participant EventDispatcher
+    participant ActionExecutor
 
-    Player->>WorldMapView: Click blue square marker
+    User->>WorldMapView: Click blue square marker
     WorldMapView->>PickUpOverlay: show(itemInfo)
-    PickUpOverlay->>Player: Show item name, desc, volume
-    Player->>PickUpOverlay: Click "Pick Up" button
+    PickUpOverlay->>User: Show item name, desc, volume
+    User->>PickUpOverlay: Click "Pick Up" button
     PickUpOverlay->>App: onPickUp callback
-    App->>ComponentViewer: Open with entity components
-    Player->>ComponentViewer: Click component card
-    ComponentViewer->>App: onPickUpComponentClick(compId)
-    App->>App: POST /pick-up-item
-    App->>WorldStateController: handlePickUpItem
-    WorldStateController->>WorldStateController: Move item to inventory
-    WorldStateController->>App: Broadcast state update
-    App->>App: Refresh world state
+    App->>DropSelector: showPickup(pickupData)
+    DropSelector->>DropSelector: Fetch capable components
+    DropSelector->>User: Show component list
+    User->>DropSelector: Select component + Execute
+    DropSelector->>EventDispatcher: dispatch pick-up-selector:execute
+    EventDispatcher->>ActionExecutor: renderRangeIndicator(#44ff44)
+    User->>EventDispatcher: Click map
+    EventDispatcher->>ActionExecutor: executePickUpItem()
+    ActionExecutor->>Server: POST /pick-up-item
 ```
+
+## Pickup Mode vs Drop Mode Comparison
+
+| Aspect | Drop Mode | Pickup Mode |
+|--------|-----------|-------------|
+| Trigger | Inventory item "Drop" button | Map blue square "Pick Up" button |
+| Panel Title | "Drop: {itemType}" | "Pick Up: {itemName}" |
+| Component Endpoint | `/capable-drop-components` | `/capable-pickup-components` |
+| Range Indicator | Red (`#ff4444`) | Green (`#44ff44`) |
+| Event Dispatched | `drop-selector:execute` | `pick-up-selector:execute` |
+| Execution Method | `executeDropItem()` | `executePickUpItem()` |
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `src/controllers/consequences/PickUpItemHandler.js` | Server-side handler for pick-up consequence |
-| `src/routes/worldRoutes.js` | `/world-map-with-items` and `/pick-up-item` endpoints |
+| `src/routes/inventoryRoutes.js` | `/capable-pickup-components` and `/pick-up-item` endpoints |
 | `public/js/WorldMapView.js` | Renders blue square markers on world map |
 | `public/js/PickUpOverlayController.js` | Floating panel showing item info + pick-up button |
+| `public/js/DropSelectorController.js` | Shared component selection overlay (handles both drop and pickup) |
+| `public/js/ActionExecutor.js` | `executePickUpItem()` handler |
 | `public/js/App.js` | Wires up the event flow between all components |
+| `public/js/EventDispatcher.js` | Map click handling for pick-up selector pending state |
 | `public/css/map.css` | Blue square marker styles |
 | `public/css/floating-windows.css` | Pick-up overlay panel styles |

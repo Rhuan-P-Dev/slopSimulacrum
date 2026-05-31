@@ -25,6 +25,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-093](high/BUG-093-equipped-item-stats-ignored-in-requirement-checks.md) | Equipped Item Stats Ignored in Action Requirement Checks | ✅ Fixed | `pending` | `RequirementResolver.js` |
 | [BUG-094](high/BUG-094-cut-action-disappears-after-unequip-reequip.md) | Cut Action Disappears After Unequip/Re-equip (Sharpness Resets) | ✅ Fixed | `pending` | `HoldingCostController.js` |
 | [BUG-099](high/BUG-099-cut-action-damage-ignores-sharpness-drain.md) | Knife Cut Damage Always Uses Base Sharpness (50), Ignoring Sharpness Drain | ✅ Fixed | `pending` | `RequirementResolver.js`, `ActionController.js`, `WorldStateController.js` |
+| [BUG-102](high/BUG-102-dead-actionmanager-drop-action-methods.md) | Dead ActionManager Drop Action Methods (getPendingDropAction, setPendingDropAction, clearPendingDropAction) | ✅ Fixed | `pending` | `ActionManager.js`, `ActionExecutor.js`, `App.js` |
 | [BUG-004](high/BUG-004-role-mismatch-skip.md) | Role Mismatch: Client/Server Resolution Difference | ✅ Fixed | `2573bea` | `actionController.js` |
 | [BUG-005](high/BUG-005-deep-trait-merge.md) | Deep Trait-Level Merge: Stat Overwrite | ✅ Fixed | — | `componentStatsController.js` |
 | [BUG-006](high/BUG-006-schema-validation-gap.md) | Schema Validation Gap for LLM Responses | ✅ Documented | — | `LLMController.js` |

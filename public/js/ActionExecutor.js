@@ -315,6 +315,77 @@ export class ActionExecutor {
     }
 
     /**
+     * Executes a pick-up item action at target coordinates.
+     * Mirrors the drop flow: shows range indicator on map, user clicks, then sends pickup request.
+     *
+     * Coordinate system: Both targetX/targetY and droid.spatial.x/y are relative
+     * to the room center (same as how UIManager renders entities: CENTER_X + spatial.x).
+     * This matches the coordinate system used by SpatialConsequenceHandler for spatial actions.
+     *
+     * @param {Object} pending - The pending pick-up item object { droppedItemId, itemType, name, volume, id, componentIds }.
+     * @param {number} targetX - Target X coordinate relative to room center.
+     * @param {number} targetY - Target Y coordinate relative to room center.
+     * @param {Object} droid - The active droid entity.
+     * @param {Object} state - The current world state.
+     * @returns {Promise<void>}
+     */
+    async executePickUpItem(pending, targetX, targetY, droid, state) {
+        if (!droid || !state) {
+            console.warn('[ActionExecutor] No active droid or state for pick-up item action');
+            return;
+        }
+
+        const entityId = droid.id;
+        const componentId = pending.componentIds?.[0] || null;
+
+        if (!componentId) {
+            this.errorController.handleError({
+                code: 'NO_COMPONENT_SELECTED',
+                message: 'No component selected for pick-up.'
+            });
+            return;
+        }
+
+        try {
+            const response = await fetch('/pick-up-item', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    entityId,
+                    droppedItemId: pending.droppedItemId || pending.id,
+                    componentId
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to pick up item.');
+            }
+
+            const result = await response.json();
+            console.log(`[ActionExecutor] Item "${pending.itemType}" picked up successfully.`, result);
+
+            // Clear range indicator (green matches pickup flow)
+            this.ui.renderRangeIndicator(droid, 0, '#44ff44');
+
+            await this.refreshCallback();
+        } catch (error) {
+            console.error(`[ActionExecutor] Pick-up item failed: ${error.message}`, {
+                entityId,
+                droppedItemId: pending.droppedItemId || pending.id,
+                componentId,
+                targetX,
+                targetY,
+                error: error.message
+            });
+            this.errorController.handleError({
+                code: 'PICKUP_FAILED',
+                message: error.message
+            });
+        }
+    }
+
+    /**
      * Executes a drop item action at target coordinates.
      * Validates range, sends to server, refreshes world.
      *
@@ -390,7 +461,6 @@ export class ActionExecutor {
             );
 
             console.log(`[ActionExecutor] Item "${pending.itemType}" dropped at (${targetX}, ${targetY})`);
-            this.actions.clearPendingDropAction();
             // Clear range indicator
             this.ui.renderRangeIndicator(droid, 0, 'red');
             await this.refreshCallback();

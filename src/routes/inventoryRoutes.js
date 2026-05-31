@@ -339,14 +339,14 @@ export default function register(router, { worldStateController }) {
 
     // =========================================================
     // DROP SELECTOR — CAPABLE COMPONENTS
-	// =========================================================
+    // =========================================================
 
-	/**
-	 * GET /inventory/:entityId/capable-drop-components
-	 * Returns all components on an entity that are capable of performing a drop action.
-	 * A component is "capable" if it has Physical, Movement, or Manipulation traits.
-	 */
-	router.get('/inventory/:entityId/capable-drop-components', (req, res) => {
+    /**
+     * GET /inventory/:entityId/capable-drop-components
+     * Returns all components on an entity that are capable of performing a drop action.
+     * A component is "capable" if it has Physical, Movement, or Manipulation traits.
+     */
+    router.get('/inventory/:entityId/capable-drop-components', (req, res) => {
 		try {
 			const { entityId } = req.params;
 
@@ -401,6 +401,71 @@ export default function register(router, { worldStateController }) {
 			res.json({ components: capableComponents });
 		} catch (error) {
 			Logger.error('/inventory/:entityId/capable-drop-components endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message,
+			});
+		}
+	});
+
+	/**
+	 * GET /inventory/:entityId/capable-pickup-components
+	 * Returns all components on an entity that are capable of performing a pickup action.
+	 * A component is "capable" if it has Physical, Movement, or Manipulation traits.
+	 * This mirrors capable-drop-components but is used for the pick-up flow.
+	 */
+	router.get('/inventory/:entityId/capable-pickup-components', (req, res) => {
+		try {
+			const { entityId } = req.params;
+
+			if (!entityId) {
+				return res.status(400).json({
+					error: 'Bad Request',
+					message: 'entityId is required.',
+				});
+			}
+
+			const entity = worldStateController.getEntity(entityId);
+			if (!entity) {
+				return res.status(404).json({
+					error: 'Not Found',
+					message: `Entity "${entityId}" not found.`,
+				});
+			}
+
+			const capableComponents = [];
+
+			if (entity.components && Array.isArray(entity.components)) {
+				for (const compRef of entity.components) {
+					const compId = typeof compRef === 'string' ? compRef : compRef.id;
+					const compType = typeof compRef === 'string' ? compRef : compRef.type;
+					const compIdentifier = typeof compRef === 'string' ? null : compRef.identifier;
+
+					const compStats = worldStateController.getComponentStats(compId) || {};
+
+					const hasPhysical = compStats.Physical && Object.keys(compStats.Physical).length > 0;
+					const hasMovement = compStats.Movement && Object.keys(compStats.Movement).length > 0;
+					const hasManipulation = compStats.Manipulation && Object.keys(compStats.Manipulation).length > 0;
+
+					if (hasPhysical || hasMovement || hasManipulation) {
+						const compName = compIdentifier || compType || compId;
+
+						capableComponents.push({
+							id: compId,
+							type: compType,
+							name: compName,
+							identifier: compIdentifier || compType,
+							Physical: compStats.Physical || null,
+							Movement: compStats.Movement || null,
+							Manipulation: compStats.Manipulation || null,
+						});
+					}
+				}
+			}
+
+			res.json({ components: capableComponents });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/capable-pickup-components endpoint error', { error: error.message });
 			res.status(500).json({
 				error: 'Internal Server Error',
 				details: error.message,

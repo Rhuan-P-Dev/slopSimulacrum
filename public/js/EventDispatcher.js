@@ -116,6 +116,8 @@ class EventDispatcher {
      * @param {Object} [options] - Optional configurations for drop item handling.
      * @param {function(): boolean} [options.hasPendingDropAction] - Callback to check if a drop item action is pending.
      * @param {function(number, number)} [options.onDropItemClick] - Callback invoked when map is clicked during drop item pending state.
+     * @param {function(): boolean} [options.hasPendingPickUpAction] - Callback to check if a pick-up selector action is pending.
+     * @param {function(number, number)} [options.onPickUpItemClick] - Callback invoked when map is clicked during pick-up selector pending state.
      */
     setupMapClickListener(mapElement, getPendingAction, options = {}) {
         if (!mapElement) return;
@@ -144,6 +146,23 @@ class EventDispatcher {
 
                 if (options.onDropItemClick) {
                     options.onDropItemClick(targetX, targetY);
+                }
+                return;
+            }
+
+            // Check for pending pick-up selector action — same flow as drop but for pick-up.
+            const hasPendingPickUp = options.hasPendingPickUpAction?.();
+            if (hasPendingPickUp) {
+                const pt = mapElement.createSVGPoint();
+                pt.x = event.clientX;
+                pt.y = event.clientY;
+                const svgP = pt.matrixTransform(mapElement.getScreenCTM().inverse());
+
+                const targetX = svgP.x - this.config.VIEW.CENTER_X;
+                const targetY = svgP.y - this.config.VIEW.CENTER_Y;
+
+                if (options.onPickUpItemClick) {
+                    options.onPickUpItemClick(targetX, targetY);
                 }
                 return;
             }
