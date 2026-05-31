@@ -626,4 +626,3 @@ class ActionSelectController {
  */
 
 export default ActionSelectController;
-export { BINDING_ROLES, DEFAULT_SELECTION_TTL_MS };

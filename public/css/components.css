@@ -145,21 +145,6 @@
     text-shadow: 0 0 5px var(--neon-green);
 }
 
-.overlay-panel {
-    position: absolute;
-    top: 60px;
-    right: 20px;
-    z-index: 100;
-    background: var(--overlay-bg);
-    border: 1px solid var(--neon-green);
-    border-radius: 4px;
-    max-height: 400px;
-    overflow-y: auto;
-    padding: 15px;
-    min-width: 300px;
-    box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
-}
-
 /* =========================================================================
    Stat Bar Styles
    ========================================================================= */
@@ -310,29 +295,6 @@
 /* =========================================================================
    Dialog Styles
    ========================================================================= */
-
-.add-stat-dialog {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--panel-bg);
-    border: 2px solid var(--neon-green);
-    padding: 20px;
-    z-index: 200;
-    min-width: 300px;
-    box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
-}
-
-.add-stat-dialog-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 199;
-}
 
 /* =========================================================================
    Nav Actions Panel Styles

@@ -106,6 +106,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-067](medium/BUG-067-internal-components-system.md) | Internal Components System — durabilityRepairSphere | ✅ Implemented | `pending` | `InternalComponentController.js` |
 | [BUG-068](medium/BUG-068-component-viewer-missing-internal-components.md) | Component Viewer Missing Internal Components Display | ✅ Fixed | `pending` | `ComponentViewer.js`, `internal-components.css`, `internalComponentRoutes.js` |
 | [BUG-080](medium/BUG-080-drop-selector-executes-with-null-pending-item.md) | Drop Selector Execute: `pendingDropItem` Cleared Before Event Dispatch | ✅ Fixed | `pending` | `DropSelectorController.js` |
+| [BUG-104](medium/BUG-104-unused-knife-component-in-components-json.md) | Unused `knife` Component Definition in data/components.json | ✅ Fixed | `pending` | `data/components.json` |
+| [BUG-105](medium/BUG-105-css-duplicate-selectors-across-files.md) | CSS Duplicate Selectors Across Multiple Files | ✅ Fixed | `pending` | `layout.css`, `components.css`, `floating-windows.css` |
 
 ### 🟢 Low Severity
 
@@ -128,6 +130,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-077](architectural/BUG-077-missing-overlay-manager.md) | Missing Overlay Manager — Floating Window Coordination | ✅ Fixed | `pending` | `OverlayManager.js`, `floating-windows.css`, `ConfigBarManager.js` |
 | [BUG-089](architectural/BUG-089-hardcoded-punch-handler-in-frontend.md) | Hardcoded Punch Handler in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `App.js`, `EventDispatcher.js`, `ActionExecutor.js` |
 | [BUG-090](architectural/BUG-090-hardcoded-punch-method-names-in-frontend.md) | Hardcoded Punch Method Names in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `ActionManager.js`, `ActionExecutor.js`, `actionController.js` |
+| [BUG-103](architectural/BUG-103-dead-code-in-controllers.md) | Dead Code in Controllers — Multiple Files | ✅ Fixed | `pending` | `ComponentResolver.js`, `componentStatsController.js`, `DropItemHandler.js`, `actionSelectController.js` |
 
 ---
 

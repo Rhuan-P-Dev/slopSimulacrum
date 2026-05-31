@@ -49,21 +49,6 @@ class ComponentStatsController {
     }
 
     /**
-     * Updates a single stat for a component instance.
-     * @param {string} componentId - The unique ID of the component instance.
-     * @param {string} statName - The name of the stat to update.
-     * @param {any} value - The new value.
-     * @returns {boolean} True if the stat was updated, false if the component was not found.
-     */
-    updateStat(componentId, statName, value) {
-        if (this.componentStats[componentId]) {
-            this.componentStats[componentId][statName] = value;
-            return true;
-        }
-        return false;
-    }
-
-    /**
      * Returns a deep copy of all component stats.
      * @returns {Object} A deep copy of the internal stats store.
      */

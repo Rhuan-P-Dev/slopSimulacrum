@@ -185,10 +185,9 @@ class ComponentResolver {
         // Validate source role: the component must have the traits required by the action
         if (binding.roles?.includes('source') || binding.spatialRole || binding.sourceRole) {
             if (!this._componentSatisfiesActionRequirements(sourceComponentStats, action)) {
-                const actionName = Object.keys(this._getActionRegistry() || {}).find(k => this._getActionRegistry()[k] === action) || 'unknown';
                 return {
                     valid: false,
-                    reason: `Selected component "${sourceComponent.identifier}" does not have the required traits for "${actionName}". ` +
+                    reason: `Selected component "${sourceComponent.identifier}" does not have the required traits for this action. ` +
                             `Expected: ${action?.requirements?.map(r => `${r.trait}.${r.stat} >= ${r.minValue}`).join(', ')}.`
                 };
             }
@@ -219,15 +218,6 @@ class ComponentResolver {
         const entity = this.worldStateController.getEntity(entityId);
         if (!entity?.components) return null;
         return entity.components.find(c => c.id === componentId) || null;
-    }
-
-    /**
-     * Gets the action registry (for resolving action names).
-     * @private
-     * @returns {Object|null}
-     */
-    _getActionRegistry() {
-        return null;
     }
 
     /**

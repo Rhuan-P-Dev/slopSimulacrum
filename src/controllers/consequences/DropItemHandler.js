@@ -10,7 +10,6 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import { DROP_BASE_RANGE, DROP_RANGE_MULTIPLIER } from '../../utils/Constants.js';
 
 /**
  * Handles the "dropItem" consequence type.
@@ -131,4 +130,4 @@ function validateParams(params) {
     return { valid: true };
 }
 
-export { handleDropItem, validateParams, DROP_BASE_RANGE, DROP_RANGE_MULTIPLIER };
+export { handleDropItem, validateParams };
