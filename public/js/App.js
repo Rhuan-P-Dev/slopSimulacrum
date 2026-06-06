@@ -160,7 +160,10 @@ export class ClientApp {
                     if (pending) {
                         const actionData = this.availableActions[actionName];
                         if (!actionData || !actionData?.targetingType || actionData.targetingType === 'none') {
-                            this.executor.executeAction(actionName, entityId, componentId, componentIdentifier);
+                            this.executor.executeAction(actionName, entityId, componentId, componentIdentifier).then(() => {
+                                // Clear selections and UI displays after action execution
+                                this.selection.clearAllSelections();
+                            });
                         }
                     }
                 }

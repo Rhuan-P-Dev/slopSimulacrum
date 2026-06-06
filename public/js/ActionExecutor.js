@@ -105,6 +105,11 @@ export class ActionExecutor {
             }, 'ACTION_FAILED');
 
             console.log(`[ActionExecutor] Self-target action "${actionName}" executed successfully`, { actionName, entityId, componentId });
+
+            // Clear selections and UI displays after action execution
+            if (this.selectionController) {
+                this.selectionController.clearAllSelections();
+            }
         } catch (error) {
             console.error(`[ActionExecutor] Self-target action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
         }
@@ -272,6 +277,10 @@ export class ActionExecutor {
 
                     this.ui.closeDetails();
                     this.actions.clearPendingAction();
+                    // Clear selections and UI displays after action execution
+                    if (this.selectionController) {
+                        this.selectionController.clearAllSelections();
+                    }
                     await this.refreshCallback();
                 } catch (error) {
                     console.error(`[ActionExecutor] Action "${pending.actionName}" failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
@@ -303,6 +312,10 @@ export class ActionExecutor {
                 throw new Error(err.error || 'Failed to move droid');
             }
 
+            // Clear selections and UI displays after action execution
+            if (this.selectionController) {
+                this.selectionController.clearAllSelections();
+            }
             await this.refreshCallback();
             console.log(`[ActionExecutor] Droid moved successfully: entity ${entityId} to room ${targetRoomId}`, { entityId, targetRoomId });
         } catch (error) {
@@ -368,6 +381,10 @@ export class ActionExecutor {
             // Clear range indicator (green matches pickup flow)
             this.ui.renderRangeIndicator(droid, 0, '#44ff44');
 
+            // Clear selections and UI displays after action execution
+            if (this.selectionController) {
+                this.selectionController.clearAllSelections();
+            }
             await this.refreshCallback();
         } catch (error) {
             console.error(`[ActionExecutor] Pick-up item failed: ${error.message}`, {
@@ -463,6 +480,11 @@ export class ActionExecutor {
             console.log(`[ActionExecutor] Item "${pending.itemType}" dropped at (${targetX}, ${targetY})`);
             // Clear range indicator
             this.ui.renderRangeIndicator(droid, 0, 'red');
+
+            // Clear selections and UI displays after action execution
+            if (this.selectionController) {
+                this.selectionController.clearAllSelections();
+            }
             await this.refreshCallback();
         } catch (error) {
             console.error(`[ActionExecutor] Drop item failed: ${error.message}`, {
