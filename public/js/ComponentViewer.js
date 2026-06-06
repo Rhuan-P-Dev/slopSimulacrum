@@ -127,8 +127,11 @@ export class ComponentViewer {
      * @param {Object} state - The complete world state.
      * @private
      */
-    async _renderComponentGrid(entity, state) {
+       async _renderComponentGrid(entity, state) {
         if (!this._content) return;
+
+        // Preserve scroll position of the actual scrollable container (the overlay panel)
+        const previousScrollTop = this.overlay ? this.overlay.scrollTop : 0;
 
         const instances = state?.components?.instances || {};
 
@@ -166,6 +169,11 @@ export class ComponentViewer {
 
         html += '</div>';
         this._content.innerHTML = html;
+
+        // Restore scroll position on the overlay, clamped to the new scroll height
+        if (this.overlay) {
+            this.overlay.scrollTop = Math.min(previousScrollTop, this.overlay.scrollHeight);
+        }
 
         // Attach event listeners for the add-stat buttons
         this._content.querySelectorAll('.component-add-stat-btn').forEach((btn) => {

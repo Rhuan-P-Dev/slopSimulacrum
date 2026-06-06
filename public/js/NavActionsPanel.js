@@ -144,8 +144,13 @@ export class NavActionsPanel {
      * @param {Map<string, Set<string>>} [crossActionSelections] - Map of actionName → Set of selected component IDs.
      * @param {Function} [onGrayedComponentClick] - Callback when a grayed (locked) component is clicked.
      */
-    updateRoom(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
+            updateRoom(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
         if (!this.overlay || !this._content) return;
+
+        // Preserve scroll position of the actual scrollable containers
+        const previousOverlayScrollTop = this.overlay.scrollTop;
+        const actionList = this._content.querySelector('#action-list');
+        const previousActionListScrollTop = actionList ? actionList.scrollTop : 0;
 
         // Update stored references if provided
         if (entityId) this._entityId = entityId;
@@ -162,6 +167,15 @@ export class NavActionsPanel {
         html += '</div>';
 
         this._content.innerHTML = html;
+
+        // Restore scroll position on the overlay, clamped to the new scroll height
+        this.overlay.scrollTop = Math.min(previousOverlayScrollTop, this.overlay.scrollHeight);
+
+        // Restore scroll position on the action list, clamped to the new scroll height
+        const newActionList = this._content.querySelector('#action-list');
+        if (newActionList) {
+            newActionList.scrollTop = Math.min(previousActionListScrollTop, newActionList.scrollHeight);
+        }
 
         // Re-attach listeners after re-rendering DOM
         this._attachActionListeners();
