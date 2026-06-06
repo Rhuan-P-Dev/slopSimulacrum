@@ -13,6 +13,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class StatConsequenceHandler {
     /**
@@ -48,6 +49,17 @@ class StatConsequenceHandler {
 
         // 'self' or 'target': update a specific component
         if (!targetId) {
+            // For equipped item 'self' targets, the actual target is the eqId provided via resolvedSourceId
+            const resolvedSourceId = context?.resolvedSourceId;
+            if (resolvedSourceId && this.equippedItemStats?.hasStats(resolvedSourceId)) {
+                // Route to EquippedItemStatsController for equipped item stat changes
+                const success = this.equippedItemStats.updateStatDelta(resolvedSourceId, trait, stat, value);
+                return {
+                    success,
+                    message: success ? `Updated ${resolvedSourceId} ${trait}.${stat} by ${value}` : `Failed to update ${resolvedSourceId}`,
+                    data: success ? { targetId: resolvedSourceId, trait, stat, value } : null
+                };
+            }
             return {
                 success: false,
                 message: `No component resolved for ${trait}.${stat} update`,
@@ -67,6 +79,16 @@ class StatConsequenceHandler {
 
         // Validate that the resolved targetId is actually a component (has stats)
         if (!this.worldStateController.componentController.getComponentStats(targetId)) {
+            // For equipped item 'self' targets on host components, try the resolvedSourceId
+            const resolvedSourceId = context?.resolvedSourceId;
+            if (resolvedSourceId && this.equippedItemStats?.hasStats(resolvedSourceId)) {
+                const success = this.equippedItemStats.updateStatDelta(resolvedSourceId, trait, stat, value);
+                return {
+                    success,
+                    message: success ? `Updated ${resolvedSourceId} ${trait}.${stat} by ${value}` : `Failed to update ${resolvedSourceId}`,
+                    data: success ? { targetId: resolvedSourceId, trait, stat, value } : null
+                };
+            }
             Logger.warn(`[StatConsequenceHandler] Resolved targetId "${targetId}" has no stats. Falling back to entity-wide update.`);
             return this._handleUpdateStat(targetId, deltaParams, context);
         }

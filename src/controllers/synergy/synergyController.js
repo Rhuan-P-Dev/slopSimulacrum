@@ -13,6 +13,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import IdResolver from '../../utils/IdResolver.js';
 import SynergyConfigManager from './SynergyConfigManager.js';
 import SynergyComponentGatherer from './SynergyComponentGatherer.js';
 import SynergyCalculator from './SynergyCalculator.js';
@@ -206,10 +207,23 @@ class SynergyController {
         // First pass: find the component type from the first valid component in providedComponentIds
         // (regardless of roleFilter) - this makes type detection deterministic and independent
         // of array order / component stats.
+        // Resolves equipment IDs (eq-*) to host component IDs (comp-*) for lookup.
         let detectedType = null;
         for (const { componentId } of providedComponentIds) {
             if (lockedComponentIds.has(componentId)) continue;
-            const component = entity.components.find(c => c.id === componentId);
+
+            // Resolve equipment IDs to component IDs for lookup
+            let resolvedId = componentId;
+            if (IdResolver.isEquippedId(componentId)) {
+                const equipped = this.worldStateController.getEquippedItem(entityId, componentId);
+                if (equipped && equipped.componentId) {
+                    resolvedId = equipped.componentId;
+                } else {
+                    continue; // Equipment not found, skip
+                }
+            }
+
+            const component = entity.components.find(c => c.id === resolvedId);
             if (component) {
                 detectedType = component.type;
                 break;
@@ -220,9 +234,21 @@ class SynergyController {
         const validComponents = providedComponentIds
             .filter(({ componentId, role }) => {
                 if (lockedComponentIds.has(componentId)) return false;
-                const component = entity.components.find(c => c.id === componentId);
+
+                // Resolve equipment IDs to component IDs for lookup
+                let resolvedId = componentId;
+                if (IdResolver.isEquippedId(componentId)) {
+                    const equipped = this.worldStateController.getEquippedItem(entityId, componentId);
+                    if (equipped && equipped.componentId) {
+                        resolvedId = equipped.componentId;
+                    } else {
+                        return false; // Equipment not found, exclude
+                    }
+                }
+
+                const component = entity.components.find(c => c.id === resolvedId);
                 if (!component) return false;
-                const stats = this.worldStateController.componentController.getComponentStats(componentId);
+                const stats = this.worldStateController.componentController.getComponentStats(resolvedId);
                 if (!stats) return false;
 
                 // Check roleFilter
@@ -236,7 +262,7 @@ class SynergyController {
                 return true;
             })
             .map(({ componentId, role }) => ({
-                componentId, entityId, componentType: entity.components.find(c => c.id === componentId)?.type,
+                componentId, entityId, componentType: entity.components.find(c => c.id === componentId)?.type || null,
                 role
             }));
 

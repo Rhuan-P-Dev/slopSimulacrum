@@ -1,4 +1,39 @@
 import Logger from '../utils/Logger.js';
+import IdResolver from '../utils/IdResolver.js';
+
+// TYPED ID MIGRATION: Typed ID validation helper functions
+/**
+ * Validates that an ID is a typed entity ID (ent-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateEntityId(id, context) {
+    if (!IdResolver.isEntityId(id)) {
+        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "ent-<uuid>".` };
+    }
+    return { valid: true };
+}
+
+/**
+ * Validates that an ID is a typed component ID (comp-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateCompId(id, context) {
+    if (!IdResolver.isCompId(id)) {
+        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "comp-<uuid>".` };
+    }
+    return { valid: true };
+}
+
+/**
+ * Validates that an ID is a typed item ID (item-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateItemId(id, context) {
+    if (!IdResolver.isItemId(id)) {
+        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "item-<uuid>".` };
+    }
+    return { valid: true };
+}
 
 /**
  * Registers action capability routes with the given Express router.
@@ -60,6 +95,13 @@ export function register(router, { worldStateController }) {
 	router.get('/action-capabilities/entity/:entityId', (req, res) => {
 		try {
 			const { entityId } = req.params;
+
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'GET /action-capabilities/entity/:entityId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+
 			const capabilities = worldStateController.getCapabilitiesForEntity(entityId);
 
 			if (capabilities.length === 0) {
@@ -93,6 +135,12 @@ export function register(router, { worldStateController }) {
 			return res.status(400).json({
 				error: 'Invalid request. "entityId" is required.',
 			});
+		}
+
+		// TYPED ID MIGRATION: Validate entityId format
+		const entityIdValidation = validateEntityId(entityId, 'POST /refresh-entity-capabilities body');
+		if (!entityIdValidation.valid) {
+			return res.status(400).json({ error: entityIdValidation.error });
 		}
 
 		try {

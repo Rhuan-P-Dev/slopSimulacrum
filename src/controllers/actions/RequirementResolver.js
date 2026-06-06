@@ -4,11 +4,14 @@
  *
  * Extracted from ActionController to adhere to the Single Responsibility Principle.
  *
+ * Supports typed IDs: comp-... for components, eq-... for equipped items.
+ *
  * @module RequirementResolver
  */
 
 import Logger from '../../utils/Logger.js';
 import { checkRequirements, checkRequirementsForComponent } from '../../utils/RequirementChecker.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class RequirementResolver {
     /**
@@ -25,7 +28,7 @@ class RequirementResolver {
      * Requirements can be satisfied by multiple components.
      *
      * @param {Array<Object>} requirements - Array of requirement objects.
-     * @param {string} entityId - The entity ID to check.
+     * @param {string} entityId - The entity ID to check (typed ent-... or legacy UUID).
      * @returns {{ passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, componentId?: string, error?: {code: string, details: Object} }}
      */
     checkEntityRequirements(requirements, entityId) {
@@ -45,36 +48,27 @@ class RequirementResolver {
     /**
      * Checks if a specific component meets ALL of the action's requirements.
      *
-     * If the componentId starts with "equipped-", resolves traits directly
-     * from the equipped item's definition in inventoryItems.json instead of
-     * from component stats. This ensures equipped items' traits (e.g., knife's
-     * Physical.sharpness) are used for requirement validation.
-     *
-     * When an equipped item's traits are used for a host component, the
-     * fulfillingComponents map stores the equipped item's itemId (not the host
-     * componentId) so that consequence handlers can correctly route stat
-     * modifications (e.g., sharpness drain) to the equipped item.
+     * Supports typed IDs: eq-... (equipped items) and comp-... (components).
+     * For equipped items, resolves traits from EquippedItemStatsController's mutable stats.
      *
      * @param {Array<Object>} requirements - Array of requirement objects.
      * @param {string} entityId - The entity ID (used for error logging).
-     * @param {string} componentId - The specific component to evaluate.
+     * @param {string} componentId - The typed component or equipped item ID.
      * @returns {{ passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, error?: {code: string, details: Object} }}
      */
     checkComponentRequirements(requirements, entityId, componentId) {
         let componentStats;
         let resolvingTargetId = componentId;
 
-        // If this is an equipped item (prefixed "equipped-"), resolve traits directly from the item definition
-        if (componentId.startsWith('equipped-')) {
-            const equippedData = this._findEquippedItemData(componentId, entityId);
+        // If this is an equipped item (typed eq-...), resolve traits directly from the item's mutable stats
+        if (IdResolver.isEquippedId(componentId)) {
+            const equippedData = this._findEquippedItemByEqId(componentId, entityId);
             if (!equippedData) {
                 return { passed: false, error: { code: 'EQUIPPED_ITEM_NOT_FOUND', details: { componentId } } };
             }
-            // Read CURRENT mutable stats from EquippedItemStatsController if available,
-            // so that requirementValues reflect actual sharpness (not static base value).
-            const itemId = equippedData.itemId;
-            if (this.equippedItemStats?.hasStats(itemId)) {
-                const currentStats = this.equippedItemStats.getStats(itemId);
+            const eqId = componentId;
+            if (this.equippedItemStats?.hasStats(eqId)) {
+                const currentStats = this.equippedItemStats.getStats(eqId);
                 if (currentStats) {
                     componentStats = currentStats;
                 } else {
@@ -83,34 +77,52 @@ class RequirementResolver {
             } else {
                 componentStats = equippedData.traits;
             }
-            // Use the equipped item's itemId as resolvingTargetId so consequences
-            // (e.g., sharpness drain) route to the item's per-instance stats store, not the prefixed ID.
-            resolvingTargetId = itemId;
-        } else {
-            // Check if this host component has an equipped item — if so, use the item's CURRENT mutable stats
+            resolvingTargetId = eqId;
+        } else if (IdResolver.isCompId(componentId)) {
+            // Check if this host component has an equipped item
             const equipped = this._resolveEquippedItemForHostComponent(componentId, entityId);
             if (equipped) {
-                const itemId = equipped.itemId;
-                // Read CURRENT mutable stats from EquippedItemStatsController if available,
-                // so that requirementValues reflect actual sharpness (not static base value).
-                if (this.equippedItemStats?.hasStats(itemId)) {
-                    const currentStats = this.equippedItemStats.getStats(itemId);
-                    if (currentStats) {
-                        componentStats = currentStats;
-                    } else {
-                        componentStats = equipped.traits;
+                const eqId = equipped.eqId;
+                // MERGE equipped item traits with host component stats instead of replacing
+                // This ensures host stats like Physical.strength are preserved alongside item traits
+                const hostStats = this.worldStateController.getComponentStats(componentId);
+                const baseTraits = this.equippedItemStats?.hasStats(eqId)
+                    ? this.equippedItemStats.getStats(eqId)
+                    : equipped.traits;
+                const baseTraitsToUse = baseTraits || equipped.traits;
+
+                // Start with host stats (e.g., droidHand has Physical.strength: 25)
+                const mergedStats = {};
+                if (hostStats) {
+                    for (const [trait, data] of Object.entries(hostStats)) {
+                        mergedStats[trait] = { ...data };
                     }
-                } else {
-                    componentStats = equipped.traits;
                 }
-                // Use the equipped item's itemId as the resolving target so consequences
-                // (e.g., sharpness drain) apply to the item, not the host component
-                resolvingTargetId = itemId;
+                // Overlay equipped item traits (knife has Physical.sharpness: 50)
+                for (const [trait, data] of Object.entries(baseTraitsToUse)) {
+                    if (!mergedStats[trait]) {
+                        mergedStats[trait] = { ...data };
+                    } else {
+                        for (const [stat, value] of Object.entries(data)) {
+                            if (mergedStats[trait][stat] === undefined) {
+                                mergedStats[trait][stat] = value;
+                            }
+                        }
+                    }
+                }
+                componentStats = mergedStats;
+                resolvingTargetId = eqId;
             } else {
                 componentStats = this.worldStateController.getComponentStats(componentId);
                 if (!componentStats) {
                     return { passed: false, error: { code: 'COMPONENT_NOT_FOUND', details: { componentId } } };
                 }
+            }
+        } else {
+            // Legacy raw UUID — look up component stats directly
+            componentStats = this.worldStateController.getComponentStats(componentId);
+            if (!componentStats) {
+                return { passed: false, error: { code: 'COMPONENT_NOT_FOUND', details: { componentId } } };
             }
         }
 
@@ -128,23 +140,19 @@ class RequirementResolver {
      * Resolves requirement values from a component's stats.
      * Builds a map of "trait.stat" → numeric value.
      *
-     * If the componentId starts with "equipped-", resolves traits directly
-     * from the equipped item's definition in inventoryItems.json.
+     * Supports typed IDs: eq-... (equipped items), comp-... (components).
      *
-     * @param {string} componentId - The component ID.
+     * @param {string} componentId - The typed component or equipped item ID.
      * @returns {Object|null} Map of requirement values, or null if component not found.
      */
     resolveRequirementValues(componentId) {
         let stats;
 
-        // If this is an equipped item (prefixed "equipped-"), resolve traits directly from the item definition
-        if (componentId.startsWith('equipped-')) {
-            const equippedData = this._findEquippedItemData(componentId, null);
+        if (IdResolver.isEquippedId(componentId)) {
+            const equippedData = this._findEquippedItemByEqId(componentId, null);
             if (!equippedData) return null;
-            // Read CURRENT mutable stats from EquippedItemStatsController if available,
-            // so that placeholder resolution reflects actual sharpness (not static base value).
-            if (this.equippedItemStats?.hasStats(equippedData.itemId)) {
-                const currentStats = this.equippedItemStats.getStats(equippedData.itemId);
+            if (this.equippedItemStats?.hasStats(componentId)) {
+                const currentStats = this.equippedItemStats.getStats(componentId);
                 if (currentStats) {
                     stats = currentStats;
                 } else {
@@ -153,22 +161,41 @@ class RequirementResolver {
             } else {
                 stats = equippedData.traits;
             }
-        } else {
-            // Check if this host component has an equipped item — if so, use the item's CURRENT mutable stats
+        } else if (IdResolver.isCompId(componentId)) {
             const equipped = this._resolveEquippedItemForHostComponent(componentId, null);
-            if (equipped && this.equippedItemStats?.hasStats(equipped.itemId)) {
-                const currentStats = this.equippedItemStats.getStats(equipped.itemId);
-                if (currentStats) {
-                    stats = currentStats;
-                } else {
-                    stats = equipped.traits;
+            if (equipped) {
+                // MERGE equipped item traits with host component stats instead of replacing
+                const hostStats = this.worldStateController.getComponentStats(componentId);
+                const baseTraits = this.equippedItemStats?.hasStats(equipped.eqId)
+                    ? this.equippedItemStats.getStats(equipped.eqId)
+                    : equipped.traits;
+                const baseTraitsToUse = baseTraits || equipped.traits;
+
+                const mergedStats = {};
+                if (hostStats) {
+                    for (const [trait, data] of Object.entries(hostStats)) {
+                        mergedStats[trait] = { ...data };
+                    }
                 }
-            } else if (equipped) {
-                stats = equipped.traits;
+                for (const [trait, data] of Object.entries(baseTraitsToUse)) {
+                    if (!mergedStats[trait]) {
+                        mergedStats[trait] = { ...data };
+                    } else {
+                        for (const [stat, value] of Object.entries(data)) {
+                            if (mergedStats[trait][stat] === undefined) {
+                                mergedStats[trait][stat] = value;
+                            }
+                        }
+                    }
+                }
+                stats = mergedStats;
             } else {
                 stats = this.worldStateController.getComponentStats(componentId);
                 if (!stats) return null;
             }
+        } else {
+            stats = this.worldStateController.getComponentStats(componentId);
+            if (!stats) return null;
         }
 
         const values = {};
@@ -183,17 +210,12 @@ class RequirementResolver {
     }
 
     /**
-     * Checks if a host component (non-prefixed ID) has an equipped item and returns
-     * both the item's traits AND its itemId.
+     * Checks if a host component (typed comp-... ID) has an equipped item and returns
+     * both the item's traits AND its eqId.
      *
-     * This method solves the core issue where the frontend sends the host component ID
-     * (e.g., "droidHand-xyz") for an equipped item action, instead of an "equipped-" prefixed ID.
-     * The capability controller stores entries with `componentId: equipped.componentId` (the host),
-     * so the frontend's `attackerComponentId` resolves to the host component, not the item itself.
-     *
-     * @param {string} componentId - The host component ID (e.g., "droidHand-xyz").
+     * @param {string} componentId - The typed component ID (e.g., "comp-abc123...").
      * @param {string|null} entityId - Entity ID for error context logging.
-     * @returns {{ traits: Object, itemId: string }|null} Equipped item traits and itemId, or null if no item equipped.
+     * @returns {{ traits: Object, eqId: string }|null} Equipped item traits and eqId, or null if no item equipped.
      * @private
      */
     _resolveEquippedItemForHostComponent(componentId, entityId) {
@@ -213,64 +235,35 @@ class RequirementResolver {
             return null;
         }
 
-        // Build traits as a stats-like object (shallow copy per trait to prevent reference sharing)
+        // Build traits as a stats-like object (shallow copy per trait)
         const traits = {};
         for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
             traits[traitId] = { ...traitData };
         }
 
-        // Return both traits and the actual itemId used by EquippedItemStatsController
-        return { traits, itemId: equipped.itemId };
+        return { traits, eqId: equipped.eqId };
     }
 
     /**
-     * Legacy alias for backwards compatibility.
-     * @deprecated Use _resolveEquippedItemForHostComponent() instead — it returns both traits and itemId.
-     * @private
-     */
-    _resolveEquippedTraitsForHostComponent(componentId, entityId) {
-        const result = this._resolveEquippedItemForHostComponent(componentId, entityId);
-        if (!result) return null;
-        return result.traits;
-    }
-
-    /**
-     * Finds an equipped item by its componentId and returns both its traits AND itemId.
-     * Looks up the equipped item by componentId, then reads traits from inventoryItems.json.
+     * Finds an equipped item by its typed eqId and returns both its traits and eqId.
      *
-     * This method handles "equipped-" prefixed IDs (e.g., "equipped-abc-knife").
-     * It returns both traits and itemId so that consequence handlers can correctly
-     * route stat modifications (e.g., sharpness drain) to the equipped item's per-instance stats.
-     *
-     * @param {string} componentId - The equipped component ID (e.g., "equipped-abc123-knife").
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @param {string|null} entityId - Entity ID for error context logging.
-     * @returns {{ traits: Object, itemId: string }|null} Item traits and itemId, or null if not found.
+     * @returns {{ traits: Object, eqId: string }|null} Item traits and eqId, or null if not found.
      * @private
      */
-    _findEquippedItemData(componentId, entityId) {
+    _findEquippedItemByEqId(eqId, entityId) {
         const allEquipped = this.worldStateController.getAllEquippedItems() || [];
 
-        // Find matching equipped item by componentId
-        let equippedItem = allEquipped.find(eq => eq.componentId === componentId);
-
-        if (!equippedItem) {
-            // Fallback: parse itemId and itemType from "equipped-<itemId>-<itemType>" pattern
-            const parts = componentId.split('-');
-            if (parts.length >= 3) {
-                const itemType = parts[parts.length - 1];
-                const itemId = parts.slice(1, -1).join('-');
-                equippedItem = allEquipped.find(eq => eq.itemId === itemId && eq.itemType === itemType);
-            }
-        }
+        const equippedItem = allEquipped.find(eq => eq.eqId === eqId);
 
         if (!equippedItem) {
             if (entityId) {
-                Logger.warn(`[RequirementResolver] Equipped item "${componentId}" not found for entity "${entityId}".`);
+                Logger.warn(`[RequirementResolver] Equipped item "${eqId}" not found for entity "${entityId}".`);
             }
             return null;
         }
 
-        // Look up item definition from registry
         const itemRegistry = this.worldStateController.getItemRegistry() || {};
         const itemDef = itemRegistry[equippedItem.itemType];
         if (!itemDef?.traits) {
@@ -280,27 +273,12 @@ class RequirementResolver {
             return null;
         }
 
-        // Build traits as a stats-like object (shallow copy per trait to prevent reference sharing)
         const traits = {};
         for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
             traits[traitId] = { ...traitData };
         }
 
-        // Return both traits and the actual itemId used by EquippedItemStatsController
-        return { traits, itemId: equippedItem.itemId };
-    }
-
-    /**
-     * Resolves traits from an equipped item's definition (legacy alias).
-     * Delegates to _findEquippedItemData for backwards compatibility.
-     *
-     * @deprecated Use _findEquippedItemData() instead — it returns both traits and itemId.
-     * @private
-     */
-    _resolveEquippedItemTraits(componentId, entityId) {
-        const result = this._findEquippedItemData(componentId, entityId);
-        if (!result) return null;
-        return result.traits;
+        return { traits, eqId: equippedItem.eqId };
     }
 }
 

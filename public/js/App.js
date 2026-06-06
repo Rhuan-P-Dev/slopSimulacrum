@@ -30,6 +30,7 @@ import { InventoryManager } from './InventoryManager.js';
 import { OverlayManager } from './OverlayManager.js';
 import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
+import IdResolver from '/utils/IdResolver.js';
 
 export class ClientApp {
     constructor() {
@@ -145,8 +146,8 @@ export class ClientApp {
      */
     _setupActionCallback() {
         this.navActions.setExecuteActionCallback((actionName, entityId, componentId, componentIdentifier) => {
-            // Check if this is an equipped item click
-            if (componentId && componentId.startsWith('equipped-')) {
+            // Check if this is an equipped item click (uses typed eq- prefix)
+            if (componentId && IdResolver.isEquippedId(componentId)) {
                 this._handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier);
                 return;
             }
@@ -437,19 +438,22 @@ export class ClientApp {
      *
      * @private
      */
-    _handleEquippedItemClick(actionName, entityId, componentId, componentIdentifier) {
+    _handleEquippedItemClick(actionName, entityId, eqId, componentIdentifier) {
+        // eqId is a typed ID (eq-uuid) — no legacy parsing needed
         const droid = this.worldState.getActiveDroid();
         const state = this.worldState.getState();
-        if (!droid || !state) return;
+        if (!droid || !state) {
+            return;
+        }
 
-        // Parse componentId: "equipped-${itemId}-${itemType}"
-        const prefix = 'equipped-';
-        const afterPrefix = componentId.substring(prefix.length);
-        const lastDash = afterPrefix.lastIndexOf('-');
-        if (lastDash <= 0) return;
+        // Look up the equipped item to get itemId and itemType
+        const equippedItem = this.worldState.getEquippedItem(entityId, eqId);
+        if (!equippedItem) {
+            return;
+        }
 
-        const itemId = afterPrefix.substring(0, lastDash);
-        const itemType = afterPrefix.substring(lastDash + 1);
+        const itemId = equippedItem.itemId;
+        const itemType = equippedItem.itemType;
 
         const actionData = this.availableActions[actionName] || {};
 
@@ -457,9 +461,10 @@ export class ClientApp {
         // The drop flow is handled exclusively by the Inventory drop button → DropSelector path.
         if (actionData?.targetingType === 'component') {
             // Toggle component selection for attack — the existing targeting flow handles map click → executeComponentAttack
-            this.selection.toggleComponent(actionName, entityId, componentId, componentIdentifier);
-            // No need to execute immediately — targetingType 'component' actions require map targeting
-            // which is handled by EventDispatcher._handleComponentClick → executeComponentAttack
+            this.selection.toggleComponent(actionName, entityId, eqId, componentIdentifier);
+            // Ensure the action list reflects the selection (range indicator, etc.).
+            this.updateActionList();
+            this._updateNavActionsPanelIfOpen();
             return;
         }
 
@@ -472,7 +477,8 @@ export class ClientApp {
         let maxStrength = 0;
         if (droid.components) {
             for (const comp of droid.components) {
-                const stats = state.components?.instances?.[comp.id];
+                const compId = comp.id || comp;
+                const stats = state.components?.instances?.[compId];
                 if (stats?.Physical?.strength) {
                     maxStrength = Math.max(maxStrength, stats.Physical.strength);
                 }
@@ -482,7 +488,7 @@ export class ClientApp {
         const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
 
         // Store drop info — this is a DROP operation, not the item's primary action
-        this._pendingDropItem = { actionName: 'dropItem', entityId, itemId, itemType, componentId };
+        this._pendingDropItem = { actionName: 'dropItem', entityId, itemId, itemType, componentId: eqId };
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
     }
 
@@ -498,7 +504,7 @@ export class ClientApp {
             actions,
             entityId,
             onActionClick: (actionName, entityId, compId, compIdentifier) => {
-                if (compId && compId.startsWith('equipped-')) {
+                if (compId && IdResolver.isEquippedId(compId)) {
                     this._handleEquippedItemClick(actionName, entityId, compId, compIdentifier);
                     return;
                 }

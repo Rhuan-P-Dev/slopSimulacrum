@@ -120,8 +120,17 @@ class SelectionController {
      * @returns {Promise<void>}
      */
     async toggleComponent(actionName, entityId, componentId, componentIdentifier) {
+        console.log('[SelectionController DEBUG] === TOGGLE COMPONENT ===', {
+            actionName, entityId, componentId, componentIdentifier,
+            previousActiveActionName: this.activeActionName,
+            previousSelectedIds: Array.from(this.selectedComponentIds),
+            previousCrossSelections: Object.fromEntries(this.crossActionSelections),
+            availableActionsKeys: Object.keys(this.app.availableActions || {})
+        });
+
         const actionData = this.app.availableActions?.[actionName];
         const targetingType = actionData?.targetingType;
+        console.log('[SelectionController DEBUG] actionData:', { actionName, targetingType, hasActionData: !!actionData });
 
         // If clicking a different action than current active, switch actions
         if (this.activeActionName && this.activeActionName !== actionName) {
@@ -146,31 +155,47 @@ class SelectionController {
         // Toggle the component
         if (this.selectedComponentIds.has(componentId)) {
             this.selectedComponentIds.delete(componentId);
-            console.log(`[SelectionController] Component deselected: ${componentId}`, { actionName, componentId });
+            console.log(`[SelectionController DEBUG] → Component DESELECTED: ${componentId}`);
         } else {
             this.selectedComponentIds.add(componentId);
-            console.log(`[SelectionController] Component selected: ${componentId}`, { actionName, componentId });
+            console.log(`[SelectionController DEBUG] → Component SELECTED: ${componentId}`);
         }
+        console.log('[SelectionController DEBUG] After toggle, selectedComponentIds:', Array.from(this.selectedComponentIds));
 
         // For spatial/component/self_target actions: set pending action so map/entity clicks trigger execution
         if (this.selectedComponentIds.size > 0 && targetingType && targetingType !== 'none') {
+            console.log('[SelectionController DEBUG] → Calling actions._handleTargetingSelection:', {
+                actionName, entityId, componentId, componentIdentifier, targetingType
+            });
             this.actions._handleTargetingSelection(
                 actionName, entityId, componentId, componentIdentifier, targetingType
             );
+            console.log('[SelectionController DEBUG] → _handleTargetingSelection completed');
         } else if (this.selectedComponentIds.size === 0) {
             // If no components selected, clear pending
+            console.log('[SelectionController DEBUG] → No components selected, clearing pending action');
             this.actions.clearPendingAction();
+        } else {
+            console.log('[SelectionController DEBUG] → targetingType is none or null, NOT setting pending action');
         }
 
         // For self_target actions: execute immediately with selected component
         if (this.selectedComponentIds.size === 1 && targetingType === 'self_target') {
             const compId = Array.from(this.selectedComponentIds)[0];
+            console.log('[SelectionController DEBUG] → self_target action, executing immediately');
             await this.app.executor.executeSelfTarget(actionName, entityId, compId, componentIdentifier);
             // Clear pending action to prevent stale state on subsequent map clicks
             this.actions.clearPendingAction();
         }
 
+        console.log('[SelectionController DEBUG] → Final state:', {
+            activeActionName: this.activeActionName,
+            selectedComponentIds: Array.from(this.selectedComponentIds),
+            pendingAction: this.actions.getPendingAction()
+        });
+
         // Notify app of selection change (triggers UI re-render + synergy preview)
+        console.log('[SelectionController DEBUG] → Calling app.onSelectionChange()');
         this.app.onSelectionChange();
     }
 

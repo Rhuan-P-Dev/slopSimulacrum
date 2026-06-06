@@ -17,6 +17,7 @@
  */
 import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
+import { generateEquippedId } from '../../utils/idGenerator.js';
 
 /**
  * @typedef {Object} HoldingCostEntry
@@ -56,13 +57,14 @@ class HoldingCostController {
         this._validateHoldingCostDefinitions();
 
         /**
-         * Tracks which items are equipped: { [entityId]: { [itemId]: { itemType, componentId } } }
-         * @type {Object<string, Object<string, { itemType: string, componentId: string }>>}
+         * Tracks which items are equipped: { [entityId]: { [eqId]: { eqId, itemId, itemType, componentId } } }
+         * Each equipped item has a dedicated typed eqId for unambiguous identification.
+         * @type {Object<string, Object<string, { eqId: string, itemId: string, itemType: string, componentId: string }>>}
          */
         this._equippedItems = {};
 
         /**
-         * Tracks original component stats before equip (for undo): { [entityId]: { [itemId]: { [componentId]: originalStats } } }
+         * Tracks original component stats before equip (for undo): { [entityId]: { [eqId]: { [componentId]: originalStats } } }
          * @type {Object<string, Object<string, Object<string, Object>>>}
          */
         this._preEquipStats = {};
@@ -254,19 +256,22 @@ class HoldingCostController {
             );
         }
 
-        // Track equipped item
+        // Generate typed eqId for this equipped item
+        const eqId = generateEquippedId();
+
+        // Track equipped item with typed eqId
         if (!this._equippedItems[entityId]) {
             this._equippedItems[entityId] = {};
         }
-        this._equippedItems[entityId][itemId] = { itemType, componentId };
+        this._equippedItems[entityId][eqId] = { eqId, itemId, itemType, componentId };
 
         // Initialize in-memory stats for the equipped item (sharpness, durability, etc.)
-        this.equippedItemStats.initializeStats(itemId, itemType);
+        this.equippedItemStats.initializeStats(eqId, itemId, itemType);
 
         if (!this._preEquipStats[entityId]) {
             this._preEquipStats[entityId] = {};
         }
-        this._preEquipStats[entityId][itemId] = { [componentId]: originalStats };
+        this._preEquipStats[entityId][eqId] = { [componentId]: originalStats };
 
         // Re-evaluate entity capabilities so new actions become available
         const state = this.worldStateController.getAll();
@@ -277,7 +282,8 @@ class HoldingCostController {
     }
 
     /**
-     * Unequips an item from its component.
+     * Unequips an item from its component by item ID.
+     * Finds the eqId by itemId, then unequips.
      * Restores the component stats to pre-equip state and re-evaluates capabilities.
      *
      * @param {string} entityId - The entity ID.
@@ -285,13 +291,19 @@ class HoldingCostController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     unequipItem(entityId, itemId) {
-        const equippedItem = this._equippedItems[entityId]?.[itemId];
-        if (!equippedItem) {
+        // Find the eqId for this itemId
+        const items = this._equippedItems[entityId] || {};
+        const equippedEntry = Object.values(items).find(eq => eq.itemId === itemId);
+        if (!equippedEntry) {
             Logger.warn(`[HoldingCostController] Item "${itemId}" is not equipped on entity "${entityId}".`);
             return { success: false, message: `Item not equipped: ${itemId}` };
         }
+        const { eqId } = equippedEntry;
+        const equippedItem = equippedEntry;
 
         const { itemType, componentId } = equippedItem;
+
+        // Use eqId for cleanup tracking
         const definition = this._holdingCostDefinitions[itemType];
         if (!definition) {
             Logger.warn(`[HoldingCostController] No holding cost definition for item type "${itemType}" during unequip.`);
@@ -330,7 +342,7 @@ class HoldingCostController {
         }
 
         // Clean up tracking
-        this._cleanupTracking(entityId, itemId);
+        this._cleanupTracking(entityId, eqId);
 
         // Re-evaluate entity capabilities
         const state = this.worldStateController.getAll();
@@ -382,12 +394,13 @@ class HoldingCostController {
     /**
      * Gets all equipped items for an entity.
      * @param {string} entityId - The entity ID.
-     * @returns {Array<{ itemId: string, itemType: string, componentId: string }>}
+     * @returns {Array<{ eqId: string, itemId: string, itemType: string, componentId: string }>}
      */
     getEquippedItems(entityId) {
         const items = this._equippedItems[entityId] || {};
-        return Object.entries(items).map(([itemId, data]) => ({
-            itemId,
+        return Object.entries(items).map(([eqId, data]) => ({
+            eqId: data.eqId,
+            itemId: data.itemId,
             itemType: data.itemType,
             componentId: data.componentId
         }));
@@ -395,17 +408,17 @@ class HoldingCostController {
 
     /**
      * Gets all equipped items across all entities.
-     * Returns a deep copy filtered to exclude entries with invalid/empty itemId keys.
-     * @returns {Object<string, Object<string, { itemType: string, componentId: string }>>}
+     * Returns a deep copy filtered to exclude entries with invalid/empty eqId keys.
+     * @returns {Object<string, Object<string, { eqId: string, itemId: string, itemType: string, componentId: string }>>}
      */
     getAllEquippedItems() {
         const cloned = structuredClone(this._equippedItems);
         const filtered = {};
         for (const [entityId, items] of Object.entries(cloned)) {
             const validItems = {};
-            for (const [itemId, data] of Object.entries(items)) {
-                if (itemId && typeof itemId === 'string' && itemId.trim() !== '') {
-                    validItems[itemId] = data;
+            for (const [eqId, data] of Object.entries(items)) {
+                if (eqId && typeof eqId === 'string' && eqId.trim() !== '' && data?.eqId) {
+                    validItems[eqId] = data;
                 }
             }
             if (Object.keys(validItems).length > 0) {
@@ -413,6 +426,21 @@ class HoldingCostController {
             }
         }
         return filtered;
+    }
+
+    /**
+     * Returns the holding cost state for serialization/broadcast.
+     * Called by WorldStateController.getAll() to include holding cost data
+     * in the global world state. The format must match what
+     * WorldStateBroadcastService._transformForBroadcast() expects:
+     * holdingCost._equippedItems.
+     *
+     * @returns {{ _equippedItems: Object<string, Object<string, { eqId: string, itemId: string, itemType: string, componentId: string }>> }}
+     */
+    getAll() {
+        return {
+            _equippedItems: this.getAllEquippedItems()
+        };
     }
 
     /**
@@ -430,7 +458,8 @@ class HoldingCostController {
      * @returns {boolean}
      */
     isItemEquipped(entityId, itemId) {
-        return Boolean(this._equippedItems[entityId]?.[itemId]);
+        const items = this._equippedItems[entityId] || {};
+        return Object.values(items).some(eq => eq.itemId === itemId);
     }
 
     /**
@@ -440,7 +469,21 @@ class HoldingCostController {
      * @returns {string|null} The component ID, or null if not equipped.
      */
     getEquippedComponentId(entityId, itemId) {
-        return this._equippedItems[entityId]?.[itemId]?.componentId || null;
+        const items = this._equippedItems[entityId] || {};
+        const found = Object.values(items).find(eq => eq.itemId === itemId);
+        return found?.componentId || null;
+    }
+
+    /**
+     * Gets the eqId for an equipped item.
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID.
+     * @returns {string|null} The eqId, or null if not equipped.
+     */
+    getEquippedItemId(entityId, itemId) {
+        const items = this._equippedItems[entityId] || {};
+        const found = Object.values(items).find(eq => eq.itemId === itemId);
+        return found?.eqId || null;
     }
 
     // =========================================================================
@@ -485,15 +528,15 @@ class HoldingCostController {
     /**
      * Cleans up all tracking data for an equipped item.
      * @param {string} entityId - The entity ID.
-     * @param {string} itemId - The item ID.
+     * @param {string} eqId - The equipped item ID.
      * @private
      */
-    _cleanupTracking(entityId, itemId) {
+    _cleanupTracking(entityId, eqId) {
         if (this._equippedItems[entityId]) {
-            delete this._equippedItems[entityId][itemId];
+            delete this._equippedItems[entityId][eqId];
         }
         if (this._preEquipStats[entityId]) {
-            delete this._preEquipStats[entityId][itemId];
+            delete this._preEquipStats[entityId][eqId];
         }
     }
 }

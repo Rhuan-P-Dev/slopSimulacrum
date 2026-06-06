@@ -4,11 +4,14 @@
  *
  * Extracted from ActionController to adhere to the Single Responsibility Principle.
  *
+ * Uses typed IDs: component IDs are prefixed with `comp-` for unambiguous identification.
+ *
  * @module ComponentResolver
  */
 
 import Logger from '../../utils/Logger.js';
 import { componentSatisfiesRequirements } from '../../utils/RequirementChecker.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class ComponentResolver {
     /**
@@ -20,34 +23,65 @@ class ComponentResolver {
 
     /**
      * Builds a component list from action parameters.
+     * Validates that all componentIds are typed component IDs (comp-${uuid}) or equipped item IDs (eq-${uuid}).
      * @param {Object} params - Action parameters.
      * @returns {{ componentList: Array|null, sourceComponentId: string|null }}
      */
     buildComponentList(params) {
         if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
-            // Filter out malformed component IDs
-            const validComponentIds = params.componentIds.filter(c => 
-                c?.componentId && !c.componentId.includes('undefined') && !c.componentId.includes('null')
-            );
-            if (validComponentIds.length === 0 && params.componentIds.length > 0) {
-                Logger.warn(`[ComponentResolver] All provided component IDs are malformed for action.`);
+            // Validate that all componentIds are typed component IDs or equipped item IDs
+            const validComponentIds = [];
+            const invalidIds = [];
+
+            for (const comp of params.componentIds) {
+                const compId = typeof comp === 'object' ? comp?.componentId : comp;
+
+                if (!compId || typeof compId !== 'string') {
+                    invalidIds.push(compId);
+                    continue;
+                }
+
+                // Accept typed component IDs (comp-...), equipped item IDs (eq-...), and legacy raw UUIDs
+                if (IdResolver.isCompId(compId) || IdResolver.isEquippedId(compId) || this._isLegacyCompId(compId)) {
+                    const entry = typeof comp === 'object' ? comp : { componentId: compId, role: 'source' };
+                    validComponentIds.push(entry);
+                } else {
+                    invalidIds.push(compId);
+                }
+            }
+
+            if (invalidIds.length > 0 && validComponentIds.length === 0) {
+                Logger.warn(`[ComponentResolver] All provided component IDs are malformed for action. Invalid: ${invalidIds.join(', ')}`);
                 return { componentList: null, sourceComponentId: null };
             }
+
+            const sourceComponentId = validComponentIds.length > 0 ? validComponentIds[0]?.componentId : null;
             return {
-                componentList: validComponentIds.length > 0 ? validComponentIds : params.componentIds,
-                sourceComponentId: validComponentIds.length > 0 ? validComponentIds[0]?.componentId : params.componentIds[0]?.componentId
+                componentList: validComponentIds.length > 0 ? validComponentIds : null,
+                sourceComponentId
             };
         }
 
         if (params?.attackerComponentId || params?.targetComponentId) {
             const sourceComponentId = params.attackerComponentId || params.targetComponentId;
+            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || 'source' };
             return {
-                componentList: [{ componentId: sourceComponentId, role: params.selectedBindingRole || 'source' }],
+                componentList: [entry],
                 sourceComponentId
             };
         }
 
         return { componentList: null, sourceComponentId: null };
+    }
+
+    /**
+     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
+     * @param {string} id - The ID to check.
+     * @returns {boolean}
+     * @private
+     */
+    _isLegacyCompId(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     }
 
     /**
@@ -58,6 +92,8 @@ class ComponentResolver {
      * 3. targetComponentId (spatial/self_target with explicit selection)
      * 4. Auto-find by role (spatial → Movement, self_target → Physical)
      * 5. Fallback → entity-wide best component
+     *
+     * Accepts both component IDs (comp-*) and equipped item IDs (eq-*).
      *
      * @param {Object} action - The action definition.
      * @param {string} entityId - The entity ID.
@@ -71,10 +107,15 @@ class ComponentResolver {
 
         const binding = action.componentBinding;
 
-        // Reject malformed component IDs that contain undefined/null placeholders
+        // Validate and resolve component IDs from params
         const resolvedSourceComponentId = params?.attackerComponentId || params?.targetComponentId || params?.componentIds?.[0]?.componentId;
-        if (entityId && (resolvedSourceComponentId?.includes('undefined') || resolvedSourceComponentId?.includes('null'))) {
-            Logger.warn(`[ComponentResolver] Rejecting malformed component ID: "${resolvedSourceComponentId}" for entity "${entityId}".`);
+
+        // Validate that resolved ID is a typed component ID, equipped item ID, or legacy UUID
+        if (resolvedSourceComponentId && typeof resolvedSourceComponentId === 'string' &&
+            !IdResolver.isCompId(resolvedSourceComponentId) &&
+            !IdResolver.isEquippedId(resolvedSourceComponentId) &&
+            !this._isLegacyCompId(resolvedSourceComponentId)) {
+            Logger.warn(`[ComponentResolver] Invalid component ID format: "${resolvedSourceComponentId}". Must be a typed comp-..., eq-..., or raw UUID.`);
             return null;
         }
 
@@ -211,7 +252,7 @@ class ComponentResolver {
      * Finds a component by ID within an entity.
      * @private
      * @param {string} entityId - The entity ID.
-     * @param {string} componentId - The component ID.
+     * @param {string} componentId - The component ID (typed or legacy).
      * @returns {Object|null}
      */
     _findComponentById(entityId, componentId) {

@@ -1,4 +1,5 @@
 import Logger from '../../utils/Logger.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 /**
  * Default time-to-live (in milliseconds) for selections before they expire.
@@ -83,6 +84,47 @@ class ActionSelectController {
     }
 
     // =========================================================================
+    // ID RESOLUTION HELPERS
+    // =========================================================================
+
+    /**
+     * Resolves an ID to a component ID. If the ID is already a component ID (comp-*),
+     * it is returned unchanged. If it's an equipment ID (eq-*), it is resolved to the
+     * host component ID via the HoldingCostController.
+     *
+     * @param {string} id - The ID to resolve (can be comp-* or eq-*).
+     * @param {string} entityId - The entity ID (needed for equipment lookup).
+     * @returns {{ resolvedId: string, wasEquipped: boolean }} The resolved component ID and whether it was an equipped item.
+     */
+    _resolveToComponentId(id, entityId) {
+        if (!id) {
+            return { resolvedId: null, wasEquipped: false };
+        }
+
+        // If already a component ID, return as-is
+        if (IdResolver.isCompId(id)) {
+            return { resolvedId: id, wasEquipped: false };
+        }
+
+        // If an equipment ID, resolve to host component
+        if (IdResolver.isEquippedId(id)) {
+            const equippedItem = this.worldStateController.getEquippedItem(entityId, id);
+            if (equippedItem && equippedItem.componentId) {
+                Logger.info('[ActionSelectController] Resolved equipment ID to component ID', {
+                    eqId: id,
+                    componentId: equippedItem.componentId
+                });
+                return { resolvedId: equippedItem.componentId, wasEquipped: true };
+            }
+            Logger.warn('[ActionSelectController] Equipment ID not found for resolution', { eqId: id, entityId });
+            return { resolvedId: null, wasEquipped: true };
+        }
+
+        // Unknown ID type — return as-is (will fail validation later)
+        return { resolvedId: id, wasEquipped: false };
+    }
+
+    // =========================================================================
     // PUBLIC API: SELECTION MANAGEMENT
     // =========================================================================
 
@@ -98,6 +140,19 @@ class ActionSelectController {
      * @returns {{ success: boolean, error?: string }} Result of the registration.
      */
     registerSelection(actionName, componentId, entityId, role) {
+        // Resolve equipment IDs (eq-*) to their host component IDs (comp-*)
+        const resolution = this._resolveToComponentId(componentId, entityId);
+        if (!resolution.resolvedId) {
+            const error = resolution.wasEquipped
+                ? `Equipment ID "${componentId}" not found on entity "${entityId}".`
+                : `Invalid component ID format: "${componentId}".`;
+            Logger.warn('[ActionSelectController] Registration failed: resolution failed', {
+                componentId, entityId, error
+            });
+            return { success: false, error };
+        }
+        componentId = resolution.resolvedId;
+
         // Validate inputs
         if (!actionName || !componentId || !entityId || !role) {
             const error = 'All parameters (actionName, componentId, entityId, role) are required.';
@@ -118,6 +173,13 @@ class ActionSelectController {
         if (!entity) {
             const error = `Entity "${entityId}" not found.`;
             Logger.warn('[ActionSelectController] Registration failed: entity not found', { entityId });
+            return { success: false, error };
+        }
+
+        // Validate that componentId is a typed component ID (accept legacy UUID for compatibility)
+        if (!IdResolver.isCompId(componentId) && !this._isLegacyCompId(componentId)) {
+            const error = `Invalid component ID format: "${componentId}". Must be a typed comp-... ID.`;
+            Logger.warn('[ActionSelectController] Registration failed: invalid component ID format', { componentId });
             return { success: false, error };
         }
 
@@ -175,18 +237,40 @@ class ActionSelectController {
      * Returns valid=true if the component is locked to the given action,
      * or if no selection system is enforced (component is free).
      *
-     * @param {string} componentId - The component ID to validate.
+     * @param {string} componentId - The component ID to validate (can be comp-* or eq-*).
      * @param {string} actionName - The expected action name.
+     * @param {string} [entityId] - Optional entity ID for resolving equipment IDs.
      * @returns {{ valid: boolean, error?: string }} Validation result.
      */
-    validateSelection(componentId, actionName) {
+    validateSelection(componentId, actionName, entityId) {
         // Reject malformed component IDs containing undefined/null
         if (componentId && (componentId.includes('undefined') || componentId.includes('null'))) {
             Logger.warn(`[ActionSelectController] Rejecting malformed component ID: "${componentId}".`);
             return { valid: false, error: `Invalid component ID: ${componentId}` };
         }
 
-        const selection = this._selectionRegistry.get(componentId);
+        // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+        let resolvedId = componentId;
+        if (IdResolver.isEquippedId(componentId) && entityId) {
+            const resolution = this._resolveToComponentId(componentId, entityId);
+            if (resolution.resolvedId) {
+                resolvedId = resolution.resolvedId;
+            } else {
+                // Equipment ID not found — allow execution (backward compatible)
+                Logger.warn('[ActionSelectController] Equipment ID not found for validation, allowing execution', {
+                    eqId: componentId, entityId
+                });
+                return { valid: true };
+            }
+        }
+
+        // Validate component ID format (for non-equipment IDs)
+        if (!IdResolver.isCompId(resolvedId) && !this._isLegacyCompId(resolvedId)) {
+            Logger.warn(`[ActionSelectController] Invalid component ID format: "${resolvedId}".`);
+            return { valid: false, error: `Invalid component ID format: ${resolvedId}` };
+        }
+
+        const selection = this._selectionRegistry.get(resolvedId);
 
         if (!selection) {
             // Component is not locked — allow execution (backward compatible mode)
@@ -215,18 +299,29 @@ class ActionSelectController {
 
     /**
      * Release (unlock) a component after action completion.
+     * Resolves equipment IDs (eq-*) to host component IDs (comp-*) before releasing.
      *
-     * @param {string} componentId - The component ID to release.
+     * @param {string} componentId - The component ID to release (can be comp-* or eq-*).
+     * @param {string} [entityId] - Optional entity ID for resolving equipment IDs.
      * @returns {boolean} True if the component was released, false if it wasn't locked.
      */
-    releaseSelection(componentId) {
-        if (!this._selectionRegistry.has(componentId)) {
+    releaseSelection(componentId, entityId) {
+        // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+        let resolvedId = componentId;
+        if (IdResolver.isEquippedId(componentId) && entityId) {
+            const resolution = this._resolveToComponentId(componentId, entityId);
+            if (resolution.resolvedId) {
+                resolvedId = resolution.resolvedId;
+            }
+        }
+
+        if (!this._selectionRegistry.has(resolvedId)) {
             Logger.info('[ActionSelectController] Release skipped: not locked', { componentId });
             return false;
         }
 
-        const selection = this._selectionRegistry.get(componentId);
-        this._selectionRegistry.delete(componentId);
+        const selection = this._selectionRegistry.get(resolvedId);
+        this._selectionRegistry.delete(resolvedId);
 
         Logger.info('[ActionSelectController] Component released', {
             componentId,
@@ -427,9 +522,30 @@ class ActionSelectController {
             return { success: false, errors: [error] };
         }
 
-        // Validate all components exist on the entity first (atomic check)
+        // Resolve equipment IDs (eq-*) to host component IDs (comp-*) for all components
+        const resolvedComponents = [];
+        const errors = [];
+
+        for (const { componentId, role } of componentList) {
+            const resolution = this._resolveToComponentId(componentId, entityId);
+            if (!resolution.resolvedId) {
+                errors.push(resolution.wasEquipped
+                    ? `Equipment ID "${componentId}" not found on entity "${entityId}".`
+                    : `Invalid component ID format: "${componentId}".`
+                );
+                continue;
+            }
+            resolvedComponents.push({ componentId: resolution.resolvedId, role });
+        }
+
+        if (errors.length > 0) {
+            Logger.warn('[ActionSelectController] Batch registration failed: resolution errors', { errors });
+            return { success: false, errors };
+        }
+
+        // Validate all resolved components exist on the entity first (atomic check)
         const missingComponents = [];
-        for (const { componentId } of componentList) {
+        for (const { componentId } of resolvedComponents) {
             const component = entity.components.find((c) => c.id === componentId);
             if (!component) {
                 missingComponents.push(componentId);
@@ -444,7 +560,7 @@ class ActionSelectController {
 
         // Check if any component is already locked to a DIFFERENT action
         const conflicts = [];
-        for (const { componentId, role } of componentList) {
+        for (const { componentId, role } of resolvedComponents) {
             const existing = this._selectionRegistry.get(componentId);
             if (existing && existing.actionName !== actionName) {
                 conflicts.push({ componentId, lockedAction: existing.actionName, lockedEntity: existing.entityId });
@@ -461,7 +577,7 @@ class ActionSelectController {
         }
 
         // All validations passed — lock all components
-        for (const { componentId, role } of componentList) {
+        for (const { componentId, role } of resolvedComponents) {
             const existing = this._selectionRegistry.get(componentId);
             if (existing && existing.actionName === actionName) {
                 // Same action — refresh the lock timestamp
@@ -480,11 +596,11 @@ class ActionSelectController {
         Logger.info('[ActionSelectController] Batch selection registered', {
             actionName,
             entityId,
-            componentCount: componentList.length,
-            componentIds: componentList.map((c) => c.componentId)
+            componentCount: resolvedComponents.length,
+            componentIds: resolvedComponents.map((c) => c.componentId)
         });
 
-        return { success: true, lockedCount: componentList.length };
+        return { success: true, lockedCount: resolvedComponents.length };
     }
 
     /**
@@ -492,9 +608,10 @@ class ActionSelectController {
      *
      * @param {string} actionName - The expected action name.
      * @param {Array<string>} componentIds - Array of component IDs to validate.
+     * @param {string} [entityId] - Optional entity ID for resolving equipment IDs.
      * @returns {{ valid: boolean, error?: string, invalidComponents?: string[] }} Validation result.
      */
-    validateSelections(actionName, componentIds) {
+    validateSelections(actionName, componentIds, entityId) {
         if (!Array.isArray(componentIds) || componentIds.length === 0) {
             return { valid: false, error: 'componentIds must be a non-empty array.' };
         }
@@ -503,15 +620,23 @@ class ActionSelectController {
         const validComponentIds = componentIds.filter(cid =>
             cid && typeof cid === 'string' && !cid.includes('undefined') && !cid.includes('null')
         );
-        if (validComponentIds.length === 0 && componentIds.length > 0) {
-            Logger.warn('[ActionSelectController] All provided component IDs are malformed.');
-            return { valid: false, error: 'All component IDs are invalid.' };
-        }
 
         const invalidComponents = [];
 
-        for (const componentId of componentIds) {
-            const selection = this._selectionRegistry.get(componentId);
+        for (const componentId of validComponentIds) {
+            // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+            let resolvedId = componentId;
+            if (IdResolver.isEquippedId(componentId) && entityId) {
+                const resolution = this._resolveToComponentId(componentId, entityId);
+                if (resolution.resolvedId) {
+                    resolvedId = resolution.resolvedId;
+                } else {
+                    // Equipment ID not found — skip validation (backward compatible)
+                    continue;
+                }
+            }
+
+            const selection = this._selectionRegistry.get(resolvedId);
 
             if (!selection) {
                 // Component is not locked — allow execution (backward compatible mode)
@@ -539,7 +664,7 @@ class ActionSelectController {
 
         Logger.info('[ActionSelectController] Batch selections validated', {
             actionName,
-            componentCount: componentIds.length
+            componentCount: validComponentIds.length
         });
 
         return { valid: true };
@@ -547,11 +672,13 @@ class ActionSelectController {
 
     /**
      * Release multiple components after action completion.
+     * Resolves equipment IDs (eq-*) to host component IDs (comp-*) before releasing.
      *
-     * @param {Array<string>} componentIds - Array of component IDs to release.
+     * @param {Array<string>} componentIds - Array of component IDs to release (can be comp-* or eq-*).
+     * @param {string} [entityId] - Optional entity ID for resolving equipment IDs.
      * @returns {{ released: boolean, releasedCount: number }} Result.
      */
-    releaseSelections(componentIds) {
+    releaseSelections(componentIds, entityId) {
         if (!Array.isArray(componentIds)) {
             componentIds = [componentIds];
         }
@@ -559,9 +686,18 @@ class ActionSelectController {
         let releasedCount = 0;
 
         for (const componentId of componentIds) {
-            if (this._selectionRegistry.has(componentId)) {
-                const selection = this._selectionRegistry.get(componentId);
-                this._selectionRegistry.delete(componentId);
+            // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+            let resolvedId = componentId;
+            if (IdResolver.isEquippedId(componentId) && entityId) {
+                const resolution = this._resolveToComponentId(componentId, entityId);
+                if (resolution.resolvedId) {
+                    resolvedId = resolution.resolvedId;
+                }
+            }
+
+            if (this._selectionRegistry.has(resolvedId)) {
+                const selection = this._selectionRegistry.get(resolvedId);
+                this._selectionRegistry.delete(resolvedId);
 
                 Logger.info('[ActionSelectController] Component released (batch)', {
                     componentId,
@@ -614,6 +750,16 @@ class ActionSelectController {
      */
     getLockedComponentsForAction(actionName) {
         return this.getSelectionsForAction(actionName);
+    }
+
+    /**
+     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
+     * @param {string} id - The ID to check.
+     * @returns {boolean}
+     * @private
+     */
+    _isLegacyCompId(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     }
 }
 

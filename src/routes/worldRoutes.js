@@ -11,12 +11,14 @@ import DataLoader from '../utils/DataLoader.js';
 export function register(router, { worldStateController, broadcastService }) {
 	/**
 	 * GET /world-state
-	 * Returns the current state of the world.
+	 * Returns the current state of the world (with typed-ID transformation applied).
 	 */
 	router.get('/world-state', (req, res) => {
 		try {
 			const worldState = worldStateController.getAll();
-			res.json({ state: worldState });
+			// Apply the same transformation used by broadcast to ensure entity.equipped is populated
+			const transformedState = broadcastService._transformForBroadcast(worldState);
+			res.json({ state: transformedState });
 		} catch (error) {
 			Logger.error('/world-state endpoint error', { error: error.message });
 			res.status(500).json({

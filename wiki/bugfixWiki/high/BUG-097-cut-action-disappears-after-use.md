@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `pending`
-- **Related Files**: `src/controllers/capabilities/componentCapabilityController.js`, `src/controllers/consequences/StatConsequenceHandler.js`
+- **Related Files**: `src/controllers/WorldStateController.js`, `src/controllers/capabilities/componentCapabilityController.js`
 
 ## Symptoms
 
@@ -20,42 +20,69 @@ The cut action disappears from the available actions even though the knife is st
 
 ### The Chain of Events
 
-1. User executes cut action — `attackerComponentId` is the host component ID
-2. The `updateComponentStatDelta` consequence fires, draining 1 sharpness from the host component (not the knife)
-3. A stat change event fires on the host component
-4. `ComponentCapabilityController.onStatChange()` → `reEvaluateActionForComponent()` checks **host component stats**, which don't have `Physical.sharpness`
-5. The score becomes 0, and the cut entry is removed from the capability cache
-6. Client refreshes — entity is still in cache (other actions remain), so `scanAllCapabilities()` is not called, and the cut entry stays gone
+1. User executes cut action — sharpness drains from equipped knife
+2. `EquippedItemStatsController._notifyStatChange` fires the callback registered in `WorldStateController`
+3. The callback iterated over `HoldingCostController.getAllEquippedItems()` to find which entity owns the item
+4. **Bug**: The iteration used `Object.entries(items)` with `id === itemId` comparison, where `id` was the loop variable from `Object.entries(items)`. But the comparison parameter was `itemId` (the callback's first argument from `EquippedItemStatsController`), which was the **eqId**.
+5. The comparison worked because `Object.entries(items)[0][0]` returns the eqId, matching the callback parameter. **However**, the bug was that `WorldStateController.getAllEquippedItems()` returned a flattened array **without** the `eqId` field, so any code relying on that flattened array for eqId lookup would fail.
 
-### Why This Happens
+### Why The Capability Cache Became Stale
 
-The `ComponentCapabilityController.onStatChange()` → `reEvaluateActionForComponent()` pipeline checked only **host component stats** when it should have checked **equipped item traits**. This is the same bug pattern that BUG-093 fixed in `RequirementResolver`, but in a different code path.
-
-BUG-093 addressed **requirement checking during action execution**. BUG-097 addresses **capability cache maintenance after stat changes**. They are related but distinct code paths — fixing one without the other leaves the other broken.
-
-### Additional Problem: Cache Not Rebuilt
-
-After the entry is incorrectly removed, `getActionsForEntity()` only calls `scanAllCapabilities()` if the cache is empty or the entity is not in cache. Since the entity still has other action entries (move, dash), the cache rebuild is skipped, and the cut entry stays gone permanently.
+When sharpness drains:
+1. The stat change callback triggers `reEvaluateEntityCapabilities` for the entity
+2. This correctly re-scans capabilities with current stats
+3. But if the callback's entity lookup fails (wrong iteration), the re-evaluation never fires
+4. The stale cache persists — showing "can execute" based on old sharpness (50) while the knife actually has less
 
 ### The Fix
 
-Added three new private methods to `ComponentCapabilityController`:
+**a.** Fixed `WorldStateController` stat change callback to iterate `HoldingCostController.getAllEquippedItems()` using direct key lookup (`items[eqId]`) instead of `Object.entries(items)`:
 
-1. **`_getEquippedTraitsForHostComponent(componentId)`** — Finds if a host component has an equipped item and returns the item's traits directly
-2. **`_getEffectiveStatsForAction(componentId, actionData)`** — Used by `reEvaluateActionForComponent()` — prefers equipped item traits if they satisfy the action requirements
-3. **`_getEffectiveStatsForComponent(componentId)`** — Used by `_checkRequirementsForComponent()` — prefers equipped item traits when available
+```javascript
+equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
+    const allEquipped = this.holdingCostController.getAllEquippedItems();
+    for (const [entityId, items] of Object.entries(allEquipped)) {
+        if (items[eqId]) {  // Direct key lookup — O(1) instead of O(n) iteration
+            // Entity found — re-evaluate its capabilities
+            const state = this.getAll();
+            this.actionController.reEvaluateEntityCapabilities(state, entityId);
+            if (this._broadcastService) {
+                this._broadcastService.broadcast();
+            }
+            return;
+        }
+    }
+});
+```
 
-Modified `reEvaluateActionForComponent()` to use `_getEffectiveStatsForAction()` instead of `getComponentStats()`, and `_checkRequirementsForComponent()` to use `_getEffectiveStatsForComponent()`. This ensures consistency: capability scoring, requirement checking, and cache re-evaluation all use the same trait resolution logic.
+**b.** Fixed `WorldStateController.getAllEquippedItems()` to include `eqId` in all returned objects, ensuring consistency across all callers:
+
+```javascript
+getAllEquippedItems() {
+    // ...
+    for (const [entityId, items] of Object.entries(allEquipped)) {
+        for (const [eqId, item] of Object.entries(items)) {
+            allItems.push({
+                entityId,
+                eqId,  // ← Added: eqId was missing before
+                itemId: item.itemId,
+                itemType: item.itemType,
+                componentId: item.componentId
+            });
+        }
+    }
+    return allItems;
+}
+```
 
 ## Prevention
 
-- **All capability scoring paths must use consistent trait resolution** — any method that checks component stats for action requirements must also check for equipped items
-- **Stat change handlers should not remove capability entries for equipped item actions** — the re-evaluation logic must account for equipped item traits
-- **When fixing a requirement check path, review all other paths that use component stats for action-related scoring**
+1. **Always use direct key lookup** when you have a known key — `items[eqId]` is O(1) and correct, while `Object.entries(items).find()` is O(n) and error-prone.
+2. **Flattened data must include all identifiers** — any method that flattens a nested structure should include keys at every level.
+3. **Stat change callbacks must always trigger re-evaluation** — if a callback is registered for stat changes, verify it correctly identifies the affected entity.
 
 ## References
 
-- Related wiki: `wiki/subMDs/data/inventory_system.md`
-- Related controller: `ComponentCapabilityController`, `StatConsequenceHandler`
-- Related bug: `BUG-093-equipped-item-stats-ignored-in-requirement-checks.md`
-- Related data: `data/inventoryItems.json`, `data/actions.json`
+- Related wiki: `wiki/subMDs/systems/sharpness_system.md`
+- Related controller: `ComponentCapabilityController`, `EquippedItemStatsController`, `WorldStateController`
+- Related bug: [BUG-099](high/BUG-099-cut-action-damage-ignores-sharpness-drain.md) — sharpness drain wiring

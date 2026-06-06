@@ -5,6 +5,41 @@
  * @module routes/inventoryRoutes
  */
 import Logger from '../utils/Logger.js';
+import IdResolver from '../utils/IdResolver.js';
+
+// TYPED ID MIGRATION: Typed ID validation helper functions
+/**
+ * Validates that an ID is a typed entity ID (ent-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateEntityId(id, context) {
+    if (!IdResolver.isEntityId(id)) {
+        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "ent-<uuid>".` };
+    }
+    return { valid: true };
+}
+
+/**
+ * Validates that an ID is a typed component ID (comp-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateCompId(id, context) {
+    if (!IdResolver.isCompId(id)) {
+        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "comp-<uuid>".` };
+    }
+    return { valid: true };
+}
+
+/**
+ * Validates that an ID is a typed item ID (item-uuid).
+ * Returns { valid: true } or { valid: false, error: string }.
+ */
+function validateItemId(id, context) {
+    if (!IdResolver.isItemId(id)) {
+        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "item-<uuid>".` };
+    }
+    return { valid: true };
+}
 
 /**
  * Registers inventory-related routes with the given Express router.
@@ -64,6 +99,13 @@ export default function register(router, { worldStateController }) {
 	router.get('/inventory/:entityId', (req, res) => {
 		try {
 			const { entityId } = req.params;
+			
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+
 			const items = worldStateController.getEntityItems(entityId);
 			res.json({ items });
 		} catch (error) {
@@ -86,6 +128,12 @@ export default function register(router, { worldStateController }) {
 			const { entityId } = req.params;
 			const { itemType, componentId } = req.body;
 
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/add params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+
 			if (!itemType) {
 				return res.status(400).json({
 					error: 'Bad Request',
@@ -98,6 +146,12 @@ export default function register(router, { worldStateController }) {
 					error: 'Bad Request',
 					message: 'componentId is required: all items must be attached to a component.',
 				});
+			}
+
+			// TYPED ID MIGRATION: Validate componentId format
+			const compValidation = validateCompId(componentId, 'POST /inventory/:entityId/add body');
+			if (!compValidation.valid) {
+				return res.status(400).json({ error: compValidation.error });
 			}
 
 			const result = worldStateController.addItemToEntity(entityId, itemType, componentId);
@@ -126,6 +180,17 @@ export default function register(router, { worldStateController }) {
 	router.delete('/inventory/:entityId/remove/:itemId', (req, res) => {
 		try {
 			const { entityId, itemId } = req.params;
+
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'DELETE /inventory/:entityId/remove/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'DELETE /inventory/:entityId/remove/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			const result = worldStateController.removeItemFromEntity(entityId, itemId);
 
 			if (!result.success) {
@@ -155,11 +220,27 @@ export default function register(router, { worldStateController }) {
 			const { entityId, itemId } = req.params;
 			const { targetComponentId } = req.body;
 
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/move/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/move/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			if (!targetComponentId) {
 				return res.status(400).json({
 					error: 'Bad Request',
 					message: 'targetComponentId is required.',
 				});
+			}
+
+			// TYPED ID MIGRATION: Validate targetComponentId format
+			const compValidation = validateCompId(targetComponentId, 'POST /inventory/:entityId/move/:itemId body');
+			if (!compValidation.valid) {
+				return res.status(400).json({ error: compValidation.error });
 			}
 
 			const result = worldStateController.moveItemInEntity(entityId, itemId, targetComponentId);
@@ -191,6 +272,16 @@ export default function register(router, { worldStateController }) {
 			const { entityId, itemId } = req.params;
 			const { itemType, componentId } = req.body;
 
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/equip/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/equip/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			if (!itemType) {
 				return res.status(400).json({
 					error: 'Bad Request',
@@ -203,6 +294,12 @@ export default function register(router, { worldStateController }) {
 					error: 'Bad Request',
 					message: 'componentId is required.',
 				});
+			}
+
+			// TYPED ID MIGRATION: Validate componentId format
+			const compValidation = validateCompId(componentId, 'POST /inventory/:entityId/equip/:itemId body');
+			if (!compValidation.valid) {
+				return res.status(400).json({ error: compValidation.error });
 			}
 
 			const result = worldStateController.equipItem(entityId, itemId, itemType, componentId);
@@ -233,6 +330,16 @@ export default function register(router, { worldStateController }) {
 		try {
 			const { entityId, itemId } = req.params;
 
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/unequip/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/unequip/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			const result = worldStateController.unequipItem(entityId, itemId);
 
 			if (!result.success) {
@@ -262,11 +369,31 @@ export default function register(router, { worldStateController }) {
 			const { entityId, itemId } = req.params;
 			const { itemType, fromComponentId, toComponentId } = req.body;
 
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/transfer/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/transfer/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			if (!itemType || !fromComponentId || !toComponentId) {
 				return res.status(400).json({
 					error: 'Bad Request',
 					message: 'itemType, fromComponentId, and toComponentId are required.',
 				});
+			}
+
+			// TYPED ID MIGRATION: Validate componentId formats
+			const fromCompValidation = validateCompId(fromComponentId, 'POST /inventory/:entityId/transfer/:itemId body');
+			if (!fromCompValidation.valid) {
+				return res.status(400).json({ error: fromCompValidation.error });
+			}
+			const toCompValidation = validateCompId(toComponentId, 'POST /inventory/:entityId/transfer/:itemId body');
+			if (!toCompValidation.valid) {
+				return res.status(400).json({ error: toCompValidation.error });
 			}
 
 			const result = worldStateController.transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId);
@@ -296,6 +423,13 @@ export default function register(router, { worldStateController }) {
     router.get('/inventory/:entityId/equipped', (req, res) => {
         try {
             const { entityId } = req.params;
+            
+            // TYPED ID MIGRATION: Validate entityId format
+            const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/equipped params');
+            if (!entityIdValidation.valid) {
+                return res.status(400).json({ error: entityIdValidation.error });
+            }
+
             const equipped = worldStateController.getEquippedItems(entityId);
             res.json({ equipped });
         } catch (error) {
@@ -321,6 +455,16 @@ export default function register(router, { worldStateController }) {
     router.get('/inventory/:entityId/item-stats/:itemId', (req, res) => {
         try {
             const { entityId, itemId } = req.params;
+
+            // TYPED ID MIGRATION: Validate entityId and itemId formats
+            const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/item-stats/:itemId params');
+            if (!entityIdValidation.valid) {
+                return res.status(400).json({ error: entityIdValidation.error });
+            }
+            const itemIdValidation = validateItemId(itemId, 'GET /inventory/:entityId/item-stats/:itemId params');
+            if (!itemIdValidation.valid) {
+                return res.status(400).json({ error: itemIdValidation.error });
+            }
 
             const stats = worldStateController.getItemStats(entityId, itemId);
             if (!stats) {
@@ -350,11 +494,10 @@ export default function register(router, { worldStateController }) {
 		try {
 			const { entityId } = req.params;
 
-			if (!entityId) {
-				return res.status(400).json({
-					error: 'Bad Request',
-					message: 'entityId is required.',
-				});
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/capable-drop-components params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
 			}
 
 			const entity = worldStateController.getEntity(entityId);
@@ -418,11 +561,10 @@ export default function register(router, { worldStateController }) {
 		try {
 			const { entityId } = req.params;
 
-			if (!entityId) {
-				return res.status(400).json({
-					error: 'Bad Request',
-					message: 'entityId is required.',
-				});
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/capable-pickup-components params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
 			}
 
 			const entity = worldStateController.getEntity(entityId);
@@ -501,6 +643,13 @@ export default function register(router, { worldStateController }) {
 	router.delete('/inventory/dropped/:droppedItemId', (req, res) => {
 		try {
 			const { droppedItemId } = req.params;
+
+			// TYPED ID MIGRATION: Validate droppedItemId format
+			const itemIdValidation = validateItemId(droppedItemId, 'DELETE /inventory/dropped/:droppedItemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
 			const result = worldStateController.removeDroppedItem(droppedItemId);
 
 			if (!result.success) {

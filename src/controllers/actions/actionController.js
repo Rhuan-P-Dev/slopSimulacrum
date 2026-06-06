@@ -6,6 +6,7 @@ import RangeValidator from './RangeValidator.js';
 import ComponentResolver from './ComponentResolver.js';
 import RequirementResolver from './RequirementResolver.js';
 import ConsequenceDispatcher from '../consequences/ConsequenceDispatcher.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 /**
  * Component action binding roles — defines which body part participates in which action.
@@ -221,6 +222,17 @@ class ActionController {
         if (typeof entityId !== 'string' || entityId.trim() === '') {
             throw new TypeError('Invalid entityId: must be a non-empty string.');
         }
+
+        // Validate entityId is a typed entity ID
+        if (!IdResolver.isEntityId(entityId) && !this._isLegacyEntityId(entityId)) {
+            Logger.warn(`[ActionController] Invalid entity ID format: "${entityId}". Must be a typed ent-... ID or raw UUID.`);
+            return {
+                success: false,
+                error: `Invalid entity ID format: ${entityId}`,
+                code: 'INVALID_ENTITY_ID'
+            };
+        }
+
         if (typeof params !== 'object' || params === null || Array.isArray(params)) {
             throw new TypeError('Invalid params: must be an object.');
         }
@@ -253,8 +265,8 @@ class ActionController {
             // ─── Component Selection Validation ───────────────────────────────
             if (this.actionSelectController && sourceComponentId && !isSpatial) {
                 const validationCheck = componentList
-                    ? this.actionSelectController.validateSelections(actionName, componentList.map(c => c.componentId))
-                    : this.actionSelectController.validateSelection(sourceComponentId, actionName);
+                    ? this.actionSelectController.validateSelections(actionName, componentList.map(c => c.componentId), entityId)
+                    : this.actionSelectController.validateSelection(sourceComponentId, actionName, entityId);
 
                 if (!validationCheck.valid) {
                     const errorMessage = Array.isArray(validationCheck.error)
@@ -309,53 +321,25 @@ class ActionController {
             }
 
             // ─── Handle Equipped Item Actions ───────────────────────────────
-            // When a player clicks an equipped item in the UI, the componentId
-            // comes in the format "equipped-${itemId}-${itemType}" (e.g.,
-            // "equipped-abc123-knife"). We must validate this is a real equipped
-            // item before executing, and resolve to the host component for
-            // consequence handling.
+            // Equipped items now use typed eqId (eq-${uuid}).
+            // Track the eqId separately so consequence handlers can route to EquippedItemStatsController.
+            // The resolvedSourceComponentId is preserved as the eqId for consequence routing,
+            // while a separate hostComponentId is used for validation/lookup purposes.
             let resolvedSourceComponentId = this.componentResolver.resolveSourceComponent(
                 action, entityId, params, requirementCheckResult
             );
+            let hostComponentId = null;
 
-            if (resolvedSourceComponentId && resolvedSourceComponentId.startsWith('equipped-')) {
-                // Reject malformed equipped component IDs (e.g., "equipped-undefined-knife")
-                if (resolvedSourceComponentId.includes('undefined') || resolvedSourceComponentId.includes('null')) {
-                    Logger.warn(`[ActionController] Rejecting malformed equipped component ID: "${resolvedSourceComponentId}" for entity "${entityId}".`);
-                    return {
-                        success: false,
-                        error: `Invalid component ID: ${resolvedSourceComponentId}`,
-                        code: 'INVALID_COMPONENT_ID'
-                    };
-                }
-
+            if (resolvedSourceComponentId && IdResolver.isEquippedId(resolvedSourceComponentId)) {
+                // Resolve eqId to the actual equipped item data
                 const allEquipped = this.worldStateController.getAllEquippedItems();
                 let foundEquipped = null;
 
-                // Try to find the equipped item by matching componentId directly first
                 if (allEquipped && Array.isArray(allEquipped)) {
                     for (const eq of allEquipped) {
-                        if (eq.componentId === resolvedSourceComponentId) {
+                        if (eq.eqId === resolvedSourceComponentId) {
                             foundEquipped = eq;
                             break;
-                        }
-                    }
-
-                    // Fallback: try matching by extracting itemId+itemType from the ID
-                    if (!foundEquipped) {
-                        const prefix = 'equipped-';
-                        const afterPrefix = resolvedSourceComponentId.substring(prefix.length);
-                        // Try splitting from the right: last part is itemType
-                        const lastDash = afterPrefix.lastIndexOf('-');
-                        if (lastDash > 0) {
-                            const potentialItemId = afterPrefix.substring(0, lastDash);
-                            const potentialItemType = afterPrefix.substring(lastDash + 1);
-                            for (const eq of allEquipped) {
-                                if (eq.itemId === potentialItemId && eq.itemType === potentialItemType) {
-                                    foundEquipped = eq;
-                                    break;
-                                }
-                            }
                         }
                     }
                 }
@@ -369,13 +353,14 @@ class ActionController {
                     };
                 }
 
-                // Use the host component for consequence handling
-                resolvedSourceComponentId = foundEquipped.componentId;
+                // Store the host component ID separately for validation purposes
+                hostComponentId = foundEquipped.componentId;
 
-                // Re-validate with the actual host component
+                // Re-validate with the host component (but DO NOT overwrite resolvedSourceComponentId)
+                // The eqId is preserved so consequence handlers can route to EquippedItemStatsController
                 if (action.componentBinding) {
                     const bindingValidation = this.componentResolver.validateComponentBinding(
-                        action, entityId, resolvedSourceComponentId, params
+                        action, entityId, hostComponentId, params
                     );
                     if (!bindingValidation.valid) {
                         return { success: false, error: bindingValidation.reason };
@@ -394,6 +379,33 @@ class ActionController {
                 componentsToRelease.push(resolvedSourceComponentId);
             }
 
+            // ─── Validate Component IDs are properly formatted ──────────────
+            // Validate attackerComponentId is a typed component ID or equipped item ID
+            if (params?.attackerComponentId) {
+                const atkId = params.attackerComponentId;
+                if (!IdResolver.isCompId(atkId) && !IdResolver.isEquippedId(atkId) && !this._isLegacyCompId(atkId)) {
+                    Logger.warn(`[ActionController] Invalid attacker component ID: "${atkId}"`);
+                    return {
+                        success: false,
+                        error: `Invalid attacker component ID: ${atkId}`,
+                        code: 'INVALID_COMPONENT_ID'
+                    };
+                }
+            }
+
+            // Validate targetComponentId is a typed component ID
+            if (params?.targetComponentId) {
+                const tgtId = params.targetComponentId;
+                if (!IdResolver.isCompId(tgtId) && !this._isLegacyCompId(tgtId)) {
+                    Logger.warn(`[ActionController] Invalid target component ID: "${tgtId}"`);
+                    return {
+                        success: false,
+                        error: `Invalid target component ID: ${tgtId}`,
+                        code: 'INVALID_COMPONENT_ID'
+                    };
+                }
+            }
+
             // ─── Validate Component Binding ─────────────────────────────────
             if (!resolvedSourceComponentId && action.componentBinding) {
                 return {
@@ -405,8 +417,13 @@ class ActionController {
                 };
             }
 
+            // Validate with eqId for equipped items (the eqId IS the valid source for consequence routing)
+            // For non-equip items, validate with hostComponentId
             if (resolvedSourceComponentId) {
-                const bindingValidation = this.componentResolver.validateComponentBinding(action, entityId, resolvedSourceComponentId, params);
+                const validationTarget = IdResolver.isEquippedId(resolvedSourceComponentId)
+                    ? resolvedSourceComponentId  // eqId is the valid source for consequence routing
+                    : (hostComponentId || resolvedSourceComponentId);
+                const bindingValidation = this.componentResolver.validateComponentBinding(action, entityId, validationTarget, params);
                 if (!bindingValidation.valid) {
                     return { success: false, error: bindingValidation.reason };
                 }
@@ -423,6 +440,14 @@ class ActionController {
             }
 
             // ─── Execute Consequences (delegated to ConsequenceDispatcher) ──
+            // For equipped item actions, pass hostComponentId so the dispatcher can
+            // resolve 'self' targets correctly (route to EquippedItemStatsController).
+            if (resolvedSourceComponentId && IdResolver.isEquippedId(resolvedSourceComponentId) && hostComponentId) {
+                // Attach hostComponentId to params for consequence routing
+                params.hostComponentId = hostComponentId;
+                Logger.info(`[ActionController] Equipped item action "${actionName}": eqId="${resolvedSourceComponentId}", hostComponentId="${hostComponentId}"`);
+            }
+
             // Data-driven: ANY component-targeted action supports multi-attacker synergy
             let consequenceResult;
             if (action.targetingType === 'component' && attackerComponentIds.length > 1 && params.targetComponentId) {
@@ -450,9 +475,33 @@ class ActionController {
             };
         } finally {
             if (this.actionSelectController && componentsToRelease.length > 0) {
-                this.actionSelectController.releaseSelections(componentsToRelease);
+                this.actionSelectController.releaseSelections(componentsToRelease, entityId);
             }
         }
+    }
+
+    // =========================================================================
+    // PRIVATE: LEGACY ID HELPERS
+    // =========================================================================
+
+    /**
+     * Checks if an ID looks like a legacy (pre-typed) entity ID (raw UUID format).
+     * @param {string} id - The ID to check.
+     * @returns {boolean}
+     * @private
+     */
+    _isLegacyEntityId(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    }
+
+    /**
+     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
+     * @param {string} id - The ID to check.
+     * @returns {boolean}
+     * @private
+     */
+    _isLegacyCompId(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     }
 
     // =========================================================================

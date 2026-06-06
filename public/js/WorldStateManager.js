@@ -110,4 +110,21 @@ export class WorldStateManager {
     getState() {
         return this.state;
     }
+
+    /**
+     * Gets an equipped item by entity ID and typed equipped ID (eq-uuid).
+     * @param {string} entityId - The entity's typed ID (ent-uuid).
+     * @param {string} eqId - The equipped item's typed ID (eq-uuid).
+     * @returns {Object|null} The equipped item object or null.
+     */
+    getEquippedItem(entityId, eqId) {
+        if (!this.state || !this.state.entities || !this.state.entities[entityId]) {
+            return null;
+        }
+        const entity = this.state.entities[entityId];
+        if (!entity.equipped || !Array.isArray(entity.equipped)) {
+            return null;
+        }
+        return entity.equipped.find(eq => eq.eqId === eqId) || null;
+    }
 }

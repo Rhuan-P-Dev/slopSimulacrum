@@ -8,6 +8,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class SynergyComponentGatherer {
     /**
@@ -17,6 +18,41 @@ class SynergyComponentGatherer {
     constructor(worldStateController, actionSelectController) {
         this.worldStateController = worldStateController;
         this.actionSelectController = actionSelectController;
+    }
+
+    // =========================================================================
+    // ID RESOLUTION HELPERS
+    // =========================================================================
+
+    /**
+     * Resolves an ID to a component ID. If the ID is already a component ID (comp-*),
+     * it is returned unchanged. If it's an equipment ID (eq-*), it is resolved to the
+     * host component ID via the HoldingCostController.
+     *
+     * @param {string} id - The ID to resolve (can be comp-* or eq-*).
+     * @param {string} entityId - The entity ID (needed for equipment lookup).
+     * @returns {string} The resolved component ID.
+     */
+    _resolveToComponentId(id, entityId) {
+        if (!id) return null;
+
+        // If already a component ID, return as-is
+        if (IdResolver.isCompId(id)) {
+            return id;
+        }
+
+        // If an equipment ID, resolve to host component
+        if (IdResolver.isEquippedId(id)) {
+            const equippedItem = this.worldStateController.getEquippedItem(entityId, id);
+            if (equippedItem && equippedItem.componentId) {
+                return equippedItem.componentId;
+            }
+            Logger.warn('[SynergyComponentGatherer] Equipment ID not found for resolution', { eqId: id, entityId });
+            return null;
+        }
+
+        // Unknown ID type — return as-is
+        return id;
     }
 
     /**
@@ -33,13 +69,16 @@ class SynergyComponentGatherer {
      * @returns {Array} Array of member objects.
      */
     gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds) {
+        // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+        const resolvedSourceComponentId = this._resolveToComponentId(sourceComponentId, entity.id);
+
         // When sourceComponentId is provided, auto-detect the type from the source
         // and include components of that same type (for multi-component synergy).
-        if (sourceComponentId) {
-            const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
+        if (resolvedSourceComponentId) {
+            const sourceComponent = entity.components.find(c => c.id === resolvedSourceComponentId);
             if (!sourceComponent) return [];
 
-            const sourceStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
+            const sourceStats = this.worldStateController.componentController.getComponentStats(resolvedSourceComponentId);
             if (!sourceStats) return [];
 
             // Auto-detect the component type from the source component
@@ -49,9 +88,9 @@ class SynergyComponentGatherer {
             if (roleFilter && !this._passesRoleFilter(sourceStats, roleFilter)) return [];
 
             // Check if source is locked (shouldn't happen, but be safe)
-            if (lockedComponentIds.has(sourceComponentId)) return [];
+            if (lockedComponentIds.has(resolvedSourceComponentId)) return [];
 
-            // Include the source component itself
+            // Include the source component itself (use original ID for UI display)
             const members = [{
                 componentId: sourceComponentId,
                 entityId: entity.id,
@@ -62,7 +101,7 @@ class SynergyComponentGatherer {
             // Include SAME-TYPE siblings only if they are in the allowed set
             // This ensures synergy only counts client-selected components
             for (const comp of entity.components) {
-                if (comp.id === sourceComponentId) continue;
+                if (comp.id === resolvedSourceComponentId) continue;
                 if (lockedComponentIds.has(comp.id)) continue;
                 if (comp.type !== detectedType) continue;
                 if (allowedComponentIds && !allowedComponentIds.has(comp.id)) continue;
@@ -134,15 +173,18 @@ class SynergyComponentGatherer {
      * @returns {Array} Array of member objects.
      */
     gatherAllComponents(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId) {
+        // Resolve equipment IDs (eq-*) to host component IDs (comp-*)
+        const resolvedSourceComponentId = this._resolveToComponentId(sourceComponentId, entity.id);
+
         // When sourceComponentId is provided, only include that specific component
         // (if it passes the role filter).
-        if (sourceComponentId) {
-            const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
+        if (resolvedSourceComponentId) {
+            const sourceComponent = entity.components.find(c => c.id === resolvedSourceComponentId);
             if (!sourceComponent) return [];
 
-            const sourceStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
+            const sourceStats = this.worldStateController.componentController.getComponentStats(resolvedSourceComponentId);
             if (!sourceStats) return [];
-            if (lockedComponentIds.has(sourceComponentId)) return [];
+            if (lockedComponentIds.has(resolvedSourceComponentId)) return [];
 
             if (roleFilter) {
                 if (roleFilter === 'source' || roleFilter === 'spatial') {

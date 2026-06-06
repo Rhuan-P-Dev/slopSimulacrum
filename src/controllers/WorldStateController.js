@@ -16,6 +16,9 @@ import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import InventoryManager from '../utils/InventoryManager.js';
+import IdResolver from '../utils/IdResolver.js';
+
+// TYPED ID MIGRATION: Add IdResolver import for typed ID validation
 
 /**
  * WorldStateController acts as a high-level coordinator for the server's global state.
@@ -82,7 +85,7 @@ class WorldStateController {
 
         // 7. Instantiate ActionController (Top level - Injected with Dependencies)
         // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
-        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this });
+        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this, equippedItemStats: equippedItemStats });
         const actionController = new ActionController(
             this,
             consequenceHandlers,
@@ -160,31 +163,24 @@ class WorldStateController {
         // Manages item ownership, volume constraints, and item movements for entities.
         this.inventoryManager = new InventoryManager();
 
-        // Inject equippedItemStats into consequence handlers (needed after creation)
-        // This allows StatConsequenceHandler to route equipped item stat deltas correctly
-        if (consequenceHandlers?.statHandler) {
-            consequenceHandlers.statHandler.equippedItemStats = equippedItemStats;
-        }
-
         // Wire equippedItemStats stat change callback to trigger capability re-evaluation.
         // When an equipped item's stats change (e.g., sharpness drain from cut), this ensures
         // the capability cache re-scans with CURRENT stats, not stale base stats.
         // Without this wiring, the cache would show stale "canExecute" entries based on base item stats.
-        equippedItemStats.setStatChangeCallback((itemId, traitId, statName, newValue, oldValue) => {
-            // Find which entity this item belongs to by scanning equipped items
+        equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
+            // Find which entity this item belongs to by scanning equipped items.
+            // HoldingCostController.getAllEquippedItems() returns: { [entityId]: { [eqId]: itemData } }
             const allEquipped = this.holdingCostController.getAllEquippedItems();
             for (const [entityId, items] of Object.entries(allEquipped)) {
-                for (const [id, item] of Object.entries(items)) {
-                    if (id === itemId) {
-                        // Entity found — re-evaluate its capabilities with current stats
-                        const state = this.getAll();
-                        this.actionController.reEvaluateEntityCapabilities(state, entityId);
-                        if (this._broadcastService) {
-                            this._broadcastService.broadcast();
-                        }
-                        Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
-                        return;
+                if (items[eqId]) {
+                    // Entity found — re-evaluate its capabilities with current stats
+                    const state = this.getAll();
+                    this.actionController.reEvaluateEntityCapabilities(state, entityId);
+                    if (this._broadcastService) {
+                        this._broadcastService.broadcast();
                     }
+                    Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
+                    return;
                 }
             }
         });
@@ -664,11 +660,12 @@ class WorldStateController {
 
     /**
      * Releases (unlocks) a component selection.
-     * @param {string} componentId - The component ID to release.
+     * @param {string} componentId - The component ID to release (can be comp-* or eq-*).
+     * @param {string} [entityId] - Optional entity ID for resolving equipment IDs.
      * @returns {boolean} Whether the selection was released.
      */
-    releaseSelection(componentId) {
-        return this.actionSelectController.releaseSelection(componentId);
+    releaseSelection(componentId, entityId) {
+        return this.actionSelectController.releaseSelection(componentId, entityId);
     }
 
     /**
@@ -902,16 +899,102 @@ class WorldStateController {
         if (!allEquipped || typeof allEquipped !== 'object') return [];
         const allItems = [];
         for (const [entityId, items] of Object.entries(allEquipped)) {
-            for (const [itemId, item] of Object.entries(items)) {
+            for (const [eqId, item] of Object.entries(items)) {
                 allItems.push({
                     entityId,
-                    itemId,
+                    eqId,
+                    itemId: item.itemId,
                     itemType: item.itemType,
                     componentId: item.componentId
                 });
             }
         }
         return allItems;
+    }
+
+    // =========================================================================
+    // TYPED ID MIGRATION: GET EQUIPPED ITEM PUBLIC METHODS
+    // =========================================================================
+
+    /**
+     * Gets a specific equipped item by its typed equipped-item ID.
+     * TYPED ID MIGRATION: Uses eq- prefixed IDs (e.g., "eq-uuid") for equipped items.
+     * @param {string} entityId - The entity ID.
+     * @param {string} eqId - The typed equipped-item ID (must start with "eq-").
+     * @returns {Object|null} The equipped item data object, or null if not found/invalid.
+     */
+    getEquippedItem(entityId, eqId) {
+        // TYPED ID MIGRATION: Validate that eqId has the proper "eq-" prefix
+        if (!this._validateEquippedId(eqId)) {
+            Logger.warn(`[WorldStateController] Invalid equipped-item ID: "${eqId}" — must start with "eq-"`);
+            return null;
+        }
+
+        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        if (!allEquipped || typeof allEquipped !== 'object') return null;
+
+        const entityItems = allEquipped[entityId];
+        if (!entityItems || typeof entityItems !== 'object') return null;
+
+        const item = entityItems[eqId];
+        return item ? { ...item } : null;
+    }
+
+    /**
+     * Gets a specific equipped item by its item ID (not typed eqId).
+     * TYPED ID MIGRATION: Internal use only — prefers eqId for lookups.
+     * @param {string} entityId - The entity ID.
+     * @param {string} itemId - The item ID to find.
+     * @returns {Object|null} The equipped item data object, or null if not found.
+     */
+    getEquippedItemByItemId(entityId, itemId) {
+        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        if (!allEquipped || typeof allEquipped !== 'object') return null;
+
+        const entityItems = allEquipped[entityId];
+        if (!entityItems || typeof entityItems !== 'object') return null;
+
+        for (const [eqId, item] of Object.entries(entityItems)) {
+            if (item.itemId === itemId) {
+                return { ...item };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets an equipped item for a specific component.
+     * TYPED ID MIGRATION: Returns equipped item data keyed by eqId for the given component.
+     * @param {string} entityId - The entity ID.
+     * @param {string} componentId - The component ID to check.
+     * @returns {Object|null} The equipped item data, or null if no item is equipped on this component.
+     */
+    getEquippedItemForComponent(entityId, componentId) {
+        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        if (!allEquipped || typeof allEquipped !== 'object') return null;
+
+        const entityItems = allEquipped[entityId];
+        if (!entityItems || typeof entityItems !== 'object') return null;
+
+        for (const [eqId, item] of Object.entries(entityItems)) {
+            if (item.componentId === componentId) {
+                return { ...item };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Validates that an equipped-item ID has the proper "eq-" prefix.
+     * TYPED ID MIGRATION: Internal validation helper for typed ID enforcement.
+     * @param {string} eqId - The equipped-item ID to validate.
+     * @returns {boolean} True if the ID has the proper "eq-" prefix.
+     * @private
+     */
+    _validateEquippedId(eqId) {
+        return IdResolver.isEquippedId(eqId);
     }
 
     /**

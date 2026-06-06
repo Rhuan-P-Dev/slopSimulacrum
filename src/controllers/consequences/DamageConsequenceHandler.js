@@ -9,6 +9,10 @@
  * - 'target'  → Damages the explicitly targeted component (from actionParams).
  * - 'entity'  → Damages ALL components of the target entity.
  *
+ * Equipped Item Routing:
+ * - When targetId is an equipped item (eqId), damage is applied to EquippedItemStatsController
+ *   so that item durability drain (e.g., from cut action) is tracked independently.
+ *
  * @module DamageConsequenceHandler
  */
 
@@ -16,9 +20,11 @@ class DamageConsequenceHandler {
     /**
      * @param {Object} controllers - The set of available controllers.
      * @param {WorldStateController} controllers.worldStateController - The root state controller.
+     * @param {EquippedItemStatsController} [controllers.equippedItemStats] - The equipped item stats manager (for equipped item damage routing).
      */
     constructor(controllers) {
         this.worldStateController = controllers.worldStateController;
+        this.equippedItemStats = controllers.equippedItemStats || null;
     }
 
     /**
@@ -41,6 +47,16 @@ class DamageConsequenceHandler {
         // 'self' or 'target': damage a specific component
         if (!targetId) {
             return { success: false, message: 'No target specified', data: null };
+        }
+
+        // Check if target is an equipped item — route to EquippedItemStatsController
+        if (this.equippedItemStats?.hasStats(targetId)) {
+            const success = this.equippedItemStats.updateStatDelta(targetId, trait, stat, value);
+            return {
+                success,
+                message: success ? `Dealt ${Math.abs(value)} damage to ${targetId}` : `Failed to damage ${targetId}`,
+                data: success ? { targetId, trait, stat, value } : null
+            };
         }
 
         // Validate that targetId is a component (has stats)

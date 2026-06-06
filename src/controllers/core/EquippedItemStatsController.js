@@ -38,7 +38,7 @@ class EquippedItemStatsController {
 
         /**
          * Callback triggered whenever an item stat changes (delta or absolute).
-         * Receives (itemId, traitId, statName, newValue, oldValue).
+         * Receives (eqId, traitId, statName, newValue, oldValue).
          * Used to trigger capability re-evaluation when equipped item stats change.
          * @type {Function|null}
          */
@@ -46,7 +46,8 @@ class EquippedItemStatsController {
 
         /**
          * Tracks per-item mutable stats for equipped items.
-         * Format: { [itemId]: { [traitId]: { [statName]: value } } }
+         * Format: { [eqId]: { [traitId]: { [statName]: value } } }
+         * Keys are typed eqIds (eq-${uuid}) for unambiguous identification.
          * @type {Object<string, ItemStats>}
          */
         this._itemStats = {};
@@ -73,14 +74,15 @@ class EquippedItemStatsController {
      * Creates a mutable copy of the item's base traits as stats.
      * If stats already exist, they are preserved (no overwrites).
      *
-     * @param {string} itemId - The unique item instance ID (e.g., "abc-knife").
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
+     * @param {string} itemId - The underlying item instance ID (e.g., "item-...").
      * @param {string} itemType - The item type identifier (e.g., "knife").
      * @returns {{ success: boolean, message: string }}
      */
-    initializeStats(itemId, itemType) {
-        if (!itemId || typeof itemId !== 'string' || itemId.trim() === '') {
-            Logger.warn('[EquippedItemStatsController] Invalid itemId for initializeStats.');
-            return { success: false, message: 'Invalid itemId.' };
+    initializeStats(eqId, itemId, itemType) {
+        if (!eqId || typeof eqId !== 'string' || eqId.trim() === '') {
+            Logger.warn('[EquippedItemStatsController] Invalid eqId for initializeStats.');
+            return { success: false, message: 'Invalid eqId.' };
         }
 
         if (!itemType || typeof itemType !== 'string' || itemType.trim() === '') {
@@ -89,9 +91,9 @@ class EquippedItemStatsController {
         }
 
         // If stats already exist, don't overwrite — item is already initialized
-        if (this._itemStats[itemId]) {
-            Logger.info(`[EquippedItemStatsController] Stats already initialized for item "${itemId}".`);
-            return { success: true, message: `Stats already initialized for item "${itemId}".` };
+        if (this._itemStats[eqId]) {
+            Logger.info(`[EquippedItemStatsController] Stats already initialized for eqId "${eqId}" (item: "${itemId}").`);
+            return { success: true, message: `Stats already initialized for eqId "${eqId}".` };
         }
 
         // Look up item definition
@@ -109,22 +111,22 @@ class EquippedItemStatsController {
             return { success: true, message: `No traits to track for item "${itemType}".` };
         }
 
-        // Store a deep copy of the stats
-        this._itemStats[itemId] = structuredClone(stats);
+        // Store a deep copy of the stats keyed by eqId
+        this._itemStats[eqId] = structuredClone(stats);
 
-        Logger.info(`[EquippedItemStatsController] Initialized stats for item "${itemId}" (type: "${itemType}"): ${Object.keys(stats).join(', ')}`);
-        return { success: true, message: `Stats initialized for item "${itemId}".` };
+        Logger.info(`[EquippedItemStatsController] Initialized stats for eqId "${eqId}" (item: "${itemId}", type: "${itemType}"): ${Object.keys(stats).join(', ')}`);
+        return { success: true, message: `Stats initialized for eqId "${eqId}".` };
     }
 
     /**
      * Retrieves the stats for an equipped item.
      * Returns a deep clone to prevent external mutation.
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @returns {Object|null} Deep clone of item stats, or null if not found.
      */
-    getStats(itemId) {
-        const stats = this._itemStats[itemId];
+    getStats(eqId) {
+        const stats = this._itemStats[eqId];
         if (!stats) return null;
         return structuredClone(stats);
     }
@@ -132,49 +134,49 @@ class EquippedItemStatsController {
     /**
      * Replaces all stats for an equipped item.
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @param {ItemStats} newStats - New stats object to set.
      * @returns {boolean} True if stats were set, false if item not found.
      */
-    setStats(itemId, newStats) {
-        if (!this._itemStats[itemId]) {
-            Logger.warn(`[EquippedItemStatsController] Cannot setStats: item "${itemId}" not found.`);
+    setStats(eqId, newStats) {
+        if (!this._itemStats[eqId]) {
+            Logger.warn(`[EquippedItemStatsController] Cannot setStats: eqId "${eqId}" not found.`);
             return false;
         }
 
-        this._itemStats[itemId] = structuredClone(newStats);
-        Logger.info(`[EquippedItemStatsController] Replaced stats for item "${itemId}".`);
+        this._itemStats[eqId] = structuredClone(newStats);
+        Logger.info(`[EquippedItemStatsController] Replaced stats for eqId "${eqId}".`);
         return true;
     }
 
     /**
      * Sets a specific stat to an absolute value on an equipped item.
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @param {string} traitId - The trait category (e.g., "Physical").
      * @param {string} statName - The stat name (e.g., "sharpness").
      * @param {number} value - The new absolute value.
      * @returns {boolean} True if the stat was updated, false if item/trait/stat not found.
      */
-    updateStat(itemId, traitId, statName, value) {
-        const stats = this._itemStats[itemId];
+    updateStat(eqId, traitId, statName, value) {
+        const stats = this._itemStats[eqId];
         if (!stats || !stats[traitId]) {
-            Logger.warn(`[EquippedItemStatsController] Cannot updateStat: item "${itemId}" has no trait "${traitId}".`);
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStat: eqId "${eqId}" has no trait "${traitId}".`);
             return false;
         }
 
         if (typeof stats[traitId][statName] !== 'number') {
-            Logger.warn(`[EquippedItemStatsController] Cannot updateStat: stat "${traitId}.${statName}" is not a number on item "${itemId}".`);
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStat: stat "${traitId}.${statName}" is not a number on eqId "${eqId}".`);
             return false;
         }
 
         const oldValue = stats[traitId][statName];
         stats[traitId][statName] = value;
 
-        Logger.info(`[EquippedItemStatsController] Updated item "${itemId}" ${traitId}.${statName}: ${oldValue} → ${value}`);
+        Logger.info(`[EquippedItemStatsController] Updated eqId "${eqId}" ${traitId}.${statName}: ${oldValue} → ${value}`);
 
         // Trigger stat change callback (e.g., capability re-evaluation)
-        this._notifyStatChange(itemId, traitId, statName, value, oldValue);
+        this._notifyStatChange(eqId, traitId, statName, value, oldValue);
 
         return true;
     }
@@ -183,21 +185,21 @@ class EquippedItemStatsController {
      * Adds a delta to a specific stat on an equipped item.
      * This is the primary method for stat drain effects (e.g., sharpness decrease on cut).
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @param {string} traitId - The trait category (e.g., "Physical").
      * @param {string} statName - The stat name (e.g., "sharpness").
      * @param {number} delta - The value to add to the current stat.
      * @returns {boolean} True if the stat was updated, false if item/trait/stat not found or not numeric.
      */
-    updateStatDelta(itemId, traitId, statName, delta) {
-        const stats = this._itemStats[itemId];
+    updateStatDelta(eqId, traitId, statName, delta) {
+        const stats = this._itemStats[eqId];
         if (!stats || !stats[traitId]) {
-            Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: item "${itemId}" has no trait "${traitId}".`);
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: eqId "${eqId}" has no trait "${traitId}".`);
             return false;
         }
 
         if (typeof stats[traitId][statName] !== 'number') {
-            Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: stat "${traitId}.${statName}" is not a number on item "${itemId}".`);
+            Logger.warn(`[EquippedItemStatsController] Cannot updateStatDelta: stat "${traitId}.${statName}" is not a number on eqId "${eqId}".`);
             return false;
         }
 
@@ -205,10 +207,10 @@ class EquippedItemStatsController {
         const newValue = oldValue + delta;
         stats[traitId][statName] = newValue;
 
-        Logger.info(`[EquippedItemStatsController] Updated item "${itemId}" ${traitId}.${statName}: ${oldValue} + ${delta} = ${newValue}`);
+        Logger.info(`[EquippedItemStatsController] Updated eqId "${eqId}" ${traitId}.${statName}: ${oldValue} + ${delta} = ${newValue}`);
 
         // Trigger stat change callback (e.g., capability re-evaluation)
-        this._notifyStatChange(itemId, traitId, statName, newValue, oldValue);
+        this._notifyStatChange(eqId, traitId, statName, newValue, oldValue);
 
         return true;
     }
@@ -216,28 +218,28 @@ class EquippedItemStatsController {
     /**
      * Removes the stats entry for an equipped item (called on unequip).
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @returns {boolean} True if the entry was removed, false if it didn't exist.
      */
-    removeStats(itemId) {
-        if (!this._itemStats[itemId]) {
-            Logger.info(`[EquippedItemStatsController] No stats found for item "${itemId}" to remove.`);
+    removeStats(eqId) {
+        if (!this._itemStats[eqId]) {
+            Logger.info(`[EquippedItemStatsController] No stats found for eqId "${eqId}" to remove.`);
             return false;
         }
 
-        delete this._itemStats[itemId];
-        Logger.info(`[EquippedItemStatsController] Removed stats for item "${itemId}".`);
+        delete this._itemStats[eqId];
+        Logger.info(`[EquippedItemStatsController] Removed stats for eqId "${eqId}".`);
         return true;
     }
 
     /**
      * Checks whether stats are tracked for an equipped item.
      *
-     * @param {string} itemId - The item instance ID.
+     * @param {string} eqId - The typed equipped item ID (eq-${uuid}).
      * @returns {boolean} True if stats exist for the item.
      */
-    hasStats(itemId) {
-        return Boolean(this._itemStats[itemId]);
+    hasStats(eqId) {
+        return Boolean(this._itemStats[eqId]);
     }
 
     /**
@@ -256,12 +258,13 @@ class EquippedItemStatsController {
 
     /**
      * Notifies the stat change callback (if registered) about a stat modification.
+     * Receives (eqId, traitId, statName, newValue, oldValue).
      * @private
      */
-    _notifyStatChange(itemId, traitId, statName, newValue, oldValue) {
+    _notifyStatChange(eqId, traitId, statName, newValue, oldValue) {
         if (this._statChangeCallback) {
             try {
-                this._statChangeCallback(itemId, traitId, statName, newValue, oldValue);
+                this._statChangeCallback(eqId, traitId, statName, newValue, oldValue);
             } catch (error) {
                 Logger.error(`[EquippedItemStatsController] Stat change callback failed: ${error.message}`);
             }

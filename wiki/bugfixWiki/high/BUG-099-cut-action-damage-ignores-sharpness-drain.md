@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `pending`
-- **Related Files**: `src/controllers/actions/RequirementResolver.js`, `src/controllers/actions/actionController.js`, `src/controllers/WorldStateController.js`
+- **Related Files**: `src/controllers/consequences/DamageConsequenceHandler.js`, `src/controllers/consequences/consequenceHandlers.js`, `src/controllers/WorldStateController.js`
 
 ## Symptoms
 
@@ -12,118 +12,138 @@ When the knife is equipped (sharpness = 50 from `inventoryItems.json`):
 - **Second cut**: Deals 50 damage ✗ (sharpness is actually 49, but still deals 50)
 - **Subsequent cuts**: Always deal 50 damage ✗ (sharpness keeps draining to 48, 47, etc., but damage never changes)
 
-The sharpness drain consequence (`-1` per cut) works correctly — the stats ARE updated in `EquippedItemStatsController`. However, the **damage calculation** always reads the base value (50) from `inventoryItems.json` instead of the current mutable value.
+The sharpness drain consequence (`-1` per cut) was not properly routing to the equipped item's mutable stats. The consequence handler chain was missing proper routing for equipped item damage.
 
 ## Root Cause
 
-When executing an action with an equipped item, the `RequirementResolver` built `requirementValues` from the **static** `inventoryItems.json` definition instead of the **mutable** `EquippedItemStatsController` store.
+Three interconnected wiring issues in the consequence handler chain prevented proper equipped item stat routing:
 
-### Flow Breakdown
+### 1. `DamageConsequenceHandler` Lacked Equipped Item Routing
 
-1. **Requirement check** (`RequirementResolver.checkComponentRequirements`):
-   - Reads traits from `inventoryItems.json` → `Physical.sharpness = 50` (static base)
-   - `requirementValues = { "Physical.sharpness": 50 }`
-   - `fulfillingComponents = { "Physical.sharpness": "abc-knife" }` (itemId)
-   - Requirement passes: 50 ≥ 20 ✓
+The damage handler only accepted `worldStateController` in its constructor. It had no access to `EquippedItemStatsController`, so when the target was an equipped item's eqId, damage was always applied to the host component instead of the item itself.
 
-2. **Consequence resolution** (`ConsequenceDispatcher._resolveParams`):
-   - Merges `requirementValues` into resolution context: `{ "Physical.sharpness": 50 }`
-   - Damage: `"-:Physical.sharpness"` → `-50` (always 50 damage!)
-   - Sharpness drain: `value: -1` → sharpness becomes 49 in `EquippedItemStatsController` ✓
+### 2. `ConsequenceHandlers` Constructor Didn't Pass `equippedItemStats`
 
-3. **Next cut**: Steps 1-2 repeat with the **same** base value (50) because `RequirementResolver` always reads from the static definition.
+The `ConsequenceHandlers` constructor received only `{ worldStateController: this }`. It created `StatConsequenceHandler` with this object (which didn't include `equippedItemStats`), then relied on post-construction injection. `DamageConsequenceHandler` received the same incomplete object.
 
-### Code-Level Root Cause
+### 3. `WorldStateController` Stat Change Callback Had Wrong Iteration
 
-**`RequirementResolver.js`** (before fix), lines 65-89:
-```javascript
-// For equipped items: ALWAYS read from inventoryItems.json (static)
-componentStats = equippedData.traits; // ← sharpness = 50 always
-```
-
-The mutable sharpness stored in `EquippedItemStatsController` was **never read** during requirement validation. The drain was applied there, but the value was never used for damage calculation.
+The stat change callback iterated over `getAllEquippedItems()` using `Object.entries(items)`, which is correct for the nested object returned by `HoldingCostController.getAllEquippedItems()`. However, `WorldStateController.getAllEquippedItems()` returns a flattened array **without** the `eqId` field, making it impossible for the callback to match eqIds from `EquippedItemStatsController._notifyStatChange`.
 
 ## Fix
 
-Three coordinated changes were made:
+### 1. `src/controllers/consequences/DamageConsequenceHandler.js`
 
-### 1. `src/controllers/WorldStateController.js`
-Moved `EquippedItemStatsController` creation **before** `ActionController` instantiation, so it can be injected down the dependency chain. Removed the duplicate creation that was later in the constructor.
-
-```javascript
-// 6.5. Create EquippedItemStatsController BEFORE ActionController
-const equippedItemStats = new EquippedItemStatsController({ worldStateController: this });
-this.equippedItemStats = equippedItemStats;
-
-// 7. Pass equippedItemStats to ActionController
-const actionController = new ActionController(
-    this, consequenceHandlers, actionRegistry,
-    componentCapabilityController, synergyController,
-    actionSelectController, equippedItemStats  // ← NEW 7th parameter
-);
-```
-
-### 2. `src/controllers/actions/actionController.js`
-Accept `equippedItemStats` as 7th parameter and pass it to `RequirementResolver`:
+Added `equippedItemStats` to constructor and equipped-item routing in `_handleDamageComponent`:
 
 ```javascript
-constructor(worldStateController, consequenceHandlers, actionRegistry,
-    componentCapabilityController, synergyController, actionSelectController, equippedItemStats) {
-    this.requirementResolver = new RequirementResolver(worldStateController, equippedItemStats);
-}
-```
-
-### 3. `src/controllers/actions/RequirementResolver.js`
-Inject `equippedItemStats` in constructor and use it to read **current mutable stats** instead of static definition:
-
-```javascript
-constructor(worldStateController, equippedItemStats) {
-    this.worldStateController = worldStateController;
-    this.equippedItemStats = equippedItemStats || null;
+constructor(controllers) {
+    this.worldStateController = controllers.worldStateController;
+    this.equippedItemStats = controllers.equippedItemStats || null;
 }
 
-// In checkComponentRequirements():
-if (this.equippedItemStats?.hasStats(itemId)) {
-    const currentStats = this.equippedItemStats.getStats(itemId);
-    if (currentStats) {
-        componentStats = currentStats; // ← Current sharpness: 49, 48, 47...
-    } else {
-        componentStats = equippedData.traits; // fallback to static
+_handleDamageComponent(targetId, resolvedParams, context) {
+    // ...
+    // Check if target is an equipped item — route to EquippedItemStatsController
+    if (this.equippedItemStats?.hasStats(targetId)) {
+        const success = this.equippedItemStats.updateStatDelta(targetId, trait, stat, value);
+        return {
+            success,
+            message: success ? `Dealt ${Math.abs(value)} damage to ${targetId}` : `Failed to damage ${targetId}`,
+            data: success ? { targetId, trait, stat, value } : null
+        };
     }
+    // ... fall through to component damage
+}
+```
+
+### 2. `src/controllers/consequences/consequenceHandlers.js`
+
+Pass `equippedItemStats` to both `StatConsequenceHandler` and `DamageConsequenceHandler` at construction time:
+
+```javascript
+constructor(controllers) {
+    this.worldStateController = controllers.worldStateController;
+    this.equippedItemStats = controllers.equippedItemStats || null;
+
+    this.spatialHandler = new SpatialConsequenceHandler(controllers);
+    this.statHandler = new StatConsequenceHandler(controllers);
+    // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
+    const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats };
+    this.damageHandler = new DamageConsequenceHandler(damageControllers);
+    this.logHandler = new LogConsequenceHandler();
+    this.eventHandler = new EventConsequenceHandler();
+}
+```
+
+### 3. `src/controllers/WorldStateController.js`
+
+**a.** Pass `equippedItemStats` to `ConsequenceHandlers` constructor:
+
+```javascript
+const consequenceHandlers = new ConsequenceHandlers({
+    worldStateController: this,
+    equippedItemStats: equippedItemStats
+});
+```
+
+**b.** Remove redundant post-construction injection:
+
+```javascript
+// REMOVED: consequenceHandlers.statHandler.equippedItemStats = equippedItemStats;
+// (No longer needed — now injected at construction time)
+```
+
+**c.** Fix stat change callback to iterate using direct key lookup:
+
+```javascript
+equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
+    // HoldingCostController.getAllEquippedItems() returns: { [entityId]: { [eqId]: itemData } }
+    const allEquipped = this.holdingCostController.getAllEquippedItems();
+    for (const [entityId, items] of Object.entries(allEquipped)) {
+        if (items[eqId]) {  // Direct key lookup instead of Object.entries(items)
+            // Entity found — re-evaluate its capabilities
+            const state = this.getAll();
+            this.actionController.reEvaluateEntityCapabilities(state, entityId);
+            if (this._broadcastService) {
+                this._broadcastService.broadcast();
+            }
+            return;
+        }
+    }
+});
+```
+
+**d.** Fix `getAllEquippedItems()` to include `eqId` in returned objects:
+
+```javascript
+getAllEquippedItems() {
+    const allEquipped = this.holdingCostController.getAllEquippedItems();
+    // ...
+    for (const [entityId, items] of Object.entries(allEquipped)) {
+        for (const [eqId, item] of Object.entries(items)) {
+            allItems.push({
+                entityId,
+                eqId,  // ← Added: eqId was missing before
+                itemId: item.itemId,
+                itemType: item.itemType,
+                componentId: item.componentId
+            });
+        }
+    }
+    return allItems;
 }
 ```
 
 ## Prevention
 
-When modifying how values flow from requirement checking to consequence resolution:
-1. **Verify the data source**: Are you reading from the mutable stats store (`EquippedItemStatsController`) or the static definition (`inventoryItems.json`)?
-2. **Trace placeholder resolution**: Ensure `requirementValues` reflects the same source as the actual mutable state.
-3. **Test with drain effects**: After implementing or modifying a consequence that drains a stat, verify that repeated executions use the **current** value, not the base value.
-
-## Mermaid Flow
-
-```mermaid
-graph TD
-    subgraph "Before Fix (Broken)"
-        A["inventoryItems.json: sharpness = 50 (static)"] --> B[RequirementResolver]
-        B --> C["requirementValues: Physical.sharpness = 50"]
-        C --> D[ConsequenceDispatcher]
-        D --> E["damage: -50 ALWAYS"]
-        F[EquippedItemStatsController] --> G["sharpness: 49, 48, 47..."]
-        F -.NOT USED by B.-> C
-    end
-    
-    subgraph "After Fix (Correct)"
-        A2[EquippedItemStatsController] -->|"current stats"| B2[RequirementResolver]
-        B2 --> C2["requirementValues: Physical.sharpness = 49"]
-        C2 --> D2[ConsequenceDispatcher]
-        D2 --> E2["damage: -49 CORRECT"]
-        A2 -->|"drain: -1"| G2["sharpness: 48, 47, 46..."]
-    end
-```
+1. **Always inject equipped item stats at construction time** — never rely on post-construction injection when the injected dependency is needed in the constructor.
+2. **Verify iteration patterns** — when a callback passes `eqId` as a parameter, ensure the data source's return format matches the iteration pattern used.
+3. **Include all identifiers in flattened data** — public API methods that flatten nested structures should include all relevant identifiers (especially `eqId`).
 
 ## References
-- Related wiki: `wiki/subMDs/controllers/requirement_resolver.md`
-- Related controller: `RequirementResolver`, `EquippedItemStatsController`
+
+- Related wiki: `wiki/subMDs/systems/sharpness_system.md`
+- Related controller: `DamageConsequenceHandler`, `StatConsequenceHandler`, `ConsequenceHandlers`, `EquippedItemStatsController`
 - Related bug: [BUG-096](high/BUG-096-knife-sharpness-drain-not-working.md) — sharpness drain not applied at all
 - Related bug: [BUG-097](high/BUG-097-cut-action-disappears-after-use.md) — capability cache staleness

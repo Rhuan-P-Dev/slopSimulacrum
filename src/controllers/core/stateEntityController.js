@@ -1,5 +1,5 @@
 import EntityController from './entityController.js';
-import { generateUID } from '../../utils/idGenerator.js';
+import { generateEntityId } from '../../utils/idGenerator.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -69,7 +69,7 @@ class stateEntityController {
      * @returns {string} The unique ID of the newly created entity.
      */
     spawnEntity(blueprintName, roomId) {
-        const entityId = generateUID();
+        const entityId = generateEntityId();
         const entityData = this.entityController.createEntityFromBlueprint(blueprintName);
 
         this.entities[entityId] = {

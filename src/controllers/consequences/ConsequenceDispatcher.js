@@ -16,6 +16,7 @@
 import Logger from '../../utils/Logger.js';
 import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
 import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class ConsequenceDispatcher {
     /**
@@ -82,7 +83,16 @@ class ConsequenceDispatcher {
                 }
 
                 // Pass the consequence target type to the handler for interpretation
-                const handlerContext = { ...context, actionParams: { ...context.actionParams, consequenceTarget: consequence.target } };
+                // For equipped item 'self' targets, include the resolved source eqId so handlers
+                // can route stat changes to EquippedItemStatsController instead of the host component.
+                const isEquippedItemSelf = consequence.target === 'self' && context.actionParams.attackerComponentId && IdResolver.isEquippedId(context.actionParams.attackerComponentId);
+                const handlerContext = {
+                    ...context,
+                    actionParams: { ...context.actionParams, consequenceTarget: consequence.target },
+                    // When the source is an equipped item and target is 'self', provide the eqId
+                    // so handlers can route to EquippedItemStatsController
+                    ...(isEquippedItemSelf ? { resolvedSourceId: context.actionParams.attackerComponentId } : {})
+                };
                 const result = handler(targetResult.targetId, effectiveParams, handlerContext);
 
                 results.push({
@@ -129,7 +139,33 @@ class ConsequenceDispatcher {
         const targetComponentId = params.targetComponentId;
 
         for (const attackerId of attackerComponentIds) {
-            const attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
+            // Resolve equipment IDs (eq-*) to host component IDs (comp-*) for stats lookup
+            let resolvedAttackerId = attackerId;
+            let attackerStats = null;
+
+            if (IdResolver.isEquippedId(attackerId)) {
+                // For equipped items, try to get stats from EquippedItemStatsController first
+                const equippedItemStats = this.actionController.equippedItemStats;
+                if (equippedItemStats && equippedItemStats.hasStats(attackerId)) {
+                    const itemStats = equippedItemStats.getStats(attackerId);
+                    if (itemStats && itemStats.Physical && itemStats.Physical.strength !== undefined) {
+                        attackerStats = itemStats;
+                    }
+                }
+
+                // If not found in equipped item stats, resolve to host component
+                if (!attackerStats) {
+                    const equipped = this.worldStateController.getEquippedItem(entityId, attackerId);
+                    if (equipped && equipped.componentId) {
+                        resolvedAttackerId = equipped.componentId;
+                        attackerStats = this.worldStateController.componentController.getComponentStats(resolvedAttackerId);
+                    }
+                }
+            } else {
+                // For regular components, get stats directly
+                attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
+            }
+
             if (!attackerStats || !attackerStats.Physical || attackerStats.Physical.strength === undefined) {
                 Logger.warn(`[ConsequenceDispatcher] Attacker "${attackerId}" has no Physical.strength — skipping`);
                 continue;

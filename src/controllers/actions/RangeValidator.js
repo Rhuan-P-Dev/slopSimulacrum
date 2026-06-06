@@ -10,6 +10,7 @@
 import Logger from '../../utils/Logger.js';
 import { checkGrabRange } from '../../utils/RangeChecker.js';
 import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 class RangeValidator {
     /**
@@ -26,12 +27,22 @@ class RangeValidator {
      * Resolves range expressions (e.g., ":Physical.strength*2") using the same
      * PlaceholderResolver logic used by consequences and failureConsequences.
      *
-     * @param {string} sourceEntityId - The entity performing the grab.
-     * @param {string} targetEntityId - The entity being grabbed.
+     * @param {string} sourceEntityId - The entity performing the grab (typed ent-... or legacy UUID).
+     * @param {string} targetEntityId - The entity being grabbed (typed ent-... or legacy UUID).
      * @param {string|number} maxRange - The maximum allowed distance (number or expression string).
      * @returns {{ success: boolean, error?: string }}
      */
     checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
+        // Validate entity IDs are typed (accept legacy UUID for compatibility)
+        if (!IdResolver.isEntityId(sourceEntityId) && !this._isLegacyEntityId(sourceEntityId)) {
+            Logger.warn(`[RangeValidator] Invalid source entity ID format: "${sourceEntityId}"`);
+            return { success: false, error: `Invalid source entity ID format: ${sourceEntityId}` };
+        }
+        if (!IdResolver.isEntityId(targetEntityId) && !this._isLegacyEntityId(targetEntityId)) {
+            Logger.warn(`[RangeValidator] Invalid target entity ID format: "${targetEntityId}"`);
+            return { success: false, error: `Invalid target entity ID format: ${targetEntityId}` };
+        }
+
         const sourceEntity = this.worldStateController.getEntity(sourceEntityId);
         if (!sourceEntity) {
             return { success: false, error: `Source entity "${sourceEntityId}" not found.` };
@@ -86,6 +97,16 @@ class RangeValidator {
             }
         }
         return values;
+    }
+
+    /**
+     * Checks if an ID looks like a legacy (pre-typed) entity ID (raw UUID format).
+     * @param {string} id - The ID to check.
+     * @returns {boolean}
+     * @private
+     */
+    _isLegacyEntityId(id) {
+        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     }
 
     /**

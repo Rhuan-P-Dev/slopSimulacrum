@@ -11,6 +11,7 @@
  * @module NavActionsPanel
  */
 import { AppConfig } from './Config.js';
+import IdResolver from '/utils/IdResolver.js';
 
 /**
  * NavActionsPanel class.
@@ -252,8 +253,8 @@ export class NavActionsPanel {
                     if (isSelected) rowClass += ' nav-selected';
                     if (grayedByAction) rowClass += ' nav-locked';
 
-                    // Detect equipped items (componentId starts with "equipped-")
-                    const isEquipped = typeof entry.componentId === 'string' && entry.componentId.startsWith('equipped-');
+                    // Detect equipped items (uses typed eq- prefix)
+                    const isEquipped = typeof entry.componentId === 'string' && IdResolver.isEquippedId(entry.componentId);
                     if (isEquipped) {
                         rowClass += ' nav-equipped-item';
                     }
@@ -321,7 +322,6 @@ export class NavActionsPanel {
                 const entityId = row.dataset.entity;
                 const componentId = row.dataset.compId;
                 const componentIdentifier = row.dataset.compIdentifier;
-                const canExecute = row.dataset.canExecute === 'true';
 
             // Check if this component is grayed (locked to another action)
             const grayedByAction = componentToActionMap.get(componentId);
@@ -331,9 +331,6 @@ export class NavActionsPanel {
                 this._onGrayedComponentClick(grayedByAction, componentId);
                 return;
             }
-
-            // Only allow toggling capable non-grayed components
-            if (!canExecute) return;
 
             // Call the action click callback for selection toggling
             // Prefer the new delegated callback (_actionCallback), fall back to legacy (_onActionClick)

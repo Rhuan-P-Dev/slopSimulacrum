@@ -216,9 +216,10 @@ export class InventoryManager {
                 return;
             }
             const data = await response.json();
+            // Key by eqId (eq-uuid typed ID) instead of itemId
             this._equippedItems = {};
             for (const eq of (data.equipped || [])) {
-                this._equippedItems[eq.itemId] = eq;
+                this._equippedItems[eq.id] = eq;
             }
         } catch (error) {
             console.warn(`[InventoryManager] Error loading equipped items for entity ${entityId}:`, error);
@@ -427,7 +428,7 @@ export class InventoryManager {
             const itemVolume = item.volume || (itemDef ? itemDef.volume : 0);
             const percentageStr = itemVolume > 0 ? '100' : '0';
             const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
-            const isEquipped = this._equippedItems[item.id];
+            const isEquipped = this._isEquippedByItemId(item.id);
 
             // Build equip/unequip button only for items with holding cost
             let equipButtonHtml = '';
@@ -832,9 +833,9 @@ export class InventoryManager {
      */
     async _autoUnequipDraggedItem(itemId) {
         if (!this._currentEntityId) return;
-        if (!this._equippedItems[itemId]) return; // Not equipped, nothing to do
+        const eq = this._findEquippedByItemId(itemId);
+        if (!eq) return; // Not equipped, nothing to do
 
-        const eq = this._equippedItems[itemId];
         const { itemType, componentId } = eq;
 
         try {
@@ -844,8 +845,8 @@ export class InventoryManager {
             });
 
             if (response.ok) {
-                // Update local tracking
-                delete this._equippedItems[itemId];
+                // Update local tracking — delete by eqId
+                delete this._equippedItems[eq.id];
                 console.log(`[InventoryManager] Auto-unequipped ${itemType} from ${componentId} before move.`);
             }
         } catch (error) {
@@ -862,16 +863,16 @@ export class InventoryManager {
     async _autoUnequipOnTarget(targetCompId) {
         if (!this._currentEntityId) return;
 
-        // Find equipped items on the target component
+        // Find equipped items on the target component (iterate by eqId)
         const equippedOnTarget = [];
-        for (const [itemId, eq] of Object.entries(this._equippedItems)) {
+        for (const [eqId, eq] of Object.entries(this._equippedItems)) {
             if (eq.componentId === targetCompId) {
-                equippedOnTarget.push(itemId);
+                equippedOnTarget.push({ eqId, itemId: eq.itemId });
             }
         }
 
         // Unequip each one
-        for (const itemId of equippedOnTarget) {
+        for (const { eqId, itemId } of equippedOnTarget) {
             try {
                 const response = await fetch(`/inventory/${this._currentEntityId}/unequip/${itemId}`, {
                     method: 'POST',
@@ -879,13 +880,39 @@ export class InventoryManager {
                 });
 
                 if (response.ok) {
-                    // Update local tracking
-                    delete this._equippedItems[itemId];
+                    // Update local tracking — delete by eqId
+                    delete this._equippedItems[eqId];
                 }
             } catch (error) {
                 console.warn(`[InventoryManager] Failed to auto-unequip item ${itemId} on drop:`, error);
             }
         }
+    }
+
+    /**
+     * Checks if an item is currently equipped (searches _equippedItems by itemId).
+     * @param {string} itemId - The item ID.
+     * @returns {boolean}
+     * @private
+     */
+    _isEquippedByItemId(itemId) {
+        for (const eq of Object.values(this._equippedItems)) {
+            if (eq.itemId === itemId) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Finds an equipped item by its itemId.
+     * @param {string} itemId - The item ID.
+     * @returns {Object|null} The equipped item or null.
+     * @private
+     */
+    _findEquippedByItemId(itemId) {
+        for (const eq of Object.values(this._equippedItems)) {
+            if (eq.itemId === itemId) return eq;
+        }
+        return null;
     }
 
     /**
@@ -1148,8 +1175,8 @@ export class InventoryManager {
             const itemId = panel.dataset.itemId;
             if (!itemId) continue;
 
-            // Only refresh if the item is equipped
-            if (!this._equippedItems[itemId]) continue;
+            // Only refresh if the item is equipped (search by itemId)
+            if (!this._isEquippedByItemId(itemId)) continue;
 
             try {
                 const response = await fetch(`/inventory/${this._currentEntityId}/item-stats/${itemId}`);

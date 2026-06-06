@@ -1,5 +1,5 @@
 import ComponentController from './componentController.js';
-import { generateUID } from '../../utils/idGenerator.js';
+import { generateCompId } from '../../utils/idGenerator.js';
 import DataLoader from '../../utils/DataLoader.js';
 
 /**
@@ -85,7 +85,7 @@ class EntityController {
         const instanceComposition = [];
 
         for (const [compType, identifier] of flattenedComponents) {
-            const instanceId = generateUID();
+            const instanceId = generateCompId();
             this.componentController.initializeComponent(compType, instanceId);
             instanceComposition.push({
                 type: compType,

@@ -6,6 +6,7 @@
  */
 import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
+import { generateItemId } from './idGenerator.js';
 
 class InventoryManager {
     constructor() {
@@ -18,8 +19,6 @@ class InventoryManager {
 
         Logger.info(`InventoryManager initialized with ${Object.keys(this._itemDefinitions).length} item types`);
 
-        /** @private */
-        this._nextId = 1;
 
         /**
          * Inventory state: { [entityId]: { [itemId]: itemInstance } }
@@ -127,7 +126,7 @@ class InventoryManager {
         }
 
         const newItem = {
-            id: `item-${this._nextId++}`,
+            id: generateItemId(),
             type: itemType,
             name: itemDef.name,
             volume: itemDef.volume,

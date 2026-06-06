@@ -27,11 +27,14 @@ class ConsequenceHandlers {
      */
     constructor(controllers) {
         this.worldStateController = controllers.worldStateController;
+        this.equippedItemStats = controllers.equippedItemStats || null;
 
         // Initialize focused handlers
         this.spatialHandler = new SpatialConsequenceHandler(controllers);
         this.statHandler = new StatConsequenceHandler(controllers);
-        this.damageHandler = new DamageConsequenceHandler(controllers);
+        // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
+        const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats };
+        this.damageHandler = new DamageConsequenceHandler(damageControllers);
         this.logHandler = new LogConsequenceHandler();
         this.eventHandler = new EventConsequenceHandler();
     }

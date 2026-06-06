@@ -1,5 +1,6 @@
 import Logger from '../../utils/Logger.js';
 import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../../utils/ActionScoring.js';
+import { generateEquippedId } from '../../utils/idGenerator.js';
 
 /**
  * ComponentCapabilityController manages the capability cache that maps each action
@@ -17,12 +18,11 @@ import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../../utils/ActionSco
  * actions (e.g., "cut") without merging traits into component stats.
  *
  * @example
- * // Cache structure:
+ * // Cache structure (TYPED ID MIGRATION):
  * // {
  * //   "pierce": [
- * //     { entityId: "e1", componentId: "knife-comp", componentType: "knife", componentIdentifier: "kitchen-knife", score: 95, ... },
- * //     { entityId: "e1", componentId: "hand-comp", componentType: "droidHand", componentIdentifier: "right", score: 30, ... },
- * //     { entityId: "e2", componentId: "blade-comp", componentType: "blade", componentIdentifier: "razor", score: 90, ... }
+ * //     { entityId: "e1", _entityId: "e1", componentId: "comp-uuid", _entityId: "e1", score: 95, ... },
+ * //     { entityId: "e1", _entityId: "e1", componentId: "eq-uuid", _eqId: "eq-uuid", score: 90, _isEquippedItem: true, ... },
  * //   ]
  * // }
  */
@@ -80,6 +80,9 @@ class ComponentCapabilityController {
      * that this component fulfills (e.g., 'source', 'target', 'spatial', 'self_target').
      * Equipped item entries include `_isEquippedItem: true` metadata.
      *
+     * TYPED ID MIGRATION: All entries now include _entityId, _compId, and equipped
+     * entries include _eqId for unambiguous typed ID resolution.
+     *
      * @param {Object} state - The current world state (contains entities).
      * @returns {Object<string, Array<ComponentCapabilityEntry>>} The updated capability cache.
      */
@@ -121,6 +124,7 @@ class ComponentCapabilityController {
                     if (requirementCheck.passed) {
                         const entry = {
                             entityId,
+                            _entityId: entityId, // TYPED ID MIGRATION: Explicit _entityId field
                             componentId: component.id,
                             componentType: component.type,
                             componentIdentifier: component.identifier || 'default',
@@ -163,10 +167,8 @@ class ComponentCapabilityController {
      * This prevents equipped item actions from being incorrectly removed when
      * a consequence modifies a stat on the host component.
      *
-     * IMPORTANT: When the entry is an equipped item entry (_isEquippedItem: true),
-     * we preserve its metadata (componentType, componentIdentifier, _isEquippedItem,
-     * etc.) and only update the score and requirement-related fields. This ensures
-     * the UI correctly shows "knife" for cut instead of "droidHand".
+     * TYPED ID MIGRATION: Equipped item entries now use typed eqId instead of
+     * synthetic "equipped-${itemId}-${itemType}" strings.
      *
      * @param {Object} state - The current world state.
      * @param {string} actionName - The action to re-evaluate.
@@ -248,6 +250,7 @@ class ComponentCapabilityController {
             // Host component entry — use host component metadata
             newEntry = {
                 entityId: targetEntityId,
+                _entityId: targetEntityId, // TYPED ID MIGRATION: Explicit _entityId field
                 componentId,
                 componentType: component?.type || 'unknown',
                 componentIdentifier: component?.identifier || 'default',
@@ -288,7 +291,8 @@ class ComponentCapabilityController {
 
             newEntry = {
                 entityId: targetEntityId,
-                componentId: componentId,
+                _entityId: targetEntityId, // TYPED ID MIGRATION: Explicit _entityId field
+                componentId: equipped?.eqId || componentId, // TYPED ID MIGRATION: Use typed eqId instead of synthetic ID
                 componentType: itemType,
                 componentIdentifier: itemType,
                 score,
@@ -302,6 +306,7 @@ class ComponentCapabilityController {
                 })),
                 _resolvedRole: 'source',
                 _isEquippedItem: true,
+                _eqId: equipped?.eqId || null, // TYPED ID MIGRATION: Explicit _eqId field for equipped items
                 _equippedItemId: equipped?.itemId || componentId,
                 _equippedItemType: itemType,
                 _equippedComponentId: componentId
@@ -385,6 +390,7 @@ class ComponentCapabilityController {
                 if (requirementCheck.passed) {
                     const entry = {
                         entityId,
+                        _entityId: entityId, // TYPED ID MIGRATION: Explicit _entityId field
                         componentId: component.id,
                         componentType: component.type,
                         componentIdentifier: component.identifier || 'default',
@@ -956,6 +962,9 @@ class ComponentCapabilityController {
      * action's requirements, that action becomes available in the capability cache
      * as an equipped item entry.
      *
+     * TYPED ID MIGRATION: Equipped item capability entries now use the typed eqId
+     * from HoldingCostController instead of synthetic "equipped-${itemId}-${itemType}" strings.
+     *
      * On unequip, this method is called again and the _removeEntityFromAllActionCaches
      * step (called before this method) removes old entries.
      *
@@ -998,8 +1007,9 @@ class ComponentCapabilityController {
                 // base stats from inventoryItems.json. This ensures that when an item's stats
                 // change (e.g., sharpness drain from cut), the capability cache reflects the
                 // actual current state, not the stale base values.
+
                 let itemStats;
-                const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.itemId);
+                const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.eqId);
                 if (currentStats) {
                     // Use mutable copy of current stats (may have been drained/degraded)
                     itemStats = currentStats;
@@ -1021,10 +1031,12 @@ class ComponentCapabilityController {
                     );
                     if (!reqCheck.passed) continue;
 
+                    // TYPED ID MIGRATION: Use equipped.eqId (typed eq-uuid) as componentId
+                    const eqId = equipped.eqId || generateEquippedId();
                     const entry = {
                         entityId,
-                        // Prefer the actual host componentId; fall back to synthetic ID for legacy entries
-                        componentId: equipped.componentId || `equipped-${equipped.itemId}-${equipped.itemType}`,
+                        _entityId: entityId, // TYPED ID MIGRATION: Explicit _entityId field
+                        componentId: eqId, // TYPED ID MIGRATION: Use typed eqId instead of synthetic "equipped-${itemId}-${itemType}"
                         componentType: equipped.itemType,
                         componentIdentifier: equipped.itemType,
                         score,
@@ -1038,6 +1050,7 @@ class ComponentCapabilityController {
                         })),
                         _resolvedRole: 'source',
                         _isEquippedItem: true,
+                        _eqId: eqId, // TYPED ID MIGRATION: Explicit _eqId field for equipped items
                         _equippedItemId: equipped.itemId,
                         _equippedItemType: equipped.itemType,
                         _equippedComponentId: equipped.componentId
@@ -1114,7 +1127,29 @@ class ComponentCapabilityController {
 
         const equippedTraits = this._getEquippedTraitsForHostComponent(componentId);
         if (equippedTraits) {
-            return equippedTraits; // Equipped item traits take precedence
+            // MERGE equipped item traits with host component stats instead of replacing
+            // This ensures host stats like Physical.strength are preserved alongside item traits
+            const mergedStats = {};
+            // First, copy all host stats
+            if (hostStats) {
+                for (const [trait, data] of Object.entries(hostStats)) {
+                    mergedStats[trait] = { ...data };
+                }
+            }
+            // Then, overlay equipped item traits (item traits override host stats for same trait)
+            for (const [trait, data] of Object.entries(equippedTraits)) {
+                if (!mergedStats[trait]) {
+                    mergedStats[trait] = { ...data };
+                } else {
+                    // Merge individual stat values within the same trait
+                    for (const [stat, value] of Object.entries(data)) {
+                        if (!mergedStats[trait][stat] && value !== undefined) {
+                            mergedStats[trait][stat] = value;
+                        }
+                    }
+                }
+            }
+            return mergedStats;
         }
 
         return hostStats || null;
@@ -1176,7 +1211,7 @@ class ComponentCapabilityController {
                 return { passed: false };
             }
             requirementValues[key] = itemStats[req.trait][req.stat];
-            fulfillingComponents[key] = `equipped-${equipped.itemId}`;
+            fulfillingComponents[key] = equipped.eqId;
         }
 
         return { passed: true, requirementValues, fulfillingComponents };
