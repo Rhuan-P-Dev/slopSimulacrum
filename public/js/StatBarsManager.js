@@ -54,10 +54,16 @@ export class StatBarsManager {
     /**
      * Initializes the stat bars container DOM element.
      */
-    init() {
+       init() {
         this._dialog = document.getElementById('add-stat-dialog');
         this._dialogOverlay = document.getElementById('add-stat-dialog-overlay');
         this._setupDialogListeners();
+        
+        // Attach listener to the "➕ Add Stat" button in the config bar
+        const btnAddStat = document.getElementById('btn-add-stat');
+        if (btnAddStat) {
+            btnAddStat.addEventListener('click', () => this.openAddDialog());
+        }
     }
 
     /**
