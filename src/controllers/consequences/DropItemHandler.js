@@ -86,6 +86,10 @@ function handleDropItem(deps, params, context) {
         return { success: false, message: `Failed to remove item: ${inventoryResult.message}` };
     }
 
+    // Fetch item definition to include name, description, and volume in dropped item data
+    const itemRegistry = worldStateController.getItemRegistry();
+    const itemDef = itemRegistry[usedItemType] || {};
+
     // Store dropped item at world coordinates
     const droppedItems = worldStateController.getDroppedItems() || {};
     const droppedItemId = `dropped-${Date.now()}-${itemId.slice(0, 8)}`;
@@ -95,7 +99,10 @@ function handleDropItem(deps, params, context) {
         itemId: itemId,
         x: targetX,
         y: targetY,
-        ownerId: entityId
+        ownerId: entityId,
+        name: itemDef.name || usedItemType,
+        description: itemDef.description || '',
+        volume: itemDef.volume || 1
     };
 
     worldStateController.setDroppedItems(droppedItems);
