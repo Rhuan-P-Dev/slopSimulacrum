@@ -451,3 +451,12 @@
 .stats-value.negative {
     color: var(--neon-red);
 }
+
+/* Stat value color coding based on percentage of maximum */
+.stats-value.warning {
+    color: var(--neon-red);
+}
+
+.stats-value.healthy {
+    color: var(--neon-green);
+}

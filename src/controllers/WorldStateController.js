@@ -1151,13 +1151,17 @@ class WorldStateController {
         const dynamicStatCategories = {};
 
         if (isEquipped && this.equippedItemStats) {
-            const eqStats = this.equippedItemStats.getStats(itemId);
-            if (eqStats) {
-                for (const [traitCategory, traitData] of Object.entries(eqStats)) {
-                    if (typeof traitData === 'object' && traitData !== null && !Array.isArray(traitData)) {
-                        dynamicStatCategories[traitCategory] = true;
-                        for (const [statName, statValue] of Object.entries(traitData)) {
-                            dynamicStats[statName] = statValue;
+            // FIX: Get eqId from itemId to properly look up equipped item stats
+            const equippedItem = this.getEquippedItemByItemId(entityId, itemId);
+            if (equippedItem && equippedItem.eqId) {
+                const eqStats = this.equippedItemStats.getStats(equippedItem.eqId);
+                if (eqStats) {
+                    for (const [traitCategory, traitData] of Object.entries(eqStats)) {
+                        if (typeof traitData === 'object' && traitData !== null && !Array.isArray(traitData)) {
+                            dynamicStatCategories[traitCategory] = true;
+                            for (const [statName, statValue] of Object.entries(traitData)) {
+                                dynamicStats[statName] = statValue;
+                            }
                         }
                     }
                 }
