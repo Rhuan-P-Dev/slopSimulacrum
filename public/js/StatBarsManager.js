@@ -210,23 +210,29 @@ export class StatBarsManager {
      * @private
      */
     _updateBarFill(barId, percentage, currentValue, valueText, state) {
+        const bar = this._bars.get(barId);
         const fill = document.getElementById(`stat-fill-${barId}`);
         const valueEl = document.getElementById(`stat-value-${barId}`);
         const labelEl = document.getElementById(`stat-label-${barId}`);
 
         if (fill) {
             fill.style.width = `${percentage}%`;
-            fill.style.backgroundColor = this._getTraitColor(
-                state && state.components?.locked ? '' : '',
-                state ? this._getTraitColorFromState(state) : null
-            ) || fill.dataset.color || '#00ff00';
+            // Prioritize custom bar color over trait-based color
+            const color = bar?.color 
+                ? this._getTraitColor(bar.trait, bar.color) 
+                : this._getTraitColor(
+                    state && state.components?.locked ? '' : '',
+                    state ? this._getTraitColorFromState(state) : null
+                  );
+            fill.style.backgroundColor = color || '#00ff00';
+            fill.dataset.color = color;
         }
         if (valueEl) {
             valueEl.textContent = valueText;
-            valueEl.style.color = fill?.dataset?.color || '#fff';
+            valueEl.style.color = fill.dataset.color || '#fff';
         }
         if (labelEl) {
-            labelEl.style.color = fill?.dataset?.color || '#fff';
+            labelEl.style.color = fill.dataset.color || '#fff';
         }
     }
 
@@ -282,7 +288,7 @@ export class StatBarsManager {
      * Re-renders all stat bars in the container.
      * @private
      */
-    _renderAllBars() {
+       _renderAllBars() {
         this._ensureContainer();
         if (!this._container) return;
 
@@ -311,6 +317,12 @@ export class StatBarsManager {
                 this.removeBar(btn.dataset.barId);
             };
         });
+        this._container.querySelectorAll('.stat-bar-color-picker').forEach((input) => {
+            input.onchange = (e) => {
+                e.stopPropagation();
+                this.editBar(e.target.dataset.barId, { color: e.target.value });
+            };
+        });
         this._container.querySelectorAll('.color-swatch').forEach((swatch) => {
             swatch.onclick = (e) => {
                 e.stopPropagation();
@@ -325,7 +337,7 @@ export class StatBarsManager {
      * @returns {string} HTML string.
      * @private
      */
-    _buildBarHTML(bar) {
+      _buildBarHTML(bar) {
         const color = this._getTraitColor(bar.trait, bar.color);
         return `
             <div class="stat-bar-item" data-bar-id="${bar.id}" data-component-id="${bar.componentId || ''}">
@@ -335,6 +347,7 @@ export class StatBarsManager {
                 </div>
                 <span class="stat-bar-value" id="stat-value-${bar.id}" style="color: ${color};">0%</span>
                 <div class="stat-bar-controls">
+                    <input type="color" class="stat-bar-color-picker" data-bar-id="${bar.id}" value="${bar.color}" title="Change color">
                     <button class="stat-bar-btn stat-bar-btn-edit" data-bar-id="${bar.id}" title="Edit max">✏️</button>
                     <button class="stat-bar-btn stat-bar-btn-delete" data-bar-id="${bar.id}" title="Remove">🗑️</button>
                 </div>
