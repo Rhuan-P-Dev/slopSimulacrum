@@ -51,6 +51,15 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: 'Missing componentId.' };
     }
 
+    // Get dropped items and find the target
+    const droppedItems = worldStateController.getDroppedItems() || {};
+    const droppedItem = droppedItems[droppedItemId];
+
+    if (!droppedItem) {
+        Logger.warn(`[PickUpItemHandler] Dropped item "${droppedItemId}" not found.`);
+        return { success: false, message: `Dropped item "${droppedItemId}" not found.` };
+    }
+
     // Check if the entity exists
     const entity = worldStateController.getEntity(entityId);
     if (!entity) {
@@ -70,13 +79,17 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Component "${componentId}" does not belong to entity "${entityId}".` };
     }
 
-    // Get dropped items and find the target
-    const droppedItems = worldStateController.getDroppedItems() || {};
-    const droppedItem = droppedItems[droppedItemId];
+    // Verify range before allowing pickup
+    const droidX = entity.spatial?.x || 0;
+    const droidY = entity.spatial?.y || 0;
+    const itemX = droppedItem.x || 0;
+    const itemY = droppedItem.y || 0;
+    const distance = Math.sqrt(Math.pow(itemX - droidX, 2) + Math.pow(itemY - droidY, 2));
+    const maxRange = 100; // Matches dropItem range in actions.json
 
-    if (!droppedItem) {
-        Logger.warn(`[PickUpItemHandler] Dropped item "${droppedItemId}" not found.`);
-        return { success: false, message: `Dropped item "${droppedItemId}" not found.` };
+    if (distance > maxRange) {
+        Logger.warn(`[PickUpItemHandler] Item "${droppedItemId}" is out of range. Distance: ${distance.toFixed(2)}, Max Range: ${maxRange}`);
+        return { success: false, message: `Item is out of range. Distance: ${distance.toFixed(2)}, Max Range: ${maxRange}` };
     }
 
     // Get item definition from inventoryItems.json

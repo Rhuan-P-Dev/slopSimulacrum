@@ -132,6 +132,14 @@ export class PickUpOverlayController {
         this._currentItem = null;
         this._onClose();
     }
+    /**
+    * Returns the currently stored item info.
+    * @returns {Object|null}
+    */
+    _getCurrentItem() {
+    return this._currentItem;
+    }
+
 
     /**
      * Toggles the pick-up panel visibility.

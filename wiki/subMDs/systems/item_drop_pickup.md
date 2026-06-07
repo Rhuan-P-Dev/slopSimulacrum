@@ -2,7 +2,7 @@
 
 ## Overview
 
-The item drop/pickup system provides a symmetrical user experience for dropping and picking up items. Both flows use the same `DropSelectorController` overlay, the same range indicator rendering, and the same map-click execution pattern.
+The item drop/pickup system provides a symmetrical user experience for dropping and picking up items. Both flows use the same `DropSelectorController` overlay. The drop flow uses a map-click pattern for placement, while the pickup flow uses an immediate execution pattern after range verification and component selection.
 
 ## Design Decisions
 
@@ -19,7 +19,7 @@ The pickup flow was redesigned to mirror the drop flow exactly:
 The original pickup flow used `ComponentViewer` (a floating window showing component details), which was inconsistent with the drop flow. The new flow uses the drop selector overlay, providing:
 
 - A single, unified component selection experience
-- Visual feedback via range indicator on the map
+- Visual feedback via range indicator on the map (for drop) or immediate execution (for pickup)
 - Consistent button labels and panel structure
 
 ## Flow Comparison
@@ -46,7 +46,7 @@ sequenceDiagram
     A->>Server: POST /drop-item
 ```
 
-### Pickup Flow (New)
+### Pickup Flow (Updated)
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -57,17 +57,15 @@ sequenceDiagram
     participant A as ActionExecutor
 
     U->>M: Click dropped item
-    M->>P: show(itemInfo)
-    P->>U: Show item details + "Pick Up"
+    M->>E: Check range
+    E->>A: Verify range
+    A->>U: Show range indicator & overlay
     U->>P: Click "Pick Up"
     P->>D: showPickup(pickupData)
     D->>D: Fetch capable components
     D->>U: Show component list
     U->>D: Select component + Execute
-    D->>U: Close panel
     D->>E: dispatch pick-up-selector:execute
-    E->>A: renderRangeIndicator()
-    U->>E: Click map
     E->>A: executePickUpItem()
     A->>Server: POST /pick-up-item
 ```

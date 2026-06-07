@@ -598,14 +598,85 @@ export class ClientApp {
             componentIds
         };
 
+        // Range is already verified and indicator shown when item was clicked.
+        // Execute immediately upon component selection.
+        this._executePickUpImmediately(pendingPickUpItem);
+    }
+
+    /**
+     * Executes the pickup action immediately after component selection.
+     * @private
+     */
+       /**
+     * Executes the pickup action immediately after component selection.
+     * @private
+     */
+    async _executePickUpImmediately(pendingPickUpItem) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
 
-        // Use the same range expression as dropItem — pickup uses the same drop range
+        const state = this.worldState.getState();
+
+        // Execute pickup with stored pending selector and item coordinates
+        this.executor.executePickUpItem(this._pendingPickUpSelector, pendingPickUpItem.x, pendingPickUpItem.y, droid, state);
+        this._pendingPickUpSelector = null;
+    }
+
+    /**
+     * Handles clicking a dropped item marker on the spatial map.
+     * Opens the pick-up overlay panel with item information.
+     * @private
+     */
+    _handleDroppedItemClick(droppedItemId, droppedItem) {
+        // Check range immediately when item is clicked
+        const rangeCheckResult = this._checkPickUpRange(droppedItem);
+        
+        if (!rangeCheckResult.inRange) {
+            this.errorController.handleError({
+                code: 'OUT_OF_RANGE',
+                message: rangeCheckResult.message
+            });
+            return;
+        }
+
+        // Item is in range, show overlay and range indicator
+        this.pickUpOverlay.show(droppedItem);
+        
+        // Show range indicator to give visual feedback
+        const droid = this.worldState.getActiveDroid();
+        if (droid) {
+            const state = this.worldState.getState();
+            const dropActionData = this.availableActions['dropItem'] || {};
+            const rangeExpression = dropActionData?.range;
+            
+            let maxStrength = 0;
+            if (droid.components && Array.isArray(droid.components)) {
+                for (const comp of droid.components) {
+                    const compId = comp.id || comp;
+                    const stats = state.components?.instances?.[compId];
+                    if (stats?.Physical?.strength) {
+                        maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                    }
+                }
+            }
+            
+            const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
+            this.ui.renderRangeIndicator(droid, pickUpRange, '#44ff44', 'pickup');
+        }
+    }
+
+    /**
+     * Checks if the dropped item is within pickup range.
+     * @private
+     */
+       _checkPickUpRange(droppedItem) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) return { inRange: false, message: 'No active droid.' };
+
+        const state = this.worldState.getState();
         const dropActionData = this.availableActions['dropItem'] || {};
         const rangeExpression = dropActionData?.range;
 
-        const state = this.worldState.getState();
         let maxStrength = 0;
         if (droid.components && Array.isArray(droid.components)) {
             for (const comp of droid.components) {
@@ -618,18 +689,28 @@ export class ClientApp {
         }
 
         const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
-        this.ui.renderRangeIndicator(droid, pickUpRange, '#44ff44', 'pickup');
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+        const itemX = droppedItem.x || 0;
+        const itemY = droppedItem.y || 0;
+
+        const distance = Math.sqrt(Math.pow(itemX - droidX, 2) + Math.pow(itemY - droidY, 2));
+
+        if (distance > pickUpRange) {
+            return { 
+                inRange: false, 
+                message: `Item is out of range. Distance: ${distance.toFixed(2)}, Max Range: ${pickUpRange}` 
+            };
+        }
+
+        return { inRange: true, distance };
     }
 
     /**
-     * Handles clicking a dropped item marker on the spatial map.
-     * Opens the pick-up overlay panel with item information.
+     * Executes the pending pick-up action after verifying range.
      * @private
      */
-    _handleDroppedItemClick(droppedItemId, droppedItem) {
-        // Show the pick-up overlay with item info
-        this.pickUpOverlay.show(droppedItem);
-    }
+    
 
     /**
      * Handles the "Pick Up" button click in the pick-up overlay.
@@ -658,9 +739,11 @@ export class ClientApp {
         // Clear any pending pick-up selector state
         this._pendingPickUpSelector = null;
 
-        // Open the drop selector overlay in pickup mode
+        // Pass the full item info (including coordinates) to the drop selector
+        const fullItemInfo = this.pickUpOverlay._getCurrentItem() || droppedItemInfo;
+
         this.dropSelector.showPickup({
-            pendingPickUpItem: droppedItemInfo,
+            pendingPickUpItem: fullItemInfo,
             entityId
         });
     }
