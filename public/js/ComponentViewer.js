@@ -127,7 +127,7 @@ export class ComponentViewer {
      * @param {Object} state - The complete world state.
      * @private
      */
-       async _renderComponentGrid(entity, state) {
+             async _renderComponentGrid(entity, state) {
         if (!this._content) return;
 
         // Preserve scroll position of the actual scrollable container (the overlay panel)
@@ -180,6 +180,21 @@ export class ComponentViewer {
             btn.onclick = (e) => {
                 e.stopPropagation();
                 this._onAddStatFromComponent(btn.dataset.compId);
+            };
+        });
+
+        // Attach click listeners to stat badges to open add dialog pre-filled with that stat's current value
+        this._content.querySelectorAll('.component-stat-clickable').forEach((badge) => {
+            badge.onclick = (e) => {
+                e.stopPropagation();
+                this._statBarsManager.openAddDialog({
+                    componentId: badge.dataset.compId,
+                    trait: badge.dataset.trait,
+                    stat: badge.dataset.stat,
+                    max: parseFloat(badge.dataset.value) || 0,
+                    label: `${this._getComponentLabel(badge.dataset.compId)}.${badge.dataset.trait}.${badge.dataset.stat}`,
+                    color: '',
+                });
             };
         });
 

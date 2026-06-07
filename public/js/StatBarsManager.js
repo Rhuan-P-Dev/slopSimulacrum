@@ -407,7 +407,7 @@ export class StatBarsManager {
      * @param {Object} [preFill] - Optional pre-fill { componentId, trait, stat, max, label, color }.
      * @param {Function} [onConfirm] - Optional callback on confirm (overrides default addBar).
      */
-    openAddDialog(preFill, onConfirm) {
+       openAddDialog(preFill, onConfirm) {
         if (!this._dialog || !this._dialogOverlay) return;
 
         const componentSelect = document.getElementById('add-stat-component-select');
@@ -420,6 +420,22 @@ export class StatBarsManager {
 
         // Get pre-filled componentId
         const prefillComponentId = preFill?.componentId || null;
+
+        // Helper to update max input based on current selection
+        const updateMaxFromSelection = () => {
+            if (!maxInput || !traitSelect?.value || !statSelect?.value) return;
+            const state = this._worldStateManager.getState();
+            const instances = state?.components?.instances || {};
+            const entityId = this._worldStateManager.getMyEntityId();
+            const entity = entityId ? state?.entities?.[entityId] : null;
+            const compId = componentSelect?.value || prefillComponentId;
+            const stats = instances?.[compId] || {};
+            const traitStats = stats[traitSelect.value] || {};
+            const currentVal = traitStats[statSelect.value];
+            if (currentVal !== undefined) {
+                maxInput.value = currentVal;
+            }
+        };
 
         // Populate component dropdown from active entity's components
         if (componentSelect) {
@@ -436,10 +452,11 @@ export class StatBarsManager {
                 componentSelect.appendChild(opt);
             }
 
-            // Wire component change to populate trait dropdown
+            // Wire component change to populate trait dropdown and update max
             componentSelect.onchange = () => {
                 const selectedCompId = componentSelect.value;
                 this._populateTraitsForComponent(selectedCompId, traitSelect, statSelect);
+                updateMaxFromSelection();
             };
 
             // Pre-select the component if provided
@@ -455,7 +472,7 @@ export class StatBarsManager {
             this._populateTraitsAllComponents(traitSelect, statSelect);
         }
 
-        // Wire trait change to populate stat dropdown (for when no component is selected)
+        // Wire trait change to populate stat dropdown (for when no component is selected) and update max
         if (traitSelect) {
             traitSelect.onchange = () => {
                 const selectedCompId = componentSelect?.value;
@@ -463,7 +480,14 @@ export class StatBarsManager {
                     // No component selected - populate stats from all components
                     this._populateStatsFromTrait(traitSelect, statSelect);
                 }
-                // If component IS selected, stats are already populated by component change handler
+                updateMaxFromSelection();
+            };
+        }
+
+        // Wire stat change to update max
+        if (statSelect) {
+            statSelect.onchange = () => {
+                updateMaxFromSelection();
             };
         }
 
