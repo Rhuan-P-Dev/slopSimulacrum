@@ -85,8 +85,8 @@ export class ClientApp {
                 this.worldState.state = state;
                 this.statBars.updateAll(state);
             },
-            moveToTarget: (actionName, entityId, targetX, targetY) =>
-                this.actions.moveToTarget(actionName, entityId, targetX, targetY),
+            moveToTarget: (actionName, entityId, targetX, targetY, pending) =>
+                this.actions.moveToTarget(actionName, entityId, targetX, targetY, pending),
             executeMultiComponentSpatial: (actionName, entityId, componentIds, extraParams) =>
                 this.executor.executeMultiComponentSpatial(actionName, entityId, componentIds, extraParams),
             executeComponentAttack: (pending, targetX, targetY) =>

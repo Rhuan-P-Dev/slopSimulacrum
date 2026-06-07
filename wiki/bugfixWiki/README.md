@@ -22,6 +22,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-114](high/BUG-114-dash-durability-loss-targets-wrong-component.md) | Dash Durability Loss Targets Wrong Component (Left Ball Affected When Dashing Right) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `actionController.js` |
 | [BUG-093](high/BUG-093-equipped-item-stats-ignored-in-requirement-checks.md) | Equipped Item Stats Ignored in Action Requirement Checks | ✅ Fixed | `pending` | `RequirementResolver.js` |
 | [BUG-094](high/BUG-094-cut-action-disappears-after-unequip-reequip.md) | Cut Action Disappears After Unequip/Re-equip (Sharpness Resets) | ✅ Fixed | `pending` | `HoldingCostController.js` |
 | [BUG-099](high/BUG-099-cut-action-damage-ignores-sharpness-drain.md) | Knife Cut Damage Always Uses Base Sharpness (50), Ignoring Sharpness Drain | ✅ Fixed | `pending` | `RequirementResolver.js`, `ActionController.js`, `WorldStateController.js` |

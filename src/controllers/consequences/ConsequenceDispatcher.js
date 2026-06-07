@@ -41,7 +41,7 @@ class ConsequenceDispatcher {
      * @param {Object} [synergyResult] - Optional synergy computation result.
      * @returns {Object} Result of consequence execution.
      */
-    execute(actionName, entityId, requirementValues, params, fulfillingComponents = {}, synergyResult = null) {
+    execute(actionName, entityId, requirementValues, params, fulfillingComponents = null, synergyResult = null, primaryComponentId = null) {
         const action = this.actionController.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
@@ -68,7 +68,7 @@ class ConsequenceDispatcher {
 
             try {
                 const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-                const targetResult = this._resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName);
+                const targetResult = this._resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName, primaryComponentId);
 
                 if (!targetResult.success) {
                     results.push({
@@ -343,7 +343,7 @@ class ConsequenceDispatcher {
      *
      * @private
      */
-    _resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName) {
+    _resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName, primaryComponentId = null) {
         // MANDATORY: target field must be specified
         if (!consequence.target) {
             Logger.error(
@@ -357,7 +357,25 @@ class ConsequenceDispatcher {
 
         switch (targetType) {
             case 'self': {
-                // Find the source component that fulfilled the requirement
+                // The client explicitly specified the component to target for self-effects.
+                // Prioritize attackerComponentId (multi-attacker) or targetComponentId (spatial/single).
+                if (params?.attackerComponentId) {
+                    return { success: true, targetId: params.attackerComponentId };
+                }
+                if (params?.targetComponentId) {
+                    return { success: true, targetId: params.targetComponentId };
+                }
+                // If client sent componentIds array, use the first source component.
+                if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
+                    const firstSource = params.componentIds.find(c => c.role === 'source');
+                    if (firstSource) {
+                        return { success: true, targetId: firstSource.componentId };
+                    }
+                }
+                // Fallback to requirement-resolved component only if client didn't specify one.
+                if (primaryComponentId) {
+                    return { success: true, targetId: primaryComponentId };
+                }
                 const selfKey = Object.keys(fulfillingComponents).find(k => fulfillingComponents[k]);
                 const componentId = fulfillingComponents[selfKey] || entityId;
                 return { success: true, targetId: componentId };

@@ -233,7 +233,8 @@ class EventDispatcher {
                     pending.actionName,
                     pending.entityId,
                     targetX,
-                    targetY
+                    targetY,
+                    pending
                 );
             }
         }

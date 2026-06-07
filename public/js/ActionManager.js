@@ -124,8 +124,8 @@ export class ActionManager {
      * @param {number} targetX 
      * @param {number} targetY 
      */
-    async moveToTarget(actionName, entityId, targetX, targetY) {
-        const pending = this.getPendingAction();
+    async moveToTarget(actionName, entityId, targetX, targetY, pending = null) {
+        const effectivePending = pending || this.getPendingAction();
         try {
             await this._sendActionRequest({ 
                 actionName: actionName,
@@ -133,8 +133,8 @@ export class ActionManager {
                 params: { 
                     targetX, 
                     targetY,
-                    targetComponentId: pending?.componentId,
-                    componentIdentifier: pending?.componentIdentifier
+                    targetComponentId: effectivePending?.componentId,
+                    componentIdentifier: effectivePending?.componentIdentifier
                 }
             }, 'MOVEMENT_FAILED');
         } catch (error) {

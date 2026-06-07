@@ -456,7 +456,7 @@ class ActionController {
                 );
             } else {
                 consequenceResult = this.consequenceDispatcher.execute(
-                    actionName, entityId, requirementValues, params, fulfillingComponents, synergyResult
+                    actionName, entityId, requirementValues, params, fulfillingComponents, synergyResult, requirementCheckResult.componentId
                 );
             }
 
