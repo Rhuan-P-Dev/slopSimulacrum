@@ -27,6 +27,9 @@ export class OverlayManager {
 
         /** @private {number} Base z-index for overlay panels */
         this._baseZIndex = 100;
+
+        /** @private {Object<string, Object>} Cache for panel positions */
+        this._panelPositions = {};
     }
 
     /**
@@ -123,6 +126,9 @@ export class OverlayManager {
 
         // Update z-index for active panel
         this._updateZIndex(panelId);
+
+        // Initialize drag and resize for the panel
+        this._initPanelDrag(panelId);
     }
 
     /**
@@ -210,6 +216,75 @@ export class OverlayManager {
                 }
             }
         });
+    }
+
+    /**
+     * Initializes drag functionality for a panel.
+     * @param {string} panelId - Panel identifier.
+     * @private
+     */
+    _initPanelDrag(panelId) {
+        const panel = this._panels.get(panelId);
+        if (!panel) return;
+
+        const overlay = panel.controller.overlay;
+        if (!overlay) return;
+
+        const header = overlay.querySelector('.overlay-header');
+        if (!header) return;
+
+        // If already initialized, just ensure it's on top
+        if (overlay._isDragInitialized) {
+            overlay.style.zIndex = this._baseZIndex + 10;
+            return;
+        }
+
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        const onMouseDown = (e) => {
+            if (e.target.closest('.overlay-close-btn')) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = overlay.offsetLeft;
+            initialTop = overlay.offsetTop;
+            overlay.style.zIndex = this._baseZIndex + 10;
+            overlay.style.transition = 'none';
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            overlay.style.left = `${initialLeft + dx}px`;
+            overlay.style.top = `${initialTop + dy}px`;
+        };
+
+        const onMouseUp = () => {
+            if (isDragging) {
+                isDragging = false;
+                overlay.style.transition = '';
+                // Save position
+                this._panelPositions[panelId] = {
+                    left: overlay.style.left,
+                    top: overlay.style.top
+                };
+            }
+        };
+
+        header.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+
+        overlay._isDragInitialized = true;
+        overlay._dragListeners = { onMouseDown, onMouseMove, onMouseUp };
+
+        // Restore saved position if available
+        if (this._panelPositions[panelId]) {
+            overlay.style.left = this._panelPositions[panelId].left;
+            overlay.style.top = this._panelPositions[panelId].top;
+        }
     }
 
     /**

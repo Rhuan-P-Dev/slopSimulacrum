@@ -26,6 +26,8 @@ export class PickUpOverlayController {
         this._overlay = null;
         /** @private {Object|null} */
         this._currentItem = null;
+        /** @private {boolean} */
+        this._isDragInitialized = false;
     }
 
     /**
@@ -59,9 +61,68 @@ export class PickUpOverlayController {
         if (pickUpBtn) {
             pickUpBtn.addEventListener('click', () => this._handlePickUp());
         }
+
+        // Initialize drag functionality
+        this._initDrag();
     }
 
     /**
+     * Initializes drag functionality for the overlay.
+     * @private
+     */
+       /**
+     * Initializes drag functionality for the overlay.
+     * @private
+     */
+    _initDrag() {
+        if (this._isDragInitialized) return;
+        
+        // The header is now .overlay-header
+        const header = this._overlay.querySelector('.overlay-header');
+        if (!header) return;
+
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        const onMouseDown = (e) => {
+            if (e.target.closest('.overlay-close-btn')) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = this._overlay.offsetLeft;
+            initialTop = this._overlay.offsetTop;
+            this._overlay.style.zIndex = 110;
+            this._overlay.style.transition = 'none';
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            this._overlay.style.left = `${initialLeft + dx}px`;
+            this._overlay.style.top = `${initialTop + dy}px`;
+        };
+
+        const onMouseUp = () => {
+            if (isDragging) {
+                isDragging = false;
+                this._overlay.style.transition = '';
+            }
+        };
+
+        header.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+
+        this._isDragInitialized = true;
+    }
+
+    /**
+     * Creates the overlay DOM element.
+     * @returns {HTMLElement}
+     * @private
+     */
+       /**
      * Creates the overlay DOM element.
      * @returns {HTMLElement}
      * @private
@@ -72,11 +133,11 @@ export class PickUpOverlayController {
         overlay.className = 'overlay-panel pick-up-overlay-panel';
         overlay.style.display = 'none';
         overlay.innerHTML = `
-            <div class="overlay-content pick-up-panel-content">
+            <div class="overlay-header">
+                <h3 class="pick-up-item-name">Item Name</h3>
                 <button class="overlay-close-btn" aria-label="Close">&times;</button>
-                <div class="pick-up-panel-header">
-                    <h3 class="pick-up-item-name">Item Name</h3>
-                </div>
+            </div>
+            <div class="overlay-content pick-up-panel-content">
                 <div class="pick-up-item-details">
                     <p class="pick-up-item-description"></p>
                     <div class="pick-up-item-stats">

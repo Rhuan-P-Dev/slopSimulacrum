@@ -84,7 +84,7 @@
 }
 
 .drop-component-check::after {
-    content: '✓';
+    content: '\u2713';
     color: white;
     font-size: 14px;
     font-weight: bold;
@@ -286,4 +286,109 @@
 
 .pick-up-action-btn:active {
     transform: translateY(0);
+}
+
+/* =========================================================================
+   Draggable & Resizable Floating Windows
+   ========================================================================= */
+
+.overlay-panel {
+    position: fixed;
+    background: var(--panel-bg);
+    border: 2px solid var(--config-bar-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Default position */
+    top: 50px;
+    left: 50px;
+    /* Allow resizing */
+    resize: both;
+    min-width: 250px;
+    min-height: 150px;
+    max-width: 80vw;
+    max-height: 80vh;
+    /* Make sure content doesn't overflow awkwardly */
+    overflow: auto;
+    z-index: 100;
+}
+
+/* Header for dragging */
+.overlay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--config-bar-bg);
+    border-bottom: 1px solid var(--config-bar-border);
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.overlay-header:active {
+    cursor: grabbing;
+}
+
+.overlay-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.overlay-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.overlay-close-btn:hover {
+    color: var(--text-main);
+}
+
+/* Content area */
+.overlay-panel > div:not(.overlay-header):not(.overlay-footer) {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+}
+
+/* Resize handle visual cue (optional, browser default is usually fine) */
+.overlay-panel::-webkit-resizer {
+    background-color: var(--config-bar-border);
+    border-radius: 4px;
+}
+
+/* Adjust specific panels if needed */
+#nav-actions-overlay {
+    width: 320px;
+    height: 400px;
+}
+
+#inventory-overlay {
+    width: 350px;
+    height: 450px;
+}
+
+#component-viewer-overlay {
+    width: 300px;
+    height: 400px;
+}
+
+#world-map-overlay {
+    width: 400px;
+    height: 350px;
+}
+
+/* Drop selector is handled separately, but let's apply similar styles */
+#drop-selector-overlay {
+    width: 300px;
+    height: 350px;
 }

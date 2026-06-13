@@ -95,8 +95,53 @@ export class DropSelectorController {
             this._cancelBtn.addEventListener('click', () => this._onCancel());
         }
 
+        // Initialize drag functionality
+        this._initDrag();
+
         this._initialized = true;
         console.info('[DropSelectorController] Initialized.');
+    }
+
+    /**
+     * Initializes drag functionality for the overlay.
+     * @private
+     */
+    _initDrag() {
+        const header = this._overlay.querySelector('.overlay-header');
+        if (!header) return;
+
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        const onMouseDown = (e) => {
+            if (e.target.closest('.overlay-close-btn')) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = this._overlay.offsetLeft;
+            initialTop = this._overlay.offsetTop;
+            this._overlay.style.zIndex = 110;
+            this._overlay.style.transition = 'none';
+        };
+
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            this._overlay.style.left = `${initialLeft + dx}px`;
+            this._overlay.style.top = `${initialTop + dy}px`;
+        };
+
+        const onMouseUp = () => {
+            if (isDragging) {
+                isDragging = false;
+                this._overlay.style.transition = '';
+            }
+        };
+
+        header.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     }
 
     /**
