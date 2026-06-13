@@ -290,7 +290,7 @@ class HoldingCostController {
      * @param {string} itemId - The item ID being unequipped.
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
-    unequipItem(entityId, itemId) {
+       unequipItem(entityId, itemId) {
         // Find the eqId for this itemId
         const items = this._equippedItems[entityId] || {};
         const equippedEntry = Object.values(items).find(eq => eq.itemId === itemId);
@@ -313,7 +313,7 @@ class HoldingCostController {
         }
 
         // Restore original stats for this component
-        const originalStats = this._preEquipStats[entityId]?.[itemId]?.[componentId];
+        const originalStats = this._preEquipStats[entityId]?.[eqId]?.[componentId];
         if (!originalStats) {
             Logger.warn(`[HoldingCostController] No original stats found for unequip of "${itemId}" on component "${componentId}".`);
             // Do NOT call _cleanupTracking here — we should NOT silently remove tracking
