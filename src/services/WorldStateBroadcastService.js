@@ -1,4 +1,5 @@
 import Logger from '../utils/Logger.js';
+import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 // TYPED ID MIGRATION: Import typed ID generators for items and equipped items
 import { generateItemId, generateEquippedId } from '../utils/idGenerator.js';
 
@@ -7,6 +8,7 @@ import { generateItemId, generateEquippedId } from '../utils/idGenerator.js';
  * Transforms raw state into typed-ID-safe format before broadcast.
  * Follows the Dependency Injection pattern from controller_patterns.md.
  */
+
 class WorldStateBroadcastService {
 	/**
 	 * @param {object} io - Socket.IO server instance
@@ -68,6 +70,19 @@ class WorldStateBroadcastService {
 					for (const comp of entity.components) {
 						if (comp && comp.id && !comp.id.startsWith('comp-')) {
 							comp.id = `comp-${comp.id}`;
+						}
+					}
+				}
+
+				// Transform internal components — enrich with descriptions
+				if (entity.internalComponents && typeof entity.internalComponents === 'object') {
+					for (const [hostId, comps] of Object.entries(entity.internalComponents)) {
+						if (Array.isArray(comps)) {
+							for (const ic of comps) {
+								if (ic && ic.type) {
+									ic.description = InternalComponentUtils.generateDescription(ic.type);
+								}
+							}
 						}
 					}
 				}

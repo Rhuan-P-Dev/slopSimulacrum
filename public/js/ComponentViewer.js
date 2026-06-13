@@ -292,17 +292,6 @@ export class ComponentViewer {
     }
 
     /**
-     * Gets a human-readable description for an internal component type.
-     * @param {string} type - The internal component type.
-     * @returns {string} Description string.
-     * @private
-     */
-    _getInternalComponentDescription(type) {
-        // Description is always generic — registry lookup removed as dead code
-        return 'Passive internal component.';
-    }
-
-    /**
      * Handles the 🔮 button click — toggles internal components panel.
      * Uses the entity internalComponents reference passed from _renderComponentGrid
      * to ensure we read from the same source that rendered the 🔮 button.
@@ -376,7 +365,7 @@ export class ComponentViewer {
         let html = '<div class="internal-components-list">';
 
         for (const ic of internalComps) {
-            const description = this._getInternalComponentDescription(ic.type);
+            const description = ic.description || "Error";
             const typeLabel = this._formatInternalComponentType(ic.type);
 
             html += `

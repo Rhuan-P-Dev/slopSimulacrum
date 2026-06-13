@@ -1,19 +1,15 @@
 import express from 'express';
 import Logger from '../utils/Logger.js';
-import DataLoader from '../utils/DataLoader.js';
 
 const router = express.Router();
 
 /**
  * GET /api/internal-components/registry
  * Returns all internal component type definitions from the registry.
- * Used by the client to render descriptions of internal components.
  */
 router.get('/registry', (req, res) => {
     try {
-        const registry = DataLoader.loadJsonSafe('data/internalComponents.json', {});
-
-        // Return raw registry (no human-readable descriptions)
+        const registry = require('../utils/DataLoader').default.loadJsonSafe('data/internalComponents.json', {});
         return res.json(registry);
     } catch (error) {
         Logger.error(`[InternalComponentRoutes] GET /registry error: ${error.message}`);
