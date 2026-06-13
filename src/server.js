@@ -5,29 +5,37 @@ import SocketLifecycleController from './controllers/networking/SocketLifecycleC
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
 import { registerRoutes } from './routes/index.js';
 import Logger from './utils/Logger.js';
+import { UniversalTickSystem } from './utils/UniversalTickSystem.js';
+import { MAX_TICKS_PER_SECOND } from './utils/Constants.js';
 
 // 1. Bootstrap server (Express + HTTP + Socket.IO)
 const { app, server, io } = bootstrapServer();
 
-// 2. Initialize controllers
-const llmController = new LLMController();
-const worldStateController = new WorldStateController();
+// 2. Initialize the Universal Tick System (e.g., 60 ticks per second)
+const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 
-// 3. Initialize broadcast service
+// 3. Initialize controllers
+const llmController = new LLMController();
+const worldStateController = new WorldStateController(tickSystem);
+
+// 4. Initialize broadcast service
 const broadcastService = new WorldStateBroadcastService(io, worldStateController);
 
-// 4. Register socket lifecycle
+// 5. Register socket lifecycle
 const socketLifecycle = new SocketLifecycleController(worldStateController, io);
 socketLifecycle.registerHandlers();
 
-// 5. Register all routes
+// 6. Register all routes
 registerRoutes(app, llmController, worldStateController, broadcastService);
 
-// 6. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
+// 7. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
 worldStateController.setBroadcastService(broadcastService);
 
-// 7. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
+// 8. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
 worldStateController.triggerInitialBroadcast();
+
+// 9. START THE WORLD (Start the Tick System)
+tickSystem.start();
 
     // 8. Graceful shutdown for unified tick system
     let isShuttingDown = false;
@@ -42,9 +50,9 @@ worldStateController.triggerInitialBroadcast();
 
         Logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
 
-        // Stop unified internal component tick system
-        if (worldStateController?.internalComponentController) {
-            worldStateController.internalComponentController.stopTickSystem();
+        // Stop the Universal Tick System
+        if (tickSystem) {
+            tickSystem.stop();
         }
 
         // Force disconnect all connected Socket.IO clients.

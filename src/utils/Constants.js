@@ -80,3 +80,13 @@ export const DROP_BASE_RANGE = 3;
  * @type {number}
  */
 export const DROP_RANGE_MULTIPLIER = 2;
+// =========================================================================
+// TICK SYSTEM CONSTANTS
+// =========================================================================
+
+/**
+ * Maximum number of simulation ticks per second.
+ * Controls the speed of the universal tick loop.
+ * @type {number}
+ */
+export const MAX_TICKS_PER_SECOND = 5;
