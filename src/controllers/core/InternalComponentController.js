@@ -1,45 +1,56 @@
-import { generateUID } from '../../utils/idGenerator.js';
-import DataLoader from '../../utils/DataLoader.js';
-import Logger from '../../utils/Logger.js';
-
-// Load component definitions for trait requirement checking
-const componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
-
 /**
- * InternalComponentController handles the storage, management, and lifecycle
- * of internal components attached to host components on entities.
- *
- * Internal components (e.g., durability repair spheres, speed cores) are nested within
- * host components and provide passive effects over time via a unified tick system.
- *
- * Per wiki/CORE.md: InternalComponentController is a State Controller (data store only),
- * following the State Ownership vs. Logic Coordination pattern — self-instantiating
- * without dependency injection.
- *
- * Storage format: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
- *
- * Tick System: A single 1-second interval iterates over all internal components.
- * Each component type defines its own `tickInterval` and `tickEffects` in the registry.
- * Effects are applied when `(Math.floor(Date.now() / 1000) % tickInterval) === 0`.
- * Effects support: "add" (increment), "set" (assign), "multiply" (scale).
+ * InternalComponentController
+ * Manages the lifecycle, installation, and tick-based effects of internal components.
+ * Integrates with the UniversalTickSystem for deterministic simulation updates.
  */
+
+import Logger from '../../utils/Logger.js';
+import DataLoader from '../../utils/DataLoader.js';
+import { TickJob } from '../../utils/UniversalTickSystem.js';
+import { generateUID } from '../../utils/idGenerator.js';
+
 class InternalComponentController {
     /**
      * @param {Object} [internalComponentRegistry] - Pre-loaded internal component definitions.
      *   If not provided, loads from data/internalComponents.json.
+     * @param {UniversalTickSystem} [tickSystem] - The global tick system instance.
      */
-    constructor(internalComponentRegistry = null) {
+    constructor(internalComponentRegistry = null, tickSystem = null) {
         // Load registry from data file
         this.registry = internalComponentRegistry || DataLoader.loadJsonSafe('data/internalComponents.json', {});
         this._validateRegistry(this.registry);
 
+        // Load component definitions for trait checking
+        this.componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
         this.internalComponents = {};
 
-        // Unified tick timer management — single 1-second interval drives all effects
-        this._unifiedTickInterval = null;
+        // Reference to the global tick system
+        this.tickSystem = tickSystem;
 
         Logger.info(`[InternalComponentController] Initialized with ${Object.keys(this.registry).length} internal component types`);
+    }
+
+    /**
+     * Initializes the controller with the global tick system.
+     * Registers the unified tick job to process internal component effects.
+     */
+    initialize() {
+        if (!this.tickSystem) {
+            Logger.warn('[InternalComponentController] No tickSystem provided. Internal component effects will not run.');
+            return;
+        }
+
+        // Register a job that runs every tick (Order 0 = Highest Priority)
+        this.tickSystem.register(new TickJob(
+            'internal-components',
+            () => this._processTick(),
+            5, // Interval: 5 tick
+            0  // Order: 0 (Highest Priority)
+        ));
+
+        Logger.info('[InternalComponentController] Registered with UniversalTickSystem');
     }
 
     /**
@@ -339,51 +350,20 @@ class InternalComponentController {
     }
 
     // =========================================================================
-    // UNIFIED TICK SYSTEM
+    // UNIFIED TICK PROCESSING
     // =========================================================================
 
     /**
-     * Starts the unified tick system.
-     * A single 1-second interval processes all internal component effects
-     * based on their individual tickInterval from the registry.
-     *
-     * @returns {void}
-     */
-    startTickSystem() {
-        if (this._unifiedTickInterval) {
-            Logger.warn('[InternalComponentController] Unified tick system already running');
-            return;
-        }
-
-        this._unifiedTickInterval = setInterval(() => {
-            this._processUnifiedTick();
-        }, 1000);
-
-        Logger.info('[InternalComponentController] Unified tick system started (1s interval)');
-    }
-
-    /**
-     * Stops the unified tick system and clears the interval.
-     *
-     * @returns {void}
-     */
-    stopTickSystem() {
-        if (this._unifiedTickInterval) {
-            clearInterval(this._unifiedTickInterval);
-            this._unifiedTickInterval = null;
-            Logger.info('[InternalComponentController] Unified tick system stopped');
-        }
-    }
-
-    /**
-     * Called every second: processes all internal component effects
+     * Called every tick: processes all internal component effects
      * based on their tickInterval from the registry definition.
-     * Only applies effects when (currentSecond % tickInterval) === 0.
      *
      * @private
      */
-    _processUnifiedTick() {
-        const currentSecond = Math.floor(Date.now() / 1000);
+    _processTick() {
+        // We use Date.now() to calculate "logical seconds" for tickInterval alignment
+        // This ensures that a component with tickInterval=2 fires every 2 logical seconds
+        // regardless of the tick rate (e.g., 60 ticks/sec).
+        const currentLogicalSecond = Math.floor(Date.now() / 1000);
         let totalEffects = 0;
 
         for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {
@@ -392,8 +372,8 @@ class InternalComponentController {
                     const compDef = this.registry[internalComp.type];
                     if (!compDef || !compDef.tickEffects || !Array.isArray(compDef.tickEffects)) continue;
 
-                    // Check if this tick interval has arrived
-                    if (currentSecond % compDef.tickInterval !== 0) continue;
+                    // Check if this tick interval has arrived (Logical Second % Interval == 0)
+                    if (currentLogicalSecond % compDef.tickInterval !== 0) continue;
 
                     // Apply each tick effect defined for this component type
                     for (const effect of compDef.tickEffects) {
@@ -507,7 +487,7 @@ class InternalComponentController {
      * @private
      */
     _checkRequiredTraits(componentType, requiredTraits) {
-        const compDef = componentDefinitions[componentType];
+        const compDef = this.componentDefinitions[componentType];
         if (!compDef || !compDef.traits) {
             Logger.info(`[InternalComponentController] Component "${componentType}" has no trait definitions — required traits check fails`);
             return false;

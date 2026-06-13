@@ -1,35 +1,28 @@
-import RoomsController from './core/RoomsController.js';
-import stateEntityController from './core/stateEntityController.js';
-import ComponentController from './core/componentController.js';
-import EntityController from './core/entityController.js';
+import DataLoader from '../utils/DataLoader.js';
 import ComponentStatsController from './core/componentStatsController.js';
 import TraitsController from './traits/TraitsController.js';
-import ActionController from './actions/actionController.js';
-import ComponentCapabilityController from './capabilities/componentCapabilityController.js';
-import SynergyController from './synergy/synergyController.js';
-import ActionSelectController from './actions/actionSelectController.js';
-import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import InternalComponentController from './core/InternalComponentController.js';
-import HoldingCostController from './core/HoldingCostController.js';
+import ComponentController from './core/componentController.js';
+import EntityController from './core/entityController.js';
+import RoomsController from './core/RoomsController.js';
+import ComponentCapabilityController from './capabilities/componentCapabilityController.js';
+import ActionSelectController from './actions/actionSelectController.js';
+import SynergyController from './synergy/synergyController.js';
+import ActionController from './actions/actionController.js';
+import ConsequenceHandlers from './consequences/consequenceHandlers.js';
 import EquippedItemStatsController from './core/EquippedItemStatsController.js';
-import DataLoader from '../utils/DataLoader.js';
+import stateEntityController from './core/stateEntityController.js';
+import InventoryManager from '../utils/InventoryManager.js';
+import HoldingCostController from './core/HoldingCostController.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
-import InventoryManager from '../utils/InventoryManager.js';
 import IdResolver from '../utils/IdResolver.js';
 
-// TYPED ID MIGRATION: Add IdResolver import for typed ID validation
-
-/**
- * WorldStateController acts as a high-level coordinator for the server's global state.
- * It manages various sub-controllers and provides a unified interface to access
- * the current state of the simulated world.
- *
- * This class acts as the Root Injector, ensuring all controllers share the same
- * state instances to prevent desynchronization.
- */
 class WorldStateController {
-    constructor() {
+    /**
+     * @param {UniversalTickSystem} [tickSystem] - The global tick system instance.
+     */
+    constructor(tickSystem = null) {
         // 0. Load Configuration Data
         const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');
         const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
@@ -45,7 +38,8 @@ class WorldStateController {
         const traitsController = new TraitsController(traitsRegistry);
 
         // Internal Components — State Controller (self-instantiating, no DI)
-        const internalComponentController = new InternalComponentController();
+        // Pass tickSystem to enable unified tick processing
+        const internalComponentController = new InternalComponentController(null, tickSystem);
         this.internalComponentController = internalComponentController;
 
         // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
@@ -159,6 +153,9 @@ class WorldStateController {
         // Set worldStateController reference on InternalComponentController for repair system access
         internalComponentController.setWorldStateController(this);
 
+        // Initialize Internal Component Controller with global tick system
+        internalComponentController.initialize();
+
         // 8. Instantiate InventoryManager (Inventory System)
         // Manages item ownership, volume constraints, and item movements for entities.
         this.inventoryManager = new InventoryManager();
@@ -216,9 +213,6 @@ class WorldStateController {
 
         // Initialize world with a sample droid as requested
         this.initializeWorld();
-
-        // Start the unified internal component tick system after entities are spawned
-        internalComponentController.startTickSystem();
 
         // Perform initial capability scan after entities are spawned
         // Delegates to ComponentCapabilityController via ActionController wrapper
@@ -458,24 +452,6 @@ class WorldStateController {
      */
     cleanupInternalComponents(entityId) {
         return this.internalComponentController.cleanupEntity(entityId);
-    }
-
-    /**
-     * Starts the unified internal component tick system.
-     * A single 1-second interval processes all internal component effects
-     * based on their individual tickInterval from the registry.
-     * @returns {void}
-     */
-    startInternalComponentTickSystem() {
-        return this.internalComponentController.startTickSystem();
-    }
-
-    /**
-     * Stops the unified internal component tick system and clears the interval.
-     * @returns {void}
-     */
-    stopInternalComponentTickSystem() {
-        return this.internalComponentController.stopTickSystem();
     }
 
     // =========================================================================
