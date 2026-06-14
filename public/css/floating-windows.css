@@ -4,6 +4,21 @@
    ========================================================================= */
 
 /* =========================================================================
+   Variables
+   ========================================================================= */
+
+:root {
+    --color-primary: var(--neon-green);
+    --color-primary-hover: #00cc00;
+    --color-border: #333;
+    --color-text: var(--text-main);
+    --color-text-secondary: var(--text-dim);
+    --color-surface: var(--panel-bg);
+    --color-surface-elevated: #1a1a1a;
+    --color-surface-hover: #222;
+}
+
+/* =========================================================================
    Overlay Backdrop (shared, positioned behind panels)
    ========================================================================= */
 
@@ -62,38 +77,12 @@
 
 .drop-component-item.selected {
     border-color: var(--color-primary);
-    background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-elevated));
+    background: var(--color-surface-hover);
     box-shadow: 0 0 0 1px var(--color-primary);
 }
 
 .drop-component-check {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--color-border);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.2s ease;
-}
-
-.drop-component-item.selected .drop-component-check {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-}
-
-.drop-component-check::after {
-    content: '\u2713';
-    color: white;
-    font-size: 14px;
-    font-weight: bold;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-}
-
-.drop-component-item.selected .drop-component-check::after {
-    opacity: 1;
+    display: none;
 }
 
 .drop-component-info {
@@ -391,4 +380,25 @@
 #drop-selector-overlay {
     width: 300px;
     height: 350px;
+}
+
+/* =========================================================================
+   Nav Actions Panel Content
+   ========================================================================= */
+
+.nav-actions-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.nav-actions-content > div {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }

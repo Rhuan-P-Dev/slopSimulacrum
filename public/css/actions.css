@@ -11,7 +11,8 @@
 }
 
 .action-list {
-    max-height: 250px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     margin-bottom: 15px;
 }
