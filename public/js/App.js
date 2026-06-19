@@ -190,12 +190,23 @@ export class ClientApp {
      * Sets up all event listeners after module instantiation.
      * @private
      */
+       /**
+     * Sets up all event listeners after module instantiation.
+     * @private
+     */
     _setupListeners() {
         this.dispatcher.setupSocketListeners();
 
         // Listen for drop selector execute event
         document.addEventListener('drop-selector:execute', (event) => {
             this._onDropSelectorExecute(event.detail);
+        });
+
+        // Listen for ESC key to cancel pending actions
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                this._cancelPendingAction();
+            }
         });
 
         const map = document.getElementById('world-map');
@@ -233,6 +244,46 @@ export class ClientApp {
         document.addEventListener('pick-up-selector:execute', (event) => {
             this._onPickUpSelectorExecute(event.detail);
         });
+    }
+
+    /**
+     * Cancels the currently pending action and clears UI indicators.
+     * Triggered when the user presses ESC.
+     * @private
+     */
+       /**
+     * Cancels the currently pending action and clears UI indicators.
+     * Triggered when the user presses ESC.
+     * @private
+     */
+       /**
+     * Cancels the currently pending action and clears all related UI/state.
+     * Triggered when the user presses ESC.
+     * @private
+     */
+    _cancelPendingAction() {
+        // 1. Clear all component selections and action state
+        this.selection.clearAllSelections();
+        
+        // 2. Clear pending movement/action in ActionManager
+        this.actions.clearPendingAction();
+        
+        // 3. Clear pending drop/pickup states
+        if (this._pendingDropItem) {
+            this._pendingDropItem = null;
+        }
+        if (this._pendingPickUpSelector) {
+            this._pendingPickUpSelector = null;
+        }
+
+        // 4. Clear visual indicators
+        this.ui.clearRangeIndicator();
+        
+        // 5. Refresh UI to reflect cleared state
+        this.updateActionList();
+        this._updateNavActionsPanelIfOpen();
+        
+        console.log('[App] All pending actions and selections cancelled via ESC.');
     }
 
     /**

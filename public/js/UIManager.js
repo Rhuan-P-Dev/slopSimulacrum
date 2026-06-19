@@ -130,6 +130,14 @@ export class UIManager {
     }
 
     /**
+     * Clears any existing range indicator from the map.
+     */
+    clearRangeIndicator() {
+        const existing = this.elements.entitiesLayer.querySelector('.range-indicator');
+        if (existing) existing.remove();
+    }
+
+    /**
      * Renders dropped items as small item icons on the map.
      * Each dropped item is displayed as a small circle with an item indicator.
      *
