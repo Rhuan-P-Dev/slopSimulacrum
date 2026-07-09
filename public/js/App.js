@@ -261,6 +261,11 @@ export class ClientApp {
      * Triggered when the user presses ESC.
      * @private
      */
+       /**
+     * Central function to cancel any pending action, selection, or overlay state.
+     * Called by the ESC key handler.
+     * @private
+     */
     _cancelPendingAction() {
         // 1. Clear all component selections and action state
         this.selection.clearAllSelections();
@@ -269,17 +274,18 @@ export class ClientApp {
         this.actions.clearPendingAction();
         
         // 3. Clear pending drop/pickup states
-        if (this._pendingDropItem) {
-            this._pendingDropItem = null;
-        }
-        if (this._pendingPickUpSelector) {
-            this._pendingPickUpSelector = null;
+        this._pendingDropItem = null;
+        this._pendingPickUpSelector = null;
+
+        // 4. Hide any active overlays (e.g., drop selector)
+        if (this.dropSelector) {
+            this.dropSelector.hide();
         }
 
-        // 4. Clear visual indicators
+        // 5. Clear visual indicators
         this.ui.clearRangeIndicator();
         
-        // 5. Refresh UI to reflect cleared state
+        // 6. Refresh UI to reflect cleared state
         this.updateActionList();
         this._updateNavActionsPanelIfOpen();
         
