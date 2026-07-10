@@ -34,6 +34,14 @@ The pick-up flow was redesigned to reuse the `DropSelectorController` (same over
 - Separating info display from component selection keeps each module focused
 - PickUpOverlayController acts as a one-time bridge between map interaction and DropSelectorController
 
+### Why Hover Preview for Range?
+
+Hover preview complements the click-based pickup flow through progressive disclosure: hovering reveals the range circle without triggering any action, while clicking commits to the pickup flow. This separation of concerns between exploration (hover) and commitment (click) allows users to visually assess range before interacting, reducing confusion about why a pickup might fail.
+
+### Why Distinct Visual Styling for Hover Indicators?
+
+The hover indicator uses different visual styling (lower opacity, thinner stroke, different dash pattern) from active action indicators to clearly distinguish between exploratory feedback and committed actions. Without this distinction, users might confuse the hover preview with an active drop/pickup range indicator, leading to uncertainty about whether an action is currently in progress.
+
 ## Coordinate Systems
 
 The world map uses **room-space coordinates** (absolute, positive values matching room definitions in `data/rooms.json`). This is different from the main game canvas which uses **center-relative coordinates** (offset from `CENTER_X/CENTER_Y`).

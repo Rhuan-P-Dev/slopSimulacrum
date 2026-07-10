@@ -104,6 +104,18 @@ The drop selector overlay (`#drop-selector-overlay`) is shared between both flow
 - **Execute button**: Label unchanged (just "Execute")
 - **Range indicator**: Drop uses red (`#ff4444`), pickup uses green (`#44ff44`) for visual distinction
 
+### Why Hover-Based Range Feedback?
+
+Before this feature, users had no visual indication of whether a dropped item was within pickup range until they attempted to pick it up and received feedback. The hover-based range indicator provides immediate visual feedback before any commitment (click), reducing failed pickup attempts and making the pickup range conceptually tangible.
+
+### Why the Callback Pattern for Hover Events
+
+The hover callback pattern keeps UIManager focused on DOM event handling while App handles the range calculation logic. This follows the Single Responsibility Principle — UIManager manages the DOM layer and delegates meaning to App through callbacks, rather than embedding range knowledge directly into the UI module.
+
+### Why Green/Red Color Scheme?
+
+The green (`#44ff44`) and red (`#ff4444`) colors for the hover indicator align with existing range indicator conventions: the drop action uses red for its range circle, and the pickup action uses green. The hover indicator adopts the same palette so users immediately associate green with "within pickup range" and red with "out of range," maintaining visual consistency across the drop/pickup experience.
+
 ## Event System
 
 | Event | Dispatched By | Handled By |

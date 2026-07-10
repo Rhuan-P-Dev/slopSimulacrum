@@ -190,10 +190,6 @@ export class ClientApp {
      * Sets up all event listeners after module instantiation.
      * @private
      */
-       /**
-     * Sets up all event listeners after module instantiation.
-     * @private
-     */
     _setupListeners() {
         this.dispatcher.setupSocketListeners();
 
@@ -260,21 +256,6 @@ export class ClientApp {
     }
 
     /**
-     * Cancels the currently pending action and clears UI indicators.
-     * Triggered when the user presses ESC.
-     * @private
-     */
-       /**
-     * Cancels the currently pending action and clears UI indicators.
-     * Triggered when the user presses ESC.
-     * @private
-     */
-       /**
-     * Cancels the currently pending action and clears all related UI/state.
-     * Triggered when the user presses ESC.
-     * @private
-     */
-       /**
      * Central function to cancel any pending action, selection, or overlay state.
      * Called by the ESC key handler.
      * @private
@@ -339,10 +320,10 @@ export class ClientApp {
     _cancelPendingAction() {
         // 1. Clear all component selections and action state
         this.selection.clearAllSelections();
-        
+
         // 2. Clear pending movement/action in ActionManager
         this.actions.clearPendingAction();
-        
+
         // 3. Clear pending drop/pickup states
         this._pendingDropItem = null;
         this._pendingPickUpSelector = null;
@@ -354,12 +335,10 @@ export class ClientApp {
 
         // 5. Clear visual indicators
         this.ui.clearRangeIndicator();
-        
+
         // 6. Refresh UI to reflect cleared state
         this.updateActionList();
         this._updateNavActionsPanelIfOpen();
-        
-        console.log('[App] All pending actions and selections cancelled via ESC.');
     }
 
     /**
@@ -429,9 +408,14 @@ export class ClientApp {
                     state
                 );
 
-                // Render dropped items on the spatial map
+                // Render dropped items on the spatial map with hover range indicator
                 const droppedItems = state.droppedItems || {};
-                this.ui.renderDroppedItemsOnSpatialMap(droppedItems, (id, item) => this._handleDroppedItemClick(id, item));
+                this.ui.renderDroppedItemsOnSpatialMap(
+                    droppedItems,
+                    (id, item) => this._handleDroppedItemClick(id, item),
+                    (id, item) => this._handleDroppedItemHover(id, item),
+                    (id, item) => this._handleDroppedItemLeave(id, item)
+                );
 
                 // Update stat bars
                 this.statBars.updateAll(state);
@@ -734,10 +718,6 @@ export class ClientApp {
      * Executes the pickup action immediately after component selection.
      * @private
      */
-       /**
-     * Executes the pickup action immediately after component selection.
-     * @private
-     */
     async _executePickUpImmediately(pendingPickUpItem) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
@@ -788,15 +768,87 @@ export class ClientApp {
             }
             
             const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
-            this.ui.renderRangeIndicator(droid, pickUpRange, '#44ff44', 'pickup');
+            this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
         }
+    }
+
+    /**
+     * Handles hovering over a dropped item marker on the spatial map.
+     * Calculates the pickup range and displays a range circle colored by reachability:
+     * green if the item is within range, red if out of range.
+     * Returns the range-status color so UIManager can apply it to the marker stroke.
+     * @param {string} id - The dropped item ID.
+     * @param {Object} item - The dropped item object with x, y coordinates.
+     * @returns {string} The range-status color (#44ff44 for in-range, #ff4444 for out-of-range).
+     * @private
+     */
+    _handleDroppedItemHover(id, item) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) return AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+
+        const state = this.worldState.getState();
+        const pickupRange = this._resolvePickupRange(droid, state);
+
+        // Calculate Euclidean distance from droid to item (center-relative coordinates)
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+        const itemX = item.x || 0;
+        const itemY = item.y || 0;
+        const distance = Math.sqrt(Math.pow(itemX - droidX, 2) + Math.pow(itemY - droidY, 2));
+
+        // Determine color based on whether the item is within pickup range
+        const color = distance <= pickupRange
+            ? AppConfig.COLORS.RANGE.IN_RANGE
+            : AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+
+        // Render the range indicator circle
+        this.ui.renderRangeIndicator(droid, pickupRange, color, 'hover-pickup');
+
+        return color;
+    }
+
+    /**
+     * Handles leaving a dropped item marker on the spatial map.
+     * Clears the hover-based range indicator. UIManager resets the marker stroke.
+     * @param {string} id - The dropped item ID.
+     * @param {Object} item - The dropped item object.
+     * @private
+     */
+    _handleDroppedItemLeave(id, item) {
+        this.ui.clearRangeIndicator();
+    }
+
+    /**
+     * Resolves the pickup range from the dropItem action's range expression.
+     * Pickup uses the same range as drop (symmetric reachability).
+     * @param {Object} droid - The active droid entity.
+     * @param {Object} state - The current world state.
+     * @returns {number} The resolved pickup range in pixels.
+     * @private
+     */
+    _resolvePickupRange(droid, state) {
+        const dropActionData = this.availableActions['dropItem'] || {};
+        const rangeExpression = dropActionData?.range;
+
+        let maxStrength = 0;
+        if (droid.components && Array.isArray(droid.components)) {
+            for (const comp of droid.components) {
+                const compId = comp.id || comp;
+                const stats = state.components?.instances?.[compId];
+                if (stats?.Physical?.strength) {
+                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                }
+            }
+        }
+
+        return this._resolveDropRange(rangeExpression, maxStrength);
     }
 
     /**
      * Checks if the dropped item is within pickup range.
      * @private
      */
-       _checkPickUpRange(droppedItem) {
+    _checkPickUpRange(droppedItem) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return { inRange: false, message: 'No active droid.' };
 
@@ -832,12 +884,6 @@ export class ClientApp {
 
         return { inRange: true, distance };
     }
-
-    /**
-     * Executes the pending pick-up action after verifying range.
-     * @private
-     */
-    
 
     /**
      * Handles the "Pick Up" button click in the pick-up overlay.
