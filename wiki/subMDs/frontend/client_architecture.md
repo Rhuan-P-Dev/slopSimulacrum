@@ -51,6 +51,12 @@ User interactions flow through the event dispatcher into the selection controlle
 
 **Why centralized overlay coordination**: Previously, each panel managed its own visibility independently, allowing multiple panels to overlap. The OverlayManager enforces exclusive visibility, manages z-index stacking, provides keyboard shortcuts (1-4 for panels, Escape to close all), and click-outside dismissal via a shared backdrop.
 
-## 4. Logger Standard
+## 4. Keyboard Shortcuts
+
+**Why keyboard shortcuts exist for overlay management**: The config bar panels (actions, inventory, synergy, etc.) are managed by the OverlayManager, which provides keyboard shortcuts for rapid access without mouse navigation. Shortcuts 1-4 toggle specific panels, and Escape closes all panels.
+
+**Why the Alt key restores the previous action**: After executing an action, all selections are cleared and the user is left without an active action. The Alt key shortcut restores the previously active action, enabling rapid re-execution of the last action or quick alternation between two actions. This improves workflow efficiency by eliminating the need to navigate back through the UI to re-select an action that was just used.
+
+## 5. Logger Standard
 
 All modules use a centralized logging utility.

@@ -209,6 +209,16 @@ export class ClientApp {
             }
         });
 
+        // Listen for Alt key to restore previous action
+        // Use event.code instead of event.key because browsers (especially on Linux)
+        // may not fire keydown with event.key==='Alt' for bare modifier keys.
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'AltLeft' || event.code === 'AltRight') {
+                event.preventDefault();
+                this._restorePreviousAction();
+            }
+        });
+
         const map = document.getElementById('world-map');
         if (map) {
             this.dispatcher.setupMapClickListener(
@@ -266,6 +276,62 @@ export class ClientApp {
      * Called by the ESC key handler.
      * @private
      */
+    /**
+     * Restores the previously active action when the Alt key is pressed.
+     * Delegates to SelectionController.restorePreviousAction() which validates
+     * the component before restoring. Shows a notification if restoration fails
+     * due to an invalid component. Updates the UI after successful restoration.
+     * @private
+     */
+    _restorePreviousAction() {
+        const previousName = this.selection.getPreviousActionName();
+        if (!previousName) {
+            this.ui.showErrorPopup('No previous action to restore', 3000);
+            return;
+        }
+
+        const restored = this.selection.restorePreviousAction();
+        if (restored) {
+            // Update action list for UI refresh after restoration
+            this.updateActionList();
+            this._updateNavActionsPanelIfOpen();
+
+            // Check if the restored action has components that cannot execute
+            // and show why the requirements are not met
+            this._checkRestoredActionRequirements(previousName);
+        } else {
+            this.ui.showErrorPopup('Cannot restore action — component no longer valid', 3000);
+        }
+    }
+
+    /**
+     * After restoring a previous action, checks if the restored action's
+     * components meet the action's requirements. If components appear in
+     * the cannotExecute array, extracts and displays the failure reason.
+     * @param {string} actionName - The name of the restored action.
+     * @private
+     */
+    _checkRestoredActionRequirements(actionName) {
+        const actionData = this.availableActions[actionName];
+        if (!actionData) return;
+
+        const cannotExecute = actionData.cannotExecute || [];
+        if (cannotExecute.length === 0) return;
+
+        // Build failure reason from the action's requirements definition
+        const requirements = actionData.requirements || [];
+        if (requirements.length === 0) return;
+
+        const reasons = requirements.map(req =>
+            `${req.trait}.${req.stat} >= ${req.minValue}`
+        );
+
+        this.ui.showErrorPopup(
+            `Restored ${actionName} — Requirements not met: ${reasons.join(', ')}`,
+            4000
+        );
+    }
+
     _cancelPendingAction() {
         // 1. Clear all component selections and action state
         this.selection.clearAllSelections();

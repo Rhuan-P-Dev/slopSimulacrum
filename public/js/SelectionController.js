@@ -14,6 +14,17 @@
  */
 
 /**
+ * @typedef {Object} PreviousActionState
+ * Stores the complete state of the last active action for Alt-key restoration.
+ * @property {string} actionName - The action name.
+ * @property {string[]} selectedComponentIds - Component IDs selected for this action.
+ * @property {string} [targetingType] - The targeting type (spatial, component, self_target, none).
+ * @property {string} [entityId] - The entity ID used when the action was active.
+ * @property {string} [componentId] - The last component ID toggled (for targeting flow).
+ * @property {string} [componentIdentifier] - The last component identifier toggled (for targeting flow).
+ */
+
+/**
  * @typedef {Object} IWorldState
  * @property {function(): string|null} getMyEntityId
  */
@@ -65,6 +76,19 @@ class SelectionController {
          * @type {string|null} The action currently being selected into.
          */
         this.activeActionName = null;
+
+        /**
+         * @type {string|null} The previously active action name, restored via Alt key.
+         * @deprecated Use previousActionState instead. Maintained for backward compatibility.
+         */
+        this.previousActionName = null;
+
+        /**
+         * @type {PreviousActionState|null} Complete state of the last active action for Alt-key restoration.
+         * Stores action name, selected components, targeting type, and entity info needed to
+         * fully restore the previous action's execution state including range indicators.
+         */
+        this.previousActionState = null;
 
         /**
          * @type {Set<string>} Component IDs selected for the active action.
@@ -134,6 +158,25 @@ class SelectionController {
 
         // If clicking a different action than current active, switch actions
         if (this.activeActionName && this.activeActionName !== actionName) {
+            // Save current action as previous before switching (backward compat)
+            this.previousActionName = this.activeActionName;
+
+            // Capture full previous action state for Alt-key restoration.
+            // IMPORTANT: Use data from the PREVIOUS action (via pending action or selected components),
+            // NOT the new click's parameters which belong to the target action.
+            const prevActionData = this.app.availableActions?.[this.activeActionName];
+            const pending = this.actions.getPendingAction();
+            const lastSelectedId = this.selectedComponentIds.size > 0
+                ? Array.from(this.selectedComponentIds)[this.selectedComponentIds.size - 1]
+                : null;
+            this.previousActionState = {
+                actionName: this.activeActionName,
+                selectedComponentIds: Array.from(this.selectedComponentIds),
+                targetingType: prevActionData?.targetingType || null,
+                entityId: pending?.entityId || this.worldState.getMyEntityId(),
+                componentId: pending?.componentId || lastSelectedId,
+                componentIdentifier: pending?.componentIdentifier || null
+            };
             // Move current selections to cross map
             if (this.selectedComponentIds.size > 0) {
                 this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
@@ -225,13 +268,163 @@ class SelectionController {
 
     /**
      * Clears all component selections (for all actions).
+     * Captures the full previous action state before clearing, so Alt-key restoration
+     * can recover the action name, component selections, and targeting configuration.
      */
     clearAllSelections() {
+        console.log('[SelectionController DEBUG] clearAllSelections called', {
+            activeActionName: this.activeActionName,
+            currentPreviousActionName: this.previousActionName,
+            previousActionState: this.previousActionState,
+            selectedComponentIds: Array.from(this.selectedComponentIds)
+        });
+        if (this.activeActionName) {
+            // Preserve backward compat
+            this.previousActionName = this.activeActionName;
+            // Capture full previous action state for Alt-key restoration
+            const prevActionData = this.app.availableActions?.[this.activeActionName];
+            const pending = this.actions.getPendingAction();
+            this.previousActionState = {
+                actionName: this.activeActionName,
+                selectedComponentIds: Array.from(this.selectedComponentIds),
+                targetingType: prevActionData?.targetingType || null,
+                entityId: pending?.entityId || this.worldState.getMyEntityId(),
+                componentId: pending?.componentId || (this.selectedComponentIds.size === 1 ? Array.from(this.selectedComponentIds)[0] : null),
+                componentIdentifier: pending?.componentIdentifier || null
+            };
+        }
         this.selectedComponentIds.clear();
         this.crossActionSelections.clear();
         this.activeActionName = null;
         this.ui.clearSynergyPreview();
         console.log('[SelectionController] All selections cleared');
+    }
+
+    /**
+     * Checks whether a component is still valid for action restoration.
+     * A component is valid if it exists in the world state and has positive durability.
+     *
+     * @param {string} componentId - The component ID to validate.
+     * @returns {boolean} True if the component exists and has durability > 0.
+     * @private
+     */
+    _isComponentValid(componentId) {
+        if (!componentId) {
+            return false;
+        }
+
+        const state = this.worldState.getState();
+        if (!state || !state.components || !state.components.instances) {
+            return false;
+        }
+
+        const componentStats = state.components.instances[componentId];
+        if (!componentStats) {
+            return false;
+        }
+
+        const durability = componentStats.Physical?.durability;
+        return durability !== undefined && durability > 0;
+    }
+
+    /**
+     * Restores the previously active action with full state restoration.
+     * Recovers the action name, component selections, and triggers the targeting
+     * flow if the previous action required spatial or component targeting.
+     * Restoration will fail if the component referenced in the previous action
+     * no longer exists or has durability <= 0.
+     *
+     * @returns {boolean} True if a previous action was restored, false if none exists or component is invalid.
+     */
+    restorePreviousAction() {
+        // Use previousActionState if available (full restoration), fallback to previousActionName
+        if (this.previousActionState !== null) {
+            return this._restoreFromState(this.previousActionState);
+        } else if (this.previousActionName !== null) {
+            return this._restoreFromName(this.previousActionName);
+        }
+
+        return false;
+    }
+
+    /**
+     * Restores the previous action from the full PreviousActionState snapshot.
+     * Restores component selections and triggers the targeting flow for spatial/component actions.
+     * Returns false and clears the saved state if the referenced component is no longer valid.
+     *
+     * @param {PreviousActionState} state - The captured previous action state.
+     * @returns {boolean} True if restoration succeeded, false if component is invalid.
+     * @private
+     */
+    _restoreFromState(state) {
+        // Validate component before restoring
+        if (state.componentId && !this._isComponentValid(state.componentId)) {
+            this.previousActionName = null;
+            this.previousActionState = null;
+            return false;
+        }
+
+        // Save current active action's selections to cross map before switching
+        if (this.activeActionName && this.selectedComponentIds.size > 0) {
+            this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
+        }
+
+        // Restore action name
+        this.activeActionName = state.actionName;
+
+        // Restore component selections
+        this.selectedComponentIds = new Set(state.selectedComponentIds || []);
+
+        // Clear cross-action selections and synergy preview
+        this.crossActionSelections.clear();
+        this.ui.clearSynergyPreview();
+
+        // Trigger targeting flow for spatial/component actions
+        if (state.targetingType && state.targetingType !== 'none' &&
+            this.selectedComponentIds.size > 0 && state.entityId && state.componentId) {
+            this.actions._handleTargetingSelection(
+                state.actionName,
+                state.entityId,
+                state.componentId,
+                state.componentIdentifier,
+                state.targetingType
+            );
+        }
+
+        // Trigger onSelectionChange to update synergy preview and other UI
+        this.app.onSelectionChange();
+
+        return true;
+    }
+
+    /**
+     * Restores the previous action from name only (backward compatibility fallback).
+     * Only restores the action name without component selections or targeting flow.
+     *
+     * @param {string} actionName - The previous action name.
+     * @returns {boolean} True if restoration succeeded.
+     * @private
+     */
+    _restoreFromName(actionName) {
+        // Save current active action's selections to cross map before switching
+        if (this.activeActionName && this.selectedComponentIds.size > 0) {
+            this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
+        }
+
+        this.activeActionName = actionName;
+        this.selectedComponentIds.clear();
+        this.crossActionSelections.clear();
+        this.ui.clearSynergyPreview();
+        return true;
+    }
+
+    /**
+     * Returns the previously active action name.
+     *
+     * @returns {string|null}
+     */
+    getPreviousActionName() {
+        return this.previousActionState?.actionName || this.previousActionName;
     }
 
     /**
