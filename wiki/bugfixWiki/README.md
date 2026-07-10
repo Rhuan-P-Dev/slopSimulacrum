@@ -121,6 +121,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 |----|-------|--------|----------|---------------|
 | [BUG-016](low/BUG-016-ui-selection-state.md) | UI Actions Incorrectly Marked as Selected | ✅ Fixed | `bf19079` | `App.js` |
 | [BUG-025](low/BUG-025-startroomid-scope-bug.md) | `startRoomId` Scope Bug in `_spawnKnifeInStartRoom()` | ✅ Fixed | `41014fb3` | `WorldStateController.js` |
+| [BUG-115](low/BUG-115-internal-components-panel-overflows-card.md) | Internal Components Panel Overflows Card Boundaries Horizontally | ✅ Fixed | `pending` | `internal-components.css`, `components.css`, `ComponentViewer.js` |
+| [BUG-116](low/BUG-116-host-text-overflows-internal-component-card.md) | Host Component Type Text Overflows in Internal Component Cards | ✅ Fixed | `pending` | `internal-components.css`, `components.css`, `ComponentViewer.js` |
 
 ### 🏗️ Architectural Fixes
 

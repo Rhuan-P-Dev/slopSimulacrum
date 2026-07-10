@@ -54,3 +54,19 @@ User interactions flow through the event dispatcher into the selection controlle
 ## 4. Logger Standard
 
 All modules use a centralized logging utility.
+
+## 5. Component Viewer
+
+The Component Viewer overlay displays all components of a selected entity as interactive cards, each showing stat badges grouped by trait. It supports adding stat bars from individual components, expanding internal components, and opening the stat bar add dialog pre-filled with specific stat values.
+
+### Trait Interaction Pattern
+
+Stats within each component card are visually grouped by trait. Each trait group consists of a trait label and its associated stat badges contained within a dedicated container. This grouping enables two complementary interaction modes:
+
+**Hover-to-hide**: Hovering over a trait label temporarily hides the stats for that trait while the mouse remains over the label. This uses a visibility transition rather than immediate display removal, providing a smooth visual feedback loop. The design rationale is to allow users to scan component cards without visual distraction from stats they are not currently interested in, simply by moving their cursor over the trait name.
+
+**Click-to-collapse**: Clicking a trait label permanently toggles the collapse state for that trait's stats until clicked again. This enables focused inspection of individual traits within a component — a user can collapse all traits except the one they are analyzing, reducing cognitive load when evaluating complex components with many stats across multiple traits.
+
+**Why this interaction pattern was chosen**: Component cards can display dozens of stats across multiple traits simultaneously. Showing all stats at once creates visual clutter that makes it difficult to focus on specific trait values. The hover-to-hide pattern provides a low-friction way to temporarily declutter without committing to a state change. The click-to-collapse pattern provides a persistent decluttering mechanism for deep inspection. Together, they form a progressive disclosure pattern that scales well as component complexity increases.
+
+**Why separate containers per trait**: Each trait group uses a dedicated container element separating the label from its stats. This architectural decision enables independent state management of visibility and collapse per trait, without requiring complex index tracking or shared state across sibling traits. It also simplifies CSS styling since each group can be styled and animated independently.

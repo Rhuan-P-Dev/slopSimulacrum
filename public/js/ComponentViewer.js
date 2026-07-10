@@ -156,12 +156,12 @@ export class ComponentViewer {
                 <div class="component-card" data-comp-id="${comp.id}">
                     <div class="component-card-header">
                         <span class="component-card-type">${comp.type}</span>
-                        <span class="component-card-id" style="color: var(--text-dim); font-size: 0.8em;">${comp.identifier}</span>
-                        ${hasInternalComps ? `<button class="component-internal-btn" data-comp-id="${comp.id}" title="View internal components" style="background: var(--neon-cyan); color: var(--bg-black); border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 4px;">🔮</button>` : ''}
-                        <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component" style="background: var(--neon-green); color: var(--bg-black); border: none; padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 4px;">➕</button>
+                        <span class="component-card-id">${comp.identifier}</span>
+                        ${hasInternalComps ? `<button class="component-internal-btn" data-comp-id="${comp.id}" title="View internal components">🔮</button>` : ''}
+                        <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component">➕</button>
                     </div>
                     <div class="component-card-stats">
-                        ${statsHtml || '<em style="color: var(--text-dim); font-size: 0.8em;">No stats</em>'}
+                        ${statsHtml || '<em class="component-stats-placeholder">No stats</em>'}
                     </div>
                     ${hasInternalComps ? `<div class="component-internal-container" data-comp-id="${comp.id}" style="display: none;"></div>` : ''}
                 </div>`;
@@ -217,6 +217,9 @@ export class ComponentViewer {
                 }
             };
         });
+
+        // Attach trait label hover/click interaction listeners
+        this._attachTraitInteractionListeners();
     }
 
     /**
@@ -230,7 +233,9 @@ export class ComponentViewer {
         let html = '';
 
         for (const [trait, properties] of Object.entries(stats)) {
-            html += `<div style="margin-top: 6px; margin-bottom: 2px; color: var(--neon-green); font-size: 0.8em; font-weight: bold;">${trait}:</div>`;
+            html += `<div class="trait-group">`;
+            html += `<div class="trait-label">${trait}:</div>`;
+            html += `<div class="trait-stats collapsed">`;
             for (const [stat, value] of Object.entries(properties)) {
                 html += `<span class="component-stat-clickable"
                     data-trait="${trait}"
@@ -239,9 +244,51 @@ export class ComponentViewer {
                     data-comp-id="${componentId}"
                     title="Click to add as stat bar">${this._formatStatKey(trait, stat)}: ${value}</span> `;
             }
+            html += `</div>`;
+            html += `</div>`;
         }
 
         return html;
+    }
+
+    /**
+     * Attaches hover and click event listeners to trait labels for
+     * toggling stats visibility. Stats start hidden by default.
+     * Hovering temporarily shows stats, clicking pins them open,
+     * and clicking again unpins and hides them.
+     * @private
+     */
+    _attachTraitInteractionListeners() {
+        this._content.querySelectorAll('.trait-label').forEach((label) => {
+            const traitGroup = label.closest('.trait-group');
+            if (!traitGroup) return;
+
+            const statsContainer = traitGroup.querySelector('.trait-stats');
+            if (!statsContainer) return;
+
+            // Hover: temporarily show stats
+            label.addEventListener('mouseenter', () => {
+                statsContainer.classList.remove('collapsed');
+            });
+
+            // Mouse leave: hide stats again unless trait is pinned
+            label.addEventListener('mouseleave', () => {
+                if (!traitGroup.classList.contains('pinned')) {
+                    statsContainer.classList.add('collapsed');
+                }
+            });
+
+            // Click: toggle pinned state on the trait-group container
+            label.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isPinned = traitGroup.classList.toggle('pinned');
+                if (isPinned) {
+                    statsContainer.classList.remove('collapsed');
+                } else {
+                    statsContainer.classList.add('collapsed');
+                }
+            });
+        });
     }
 
     /**
@@ -357,7 +404,7 @@ export class ComponentViewer {
      */
     _renderInternalComponentPanel(container, hostComponentId, internalComps) {
         if (!container || !internalComps || internalComps.length === 0) {
-            container.innerHTML = '<div class="internal-components-empty"><em style="color: var(--text-dim); font-size: 0.85em;">No internal components</em></div>';
+            container.innerHTML = '<div class="internal-components-empty"><em>No internal components</em></div>';
             container.style.display = 'block';
             return;
         }
@@ -372,7 +419,7 @@ export class ComponentViewer {
                 <div class="internal-component-detail-card">
                     <div class="internal-component-header">
                         <span class="internal-component-type-badge">${typeLabel}</span>
-                        <span class="internal-component-host" style="color: var(--text-dim); font-size: 0.8em;">Host: ${ic.hostComponentType || 'unknown'}</span>
+                        <span class="internal-component-host">Host: ${ic.hostComponentType || 'unknown'}</span>
                     </div>
                     <div class="internal-component-description">${description}</div>
                     ${ic.id ? `<div class="internal-component-meta">ID: ${ic.id.substring(0, 12)}...</div>` : ''}
