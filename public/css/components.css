@@ -232,7 +232,7 @@
 
 .component-viewer-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 10px;
 }
 
@@ -243,6 +243,9 @@
     padding: 10px;
     cursor: pointer;
     transition: all 0.2s ease-out;
+    overflow: hidden;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .component-card:hover {
@@ -274,6 +277,12 @@
     display: flex;
     align-items: center;
     margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.component-card-id {
+    color: var(--text-dim);
+    font-size: 0.8em;
 }
 
 .component-add-stat-btn {
@@ -290,6 +299,44 @@
 
 .component-add-stat-btn:hover {
     opacity: 0.8;
+}
+
+/* Empty state placeholder text */
+.component-stats-placeholder {
+    color: var(--text-dim);
+    font-size: 0.8em;
+}
+
+/* =========================================================================
+   Trait Group Interaction Styles
+   ========================================================================= */
+
+.trait-group {
+    display: block;
+    margin: 4px 0;
+}
+
+.trait-label {
+    color: var(--neon-green);
+    font-size: 0.8em;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 2px 4px;
+    margin: 6px 0 2px 0;
+    transition: background-color 0.2s ease;
+}
+
+.trait-label:hover {
+    background: rgba(0, 255, 0, 0.1);
+}
+
+.trait-stats {
+    display: block;
+    transition: visibility 0.15s ease, opacity 0.15s ease;
+}
+
+.trait-stats.collapsed {
+    display: none;
 }
 
 /* =========================================================================
