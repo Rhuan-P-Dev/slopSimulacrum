@@ -328,11 +328,9 @@ class SelectionController {
                 return false;
             }
             const equippedItem = entity.equipped.find(eq => eq.eqId === componentId);
-            if (!equippedItem) {
-                return false;
-            }
-            const durability = equippedItem.stats?.Physical?.durability ?? 0;
-            return durability > 0;
+            // Item validity = still equipped (exists in entity.equipped array)
+            // Items are NOT components — they don't use durability as a lifecycle stat
+            return !!equippedItem;
         }
 
         // Regular component lookup
