@@ -215,7 +215,10 @@ export class ClientApp {
         document.addEventListener('keydown', (event) => {
             if (event.code === 'AltLeft' || event.code === 'AltRight') {
                 event.preventDefault();
-                this._restorePreviousAction();
+                this._restorePreviousAction().catch(err => {
+                    // Suppress unhandled promise rejection for key handler
+                    console.error('[App] Error restoring previous action:', err);
+                });
             }
         });
 
@@ -282,15 +285,16 @@ export class ClientApp {
      * the component before restoring. Shows a notification if restoration fails
      * due to an invalid component. Updates the UI after successful restoration.
      * @private
+     * @returns {Promise<void>}
      */
-    _restorePreviousAction() {
+    async _restorePreviousAction() {
         const previousName = this.selection.getPreviousActionName();
         if (!previousName) {
             this.ui.showErrorPopup('No previous action to restore', 3000);
             return;
         }
 
-        const restored = this.selection.restorePreviousAction();
+        const restored = await this.selection.restorePreviousAction();
         if (restored) {
             // Update action list for UI refresh after restoration
             this.updateActionList();

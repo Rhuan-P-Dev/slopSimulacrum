@@ -6,6 +6,8 @@
  * @implements {ISelectionController}
  */
 
+import IdResolver from '../utils/IdResolver';
+
 /**
  * @typedef {Object} SelectionState
  * @property {string|null} activeActionName
@@ -318,6 +320,22 @@ class SelectionController {
             return false;
         }
 
+        // Handle equipped items (eq- prefix) stored in entity.equipped[]
+        if (IdResolver.isEquippedId(componentId)) {
+            const myEntityId = this.worldState.getMyEntityId();
+            const entity = state.entities?.[myEntityId];
+            if (!entity?.equipped) {
+                return false;
+            }
+            const equippedItem = entity.equipped.find(eq => eq.eqId === componentId);
+            if (!equippedItem) {
+                return false;
+            }
+            const durability = equippedItem.stats?.Physical?.durability ?? 0;
+            return durability > 0;
+        }
+
+        // Regular component lookup
         const componentStats = state.components.instances[componentId];
         if (!componentStats) {
             return false;
@@ -334,12 +352,12 @@ class SelectionController {
      * Restoration will fail if the component referenced in the previous action
      * no longer exists or has durability <= 0.
      *
-     * @returns {boolean} True if a previous action was restored, false if none exists or component is invalid.
+     * @returns {Promise<boolean>} True if a previous action was restored, false if none exists or component is invalid.
      */
-    restorePreviousAction() {
+    async restorePreviousAction() {
         // Use previousActionState if available (full restoration), fallback to previousActionName
         if (this.previousActionState !== null) {
-            return this._restoreFromState(this.previousActionState);
+            return await this._restoreFromState(this.previousActionState);
         } else if (this.previousActionName !== null) {
             return this._restoreFromName(this.previousActionName);
         }
@@ -356,7 +374,7 @@ class SelectionController {
      * @returns {boolean} True if restoration succeeded, false if component is invalid.
      * @private
      */
-    _restoreFromState(state) {
+    async _restoreFromState(state) {
         // Validate component before restoring
         if (state.componentId && !this._isComponentValid(state.componentId)) {
             this.previousActionName = null;
@@ -378,6 +396,16 @@ class SelectionController {
         // Clear cross-action selections and synergy preview
         this.crossActionSelections.clear();
         this.ui.clearSynergyPreview();
+
+        // For self_target actions, execute immediately instead of setting pending
+        if (state.targetingType === 'self_target' && state.entityId && state.componentId) {
+            const compId = state.componentId || Array.from(this.selectedComponentIds)[0];
+            await this.app.executor.executeSelfTarget(
+                state.actionName, state.entityId, compId, state.componentIdentifier
+            );
+            this.app.onSelectionChange();
+            return true;
+        }
 
         // Trigger targeting flow for spatial/component actions
         if (state.targetingType && state.targetingType !== 'none' &&
