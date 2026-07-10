@@ -6,7 +6,7 @@
  * @implements {ISelectionController}
  */
 
-import IdResolver from '../utils/IdResolver';
+import IdResolver from '/utils/IdResolver.js';
 
 /**
  * @typedef {Object} SelectionState
