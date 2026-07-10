@@ -140,6 +140,16 @@
 }
 
 /* =========================================================================
+   Hover Pickup Range Indicator
+   Lightweight, dashed circle shown when hovering over a dropped item.
+   Green (#44ff44) = in range, Red (#ff4444) = out of range.
+   ========================================================================= */
+
+.range-indicator.range-hover-pickup {
+    transition: opacity 0.15s ease;
+}
+
+/* =========================================================================
    World Map Connection Lines (clickable)
    ========================================================================= */
 

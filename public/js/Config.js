@@ -20,6 +20,10 @@ export const AppConfig = {
         ENTITY_DEFAULT: "#00ff00",
         COMPONENT_DEFAULT: "#66ff66",
         NEON_GREEN: "var(--neon-green)",
+        RANGE: {
+            IN_RANGE: '#44ff44',
+            OUT_OF_RANGE: '#ff4444',
+        },
         INTERNAL_COMPONENT: {
             DURABILITY_REPAIR_SPHERE_FILL: '#00ccff',
             DURABILITY_REPAIR_SPHERE_STROKE: '#0099cc',

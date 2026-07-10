@@ -115,13 +115,30 @@ export class UIManager {
         circle.setAttribute("r", range);
         circle.setAttribute("fill", "none");
 
-        // Color-based styling
-        const strokeColor = indicatorType === 'drop' ? '#ff4444' : color;
-        const opacity = indicatorType === 'drop' ? 0.8 : 0.6;
-        const dasharray = indicatorType === 'drop' ? '8,4' : '5,5';
+        // Style based on indicator type to visually distinguish different modes
+        // 'drop' = full drop range circle, 'pickup' = confirmed pickup range,
+        // 'hover-pickup' = lightweight hover preview (thinner, more dashed)
+        let strokeColor, opacity, dasharray, strokeWidth;
+
+        if (indicatorType === 'hover-pickup') {
+            strokeColor = color;
+            opacity = 0.4;
+            dasharray = '3,6';
+            strokeWidth = 2;
+        } else if (indicatorType === 'drop') {
+            strokeColor = '#ff4444';
+            opacity = 0.8;
+            dasharray = '8,4';
+            strokeWidth = 3;
+        } else {
+            strokeColor = color;
+            opacity = 0.6;
+            dasharray = '5,5';
+            strokeWidth = 3;
+        }
 
         circle.setAttribute("stroke", strokeColor);
-        circle.setAttribute("stroke-width", "3");
+        circle.setAttribute("stroke-width", strokeWidth);
         circle.setAttribute("stroke-dasharray", dasharray);
         circle.setAttribute("class", `range-indicator range-${indicatorType}`);
         circle.setAttribute("style", `pointer-events: none; opacity: ${opacity};`);
@@ -190,10 +207,17 @@ export class UIManager {
      * Called from App.js after world state refresh to display dropped items.
      * Renders as blue squares to distinguish from entity markers.
      *
+     * Hover callbacks receive (id, item) and return a color string for the marker stroke.
+     * The hover callback returns the range-status color (green/red), and the leave callback
+     * returns null to reset to the default stroke. UIManager applies the stroke directly,
+     * keeping DOM manipulation decoupled from App's range calculation logic.
+     *
      * @param {Object} droppedItems - Map of dropped items { [droppedItemId]: {id, itemType, x, y, name, ...} }.
      * @param {Function} [onDroppedItemClick] - Callback when a dropped item is clicked (id, item).
+     * @param {Function} [onDroppedItemHover] - Callback when hovering over a dropped item. Receives (id, item), returns stroke color string.
+     * @param {Function} [onDroppedItemLeave] - Callback when leaving a dropped item. Receives (id, item), returns null to reset stroke.
      */
-    renderDroppedItemsOnSpatialMap(droppedItems, onDroppedItemClick) {
+    renderDroppedItemsOnSpatialMap(droppedItems, onDroppedItemClick, onDroppedItemHover, onDroppedItemLeave) {
         const entitiesLayer = this.elements.entitiesLayer;
 
         // Remove existing dropped item indicators
@@ -204,6 +228,8 @@ export class UIManager {
 
         const SIZE = 16;
         const HALF = SIZE / 2;
+        const DEFAULT_STROKE = '#88bbff';
+        const DEFAULT_STROKE_WIDTH = '2';
 
         for (const [id, item] of Object.entries(droppedItems)) {
             const x = AppConfig.VIEW.CENTER_X + (item.x || 0);
@@ -216,8 +242,8 @@ export class UIManager {
             rect.setAttribute("height", SIZE);
             rect.setAttribute("rx", "2");
             rect.setAttribute("fill", "#4488ff");
-            rect.setAttribute("stroke", "#88bbff");
-            rect.setAttribute("stroke-width", "2");
+            rect.setAttribute("stroke", DEFAULT_STROKE);
+            rect.setAttribute("stroke-width", DEFAULT_STROKE_WIDTH);
             rect.setAttribute("class", "dropped-item-indicator");
             rect.setAttribute("data-dropped-id", id);
             rect.setAttribute("style", "pointer-events: all; cursor: pointer; opacity: 0.9;");
@@ -229,15 +255,23 @@ export class UIManager {
                 });
             }
 
-            // Hover effect
-            rect.addEventListener('mouseenter', () => {
-                rect.setAttribute("stroke-width", "3");
-                rect.setAttribute("stroke", "#aaddff");
-            });
-            rect.addEventListener('mouseleave', () => {
-                rect.setAttribute("stroke-width", "2");
-                rect.setAttribute("stroke", "#88bbff");
-            });
+            // Hover: App calculates range and returns color; UIManager applies stroke to marker
+            if (onDroppedItemHover) {
+                rect.addEventListener('mouseenter', () => {
+                    const color = onDroppedItemHover(id, item);
+                    if (color) {
+                        rect.setAttribute("stroke", color);
+                        rect.setAttribute("stroke-width", "3");
+                    }
+                });
+            }
+            if (onDroppedItemLeave) {
+                rect.addEventListener('mouseleave', () => {
+                    onDroppedItemLeave(id, item);
+                    rect.setAttribute("stroke", DEFAULT_STROKE);
+                    rect.setAttribute("stroke-width", DEFAULT_STROKE_WIDTH);
+                });
+            }
 
             // Name label below the square
             const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
