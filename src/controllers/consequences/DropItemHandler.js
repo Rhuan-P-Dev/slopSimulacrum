@@ -99,6 +99,7 @@ function handleDropItem(deps, params, context) {
         itemId: itemId,
         x: targetX,
         y: targetY,
+        roomId: entity.location || null,
         ownerId: entityId,
         name: itemDef.name || usedItemType,
         description: itemDef.description || '',

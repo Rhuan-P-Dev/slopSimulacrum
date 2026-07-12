@@ -22,6 +22,15 @@ The original pickup flow used `ComponentViewer` (a floating window showing compo
 - Visual feedback via range indicator on the map (for drop) or immediate execution (for pickup)
 - Consistent button labels and panel structure
 
+### Why Room-Based Item Positioning
+
+Dropped items are now associated with the room in which they were dropped. Items stored in the dropped items collection include a room identifier that is used for two purposes:
+
+- **Client-side filtering**: Dropped items are only rendered on the spatial map when the viewing entity is in the matching room. This prevents items from appearing across all rooms regardless of where they were physically dropped.
+- **Server-side validation**: The pickup handler verifies that the entity attempting to pick up an item is in the same room as the item. If the rooms do not match, the pickup is rejected with a clear error.
+
+This design ensures that the visual representation (items on the map) and the logical world state (items existing in specific rooms) are aligned. Items dropped in one room are invisible and inaccessible from other rooms.
+
 ## Flow Comparison
 
 ### Drop Flow

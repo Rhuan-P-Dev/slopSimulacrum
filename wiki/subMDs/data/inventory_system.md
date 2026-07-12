@@ -66,6 +66,18 @@ Volume validation is enforced at two levels:
 
 If the client-side validation passes but the server-side validation fails (e.g., due to concurrent state changes), the server rejects the operation with a clear error message.
 
+## Dropped Items
+
+Dropped items — items that have been removed from an entity's inventory and placed into the world — are stored separately from inventory items in `WorldStateController._droppedItems`. Each dropped item record includes a `roomId` property that links it to the room where the item was dropped.
+
+This design was chosen because:
+
+- **Centralized serialization**: Keeping all dropped items in a single collection simplifies persistence and world state serialization compared to scattering items across room object arrays.
+- **Room-aware rendering**: The `roomId` property enables the client to filter dropped items by the current room before rendering them on the spatial map, ensuring items only appear where they were physically dropped.
+- **Spatial pickup validation**: The server uses the `roomId` to verify that an entity can only pick up items from the room it currently occupies.
+
+Dropped items are not part of any entity's inventory. They exist as independent world entities until picked up by an entity or otherwise removed.
+
 ## Data Model
 
 ### Item Type Definitions (`data/inventoryItems.json`)
@@ -253,3 +265,4 @@ The `WorldStateController.getItemStats()` method orchestrates the computation:
 - [Holding Cost System](holding_cost.md) — Equipped item debuffs that affect item stats
 - [EquippedItemStatsController](../controllers/equipped_item_stats_controller.md) — Per-instance mutable stat tracking
 - [Client Architecture](../frontend/client_architecture.md) — InventoryManager client module
+- [Item Positioning System](../systems/item_positioning.md) — Room-based dropped item visibility and pickup validation

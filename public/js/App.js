@@ -410,8 +410,15 @@ export class ClientApp {
 
                 // Render dropped items on the spatial map with hover range indicator
                 const droppedItems = state.droppedItems || {};
+                const currentRoom = droid.location || null;
+                const roomFilteredItems = {};
+                for (const [id, item] of Object.entries(droppedItems)) {
+                    if (item.roomId === currentRoom) {
+                        roomFilteredItems[id] = item;
+                    }
+                }
                 this.ui.renderDroppedItemsOnSpatialMap(
-                    droppedItems,
+                    roomFilteredItems,
                     (id, item) => this._handleDroppedItemClick(id, item),
                     (id, item) => this._handleDroppedItemHover(id, item),
                     (id, item) => this._handleDroppedItemLeave(id, item)
@@ -785,6 +792,11 @@ export class ClientApp {
     _handleDroppedItemHover(id, item) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+
+        // Only show hover for items in the current room
+        if (item.roomId !== droid.location) {
+            return AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+        }
 
         const state = this.worldState.getState();
         const pickupRange = this._resolvePickupRange(droid, state);

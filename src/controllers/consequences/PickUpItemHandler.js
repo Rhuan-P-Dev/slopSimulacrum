@@ -79,6 +79,14 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Component "${componentId}" does not belong to entity "${entityId}".` };
     }
 
+    // Verify the entity and dropped item are in the same room
+    const entityRoomId = entity.location || null;
+    const itemRoomId = droppedItem.roomId || null;
+    if (entityRoomId !== itemRoomId) {
+        Logger.warn(`[PickUpItemHandler] Entity "${entityId}" is in room "${entityRoomId}" but item "${droppedItemId}" is in room "${itemRoomId}".`);
+        return { success: false, message: `Item is in a different room. Entity is in "${entityRoomId}", item is in "${itemRoomId}".` };
+    }
+
     // Verify range before allowing pickup
     const droidX = entity.spatial?.x || 0;
     const droidY = entity.spatial?.y || 0;
