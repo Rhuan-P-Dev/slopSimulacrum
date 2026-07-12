@@ -187,9 +187,12 @@ export class WorldMapView {
         mapGroup.id = 'world-map-group';
 
         // Draw connections first (behind rooms)
+        // Build bidirectional connection pair map for curve rendering
+        const connectionPairs = this._buildConnectionPairs(rooms);
+
         for (const room of rooms) {
             for (const conn of (room.connections || [])) {
-                this._drawConnection(mapGroup, room, conn, rooms);
+                this._drawConnection(mapGroup, room, conn, rooms, connectionPairs);
             }
         }
 
@@ -207,9 +210,10 @@ export class WorldMapView {
 
     /**
      * Draws a connection between rooms on the SVG.
+     * Uses Bézier curves for bidirectional connection pairs, straight lines for unidirectional.
      * @private
      */
-    _drawConnection(group, room, conn, allRooms) {
+    _drawConnection(group, room, conn, allRooms, connectionPairs) {
         const targetRoom = allRooms.find(r => r.id === conn.targetId);
         if (!targetRoom) return;
 
@@ -222,55 +226,198 @@ export class WorldMapView {
         const [startX, startY] = this._getEdgePoint(room, targetRoom, roomCX, roomCY);
         const [endX, endY] = this._getEdgePoint(targetRoom, room, targetCX, targetCY);
 
-        // Draw single visible connection line with pointer-events for click detection
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', startX);
-        line.setAttribute('y1', startY);
-        line.setAttribute('x2', endX);
-        line.setAttribute('y2', endY);
-        line.setAttribute('stroke', 'var(--neon-green)');
-        line.setAttribute('stroke-width', '2');
-        line.setAttribute('stroke-dasharray', '8,4');
-        line.setAttribute('opacity', '0.5');
-        line.setAttribute('marker-end', 'url(#world-map-arrow)');
-        line.setAttribute('class', 'world-map-connection-line');
-        line.setAttribute('data-target-room', conn.targetId);
-        line.style.pointerEvents = 'stroke';
-        line.style.cursor = 'pointer';
-        group.appendChild(line);
+        // Determine if this connection is part of a bidirectional pair
+        const pairKey = this._getConnectionKey(room.id, conn.targetId);
+        const pairData = connectionPairs.get(pairKey);
+        const isBidirectional = pairData && pairData.isBidirectional;
+        const isForward = isBidirectional && pairData.forward.fromId === room.id;
+        const isBackward = isBidirectional && pairData.backward.fromId === room.id;
 
-        // Hover highlight
-        line.addEventListener('mouseenter', () => {
-            line.setAttribute('opacity', '1');
-            line.setAttribute('stroke-width', '3');
-        });
-        line.addEventListener('mouseleave', () => {
-            line.setAttribute('opacity', '0.5');
+        // Curve offset constant for bidirectional connections.
+        // Increased from 30 to 50 to align with RoomConnectionRenderer and reduce arrow overlap.
+        const CURVE_OFFSET = 50;
+
+        if (isBidirectional) {
+            // Calculate perpendicular offset for Bézier curve
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const length = Math.sqrt(dx * dx + dy * dy);
+
+            // Perpendicular vector (normalized).
+            // NOTE: Do NOT multiply by an offset sign here. When direction reverses (B→A vs A→B),
+            // the perpendicular vector naturally flips (perp' = -perp), which places the control
+            // point on the opposite side of the midpoint — exactly what we need for non-overlapping curves.
+            // Adding a sign would cancel this natural flip, causing perfect overlap.
+            const perpX = -dy / length;
+            const perpY = dx / length;
+
+            // Control point for quadratic Bézier (at midpoint, offset perpendicularly)
+            const cpX = (startX + endX) / 2 + perpX * CURVE_OFFSET;
+            const cpY = (startY + endY) / 2 + perpY * CURVE_OFFSET;
+
+            // Use <path> with Q command for quadratic Bézier curve
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${startX} ${startY} Q ${cpX} ${cpY} ${endX} ${endY}`);
+            path.setAttribute('stroke', 'var(--neon-green)');
+            path.setAttribute('stroke-width', '2');
+            path.setAttribute('stroke-dasharray', '8,4');
+            path.setAttribute('opacity', '0.5');
+            path.setAttribute('marker-end', 'url(#world-map-arrow)');
+            path.setAttribute('class', 'world-map-connection-line');
+            path.setAttribute('data-target-room', conn.targetId);
+            path.style.pointerEvents = 'stroke';
+            path.style.cursor = 'pointer';
+            group.appendChild(path);
+
+            // Hover highlight
+            path.addEventListener('mouseenter', () => {
+                path.setAttribute('opacity', '1');
+                path.setAttribute('stroke-width', '3');
+            });
+            path.addEventListener('mouseleave', () => {
+                path.setAttribute('opacity', '0.5');
+                path.setAttribute('stroke-width', '2');
+            });
+
+            // Click handler to navigate to target room
+            path.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this._onRoomClick) {
+                    this._onRoomClick(conn.targetId);
+                }
+            });
+
+            // Draw label offset along perpendicular direction for bidirectional connections
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            // Increased from 8 to 16 to reduce text label overlap with curves and other labels.
+            const LABEL_OFFSET = 16;
+
+            const labelText = `${conn.door.replace(/_/g, ' ')}`;
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            // Offset label perpendicular to curve direction (no sign flip needed)
+            text.setAttribute('x', midX + perpX * LABEL_OFFSET);
+            text.setAttribute('y', midY + perpY * LABEL_OFFSET - 8);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('fill', 'var(--text-dim)');
+            text.setAttribute('font-size', '10');
+            text.style.pointerEvents = 'none';
+            text.textContent = labelText;
+            group.appendChild(text);
+
+            // Subtle background rect for text readability (mirrors RoomConnectionRenderer pattern)
+            const textWidth = labelText.length * 6;
+            const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bgRect.setAttribute('x', midX + perpX * LABEL_OFFSET - textWidth / 2 - 4);
+            bgRect.setAttribute('y', midY + perpY * LABEL_OFFSET - 20);
+            bgRect.setAttribute('width', textWidth + 8);
+            bgRect.setAttribute('height', 16);
+            bgRect.setAttribute('class', 'world-map-connection-label-bg');
+            bgRect.setAttribute('fill', 'var(--bg-black)');
+            bgRect.setAttribute('opacity', '0.75');
+            bgRect.setAttribute('rx', '3');
+            group.insertBefore(bgRect, text);
+        } else {
+            // Draw single visible connection line with pointer-events for click detection (unidirectional)
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', startX);
+            line.setAttribute('y1', startY);
+            line.setAttribute('x2', endX);
+            line.setAttribute('y2', endY);
+            line.setAttribute('stroke', 'var(--neon-green)');
             line.setAttribute('stroke-width', '2');
-        });
+            line.setAttribute('stroke-dasharray', '8,4');
+            line.setAttribute('opacity', '0.5');
+            line.setAttribute('marker-end', 'url(#world-map-arrow)');
+            line.setAttribute('class', 'world-map-connection-line');
+            line.setAttribute('data-target-room', conn.targetId);
+            line.style.pointerEvents = 'stroke';
+            line.style.cursor = 'pointer';
+            group.appendChild(line);
 
-        // Click handler to navigate to target room
-        line.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (this._onRoomClick) {
-                this._onRoomClick(conn.targetId);
+            // Hover highlight
+            line.addEventListener('mouseenter', () => {
+                line.setAttribute('opacity', '1');
+                line.setAttribute('stroke-width', '3');
+            });
+            line.addEventListener('mouseleave', () => {
+                line.setAttribute('opacity', '0.5');
+                line.setAttribute('stroke-width', '2');
+            });
+
+            // Click handler to navigate to target room
+            line.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this._onRoomClick) {
+                    this._onRoomClick(conn.targetId);
+                }
+            });
+
+            // Draw label
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+
+            const labelText = `${conn.door.replace(/_/g, ' ')}`;
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', midX);
+            text.setAttribute('y', midY - 8);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('fill', 'var(--text-dim)');
+            text.setAttribute('font-size', '10');
+            text.style.pointerEvents = 'none';
+            text.textContent = labelText;
+            group.appendChild(text);
+        }
+    }
+
+    /**
+     * Builds a map of bidirectional connection pairs.
+     * Iterates all rooms and their connections to detect pairs where A→B and B→A both exist.
+     * @private
+     * @param {Array<Object>} rooms - Array of room objects with connections.
+     * @returns {Map<string, Object>} Map of connection pair keys to {forward, backward, isBidirectional} objects.
+     */
+    _buildConnectionPairs(rooms) {
+        const pairMap = new Map();
+
+        // First pass: collect all connections
+        for (const room of rooms) {
+            for (const conn of (room.connections || [])) {
+                const key = this._getConnectionKey(room.id, conn.targetId);
+                if (!pairMap.has(key)) {
+                    pairMap.set(key, { forward: null, backward: null });
+                }
+                const entry = pairMap.get(key);
+                // Forward: room.id < conn.targetId alphabetically
+                if (room.id < conn.targetId) {
+                    entry.forward = { fromId: room.id, toId: conn.targetId };
+                } else {
+                    entry.backward = { fromId: room.id, toId: conn.targetId };
+                }
             }
-        });
+        }
 
-        // Draw label
-        const midX = (startX + endX) / 2;
-        const midY = (startY + endY) / 2;
+        // Second pass: mark bidirectional pairs
+        for (const [key, entry] of pairMap.entries()) {
+            if (entry.forward && entry.backward) {
+                entry.isBidirectional = true;
+            } else {
+                entry.isBidirectional = false;
+            }
+        }
 
-        const labelText = `${conn.door.replace(/_/g, ' ')}`;
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', midX);
-        text.setAttribute('y', midY - 8);
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('fill', 'var(--text-dim)');
-        text.setAttribute('font-size', '10');
-        text.style.pointerEvents = 'none';
-        text.textContent = labelText;
-        group.appendChild(text);
+        return pairMap;
+    }
+
+    /**
+     * Generates a canonical key for a connection pair (sorted room IDs).
+     * @private
+     * @param {string} idA - First room ID.
+     * @param {string} idB - Second room ID.
+     * @returns {string} Canonical key with IDs sorted alphabetically.
+     */
+    _getConnectionKey(idA, idB) {
+        return idA < idB ? `${idA}||${idB}` : `${idB}||${idA}`;
     }
 
     /**
