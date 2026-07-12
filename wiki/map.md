@@ -93,6 +93,6 @@ graph TD
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
-| `data/rooms.json` | Room definitions (name, description, connections, coordinates) |
+| `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
 | `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
 | `data/inventoryItems.json` | Item type definitions (name, description, volume, traits) |

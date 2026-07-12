@@ -49,9 +49,12 @@ export class UIManager {
      * Main update loop for the UI.
      * @param {Object} state The current world state.
      * @param {Object} droid The active droid entity.
-     * @param {Function} onMoveCallback Callback for navigation buttons.
+     * @param {Function} onMoveCallback Callback when a connection is clicked.
+     *   Receives (entityId, targetRoomId, doorName, range) where range is null if not set.
+     * @param {Function} [onDoorHover] - Hover callback for door connections (doorName, doorPosition, range).
+     * @param {Function} [onDoorLeave] - Leave callback for door connections.
      */
-    updateWorldView(state, droid, onMoveCallback) {
+    updateWorldView(state, droid, onMoveCallback, onDoorHover = null, onDoorLeave = null) {
         if (!droid) {
             this._renderEmptyState();
             return;
@@ -71,7 +74,7 @@ export class UIManager {
 
         // Render map layers
         this._renderRoom(room);
-        this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id);
+        this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id, onDoorHover, onDoorLeave);
         this._renderEntities(room, state.entities, droid.id);
         this._renderDroidComponents(droid, state);
     }
@@ -326,15 +329,19 @@ export class UIManager {
     }
 
     /**
-     * Renders connection lines/arrows between the current room and adjacent rooms.
+     * Renders connection lines from the current room to all connected target rooms.
      * @param {Object} room - The current room object.
-     * @param {Object} rooms - Map of all rooms.
-     * @param {Function} [onConnectionClick] - Optional callback when a connection is clicked (entityId, targetRoomId)
-     * @param {string} [entityId] - The entity ID to pass to the click callback
+     * @param {Object} rooms - Map of all rooms keyed by room id.
+     * @param {Function} [onConnectionClick] - Click callback.
+     *   Receives (entityId, targetRoomId, doorName, range) where range is null if not set.
+     * @param {string} [entityId] - The entity ID for click callbacks.
+     * @param {Function} [onDoorHover] - Hover callback (doorName, doorPosition, range).
+     * @param {Function} [onDoorLeave] - Leave callback.
      */
-    renderRoomConnections(room, rooms, onConnectionClick = null, entityId = null) {
+    renderRoomConnections(room, rooms, onConnectionClick = null, entityId = null, onDoorHover = null, onDoorLeave = null) {
         if (!this._currentRoomLayer) return;
-        RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer, onConnectionClick, entityId);
+        RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer,
+            onConnectionClick, entityId, onDoorHover, onDoorLeave);
     }
 
     _renderEntities(room, entities, activeDroidId) {

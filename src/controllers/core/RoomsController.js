@@ -15,8 +15,8 @@ class RoomsController {
      * Loads room definitions from data/rooms.json and initializes the internal room store.
      */
     constructor() {
-        // Internal storage for rooms. 
-        // Format: { roomId: { id, name, description, connections: { doorId: destinationRoomId }, x, y, width, height, objects: [], entities: [] } }
+        // Internal storage for rooms.
+        // Format: { roomId: { id, name, description, connections: { doorId: { target: destinationRoomUid } }, x, y, width, height, objects: [], entities: [] } }
         this.rooms = {};
         this.idMap = {}; // Maps logical names to generated UIDs
 
@@ -49,10 +49,18 @@ class RoomsController {
         }
 
         // 3. Map logical connections to actual generated UIDs
+        // Supports both string format ("door": "target_room") and object format ("door": { "target": "target_room" })
+        // Range is no longer stored on connections; it is computed from the entity's Movement.move stat client-side.
         for (const [logicalId, data] of Object.entries(roomDefinitions)) {
             const uid = this.idMap[logicalId];
-            for (const [door, targetLogicalId] of Object.entries(data.connections)) {
-                this.rooms[uid].connections[door] = this.idMap[targetLogicalId];
+            for (const [door, connectionData] of Object.entries(data.connections)) {
+                const targetLogicalId = typeof connectionData === 'string'
+                    ? connectionData
+                    : connectionData.target;
+
+                this.rooms[uid].connections[door] = {
+                    target: this.idMap[targetLogicalId]
+                };
             }
         }
 
@@ -61,6 +69,8 @@ class RoomsController {
 
     /**
      * Validates room definitions loaded from the data file.
+     * Supports both string connection format and object format with target.
+     * Range is no longer validated on connections; it is computed from the entity's Movement.move stat.
      * @private
      * @param {Object} defs - Room definitions to validate.
      * @throws {TypeError} If validation fails.
@@ -79,12 +89,22 @@ class RoomsController {
             if (typeof def.connections !== 'object' || def.connections === null) {
                 throw new TypeError(`Room '${logicalId}' must have a connections object`);
             }
-            for (const [door, targetId] of Object.entries(def.connections)) {
+            for (const [door, connectionData] of Object.entries(def.connections)) {
                 if (typeof door !== 'string' || door.trim() === '') {
                     throw new TypeError(`Room '${logicalId}' connection must have a non-empty door name`);
                 }
-                if (typeof targetId !== 'string') {
-                    throw new TypeError(`Room '${logicalId}' connection '${door}' must have a string targetId`);
+                if (typeof connectionData === 'string') {
+                    // String format: validate target
+                    if (connectionData.trim() === '') {
+                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty target`);
+                    }
+                } else if (typeof connectionData === 'object' && connectionData !== null) {
+                    // Object format: validate target
+                    if (typeof connectionData.target !== 'string' || connectionData.target.trim() === '') {
+                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty string target`);
+                    }
+                } else {
+                    throw new TypeError(`Room '${logicalId}' connection '${door}' must be a string or object`);
                 }
             }
             if (typeof def.x !== 'number' || typeof def.y !== 'number') {
@@ -122,6 +142,26 @@ class RoomsController {
     getRoom(roomId) {
         const room = this.rooms[roomId];
         return room ? structuredClone(room) : null;
+    }
+
+    /**
+     * Retrieves the target room UUID for a specific door connection.
+     * @param {string} roomId - The UUID of the room.
+     * @param {string} doorName - The name of the door (e.g., 'right_door').
+     * @returns {string|null} The UUID of the target room, or null if not found.
+     */
+    getConnectionTarget(roomId, doorName) {
+        const room = this.rooms[roomId];
+        if (!room) {
+            Logger.warn(`[RoomsController] Room '${roomId}' not found`);
+            return null;
+        }
+        const connection = room.connections[doorName];
+        if (!connection) {
+            Logger.warn(`[RoomsController] Door '${doorName}' not found in room '${roomId}'`);
+            return null;
+        }
+        return connection.target;
     }
 }
 

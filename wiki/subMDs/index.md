@@ -88,6 +88,7 @@ Game mechanics, visualizations, and feature systems.
 | [World Map](systems/world_map.md) | Spatial visualization decoupling rationale, server-side graph design, two-level navigation |
 | [World Map Pick-Up System](systems/world_map_pickup.md) | Dropped items on map as blue squares, hover-based range preview, pick-up overlay flow, component selection |
 | [Item Drop & Pickup System](systems/item_drop_pickup.md) | Item drop range calculation, hover-based range feedback, pickup overlay flow, component targeting for dropped items |
+| [Door Range System](systems/door_range_system.md) | Spatial proximity for door transitions, hover-based green/red feedback, client-side range validation before server request |
 | [Unique ID System](systems/unique_id_system.md) | Self-describing typed IDs (ent-, comp-, item-, eq- prefixes) for unambiguous client-server resolution |
 | [Sharpness System](systems/sharpness_system.md) | Equipped item mutable stats architecture — sharpness drain, durability, capability re-evaluation |
 
@@ -97,11 +98,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 33 |
+| Total documents | 34 |
 | Categories | 6 |
 | Architecture docs | 5 |
 | Controller docs | 12 |
 | Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 5 |
+| Systems docs | 6 |

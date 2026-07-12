@@ -15,10 +15,14 @@ export class RoomConnectionRenderer {
      * @param {Object} room - The current room object (has id, x, y, width, height, connections)
      * @param {Object} rooms - Map of all rooms keyed by room id
      * @param {SVGElement} roomLayer - The SVG group element for the room layer
-     * @param {Function} [onConnectionClick] - Optional callback when a connection is clicked (entityId, targetRoomId)
+     * @param {Function} [onConnectionClick] - Optional callback when a connection is clicked.
+     *   Receives (entityId, targetRoomId, doorName).
      * @param {string} [entityId] - The entity ID to pass to the click callback
+     * @param {Function} [onDoorHover] - Optional callback when hovering a connection line.
+     *   Receives (doorName, doorPosition) where doorPosition is {x, y} in room-center-relative coords.
+     * @param {Function} [onDoorLeave] - Optional callback when leaving a connection line hover.
      */
-    static renderRoomConnections(room, rooms, roomLayer, onConnectionClick = null, entityId = null) {
+    static renderRoomConnections(room, rooms, roomLayer, onConnectionClick = null, entityId = null, onDoorHover = null, onDoorLeave = null) {
         const connections = room.connections || {};
 
         if (Object.keys(connections).length === 0) {
@@ -28,12 +32,14 @@ export class RoomConnectionRenderer {
         const offsetX = AppConfig.VIEW.CENTER_X - room.width / 2;
         const offsetY = AppConfig.VIEW.CENTER_Y - room.height / 2;
 
-        for (const [door, targetId] of Object.entries(connections)) {
+        for (const [door, connData] of Object.entries(connections)) {
+            const targetId = typeof connData === 'object' ? connData.target : connData;
             const targetRoom = rooms[targetId];
             if (!targetRoom) continue;
 
             this._drawConnection(
-                room, targetRoom, door, offsetX, offsetY, roomLayer, onConnectionClick, entityId
+                room, targetRoom, door, offsetX, offsetY, roomLayer, onConnectionClick, entityId,
+                onDoorHover, onDoorLeave
             );
         }
     }
@@ -41,8 +47,20 @@ export class RoomConnectionRenderer {
     /**
      * Draws a single connection between two rooms.
      * @private
+     * @param {Object} room - The source room.
+     * @param {Object} targetRoom - The target room.
+     * @param {string} door - The door name.
+     * @param {number} offsetX - SVG X offset for the source room.
+     * @param {number} offsetY - SVG Y offset for the source room.
+     * @param {SVGElement} layer - The SVG group to append elements to.
+     * @param {Function} [onConnectionClick] - Click callback (entityId, targetRoomId, doorName).
+     * @param {string} [entityId] - The entity ID for click callbacks.
+     * @param {Function} [onDoorHover] - Hover callback (doorName, doorPosition).
+     *   doorPosition is in room-center-relative coordinates.
+     * @param {Function} [onDoorLeave] - Leave callback.
      */
-    static _drawConnection(room, targetRoom, door, offsetX, offsetY, layer, onConnectionClick = null, entityId = null) {
+    static _drawConnection(room, targetRoom, door, offsetX, offsetY, layer, onConnectionClick = null, entityId = null,
+        onDoorHover = null, onDoorLeave = null) {
         // Room centers relative to SVG viewBox (matching _renderRoom() centering)
         // _renderRoom() places the current room at (CENTER_X - room.width/2, CENTER_Y - room.height/2)
         // Target rooms are positioned relative to the current room using data coordinate deltas
@@ -60,6 +78,12 @@ export class RoomConnectionRenderer {
         const [startX, startY] = this._getEdgePoint(room, targetRoom, roomCX, roomCY, offsetX, offsetY);
         const [endX, endY] = this._getEdgePoint(targetRoom, room, targetCX, targetCY, targetOffsetX, targetOffsetY);
 
+        // Compute the door position in room-center-relative coordinates for hover callbacks.
+        // The start point is on the current room's edge, expressed in SVG coords.
+        // Convert to room-center-relative by subtracting CENTER_X/CENTER_Y.
+        const doorX = startX - AppConfig.VIEW.CENTER_X;
+        const doorY = startY - AppConfig.VIEW.CENTER_Y;
+
         // Invisible wide hit-area line for reliable click detection (15px stroke)
         const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         hitLine.setAttribute('x1', startX);
@@ -70,6 +94,7 @@ export class RoomConnectionRenderer {
         hitLine.setAttribute('stroke-width', '15');
         hitLine.setAttribute('data-target-room', targetRoom.id);
         hitLine.setAttribute('data-entity-id', entityId || '');
+        hitLine.setAttribute('data-door', door);
         hitLine.style.pointerEvents = 'stroke';
         hitLine.style.cursor = 'pointer';
         layer.appendChild(hitLine);
@@ -87,6 +112,7 @@ export class RoomConnectionRenderer {
         line.setAttribute('opacity', '0.6');
         line.setAttribute('data-target-room', targetRoom.id);
         line.setAttribute('data-entity-id', entityId || '');
+        line.setAttribute('data-door', door);
         line.style.pointerEvents = 'stroke';
         line.style.cursor = 'pointer';
         layer.appendChild(line);
@@ -138,13 +164,14 @@ export class RoomConnectionRenderer {
         labelHitRect.setAttribute('style', 'pointer-events: fill; cursor: pointer;');
         labelHitRect.setAttribute('data-target-room', targetRoom.id);
         labelHitRect.setAttribute('data-entity-id', entityId || '');
+        labelHitRect.setAttribute('data-door', door);
         layer.insertBefore(labelHitRect, text);
 
         // Click handler on the visible line (hit-area is behind it)
         line.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 
@@ -152,7 +179,7 @@ export class RoomConnectionRenderer {
         hitLine.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 
@@ -160,7 +187,7 @@ export class RoomConnectionRenderer {
         labelHitRect.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 
@@ -168,10 +195,32 @@ export class RoomConnectionRenderer {
         line.addEventListener('mouseenter', () => {
             line.setAttribute('opacity', '1');
             line.setAttribute('stroke-width', '3');
+            if (onDoorHover) {
+                onDoorHover(door, { x: doorX, y: doorY });
+            }
         });
         line.addEventListener('mouseleave', () => {
             line.setAttribute('opacity', '0.6');
             line.setAttribute('stroke-width', '2');
+            if (onDoorLeave) {
+                onDoorLeave();
+            }
+        });
+
+        // Hover effects on hit-area line (same callbacks)
+        hitLine.addEventListener('mouseenter', () => {
+            line.setAttribute('opacity', '1');
+            line.setAttribute('stroke-width', '3');
+            if (onDoorHover) {
+                onDoorHover(door, { x: doorX, y: doorY });
+            }
+        });
+        hitLine.addEventListener('mouseleave', () => {
+            line.setAttribute('opacity', '0.6');
+            line.setAttribute('stroke-width', '2');
+            if (onDoorLeave) {
+                onDoorLeave();
+            }
         });
     }
 

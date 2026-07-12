@@ -37,6 +37,9 @@ export const AppConfig = {
     TARGETING: {
         PUNCH_TOLERANCE: 20,
     },
+    ANIMATION: {
+        DOOR_FLASH_DURATION: 400,
+    },
     MULTIPLIERS: {
         DASH_RANGE: 2,
         // NOTE: DROP_RANGE is a legacy fallback value. The actual drop range is now
