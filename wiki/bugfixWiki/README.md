@@ -22,6 +22,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-118](high/BUG-118-entity-spawns-at-room-center-instead-of-door.md) | Entity Spawns at Room Center Instead of Door Position on World Map Navigation | ✅ Fixed | `pending` | `RoomConnectionRenderer.js` |
 | [BUG-114](high/BUG-114-dash-durability-loss-targets-wrong-component.md) | Dash Durability Loss Targets Wrong Component (Left Ball Affected When Dashing Right) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `actionController.js` |
 | [BUG-093](high/BUG-093-equipped-item-stats-ignored-in-requirement-checks.md) | Equipped Item Stats Ignored in Action Requirement Checks | ✅ Fixed | `pending` | `RequirementResolver.js` |
 | [BUG-094](high/BUG-094-cut-action-disappears-after-unequip-reequip.md) | Cut Action Disappears After Unequip/Re-equip (Sharpness Resets) | ✅ Fixed | `pending` | `HoldingCostController.js` |
@@ -114,6 +115,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-080](medium/BUG-080-drop-selector-executes-with-null-pending-item.md) | Drop Selector Execute: `pendingDropItem` Cleared Before Event Dispatch | ✅ Fixed | `pending` | `DropSelectorController.js` |
 | [BUG-104](medium/BUG-104-unused-knife-component-in-components-json.md) | Unused `knife` Component Definition in data/components.json | ✅ Fixed | `pending` | `data/components.json` |
 | [BUG-105](medium/BUG-105-css-duplicate-selectors-across-files.md) | CSS Duplicate Selectors Across Multiple Files | ✅ Fixed | `pending` | `layout.css`, `components.css`, `floating-windows.css` |
+| [BUG-117](medium/BUG-117-world-map-arrow-overlap.md) | World Map Arrow Overlap — Bidirectional Connection Arrows and Text Labels Too Close Together | ✅ Fixed | `pending` | `RoomConnectionRenderer.js`, `WorldMapView.js` |
 
 ### 🟢 Low Severity
 
