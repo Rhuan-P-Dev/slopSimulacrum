@@ -98,11 +98,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 34 |
+| Total documents | 36 |
 | Categories | 6 |
 | Architecture docs | 5 |
 | Controller docs | 12 |
 | Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 6 |
+| Systems docs | 8 |
