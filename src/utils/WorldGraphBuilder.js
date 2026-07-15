@@ -52,7 +52,12 @@ class WorldGraphBuilder {
             const connections = [];
             const roomConnections = roomData.connections || {};
 
-            for (const [door, targetId] of Object.entries(roomConnections)) {
+            for (const [door, connData] of Object.entries(roomConnections)) {
+                // Connection values can be either a plain room ID string ("room_id")
+                // or an object containing the target key ({ target: "room_id" }).
+                // Normalize to the string form so the roomsById lookup succeeds.
+                // Matches the same pattern used in RoomConnectionRenderer.renderRoomConnections().
+                const targetId = typeof connData === 'object' ? connData.target : connData;
                 const targetRoom = this.roomsById.get(targetId);
                 connections.push({
                     door,
