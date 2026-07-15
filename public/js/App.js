@@ -59,7 +59,7 @@ export class ClientApp {
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
         this.worldMap = new WorldMapView({
-            onRoomClick: (roomId) => this._handleWorldMapRoomClick(roomId)
+            onRoomClick: (roomId, door) => this._handleWorldMapRoomClick(roomId, door)
         });
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
@@ -238,7 +238,7 @@ export class ClientApp {
 
         // If entity has no movement stat, allow unrestricted movement (no range check)
         if (moveRange === null) {
-            this.executor.executeMoveDroid(entityId, targetRoomId);
+            this.executor.executeMoveDroid(entityId, targetRoomId, doorName);
             return true;
         }
 
@@ -255,7 +255,7 @@ export class ClientApp {
         }
 
         // In range — proceed with move
-        this.executor.executeMoveDroid(entityId, targetRoomId);
+        this.executor.executeMoveDroid(entityId, targetRoomId, doorName);
         return true;
     }
 

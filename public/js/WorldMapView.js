@@ -283,7 +283,7 @@ export class WorldMapView {
             path.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this._onRoomClick) {
-                    this._onRoomClick(conn.targetId);
+                    this._onRoomClick(conn.targetId, conn.door);
                 }
             });
 
