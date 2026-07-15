@@ -32,20 +32,7 @@ The door range indicator renders as a circle on the world map SVG, identical in 
 
 ## 3. Range Calculation
 
-The client computes effective movement range by finding the maximum `Movement.move` value across all droid components, matching the pattern in [`SynergyPreviewController.calculateRange()`](public/js/SynergyPreviewController.js:199):
-
-```javascript
-// From App._getEntityMovementRange()
-let maxMove = null;
-for (const comp of droid.components) {
-    const stats = state.components.instances[comp.id];
-    if (stats && stats.Movement && stats.Movement.move !== undefined) {
-        if (maxMove === null || stats.Movement.move > maxMove) {
-            maxMove = stats.Movement.move;
-        }
-    }
-}
-```
+The client computes effective movement range by finding the maximum `Movement.move` value across all droid components, matching the pattern used for synergy-based range calculations. This approach ensures consistency across all range-based interactions — the same stat that determines action range also determines door reachability.
 
 If the entity has no components with a `Movement.move` stat, range validation is skipped entirely (unrestricted movement).
 
