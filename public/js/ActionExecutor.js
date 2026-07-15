@@ -297,14 +297,19 @@ export class ActionExecutor {
      *
      * @param {string} entityId - The entity ID to move.
      * @param {string} targetRoomId - The target room ID.
+     * @param {string} [sourceDoor] - Optional door name the entity exited from (for spawn position calculation).
      * @returns {Promise<void>}
      */
-    async executeMoveDroid(entityId, targetRoomId) {
+    async executeMoveDroid(entityId, targetRoomId, sourceDoor) {
         try {
+            const payload = { entityId, targetRoomId };
+            if (sourceDoor) {
+                payload.sourceDoor = sourceDoor;
+            }
             const response = await fetch(AppConfig.ENDPOINTS.MOVE_ENTITY, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ entityId, targetRoomId })
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {

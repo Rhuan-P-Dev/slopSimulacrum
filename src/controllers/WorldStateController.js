@@ -352,10 +352,28 @@ class WorldStateController {
      * Moves an entity to a different room.
      * @param {string} entityId - The entity to move.
      * @param {string} targetRoomId - The destination room.
+     * @param {Object} [options] - Optional parameters.
+     * @param {string} [options.sourceDoor] - The door name the entity exited from in the source room.
      * @returns {boolean} True if successful.
      */
-    moveEntity(entityId, targetRoomId) {
-        return this.stateEntityController.moveEntity(entityId, targetRoomId);
+    moveEntity(entityId, targetRoomId, options = {}) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            return false;
+        }
+
+        let spawnSpatial = null;
+        if (options.sourceDoor) {
+            const sourceRoomId = entity.location;
+            spawnSpatial = this.roomsController.getSpawnPositionForDoorTraversal(
+                sourceRoomId,
+                options.sourceDoor,
+                targetRoomId
+            );
+        }
+
+        const moveOptions = spawnSpatial ? { spatial: spawnSpatial } : {};
+        return this.stateEntityController.moveEntity(entityId, targetRoomId, moveOptions);
     }
 
     /**

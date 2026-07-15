@@ -164,9 +164,10 @@ export function register(router, { worldStateController, broadcastService }) {
 	/**
 	 * POST /move-entity
 	 * Moves an entity to a different room.
+	 * Optionally accepts `sourceDoor` to calculate spawn position at the opposite door.
 	 */
 	router.post('/move-entity', (req, res) => {
-		const { entityId, targetRoomId } = req.body;
+		const { entityId, targetRoomId, sourceDoor } = req.body;
 
 		if (!entityId || !targetRoomId) {
 			return res.status(400).json({
@@ -175,7 +176,8 @@ export function register(router, { worldStateController, broadcastService }) {
 		}
 
 		try {
-			const success = worldStateController.moveEntity(entityId, targetRoomId);
+			const moveOptions = sourceDoor ? { sourceDoor } : {};
+			const success = worldStateController.moveEntity(entityId, targetRoomId, moveOptions);
 			if (success) {
 				broadcastService.broadcast();
 				res.json({ message: 'Entity moved successfully.' });
@@ -187,6 +189,7 @@ export function register(router, { worldStateController, broadcastService }) {
 				error: error.message,
 				entityId,
 				targetRoomId,
+				sourceDoor,
 			});
 			res.status(500).json({
 				error: 'Internal Server Error',

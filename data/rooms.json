@@ -3,7 +3,9 @@
     "name": "The Entrance Hall",
     "description": "A dimly lit hall. To your right, there is an open corridor.",
     "connections": {
-      "right_door": "right_room"
+      "right_door": {
+        "target": "right_room"
+      }
     },
     "x": 0,
     "y": 0,
@@ -14,8 +16,12 @@
     "name": "The Eastern Corridor",
     "description": "A narrow corridor with flickering lights. To your left is the Entrance Hall, and to your right, another door leads deeper into the complex.",
     "connections": {
-      "left_door": "start_room",
-      "right_door": "far_right_room"
+      "left_door": {
+        "target": "start_room"
+      },
+      "right_door": {
+        "target": "far_right_room"
+      }
     },
     "x": 400,
     "y": 250,
@@ -26,7 +32,9 @@
     "name": "The Deep Vault",
     "description": "A cold, metallic chamber echoing with the hum of ancient machinery. To your left is the Eastern Corridor.",
     "connections": {
-      "left_door": "right_room"
+      "left_door": {
+        "target": "right_room"
+      }
     },
     "x": 900,
     "y": 250,

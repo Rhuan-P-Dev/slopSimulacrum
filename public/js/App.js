@@ -177,13 +177,15 @@ export class ClientApp {
 
     /**
      * Handles clicking a room node on the world map overlay.
+     * @param {string} roomId - The target room ID.
+     * @param {string} [sourceDoor] - Optional door name the entity exited from.
      * @private
      */
-    _handleWorldMapRoomClick(roomId) {
+    _handleWorldMapRoomClick(roomId, sourceDoor) {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
         if (droid.location === roomId) return;
-        this.executor.executeMoveDroid(droid.id, roomId);
+        this.executor.executeMoveDroid(droid.id, roomId, sourceDoor);
     }
 
     /**
@@ -394,7 +396,7 @@ export class ClientApp {
             this.ui.updateWorldView(
                 this.worldState.getState(),
                 droid,
-                (entityId, targetRoomId) => this.executor.executeMoveDroid(entityId, targetRoomId)
+                (entityId, targetRoomId, sourceDoor) => this.executor.executeMoveDroid(entityId, targetRoomId, sourceDoor)
             );
 
             // Re-render entities and components with callbacks

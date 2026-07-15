@@ -144,7 +144,7 @@ export class RoomConnectionRenderer {
         line.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 
@@ -152,7 +152,7 @@ export class RoomConnectionRenderer {
         hitLine.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 
@@ -160,7 +160,7 @@ export class RoomConnectionRenderer {
         labelHitRect.addEventListener('click', (e) => {
             e.stopPropagation();
             if (onConnectionClick) {
-                onConnectionClick(entityId, targetRoom.id);
+                onConnectionClick(entityId, targetRoom.id, door);
             }
         });
 

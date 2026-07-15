@@ -111,14 +111,22 @@ class stateEntityController {
     }
 
     /**
-     * Moves an entity to a different room.
+     * Moves an entity to a different room, optionally setting spawn position.
+     * When spatial coordinates are provided, the entity is positioned at those
+     * coordinates within the new room (used for door-to-door traversal).
      * @param {string} entityId - The ID of the entity to move.
      * @param {string} newRoomId - The destination room ID.
+     * @param {Object} [options] - Optional parameters.
+     * @param {{ x: number, y: number }} [options.spatial] - Room-relative spawn coordinates.
      * @returns {boolean} True if the move was successful.
      */
-    moveEntity(entityId, newRoomId) {
+    moveEntity(entityId, newRoomId, options = {}) {
         if (this.entities[entityId]) {
             this.entities[entityId].location = newRoomId;
+            if (options.spatial) {
+                this.entities[entityId].spatial.x = options.spatial.x;
+                this.entities[entityId].spatial.y = options.spatial.y;
+            }
             return true;
         }
         return false;
