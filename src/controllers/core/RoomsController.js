@@ -16,7 +16,7 @@ class RoomsController {
      */
     constructor() {
         // Internal storage for rooms.
-        // Format: { roomId: { id, name, description, connections: { doorId: destinationRoomId }, x, y, width, height, objects: [], entities: [] } }
+        // Format: { roomId: { id, name, description, connections: { doorId: { target: destinationRoomUid } }, x, y, width, height, objects: [], entities: [] } }
         this.rooms = {};
         this.idMap = {}; // Maps logical names to generated UIDs
 
@@ -55,23 +55,35 @@ class RoomsController {
         }
 
         // 3. Map logical connections to actual generated UIDs and populate door positions
+        // Supports both string format ("door": "target_room") and object format ("door": { "target": "target_room", "position": {...} })
+        // Range is no longer stored on connections; it is computed from the entity's Movement.move stat client-side.
         for (const [logicalId, data] of Object.entries(roomDefinitions)) {
             const uid = this.idMap[logicalId];
             this.doorPositions[uid] = {};
-            for (const [door, conn] of Object.entries(data.connections)) {
+            for (const [door, connectionData] of Object.entries(data.connections)) {
                 let targetLogicalId;
-                if (typeof conn === 'string') {
+                let position = null;
+
+                if (typeof connectionData === 'string') {
                     // Legacy string format: {"right_door": "right_room"}
-                    targetLogicalId = conn;
+                    targetLogicalId = connectionData;
                 } else {
-                    // New object format: {"right_door": {"target": "right_room", "position": {...}}}
-                    targetLogicalId = conn.target;
-                    // Store door position if provided, normalizing to direct X/Y coordinates
-                    if (conn.position) {
-                        this.doorPositions[uid][door] = this._normalizePosition(conn.position, data.width, data.height);
+                    // Object format: {"right_door": {"target": "right_room", "position": {...}}}
+                    targetLogicalId = connectionData.target;
+                    if (connectionData.position) {
+                        position = this._normalizePosition(connectionData.position, data.width, data.height);
                     }
                 }
-                this.rooms[uid].connections[door] = this.idMap[targetLogicalId];
+
+                // Store in object-wrapped format (per wiki design)
+                this.rooms[uid].connections[door] = {
+                    target: this.idMap[targetLogicalId]
+                };
+
+                // Store door position if available
+                if (position) {
+                    this.doorPositions[uid][door] = position;
+                }
             }
         }
 
@@ -80,6 +92,8 @@ class RoomsController {
 
     /**
      * Validates room definitions loaded from the data file.
+     * Supports both string connection format and object format with target.
+     * Range is no longer validated on connections; it is computed from the entity's Movement.move stat.
      * @private
      * @param {Object} defs - Room definitions to validate.
      * @throws {TypeError} If validation fails.
@@ -98,27 +112,25 @@ class RoomsController {
             if (typeof def.connections !== 'object' || def.connections === null) {
                 throw new TypeError(`Room '${logicalId}' must have a connections object`);
             }
-            for (const [door, target] of Object.entries(def.connections)) {
+            for (const [door, connectionData] of Object.entries(def.connections)) {
                 if (typeof door !== 'string' || door.trim() === '') {
                     throw new TypeError(`Room '${logicalId}' connection must have a non-empty door name`);
                 }
-                // Legacy string format: {"right_door": "right_room"}
-                if (typeof target === 'string') {
-                    if (target.trim() === '') {
+                if (typeof connectionData === 'string') {
+                    // String format: validate target
+                    if (connectionData.trim() === '') {
                         throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty target`);
                     }
-                }
-                // New object format: {"right_door": {"target": "right_room", "position": {...}}}
-                else if (typeof target === 'object' && target !== null) {
-                    if (typeof target.target !== 'string' || target.target.trim() === '') {
-                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a string 'target'`);
+                } else if (typeof connectionData === 'object' && connectionData !== null) {
+                    // Object format: validate target
+                    if (typeof connectionData.target !== 'string' || connectionData.target.trim() === '') {
+                        throw new TypeError(`Room '${logicalId}' connection '${door}' must have a non-empty string target`);
                     }
                     // Optional position validation — supports both direct X/Y and legacy edge/offset
-                    if (target.position !== undefined) {
-                        this._validatePosition(target.position, logicalId, door);
+                    if (connectionData.position !== undefined) {
+                        this._validatePosition(connectionData.position, logicalId, door);
                     }
-                }
-                else {
+                } else {
                     throw new TypeError(`Room '${logicalId}' connection '${door}' must be a string or object`);
                 }
             }
@@ -181,7 +193,8 @@ class RoomsController {
             return null;
         }
 
-        const targetRoomId = room.connections[doorName];
+        const connection = room.connections[doorName];
+        const targetRoomId = typeof connection === 'object' ? connection.target : connection;
         const targetRoom = this.rooms[targetRoomId];
         if (!targetRoom) {
             return null;
@@ -334,7 +347,8 @@ class RoomsController {
         const targetRoom = this.rooms[targetRoomId];
         if (!targetRoom) return null;
 
-        for (const [doorName, target] of Object.entries(targetRoom.connections)) {
+        for (const [doorName, conn] of Object.entries(targetRoom.connections)) {
+            const target = typeof conn === 'object' ? conn.target : conn;
             if (target === sourceRoomId) {
                 return doorName;
             }
@@ -398,6 +412,28 @@ class RoomsController {
         // Strategy 3: Fall back to room center
         Logger.warn(`[RoomsController] No spawn position found for door traversal ${sourceDoorName}: ${sourceRoomId} -> ${targetRoomId}, using room center`);
         return { x: 0, y: 0 };
+    }
+
+    /**
+     * Retrieves the target room UUID for a specific door connection.
+     * Why this is the designated accessor: Centralizes connection object format handling
+     * so callers never need to know whether connections are strings or objects.
+     * @param {string} roomId - The UUID of the room.
+     * @param {string} doorName - The name of the door (e.g., 'right_door').
+     * @returns {string|null} The UUID of the target room, or null if not found.
+     */
+    getConnectionTarget(roomId, doorName) {
+        const room = this.rooms[roomId];
+        if (!room) {
+            Logger.warn(`[RoomsController] Room '${roomId}' not found`);
+            return null;
+        }
+        const connection = room.connections[doorName];
+        if (!connection) {
+            Logger.warn(`[RoomsController] Door '${doorName}' not found in room '${roomId}'`);
+            return null;
+        }
+        return typeof connection === 'object' ? connection.target : connection;
     }
 }
 

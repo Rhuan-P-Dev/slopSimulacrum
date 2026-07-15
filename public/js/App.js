@@ -30,6 +30,7 @@ import { InventoryManager } from './InventoryManager.js';
 import { OverlayManager } from './OverlayManager.js';
 import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
+import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import IdResolver from '/utils/IdResolver.js';
 
 export class ClientApp {
@@ -177,6 +178,8 @@ export class ClientApp {
 
     /**
      * Handles clicking a room node on the world map overlay.
+     * Deprecated: retained for backward compatibility with WorldMapView room clicks.
+     * Door connection clicks now route through _handleDoorClick() with range validation.
      * @param {string} roomId - The target room ID.
      * @param {string} [sourceDoor] - Optional door name the entity exited from.
      * @private
@@ -186,6 +189,179 @@ export class ClientApp {
         if (!droid) return;
         if (droid.location === roomId) return;
         this.executor.executeMoveDroid(droid.id, roomId, sourceDoor);
+    }
+
+    /**
+     * Computes the entity's effective movement range from its Movement.move stat.
+     * Finds the maximum Movement.move value across all droid components,
+     * matching the pattern in SynergyPreviewController.calculateRange().
+     *
+     * @param {Object} droid - The droid entity object.
+     * @param {Object} state - The world state object.
+     * @returns {number|null} The effective movement range, or null if no movement stat found.
+     * @private
+     */
+    _getEntityMovementRange(droid, state) {
+        if (!droid || !droid.components || !state || !state.components || !state.components.instances) {
+            return null;
+        }
+
+        let maxMove = null;
+        for (const comp of droid.components) {
+            const stats = state.components.instances[comp.id];
+            if (stats && stats.Movement && stats.Movement.move !== undefined) {
+                if (maxMove === null || stats.Movement.move > maxMove) {
+                    maxMove = stats.Movement.move;
+                }
+            }
+        }
+
+        return maxMove;
+    }
+
+    /**
+     * Handles clicking a door connection line on the spatial map.
+     * Validates range before allowing the room transition. If out of range,
+     * prevents the move and triggers visual feedback (red flash on connection line).
+     * Range is computed from the entity's Movement.move stat, not from the door.
+     *
+     * @param {string} entityId - The entity ID performing the move.
+     * @param {string} targetRoomId - The target room ID.
+     * @param {string} doorName - The name of the door (e.g., "right_door").
+     * @returns {boolean} True if the move was executed, false if blocked by range.
+     * @private
+     */
+    _handleDoorClick(entityId, targetRoomId, doorName) {
+        const droid = this.worldState.getActiveDroid();
+        const state = this.worldState.getState();
+        const moveRange = this._getEntityMovementRange(droid, state);
+
+        // If entity has no movement stat, allow unrestricted movement (no range check)
+        if (moveRange === null) {
+            this.executor.executeMoveDroid(entityId, targetRoomId);
+            return true;
+        }
+
+        const result = this._checkDoorRange(doorName, moveRange);
+        if (!result.inRange) {
+            // Show error feedback
+            this.errorController.handleError({
+                code: 'OUT_OF_RANGE',
+                message: result.message
+            });
+            // Trigger visual feedback on the connection line
+            this._flashDoorConnectionRed(doorName);
+            return false;
+        }
+
+        // In range — proceed with move
+        this.executor.executeMoveDroid(entityId, targetRoomId);
+        return true;
+    }
+
+    /**
+     * Calculates whether the active droid is within range of a door position.
+     * Uses Euclidean distance in room-center-relative coordinates, matching
+     * the calculation in _handleDoorHover().
+     *
+     * @param {string} doorName - The name of the door (e.g., "right_door").
+     * @param {number} range - The maximum allowed distance to the door (from entity's Movement.move).
+     * @returns {{ inRange: boolean, distance: number, maxRange: number, message: string }}
+     *   Object containing the range check result with a human-readable message.
+     * @private
+     */
+    _checkDoorRange(doorName, range) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            return {
+                inRange: false,
+                distance: Infinity,
+                maxRange: range,
+                message: 'No active droid.'
+            };
+        }
+
+        // Get door position from the room's connections data.
+        // Door positions are computed as the edge point of the current room toward
+        // the target room, expressed in room-center-relative coordinates.
+        const state = this.worldState.getState();
+        const currentRoom = state?.rooms?.[droid.location];
+        if (!currentRoom || !currentRoom.connections || !currentRoom.connections[doorName]) {
+            return {
+                inRange: false,
+                distance: Infinity,
+                maxRange: range,
+                message: `Door "${doorName}" not found in current room.`
+            };
+        }
+
+        const connData = currentRoom.connections[doorName];
+        const targetId = typeof connData === 'object' ? connData.target : connData;
+        const targetRoom = state?.rooms?.[targetId];
+        if (!targetRoom) {
+            return {
+                inRange: false,
+                distance: Infinity,
+                maxRange: range,
+                message: `Target room for door "${doorName}" not found.`
+            };
+        }
+
+        // Calculate the door position (edge point of current room toward target room)
+        // in room-center-relative coordinates, matching RoomConnectionRenderer._drawConnection()
+        const offsetX = AppConfig.VIEW.CENTER_X - currentRoom.width / 2;
+        const offsetY = AppConfig.VIEW.CENTER_Y - currentRoom.height / 2;
+        const roomCX = offsetX + currentRoom.width / 2;
+        const roomCY = offsetY + currentRoom.height / 2;
+
+        // Use the same edge point calculation as RoomConnectionRenderer
+        const [doorSVGX, doorSVGY] = RoomConnectionRenderer._getEdgePoint(
+            currentRoom, targetRoom, roomCX, roomCY, offsetX, offsetY
+        );
+        // Convert to room-center-relative coordinates
+        const doorX = doorSVGX - AppConfig.VIEW.CENTER_X;
+        const doorY = doorSVGY - AppConfig.VIEW.CENTER_Y;
+
+        // Calculate Euclidean distance from droid to door (room-center-relative coordinates)
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+        const distance = Math.sqrt(Math.pow(doorX - droidX, 2) + Math.pow(doorY - droidY, 2));
+
+        const inRange = distance <= range;
+        return {
+            inRange,
+            distance,
+            maxRange: range,
+            message: inRange
+                ? ''
+                : `Door "${doorName}" is out of range. Distance: ${distance.toFixed(1)}, Max Range: ${range}`
+        };
+    }
+
+    /**
+     * Triggers a brief red flash on the connection line for the given door
+     * to provide visual feedback when a click is rejected due to being out of range.
+     *
+     * @param {string} doorName - The name of the door whose connection line to flash.
+     * @private
+     */
+    _flashDoorConnectionRed(doorName) {
+        // Find the visible connection line element by data-door attribute
+        const line = document.querySelector(`.room-connection-line[data-door="${doorName}"]`);
+        if (!line) return;
+
+        const originalStroke = line.getAttribute('stroke');
+        const originalOpacity = line.getAttribute('opacity');
+
+        // Flash red
+        line.setAttribute('stroke', AppConfig.COLORS.RANGE.OUT_OF_RANGE);
+        line.setAttribute('opacity', '1');
+
+        // Restore after brief delay
+        setTimeout(() => {
+            line.setAttribute('stroke', originalStroke);
+            line.setAttribute('opacity', originalOpacity);
+        }, AppConfig.ANIMATION.DOOR_FLASH_DURATION);
     }
 
     /**
@@ -396,7 +572,9 @@ export class ClientApp {
             this.ui.updateWorldView(
                 this.worldState.getState(),
                 droid,
-                (entityId, targetRoomId, sourceDoor) => this.executor.executeMoveDroid(entityId, targetRoomId, sourceDoor)
+                (entityId, targetRoomId, doorName) => this._handleDoorClick(entityId, targetRoomId, doorName),
+                (doorName, doorPosition) => this._handleDoorHover(doorName, doorPosition),
+                () => this._hideDoorRangeIndicator()
             );
 
             // Re-render entities and components with callbacks
@@ -817,6 +995,57 @@ export class ClientApp {
      * @private
      */
     _handleDroppedItemLeave(id, item) {
+        this.ui.clearRangeIndicator();
+    }
+
+    /**
+     * Handles hovering over a room door connection line on the spatial map.
+     * Calculates the Euclidean distance from the player entity to the door position
+     * and displays a range indicator circle colored by reachability:
+     * green if the entity is within range, red if out of range.
+     * Range is computed from the entity's Movement.move stat, not from the door.
+     *
+     * @param {string} doorName - The name of the door (e.g., "right_door").
+     * @param {Object} doorPosition - The door position in room-center-relative coordinates {x, y}.
+     * @private
+     */
+    _handleDoorHover(doorName, doorPosition) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            return;
+        }
+
+        const state = this.worldState.getState();
+        const moveRange = this._getEntityMovementRange(droid, state);
+
+        // If entity has no movement stat, skip range indicator
+        if (moveRange === null) {
+            return;
+        }
+
+        // Calculate Euclidean distance from droid spatial position to door position
+        // Both are in room-center-relative coordinates.
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+        const doorX = doorPosition.x || 0;
+        const doorY = doorPosition.y || 0;
+        const distance = Math.sqrt(Math.pow(doorX - droidX, 2) + Math.pow(doorY - droidY, 2));
+
+        // Determine color based on whether the entity is within movement range.
+        const color = distance <= moveRange
+            ? AppConfig.COLORS.RANGE.IN_RANGE
+            : AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+
+        // Render the range indicator circle centered on the droid with the entity's movement range as radius.
+        this.ui.renderRangeIndicator(droid, moveRange, color, 'default');
+    }
+
+    /**
+     * Handles leaving a room door connection line on the spatial map.
+     * Clears the hover-based range indicator.
+     * @private
+     */
+    _hideDoorRangeIndicator() {
         this.ui.clearRangeIndicator();
     }
 
