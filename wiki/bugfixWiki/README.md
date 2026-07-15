@@ -141,6 +141,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-089](architectural/BUG-089-hardcoded-punch-handler-in-frontend.md) | Hardcoded Punch Handler in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `App.js`, `EventDispatcher.js`, `ActionExecutor.js` |
 | [BUG-090](architectural/BUG-090-hardcoded-punch-method-names-in-frontend.md) | Hardcoded Punch Method Names in Frontend — Not Generic for New Attack Types | ✅ Fixed | `pending` | `ActionManager.js`, `ActionExecutor.js`, `actionController.js` |
 | [BUG-103](architectural/BUG-103-dead-code-in-controllers.md) | Dead Code in Controllers — Multiple Files | ✅ Fixed | `pending` | `ComponentResolver.js`, `componentStatsController.js`, `DropItemHandler.js`, `actionSelectController.js` |
+| [BUG-119](architectural/BUG-119-connection-format-mismatch.md) | Connection Storage Format Mismatch Between Branches Causing 10 Merge Conflicts | ✅ Fixed | `pending` | `RoomsController.js`, `RoomConnectionRenderer.js`, `App.js` |
 
 ---
 
