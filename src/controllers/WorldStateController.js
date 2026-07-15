@@ -1017,6 +1017,25 @@ class WorldStateController {
     }
 
     /**
+     * Gets dropped items filtered by room ID.
+     * Returns a defensive deep copy to prevent external mutation.
+     * @param {string} roomId - The room ID to filter by.
+     * @returns {Object<string, Object>} Dropped items map filtered by room.
+     */
+    getDroppedItemsByRoom(roomId) {
+        if (!this._droppedItems) {
+            return {};
+        }
+        const filtered = {};
+        for (const [id, item] of Object.entries(this._droppedItems)) {
+            if (item.roomId === roomId) {
+                filtered[id] = item;
+            }
+        }
+        return structuredClone(filtered);
+    }
+
+    /**
      * Sets all dropped items in the world.
      * @param {Object} droppedItems - The dropped items map.
      * @returns {void}
