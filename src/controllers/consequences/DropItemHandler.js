@@ -79,7 +79,14 @@ function handleDropItem(deps, params, context) {
         usedItemType = usedItemType || foundItem.type;
     }
 
-    // Remove item from the entity's inventory
+    // Collect all nested items from the container before removal.
+    // This preserves the contents so they can be restored on pickup.
+    const entityBefore = worldStateController.getEntity(entityId);
+    const nestedItems = entityBefore
+        ? worldStateController.inventoryManager._collectNestedItems(entityBefore, itemId)
+        : [];
+
+    // Remove item from the entity's inventory (this also removes descendants)
     const inventoryResult = worldStateController.removeItemFromEntity(entityId, itemId);
     if (!inventoryResult.success) {
         Logger.warn(`[DropItemHandler] Failed to remove item "${itemId}" from entity "${entityId}": ${inventoryResult.message}`);
@@ -90,7 +97,7 @@ function handleDropItem(deps, params, context) {
     const itemRegistry = worldStateController.getItemRegistry();
     const itemDef = itemRegistry[usedItemType] || {};
 
-    // Store dropped item at world coordinates
+    // Store dropped item at world coordinates, including nested items if present
     const droppedItems = worldStateController.getDroppedItems() || {};
     const droppedItemId = `dropped-${Date.now()}-${itemId.slice(0, 8)}`;
     droppedItems[droppedItemId] = {
@@ -103,12 +110,13 @@ function handleDropItem(deps, params, context) {
         ownerId: entityId,
         name: itemDef.name || usedItemType,
         description: itemDef.description || '',
-        volume: itemDef.volume || 1
+        volume: itemDef.volume || 1,
+        nestedItems: nestedItems
     };
 
     worldStateController.setDroppedItems(droppedItems);
 
-    Logger.info(`[DropItemHandler] Dropped item "${usedItemType}" (${itemId}) at (${targetX}, ${targetY}).`);
+    Logger.info(`[DropItemHandler] Dropped item "${usedItemType}" (${itemId}) at (${targetX}, ${targetY}) with ${nestedItems.length} nested item(s).`);
     return { success: true, droppedItemId };
 }
 

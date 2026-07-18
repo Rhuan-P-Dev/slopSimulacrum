@@ -54,5 +54,21 @@
     "traits": {
       "Physical": { "durability": 30, "sharpness": 50 }
     }
+  },
+  "metalBox": {
+    "name": "Metal Box",
+    "description": "A sturdy container for storing small items.",
+    "volume": 10,
+    "traits": {
+      "Physical": { "mass": 2, "durability": 100 }
+    }
+  },
+  "toolCrate": {
+    "name": "Tool Crate",
+    "description": "A large wooden crate for organizing tools.",
+    "volume": 30,
+    "traits": {
+      "Physical": { "mass": 5, "durability": 60 }
+    }
   }
 }

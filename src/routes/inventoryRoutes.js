@@ -616,6 +616,217 @@ export default function register(router, { worldStateController }) {
 	});
 
 	// =========================================================
+	// NESTED INVENTORY — CONTAINER ROUTES
+	// =========================================================
+
+	/**
+	 * POST /inventory/:entityId/container/:containerItemId/add
+	 * Adds a new item to a container item.
+	 * Body: { itemType: string }
+	 */
+	router.post('/inventory/:entityId/container/:containerItemId/add', (req, res) => {
+		try {
+			const { entityId, containerItemId } = req.params;
+			const { itemType } = req.body;
+
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/container/:containerItemId/add params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const containerItemIdValidation = validateItemId(containerItemId, 'POST /inventory/:entityId/container/:containerItemId/add params');
+			if (!containerItemIdValidation.valid) {
+				return res.status(400).json({ error: containerItemIdValidation.error });
+			}
+
+			if (!itemType) {
+				return res.status(400).json({
+					error: 'Bad Request',
+					message: 'itemType is required.'
+				});
+			}
+
+			const result = worldStateController.addItemToContainer(entityId, containerItemId, itemType);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to add item to container',
+					message: result.message
+				});
+			}
+
+			res.json({ success: true, item: result.item });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/container/:containerItemId/add endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message
+			});
+		}
+	});
+
+	/**
+	 * DELETE /inventory/:entityId/container/:containerItemId/remove/:itemId
+	 * Removes an item from a container item.
+	 */
+	router.delete('/inventory/:entityId/container/:containerItemId/remove/:itemId', (req, res) => {
+		try {
+			const { entityId, containerItemId, itemId } = req.params;
+
+			const entityIdValidation = validateEntityId(entityId, 'DELETE /inventory/:entityId/container/:containerItemId/remove/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const containerItemIdValidation = validateItemId(containerItemId, 'DELETE /inventory/:entityId/container/:containerItemId/remove/:itemId params');
+			if (!containerItemIdValidation.valid) {
+				return res.status(400).json({ error: containerItemIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'DELETE /inventory/:entityId/container/:containerItemId/remove/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
+			const result = worldStateController.removeItemFromContainer(entityId, containerItemId, itemId);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to remove item from container',
+					message: result.message
+				});
+			}
+
+			res.json({ success: true });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/container/:containerItemId/remove/:itemId endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message
+			});
+		}
+	});
+
+	/**
+	 * POST /inventory/:entityId/container/:containerItemId/move-in/:itemId
+	 * Moves an item from component level into a container.
+	 */
+	router.post('/inventory/:entityId/container/:containerItemId/move-in/:itemId', (req, res) => {
+		try {
+			const { entityId, containerItemId, itemId } = req.params;
+
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/container/:containerItemId/move-in/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const containerItemIdValidation = validateItemId(containerItemId, 'POST /inventory/:entityId/container/:containerItemId/move-in/:itemId params');
+			if (!containerItemIdValidation.valid) {
+				return res.status(400).json({ error: containerItemIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/container/:containerItemId/move-in/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
+			const result = worldStateController.moveItemIntoContainer(entityId, containerItemId, itemId);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to move item into container',
+					message: result.message
+				});
+			}
+
+			res.json({ success: true });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/container/:containerItemId/move-in/:itemId endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message
+			});
+		}
+	});
+
+	/**
+	 * POST /inventory/:entityId/container/:containerItemId/move-out/:itemId
+	 * Moves an item out of a container back to the component level.
+	 * Body: { targetComponentId: string }
+	 */
+	router.post('/inventory/:entityId/container/:containerItemId/move-out/:itemId', (req, res) => {
+		try {
+			const { entityId, containerItemId, itemId } = req.params;
+			const { targetComponentId } = req.body;
+
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/container/:containerItemId/move-out/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const containerItemIdValidation = validateItemId(containerItemId, 'POST /inventory/:entityId/container/:containerItemId/move-out/:itemId params');
+			if (!containerItemIdValidation.valid) {
+				return res.status(400).json({ error: containerItemIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/container/:containerItemId/move-out/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
+			if (!targetComponentId) {
+				return res.status(400).json({
+					error: 'Bad Request',
+					message: 'targetComponentId is required.'
+				});
+			}
+
+			const compValidation = validateCompId(targetComponentId, 'POST /inventory/:entityId/container/:containerItemId/move-out/:itemId body');
+			if (!compValidation.valid) {
+				return res.status(400).json({ error: compValidation.error });
+			}
+
+			const result = worldStateController.moveItemOutOfContainer(entityId, containerItemId, itemId, targetComponentId);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to move item out of container',
+					message: result.message
+				});
+			}
+
+			res.json({ success: true });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/container/:containerItemId/move-out/:itemId endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message
+			});
+		}
+	});
+
+	/**
+	 * GET /inventory/:entityId/container/:containerItemId/items
+	 * Gets the contained items for a container item.
+	 */
+	router.get('/inventory/:entityId/container/:containerItemId/items', (req, res) => {
+		try {
+			const { entityId, containerItemId } = req.params;
+
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/container/:containerItemId/items params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const containerItemIdValidation = validateItemId(containerItemId, 'GET /inventory/:entityId/container/:containerItemId/items params');
+			if (!containerItemIdValidation.valid) {
+				return res.status(400).json({ error: containerItemIdValidation.error });
+			}
+
+			const items = worldStateController.getContainerItems(entityId, containerItemId);
+			res.json({ items });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/container/:containerItemId/items endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message
+			});
+		}
+	});
+
+	// =========================================================
 	// DROPPED ITEMS ROUTES
 	// =========================================================
 

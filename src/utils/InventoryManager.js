@@ -17,6 +17,13 @@ class InventoryManager {
          */
         this._itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
 
+        /**
+         * Component definitions loaded from data/components.json
+         * Format: { [componentType]: { name, traits } }
+         * @type {Object}
+         */
+        this._componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+
         Logger.info(`InventoryManager initialized with ${Object.keys(this._itemDefinitions).length} item types`);
 
 
@@ -59,8 +66,7 @@ class InventoryManager {
     _getComponentMaxVolume(componentType) {
         if (!componentType) return 0;
 
-        const componentDefs = DataLoader.loadJsonSafe('data/components.json', {});
-        const componentDef = componentDefs[componentType];
+        const componentDef = this._componentDefinitions[componentType];
 
         if (componentDef && componentDef.traits &&
             componentDef.traits.Physical &&
@@ -154,18 +160,16 @@ class InventoryManager {
             return { success: false, message: 'Entity has no items.' };
         }
 
-        const index = entity.items.findIndex(item => item.id === itemId);
-        if (index === -1) {
+        const targetItem = this._findItem(entity, itemId);
+        if (!targetItem) {
             Logger.warn(`[InventoryManager] Item "${itemId}" not found in entity ${entityId}.`);
             return { success: false, message: `Item not found: ${itemId}` };
         }
 
-        const removed = entity.items.splice(index, 1)[0];
-        if (this._inventory[entityId] && this._inventory[entityId][itemId]) {
-            delete this._inventory[entityId][itemId];
-        }
+        // Remove item and all descendants (cascade)
+        this._removeItemAndDescendants(entity, itemId);
 
-        Logger.info(`[InventoryManager] Removed item ${itemId} from entity ${entityId}`);
+        Logger.info(`[InventoryManager] Removed item ${itemId} and its descendants from entity ${entityId}`);
         return { success: true };
     }
 
@@ -320,13 +324,12 @@ class InventoryManager {
         const compType = component.type;
 
         // Check component definitions for volume
-        const defs = this._itemDefinitions;
-        const componentDefs = DataLoader.loadJsonSafe('data/components.json', {});
+        const componentDef = this._componentDefinitions[compType];
 
-        if (componentDefs[compType] && componentDefs[compType].traits &&
-            componentDefs[compType].traits.Physical &&
-            componentDefs[compType].traits.Physical.volume !== undefined) {
-            return componentDefs[compType].traits.Physical.volume;
+        if (componentDef && componentDef.traits &&
+            componentDef.traits.Physical &&
+            componentDef.traits.Physical.volume !== undefined) {
+            return componentDef.traits.Physical.volume;
         }
 
         return 0;
@@ -354,6 +357,324 @@ class InventoryManager {
         }
 
         return { success: failed.length === 0, added, failed };
+    }
+
+    // =========================================================================
+    // NESTED INVENTORY — GENERIC VOLUME VALIDATION
+    // =========================================================================
+
+    /**
+     * Get all direct children of a host (component or container item).
+     * Works for both component items and container children.
+     * @param {Object} entity - The entity object
+     * @param {string} parentId - Component ID or container item ID
+     * @returns {Array} Array of child item instances
+     * @private
+     */
+    _getChildren(entity, parentId) {
+        const items = entity.items || [];
+        return items.filter(item => item.hostComponentId === parentId);
+    }
+
+    /**
+     * Calculate total volume of all direct children of a host.
+     * Works for both component items and container children.
+     * @param {Object} entity - The entity object
+     * @param {string} parentId - Component ID or container item ID
+     * @returns {number} Total volume
+     * @private
+     */
+    _getHostUsedVolume(entity, parentId) {
+        return this._getChildren(entity, parentId)
+            .reduce((sum, item) => sum + (item.volume || 0), 0);
+    }
+
+    /**
+     * Check if a child item fits in a host (component or container).
+     * @param {Object} entity - The entity object
+     * @param {string} parentId - Component ID or container item ID
+     * @param {number} childVolume - The volume of the item to add
+     * @returns {boolean}
+     * @private
+     */
+    _canChildFit(entity, parentId, childVolume) {
+        const host = this._getHostDefinition(entity, parentId);
+        if (!host || host.maxVolume <= 0) return false;
+        const used = this._getHostUsedVolume(entity, parentId);
+        return (used + childVolume) <= host.maxVolume;
+    }
+
+    /**
+     * Get the max volume for a host (component or container item).
+     * @param {Object} entity - The entity object
+     * @param {string} parentId - Component ID or container item ID
+     * @returns {{ maxVolume: number, isComponent: boolean, host: Object|null }}
+     * @private
+     */
+    _getHostDefinition(entity, parentId) {
+        // Check if parentId is a component ID
+        if (parentId.startsWith('comp-')) {
+            const maxVolume = this._getComponentMaxVolumeFromEntity(entity, parentId);
+            return { maxVolume, isComponent: true, host: null };
+        }
+
+        // Check if parentId is an item ID (container)
+        const parentItem = entity.items?.find(i => i.id === parentId);
+        if (parentItem) {
+            return { maxVolume: parentItem.volume, isComponent: false, host: parentItem };
+        }
+
+        return { maxVolume: 0, isComponent: false, host: null };
+    }
+
+    /**
+     * Find an item by ID in the entity's flat items array.
+     * @param {Object} entity - The entity object
+     * @param {string} itemId - The item ID to find
+     * @returns {Object|null} The item instance, or null
+     * @private
+     */
+    _findItem(entity, itemId) {
+        return (entity.items || []).find(item => item.id === itemId) || null;
+    }
+
+    /**
+     * Check if itemId is a direct or indirect child of parentId.
+     * @param {Object} entity - The entity object
+     * @param {string} itemId - The item ID to check
+     * @param {string} parentId - The ancestor item/component ID
+     * @returns {boolean}
+     * @private
+     */
+    _isDescendantOf(entity, itemId, parentId) {
+        const visited = new Set();
+        let current = this._findItem(entity, itemId);
+        while (current && current.hostComponentId) {
+            if (visited.has(current.hostComponentId)) {
+                return false; // Circular reference detected, treat as not descendant
+            }
+            visited.add(current.hostComponentId);
+            if (current.hostComponentId === parentId) return true;
+            current = this._findItem(entity, current.hostComponentId);
+        }
+        return false;
+    }
+
+    /**
+     * Collects all direct and indirect nested items (descendants) of a container item.
+     * Does NOT modify the inventory — returns a defensive deep copy.
+     * @param {Object} entity - The entity object
+     * @param {string} parentId - The container item ID
+     * @returns {Array} Array of all nested item instances (deep copy)
+     * @private
+     */
+    _collectNestedItems(entity, parentId) {
+        const result = [];
+        const visited = new Set();
+
+        const gather = (hostId) => {
+            const children = this._getChildren(entity, hostId);
+            for (const child of children) {
+                if (visited.has(child.id)) continue; // Prevent circular references
+                visited.add(child.id);
+                result.push(structuredClone(child));
+                // Recursively gather children of child (in case it's also a container)
+                if (child.hostComponentId === hostId) {
+                    gather(child.id);
+                }
+            }
+        };
+
+        gather(parentId);
+        return result;
+    }
+
+    /**
+     * Removes an item and all its descendants from entity.items.
+     * @param {Object} entity - The entity object
+     * @param {string} itemId - The item ID to remove (and all descendants)
+     * @private
+     */
+    _removeItemAndDescendants(entity, itemId) {
+        const entityId = entity.id;
+        const children = this._getChildren(entity, itemId);
+
+        // Recursively remove descendants first
+        for (const child of children) {
+            this._removeItemAndDescendants(entity, child.id);
+        }
+
+        // Remove self
+        const index = entity.items.findIndex(item => item.id === itemId);
+        if (index !== -1) {
+            entity.items.splice(index, 1);
+        }
+        if (this._inventory[entityId] && this._inventory[entityId][itemId]) {
+            delete this._inventory[entityId][itemId];
+        }
+    }
+
+    // =========================================================================
+    // NESTED INVENTORY — CONTAINER OPERATIONS
+    // =========================================================================
+
+    /**
+     * Adds a new item to a container item within an entity's inventory.
+     * @param {Object} entity - The entity object.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemType - The item type to add.
+     * @returns {{ success: boolean, message?: string, item?: Object }}
+     */
+    addItemToContainer(entity, containerItemId, itemType) {
+        const entityId = entity.id;
+        this._ensureEntityInventory(entityId);
+
+        // Find the container item in entity.items
+        const containerItem = this._findItem(entity, containerItemId);
+        if (!containerItem) {
+            return { success: false, message: `Container item "${containerItemId}" not found.` };
+        }
+
+        const itemDef = this._itemDefinitions[itemType];
+        if (!itemDef) {
+            return { success: false, message: `Unknown item type: ${itemType}` };
+        }
+
+        // GENERIC VALIDATION: Use same logic as component volume check
+        if (!this._canChildFit(entity, containerItemId, itemDef.volume)) {
+            const used = this._getHostUsedVolume(entity, containerItemId);
+            return {
+                success: false,
+                message: `Container capacity exceeded. Used: ${used}/${containerItem.volume}, Item needs: ${itemDef.volume}`
+            };
+        }
+
+        const newItem = {
+            id: generateItemId(),
+            type: itemType,
+            name: itemDef.name,
+            volume: itemDef.volume,
+            traits: itemDef.traits ? structuredClone(itemDef.traits) : {},
+            hostComponentId: containerItemId
+        };
+
+        entity.items.push(newItem);
+        this._inventory[entityId][newItem.id] = newItem;
+
+        return { success: true, item: structuredClone(newItem) };
+    }
+
+    /**
+     * Removes an item from a container item within an entity's inventory.
+     * Also removes all descendants (cascade).
+     * @param {Object} entity - The entity object.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to remove.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    removeItemFromContainer(entity, containerItemId, itemId) {
+        const entityId = entity.id;
+
+        const containerItem = this._findItem(entity, containerItemId);
+        if (!containerItem) {
+            return { success: false, message: `Container item "${containerItemId}" not found.` };
+        }
+
+        const targetItem = this._findItem(entity, itemId);
+        if (!targetItem) {
+            return { success: false, message: `Item "${itemId}" not found.` };
+        }
+
+        // Validate: item must be a direct or indirect child of the container
+        if (!this._isDescendantOf(entity, itemId, containerItemId)) {
+            return { success: false, message: `Item "${itemId}" is not a child of container "${containerItemId}".` };
+        }
+
+        // Remove item and all descendants
+        this._removeItemAndDescendants(entity, itemId);
+
+        return { success: true };
+    }
+
+    /**
+     * Moves an existing item from the component level (or another container) into a container.
+     * @param {Object} entity - The entity object.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to move into container.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    moveItemIntoContainer(entity, containerItemId, itemId) {
+        const entityId = entity.id;
+
+        const containerItem = this._findItem(entity, containerItemId);
+        if (!containerItem) {
+            return { success: false, message: `Container item "${containerItemId}" not found.` };
+        }
+
+        const sourceItem = this._findItem(entity, itemId);
+        if (!sourceItem) {
+            return { success: false, message: `Item "${itemId}" not found.` };
+        }
+
+        // Prevent moving a container into itself or its own descendants
+        if (this._isDescendantOf(entity, containerItemId, itemId)) {
+            return { success: false, message: "Cannot move a container into its own descendants." };
+        }
+
+        // GENERIC VALIDATION: Use same logic as component volume check
+        if (!this._canChildFit(entity, containerItemId, sourceItem.volume)) {
+            const used = this._getHostUsedVolume(entity, containerItemId);
+            return {
+                success: false,
+                message: `Container capacity exceeded. Used: ${used}/${containerItem.volume}, Item needs: ${sourceItem.volume}`
+            };
+        }
+
+        // Move: just change the host reference
+        sourceItem.hostComponentId = containerItemId;
+
+        return { success: true };
+    }
+
+    /**
+     * Moves an item out of a container back to the component level.
+     * @param {Object} entity - The entity object.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to move out of container.
+     * @param {string} targetComponentId - The component to attach the item to.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    moveItemOutOfContainer(entity, containerItemId, itemId, targetComponentId) {
+        const entityId = entity.id;
+
+        const containerItem = this._findItem(entity, containerItemId);
+        if (!containerItem) {
+            return { success: false, message: `Container item "${containerItemId}" not found.` };
+        }
+
+        const targetItem = this._findItem(entity, itemId);
+        if (!targetItem) {
+            return { success: false, message: `Item "${itemId}" not found.` };
+        }
+
+        // Validate: item must be a direct child of the container
+        if (targetItem.hostComponentId !== containerItemId) {
+            return { success: false, message: `Item "${itemId}" is not a direct child of container "${containerItemId}".` };
+        }
+
+        targetItem.hostComponentId = targetComponentId;
+
+        return { success: true };
+    }
+
+    /**
+     * Gets direct children of a container (or component).
+     * @param {Object} entity - The entity object.
+     * @param {string} containerItemId - The container item ID.
+     * @returns {Array} Array of direct child item instances.
+     */
+    getContainerItems(entity, containerItemId) {
+        return structuredClone(this._getChildren(entity, containerItemId));
     }
 }
 

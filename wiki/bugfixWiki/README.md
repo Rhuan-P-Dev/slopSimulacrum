@@ -75,6 +75,9 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-100](high/BUG-100-drop-item-sends-svg-coordinates-instead-of-room-space.md) | Drop Item Sends SVG ViewBox Coordinates Instead of Room-Space | ✅ Fixed | `pending` | `EventDispatcher.js`, `ActionExecutor.js` |
 | [BUG-101](high/BUG-101-server-range-validator-ignores-expression-strings.md) | Server RangeValidator Ignores Range Expression Strings | ✅ Fixed | `pending` | `RangeValidator.js`, `PlaceholderResolver.js` |
 | [BUG-117](high/BUG-117-dropped-items-visible-across-all-rooms.md) | Dropped Items Visible Across All Rooms | ✅ Fixed | `pending` | `DropItemHandler.js`, `WorldStateController.js`, `PickUpItemHandler.js`, `App.js` |
+| [BUG-120](high/BUG-120-isDescendantOf-infinite-loop-risk.md) | _isDescendantOf Potential Infinite Loop on Corrupted Data (Circular Reference) | ✅ Fixed | `pending` | `InventoryManager.js` |
+| [BUG-122](high/BUG-122-executePickUpItem-direct-private-access.md) | executePickUpItem Direct Access to Private Controller Properties (Violates Public API Rule) | 🔴 Open | — | `WorldStateController.js` |
+| [BUG-126](high/BUG-126-nested-items-vanish-on-drop-pickup.md) | Nested Items Vanish When Container is Dropped and Picked Up | ✅ Fixed | `pending` | `InventoryManager.js`, `DropItemHandler.js`, `PickUpItemHandler.js` |
 
 ### 🟡 Medium Severity
 
@@ -117,6 +120,10 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-104](medium/BUG-104-unused-knife-component-in-components-json.md) | Unused `knife` Component Definition in data/components.json | ✅ Fixed | `pending` | `data/components.json` |
 | [BUG-105](medium/BUG-105-css-duplicate-selectors-across-files.md) | CSS Duplicate Selectors Across Multiple Files | ✅ Fixed | `pending` | `layout.css`, `components.css`, `floating-windows.css` |
 | [BUG-117](medium/BUG-117-world-map-arrow-overlap.md) | World Map Arrow Overlap — Bidirectional Connection Arrows and Text Labels Too Close Together | ✅ Fixed | `pending` | `RoomConnectionRenderer.js`, `WorldMapView.js` |
+| [BUG-121](medium/BUG-121-components-json-repeated-loading.md) | components.json Repeatedly Loaded on Every Volume Check | ✅ Fixed | `pending` | `InventoryManager.js` |
+| [BUG-123](medium/BUG-123-client-console-usage.md) | Client-Side InventoryManager Uses console.* Instead of Logger | 🔴 Open | — | `InventoryManager.js` (client) |
+| [BUG-124](medium/BUG-124-checkItemFit-missing-container-volume.md) | _checkItemFit Does Not Account for Container Volume (Nested Inventory) | 🔴 Open | — | `InventoryManager.js` (client) |
+| [BUG-125](medium/BUG-125-container-header-destroyed-by-toggle.md) | Container Header Destroyed by _toggleContainer() (Double Toggle) | ✅ Fixed | `pending` | `InventoryManager.js` |
 
 ### 🟢 Low Severity
 

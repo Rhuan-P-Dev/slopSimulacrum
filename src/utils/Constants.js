@@ -89,4 +89,4 @@ export const DROP_RANGE_MULTIPLIER = 2;
  * Controls the speed of the universal tick loop.
  * @type {number}
  */
-export const MAX_TICKS_PER_SECOND = 5;
+export const MAX_TICKS_PER_SECOND = 1;

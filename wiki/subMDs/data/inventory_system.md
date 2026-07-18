@@ -260,6 +260,67 @@ The `WorldStateController.getItemStats()` method orchestrates the computation:
 6. Combines: dynamic stats override base stats, then holding cost debuffs are subtracted
 7. Returns a flat object with metadata fields prefixed by `_`
 
+## Nested Inventory
+
+The nested inventory system enables items to contain other items, creating arbitrarily deep hierarchies of containers within containers. A metal box can hold power cells, a power cell can contain a data crystal, and a crate can hold a metal box — all without introducing recursive data structures.
+
+### Why Flat Storage with Polymorphic References
+
+The nested inventory uses a flat `entity.items[]` array rather than recursive `containedItems` arrays. All items — whether top-level or deeply nested — live in the same array. Children are discovered by querying: items whose `hostComponentId` references a parent container item ID.
+
+This design was chosen because:
+
+- **Single source of truth**: All items share the same storage, validation, and lifecycle logic. There is no duplicated code path for "component items" versus "container items."
+- **Simplicity of discovery**: Finding all children of any host is a single filter operation on the flat array, regardless of depth.
+- **Avoids deep serialization**: Recursive structures complicate serialization, change detection, and client-side diffing. A flat array is trivial to compare and transmit.
+- **Polymorphic `hostComponentId`**: The same field that points to a component for top-level items also points to a parent container item for nested items. The field's meaning adapts to context — it always means "the immediate parent of this item."
+
+### Why Volume Is Polymorphic
+
+The `volume` property serves dual purposes depending on whether the host is a component or a container item:
+
+- **Component volume**: Sourced from the component type definition in `data/components.json` (`traits.Physical.volume`). This represents the physical capacity of the component.
+- **Container item volume**: Sourced from the item instance itself (`item.volume`). This represents the internal capacity of the container.
+
+This polymorphism was chosen because:
+
+- **Unified validation logic**: A single `_canChildFit(parentId, childVolume)` method works for both components and containers. The volume source is resolved dynamically based on the parent type.
+- **No schema bloat**: Container items already have a `volume` property (representing their own footprint on a component). Repurposing it as capacity avoids adding a separate `capacity` field, keeping the data model minimal.
+- **Natural gameplay semantics**: An item's volume naturally represents both how much space it takes up AND how much it can hold. A larger box has more volume both as an object and as a container.
+
+### Why Cascading Deletion
+
+When a container item is removed, all items nested within it (at any depth) are also removed. This is called cascading deletion.
+
+This design was chosen because:
+
+- **Physical realism**: If you remove a crate from inventory, everything inside that crate goes with it. Players do not expect items to spontaneously eject from their containers.
+- **Data integrity**: Cascading deletion prevents orphaned items — items whose parent container no longer exists. Without cascading deletion, a removed container could leave its contents in an undefined state.
+- **Simplicity of implementation**: A recursive walk from the removed item through its descendants handles all nesting depths with a single operation. There is no need to track containment relationships separately.
+
+### Circular Reference Prevention
+
+The system prevents a container from being moved into itself or any of its own descendants. This prevents infinite loops in descendant traversal and ensures the containment hierarchy remains a true tree (not a graph with cycles).
+
+### Server-Client Data Flow for Nested Inventory
+
+The nested inventory extends the existing server-authoritative pattern:
+
+1. **Registry (read)**: Item type definitions are static — no change from the base inventory system.
+2. **Entity items (read)**: The server returns all items in the flat array. The client groups them by `hostComponentId` and builds the tree for rendering.
+3. **Add to container (write)**: The server validates volume using the container's own volume as capacity, then creates the item with `hostComponentId` set to the container's ID.
+4. **Move into/out of container (write)**: The server validates capacity and prevents circular moves. The operation is a simple reassignment of `hostComponentId`.
+5. **Remove with cascade (write)**: The server walks the tree from the removed item, deleting all descendants, then the item itself.
+6. **Broadcast**: After any mutation, the broadcast service emits the updated world state.
+
+### Architectural Placement
+
+The nested inventory feature extends the existing InventoryManager without introducing new modules:
+
+- **Server**: The same `InventoryManager` (`src/utils/InventoryManager.js`) handles both component-level and container-level operations through generic helper methods (`_getChildren`, `_getHostUsedVolume`, `_canChildFit`, `_getHostDefinition`).
+- **Client**: The client-side `InventoryManager` (`public/js/InventoryManager.js`) builds the item tree from the flat server response and renders nested containers with expand/collapse toggles.
+- **No new data files**: The existing `data/inventoryItems.json` schema supports nested items. Any item with a `volume` property can serve as a container — no additional type field or flag is needed.
+
 ## Related Documentation
 
 - [Holding Cost System](holding_cost.md) — Equipped item debuffs that affect item stats

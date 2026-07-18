@@ -460,3 +460,151 @@
 .stats-value.healthy {
     color: var(--neon-green);
 }
+
+/* =========================================================================
+   Nested Inventory — Container Styles
+   ========================================================================= */
+
+/* --- Container Slot Wrapper --- */
+.inventory-container-slot {
+    border: 1px solid var(--neon-cyan);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+    background: rgba(0, 255, 255, 0.02);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.inventory-container-slot.drop-target-hover {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 8px rgba(0, 255, 128, 0.3);
+}
+
+.inventory-container-slot.drop-target-invalid {
+    border-color: var(--neon-red);
+    box-shadow: 0 0 8px rgba(255, 0, 80, 0.3);
+}
+
+/* --- Container Header (Expand/Collapse) --- */
+.inventory-container-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: rgba(0, 255, 255, 0.06);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.inventory-container-header:hover {
+    background: rgba(0, 255, 255, 0.12);
+}
+
+/* --- Container Toggle Button (Chevron) --- */
+.inventory-container-toggle {
+    background: transparent;
+    border: none;
+    color: var(--neon-cyan);
+    font-size: 0.7em;
+    cursor: pointer;
+    padding: 2px 4px;
+    min-width: 20px;
+    text-align: left;
+    transition: transform 0.15s ease;
+    user-select: none;
+}
+
+.inventory-container-toggle:hover {
+    color: var(--text-main);
+}
+
+/* --- Container Items Area (Nested) --- */
+.inventory-container-items {
+    padding: 4px 4px 4px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-top: 1px solid rgba(0, 255, 255, 0.15);
+}
+
+/* --- Container Capacity Bar --- */
+.inventory-container-capacity-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-dark);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.inventory-container-capacity-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.inventory-container-capacity-bar-fill.low {
+    background: var(--neon-green);
+}
+
+.inventory-container-capacity-bar-fill.medium {
+    background: #ffaa00;
+}
+
+.inventory-container-capacity-bar-fill.high {
+    background: var(--neon-orange);
+}
+
+.inventory-container-capacity-bar-fill.full {
+    background: var(--neon-red);
+}
+
+/* --- Container Capacity Text --- */
+.inventory-container-capacity-text {
+    font-size: 0.75em;
+    color: var(--text-dim);
+    white-space: nowrap;
+    margin-left: auto;
+    padding-left: 8px;
+}
+
+/* --- Nested Item Depth Indentation --- */
+.inventory-nested-depth-1 {
+    margin-left: 16px !important;
+    border-left: 2px solid rgba(0, 255, 255, 0.2);
+    padding-left: 8px !important;
+}
+
+.inventory-nested-depth-2 {
+    margin-left: 32px !important;
+    border-left: 2px solid rgba(0, 255, 255, 0.3);
+    padding-left: 8px !important;
+}
+
+.inventory-nested-depth-3 {
+    margin-left: 48px !important;
+    border-left: 2px solid rgba(0, 255, 255, 0.4);
+    padding-left: 8px !important;
+}
+
+.inventory-nested-depth-4 {
+    margin-left: 64px !important;
+    border-left: 2px solid rgba(0, 255, 255, 0.5);
+    padding-left: 8px !important;
+}
+
+.inventory-nested-depth-5,
+.inventory-nested-depth-6,
+.inventory-nested-depth-7,
+.inventory-nested-depth-8 {
+    margin-left: 80px !important;
+    border-left: 2px solid rgba(0, 255, 255, 0.5);
+    padding-left: 8px !important;
+}
+
+/* --- Empty nested area hint --- */
+.inventory-nested-empty {
+    font-size: 0.75em;
+    font-style: italic;
+    color: var(--text-dim);
+    opacity: 0.6;
+}

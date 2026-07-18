@@ -101,27 +101,30 @@ class WorldStateController {
             const entity = this.stateEntityController.getEntity(entityId);
             if (!entity || !entity.components || !Array.isArray(entity.components)) return;
 
-            // Find components for item attachment
-            const centralBall = entity.components.find(c => c.type === 'centralBall');
+            // Spawn metal box first (uses centralBall when empty, 0/10 used)
+            this._spawnMetalBoxWithKnives(entityId);
+
+            // Find components for item attachment — test items go to droidArm since centralBall is full
+            let armComponent = entity.components.find(c => c.type === 'droidArm');
             let handComponent = entity.components.find(c => c.type === 'droidHand');
             if (!handComponent) handComponent = entity.components.find(c => c.type === 'droidArm');
 
-            // Add test items to centralBall (if exists)
-            if (centralBall) {
-                const result1 = this.inventoryManager.addItem(entity, 'testItem', centralBall.id, {
+            // Add test items to droidArm (centralBall is full with metal box)
+            if (armComponent) {
+                const result1 = this.inventoryManager.addItem(entity, 'testItem', armComponent.id, {
                     componentController: this.componentController
                 });
-                const result2 = this.inventoryManager.addItem(entity, 'testItem2', centralBall.id, {
+                const result2 = this.inventoryManager.addItem(entity, 'testItem2', armComponent.id, {
                     componentController: this.componentController
                 });
 
                 if (result1.success) {
-                    Logger.info(`[WorldStateController] Test item 1 auto-added to centralBall on spawned entity ${entityId}`);
+                    Logger.info(`[WorldStateController] Test item 1 auto-added to droidArm on spawned entity ${entityId}`);
                 } else {
                     Logger.warn(`[WorldStateController] Failed to add test item 1 to spawned entity ${entityId}: ${result1.message}`);
                 }
                 if (result2.success) {
-                    Logger.info(`[WorldStateController] Test item 2 auto-added to centralBall on spawned entity ${entityId}`);
+                    Logger.info(`[WorldStateController] Test item 2 auto-added to droidArm on spawned entity ${entityId}`);
                 } else {
                     Logger.warn(`[WorldStateController] Failed to add test item 2 to spawned entity ${entityId}: ${result2.message}`);
                 }
@@ -235,6 +238,9 @@ class WorldStateController {
         // Add knife to the client entity's droidHand component on spawn (so it's available for equip)
         this._addKnifeToClientEntity(clientEntityId);
 
+        // Metal box with knives is now handled by the spawn observer registered above,
+        // which fires for every spawned entity including the initial client entity.
+
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
@@ -298,6 +304,80 @@ class WorldStateController {
             Logger.info(`[WorldStateController] Test item added to centralBall (component: ${centralBall.id}) on entity ${clientEntityId}`);
         } else {
             Logger.warn(`[WorldStateController] Failed to add test item to centralBall: ${result.message}`);
+        }
+    }
+   
+    /**
+     * Spawns a metal box pre-filled with knives on the client entity's component.
+     * The metal box (volume=10) is placed on a component with sufficient volume capacity.
+     * Prefers centralBall (max volume=10) as the primary target, then falls back to other
+     * components that have enough capacity. Five knives (volume=1 each) are added inside the box.
+     * @param {string} clientEntityId - The client entity ID.
+     * @returns {void}
+     * @private
+     */
+    _spawnMetalBoxWithKnives(clientEntityId) {
+        try {
+            const entity = this.stateEntityController.getEntity(clientEntityId);
+            if (!entity || !entity.components || !Array.isArray(entity.components)) {
+                Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for metal box.`);
+                return;
+            }
+
+            // Metal box requires 10 volume (from inventoryItems.json definition)
+            const METAL_BOX_VOLUME = 10;
+
+            // Find candidate components with enough volume for the metal box.
+            // Priority order: centralBall first (max volume=10), then droidArm (max volume=8),
+            // then droidHand (max volume=6). Only components with sufficient volume are selected.
+            const candidateTypes = ['centralBall', 'droidArm', 'droidHand'];
+            let targetComponent = null;
+
+            for (const type of candidateTypes) {
+                const candidate = entity.components.find(c => c.type === type);
+                if (candidate && this.inventoryManager.canFitItem(entity, candidate.id, METAL_BOX_VOLUME)) {
+                    targetComponent = candidate;
+                    break;
+                }
+            }
+
+            if (!targetComponent) {
+                Logger.warn(
+                    `[WorldStateController] No component with sufficient volume (>= ${METAL_BOX_VOLUME}) ` +
+                    `found on entity "${clientEntityId}" for metal box.`
+                );
+                return;
+            }
+
+            // Add the metal box to the target component
+            const boxResult = this.addItemToEntity(clientEntityId, 'metalBox', targetComponent.id);
+            if (!boxResult.success) {
+                Logger.warn(`[WorldStateController] Failed to add metalBox to ${targetComponent.type}: ${boxResult.message}`);
+                return;
+            }
+
+            const metalBoxItemId = boxResult.item?.id;
+            if (!metalBoxItemId) {
+                Logger.warn(`[WorldStateController] Metal box item ID not found after creation on entity "${clientEntityId}".`);
+                return;
+            }
+
+            // Add 5 knives inside the metal box
+            const KNIFE_COUNT = 5;
+            let knivesAdded = 0;
+            for (let i = 0; i < KNIFE_COUNT; i++) {
+                const knifeResult = this.addItemToContainer(clientEntityId, metalBoxItemId, 'knife');
+                if (knifeResult.success) {
+                    knivesAdded++;
+                } else {
+                    Logger.warn(`[WorldStateController] Failed to add knife #${i + 1} to metalBox: ${knifeResult.message}`);
+                    break;
+                }
+            }
+
+            Logger.info(`[WorldStateController] Metal box with ${knivesAdded} knives added to ${targetComponent.type} (component: ${targetComponent.id}) on entity ${clientEntityId}`);
+        } catch (error) {
+            Logger.error(`[WorldStateController] Error spawning metal box with knives on entity "${clientEntityId}": ${error.message}`);
         }
     }
 
@@ -1121,6 +1201,122 @@ class WorldStateController {
         if (!entity) return null;
         return this.inventoryManager.getItem(entity, itemId);
     }
+
+    // =========================================================================
+    // NESTED INVENTORY PUBLIC API
+    // =========================================================================
+
+    /**
+     * Adds an item to a container item within an entity's inventory.
+     * @param {string} entityId - The entity ID.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemType - The item type to add.
+     * @returns {{ success: boolean, message?: string, item?: Object }}
+     */
+    addItemToContainer(entityId, containerItemId, itemType) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container add.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.addItemToContainer(entity, containerItemId, itemType);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Removes an item from a container item within an entity's inventory.
+     * @param {string} entityId - The entity ID.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to remove.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    removeItemFromContainer(entityId, containerItemId, itemId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container remove.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.removeItemFromContainer(entity, containerItemId, itemId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Moves an item from component level (or another container) into a container.
+     * @param {string} entityId - The entity ID.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to move into container.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    moveItemIntoContainer(entityId, containerItemId, itemId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container move-in.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.moveItemIntoContainer(entity, containerItemId, itemId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Moves an item out of a container back to the component level.
+     * @param {string} entityId - The entity ID.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID to move out of container.
+     * @param {string} targetComponentId - The component to attach the item to.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    moveItemOutOfContainer(entityId, containerItemId, itemId, targetComponentId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container move-out.`);
+            return { success: false, message: `Entity "${entityId}" not found.` };
+        }
+
+        const result = this.inventoryManager.moveItemOutOfContainer(entity, containerItemId, itemId, targetComponentId);
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Gets direct children of a container item.
+     * @param {string} entityId - The entity ID.
+     * @param {string} containerItemId - The container item ID.
+     * @returns {Array} Array of contained item instances.
+     */
+    getContainerItems(entityId, containerItemId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container items query.`);
+            return [];
+        }
+        return this.inventoryManager.getContainerItems(entity, containerItemId);
+    }
+
+    // =========================================================================
+    // ITEM STATS — COMPUTED STATS FOR A SPECIFIC ITEM
+    // =========================================================================
 
     /**
      * Computes the full stats for a single item instance, combining:

@@ -133,6 +133,30 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Failed to add item: ${addResult.message}` };
     }
 
+    // Restore nested items inside the container (if any were stored during drop)
+    const droppedNestedItems = droppedItem.nestedItems || [];
+    let nestedItemsRestored = 0;
+    let nestedItemsFailed = 0;
+
+    if (droppedNestedItems.length > 0) {
+        const entityForNested = worldStateController.getEntity(entityId);
+
+        for (const nestedItem of droppedNestedItems) {
+            const nestedResult = worldStateController.addItemToContainer(
+                entityId,
+                addResult.item.id,
+                nestedItem.type
+            );
+
+            if (nestedResult.success) {
+                nestedItemsRestored++;
+            } else {
+                nestedItemsFailed++;
+                Logger.warn(`[PickUpItemHandler] Failed to restore nested item "${nestedItem.type}" (${nestedItem.id}) to container: ${nestedResult.message}`);
+            }
+        }
+    }
+
     // Remove the dropped item from world state
     const removeResult = worldStateController.removeDroppedItem(droppedItemId);
     if (!removeResult.success) {
@@ -140,7 +164,7 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Failed to remove dropped item from world.` };
     }
 
-    Logger.info(`[PickUpItemHandler] Picked up item "${itemName}" (${droppedItem.itemType}) from dropped position (${droppedItem.x}, ${droppedItem.y}) and attached to component "${componentId}" on entity "${entityId}".`);
+    Logger.info(`[PickUpItemHandler] Picked up item "${itemName}" (${droppedItem.itemType}) from dropped position (${droppedItem.x}, ${droppedItem.y}) and attached to component "${componentId}" on entity "${entityId}". Restored ${nestedItemsRestored}/${droppedNestedItems.length} nested item(s) (${nestedItemsFailed} failed).`);
     return {
         success: true,
         message: `Picked up ${itemName}.`,

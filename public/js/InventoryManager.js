@@ -48,6 +48,9 @@ export class InventoryManager {
         /** @private {Object} */
         this._equippedItems = {};
 
+        /** @private {Object<string, boolean>} */
+        this._containerExpanded = {};  // { [containerItemId]: true/false }
+
         /** Bind methods */
         this._onDrop = this._onDrop.bind(this);
         this._onDragOver = this._onDragOver.bind(this);
@@ -335,17 +338,59 @@ export class InventoryManager {
             return;
         }
 
+        // Build tree from current items (attach children to parents)
+        const tree = this._buildItemTree();
+
         let html = '';
 
         // Render all volume components (even if empty)
         for (const comp of volumeComponents) {
-            const compItems = this._currentItems[comp.id] || [];
+            const compItems = tree[comp.id] || [];
             const volumeInfo = this._calculateVolumeInfo(comp.id, comp.volume, compItems);
             html += this._renderComponentSlot(comp, volumeInfo, compItems);
         }
 
         this._content.innerHTML = html;
         this._attachDragAndDropListeners();
+    }
+
+    /**
+     * Build a tree structure from the flat items array.
+     * Attaches children to their parent items recursively.
+     * @returns {Object} Tree structure: { [compId]: [topLevelItems] } where each item may have children
+     * @private
+     */
+    _buildItemTree() {
+        const tree = {};
+        for (const [compId, items] of Object.entries(this._currentItems)) {
+            tree[compId] = this._attachChildren(items);
+        }
+        return tree;
+    }
+
+    /**
+     * Recursively attach children to items.
+     * @param {Array} parentItems - Items whose children we need to find
+     * @returns {Array} Items with `children` property added
+     * @private
+     */
+    _attachChildren(parentItems) {
+        // Collect all items from all components (flat)
+        const allItems = [];
+        for (const items of Object.values(this._currentItems)) {
+            allItems.push(...items);
+        }
+
+        return parentItems.map(item => {
+            // Find direct children: items whose hostComponentId === this item's id
+            const children = allItems.filter(i => i.hostComponentId === item.id);
+            if (children.length > 0) {
+                item.children = this._attachChildren(children);
+            } else {
+                item.children = [];
+            }
+            return item;
+        });
     }
 
     /**
@@ -380,14 +425,14 @@ export class InventoryManager {
      * Renders a single component slot with its items.
      * @param {Object} comp - Component info { id, type, volume }.
      * @param {Object} volumeInfo - Volume info { used, max, percentage, barClass }.
-     * @param {Array} items - Items in this component.
+     * @param {Array} items - Tree items (with optional children).
      * @returns {string} HTML string.
      * @private
      */
     _renderComponentSlot(comp, volumeInfo, items) {
         const percentageStr = volumeInfo.percentage.toFixed(0);
         const volumeText = `${volumeInfo.used}/${volumeInfo.max}`;
-        const itemsHtml = this._renderItems(comp.id, items);
+        const itemsHtml = this._renderTreeItems(comp.id, items, 0);
         const hasItems = items.length > 0;
         const itemsContainerClass = `inventory-items-container${hasItems ? ' has-items' : ''}`;
 
@@ -411,13 +456,14 @@ export class InventoryManager {
     }
 
     /**
-     * Renders the items list for a component.
-     * @param {string} componentId - The component ID (drop target).
-     * @param {Array} items - Items in this component.
+     * Renders items from the tree structure (items may have children).
+     * @param {string} hostId - The component ID or container item ID (drop target).
+     * @param {Array} items - Tree items (with optional children).
+     * @param {number} depth - The nesting depth (0 = top-level inside component, 1 = inside a container item, etc.).
      * @returns {string} HTML string.
      * @private
      */
-    _renderItems(componentId, items) {
+    _renderTreeItems(hostId, items, depth = 0) {
         if (items.length === 0) {
             return '<div class="inventory-items-empty"><span class="inventory-drag-hint">Drag items here</span></div>';
         }
@@ -426,6 +472,7 @@ export class InventoryManager {
         for (const item of items) {
             const itemDef = this._itemRegistry ? this._itemRegistry[item.type] : null;
             const itemVolume = item.volume || (itemDef ? itemDef.volume : 0);
+            const hasChildren = item.children && item.children.length > 0;
             const percentageStr = itemVolume > 0 ? '100' : '0';
             const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
             const isEquipped = this._isEquippedByItemId(item.id);
@@ -456,14 +503,47 @@ export class InventoryManager {
                         data-item-type="${item.type}"
                         title="Click to select a component and drop this item">📦 Drop</button>`;
 
+            // Container header with children (if hasChildren)
+            let containerHtml = '';
+            if (hasChildren) {
+                const capacity = itemVolume;
+                const childrenVolume = item.children.reduce((sum, c) => sum + (c.volume || 0), 0);
+                const isExpanded = this._containerExpanded[item.id] !== false;
+                const chevron = isExpanded ? '▼' : '▶';
+                const usedPercent = capacity > 0 ? Math.round((childrenVolume / capacity) * 100) : 0;
+                const barClass = usedPercent >= 100 ? 'full' : usedPercent >= 75 ? 'high' : usedPercent >= 40 ? 'medium' : 'low';
+
+                containerHtml = `
+                    <div class="inventory-container-slot" data-item-id="${item.id}" data-container-capacity="${capacity}">
+                        <div class="inventory-container-header" data-container-header="${item.id}">
+                            <button class="inventory-container-toggle" data-toggle-container="${item.id}" title="Expand/collapse">${chevron}</button>
+                            <span class="inventory-item-name">${item.name || item.type}</span>
+                            <span class="inventory-item-volume">${itemVolume}v</span>
+                            <span class="inventory-container-capacity-text">${childrenVolume}/${capacity} (${usedPercent}%)</span>
+                        </div>
+                        <div class="inventory-container-items" style="display: ${isExpanded ? 'block' : 'none'};" data-container-items="${item.id}">
+                            <div class="inventory-container-capacity-bar" title="${usedPercent}% capacity used">
+                                <div class="inventory-container-capacity-bar-fill ${barClass}" style="width: ${Math.min(usedPercent, 100)}%;"></div>
+                            </div>
+                            ${this._renderTreeItems(item.id, item.children, depth + 1)}
+                        </div>
+                    </div>`;
+            }
+
+            const depthClass = this._getDepthClass(depth);
+            const cardClass = depthClass ? `inventory-item-card ${depthClass}` : 'inventory-item-card';
+
             html += `
-                <div class="inventory-item-card"
+                ${containerHtml}
+                <div class="${cardClass}"${hasChildren ? ' style="border-left: 3px solid var(--neon-cyan);"' : ''}
                      draggable="true"
                      data-item-id="${item.id}"
                      data-item-type="${item.type}"
                      data-item-volume="${itemVolume}"
-                     title="${hasHoldingCost ? 'Drag to move to another component' : 'Drag to move to another component'}">
-                    <span class="drag-handle">⠿</span>
+                     data-is-container="${hasChildren}"
+                     data-parent-host-id="${hostId}"
+                     title="${hasChildren ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">
+                    <span class="drag-handle">${hasChildren ? '📦' : '⠿'}</span>
                     <span class="inventory-item-name">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${itemVolume}v</span>
                     <button class="equip-btn stats-toggle"
@@ -482,6 +562,22 @@ export class InventoryManager {
                 </div>`;
         }
         return html;
+    }
+
+    /**
+     * Returns the CSS class name for a given nesting depth.
+     * @param {number} depth - The nesting depth.
+     * @returns {string} The CSS class name (e.g., `inventory-nested-depth-2`), or empty string for depth 0.
+     * @private
+     */
+    _getDepthClass(depth) {
+        if (depth <= 0) {
+            return '';
+        }
+        if (depth >= 5) {
+            return 'inventory-nested-depth-5';
+        }
+        return `inventory-nested-depth-${depth}`;
     }
 
     /**
@@ -530,6 +626,50 @@ export class InventoryManager {
             container.addEventListener('dragover', this._onDragOver);
             container.addEventListener('dragleave', this._onDragLeave);
             container.addEventListener('drop', this._onDrop);
+        });
+
+        // NEW: Attach container header toggle listeners
+        // Attach to header divs so clicking anywhere on the header toggles
+        const containerHeaders = this._content.querySelectorAll('[data-container-header]');
+        containerHeaders.forEach(header => {
+            header.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const containerItemId = header.dataset.containerHeader;
+                this._toggleContainer(containerItemId);
+            });
+        });
+
+        // NEW: Attach dragover/drop to container slots
+        const containerSlots = this._content.querySelectorAll('.inventory-container-slot');
+        containerSlots.forEach(slot => {
+            slot.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this._draggingItemId) {
+                    const containerItemId = slot.dataset.itemId;
+                    const canFit = this._checkItemFitInContainer(containerItemId, this._draggingItemId);
+                    slot.classList.toggle('drop-target-hover', canFit);
+                    slot.classList.toggle('drop-target-invalid', !canFit);
+                    if (canFit) {
+                        this._containerExpanded[containerItemId] = true;
+                        this._toggleContainerVisual(containerItemId, true);
+                    }
+                }
+            });
+            slot.addEventListener('dragleave', (e) => {
+                e.stopPropagation();
+                slot.classList.remove('drop-target-hover', 'drop-target-invalid');
+            });
+            slot.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                slot.classList.remove('drop-target-hover', 'drop-target-invalid');
+                const containerItemId = slot.dataset.itemId;
+                const itemId = e.dataTransfer.getData('text/plain');
+                if (itemId && this._currentEntityId) {
+                    this._onContainerDrop(e, containerItemId, itemId);
+                }
+            });
         });
 
         // Attach equip/unequip button listeners (exclude drop buttons)
@@ -1189,6 +1329,143 @@ export class InventoryManager {
             } catch {
                 // Silently ignore errors for panel refresh — don't break the UI
             }
+        }
+    }
+
+    // =========================================================================
+    // NESTED INVENTORY — CONTAINER METHODS
+    // =========================================================================
+
+    /**
+     * Toggles the expanded/collapsed state of a container.
+     * @param {string} containerItemId - The container item ID.
+     * @private
+     */
+    _toggleContainer(containerItemId) {
+        this._containerExpanded[containerItemId] = !this._containerExpanded[containerItemId];
+        const isExpanded = this._containerExpanded[containerItemId];
+
+        // Find the container items div to toggle visibility
+        const containerItemsEl = this._content?.querySelector(`[data-container-items="${containerItemId}"]`);
+        if (containerItemsEl) {
+            containerItemsEl.style.display = isExpanded ? 'block' : 'none';
+        }
+
+        // Find the toggle button inside the header to update the chevron
+        const headerEl = this._content?.querySelector(`[data-container-header="${containerItemId}"]`);
+        if (headerEl) {
+            const toggleBtn = headerEl.querySelector('.inventory-container-toggle');
+            if (toggleBtn) {
+                toggleBtn.textContent = isExpanded ? '\u25BC' : '\u25B6';
+            }
+        }
+    }
+
+    /**
+     * Updates the visual state of a container toggle without full re-render.
+     * @param {string} containerItemId - The container item ID.
+     * @param {boolean} isExpanded - Whether the container should be expanded.
+     * @private
+     */
+    _toggleContainerVisual(containerItemId, isExpanded) {
+        const containerItemsEl = this._content?.querySelector(`[data-container-items="${containerItemId}"]`);
+        if (containerItemsEl) {
+            containerItemsEl.style.display = isExpanded ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Get direct children of a container from the current items tree.
+     * @param {string} parentId - Container item ID or component ID
+     * @returns {Array}
+     * @private
+     */
+    _getChildrenFromTree(parentId) {
+        // For component ID: get from _currentItems[parentId]
+        if (parentId.startsWith('comp-')) {
+            return this._currentItems[parentId] || [];
+        }
+        // For item ID: find the item in the tree and get its children
+        const allItems = [];
+        for (const items of Object.values(this._currentItems)) {
+            allItems.push(...items);
+        }
+        const findWithChildren = (items) => {
+            for (const item of items) {
+                if (item.id === parentId) return item.children || [];
+                if (item.children) {
+                    const found = findWithChildren(item.children);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+        const result = findWithChildren(allItems);
+        return result || [];
+    }
+
+    /**
+     * Checks if a dragged item can fit in a container.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} draggedItemId - The dragged item ID.
+     * @returns {boolean}
+     * @private
+     */
+    _checkItemFitInContainer(containerItemId, draggedItemId) {
+        // Get the dragged item volume from the card
+        const draggedCard = this._content?.querySelector(`[data-item-id="${draggedItemId}"]`);
+        if (!draggedCard) return false;
+        const draggedVolume = parseInt(draggedCard.dataset.itemVolume) || 0;
+
+        // Get the container item volume from the slot
+        const containerSlot = this._content?.querySelector(`[data-item-id="${containerItemId}"]`);
+        if (!containerSlot) return false;
+        const containerVolume = parseInt(containerSlot.dataset.containerCapacity) || 0;
+
+        // Get current children volume for this container
+        const currentChildren = this._getChildrenFromTree(containerItemId);
+        const usedVolume = currentChildren.reduce((sum, i) => sum + (i.volume || 0), 0);
+
+        return (usedVolume + draggedVolume) <= containerVolume;
+    }
+
+    /**
+     * Handles dropping an item onto a container item.
+     * @param {DragEvent} e - The drag event.
+     * @param {string} containerItemId - The container item ID.
+     * @param {string} itemId - The item ID being dropped.
+     * @private
+     */
+    async _onContainerDrop(e, containerItemId, itemId) {
+        if (!this._currentEntityId) return;
+        if (itemId === containerItemId) return; // Prevent self-drop
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/container/${containerItemId}/move-in/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                this._showToast(result.message || 'Failed to move item into container', 'error');
+                return;
+            }
+
+            this._showToast('Item moved into container', 'success');
+
+            // Expand the container
+            this._containerExpanded[containerItemId] = true;
+            this._toggleContainerVisual(containerItemId, true);
+
+            // Reload and re-render
+            await this._loadEntityItems(this._currentEntityId);
+            this._renderInventory();
+
+        } catch (error) {
+            console.error('[InventoryManager] Error moving item into container:', error);
+            this._showToast('Failed to move item into container', 'error');
         }
     }
 
