@@ -78,6 +78,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-120](high/BUG-120-isDescendantOf-infinite-loop-risk.md) | _isDescendantOf Potential Infinite Loop on Corrupted Data (Circular Reference) | ✅ Fixed | `pending` | `InventoryManager.js` |
 | [BUG-122](high/BUG-122-executePickUpItem-direct-private-access.md) | executePickUpItem Direct Access to Private Controller Properties (Violates Public API Rule) | 🔴 Open | — | `WorldStateController.js` |
 | [BUG-126](high/BUG-126-nested-items-vanish-on-drop-pickup.md) | Nested Items Vanish When Container is Dropped and Picked Up | ✅ Fixed | `pending` | `InventoryManager.js`, `DropItemHandler.js`, `PickUpItemHandler.js` |
+| [BUG-129](high/BUG-129-client-side-inventory-uses-item-volume-instead-of-externalVolume-for-host-component-display.md) | Client-Side Inventory Uses item.volume Instead of externalVolume for Host Component Display | ✅ Fixed | `pending` | `InventoryManager.js` (client) |
 
 ### 🟡 Medium Severity
 
@@ -124,6 +125,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-123](medium/BUG-123-client-console-usage.md) | Client-Side InventoryManager Uses console.* Instead of Logger | 🔴 Open | — | `InventoryManager.js` (client) |
 | [BUG-124](medium/BUG-124-checkItemFit-missing-container-volume.md) | _checkItemFit Does Not Account for Container Volume (Nested Inventory) | 🔴 Open | — | `InventoryManager.js` (client) |
 | [BUG-125](medium/BUG-125-container-header-destroyed-by-toggle.md) | Container Header Destroyed by _toggleContainer() (Double Toggle) | ✅ Fixed | `pending` | `InventoryManager.js` |
+| [BUG-130](medium/BUG-130-consequence-handler-actionParams-modifications-not-propagated.md) | Consequence Handler actionParams Modifications Not Propagated to Subsequent Consequences | ✅ Fixed | `t1-weapon-implementation` | `ConsequenceDispatcher.js` |
 
 ### 🟢 Low Severity
 
