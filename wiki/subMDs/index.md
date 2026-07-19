@@ -91,6 +91,7 @@ Game mechanics, visualizations, and feature systems.
 | [Door Range System](systems/door_range_system.md) | Spatial proximity for door transitions, hover-based green/red feedback, client-side range validation before server request |
 | [Unique ID System](systems/unique_id_system.md) | Self-describing typed IDs (ent-, comp-, item-, eq- prefixes) for unambiguous client-server resolution |
 | [Sharpness System](systems/sharpness_system.md) | Equipped item mutable stats architecture — sharpness drain, durability, capability re-evaluation |
+| [T1 Weapon System](systems/t1_weapon_system.md) | Container weapon concept — resource scaling damage, dual-volume items, spawn observer auto-assignment |
 
 ---
 

@@ -45,8 +45,14 @@ Injection follows a bottom-up chain from state controllers up to logic controlle
 
 | Method | Description |
 |--------|-------------|
-| `spawnEntity` | Create entity from blueprint, auto-install internal components, re-evaluate capabilities |
+| `spawnEntity` | Create entity from blueprint, auto-install internal components, auto-assign T1 weapon, re-evaluate capabilities |
 | `despawnEntity` | Remove entity, clean up state, re-evaluate capabilities |
+
+### T1 Weapon Auto-Assignment
+
+Entities spawned from blueprints that include components with sufficient volume automatically receive a T1 container weapon. The assignment prioritizes hand components for natural positioning and falls back to any component with available space. This ensures all compatible entities begin with the T1 without explicit blueprint configuration.
+
+See [T1 Weapon System](../systems/t1_weapon_system.md) for full details on the container weapon concept.
 
 ## 6. Blueprint Hierarchy
 

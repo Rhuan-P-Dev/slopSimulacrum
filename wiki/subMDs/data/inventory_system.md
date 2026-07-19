@@ -321,6 +321,20 @@ The nested inventory feature extends the existing InventoryManager without intro
 - **Client**: The client-side `InventoryManager` (`public/js/InventoryManager.js`) builds the item tree from the flat server response and renders nested containers with expand/collapse toggles.
 - **No new data files**: The existing `data/inventoryItems.json` schema supports nested items. Any item with a `volume` property can serve as a container — no additional type field or flag is needed.
 
+### Dual-Volume Items: `externalVolume`
+
+Some container items need to express two distinct volume concepts: the physical space they occupy on a host (external footprint) and the internal capacity they provide for storing other items. The `externalVolume` property enables this distinction.
+
+For items without `externalVolume`, the system falls back to `volume` as the footprint — maintaining backward compatibility with all existing items. For items that define `externalVolume`, that value is used as the space consumed on the host component, while `volume` represents internal capacity.
+
+This was introduced to support the T1 weapon system, where the weapon needs a small footprint (1 unit) on its host component but provides significant internal storage (10 units) for ammunition. Without `externalVolume`, the T1 would need to take up as much space as it can hold, which contradicts the design intent of a compact weapon that stores its own ammo.
+
+| Item | `volume` (capacity) | `externalVolume` (footprint) | Use Case |
+|------|---------------------|------------------------------|----------|
+| `powerCell` | 2 | — | Regular item, no distinction needed |
+| `metalBox` | 10 | — | Container where footprint equals capacity |
+| `t1` | 10 | 1 | Compact weapon with internal ammo storage |
+
 ## Related Documentation
 
 - [Holding Cost System](holding_cost.md) — Equipped item debuffs that affect item stats

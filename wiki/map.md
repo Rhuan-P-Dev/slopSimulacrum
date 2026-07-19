@@ -95,4 +95,4 @@ graph TD
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
 | `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
-| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits) |
+| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits, externalVolume) — includes T1 container weapon with dual-volume support |

@@ -36,6 +36,7 @@ All handlers follow a common signature: they accept a target ID, a parameter obj
 | `spatial` | `SpatialConsequenceHandler` | Delta movement and spatial translation |
 | `dropItem` | `DropItemHandler` | Item dropping on the world map |
 | `pickUpItem` | `PickUpItemHandler` | Item pickup from the world map |
+| `consumeItemAndDamage` | `ConsumeItemHandler` | T1 weapon ammo consumption — removes an item from the T1's internal inventory and deals damage equal to the consumed item's volume |
 
 ### damageComponent Consequence Type
 
