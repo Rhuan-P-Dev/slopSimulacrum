@@ -141,6 +141,15 @@ class WorldStateController {
                     Logger.warn(`[WorldStateController] Failed to add knife to spawned entity ${entityId}: ${knifeResult.message}`);
                 }
             }
+
+            // Add T1 weapon to entity — try droidRollingBall first (volume 12, enough for T1 volume 10),
+            // then fall back to droidArm (may fail if volume insufficient)
+            const t1Result = this._addT1WeaponToEntity(entityId, entity);
+            if (t1Result.success) {
+                Logger.info(`[WorldStateController] T1 weapon auto-added to ${t1Result.componentType} on spawned entity ${entityId}`);
+            } else {
+                Logger.warn(`[WorldStateController] Failed to add T1 weapon to spawned entity ${entityId}: ${t1Result.message}`);
+            }
         });
 
         // Wire up stat change notifications from ComponentController to ComponentCapabilityController
@@ -1445,6 +1454,102 @@ class WorldStateController {
         }
 
         return nearby;
+    }
+
+    /**
+     * Adds a T1 weapon to a spawned entity by finding a suitable hand component
+     * (or any component as fallback) with sufficient available volume.
+     *
+     * Priority:
+     * 1. Hand component (type contains "hand") with available volume >= T1 externalVolume
+     * 2. Any component with available volume >= T1 externalVolume
+     *
+     * @param {string} entityId - The ID of the entity to add the T1 to.
+     * @param {Object} entity - The entity data object with a components array.
+     * @returns {{success: boolean, componentType?: string, message: string}}
+     * @private
+     */
+    _addT1WeaponToEntity(entityId, entity) {
+        // T1 has externalVolume: 1, so we need a component with available volume >= 1
+        const T1_EXTERNAL_VOLUME = 1;
+
+        /**
+         * Calculates the available volume for a component.
+         * @param {Object} component - The component object.
+         * @returns {number} Available volume.
+         * @private
+         */
+        const getAvailableVolume = (component) => {
+            const maxVolume = this.inventoryManager._getComponentMaxVolumeFromEntity(entity, component.id);
+            const usedVolume = this.inventoryManager._calculateComponentUsedVolume(entity, component.id);
+            return maxVolume - usedVolume;
+        };
+
+        /**
+         * Checks if a component type is a "hand" component.
+         * @param {Object} component - The component object.
+         * @returns {boolean}
+         * @private
+         */
+        const isHandComponent = (component) => {
+            const compType = (component.type || '').toLowerCase();
+            return compType.includes('hand');
+        };
+
+        // First priority: Find a hand component with sufficient available volume
+        let handComponent = null;
+        for (const component of entity.components) {
+            if (isHandComponent(component)) {
+                const availableVolume = getAvailableVolume(component);
+                if (availableVolume >= T1_EXTERNAL_VOLUME) {
+                    handComponent = component;
+                    Logger.info(`[WorldStateController] Found hand component ${component.id} (type: ${component.type}) with available volume: ${availableVolume}`);
+                    break; // Use the first valid hand component
+                }
+            }
+        }
+
+        if (handComponent) {
+            const result = this.inventoryManager.addItem(entity, 't1', handComponent.id, {
+                componentController: this.componentController
+            });
+
+            if (result.success) {
+                return { success: true, componentType: handComponent.type, message: 'T1 weapon added to hand component successfully' };
+            }
+
+            Logger.warn(`[WorldStateController] Failed to add T1 to hand component ${handComponent.id}: ${result.message}`);
+        }
+
+        // Second priority: Fall back to any component with sufficient available volume
+        let bestComponent = null;
+        let bestAvailableVolume = 0;
+
+        for (const component of entity.components) {
+            const availableVolume = getAvailableVolume(component);
+            if (availableVolume >= T1_EXTERNAL_VOLUME && availableVolume > bestAvailableVolume) {
+                bestAvailableVolume = availableVolume;
+                bestComponent = component;
+            }
+        }
+
+        if (!bestComponent) {
+            Logger.info(`[WorldStateController] No component with sufficient available volume (>= ${T1_EXTERNAL_VOLUME}) found for T1 weapon on entity ${entityId}`);
+            return { success: false, message: `No component with sufficient available volume (>= ${T1_EXTERNAL_VOLUME}) found for T1 weapon` };
+        }
+
+        Logger.info(`[WorldStateController] Using fallback component ${bestComponent.id} (type: ${bestComponent.type}) with available volume: ${bestAvailableVolume} for T1 weapon on entity ${entityId}`);
+
+        const result = this.inventoryManager.addItem(entity, 't1', bestComponent.id, {
+            componentController: this.componentController
+        });
+
+        if (result.success) {
+            return { success: true, componentType: bestComponent.type, message: 'T1 weapon added successfully (fallback component)' };
+        }
+
+        Logger.warn(`[WorldStateController] Failed to add T1 to fallback component ${bestComponent.id}: ${result.message}`);
+        return { success: false, message: result.message };
     }
 }
 
