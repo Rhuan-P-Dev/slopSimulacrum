@@ -594,6 +594,62 @@ class ActionController {
     }
 
     /**
+     * Gets the damage value for a shootT1 action by looking up the first ammo item
+     * in the T1 weapon's internal inventory.
+     * @param {string} entityId - The entity ID.
+     * @param {string} componentId - The component ID (may be eq- ID or direct component ID).
+     * @returns {number|null} The volume of the first ammo item, or null if no ammo found.
+     * @private
+     */
+    _getT1AmmoVolume(entityId, componentId) {
+        const entity = this.worldStateController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[ActionController] Entity "${entityId}" not found for T1 ammo lookup.`);
+            return null;
+        }
+
+        // Resolve the T1 item ID from the component/equipped-item ID
+        let t1ItemId = null;
+        let t1ItemType = null;
+
+        if (IdResolver.isEquippedId(componentId)) {
+            const equippedItem = this.worldStateController.getEquippedItem(entityId, componentId);
+            if (equippedItem) {
+                t1ItemId = equippedItem.itemId;
+                t1ItemType = equippedItem.itemType;
+            }
+        } else {
+            // Try to find equipped item by itemId
+            const equippedItem = this.worldStateController.getEquippedItemByItemId(entityId, componentId);
+            if (equippedItem && equippedItem.itemType) {
+                t1ItemType = equippedItem.itemType;
+                t1ItemId = equippedItem.itemId;
+            } else {
+                // Try direct lookup
+                const allEquipped = this.worldStateController.getEquippedItems(entityId);
+                const found = allEquipped?.find(eq => eq.itemId === componentId);
+                if (found) {
+                    t1ItemType = found.itemType;
+                    t1ItemId = found.itemId;
+                }
+            }
+        }
+
+        if (t1ItemType !== 't1' || !t1ItemId) {
+            return null;
+        }
+
+        // Get the children (ammo items) from the T1's internal inventory
+        const ammoItems = this.worldStateController.inventoryManager.getContainerItems(entity, t1ItemId);
+
+        if (!ammoItems || ammoItems.length === 0) {
+            return null;
+        }
+
+        return ammoItems[0].volume || 0;
+    }
+
+    /**
      * Previews action data including resolved values and synergy.
      * @param {string} actionName - The action name.
      * @param {string} entityId - The entity ID.
@@ -615,9 +671,26 @@ class ActionController {
             if (best) resolveComponentId = best.componentId;
         }
 
-        const resolvedValues = resolveComponentId
+        let resolvedValues = resolveComponentId
             ? this.resolveActionValues(actionName, resolveComponentId, entityId)
             : {};
+
+        // Special handling for shootT1: resolve damage from first ammo item volume
+        if (actionName === 'shootT1' && resolveComponentId) {
+            const ammoVolume = this._getT1AmmoVolume(entityId, resolveComponentId);
+            if (ammoVolume !== null) {
+                // Update the consumeItemAndDamage consequence value with the actual ammo volume
+                resolvedValues = { ...resolvedValues };
+                if (resolvedValues.consumeItemAndDamage) {
+                    resolvedValues.consumeItemAndDamage = {
+                        ...resolvedValues.consumeItemAndDamage,
+                        value: ammoVolume
+                    };
+                } else {
+                    resolvedValues.consumeItemAndDamage = { value: ammoVolume };
+                }
+            }
+        }
 
         let synergyResult = null;
         if (this.synergyController) {
