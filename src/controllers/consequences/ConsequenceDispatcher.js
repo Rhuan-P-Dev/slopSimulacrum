@@ -95,6 +95,11 @@ class ConsequenceDispatcher {
                 };
                 const result = handler(targetResult.targetId, effectiveParams, handlerContext);
 
+                // Propagate handler-modified actionParams back to context so subsequent
+                // consequences in the same pipeline can see values set by earlier handlers
+                // (e.g., itemVolume set by ConsumeItemHandler).
+                Object.assign(context.actionParams, handlerContext.actionParams);
+
                 results.push({
                     success: true,
                     type: consequence.type,
