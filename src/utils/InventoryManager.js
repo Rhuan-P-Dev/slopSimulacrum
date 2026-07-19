@@ -120,13 +120,17 @@ class InventoryManager {
             }
         }
 
+        // Determine the host volume: use externalVolume if available, otherwise fall back to volume.
+        // This allows items like T1 to have a small external footprint while maintaining large internal capacity.
+        const hostVolume = itemDef.externalVolume ?? itemDef.volume;
+
         const maxVolume = this._getComponentMaxVolume(componentType);
         if (maxVolume > 0) {
             const usedVolume = this._calculateComponentUsedVolume(entity, hostComponentId);
-            if (usedVolume + itemDef.volume > maxVolume) {
+            if (usedVolume + hostVolume > maxVolume) {
                 return {
                     success: false,
-                    message: `Component ${hostComponentId} does not have enough volume. Available: ${maxVolume - usedVolume}, Item needs: ${itemDef.volume}`
+                    message: `Component ${hostComponentId} does not have enough volume. Available: ${maxVolume - usedVolume}, Item needs: ${hostVolume}`
                 };
             }
         }
@@ -136,6 +140,8 @@ class InventoryManager {
             type: itemType,
             name: itemDef.name,
             volume: itemDef.volume,
+            hostVolume: hostVolume,
+            externalVolume: itemDef.externalVolume ?? null,
             traits: itemDef.traits ? structuredClone(itemDef.traits) : {},
             hostComponentId: hostComponentId
         };
@@ -206,10 +212,11 @@ class InventoryManager {
         const maxVolume = this._getComponentMaxVolume(targetComponentType);
         if (maxVolume > 0) {
             const usedVolume = this._calculateComponentUsedVolume(entity, targetComponentId);
-            if (usedVolume + item.volume > maxVolume) {
+            const itemHostVolume = item.hostVolume ?? item.volume ?? 0;
+            if (usedVolume + itemHostVolume > maxVolume) {
                 return {
                     success: false,
-                    message: `Target component ${targetComponentId} does not have enough volume. Available: ${maxVolume - usedVolume}, Item needs: ${item.volume}`
+                    message: `Target component ${targetComponentId} does not have enough volume. Available: ${maxVolume - usedVolume}, Item needs: ${itemHostVolume}`
                 };
             }
         }
@@ -268,7 +275,7 @@ class InventoryManager {
         const items = entity.items || [];
         const used = items
             .filter(item => item.hostComponentId === componentId)
-            .reduce((sum, item) => sum + (item.volume || 0), 0);
+            .reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
 
         // Get max volume from component
         const max = this._getComponentMaxVolumeFromEntity(entity, componentId);
@@ -305,7 +312,7 @@ class InventoryManager {
         const items = entity.items || [];
         return items
             .filter(item => item.hostComponentId === componentId)
-            .reduce((sum, item) => sum + (item.volume || 0), 0);
+            .reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
     }
 
     /**
