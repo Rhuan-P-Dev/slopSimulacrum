@@ -19,6 +19,7 @@ import LogConsequenceHandler from './LogConsequenceHandler.js';
 import EventConsequenceHandler from './EventConsequenceHandler.js';
 import { handleDropItem } from './DropItemHandler.js';
 import { handlePickUpItem } from './PickUpItemHandler.js';
+import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -55,6 +56,7 @@ class ConsequenceHandlers {
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
+            consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),
         };
     }
 
@@ -84,6 +86,22 @@ class ConsequenceHandlers {
                 worldStateController: this.worldStateController,
                 holdingCostController: this.worldStateController.holdingCostController
             },
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the consumeItemAndDamage consequence by delegating to ConsumeItemHandler.
+     * @private
+     */
+    _handleConsumeItemAndDamage(targetId, params, context) {
+        return handleConsumeItemAndDamage(
+            {
+                worldStateController: this.worldStateController,
+                damageHandler: this.damageHandler
+            },
+            targetId,
             params,
             context
         );
