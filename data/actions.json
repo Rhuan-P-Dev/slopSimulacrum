@@ -240,5 +240,41 @@
         "message": "Pick up failed - insufficient strength or volume, or target out of range"
       }
     ]
+  },
+  "shootT1": {
+    "targetingType": "component",
+    "range": 100,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "durability",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "consumeItemAndDamage",
+        "target": "target",
+        "params": {
+          "trait": "Physical",
+          "stat": "durability",
+          "value": 0
+        }
+      },
+      {
+        "type": "log",
+        "target": "self",
+        "level": "info",
+        "message": "T1 fired, consuming item with volume :itemVolume, dealing :itemVolume damage!"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "T1 shoot failed - no ammunition in inventory"
+      }
+    ]
   }
 }

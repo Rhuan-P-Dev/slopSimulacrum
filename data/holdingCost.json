@@ -6,5 +6,12 @@
       { "trait": "Physical", "stat": "durability", "value": 2 },
       { "trait": "Manipulation", "stat": "fine_controls", "value": 10 }
     ]
+  },
+  "t1": {
+    "name": "T1",
+    "holdingCost": [
+      { "trait": "Physical", "stat": "strength", "value": 3 },
+      { "trait": "Physical", "stat": "durability", "value": 5 }
+    ]
   }
 }

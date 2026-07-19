@@ -70,5 +70,14 @@
     "traits": {
       "Physical": { "mass": 5, "durability": 60 }
     }
+  },
+  "t1": {
+    "name": "T1",
+    "description": "A container weapon that fires stored items. Has 1 unit external volume and 10 units internal capacity. Damage is based on the volume of the consumed projectile.",
+    "volume": 10,
+    "externalVolume": 1,
+    "traits": {
+      "Physical": { "durability": 60 }
+    }
   }
 }
