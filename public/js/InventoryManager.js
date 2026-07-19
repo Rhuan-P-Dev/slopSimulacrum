@@ -410,7 +410,9 @@ export class InventoryManager {
      * @private
      */
     _calculateVolumeInfo(componentId, maxVolume, items) {
-        const used = items.reduce((sum, item) => sum + (item.volume || 0), 0);
+        // Use externalVolume for host component space (item footprint on the component)
+        // Fall back to hostVolume, then to volume (internal capacity) for backwards compatibility
+        const used = items.reduce((sum, item) => sum + (item.externalVolume ?? item.hostVolume ?? (item.volume || 0)), 0);
         const percentage = maxVolume > 0 ? (used / maxVolume) * 100 : 0;
 
         let barClass = 'low';
@@ -471,9 +473,13 @@ export class InventoryManager {
         let html = '';
         for (const item of items) {
             const itemDef = this._itemRegistry ? this._itemRegistry[item.type] : null;
-            const itemVolume = item.volume || (itemDef ? itemDef.volume : 0);
+            // Use externalVolume for display on host component (footprint), volume for internal capacity
+            const displayVolume = item.externalVolume ?? item.hostVolume ?? (item.volume || 0);
+            const internalCapacity = item.volume || (itemDef ? itemDef.volume : 0);
+            // An item is a container if it has internal capacity >= 5 or has children
+            const isContainer = internalCapacity >= 5 || (item.children && item.children.length > 0);
             const hasChildren = item.children && item.children.length > 0;
-            const percentageStr = itemVolume > 0 ? '100' : '0';
+            const percentageStr = displayVolume > 0 ? '100' : '0';
             const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
             const isEquipped = this._isEquippedByItemId(item.id);
 
@@ -503,10 +509,10 @@ export class InventoryManager {
                         data-item-type="${item.type}"
                         title="Click to select a component and drop this item">📦 Drop</button>`;
 
-            // Container header with children (if hasChildren)
+            // Container header with children (if isContainer — has internal capacity or children)
             let containerHtml = '';
-            if (hasChildren) {
-                const capacity = itemVolume;
+            if (isContainer) {
+                const capacity = internalCapacity;
                 const childrenVolume = item.children.reduce((sum, c) => sum + (c.volume || 0), 0);
                 const isExpanded = this._containerExpanded[item.id] !== false;
                 const chevron = isExpanded ? '▼' : '▶';
@@ -518,7 +524,7 @@ export class InventoryManager {
                         <div class="inventory-container-header" data-container-header="${item.id}">
                             <button class="inventory-container-toggle" data-toggle-container="${item.id}" title="Expand/collapse">${chevron}</button>
                             <span class="inventory-item-name">${item.name || item.type}</span>
-                            <span class="inventory-item-volume">${itemVolume}v</span>
+                            <span class="inventory-item-volume">${displayVolume}v</span>
                             <span class="inventory-container-capacity-text">${childrenVolume}/${capacity} (${usedPercent}%)</span>
                         </div>
                         <div class="inventory-container-items" style="display: ${isExpanded ? 'block' : 'none'};" data-container-items="${item.id}">
@@ -535,17 +541,17 @@ export class InventoryManager {
 
             html += `
                 ${containerHtml}
-                <div class="${cardClass}"${hasChildren ? ' style="border-left: 3px solid var(--neon-cyan);"' : ''}
+                <div class="${cardClass}"${isContainer ? ' style="border-left: 3px solid var(--neon-cyan);"' : ''}
                      draggable="true"
                      data-item-id="${item.id}"
                      data-item-type="${item.type}"
-                     data-item-volume="${itemVolume}"
-                     data-is-container="${hasChildren}"
+                     data-item-volume="${displayVolume}"
+                     data-is-container="${isContainer}"
                      data-parent-host-id="${hostId}"
-                     title="${hasChildren ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">
-                    <span class="drag-handle">${hasChildren ? '📦' : '⠿'}</span>
+                     title="${isContainer ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">
+                    <span class="drag-handle">${isContainer ? '📦' : '⠿'}</span>
                     <span class="inventory-item-name">${item.name || item.type}</span>
-                    <span class="inventory-item-volume">${itemVolume}v</span>
+                    <span class="inventory-item-volume">${displayVolume}v</span>
                     <button class="equip-btn stats-toggle"
                             data-item-id="${item.id}"
                             data-item-type="${item.type}"
@@ -1072,7 +1078,8 @@ export class InventoryManager {
                 const found = items.find(i => i.id === itemId);
                 if (found) {
                     item = found;
-                    itemVolume = found.volume || 0;
+                    // Use externalVolume for host component space
+                    itemVolume = found.externalVolume ?? found.hostVolume ?? (found.volume || 0);
                     break;
                 }
             }
@@ -1086,7 +1093,8 @@ export class InventoryManager {
 
         const maxVolume = parseInt(slot.dataset.compVolume) || 0;
         const itemsInTarget = this._currentItems[targetCompId] || [];
-        const usedVolume = itemsInTarget.reduce((sum, i) => sum + (i.volume || 0), 0);
+        // Use externalVolume for host component space
+        const usedVolume = itemsInTarget.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? (i.volume || 0)), 0);
 
         return (usedVolume + itemVolume) <= maxVolume;
     }
@@ -1412,19 +1420,19 @@ export class InventoryManager {
      * @private
      */
     _checkItemFitInContainer(containerItemId, draggedItemId) {
-        // Get the dragged item volume from the card
+        // Get the dragged item volume from the card (already uses externalVolume via displayVolume)
         const draggedCard = this._content?.querySelector(`[data-item-id="${draggedItemId}"]`);
         if (!draggedCard) return false;
         const draggedVolume = parseInt(draggedCard.dataset.itemVolume) || 0;
 
-        // Get the container item volume from the slot
+        // Get the container item internal capacity from the slot
         const containerSlot = this._content?.querySelector(`[data-item-id="${containerItemId}"]`);
         if (!containerSlot) return false;
         const containerVolume = parseInt(containerSlot.dataset.containerCapacity) || 0;
 
-        // Get current children volume for this container
+        // Get current children volume for this container (children use their own externalVolume for internal space)
         const currentChildren = this._getChildrenFromTree(containerItemId);
-        const usedVolume = currentChildren.reduce((sum, i) => sum + (i.volume || 0), 0);
+        const usedVolume = currentChildren.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? (i.volume || 0)), 0);
 
         return (usedVolume + draggedVolume) <= containerVolume;
     }
