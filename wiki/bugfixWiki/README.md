@@ -79,6 +79,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-122](high/BUG-122-executePickUpItem-direct-private-access.md) | executePickUpItem Direct Access to Private Controller Properties (Violates Public API Rule) | 🔴 Open | — | `WorldStateController.js` |
 | [BUG-126](high/BUG-126-nested-items-vanish-on-drop-pickup.md) | Nested Items Vanish When Container is Dropped and Picked Up | ✅ Fixed | `pending` | `InventoryManager.js`, `DropItemHandler.js`, `PickUpItemHandler.js` |
 | [BUG-129](high/BUG-129-client-side-inventory-uses-item-volume-instead-of-externalVolume-for-host-component-display.md) | Client-Side Inventory Uses item.volume Instead of externalVolume for Host Component Display | ✅ Fixed | `pending` | `InventoryManager.js` (client) |
+| [BUG-131](high/BUG-131-universal-tick-system-delayed-first-execution.md) | UniversalTickSystem Jobs Delayed by One Interval on First Execution | ✅ Fixed | `pending` | `UniversalTickSystem.js` |
 
 ### 🟡 Medium Severity
 

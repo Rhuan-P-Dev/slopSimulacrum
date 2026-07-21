@@ -62,10 +62,18 @@ export class UniversalTickSystem {
 
         // Calculate the interval in milliseconds based on the desired tick rate
         const intervalMs = 1000 / this.maxTicksPerSecond;
+        Logger.info(`[TickSystem] Starting with maxTicksPerSecond=${this.maxTicksPerSecond}, intervalMs=${intervalMs}`);
         
+        // DIAGNOSTIC: Log all registered jobs and their expected first tick
+        Logger.info(`[TickSystem] DIAGNOSTIC: Registered jobs:`);
+        this.jobs.forEach(job => {
+            Logger.info(`[TickSystem]   - Job "${job.id}": interval=${job.interval}, order=${job.order}, first_execution_at_tick=0`);
+        });
+
         this._intervalId = setInterval(() => {
-            this.currentTick++;
             this._executeTick();
+            this.currentTick++;
+            Logger.info(`[TickSystem] Tick ${this.currentTick} executed. Jobs registered: ${this.jobs.length}`);
         }, intervalMs);
         
         Logger.info(`[TickSystem] World started. Running at ${this.maxTicksPerSecond} ticks/sec.`);
