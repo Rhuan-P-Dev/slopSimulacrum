@@ -4,6 +4,7 @@
  */
 class Logger {
     static LEVELS = {
+        DEBUG: 'DEBUG',
         INFO: 'INFO',
         WARN: 'WARN',
         ERROR: 'ERROR',
@@ -12,7 +13,7 @@ class Logger {
 
     /**
      * Generic logging method.
-     * @param {string} level - The severity level (INFO, WARN, ERROR, CRITICAL).
+     * @param {string} level - The severity level (DEBUG, INFO, WARN, ERROR, CRITICAL).
      * @param {string} message - The message to log.
      * @param {Object} [context] - Optional context data for debugging.
      */
@@ -33,10 +34,17 @@ class Logger {
             case this.LEVELS.WARN:
                 console.warn(`⚠️ WARN: ${logMessage}`);
                 break;
+            case this.LEVELS.DEBUG:
+                console.log(`🐞 DEBUG: ${logMessage}`);
+                break;
             default:
                 console.log(`ℹ️ INFO: ${logMessage}`);
                 break;
         }
+    }
+
+    static debug(message, context) {
+        this.log(this.LEVELS.DEBUG, message, context);
     }
 
     static info(message, context) {

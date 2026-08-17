@@ -1,5 +1,6 @@
 import EntityController from './entityController.js';
 import { generateEntityId } from '../../utils/idGenerator.js';
+import Logger from '../../utils/Logger.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -88,7 +89,7 @@ class stateEntityController {
                 // Sync internal components from controller to entity so client receives them in broadcast
                 this.entities[entityId].internalComponents = this.internalComponentController.getInternalComponentsForEntity(entityId);
             } catch (error) {
-                console.error(`[stateEntityController] Auto-install failed for entity ${entityId}: ${error.message}`);
+                Logger.error(`[stateEntityController] Auto-install failed for entity ${entityId}: ${error.message}`);
             }
         }
 
@@ -103,7 +104,7 @@ class stateEntityController {
             try {
                 observer(entityId, entityData);
             } catch (error) {
-                console.error(`[stateEntityController] Spawn observer failed for entity ${entityId}: ${error.message}`);
+                Logger.error(`[stateEntityController] Spawn observer failed for entity ${entityId}: ${error.message}`);
             }
         }
 
@@ -192,6 +193,37 @@ class stateEntityController {
      */
     getAll() {
         return structuredClone(this.entities);
+    }
+
+    // =========================================================================
+    // PERSISTENCE — snapshot restore (FASE 3)
+    // =========================================================================
+
+    /**
+     * Replaces the active entities store with the restored snapshot and
+     * re-syncs the per-entity internalComponents mirror from the canonical
+     * InternalComponentController store (the single source of truth).
+     *
+     * Used exclusively by WorldStateController.restore(). Spawn observers are
+     * intentionally NOT fired: a snapshot already contains the final, fully
+     * populated entity state (items, internal components, positions), and the
+     * declarative initial-spawn path (data/world.json) was already applied by
+     * the instance that produced the snapshot. Re-firing it would double-add
+     * items. The observers list itself is left untouched for future spawns.
+     *
+     * @param {Object} restoredEntities - Deep-cloned entities map from the snapshot.
+     * @returns {void}
+     */
+    _restoreFromSnapshot(restoredEntities) {
+        this.entities = restoredEntities && typeof restoredEntities === 'object' ? restoredEntities : {};
+
+        // Re-sync the entity-side mirror from the canonical internal store so
+        // the broadcast (which reads entity.internalComponents) stays correct.
+        if (this.internalComponentController) {
+            for (const entityId of Object.keys(this.entities)) {
+                this.entities[entityId].internalComponents = this.internalComponentController.getInternalComponentsForEntity(entityId);
+            }
+        }
     }
 }
 

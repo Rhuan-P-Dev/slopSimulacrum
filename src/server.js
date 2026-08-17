@@ -1,6 +1,6 @@
 import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
-import WorldStateController from './controllers/WorldStateController.js';
+import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
 import { registerRoutes } from './routes/index.js';
@@ -16,7 +16,9 @@ const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 
 // 3. Initialize controllers
 const llmController = new LLMController();
-const worldStateController = new WorldStateController(tickSystem);
+// FASE 5: the world state graph (facade + all sub-controllers) is built by the
+// composition root, which handles topological construction and facade injection.
+const { worldStateController } = buildWorldState(tickSystem);
 
 // 4. Initialize broadcast service
 const broadcastService = new WorldStateBroadcastService(io, worldStateController);
@@ -37,56 +39,56 @@ worldStateController.triggerInitialBroadcast();
 // 9. START THE WORLD (Start the Tick System)
 tickSystem.start();
 
-    // 8. Graceful shutdown for unified tick system
-    let isShuttingDown = false;
+// 10. Graceful shutdown for unified tick system
+let isShuttingDown = false;
 
-    function gracefulShutdown(signal) {
-        // Prevent duplicate shutdown sequences
-        if (isShuttingDown) {
-            Logger.warn(`[Server] ${signal} received during shutdown — ignoring duplicate`);
-            return;
-        }
-        isShuttingDown = true;
+function gracefulShutdown(signal) {
+    // Prevent duplicate shutdown sequences
+    if (isShuttingDown) {
+        Logger.warn(`[Server] ${signal} received during shutdown — ignoring duplicate`);
+        return;
+    }
+    isShuttingDown = true;
 
-        Logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
+    Logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
 
-        // Stop the Universal Tick System
-        if (tickSystem) {
-            tickSystem.stop();
-        }
-
-        // Force disconnect all connected Socket.IO clients.
-        // This prevents server.close() from hanging on browsers that do not
-        // close their WebSocket connections promptly during page unload.
-        if (io && io.sockets && io.sockets.sockets) {
-            const socketCount = io.sockets.sockets.size;
-            if (socketCount > 0) {
-                Logger.info(`[Server] Force disconnecting ${socketCount} connected client(s)...`);
-                // Iterate over connected sockets and call disconnect(true) on each.
-                // Socket.IO 4.x stores connected sockets in the 'sockets' Map.
-                for (const [socketId, socket] of io.sockets.sockets) {
-                    socket.disconnect(true); // true = force immediate disconnect, no close packet
-                }
-            }
-        }
-
-        // Close Socket.IO server
-        if (io) {
-            io.close();
-        }
-
-        // Close HTTP server (now fast because all clients are already disconnected)
-        server.close(() => {
-            Logger.info('[Server] Server closed.');
-            process.exit(0);
-        });
-
-        // Force exit after 10 seconds if server.close() still hangs (safety net)
-        setTimeout(() => {
-            Logger.error('[Server] Forced shutdown after timeout.');
-            process.exit(1);
-        }, 10000);
+    // Stop the Universal Tick System
+    if (tickSystem) {
+        tickSystem.stop();
     }
 
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    // Force disconnect all connected Socket.IO clients.
+    // This prevents server.close() from hanging on browsers that do not
+    // close their WebSocket connections promptly during page unload.
+    if (io && io.sockets && io.sockets.sockets) {
+        const socketCount = io.sockets.sockets.size;
+        if (socketCount > 0) {
+            Logger.info(`[Server] Force disconnecting ${socketCount} connected client(s)...`);
+            // Iterate over connected sockets and call disconnect(true) on each.
+            // Socket.IO 4.x stores connected sockets in the 'sockets' Map.
+            for (const [socketId, socket] of io.sockets.sockets) {
+                socket.disconnect(true); // true = force immediate disconnect, no close packet
+            }
+        }
+    }
+
+    // Close Socket.IO server
+    if (io) {
+        io.close();
+    }
+
+    // Close HTTP server (now fast because all clients are already disconnected)
+    server.close(() => {
+        Logger.info('[Server] Server closed.');
+        process.exit(0);
+    });
+
+    // Force exit after 10 seconds if server.close() still hangs (safety net)
+    setTimeout(() => {
+        Logger.error('[Server] Forced shutdown after timeout.');
+        process.exit(1);
+    }, 10000);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

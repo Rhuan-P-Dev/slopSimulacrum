@@ -1,3 +1,4 @@
+import ClientLogger from '/utils/ClientLogger.js';
 /**
  * DropSelectorController — Floating window for selecting components to drop an item.
  *
@@ -72,7 +73,7 @@ export class DropSelectorController {
         this._cancelBtn = document.getElementById('drop-cancel-btn');
 
         if (!this._overlay) {
-            console.error('[DropSelectorController] Overlay element #drop-selector-overlay not found.');
+            ClientLogger.error('DropSelectorController', ' Overlay element #drop-selector-overlay not found.');
             return;
         }
 
@@ -99,7 +100,7 @@ export class DropSelectorController {
         this._initDrag();
 
         this._initialized = true;
-        console.info('[DropSelectorController] Initialized.');
+        ClientLogger.info('DropSelectorController', ' Initialized.');
     }
 
     /**
@@ -160,7 +161,7 @@ export class DropSelectorController {
      */
     async show(data) {
         if (!data?.pendingDropItem) {
-            console.warn('[DropSelectorController] No pending drop item provided.');
+            ClientLogger.warn('DropSelectorController', ' No pending drop item provided.');
             return;
         }
         await this._showDropPanel(data);
@@ -175,7 +176,7 @@ export class DropSelectorController {
      */
     async showPickup(data) {
         if (!data?.pendingPickUpItem || !data.entityId) {
-            console.warn('[DropSelectorController] No pending pick-up item or entityId provided.');
+            ClientLogger.warn('DropSelectorController', ' No pending pick-up item or entityId provided.');
             return;
         }
         await this._showPickupPanel(data);
@@ -212,7 +213,7 @@ export class DropSelectorController {
             const response = await fetch(`/inventory/${entityId}/capable-drop-components`);
 
             if (!response.ok) {
-                console.error(`[DropSelectorController] Failed to fetch capable components: HTTP ${response.status}`);
+                ClientLogger.error('DropSelectorController', ` Failed to fetch capable components: HTTP ${response.status}`);
                 this._renderEmptyState('Failed to load components.');
                 this._overlay.style.display = 'block';
                 return;
@@ -222,12 +223,12 @@ export class DropSelectorController {
             this._capableComponents = json.components || [];
             this._renderComponentList(this._capableComponents);
         } catch (error) {
-            console.error(`[DropSelectorController] Error fetching capable components: ${error.message}`);
+            ClientLogger.error('DropSelectorController', ` Error fetching capable components: ${error.message}`);
             this._renderEmptyState('Error loading components.');
         }
 
         this._overlay.style.display = 'block';
-        console.info(`[DropSelectorController] Panel opened for item ${this._pendingDropItem.itemType} (${this._pendingDropItem.itemId}).`);
+        ClientLogger.info('DropSelectorController', ` Panel opened for item ${this._pendingDropItem.itemType} (${this._pendingDropItem.itemId}).`);
     }
 
     /**
@@ -341,7 +342,7 @@ export class DropSelectorController {
             const response = await fetch(`/inventory/${data.entityId}/capable-pickup-components`);
 
             if (!response.ok) {
-                console.error(`[DropSelectorController] Failed to fetch capable pick-up components: HTTP ${response.status}`);
+                ClientLogger.error('DropSelectorController', ` Failed to fetch capable pick-up components: HTTP ${response.status}`);
                 this._renderEmptyState('Failed to load components.');
                 this._overlay.style.display = 'block';
                 return;
@@ -351,12 +352,12 @@ export class DropSelectorController {
             this._capableComponents = json.components || [];
             this._renderComponentList(this._capableComponents);
         } catch (error) {
-            console.error(`[DropSelectorController] Error fetching capable pick-up components: ${error.message}`);
+            ClientLogger.error('DropSelectorController', ` Error fetching capable pick-up components: ${error.message}`);
             this._renderEmptyState('Error loading components.');
         }
 
         this._overlay.style.display = 'block';
-        console.info(`[DropSelectorController] Pick-up panel opened for item ${this._pendingPickUpItem.itemType}.`);
+        ClientLogger.info('DropSelectorController', ` Pick-up panel opened for item ${this._pendingPickUpItem.itemType}.`);
     }
 
     /**
@@ -368,7 +369,7 @@ export class DropSelectorController {
      */
     _onExecute() {
         if (this._selectedComponentIds.size === 0) {
-            console.warn('[DropSelectorController] No components selected.');
+            ClientLogger.warn('DropSelectorController', ' No components selected.');
             return;
         }
 
@@ -377,7 +378,7 @@ export class DropSelectorController {
 
         if (this._isPickupMode) {
             const pendingPickUpItem = this._pendingPickUpItem;
-            console.info(`[DropSelectorController] Pick-up Execute clicked with ${componentIds.length} component(s).`);
+            ClientLogger.info('DropSelectorController', ` Pick-up Execute clicked with ${componentIds.length} component(s).`);
 
             // Close the panel first
             this.hide();
@@ -391,7 +392,7 @@ export class DropSelectorController {
             }));
         } else {
             const pendingDropItem = this._pendingDropItem;
-            console.info(`[DropSelectorController] Execute clicked with ${componentIds.length} component(s).`);
+            ClientLogger.info('DropSelectorController', ` Execute clicked with ${componentIds.length} component(s).`);
 
             // Close the panel first
             this.hide();
@@ -411,7 +412,7 @@ export class DropSelectorController {
      * @private
      */
     _onCancel() {
-        console.info('[DropSelectorController] Cancel clicked.');
+        ClientLogger.info('DropSelectorController', ' Cancel clicked.');
         this._clearSelection();
         this.hide();
     }
@@ -442,7 +443,7 @@ export class DropSelectorController {
         if (!this._overlay) return;
         this._overlay.style.display = 'none';
         this._clearSelection();
-        console.info('[DropSelectorController] Panel hidden.');
+        ClientLogger.info('DropSelectorController', ' Panel hidden.');
     }
 
     /**

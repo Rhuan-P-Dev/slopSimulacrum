@@ -9,23 +9,36 @@
 
 import Logger from '../../utils/Logger.js';
 import { checkGrabRange } from '../../utils/RangeChecker.js';
-import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
+import { resolveRange } from '../../../shared/RangeResolver.js';
 import IdResolver from '../../utils/IdResolver.js';
 
 class RangeValidator {
     /**
-     * @param {WorldStateController} worldStateController - The root state controller.
      * @param {ActionController} actionController - Reference to ActionController for consequence execution.
+     *
+     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
-    constructor(worldStateController, actionController) {
-        this.worldStateController = worldStateController;
+    constructor(actionController) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.actionController = actionController;
     }
 
     /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
+    }
+
+    /**
      * Checks if a grab action is within range of the target entity.
-     * Resolves range expressions (e.g., ":Physical.strength*2") using the same
-     * PlaceholderResolver logic used by consequences and failureConsequences.
+     * Resolves range expressions (e.g., ":Physical.strength*2") using the shared
+     * RangeResolver — the same single source of truth used by the client.
+     * Server semantics are preserved: an unknown placeholder resolves to NaN
+     * (fallback=NaN), which the validity guard below rejects as an invalid range.
      *
      * @param {string} sourceEntityId - The entity performing the grab (typed ent-... or legacy UUID).
      * @param {string} targetEntityId - The entity being grabbed (typed ent-... or legacy UUID).
@@ -34,11 +47,11 @@ class RangeValidator {
      */
     checkGrabRange(sourceEntityId, targetEntityId, maxRange) {
         // Validate entity IDs are typed (accept legacy UUID for compatibility)
-        if (!IdResolver.isEntityId(sourceEntityId) && !this._isLegacyEntityId(sourceEntityId)) {
+        if (!IdResolver.isEntityId(sourceEntityId) && !IdResolver.isLegacyEntityId(sourceEntityId)) {
             Logger.warn(`[RangeValidator] Invalid source entity ID format: "${sourceEntityId}"`);
             return { success: false, error: `Invalid source entity ID format: ${sourceEntityId}` };
         }
-        if (!IdResolver.isEntityId(targetEntityId) && !this._isLegacyEntityId(targetEntityId)) {
+        if (!IdResolver.isEntityId(targetEntityId) && !IdResolver.isLegacyEntityId(targetEntityId)) {
             Logger.warn(`[RangeValidator] Invalid target entity ID format: "${targetEntityId}"`);
             return { success: false, error: `Invalid target entity ID format: ${targetEntityId}` };
         }
@@ -53,11 +66,12 @@ class RangeValidator {
             return { success: false, error: `Target entity "${targetEntityId}" not found.` };
         }
 
-        // Resolve range expression using PlaceholderResolver (same logic as consequences)
+        // Resolve range expression using the shared RangeResolver (single source of
+        // truth, identical semantics to the client). fallback=NaN keeps the previous
+        // server behavior: unknown placeholders become NaN and are rejected below.
         if (typeof maxRange === 'string') {
             const requirementValues = this._resolveRequirementValues(sourceEntityId);
-            const resolved = resolvePlaceholders(maxRange, requirementValues);
-            maxRange = typeof resolved === 'number' ? resolved : Number(resolved);
+            maxRange = resolveRange(maxRange, requirementValues, NaN);
         }
 
         // Guard: negative or NaN resolved values are invalid — fail the check
@@ -99,48 +113,6 @@ class RangeValidator {
         return values;
     }
 
-    /**
-     * Checks if an ID looks like a legacy (pre-typed) entity ID (raw UUID format).
-     * @param {string} id - The ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isLegacyEntityId(id) {
-        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    }
-
-    /**
-     * Executes consequences when a range check fails.
-     * @param {string} entityId - The entity that attempted the action.
-     * @param {string} actionName - The action that failed the range check.
-     * @returns {{ success: boolean, results?: Array }}
-     */
-    executeRangeFailureConsequences(entityId, actionName) {
-        const actionData = this.actionController.actionRegistry[actionName];
-        if (!actionData || !actionData.consequences || !Array.isArray(actionData.consequences)) {
-            return { success: false, error: `Action "${actionName}" has no failure consequences defined.` };
-        }
-
-        const results = [];
-        for (const consequence of actionData.consequences) {
-            if (consequence?.type === 'rangeFailure') {
-                try {
-                    const result = this.actionController.consequenceHandlers.handle(
-                        'rangeFailure',
-                        { entityId, ...consequence.params },
-                        { entityId }
-                    );
-                    results.push({ success: true, type: 'rangeFailure', ...result });
-                } catch (error) {
-                    const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
-                    Logger.error(`[RangeValidator] Failed to execute range failure consequence for "${actionName}": ${errorMsg}`);
-                    results.push({ success: false, type: 'rangeFailure', error: errorMsg });
-                }
-            }
-        }
-
-        return { success: true, executedRangeConsequences: results.length, results };
-    }
 }
 
 export default RangeValidator;

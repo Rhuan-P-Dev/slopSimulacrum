@@ -12,6 +12,7 @@
  * @module ConsequenceHandlers
  */
 
+import Logger from '../../utils/Logger.js';
 import SpatialConsequenceHandler from './SpatialConsequenceHandler.js';
 import StatConsequenceHandler from './StatConsequenceHandler.js';
 import DamageConsequenceHandler from './DamageConsequenceHandler.js';
@@ -23,14 +24,22 @@ import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
 
 class ConsequenceHandlers {
     /**
-     * @param {Object} controllers - The set of available controllers (WorldStateController, etc.)
-     * @param {WorldStateController} controllers.worldStateController - The root state controller.
+     * @param {Object} [deps] - Named dependencies.
+     * @param {EquippedItemStatsController} [deps.equippedItemStats] - Mutable equipped-item stats.
+     *
+     * FASE 5: the facade (WorldStateController) is no longer passed at construction.
+     * It is injected via setWorldStateController() after the facade is fully built,
+     * and propagated to the focused handlers (which keep reading
+     * `this.worldStateController` exactly as before — their class bodies are untouched).
      */
-    constructor(controllers) {
-        this.worldStateController = controllers.worldStateController;
-        this.equippedItemStats = controllers.equippedItemStats || null;
+    constructor({ equippedItemStats } = {}) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
+        this.equippedItemStats = equippedItemStats || null;
 
-        // Initialize focused handlers
+        // Initialize focused handlers. The `controllers` bag carries the facade
+        // reference each handler stores; setWorldStateController() keeps it in sync.
+        const controllers = { worldStateController: this.worldStateController, equippedItemStats: this.equippedItemStats };
         this.spatialHandler = new SpatialConsequenceHandler(controllers);
         this.statHandler = new StatConsequenceHandler(controllers);
         // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
@@ -38,14 +47,41 @@ class ConsequenceHandlers {
         this.damageHandler = new DamageConsequenceHandler(damageControllers);
         this.logHandler = new LogConsequenceHandler();
         this.eventHandler = new EventConsequenceHandler();
+
+        // Cache the handler map once (it used to be rebuilt on every `handlers` access).
+        // All handlers follow the normalized signature: (targetId, params, context)
+        this._handlers = this._buildHandlerMap();
     }
 
     /**
-     * Map of handler functions.
-     * All handlers now follow a normalized signature: (targetId, params, context)
+     * Injects the world state facade (WorldStateController) after it is fully built,
+     * and propagates it to the focused handlers. FASE 5: replaces the constructor-time
+     * facade dependency (BUG-100 root cause).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
+        this.spatialHandler.worldStateController = worldStateController;
+        this.statHandler.worldStateController = worldStateController;
+        this.damageHandler.worldStateController = worldStateController;
+    }
+
+    /**
+     * Map of handler functions (cached, built once in the constructor).
+     * All handlers follow a normalized signature: (targetId, params, context)
      * @returns {Object} Map of handler functions.
      */
     get handlers() {
+        return this._handlers;
+    }
+
+    /**
+     * Builds the handler map once. Kept private so the map stays an implementation
+     * detail — external callers should use dispatch().
+     * @returns {Object} Map of consequence type → handler function.
+     * @private
+     */
+    _buildHandlerMap() {
         return {
             updateSpatial: (targetId, params, context) => this.spatialHandler._handleUpdateSpatial(targetId, params, context),
             deltaSpatial: (targetId, params, context) => this.spatialHandler._handleDeltaSpatial(targetId, params, context),
@@ -58,6 +94,29 @@ class ConsequenceHandlers {
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
             consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),
         };
+    }
+
+    /**
+     * Dispatches a consequence to its registered handler. Public entry point for
+     * everything outside the dispatcher — callers no longer need to reach into
+     * the `handlers` map (BUG-122).
+     *
+     * @param {string} type - The consequence type (e.g., 'pickUpItem').
+     * @param {string|null} targetId - The resolved target component/entity ID.
+     * @param {Object} params - Consequence parameters.
+     * @param {Object} context - Action execution context.
+     * @returns {{ success: boolean, error?: string }} Handler result, or
+     *   { success: false, error: 'no-handler' } when no handler is registered.
+     */
+    dispatch(type, targetId, params, context) {
+        const handler = this.handlers[type];
+
+        if (typeof handler !== 'function') {
+            Logger.error(`[ConsequenceHandlers] No handler registered for consequence type "${type}".`);
+            return { success: false, error: 'no-handler' };
+        }
+
+        return handler(targetId, params, context);
     }
 
     // =========================================================================

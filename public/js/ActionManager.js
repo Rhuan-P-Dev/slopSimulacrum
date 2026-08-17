@@ -1,4 +1,5 @@
 import { AppConfig } from './Config.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * ActionManager
@@ -28,7 +29,7 @@ export class ActionManager {
             const data = await response.json();
             return data.actions;
         } catch (error) {
-            console.error('[ActionManager] Failed to fetch actions:', error);
+            ClientLogger.error('ActionManager', 'Failed to fetch actions:', error);
             throw error;
         }
     }
@@ -86,7 +87,7 @@ export class ActionManager {
                 entityId: entityId,
                 params: { targetComponentId: componentId, componentIdentifier }
             }, 'ACTION_FAILED');
-            console.log('[ActionManager] Action executed successfully:', result);
+            ClientLogger.info('ActionManager', 'Action executed successfully:', result);
         } catch (error) {
             // Error already handled by _sendActionRequest
         }
@@ -101,7 +102,7 @@ export class ActionManager {
             this.pendingMovementAction.actionName === actionName && 
             this.pendingMovementAction.componentId === componentId) {
             this.pendingMovementAction = null;
-            console.log(`[ActionManager] Action ${actionName} deselected.`);
+            ClientLogger.debug('ActionManager', `Action ${actionName} deselected.`);
         } else {
             this.pendingMovementAction = {
                 actionName,
@@ -110,7 +111,7 @@ export class ActionManager {
                 componentIdentifier,
                 targetingType
             };
-            console.log(`[ActionManager] Action ${actionName} selected. Awaiting target (${targetingType}).`);
+            ClientLogger.debug('ActionManager', `Action ${actionName} selected. Awaiting target (${targetingType}).`);
         }
     }
 
@@ -151,17 +152,14 @@ export class ActionManager {
      * @param {string} targetComponentId - The component ID of the target being attacked.
      */
     async executeComponentAttack(actionName, entityId, attackerComponentId, targetComponentId) {
-        try {
-            const result = await this._sendActionRequest({
-                actionName: actionName,
-                entityId: entityId,
-                params: { attackerComponentId, targetComponentId }
-            }, 'ACTION_FAILED');
-            console.log(`[ActionManager] Component attack "${actionName}" executed successfully:`, result);
-            return result;
-        } catch (error) {
-            throw error;
-        }
+        // Phase 4: the try/catch that only re-threw was removed (no added behavior).
+        const result = await this._sendActionRequest({
+            actionName: actionName,
+            entityId: entityId,
+            params: { attackerComponentId, targetComponentId }
+        }, 'ACTION_FAILED');
+        ClientLogger.info('ActionManager', `Component attack "${actionName}" executed successfully:`, result);
+        return result;
     }
 
     /**
@@ -174,20 +172,17 @@ export class ActionManager {
      * @param {string} targetComponentId - The component ID of the target being attacked.
      */
     async executeMultiComponentAttack(actionName, entityId, attackerComponents, targetComponentId) {
-        try {
-            const result = await this._sendActionRequest({ 
-                actionName: actionName,
-                entityId: entityId,
-                params: {
-                    componentIds: attackerComponents,
-                    targetComponentId
-                }
-            }, 'ACTION_FAILED');
-            console.log(`[ActionManager] Multi-attacker component attack "${actionName}" executed successfully:`, result);
-            return result;
-        } catch (error) {
-            throw error;
-        }
+        // Phase 4: the try/catch that only re-threw was removed (no added behavior).
+        const result = await this._sendActionRequest({
+            actionName: actionName,
+            entityId: entityId,
+            params: {
+                componentIds: attackerComponents,
+                targetComponentId
+            }
+        }, 'ACTION_FAILED');
+        ClientLogger.info('ActionManager', `Multi-attacker component attack "${actionName}" executed successfully:`, result);
+        return result;
     }
 
     /**
@@ -275,7 +270,7 @@ export class ActionManager {
             }
 
             const data = await response.json();
-            console.log(`[ActionManager] Item dropped at (${targetX}, ${targetY})`, data);
+            ClientLogger.info('ActionManager', `Item dropped at (${targetX}, ${targetY})`, data);
             return data;
         } catch (error) {
             this.errorController.handleError({
@@ -315,32 +310,41 @@ export class ActionManager {
             const result = await response.json();
             if (!result.success) {
                 // Build a detailed error message including all conflicts
-                const errorMessages = Array.isArray(result.errors) ? result.errors : [result.error || 'Batch lock failed'];
+                const errorMessages = Array.isArray(result.errors) ? result.errors : [this._extractErrorMessage(result.error) || 'Batch lock failed'];
                 const detail = errorMessages.join('; ');
-                
-                // Log conflict details for debugging
-                const conflictDetails = errorMessages.map(msg => {
-                    const match = msg.match(/Component "([^"]+)" is already locked to action "([^"]+)"/);
-                    if (match) {
-                        return { componentId: match[1], lockedAction: match[2] };
-                    }
-                    return null;
-                }).filter(Boolean);
+
+                // Structured error protocol (preferred): the server returns
+                // result.errorDetails with machine-readable { code, details: { componentId,
+                // lockedAction } } entries. Fall back to the legacy regex parse of the
+                // human-readable message text when details are absent (older server).
+                let conflictDetails = (Array.isArray(result.errorDetails) ? result.errorDetails : [])
+                    .filter(e => e && e.code === 'COMPONENT_LOCKED' && e.details)
+                    .map(e => ({ componentId: e.details.componentId, lockedAction: e.details.lockedAction }));
+
+                if (conflictDetails.length === 0) {
+                    conflictDetails = errorMessages.map(msg => {
+                        const match = msg.match(/Component "([^"]+)" is already locked to action "([^"]+)"/);
+                        if (match) {
+                            return { componentId: match[1], lockedAction: match[2] };
+                        }
+                        return null;
+                    }).filter(Boolean);
+                }
 
                 // If components are locked to the SAME action, this is a refresh scenario -
                 // the server already has them locked, so we can treat it as success
-                const isRefreshScenario = conflictDetails.length > 0 && 
+                const isRefreshScenario = conflictDetails.length > 0 &&
                     conflictDetails.every(c => c.lockedAction === actionName);
 
                 if (isRefreshScenario) {
-                    console.log(`[ActionManager] Components already locked to "${actionName}", refreshing locks`);
+                    ClientLogger.info('ActionManager', `Components already locked to "${actionName}", refreshing locks`);
                     return { success: true, lockedCount: components.length, refreshed: true };
                 }
 
                 throw new Error(detail);
             }
 
-            console.log(`[ActionManager] Batch locked ${result.lockedCount} components for "${actionName}"`);
+            ClientLogger.info('ActionManager', `Batch locked ${result.lockedCount} components for "${actionName}"`);
             return result;
         } catch (error) {
             this.errorController.handleError({
@@ -349,6 +353,23 @@ export class ActionManager {
             });
             throw error;
         }
+    }
+
+    /**
+     * Extracts a human-readable message from a server error payload that may be
+     * either a plain string (legacy) or a structured object
+     * ({ code, message, details }) per the error protocol.
+     * @param {string|Object} error - The error payload from the server.
+     * @returns {string|null} The message text, or null when absent.
+     * @private
+     */
+    _extractErrorMessage(error) {
+        if (!error) return null;
+        if (typeof error === 'string') return error;
+        if (typeof error === 'object') {
+            return error.message ?? error.error ?? null;
+        }
+        return null;
     }
 
     /**
@@ -373,14 +394,14 @@ export class ActionManager {
             });
 
             if (!response.ok) {
-                console.warn('[ActionManager] Synergy preview HTTP error:', response.status);
+                ClientLogger.warn('ActionManager', 'Synergy preview HTTP error:', response.status);
                 return null;
             }
 
             const data = await response.json();
             return data.synergyResult || null;
         } catch (error) {
-            console.warn('[ActionManager] Synergy preview failed:', error);
+            ClientLogger.warn('ActionManager', 'Synergy preview failed:', error);
             return null;
         }
     }
@@ -418,7 +439,7 @@ export class ActionManager {
             }
 
             const data = await response.json();
-            console.log('[ActionManager] Multi-component action executed:', data);
+            ClientLogger.info('ActionManager', 'Multi-component action executed:', data);
             return data;
         } catch (error) {
             this.errorController.handleError({
@@ -460,14 +481,14 @@ export class ActionManager {
             });
 
             if (!response.ok) {
-                console.warn('[ActionManager] Preview data HTTP error:', response.status);
+                ClientLogger.warn('ActionManager', 'Preview data HTTP error:', response.status);
                 return null;
             }
 
             const data = await response.json();
             return data.actionPreviewData || null;
         } catch (error) {
-            console.warn('[ActionManager] Preview data failed:', error);
+            ClientLogger.warn('ActionManager', 'Preview data failed:', error);
             return null;
         }
     }

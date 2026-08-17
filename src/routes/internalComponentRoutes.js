@@ -1,15 +1,18 @@
 import express from 'express';
 import Logger from '../utils/Logger.js';
+import DataLoader from '../utils/DataLoader.js';
 
 const router = express.Router();
 
 /**
- * GET /api/internal-components/registry
+ * GET /internal-components/registry
  * Returns all internal component type definitions from the registry.
  */
-router.get('/registry', (req, res) => {
+router.get('/internal-components/registry', (req, res) => {
     try {
-        const registry = require('../utils/DataLoader').default.loadJsonSafe('data/internalComponents.json', {});
+        // Phase 4: was a CommonJS require() inside an ESM module ("require is not
+        // defined" — route always 500'd); replaced with the static import above.
+        const registry = DataLoader.loadJsonSafe('data/internalComponents.json', {});
         return res.json(registry);
     } catch (error) {
         Logger.error(`[InternalComponentRoutes] GET /registry error: ${error.message}`);
@@ -18,10 +21,10 @@ router.get('/registry', (req, res) => {
 });
 
 /**
- * GET /api/internal-components/:entityId/:hostComponentId
+ * GET /internal-components/:entityId/:hostComponentId
  * Returns all internal components for a specific host component of an entity.
  */
-router.get('/:entityId/:hostComponentId', (req, res) => {
+router.get('/internal-components/:entityId/:hostComponentId', (req, res) => {
     const worldStateController = req.app.locals.worldStateController;
     if (!worldStateController) {
         return res.status(503).json({ error: 'WorldStateController not available' });
@@ -39,10 +42,10 @@ router.get('/:entityId/:hostComponentId', (req, res) => {
 });
 
 /**
- * GET /api/internal-components/:entityId
+ * GET /internal-components/:entityId
  * Returns all internal components for an entity.
  */
-router.get('/:entityId', (req, res) => {
+router.get('/internal-components/:entityId', (req, res) => {
     const worldStateController = req.app.locals.worldStateController;
     if (!worldStateController) {
         return res.status(503).json({ error: 'WorldStateController not available' });
@@ -57,10 +60,10 @@ router.get('/:entityId', (req, res) => {
 });
 
 /**
- * POST /api/internal-components/:entityId/:hostComponentId/add
+ * POST /internal-components/:entityId/:hostComponentId/add
  * Adds an internal component to a host component.
  */
-router.post('/:entityId/:hostComponentId/add', (req, res) => {
+router.post('/internal-components/:entityId/:hostComponentId/add', (req, res) => {
     const worldStateController = req.app.locals.worldStateController;
     if (!worldStateController) {
         return res.status(503).json({ error: 'WorldStateController not available' });
@@ -86,10 +89,10 @@ router.post('/:entityId/:hostComponentId/add', (req, res) => {
 });
 
 /**
- * DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId
+ * DELETE /internal-components/:entityId/:hostComponentId/:internalComponentId
  * Removes an internal component from a host component.
  */
-router.delete('/:entityId/:hostComponentId/:internalComponentId', (req, res) => {
+router.delete('/internal-components/:entityId/:hostComponentId/:internalComponentId', (req, res) => {
     const worldStateController = req.app.locals.worldStateController;
     if (!worldStateController) {
         return res.status(503).json({ error: 'WorldStateController not available' });

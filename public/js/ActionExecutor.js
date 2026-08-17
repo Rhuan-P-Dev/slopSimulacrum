@@ -1,4 +1,6 @@
 import { AppConfig } from './Config.js';
+import { resolveRange } from '../../shared/RangeResolver.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * ActionExecutor
@@ -36,54 +38,55 @@ export class ActionExecutor {
     }
 
     /**
-     * Resolves a range expression string to a numeric value.
-     * Handles :Trait.stat expressions like ":Physical.strength*2+3".
-     * Falls back to a provided default value if no expression or resolution fails.
+     * Builds a flat "trait.stat" → number map for an entity from the client world
+     * state. Mirrors the server's RangeValidator._resolveRequirementValues() exactly:
+     * it iterates the entity's components in order and overwrites on collisions
+     * (last component wins), including only finite numeric stats. This gives the
+     * client the SAME resolution context as the server, so range expressions
+     * resolve identically on both sides.
      *
-     * @param {string} expression - The range expression (e.g., ":Physical.strength*2+3")
-     * @param {number} strength - The resolved Physical.strength value
-     * @param {number} fallback - Fallback range value if expression is undefined or invalid
+     * @param {Object} droid - The entity object (with a `components` array).
+     * @param {Object} state - The current world state (with `components.instances`).
+     * @returns {Object} Map of "trait.stat" → number.
+     * @private
+     */
+    _buildStatMap(droid, state) {
+        const statMap = {};
+        const instances = state?.components?.instances || {};
+        const components = droid?.components || [];
+        for (const comp of components) {
+            const stats = instances[comp.id];
+            if (!stats || typeof stats !== 'object') continue;
+            for (const [traitId, traitData] of Object.entries(stats)) {
+                if (!traitData || typeof traitData !== 'object') continue;
+                for (const [statName, statValue] of Object.entries(traitData)) {
+                    if (typeof statValue === 'number') {
+                        statMap[`${traitId}.${statName}`] = statValue;
+                    }
+                }
+            }
+        }
+        return statMap;
+    }
+
+    /**
+     * Resolves a range expression string to a numeric value.
+     * Delegates to the shared RangeResolver (single source of truth shared with the
+     * server) so that ALL :Trait.stat placeholders — not just Physical.strength — are
+     * resolved, and so no dynamic code evaluation (Function/eval) is ever performed.
+     * Falls back to the provided value if the expression is missing or unresolvable.
+     *
+     * @param {string|number} expression - The range expression (number, ":Physical.strength*2+3", etc.)
+     * @param {Object} statMap - Flat "trait.stat" → number map built via _buildStatMap().
+     * @param {number} fallback - Fallback range value if the expression is undefined or unresolvable.
      * @returns {number} The resolved numeric range
      * @private
      */
-    _resolveRangeExpression(expression, strength, fallback) {
-        if (!expression) return fallback;
-
-        // Match tokens: [+|-](:Placeholder[multiplier])
-        // Pattern: optional +/-, then :Trait.stat, then optional *multiplier
-        const tokenRegex = /([+])|(-)?(:[a-zA-Z0-9_.]+)(?:\*(-?\d+))?/g;
-        let result = 0;
-        let foundPlaceholder = false;
-
-        let match;
-        while ((match = tokenRegex.exec(expression)) !== null) {
-            // Skip standalone '+' signs
-            if (match[1] === '+') continue;
-
-            const sign = match[2] === '-' ? -1 : 1;
-            const placeholder = match[3] ? match[3].substring(1) : null; // Remove leading ':'
-            const multiplier = match[4] ? parseInt(match[4].substring(1), 10) : 1;
-
-            if (placeholder) {
-                const value = (placeholder === 'Physical.strength') ? strength : 0;
-                result += sign * value * multiplier;
-                foundPlaceholder = true;
-            }
-        }
-
-        // If no placeholders found, try safe arithmetic evaluation
-        if (!foundPlaceholder) {
-            try {
-                if (/^[\d+\-*/(). ]+$/.test(expression)) {
-                    return Function('"use strict"; return (' + expression + ')')();
-                }
-            } catch (_) {
-                // Expression invalid — return fallback
-            }
+    _resolveRangeExpression(expression, statMap, fallback) {
+        if (expression === undefined || expression === null || expression === '') {
             return fallback;
         }
-
-        return result;
+        return resolveRange(expression, statMap, fallback);
     }
 
     /**
@@ -104,14 +107,14 @@ export class ActionExecutor {
                 params: { targetComponentId: componentId, componentIdentifier }
             }, 'ACTION_FAILED');
 
-            console.log(`[ActionExecutor] Self-target action "${actionName}" executed successfully`, { actionName, entityId, componentId });
+            ClientLogger.info('ActionExecutor', ` Self-target action "${actionName}" executed successfully`, { actionName, entityId, componentId });
 
             // Clear selections and UI displays after action execution
             if (this.selectionController) {
                 this.selectionController.clearAllSelections();
             }
         } catch (error) {
-            console.error(`[ActionExecutor] Self-target action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
+            ClientLogger.error('ActionExecutor', ` Self-target action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
         }
     }
 
@@ -141,9 +144,9 @@ export class ActionExecutor {
 
             await this.refreshCallback();
 
-            console.log(`[ActionExecutor] Multi-component spatial action "${actionName}" executed successfully`, { actionName, entityId, componentCount: componentIds.length });
+            ClientLogger.info('ActionExecutor', ` Multi-component spatial action "${actionName}" executed successfully`, { actionName, entityId, componentCount: componentIds.length });
         } catch (error) {
-            console.error(`[ActionExecutor] Multi-component spatial action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentIds, error: error.message });
+            ClientLogger.error('ActionExecutor', ` Multi-component spatial action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentIds, error: error.message });
         }
     }
 
@@ -166,9 +169,9 @@ export class ActionExecutor {
                 params: { targetComponentId: componentId, componentIdentifier }
             }, 'ACTION_FAILED');
 
-            console.log(`[ActionExecutor] Action "${actionName}" executed successfully`, { actionName, entityId, componentId });
+            ClientLogger.info('ActionExecutor', ` Action "${actionName}" executed successfully`, { actionName, entityId, componentId });
         } catch (error) {
-            console.error(`[ActionExecutor] Action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
+            ClientLogger.error('ActionExecutor', ` Action "${actionName}" failed: ${error.message}`, { actionName, entityId, componentId, error: error.message });
         }
     }
 
@@ -189,7 +192,7 @@ export class ActionExecutor {
         const droid = this.worldState.getActiveDroid();
         const state = this.worldState.getState();
         if (!droid || !state) {
-            console.warn(`[ActionExecutor] No active droid or state for action "${pending.actionName}"`);
+            ClientLogger.warn('ActionExecutor', ` No active droid or state for action "${pending.actionName}"`);
             return;
         }
 
@@ -200,13 +203,10 @@ export class ActionExecutor {
         // Resolve range: support both numeric values and expressions like ":Physical.strength*2+3"
         let range;
         if (typeof rawRange === 'string' && rawRange.includes(':')) {
-            // Range is an expression — resolve it using droid stats
-            const strength = droid.components?.reduce((max, comp) => {
-                const stats = state.components?.instances?.[comp.id];
-                const str = stats?.Physical?.strength || 0;
-                return str > max ? str : max;
-            }, 0) || 0;
-            range = this._resolveRangeExpression(rawRange, strength, 0);
+            // Range is an expression — resolve it against the entity's full stat map
+            // (mirrors the server; covers all :Trait.stat, not only Physical.strength).
+            const statMap = this._buildStatMap(droid, state);
+            range = this._resolveRangeExpression(rawRange, statMap, 0);
         } else if (typeof rawRange === 'number' && rawRange > 0) {
             // Range is a plain number
             range = rawRange;
@@ -225,7 +225,7 @@ export class ActionExecutor {
                     range: range
                 }
             });
-            console.warn(`[ActionExecutor] Action "${pending.actionName}" out of range: distance=${Math.round(distance)}, range=${range}`);
+            ClientLogger.warn('ActionExecutor', ` Action "${pending.actionName}" out of range: distance=${Math.round(distance)}, range=${range}`);
             return;
         }
 
@@ -234,11 +234,11 @@ export class ActionExecutor {
             state.entities,
             targetX,
             targetY,
-            AppConfig.TARGETING.PUNCH_TOLERANCE
+            AppConfig.TARGETING.TARGETING_TOLERANCE
         );
         if (!closestEntity) {
             this.errorController.handleError({ code: 'NO_TARGET_FOUND' });
-            console.warn(`[ActionExecutor] No target found for action "${pending.actionName}"`);
+            ClientLogger.warn('ActionExecutor', ` No target found for action "${pending.actionName}"`);
             return;
         }
 
@@ -262,7 +262,7 @@ export class ActionExecutor {
                             components,
                             targetCompId
                         );
-                        console.log(`[ActionExecutor] Multi-component action "${pending.actionName}" executed: ${attackerComponentIds.length} attackers vs target component ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerCount: attackerComponentIds.length, targetComponentId: targetCompId });
+                        ClientLogger.info('ActionExecutor', ` Multi-component action "${pending.actionName}" executed: ${attackerComponentIds.length} attackers vs target component ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerCount: attackerComponentIds.length, targetComponentId: targetCompId });
                     } else {
                         // Single attacker: use executeComponentAttack with the action's own params
                         const attackerCompId = attackerComponentIds[0] || pending.componentId;
@@ -272,7 +272,7 @@ export class ActionExecutor {
                             attackerCompId,
                             targetCompId
                         );
-                        console.log(`[ActionExecutor] Single attacker action "${pending.actionName}" executed: attacker ${attackerCompId} vs target ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerComponentId: attackerCompId, targetComponentId: targetCompId });
+                        ClientLogger.info('ActionExecutor', ` Single attacker action "${pending.actionName}" executed: attacker ${attackerCompId} vs target ${targetCompId}`, { actionName: pending.actionName, entityId: pending.entityId, attackerComponentId: attackerCompId, targetComponentId: targetCompId });
                     }
 
                     this.ui.closeDetails();
@@ -283,11 +283,11 @@ export class ActionExecutor {
                     }
                     await this.refreshCallback();
                 } catch (error) {
-                    console.error(`[ActionExecutor] Action "${pending.actionName}" failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
+                    ClientLogger.error('ActionExecutor', ` Action "${pending.actionName}" failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
                 }
             });
         } catch (error) {
-            console.error(`[ActionExecutor] Action "${pending.actionName}" component selection failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
+            ClientLogger.error('ActionExecutor', ` Action "${pending.actionName}" component selection failed: ${error.message}`, { actionName: pending.actionName, entityId: pending.entityId, targetEntityId: closestEntity.id, error: error.message });
         }
     }
 
@@ -322,13 +322,13 @@ export class ActionExecutor {
                 this.selectionController.clearAllSelections();
             }
             await this.refreshCallback();
-            console.log(`[ActionExecutor] Droid moved successfully: entity ${entityId} to room ${targetRoomId}`, { entityId, targetRoomId });
+            ClientLogger.info('ActionExecutor', ` Droid moved successfully: entity ${entityId} to room ${targetRoomId}`, { entityId, targetRoomId });
         } catch (error) {
             this.errorController.handleError({
                 code: 'MOVEMENT_FAILED',
                 message: error.message
             });
-            console.error(`[ActionExecutor] Move droid failed: ${error.message}`, { entityId, targetRoomId, error: error.message });
+            ClientLogger.error('ActionExecutor', ` Move droid failed: ${error.message}`, { entityId, targetRoomId, error: error.message });
         }
     }
 
@@ -349,7 +349,7 @@ export class ActionExecutor {
      */
     async executePickUpItem(pending, targetX, targetY, droid, state) {
         if (!droid || !state) {
-            console.warn('[ActionExecutor] No active droid or state for pick-up item action');
+            ClientLogger.warn('ActionExecutor', ' No active droid or state for pick-up item action');
             return;
         }
 
@@ -381,7 +381,7 @@ export class ActionExecutor {
             }
 
             const result = await response.json();
-            console.log(`[ActionExecutor] Item "${pending.itemType}" picked up successfully.`, result);
+            ClientLogger.info('ActionExecutor', ` Item "${pending.itemType}" picked up successfully.`, result);
 
             // Clear range indicator (green matches pickup flow)
             this.ui.renderRangeIndicator(droid, 0, '#44ff44');
@@ -392,7 +392,7 @@ export class ActionExecutor {
             }
             await this.refreshCallback();
         } catch (error) {
-            console.error(`[ActionExecutor] Pick-up item failed: ${error.message}`, {
+            ClientLogger.error('ActionExecutor', ` Pick-up item failed: ${error.message}`, {
                 entityId,
                 droppedItemId: pending.droppedItemId || pending.id,
                 componentId,
@@ -424,7 +424,7 @@ export class ActionExecutor {
      */
     async executeDropItem(pending, targetX, targetY, droid, state) {
         if (!droid || !state) {
-            console.warn('[ActionExecutor] No active droid or state for drop item action');
+            ClientLogger.warn('ActionExecutor', ' No active droid or state for drop item action');
             return;
         }
 
@@ -434,7 +434,11 @@ export class ActionExecutor {
         const dropActionData = this.availableActions['dropItem'] || {};
         const rangeExpression = dropActionData?.range;
 
-        // Calculate max Physical.strength from droid's components
+        // Build the full stat map so the shared resolver can resolve any :Trait.stat
+        // (mirrors the server's resolution context, not just Physical.strength).
+        const statMap = this._buildStatMap(droid, state);
+
+        // Calculate max Physical.strength for the legacy fallback formula (preserved).
         const strength = droid.components?.reduce((max, comp) => {
             const stats = state.components?.instances?.[comp.id];
             const str = stats?.Physical?.strength || 0;
@@ -444,7 +448,7 @@ export class ActionExecutor {
         // Use expression-based range if available, fallback to hardcoded formula
         const dropRange = this._resolveRangeExpression(
             rangeExpression,
-            strength,
+            statMap,
             AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE)
         );
 
@@ -468,7 +472,7 @@ export class ActionExecutor {
                     strength
                 }
             });
-            console.warn(`[ActionExecutor] Drop out of range: distance=${Math.round(distance)}, range=${dropRange}`);
+            ClientLogger.warn('ActionExecutor', ` Drop out of range: distance=${Math.round(distance)}, range=${dropRange}`);
             return;
         }
 
@@ -482,7 +486,7 @@ export class ActionExecutor {
                 targetY
             );
 
-            console.log(`[ActionExecutor] Item "${pending.itemType}" dropped at (${targetX}, ${targetY})`);
+            ClientLogger.info('ActionExecutor', ` Item "${pending.itemType}" dropped at (${targetX}, ${targetY})`);
             // Clear range indicator
             this.ui.renderRangeIndicator(droid, 0, 'red');
 
@@ -492,7 +496,7 @@ export class ActionExecutor {
             }
             await this.refreshCallback();
         } catch (error) {
-            console.error(`[ActionExecutor] Drop item failed: ${error.message}`, {
+            ClientLogger.error('ActionExecutor', ` Drop item failed: ${error.message}`, {
                 actionName: pending.actionName,
                 entityId: pending.entityId,
                 itemType: pending.itemType,

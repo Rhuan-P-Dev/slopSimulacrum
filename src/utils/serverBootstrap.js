@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import path from 'path';
 import { Server } from 'socket.io';
 import Logger from '../utils/Logger.js';
 
@@ -16,6 +17,12 @@ export default function bootstrapServer() {
 
 	app.use(express.json());
 	app.use(express.static('public'));
+	// Serve shared browser-importable ES modules (e.g., /shared/RangeResolver.js)
+	// so the client can import the SAME source of truth used by the server.
+	// The shared/ folder lives at the project root (outside public/), so it is
+	// mounted explicitly at /shared. An absolute path keeps this independent of
+	// the process working directory (the server is launched from the root).
+	app.use('/shared', express.static(path.resolve(process.cwd(), 'shared')));
 
 	server.listen(port, () => {
 		Logger.info('SlopSimulacrum Server running', {

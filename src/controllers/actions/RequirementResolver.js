@@ -15,12 +15,23 @@ import IdResolver from '../../utils/IdResolver.js';
 
 class RequirementResolver {
     /**
-     * @param {WorldStateController} worldStateController - The root state controller.
      * @param {EquippedItemStatsController} [equippedItemStats] - The equipped item stats manager (for mutable stats).
+     *
+     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
-    constructor(worldStateController, equippedItemStats) {
-        this.worldStateController = worldStateController;
+    constructor(equippedItemStats) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     /**

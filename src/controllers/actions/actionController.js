@@ -61,27 +61,55 @@ const ERROR_REGISTRY = {
  */
 class ActionController {
     /**
-     * @param {WorldStateController} worldStateController - The main world state controller.
+     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * setWorldStateController() after the facade is fully built (this controller —
+     * and its nested RangeValidator / ComponentResolver / RequirementResolver /
+     * ConsequenceDispatcher — depend on the facade).
+     *
      * @param {ConsequenceHandlers} consequenceHandlers - The consequence handler system.
      * @param {Object} actionRegistry - The registry of available actions.
      * @param {ComponentCapabilityController} componentCapabilityController - The capability cache manager.
      * @param {SynergyController} [synergyController] - The synergy system controller (optional).
      * @param {ActionSelectController} [actionSelectController] - The component selection/locking controller (optional).
+     * @param {EquippedItemStatsController} [equippedItemStats] - Mutable equipped-item stats (named dep).
      */
-    constructor(worldStateController, consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController, equippedItemStats) {
-        this.worldStateController = worldStateController;
+    constructor(consequenceHandlers, actionRegistry, componentCapabilityController, synergyController, actionSelectController, equippedItemStats) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.consequenceHandlers = consequenceHandlers;
         this.actionRegistry = actionRegistry || {};
         this.componentCapabilityController = componentCapabilityController;
         this.synergyController = synergyController || null;
         this.actionSelectController = actionSelectController || null;
 
-        // Inject extracted modules
-        this.rangeValidator = new RangeValidator(worldStateController, this);
-        this.componentResolver = new ComponentResolver(worldStateController);
+        // Inject extracted modules (each receives the facade later via setWorldStateController)
+        this.rangeValidator = new RangeValidator(this);
+        this.componentResolver = new ComponentResolver();
         // Pass equippedItemStats so RequirementResolver can read current mutable stats
-        this.requirementResolver = new RequirementResolver(worldStateController, equippedItemStats);
-        this.consequenceDispatcher = new ConsequenceDispatcher(worldStateController, this, synergyController);
+        this.requirementResolver = new RequirementResolver(equippedItemStats);
+        this.consequenceDispatcher = new ConsequenceDispatcher(this, synergyController);
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built,
+     * and propagates it to the nested resolvers/validator/dispatcher. FASE 5: replaces
+     * the constructor-time facade dependency (BUG-100 root cause).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
+        if (this.rangeValidator) {
+            this.rangeValidator.setWorldStateController(worldStateController);
+        }
+        if (this.componentResolver) {
+            this.componentResolver.setWorldStateController(worldStateController);
+        }
+        if (this.requirementResolver) {
+            this.requirementResolver.setWorldStateController(worldStateController);
+        }
+        if (this.consequenceDispatcher) {
+            this.consequenceDispatcher.setWorldStateController(worldStateController);
+        }
     }
 
     // =========================================================================
@@ -224,7 +252,7 @@ class ActionController {
         }
 
         // Validate entityId is a typed entity ID
-        if (!IdResolver.isEntityId(entityId) && !this._isLegacyEntityId(entityId)) {
+        if (!IdResolver.isEntityId(entityId) && !IdResolver.isLegacyEntityId(entityId)) {
             Logger.warn(`[ActionController] Invalid entity ID format: "${entityId}". Must be a typed ent-... ID or raw UUID.`);
             return {
                 success: false,
@@ -383,7 +411,7 @@ class ActionController {
             // Validate attackerComponentId is a typed component ID or equipped item ID
             if (params?.attackerComponentId) {
                 const atkId = params.attackerComponentId;
-                if (!IdResolver.isCompId(atkId) && !IdResolver.isEquippedId(atkId) && !this._isLegacyCompId(atkId)) {
+                if (!IdResolver.isCompId(atkId) && !IdResolver.isEquippedId(atkId) && !IdResolver.isLegacyCompId(atkId)) {
                     Logger.warn(`[ActionController] Invalid attacker component ID: "${atkId}"`);
                     return {
                         success: false,
@@ -396,7 +424,7 @@ class ActionController {
             // Validate targetComponentId is a typed component ID
             if (params?.targetComponentId) {
                 const tgtId = params.targetComponentId;
-                if (!IdResolver.isCompId(tgtId) && !this._isLegacyCompId(tgtId)) {
+                if (!IdResolver.isCompId(tgtId) && !IdResolver.isLegacyCompId(tgtId)) {
                     Logger.warn(`[ActionController] Invalid target component ID: "${tgtId}"`);
                     return {
                         success: false,
@@ -481,30 +509,6 @@ class ActionController {
     }
 
     // =========================================================================
-    // PRIVATE: LEGACY ID HELPERS
-    // =========================================================================
-
-    /**
-     * Checks if an ID looks like a legacy (pre-typed) entity ID (raw UUID format).
-     * @param {string} id - The ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isLegacyEntityId(id) {
-        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    }
-
-    /**
-     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
-     * @param {string} id - The ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isLegacyCompId(id) {
-        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    }
-
-    // =========================================================================
     // PRIVATE: ERROR RESOLUTION
     // =========================================================================
 
@@ -557,96 +561,81 @@ class ActionController {
 
         const resolvedConsequences = {};
         for (const consequence of action.consequences) {
-            const resolvedParams = this._resolvePlaceholders(consequence.params, requirementValues, {});
+            // Delegate to the central PlaceholderResolver (single source of truth).
+            // requirementValues maps "Trait.stat" → number, which covers both
+            // ":Trait.stat" and "-:Trait.stat" (sign prefix) placeholders; the
+            // central resolver additionally supports "*:placeholder" multipliers,
+            // embedded template strings and non-numeric :variables (superset of
+            // the former local behavior — no data divergence in data/actions.json,
+            // which only uses ":Trait.stat", "-:Trait.stat" and embedded :vars).
+            const resolvedParams = resolvePlaceholders(consequence.params, requirementValues);
             resolvedConsequences[consequence.type] = resolvedParams;
         }
         return resolvedConsequences;
     }
 
     /**
-     * Resolves placeholder values in an object using requirement values.
-     * @param {Object} params - The object with placeholder values (e.g., { damage: ":Physical.strength" }).
-     * @param {Object} requirementValues - Mapping of placeholders to resolved values.
-     * @param {Object} context - Additional context (unused, kept for API compatibility).
-     * @returns {Object} Object with placeholders resolved.
-     * @private
-     */
-    _resolvePlaceholders(params, requirementValues, context) {
-        if (!params) return params;
-        const resolved = {};
-        for (const [key, value] of Object.entries(params)) {
-            if (typeof value === 'string' && value.startsWith(':')) {
-                const placeholder = value.slice(1);
-                resolved[key] = requirementValues[placeholder] ?? value;
-            } else if (typeof value === 'string' && value.startsWith('-:')) {
-                const placeholder = value.slice(2);
-                const resolvedValue = requirementValues[placeholder] ?? 0;
-                resolved[key] = -resolvedValue;
-            } else if (typeof value === 'string' && value.startsWith('*:')) {
-                const placeholder = value.slice(2);
-                const resolvedValue = requirementValues[placeholder] ?? 1;
-                resolved[key] = resolvedValue;
-            } else {
-                resolved[key] = value;
-            }
-        }
-        return resolved;
-    }
-
-    /**
-     * Gets the damage value for a shootT1 action by looking up the first ammo item
-     * in the T1 weapon's internal inventory.
+     * Resolves a declarative `damageSource` path from live world state (BUG-036).
+     * Data-driven replacement of the former shootT1-only `_getT1AmmoVolume` special
+     * case: the path is declared in data/actions.json on the consequence (e.g.
+     * "equippedItem.firstChild.volume") and interpreted generically here.
+     *
+     * Supported path grammar (dot-separated, first segment is the anchor):
+     * - "equippedItem"           → the equipped item record for `componentId`
+     * - "item"                   → the inventory item instance of the current record
+     * - "firstChild"             → the first container child of the current item
+     * - "children"               → all container children of the current item
+     * - any other segment        → plain property access on the current object
+     *
+     * @param {string} damageSource - The declarative path (e.g., "equippedItem.firstChild.volume").
      * @param {string} entityId - The entity ID.
-     * @param {string} componentId - The component ID (may be eq- ID or direct component ID).
-     * @returns {number|null} The volume of the first ammo item, or null if no ammo found.
+     * @param {string} componentId - The source component ID (eq-* ID, comp-* ID, or item ID).
+     * @returns {number|null} The resolved numeric damage value, or null when unresolvable.
      * @private
      */
-    _getT1AmmoVolume(entityId, componentId) {
+    _resolveDeclaredDamageSource(damageSource, entityId, componentId) {
+        const segments = typeof damageSource === 'string' && damageSource !== ''
+            ? damageSource.split('.').filter(Boolean)
+            : [];
+        if (segments.length === 0 || segments[0] !== 'equippedItem') {
+            Logger.warn(`[ActionController] Unsupported damageSource anchor "${damageSource}" (expected "equippedItem...").`);
+            return null;
+        }
+
         const entity = this.worldStateController.getEntity(entityId);
         if (!entity) {
-            Logger.warn(`[ActionController] Entity "${entityId}" not found for T1 ammo lookup.`);
+            Logger.warn(`[ActionController] Entity "${entityId}" not found for damageSource "${damageSource}".`);
             return null;
         }
 
-        // Resolve the T1 item ID from the component/equipped-item ID
-        let t1ItemId = null;
-        let t1ItemType = null;
-
+        // Resolve the equipped item record from the component/equipped-item ID
+        let current = null;
         if (IdResolver.isEquippedId(componentId)) {
-            const equippedItem = this.worldStateController.getEquippedItem(entityId, componentId);
-            if (equippedItem) {
-                t1ItemId = equippedItem.itemId;
-                t1ItemType = equippedItem.itemType;
-            }
+            current = this.worldStateController.getEquippedItem(entityId, componentId);
         } else {
-            // Try to find equipped item by itemId
-            const equippedItem = this.worldStateController.getEquippedItemByItemId(entityId, componentId);
-            if (equippedItem && equippedItem.itemType) {
-                t1ItemType = equippedItem.itemType;
-                t1ItemId = equippedItem.itemId;
-            } else {
-                // Try direct lookup
-                const allEquipped = this.worldStateController.getEquippedItems(entityId);
-                const found = allEquipped?.find(eq => eq.itemId === componentId);
-                if (found) {
-                    t1ItemType = found.itemType;
-                    t1ItemId = found.itemId;
-                }
+            current = this.worldStateController.getEquippedItemByItemId(entityId, componentId);
+            if (!current) {
+                const found = this.worldStateController.getEquippedItems(entityId)?.find(eq => eq.itemId === componentId);
+                if (found) current = found;
             }
         }
 
-        if (t1ItemType !== 't1' || !t1ItemId) {
-            return null;
+        for (const segment of segments.slice(1)) {
+            if (!current) return null;
+
+            if (segment === 'item') {
+                current = this.worldStateController.inventoryManager.getItem(entity, current.itemId);
+            } else if (segment === 'firstChild') {
+                const children = this.worldStateController.inventoryManager.getContainerItems(entity, current.itemId ?? current.id);
+                current = children?.[0] ?? null;
+            } else if (segment === 'children') {
+                current = this.worldStateController.inventoryManager.getContainerItems(entity, current.itemId ?? current.id);
+            } else {
+                current = current[segment];
+            }
         }
 
-        // Get the children (ammo items) from the T1's internal inventory
-        const ammoItems = this.worldStateController.inventoryManager.getContainerItems(entity, t1ItemId);
-
-        if (!ammoItems || ammoItems.length === 0) {
-            return null;
-        }
-
-        return ammoItems[0].volume || 0;
+        return typeof current === 'number' ? current : null;
     }
 
     /**
@@ -675,19 +664,19 @@ class ActionController {
             ? this.resolveActionValues(actionName, resolveComponentId, entityId)
             : {};
 
-        // Special handling for shootT1: resolve damage from first ammo item volume
-        if (actionName === 'shootT1' && resolveComponentId) {
-            const ammoVolume = this._getT1AmmoVolume(entityId, resolveComponentId);
-            if (ammoVolume !== null) {
-                // Update the consumeItemAndDamage consequence value with the actual ammo volume
-                resolvedValues = { ...resolvedValues };
-                if (resolvedValues.consumeItemAndDamage) {
-                    resolvedValues.consumeItemAndDamage = {
-                        ...resolvedValues.consumeItemAndDamage,
-                        value: ammoVolume
+        // Declarative damage override (BUG-036): any consequence that declares a
+        // damageSource (data/actions.json) has its 'value' resolved from live world
+        // state (e.g., shootT1: "equippedItem.firstChild.volume" → first ammo volume).
+        if (resolveComponentId) {
+            for (const consequence of actionDef.consequences) {
+                if (!consequence.damageSource) continue;
+                const resolvedDamage = this._resolveDeclaredDamageSource(consequence.damageSource, entityId, resolveComponentId);
+                if (resolvedDamage !== null) {
+                    resolvedValues = { ...resolvedValues };
+                    resolvedValues[consequence.type] = {
+                        ...(resolvedValues[consequence.type] || {}),
+                        value: resolvedDamage
                     };
-                } else {
-                    resolvedValues.consumeItemAndDamage = { value: ammoVolume };
                 }
             }
         }

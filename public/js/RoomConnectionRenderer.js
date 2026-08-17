@@ -7,6 +7,7 @@
  * @module RoomConnectionRenderer
  */
 import { AppConfig } from './Config.js';
+import { getRoomEdgePoint } from '/utils/geometry.js';
 
 export class RoomConnectionRenderer {
     /**
@@ -514,47 +515,13 @@ export class RoomConnectionRenderer {
 
     /**
      * Calculates the edge point on a room's boundary toward another room.
+     * Thin delegate to the shared geometry util (Phase 4: the edge-point math
+     * was duplicated in WorldMapView._getEdgePoint; consolidated in
+     * public/utils/geometry.js).
      * @private
      */
     static _getEdgePoint(room, otherRoom, roomCX, roomCY, offsetX = 0, offsetY = 0) {
-        // Use the same offset as _drawConnection for consistent coordinate system
-        // otherRoom coordinates are relative to room (offset by room.x/room.y)
-        const otherCX = offsetX + (otherRoom.x - room.x) + otherRoom.width / 2;
-        const otherCY = offsetY + (otherRoom.y - room.y) + otherRoom.height / 2;
-
-        // Direction from room center to other room center
-        const dx = otherCX - roomCX;
-        const dy = otherCY - roomCY;
-
-        // Room boundaries relative to center
-        const halfW = room.width / 2;
-        const halfH = room.height / 2;
-
-        // Determine which edge to use
-        // Use >= to handle the tie case: when direction is more horizontal, hit left/right edge
-        const absDx = Math.abs(dx);
-        const absDy = Math.abs(dy);
-
-        let edgeX, edgeY;
-
-        if (absDx * halfH >= absDy * halfW) {
-            // Left or right edge
-            const sign = dx > 0 ? 1 : -1;
-            edgeX = roomCX + sign * halfW;
-            edgeY = roomCY + (dy / absDx) * halfW;
-        } else {
-            // Top or bottom edge
-            const sign = dy > 0 ? 1 : -1;
-            edgeY = roomCY + sign * halfH;
-            edgeX = roomCX + (dx / absDy) * halfH;
-        }
-
-        // Clamp to room boundaries (in SVG coordinate space)
-        // The room's SVG bounds are offsetX to offsetX+width, offsetY to offsetY+height
-        edgeX = Math.max(offsetX, Math.min(offsetX + room.width, edgeX));
-        edgeY = Math.max(offsetY, Math.min(offsetY + room.height, edgeY));
-
-        return [edgeX, edgeY];
+        return getRoomEdgePoint(room, otherRoom, roomCX, roomCY, offsetX, offsetY);
     }
 
     /**

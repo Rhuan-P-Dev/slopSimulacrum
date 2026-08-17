@@ -1,3 +1,4 @@
+import ClientLogger from '/utils/ClientLogger.js';
 /**
  * ClientErrorController
  * Handles error resolution and formatting on the client side.
@@ -45,7 +46,7 @@ export class ClientErrorController {
             finalMessage = message || 'An unknown system error occurred.';
         }
 
-        console.error(`[ClientErrorController] [${code || 'UNKNOWN'}] ${finalMessage}`);
+        ClientLogger.error('ClientErrorController', ` [${code || 'UNKNOWN'}] ${finalMessage}`);
         this.uiManager.showErrorPopup(finalMessage);
     }
 

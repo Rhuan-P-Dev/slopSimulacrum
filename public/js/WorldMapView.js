@@ -22,6 +22,7 @@
  * @module WorldMapView
  */
 import { AppConfig } from './Config.js';
+import { getRoomEdgePoint } from '/utils/geometry.js';
 
 export class WorldMapView {
     /**
@@ -469,34 +470,14 @@ export class WorldMapView {
 
     /**
      * Calculates the edge point on a room's boundary toward another room.
+     * Thin delegate to the shared geometry util (Phase 4: consolidated with
+     * RoomConnectionRenderer._getEdgePoint in public/utils/geometry.js).
+     * Note: room.x/room.y are passed as offsets so clamping stays in raw
+     * room-data coordinates, exactly as before.
      * @private
      */
     _getEdgePoint(room, otherRoom, roomCX, roomCY) {
-        const otherCX = otherRoom.x + otherRoom.width / 2;
-        const otherCY = otherRoom.y + otherRoom.height / 2;
-
-        const dx = otherCX - roomCX;
-        const dy = otherCY - roomCY;
-
-        const halfW = room.width / 2;
-        const halfH = room.height / 2;
-
-        let edgeX, edgeY;
-
-        if (Math.abs(dx) * halfH > Math.abs(dy) * halfW) {
-            const sign = dx > 0 ? 1 : -1;
-            edgeX = roomCX + sign * halfW;
-            edgeY = roomCY + (dy / Math.abs(dx)) * halfW;
-        } else {
-            const sign = dy > 0 ? 1 : -1;
-            edgeY = roomCY + sign * halfH;
-            edgeX = roomCX + (dx / Math.abs(dy)) * halfH;
-        }
-
-        edgeX = Math.max(room.x, Math.min(room.x + room.width, edgeX));
-        edgeY = Math.max(room.y, Math.min(room.y + room.height, edgeY));
-
-        return [edgeX, edgeY];
+        return getRoomEdgePoint(room, otherRoom, roomCX, roomCY, room.x, room.y);
     }
 
     /**

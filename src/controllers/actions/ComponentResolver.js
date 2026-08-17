@@ -15,9 +15,19 @@ import IdResolver from '../../utils/IdResolver.js';
 
 class ComponentResolver {
     /**
-     * @param {WorldStateController} worldStateController - The root state controller.
+     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
-    constructor(worldStateController) {
+    constructor() {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
         this.worldStateController = worldStateController;
     }
 
@@ -42,7 +52,7 @@ class ComponentResolver {
                 }
 
                 // Accept typed component IDs (comp-...), equipped item IDs (eq-...), and legacy raw UUIDs
-                if (IdResolver.isCompId(compId) || IdResolver.isEquippedId(compId) || this._isLegacyCompId(compId)) {
+                if (IdResolver.isCompId(compId) || IdResolver.isEquippedId(compId) || IdResolver.isLegacyCompId(compId)) {
                     const entry = typeof comp === 'object' ? comp : { componentId: compId, role: 'source' };
                     validComponentIds.push(entry);
                 } else {
@@ -75,16 +85,6 @@ class ComponentResolver {
     }
 
     /**
-     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
-     * @param {string} id - The ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isLegacyCompId(id) {
-        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    }
-
-    /**
      * Resolves the source component ID based on action binding configuration.
      * Resolution priority:
      * 1. attackerComponentId (punch actions)
@@ -114,7 +114,7 @@ class ComponentResolver {
         if (resolvedSourceComponentId && typeof resolvedSourceComponentId === 'string' &&
             !IdResolver.isCompId(resolvedSourceComponentId) &&
             !IdResolver.isEquippedId(resolvedSourceComponentId) &&
-            !this._isLegacyCompId(resolvedSourceComponentId)) {
+            !IdResolver.isLegacyCompId(resolvedSourceComponentId)) {
             Logger.warn(`[ComponentResolver] Invalid component ID format: "${resolvedSourceComponentId}". Must be a typed comp-..., eq-..., or raw UUID.`);
             return null;
         }

@@ -20,14 +20,25 @@ import IdResolver from '../../utils/IdResolver.js';
 
 class ConsequenceDispatcher {
     /**
-     * @param {WorldStateController} worldStateController - The root state controller.
      * @param {ActionController} actionController - Reference to ActionController.
      * @param {SynergyController} [synergyController] - The synergy system controller.
+     *
+     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * setWorldStateController() (called by ActionController.setWorldStateController()).
      */
-    constructor(worldStateController, actionController, synergyController) {
-        this.worldStateController = worldStateController;
+    constructor(actionController, synergyController) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.actionController = actionController;
         this.synergyController = synergyController;
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     /**
@@ -47,78 +58,31 @@ class ConsequenceDispatcher {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
         }
 
-        const results = [];
-        const context = {
+        // Phase 4 dedup: the per-consequence loop was extracted into
+        // _dispatchConsequences() (shared with executeMultiAttacker). Options keep
+        // this path's exact semantics:
+        // - targetParams: the ORIGINAL params are used for target resolution (the
+        //   entityId-carrying context params are only used for placeholder
+        //   resolution, so :entityId, :itemId, :itemType resolve correctly).
+        // - propagateParams: handler-modified actionParams flow into later
+        //   consequences in the same pipeline (e.g., itemVolume set by
+        //   ConsumeItemHandler).
+        // - includeResolvedSourceId: equipped-item 'self' targets carry their eqId
+        //   as resolvedSourceId so handlers can route stat changes to
+        //   EquippedItemStatsController instead of the host component.
+        const { results } = this._dispatchConsequences(action.consequences, {
+            action,
+            actionName,
+            entityId,
             requirementValues,
-            actionParams: { ...params, entityId },
+            targetParams: params,
+            initialContextParams: { ...params, entityId },
             fulfillingComponents,
-            synergyResult
-        };
-
-        for (const consequence of action.consequences) {
-            // Use context.actionParams (which includes entityId) for resolution,
-            // so placeholders like :entityId, :itemId, :itemType resolve correctly.
-            const resolvedParams = this._resolveParams(consequence.params, requirementValues, context.actionParams);
-
-            const handler = this.actionController.consequenceHandlers.handlers[consequence.type];
-            if (!handler) {
-                results.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
-                continue;
-            }
-
-            try {
-                const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-                const targetResult = this._resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action, actionName, primaryComponentId);
-
-                if (!targetResult.success) {
-                    results.push({
-                        success: false,
-                        error: this._resolveError({
-                            code: 'CONSEQUENCE_EXECUTION_FAILED',
-                            details: { type: consequence.type, error: targetResult.error }
-                        }),
-                        type: consequence.type
-                    });
-                    continue;
-                }
-
-                // Pass the consequence target type to the handler for interpretation
-                // For equipped item 'self' targets, include the resolved source eqId so handlers
-                // can route stat changes to EquippedItemStatsController instead of the host component.
-                const isEquippedItemSelf = consequence.target === 'self' && context.actionParams.attackerComponentId && IdResolver.isEquippedId(context.actionParams.attackerComponentId);
-                const handlerContext = {
-                    ...context,
-                    actionParams: { ...context.actionParams, consequenceTarget: consequence.target },
-                    // When the source is an equipped item and target is 'self', provide the eqId
-                    // so handlers can route to EquippedItemStatsController
-                    ...(isEquippedItemSelf ? { resolvedSourceId: context.actionParams.attackerComponentId } : {})
-                };
-                const result = handler(targetResult.targetId, effectiveParams, handlerContext);
-
-                // Propagate handler-modified actionParams back to context so subsequent
-                // consequences in the same pipeline can see values set by earlier handlers
-                // (e.g., itemVolume set by ConsumeItemHandler).
-                Object.assign(context.actionParams, handlerContext.actionParams);
-
-                results.push({
-                    success: true,
-                    type: consequence.type,
-                    synergyApplied: synergyResult !== null,
-                    target: consequence.target,
-                    ...result
-                });
-            } catch (error) {
-                const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
-                results.push({
-                    success: false,
-                    error: this._resolveError({
-                        code: 'CONSEQUENCE_EXECUTION_FAILED',
-                        details: { type: consequence.type, error: errorMsg }
-                    }),
-                    type: consequence.type
-                });
-            }
-        }
+            synergyResult,
+            primaryComponentId,
+            propagateParams: true,
+            includeResolvedSourceId: true
+        });
 
         return { success: true, executedConsequences: results.length, results };
     }
@@ -141,7 +105,6 @@ class ConsequenceDispatcher {
         }
 
         const allResults = [];
-        const targetComponentId = params.targetComponentId;
 
         for (const attackerId of attackerComponentIds) {
             // Resolve equipment IDs (eq-*) to host component IDs (comp-*) for stats lookup
@@ -183,63 +146,32 @@ class ConsequenceDispatcher {
 
             const perAttackerConsequences = this._buildPerAttackerConsequences(action, attackerStrength);
 
-            for (const consequence of perAttackerConsequences) {
-                const handler = this.actionController.consequenceHandlers.handlers[consequence.type];
-                if (!handler) {
-                    allResults.push({ success: false, error: `Unknown consequence type: "${consequence.type}"` });
-                    continue;
-                }
-
-                try {
-                    const resolvedParams = this._resolveParams(consequence.params, perAttackerReqValues, perAttackerParams);
-                    const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-
-                    const targetResult = this._resolveTargetForConsequence(consequence, entityId, perAttackerParams, perAttackerFulfilling, action, actionName);
-
-                    if (!targetResult.success) {
-                        allResults.push({
-                            success: false,
-                            error: this._resolveError({
-                                code: 'CONSEQUENCE_EXECUTION_FAILED',
-                                details: { type: consequence.type, error: targetResult.error }
-                            }),
-                            type: consequence.type,
-                            attackerComponentId: attackerId
-                        });
-                        continue;
-                    }
-
-                    // Pass the consequence target type to the handler for interpretation
-                    const handlerContext = {
-                        requirementValues: perAttackerReqValues,
-                        actionParams: { ...perAttackerParams, consequenceTarget: consequence.target },
-                        fulfillingComponents: perAttackerFulfilling,
-                        synergyResult,
-                        attackerComponentId: attackerId
-                    };
-                    const result = handler(targetResult.targetId, effectiveParams, handlerContext);
-
-                    allResults.push({
-                        success: true,
-                        type: consequence.type,
-                        target: consequence.target,
-                        attackerComponentId: attackerId,
-                        synergyApplied: synergyResult !== null,
-                        ...result
-                    });
-                } catch (error) {
-                    const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
-                    allResults.push({
-                        success: false,
-                        error: this._resolveError({
-                            code: 'CONSEQUENCE_EXECUTION_FAILED',
-                            details: { type: consequence?.type || 'unknown', error: errorMsg }
-                        }),
-                        type: consequence?.type || 'unknown',
-                        attackerComponentId: attackerId
-                    });
-                }
-            }
+            // Phase 4 dedup: shared per-consequence loop (see _dispatchConsequences).
+            // Options preserve this path's exact semantics:
+            // - resultMeta: every per-result entry is tagged with attackerComponentId
+            //   (the metadata the multi-attacker path has always produced).
+            // - extraHandlerContext: attackerComponentId is also passed inside the
+            //   handler context (preserved from the original implementation).
+            // - propagateParams: false — the original multi-attacker loop never
+            //   merged handler-modified params back into its context.
+            // - includeResolvedSourceId: false — the original loop did not add
+            //   resolvedSourceId to the handler context.
+            const { results } = this._dispatchConsequences(perAttackerConsequences, {
+                action,
+                actionName,
+                entityId,
+                requirementValues: perAttackerReqValues,
+                targetParams: perAttackerParams,
+                initialContextParams: perAttackerParams,
+                fulfillingComponents: perAttackerFulfilling,
+                synergyResult,
+                primaryComponentId: null,
+                resultMeta: { attackerComponentId: attackerId },
+                extraHandlerContext: { attackerComponentId: attackerId },
+                propagateParams: false,
+                includeResolvedSourceId: false
+            });
+            allResults.push(...results);
         }
 
         return {
@@ -266,16 +198,6 @@ class ConsequenceDispatcher {
         const results = [];
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
-            const handler = this.actionController.consequenceHandlers.handlers[consequence.type];
-
-            if (!handler) {
-                results.push({
-                    success: false,
-                    error: `Unknown consequence type: "${consequence.type}"`,
-                    type: consequence.type
-                });
-                continue;
-            }
 
             const targetResult = this._resolveTargetForConsequence(consequence, entityId, {}, {}, action, actionName);
 
@@ -293,11 +215,25 @@ class ConsequenceDispatcher {
 
             // Pass the consequence target type to the handler for interpretation
             const handlerContext = { actionParams: { consequenceTarget: consequence.target } };
+            const dispatchResult = this.actionController.consequenceHandlers.dispatch(
+                consequence.type,
+                targetResult.targetId,
+                resolvedParams,
+                handlerContext
+            );
+            if (dispatchResult && dispatchResult.error === 'no-handler') {
+                results.push({
+                    success: false,
+                    error: `Unknown consequence type: "${consequence.type}"`,
+                    type: consequence.type
+                });
+                continue;
+            }
             results.push({
                 success: true,
                 type: consequence.type,
                 target: consequence.target,
-                ...handler(targetResult.targetId, resolvedParams, handlerContext)
+                ...dispatchResult
             });
         }
 
@@ -307,6 +243,137 @@ class ConsequenceDispatcher {
     // =========================================================================
     // PRIVATE HELPERS
     // =========================================================================
+
+    /**
+     * Shared per-consequence dispatch loop, extracted (Phase 4) from the ~80%
+     * duplicated bodies of execute() and executeMultiAttacker().
+     *
+     * Behavior is option-driven so each caller preserves its exact historical
+     * semantics (see the option call sites):
+     * - Placeholder resolution always uses `contextParams` (the entity-aware
+     *   params), while target resolution uses `targetParams`.
+     * - `propagateParams` mirrors the execute() behavior of merging
+     *   handler-modified actionParams back into the shared context.
+     * - `includeResolvedSourceId` mirrors execute()'s equipped-item 'self'
+     *   resolvedSourceId injection.
+     * - `resultMeta`/`extraHandlerContext` carry the multi-attacker
+     *   attackerComponentId metadata into results and the handler context.
+     *
+     * @param {Array} consequences - The consequence definitions to execute.
+     * @param {Object} opts - Dispatch options.
+     * @returns {{ results: Array }} The per-consequence result entries.
+     * @private
+     */
+    _dispatchConsequences(consequences, {
+        action,
+        actionName,
+        entityId,
+        requirementValues,
+        targetParams,
+        initialContextParams,
+        fulfillingComponents,
+        synergyResult,
+        primaryComponentId = null,
+        resultMeta = null,
+        extraHandlerContext = null,
+        propagateParams = false,
+        includeResolvedSourceId = false
+    }) {
+        const results = [];
+        // Mutable context: actionParams start from the caller-provided values and
+        // may accumulate handler-modified values across consequences when
+        // propagateParams is set (single-attacker execute() semantics).
+        const context = {
+            requirementValues,
+            actionParams: { ...initialContextParams },
+            fulfillingComponents,
+            synergyResult
+        };
+
+        for (const consequence of consequences) {
+            const meta = resultMeta ? { ...resultMeta } : {};
+
+            // Use contextParams (which includes entityId for execute()) for
+            // resolution, so placeholders like :entityId, :itemId, :itemType
+            // resolve correctly.
+            const resolvedParams = this._resolveParams(consequence.params, requirementValues, context.actionParams);
+
+            try {
+                const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
+                const targetResult = this._resolveTargetForConsequence(consequence, entityId, targetParams, fulfillingComponents, action, actionName, primaryComponentId);
+
+                if (!targetResult.success) {
+                    results.push({
+                        success: false,
+                        error: this._resolveError({
+                            code: 'CONSEQUENCE_EXECUTION_FAILED',
+                            details: { type: consequence.type, error: targetResult.error }
+                        }),
+                        type: consequence.type,
+                        ...meta
+                    });
+                    continue;
+                }
+
+                // Pass the consequence target type to the handler for interpretation.
+                // For equipped item 'self' targets (execute() path), include the
+                // resolved source eqId so handlers can route stat changes to
+                // EquippedItemStatsController instead of the host component.
+                const isEquippedItemSelf = includeResolvedSourceId && consequence.target === 'self'
+                    && context.actionParams.attackerComponentId && IdResolver.isEquippedId(context.actionParams.attackerComponentId);
+                const handlerContext = {
+                    ...context,
+                    actionParams: { ...context.actionParams, consequenceTarget: consequence.target },
+                    // When the source is an equipped item and target is 'self', provide the eqId
+                    // so handlers can route to EquippedItemStatsController
+                    ...(isEquippedItemSelf ? { resolvedSourceId: context.actionParams.attackerComponentId } : {}),
+                    ...(extraHandlerContext || {})
+                };
+                // Dispatch through the ConsequenceHandlers public API (BUG-122: no direct
+                // access to the internal handlers map from outside the handler system).
+                const dispatchResult = this.actionController.consequenceHandlers.dispatch(
+                    consequence.type,
+                    targetResult.targetId,
+                    effectiveParams,
+                    handlerContext
+                );
+                if (dispatchResult && dispatchResult.error === 'no-handler') {
+                    results.push({ success: false, error: `Unknown consequence type: "${consequence.type}"`, type: consequence.type, ...meta });
+                    continue;
+                }
+                const result = dispatchResult;
+
+                // Propagate handler-modified actionParams back to context so subsequent
+                // consequences in the same pipeline can see values set by earlier handlers
+                // (e.g., itemVolume set by ConsumeItemHandler) — execute() semantics only.
+                if (propagateParams) {
+                    Object.assign(context.actionParams, handlerContext.actionParams);
+                }
+
+                results.push({
+                    success: true,
+                    type: consequence.type,
+                    synergyApplied: synergyResult !== null,
+                    target: consequence.target,
+                    ...meta,
+                    ...result
+                });
+            } catch (error) {
+                const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+                results.push({
+                    success: false,
+                    error: this._resolveError({
+                        code: 'CONSEQUENCE_EXECUTION_FAILED',
+                        details: { type: consequence.type, error: errorMsg }
+                    }),
+                    type: consequence.type,
+                    ...meta
+                });
+            }
+        }
+
+        return { results };
+    }
 
     /**
      * Resolves placeholders in consequence params.

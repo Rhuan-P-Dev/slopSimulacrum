@@ -30,12 +30,11 @@ import Logger from '../../utils/Logger.js';
 
 class EquippedItemStatsController {
     /**
-     * @param {Object} deps - Dependencies
-     * @param {Object} deps.worldStateController - WorldStateController for item registry access
+     * FASE 5: the facade reference previously stored here was dead code (stored but
+     * never read) — it has been removed. This is now a pure data store with no
+     * controller dependencies.
      */
-    constructor({ worldStateController }) {
-        this.worldStateController = worldStateController;
-
+    constructor() {
         /**
          * Callback triggered whenever an item stat changes (delta or absolute).
          * Receives (eqId, traitId, statName, newValue, oldValue).

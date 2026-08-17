@@ -7,6 +7,7 @@
  */
 
 import IdResolver from '/utils/IdResolver.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * @typedef {Object} SelectionState
@@ -146,7 +147,7 @@ class SelectionController {
      * @returns {Promise<void>}
      */
     async toggleComponent(actionName, entityId, componentId, componentIdentifier) {
-        console.log('[SelectionController DEBUG] === TOGGLE COMPONENT ===', {
+        ClientLogger.debug('SelectionController', '=== TOGGLE COMPONENT ===', {
             actionName, entityId, componentId, componentIdentifier,
             previousActiveActionName: this.activeActionName,
             previousSelectedIds: Array.from(this.selectedComponentIds),
@@ -156,7 +157,7 @@ class SelectionController {
 
         const actionData = this.app.availableActions?.[actionName];
         const targetingType = actionData?.targetingType;
-        console.log('[SelectionController DEBUG] actionData:', { actionName, targetingType, hasActionData: !!actionData });
+        ClientLogger.debug('SelectionController', 'actionData:', { actionName, targetingType, hasActionData: !!actionData });
 
         // If clicking a different action than current active, switch actions
         if (this.activeActionName && this.activeActionName !== actionName) {
@@ -200,47 +201,47 @@ class SelectionController {
         // Toggle the component
         if (this.selectedComponentIds.has(componentId)) {
             this.selectedComponentIds.delete(componentId);
-            console.log(`[SelectionController DEBUG] → Component DESELECTED: ${componentId}`);
+            ClientLogger.debug('SelectionController', ` → Component DESELECTED: ${componentId}`);
         } else {
             this.selectedComponentIds.add(componentId);
-            console.log(`[SelectionController DEBUG] → Component SELECTED: ${componentId}`);
+            ClientLogger.debug('SelectionController', ` → Component SELECTED: ${componentId}`);
         }
-        console.log('[SelectionController DEBUG] After toggle, selectedComponentIds:', Array.from(this.selectedComponentIds));
+        ClientLogger.debug('SelectionController', 'After toggle, selectedComponentIds:', Array.from(this.selectedComponentIds));
 
         // For spatial/component/self_target actions: set pending action so map/entity clicks trigger execution
         if (this.selectedComponentIds.size > 0 && targetingType && targetingType !== 'none') {
-            console.log('[SelectionController DEBUG] → Calling actions._handleTargetingSelection:', {
+            ClientLogger.debug('SelectionController', '→ Calling actions._handleTargetingSelection:', {
                 actionName, entityId, componentId, componentIdentifier, targetingType
             });
             this.actions._handleTargetingSelection(
                 actionName, entityId, componentId, componentIdentifier, targetingType
             );
-            console.log('[SelectionController DEBUG] → _handleTargetingSelection completed');
+            ClientLogger.debug('SelectionController', '→ _handleTargetingSelection completed');
         } else if (this.selectedComponentIds.size === 0) {
             // If no components selected, clear pending
-            console.log('[SelectionController DEBUG] → No components selected, clearing pending action');
+            ClientLogger.debug('SelectionController', '→ No components selected, clearing pending action');
             this.actions.clearPendingAction();
         } else {
-            console.log('[SelectionController DEBUG] → targetingType is none or null, NOT setting pending action');
+            ClientLogger.debug('SelectionController', '→ targetingType is none or null, NOT setting pending action');
         }
 
         // For self_target actions: execute immediately with selected component
         if (this.selectedComponentIds.size === 1 && targetingType === 'self_target') {
             const compId = Array.from(this.selectedComponentIds)[0];
-            console.log('[SelectionController DEBUG] → self_target action, executing immediately');
+            ClientLogger.debug('SelectionController', '→ self_target action, executing immediately');
             await this.app.executor.executeSelfTarget(actionName, entityId, compId, componentIdentifier);
             // Clear pending action to prevent stale state on subsequent map clicks
             this.actions.clearPendingAction();
         }
 
-        console.log('[SelectionController DEBUG] → Final state:', {
+        ClientLogger.debug('SelectionController', '→ Final state:', {
             activeActionName: this.activeActionName,
             selectedComponentIds: Array.from(this.selectedComponentIds),
             pendingAction: this.actions.getPendingAction()
         });
 
         // Notify app of selection change (triggers UI re-render + synergy preview)
-        console.log('[SelectionController DEBUG] → Calling app.onSelectionChange()');
+        ClientLogger.debug('SelectionController', '→ Calling app.onSelectionChange()');
         this.app.onSelectionChange();
     }
 
@@ -258,7 +259,7 @@ class SelectionController {
             if (crossSet.size === 0) {
                 this.crossActionSelections.delete(lockedActionName);
             }
-            console.log(`[SelectionController] Grayed component removed from cross-action: ${componentId}`, { lockedActionName });
+            ClientLogger.info('SelectionController', ` Grayed component removed from cross-action: ${componentId}`, { lockedActionName });
         }
 
         // Also clear from active selection if present (edge case)
@@ -274,7 +275,7 @@ class SelectionController {
      * can recover the action name, component selections, and targeting configuration.
      */
     clearAllSelections() {
-        console.log('[SelectionController DEBUG] clearAllSelections called', {
+        ClientLogger.debug('SelectionController', 'clearAllSelections called', {
             activeActionName: this.activeActionName,
             currentPreviousActionName: this.previousActionName,
             previousActionState: this.previousActionState,
@@ -299,7 +300,7 @@ class SelectionController {
         this.crossActionSelections.clear();
         this.activeActionName = null;
         this.ui.clearSynergyPreview();
-        console.log('[SelectionController] All selections cleared');
+        ClientLogger.info('SelectionController', ' All selections cleared');
     }
 
     /**
@@ -511,7 +512,7 @@ class SelectionController {
                 this.crossActionSelections.set(key, new Set(value || []));
             }
         }
-        console.log('[SelectionController] Selection state restored', {
+        ClientLogger.info('SelectionController', ' Selection state restored', {
             activeAction: this.activeActionName,
             selectedCount: this.selectedComponentIds.size
         });

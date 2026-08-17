@@ -377,7 +377,10 @@ export class ComponentViewer {
             } else {
                 // Fall back to API fetch if entity reference not available
                 try {
-                    const response = await fetch(`/api/internal-components/${this._currentEntityId}/${componentId}`);
+                    // Phase 4: /api prefix removed — internal component routes now
+                    // follow the same unprefixed API convention as every other endpoint
+                    // (see src/routes/index.js).
+                    const response = await fetch(`/internal-components/${this._currentEntityId}/${componentId}`);
                     if (response.ok) {
                         internalComps = await response.json();
                         this._internalComponentCache[componentId] = internalComps;

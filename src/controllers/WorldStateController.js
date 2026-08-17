@@ -1,210 +1,83 @@
 import DataLoader from '../utils/DataLoader.js';
-import ComponentStatsController from './core/componentStatsController.js';
-import TraitsController from './traits/TraitsController.js';
-import InternalComponentController from './core/InternalComponentController.js';
-import ComponentController from './core/componentController.js';
-import EntityController from './core/entityController.js';
-import RoomsController from './core/RoomsController.js';
-import ComponentCapabilityController from './capabilities/componentCapabilityController.js';
-import ActionSelectController from './actions/actionSelectController.js';
-import SynergyController from './synergy/synergyController.js';
-import ActionController from './actions/actionController.js';
-import ConsequenceHandlers from './consequences/consequenceHandlers.js';
-import EquippedItemStatsController from './core/EquippedItemStatsController.js';
-import stateEntityController from './core/stateEntityController.js';
-import InventoryManager from '../utils/InventoryManager.js';
-import HoldingCostController from './core/HoldingCostController.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
 
+/**
+ * WorldStateController — the world-state facade (thin root).
+ *
+ * FASE 5 (god-class refactoring): this class NO LONGER instantiates its own
+ * sub-controllers. Every sub-controller is constructed by the composition root
+ * (src/composition/WorldComposition.js — `buildWorldState()`), which builds them
+ * in topological dependency order and hands them here via `deps`. This removes
+ * the old constructor-ordering defect (BUG-100 root cause): previously the
+ * facade passed `this` to each sub-controller BEFORE its own properties were
+ * fully assigned, creating dependency cycles and partially-initialized access.
+ *
+ * Construction contract:
+ *   - The constructor only STORES the injected sub-controllers and wires the
+ *     internal observers/listeners between them. It never instantiates a
+ *     sub-controller and never passes `this` to one.
+ *   - Sub-controllers that legitimately depend on THIS facade receive it via a
+ *     `setWorldStateController()` setter, called by the composition root AFTER
+ *     this facade is fully constructed. See the JSDoc of each setter.
+ *   - World initialization (`initializeWorld()`) and the initial capability
+ *     scan are triggered by the composition root, not here, so that all facade
+ *     references are in place before any code path that can trigger sub-controllers.
+ *
+ * The public method surface (64 methods) is unchanged and snapshot-guarded by
+ * test/contract/worldStateController.contract.test.js.
+ */
 class WorldStateController {
     /**
-     * @param {UniversalTickSystem} [tickSystem] - The global tick system instance.
+     * @param {Object} deps - Fully-constructed sub-controllers (injected by the
+     *   composition root). See the individual JSDoc for each named dependency.
+     * @param {UniversalTickSystem|null} [deps.tickSystem] - The global tick system.
+     * @param {ComponentStatsController} deps.statsController
+     * @param {TraitsController} deps.traitsController
+     * @param {InternalComponentController} deps.internalComponentController
+     * @param {ComponentController} deps.componentController
+     * @param {EntityController} deps.entityController
+     * @param {RoomsController} deps.roomsController
+     * @param {InventoryManager} deps.inventoryManager
+     * @param {EquippedItemStatsController} deps.equippedItemStats
+     * @param {ComponentCapabilityController} deps.componentCapabilityController
+     * @param {ActionSelectController} deps.actionSelectController
+     * @param {SynergyController} deps.synergyController
+     * @param {ConsequenceHandlers} deps.consequenceHandlers
+     * @param {ActionController} deps.actionController
+     * @param {stateEntityController} deps.stateEntityController
+     * @param {HoldingCostController} deps.holdingCostController
      */
-    constructor(tickSystem = null) {
-        // 0. Load Configuration Data
-        const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');
-        const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
-        const traitsRegistry = DataLoader.loadJsonSafe('data/traits.json');
-
-        // Warn if action registry is empty or missing
-        if (!actionRegistry || Object.keys(actionRegistry).length === 0) {
-            Logger.warn('Action registry is empty or missing. Actions will not be available.');
+    constructor(deps) {
+        if (!deps || typeof deps !== 'object') {
+            throw new Error(
+                '[WorldStateController] Missing injected dependencies. ' +
+                'Construct via buildWorldState() (src/composition/WorldComposition.js), ' +
+                'not directly — the facade no longer self-instantiates its sub-controllers.'
+            );
         }
 
-        // 1. Instantiate Data Stores (Bottom level)
-        const statsController = new ComponentStatsController();
-        const traitsController = new TraitsController(traitsRegistry);
+        // --- Store the injected sub-controllers (named dependencies) -------------
+        /** @private {UniversalTickSystem|null} */
+        this.tickSystem = deps.tickSystem ?? null;
+        this.statsController = deps.statsController;
+        this.traitsController = deps.traitsController;
+        this.internalComponentController = deps.internalComponentController;
+        this.componentController = deps.componentController;
+        this.entityController = deps.entityController;
+        this.roomsController = deps.roomsController;
+        this.inventoryManager = deps.inventoryManager;
+        this.equippedItemStats = deps.equippedItemStats;
+        this.componentCapabilityController = deps.componentCapabilityController;
+        this.actionSelectController = deps.actionSelectController;
+        this.synergyController = deps.synergyController;
+        this.consequenceHandlers = deps.consequenceHandlers;
+        this.actionController = deps.actionController;
+        this.stateEntityController = deps.stateEntityController;
+        this.holdingCostController = deps.holdingCostController;
 
-        // Internal Components — State Controller (self-instantiating, no DI)
-        // Pass tickSystem to enable unified tick processing
-        const internalComponentController = new InternalComponentController(null, tickSystem);
-        this.internalComponentController = internalComponentController;
-
-        // 2. Instantiate Logic Controllers (Middle level - Injected with Data Stores and Registries)
-        const blueprintRegistry = DataLoader.loadJsonSafe('data/blueprints.json', {});
-        const componentController = new ComponentController(statsController, traitsController, componentRegistry);
-        const entityController = new EntityController(componentController, blueprintRegistry);
-
-        // 3. Instantiate Instance Managers (Top level - Injected with Logic Controllers)
-        const roomsController = new RoomsController();
-        this.roomsController = roomsController;
-        this.componentController = componentController;
-
-        // 4. Instantiate ComponentCapabilityController (Capability Cache Manager)
-        // Manages component capability scanning, caching, scoring, and re-evaluation.
-        const componentCapabilityController = new ComponentCapabilityController(this, actionRegistry);
-        this.componentCapabilityController = componentCapabilityController;
-
-        // 5. Instantiate ActionSelectController (Component selection/locking)
-        // Enforces "one component, one action" rule: if a component is selected for action A,
-        // it cannot be used for action B simultaneously.
-        const actionSelectController = new ActionSelectController(this);
-        this.actionSelectController = actionSelectController;
-
-        // 6. Instantiate SynergyController (Synergy System — computes multi-entity/component synergy multipliers)
-        // Loads synergy config from data/synergy.json (decoupled from actions.json)
-        // Injected with ActionSelectController for locked-component exclusion in synergy pools.
-        const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
-        const synergyController = new SynergyController(this, actionRegistry, synergyRegistry, actionSelectController);
-        this.synergyController = synergyController;
-
-        // 6.5. Instantiate EquippedItemStatsController BEFORE ActionController.
-        // Manages per-instance mutable stats (sharpness, durability) for equipped items.
-        // Must be available for injection into RequirementResolver so that
-        // requirementValues reflect CURRENT stats, not static inventoryItems.json definitions.
-        const equippedItemStats = new EquippedItemStatsController({ worldStateController: this });
-        this.equippedItemStats = equippedItemStats;
-
-        // 7. Instantiate ActionController (Top level - Injected with Dependencies)
-        // NOTE: Create consequenceHandlers AFTER properties are assigned to avoid receiving partially initialized controller
-        const consequenceHandlers = new ConsequenceHandlers({ worldStateController: this, equippedItemStats: equippedItemStats });
-        const actionController = new ActionController(
-            this,
-            consequenceHandlers,
-            actionRegistry,
-            componentCapabilityController,
-            synergyController,
-            actionSelectController,
-            equippedItemStats
-        );
-        this.actionController = actionController;
-
-        // 8. Instantiate stateEntityController with actionController and internalComponentController
-        // This follows proper DI pattern - no forward references needed
-        const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
-        this.stateEntityController = stateEntityControllerInstance;
-
-        // Register spawn observer — adds test items + knives to every spawned entity
-        stateEntityControllerInstance.registerSpawnObserver((entityId, entityData) => {
-            const entity = this.stateEntityController.getEntity(entityId);
-            if (!entity || !entity.components || !Array.isArray(entity.components)) return;
-
-            // Spawn metal box first (uses centralBall when empty, 0/10 used)
-            this._spawnMetalBoxWithKnives(entityId);
-
-            // Find components for item attachment — test items go to droidArm since centralBall is full
-            let armComponent = entity.components.find(c => c.type === 'droidArm');
-            let handComponent = entity.components.find(c => c.type === 'droidHand');
-            if (!handComponent) handComponent = entity.components.find(c => c.type === 'droidArm');
-
-            // Add test items to droidArm (centralBall is full with metal box)
-            if (armComponent) {
-                const result1 = this.inventoryManager.addItem(entity, 'testItem', armComponent.id, {
-                    componentController: this.componentController
-                });
-                const result2 = this.inventoryManager.addItem(entity, 'testItem2', armComponent.id, {
-                    componentController: this.componentController
-                });
-
-                if (result1.success) {
-                    Logger.info(`[WorldStateController] Test item 1 auto-added to droidArm on spawned entity ${entityId}`);
-                } else {
-                    Logger.warn(`[WorldStateController] Failed to add test item 1 to spawned entity ${entityId}: ${result1.message}`);
-                }
-                if (result2.success) {
-                    Logger.info(`[WorldStateController] Test item 2 auto-added to droidArm on spawned entity ${entityId}`);
-                } else {
-                    Logger.warn(`[WorldStateController] Failed to add test item 2 to spawned entity ${entityId}: ${result2.message}`);
-                }
-            }
-
-            // Add knife to hand component (if exists) — every entity gets a knife
-            if (handComponent) {
-                const knifeResult = this.inventoryManager.addItem(entity, 'knife', handComponent.id, {
-                    componentController: this.componentController
-                });
-                if (knifeResult.success) {
-                    Logger.info(`[WorldStateController] Knife auto-added to ${handComponent.type} on spawned entity ${entityId}`);
-                } else {
-                    Logger.warn(`[WorldStateController] Failed to add knife to spawned entity ${entityId}: ${knifeResult.message}`);
-                }
-            }
-
-            // Add T1 weapon to entity — try droidRollingBall first (volume 12, enough for T1 volume 10),
-            // then fall back to droidArm (may fail if volume insufficient)
-            const t1Result = this._addT1WeaponToEntity(entityId, entity);
-            if (t1Result.success) {
-                Logger.info(`[WorldStateController] T1 weapon auto-added to ${t1Result.componentType} on spawned entity ${entityId}`);
-            } else {
-                Logger.warn(`[WorldStateController] Failed to add T1 weapon to spawned entity ${entityId}: ${t1Result.message}`);
-            }
-        });
-
-        // Wire up stat change notifications from ComponentController to ComponentCapabilityController
-        // This enables automatic capability re-evaluation when component stats change
-        this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
-            this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
-            // Trigger broadcast if broadcastService is available
-            if (this._broadcastService) {
-                this._broadcastService.broadcast();
-            }
-        });
-
-        // Set worldStateController reference on InternalComponentController for repair system access
-        internalComponentController.setWorldStateController(this);
-
-        // Initialize Internal Component Controller with global tick system
-        internalComponentController.initialize();
-
-        // 8. Instantiate InventoryManager (Inventory System)
-        // Manages item ownership, volume constraints, and item movements for entities.
-        this.inventoryManager = new InventoryManager();
-
-        // Wire equippedItemStats stat change callback to trigger capability re-evaluation.
-        // When an equipped item's stats change (e.g., sharpness drain from cut), this ensures
-        // the capability cache re-scans with CURRENT stats, not stale base stats.
-        // Without this wiring, the cache would show stale "canExecute" entries based on base item stats.
-        equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
-            // Find which entity this item belongs to by scanning equipped items.
-            // HoldingCostController.getAllEquippedItems() returns: { [entityId]: { [eqId]: itemData } }
-            const allEquipped = this.holdingCostController.getAllEquippedItems();
-            for (const [entityId, items] of Object.entries(allEquipped)) {
-                if (items[eqId]) {
-                    // Entity found — re-evaluate its capabilities with current stats
-                    const state = this.getAll();
-                    this.actionController.reEvaluateEntityCapabilities(state, entityId);
-                    if (this._broadcastService) {
-                        this._broadcastService.broadcast();
-                    }
-                    Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
-                    return;
-                }
-            }
-        });
-
-        // 9. Instantiate HoldingCostController (Holding Cost System)
-        // Manages holding cost requirements, debuffs, and item equip/unequip for entities.
-        // Injected after actionController is available for capability re-evaluation.
-        const holdingCostController = new HoldingCostController({
-            worldStateController: this,
-            actionController: actionController,
-            equippedItemStats: equippedItemStats
-        });
-        this.holdingCostController = holdingCostController;
-
-        // 10. Broadcast service (injected via setBroadcastService() from server.js)
+        // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
         this._broadcastService = null;
 
@@ -223,12 +96,55 @@ class WorldStateController {
             equippedItemStats: this.equippedItemStats
         };
 
-        // Initialize world with a sample droid as requested
-        this.initializeWorld();
+        // --- Wire internal observers/listeners between sub-controllers -----------
+        // NOTE: none of these callbacks dereference the facade's own state at
+        // construction time; they run later (on spawn / on stat change), by which
+        // point the composition root has injected the facade into every sub-controller.
 
-        // Perform initial capability scan after entities are spawned
-        // Delegates to ComponentCapabilityController via ActionController wrapper
-        this.actionController.scanAllCapabilities(this.getAll());
+        // Register spawn observer — applies the declarative initial spawns from
+        // data/world.json to every spawned entity (data-driven replacement of the
+        // former hardcoded spawn items).
+        this.stateEntityController.registerSpawnObserver((entityId, entityData) => {
+            this._applyInitialSpawns(entityId);
+        });
+
+        // Wire up stat change notifications from ComponentController to
+        // ComponentCapabilityController — enables automatic capability
+        // re-evaluation when component stats change (+ broadcast).
+        this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
+            this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
+            // Trigger broadcast if broadcastService is available
+            if (this._broadcastService) {
+                this._broadcastService.broadcast();
+            }
+        });
+
+        // Initialize Internal Component Controller with the global tick system
+        // (registers its tick job; the facade reference itself is injected by the
+        // composition root via setWorldStateController() AFTER this constructor).
+        this.internalComponentController.initialize();
+
+        // Wire equippedItemStats stat change callback to trigger capability
+        // re-evaluation. When an equipped item's stats change (e.g., sharpness
+        // drain from cut), the capability cache re-scans with CURRENT stats, not
+        // stale base stats.
+        this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
+            // Find which entity this item belongs to by scanning equipped items.
+            // HoldingCostController.getEquippedItemsByEntity() returns: { [entityId]: { [eqId]: itemData } }
+            const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
+            for (const [entityId, items] of Object.entries(allEquipped)) {
+                if (items[eqId]) {
+                    // Entity found — re-evaluate its capabilities with current stats
+                    const state = this.getAll();
+                    this.actionController.reEvaluateEntityCapabilities(state, entityId);
+                    if (this._broadcastService) {
+                        this._broadcastService.broadcast();
+                    }
+                    Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
+                    return;
+                }
+            }
+        });
     }
 
     /**
@@ -238,17 +154,27 @@ class WorldStateController {
         // Resolve the UUID for the start room to maintain spatial synchronization
         const startRoomId = this.roomsController.getUidByLogicalId('start_room');
 
-        // Spawn the client entity (small ball droid) in the start room
+        // Spawn the client entity (small ball droid) in the start room.
+        // The spawn observer registered in the constructor applies the declarative
+        // initial spawns from data/world.json, which fires for every spawned entity
+        // including the initial client entity.
         const clientEntityId = this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-        // Add test items (volume=2, volume=4) to the client entity's centralBall component on spawn
-        this._addTestItemToClientEntity(clientEntityId);
-
-        // Add knife to the client entity's droidHand component on spawn (so it's available for equip)
-        this._addKnifeToClientEntity(clientEntityId);
-
-        // Metal box with knives is now handled by the spawn observer registered above,
-        // which fires for every spawned entity including the initial client entity.
+        // Client-only initial spawn (not part of the generic world.json initialSpawns):
+        // an extra knife on the droidHand so it is available for equip/cut from the start.
+        if (clientEntityId) {
+            const clientEntity = this.stateEntityController.getEntity(clientEntityId);
+            const handComponent = clientEntity?.components?.find(c => c.type === 'droidHand')
+                || clientEntity?.components?.find(c => c.type === 'droidArm');
+            if (handComponent) {
+                const result = this.addItemToEntity(clientEntityId, 'knife', handComponent.id);
+                if (!result.success) {
+                    Logger.warn(`[WorldStateController] Failed to add client-only knife to ${handComponent.type}: ${result.message}`);
+                }
+            } else {
+                Logger.warn(`[WorldStateController] No droidHand/droidArm component found on client entity "${clientEntityId}" for knife.`);
+            }
+        }
 
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
@@ -256,138 +182,189 @@ class WorldStateController {
     }
 
     /**
-     * Adds a knife to the client entity's droidHand component on spawn.
-     * The knife has holdingCost and can be equipped to enable the "cut" action.
-     * @param {string} clientEntityId - The client entity ID.
-     * @returns {void}
+     * Applies the declarative initial spawns from data/world.json to a spawned entity.
+     * Generic replacement of the former hardcoded spawn methods (_spawnMetalBoxWithKnives,
+     * _addKnifeToClientEntity, _addTestItemToClientEntity, _addT1WeaponToEntity): the exact
+     * item composition is now declared in data/world.json (initialSpawns) and this method
+     * only interprets it.
+     *
+     * Supported entry fields:
+     * - { item, slot, children?: [{ item, count }] }: add `item` to a component resolved by
+     *   `slot`, then add each child item `count` times inside the created container item.
+     *   slot forms: "<type>" (first component of that type), "firstFit:<type>[,<type>...]"
+     *   (first of the listed types with enough available volume).
+     * - { item, slot, fallback?: "<type>" }: like above, plus a fallback component type tried
+     *   when the primary slot has no capacity.
+     * - { item, slot: "bestAvailable[:<preferredType>...]", ammo?: number }: add `item`
+     *   to the first component (in component order) whose available volume is the highest
+     *   among all fitting components; an optional "bestAvailable:hand" list of preferred
+     *   types is tried first (first preferred type with enough capacity wins), mirroring
+     *   the legacy "hand component first, then best available" weapon placement. Then
+     *   load `ammo` knife projectile(s) into the item for weapons that fire stored items.
+     *
+     * @param {string} entityId - The entity ID to apply initial spawns to.
+     * @param {Object} [spawnConfig] - Optional spawn config; defaults to data/world.json.
+     * @returns {{ applied: number, failed: number }} Summary of applied/failed spawn entries.
      * @private
      */
-    _addKnifeToClientEntity(clientEntityId) {
-        const entity = this.stateEntityController.getEntity(clientEntityId);
+    _applyInitialSpawns(entityId, spawnConfig) {
+        let config = spawnConfig;
+        if (!config) {
+            config = DataLoader.loadJsonSafe('data/world.json', {});
+        }
+
+        const entries = config?.initialSpawns;
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return { applied: 0, failed: 0 };
+        }
+
+        const entity = this.stateEntityController.getEntity(entityId);
         if (!entity || !entity.components || !Array.isArray(entity.components)) {
-            Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for knife.`);
-            return;
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found or has no components for initial spawns.`);
+            return { applied: 0, failed: entries.length };
         }
 
-        // Find the first droidHand component (or droidArm as fallback)
-        let handComponent = entity.components.find(c => c.type === 'droidHand');
-        if (!handComponent) {
-            handComponent = entity.components.find(c => c.type === 'droidArm');
-        }
-        if (!handComponent) {
-            Logger.warn(`[WorldStateController] droidHand/droidArm component not found on entity "${clientEntityId}" for knife.`);
-            return;
+        let applied = 0;
+        let failed = 0;
+
+        for (const entry of entries) {
+            try {
+                const target = this._resolveInitialSpawnSlot(entity, entry);
+                if (!target) {
+                    Logger.warn(`[WorldStateController] Initial spawn "${entry.item}" has no valid slot ("${entry.slot}") on entity "${entityId}".`);
+                    failed++;
+                    continue;
+                }
+
+                const addResult = this.inventoryManager.addItem(entity, entry.item, target.component.id, {
+                    componentController: this.componentController
+                });
+                if (!addResult.success) {
+                    Logger.warn(`[WorldStateController] Initial spawn "${entry.item}" failed on ${target.component.type} (entity ${entityId}): ${addResult.message}`);
+                    failed++;
+                    continue;
+                }
+
+                // Container children (e.g., metalBox pre-filled with knives)
+                if (Array.isArray(entry.children)) {
+                    for (const child of entry.children) {
+                        const count = Math.max(0, Number(child?.count) || 0);
+                        for (let i = 0; i < count; i++) {
+                            const childResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, child.item);
+                            if (!childResult.success) {
+                                Logger.warn(`[WorldStateController] Initial spawn child "${child.item}" #${i + 1} into "${entry.item}" failed (entity ${entityId}): ${childResult.message}`);
+                            }
+                        }
+                    }
+                }
+
+                // Weapon ammo (e.g., t1 pre-loaded with knife projectiles)
+                if (typeof entry.ammo === 'number' && entry.ammo > 0) {
+                    for (let i = 0; i < entry.ammo; i++) {
+                        const ammoResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, 'knife');
+                        if (!ammoResult.success) {
+                            Logger.warn(`[WorldStateController] Initial spawn ammo #${i + 1} into "${entry.item}" failed (entity ${entityId}): ${ammoResult.message}`);
+                        }
+                    }
+                }
+
+                applied++;
+                Logger.info(`[WorldStateController] Initial spawn "${entry.item}" applied to ${target.component.type} (component: ${target.component.id}) on entity ${entityId}`);
+            } catch (error) {
+                Logger.error(`[WorldStateController] Error applying initial spawn "${entry?.item}" to entity "${entityId}": ${error.message}`);
+                failed++;
+            }
         }
 
-        const result = this.addItemToEntity(clientEntityId, 'knife', handComponent.id);
-        if (result.success) {
-            Logger.info(`[WorldStateController] Knife added to ${handComponent.type} (component: ${handComponent.id}) on entity ${clientEntityId}`);
-        } else {
-            Logger.warn(`[WorldStateController] Failed to add knife to ${handComponent.type}: ${result.message}`);
-        }
+        return { applied, failed };
     }
 
     /**
-     * Adds a test item to the client entity's centralBall component.
-     * Used for inventory system verification/testing.
-     * @param {string} clientEntityId - The client entity ID.
-     * @returns {void}
+     * Resolves the target component for an initial-spawn entry (data/world.json).
+     *
+     * Slot forms:
+     * - "<type>": the first component of that type.
+     * - "firstFit:<type>[,<type>...]" in that order: the first component (in order) with
+     *   enough available volume for the item's host footprint.
+     * - "bestAvailable" / "bestAvailable:<preferredType>[,...]": the first listed
+     *   preferred component type (substring match, e.g., "hand") with enough available
+     *   volume; without a preference, the component with the highest available volume
+     *   (first one wins ties).
+     *
+     * @param {Object} entity - The entity object.
+     * @param {Object} entry - The initial spawn entry ({ item, slot, fallback? }).
+     * @returns {{ component: Object }|null} The resolved component, or null if no slot matches.
      * @private
      */
-    _addTestItemToClientEntity(clientEntityId) {
-        const entity = this.stateEntityController.getEntity(clientEntityId);
-        if (!entity || !entity.components || !Array.isArray(entity.components)) {
-            Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for test item.`);
-            return;
+    _resolveInitialSpawnSlot(entity, entry) {
+        const itemDef = this.inventoryManager.getItemDefinitions()[entry.item];
+        if (!itemDef) {
+            Logger.warn(`[WorldStateController] Unknown item type "${entry.item}" in initial spawn config.`);
+            return null;
+        }
+        // Items like T1 occupy their externalVolume footprint on the host component
+        const hostFootprint = itemDef.externalVolume ?? itemDef.volume;
+
+        const slot = entry.slot;
+        if (typeof slot !== 'string' || slot === '') {
+            return null;
         }
 
-        // Find the centralBall component
-        const centralBall = entity.components.find(c => c.type === 'centralBall');
-        if (!centralBall) {
-            Logger.warn(`[WorldStateController] centralBall component not found on entity "${clientEntityId}" for test item.`);
-            return;
-        }
+        const firstOfType = (type) => entity.components.find(c => c.type === type) || null;
 
-        const result = this.addItemToEntity(clientEntityId, 'testItem', centralBall.id);
-        if (result.success) {
-            Logger.info(`[WorldStateController] Test item added to centralBall (component: ${centralBall.id}) on entity ${clientEntityId}`);
-        } else {
-            Logger.warn(`[WorldStateController] Failed to add test item to centralBall: ${result.message}`);
-        }
-    }
-   
-    /**
-     * Spawns a metal box pre-filled with knives on the client entity's component.
-     * The metal box (volume=10) is placed on a component with sufficient volume capacity.
-     * Prefers centralBall (max volume=10) as the primary target, then falls back to other
-     * components that have enough capacity. Five knives (volume=1 each) are added inside the box.
-     * @param {string} clientEntityId - The client entity ID.
-     * @returns {void}
-     * @private
-     */
-    _spawnMetalBoxWithKnives(clientEntityId) {
-        try {
-            const entity = this.stateEntityController.getEntity(clientEntityId);
-            if (!entity || !entity.components || !Array.isArray(entity.components)) {
-                Logger.warn(`[WorldStateController] Client entity "${clientEntityId}" not found or has no components for metal box.`);
-                return;
+        if (slot === 'bestAvailable' || slot.startsWith('bestAvailable:')) {
+            // Optional preferred types (e.g., "bestAvailable:hand" → types containing "hand"):
+            // the first preferred component with enough available volume wins, matching the
+            // legacy hand-first weapon placement.
+            let preferredTypes = [];
+            if (slot.startsWith('bestAvailable:')) {
+                preferredTypes = slot.slice('bestAvailable:'.length).split(',').map(t => t.trim()).filter(Boolean);
             }
-
-            // Metal box requires 10 volume (from inventoryItems.json definition)
-            const METAL_BOX_VOLUME = 10;
-
-            // Find candidate components with enough volume for the metal box.
-            // Priority order: centralBall first (max volume=10), then droidArm (max volume=8),
-            // then droidHand (max volume=6). Only components with sufficient volume are selected.
-            const candidateTypes = ['centralBall', 'droidArm', 'droidHand'];
-            let targetComponent = null;
-
-            for (const type of candidateTypes) {
-                const candidate = entity.components.find(c => c.type === type);
-                if (candidate && this.inventoryManager.canFitItem(entity, candidate.id, METAL_BOX_VOLUME)) {
-                    targetComponent = candidate;
-                    break;
+            if (preferredTypes.length > 0) {
+                for (const component of entity.components) {
+                    const matchesPreference = preferredTypes.some(p => (component.type || '').toLowerCase().includes(p));
+                    if (matchesPreference && this.inventoryManager.getAvailableVolume(entity, component.id) >= hostFootprint) {
+                        return { component };
+                    }
                 }
             }
-
-            if (!targetComponent) {
-                Logger.warn(
-                    `[WorldStateController] No component with sufficient volume (>= ${METAL_BOX_VOLUME}) ` +
-                    `found on entity "${clientEntityId}" for metal box.`
-                );
-                return;
-            }
-
-            // Add the metal box to the target component
-            const boxResult = this.addItemToEntity(clientEntityId, 'metalBox', targetComponent.id);
-            if (!boxResult.success) {
-                Logger.warn(`[WorldStateController] Failed to add metalBox to ${targetComponent.type}: ${boxResult.message}`);
-                return;
-            }
-
-            const metalBoxItemId = boxResult.item?.id;
-            if (!metalBoxItemId) {
-                Logger.warn(`[WorldStateController] Metal box item ID not found after creation on entity "${clientEntityId}".`);
-                return;
-            }
-
-            // Add 5 knives inside the metal box
-            const KNIFE_COUNT = 5;
-            let knivesAdded = 0;
-            for (let i = 0; i < KNIFE_COUNT; i++) {
-                const knifeResult = this.addItemToContainer(clientEntityId, metalBoxItemId, 'knife');
-                if (knifeResult.success) {
-                    knivesAdded++;
-                } else {
-                    Logger.warn(`[WorldStateController] Failed to add knife #${i + 1} to metalBox: ${knifeResult.message}`);
-                    break;
+            // Fallback: the component with the highest available volume (first one wins ties,
+            // identical to the legacy strict-greater selection).
+            let bestComponent = null;
+            let bestAvailableVolume = 0;
+            for (const component of entity.components) {
+                const availableVolume = this.inventoryManager.getAvailableVolume(entity, component.id);
+                if (availableVolume >= hostFootprint && availableVolume > bestAvailableVolume) {
+                    bestAvailableVolume = availableVolume;
+                    bestComponent = component;
                 }
             }
-
-            Logger.info(`[WorldStateController] Metal box with ${knivesAdded} knives added to ${targetComponent.type} (component: ${targetComponent.id}) on entity ${clientEntityId}`);
-        } catch (error) {
-            Logger.error(`[WorldStateController] Error spawning metal box with knives on entity "${clientEntityId}": ${error.message}`);
+            return bestComponent ? { component: bestComponent } : null;
         }
+
+        if (slot.startsWith('firstFit:')) {
+            const types = slot.slice('firstFit:'.length).split(',').map(t => t.trim()).filter(Boolean);
+            for (const type of types) {
+                const candidate = firstOfType(type);
+                if (candidate && this.inventoryManager.getAvailableVolume(entity, candidate.id) >= hostFootprint) {
+                    return { component: candidate };
+                }
+            }
+            return null;
+        }
+
+        // Plain type slot, with optional fallback type
+        const primary = firstOfType(slot);
+        if (primary && this.inventoryManager.getAvailableVolume(entity, primary.id) >= hostFootprint) {
+            return { component: primary };
+        }
+        if (entry.fallback) {
+            const fallback = firstOfType(entry.fallback);
+            if (fallback && this.inventoryManager.getAvailableVolume(entity, fallback.id) >= hostFootprint) {
+                return { component: fallback };
+            }
+        }
+        return null;
     }
 
     /**
@@ -412,6 +389,236 @@ class WorldStateController {
         }
 
         return globalState;
+    }
+
+    // =========================================================================
+    // PERSISTENCE — serialize() / restore() (FASE 3)
+    // =========================================================================
+
+    /**
+     * Snapshot schema version. Bump when the snapshot format changes;
+     * restore() rejects any other version with SCHEMA_VERSION_MISMATCH.
+     */
+    static get PERSISTENCE_SCHEMA_VERSION() {
+        return 1;
+    }
+
+    /**
+     * Serializes the COMPLETE mutable world state into a JSON-serializable
+     * snapshot, for save/load, checkpoints, and test/debug snapshots.
+     *
+     * Coverage (every piece of mutable state a sub-controller owns — see the
+     * "IMPL DECISION" note on restore() for the ownership map):
+     *   - entities:  live entity instances (ids, components, spatial, status,
+     *                items with full nesting via hostComponentId, internalComponents)
+     *   - components: per-instance merged stats (ComponentStatsController)
+     *   - inventory: InventoryManager._inventory index (mirrors entity.items,
+     *                kept in sync so the manager's index matches on restore)
+     *   - equipped:  HoldingCostController._equippedItems + _preEquipStats
+     *                (pre-equip stats keep unequip-undo bookkeeping intact)
+     *   - equippedItemStats: EquippedItemStatsController._itemStats
+     *                        (mutable sharpness/durability per eqId)
+     *   - internalComponents: InternalComponentController.internalComponents
+     *                        (canonical store; entity.internalComponents mirrors it)
+     *   - rooms:     dynamic room state (entities/objects lists) — the room
+     *                structure itself (positions, connections, doorPositions)
+     *                is static data from data/rooms.json and is intentionally
+     *                NOT snapshotted
+     *   - droppedItems: WorldStateController._droppedItems
+     *   - selections: ActionSelectController._selectionRegistry (Map → array)
+     *
+     * Defensiveness: the snapshot is a JSON round-trip (same defensiveness
+     * pattern the project uses for broadcasts — WorldStateBroadcastService
+     * _transformForBroadcast does structuredClone; JSON.parse(JSON.stringify())
+     * is equivalent for this pure data and additionally guarantees no live
+     * references, Maps, or functions leak out).
+     *
+     * All IDs (ent-, comp-, item-, eq-, room UIDs, internal-component UIDs)
+     * are PRESERVED in the snapshot — a restored world is identical to the
+     * one that produced it (modulo serializedAtTick/serializedAt metadata).
+     *
+     * @returns {Object} JSON-serializable snapshot:
+     *   { schemaVersion: number, serializedAtTick: number|null,
+     *     serializedAt: number, state: { entities, components, inventory,
+     *     equipped, preEquipStats, equippedItemStats, internalComponents,
+     *     rooms, droppedItems, selections } }
+     */
+    serialize() {
+        const snapshot = {
+            schemaVersion: WorldStateController.PERSISTENCE_SCHEMA_VERSION,
+            serializedAtTick: this.internalComponentController?.tickSystem?.currentTick ?? null,
+            serializedAt: Date.now(),
+            state: {
+                // Entities (live instances; structuredClone keeps no live refs)
+                entities: structuredClone(this.stateEntityController.entities),
+                // Component instance stats (full merged stats per comp-* id)
+                components: this.componentController.statsController.getAll(),
+                // InventoryManager's per-entity item index
+                inventory: structuredClone(this.inventoryManager._inventory),
+                // Equipped items + pre-equip stat bookkeeping (undo data)
+                equipped: structuredClone(this.holdingCostController._equippedItems),
+                preEquipStats: structuredClone(this.holdingCostController._preEquipStats),
+                // Mutable per-equipped-item stats (sharpness, durability, ...)
+                equippedItemStats: this.equippedItemStats.getAll(),
+                // Canonical internal-component store
+                internalComponents: structuredClone(this.internalComponentController.internalComponents),
+                // Dynamic room state only (structure comes from data/rooms.json)
+                rooms: this.roomsController.getAll(),
+                // Dropped items on the map
+                droppedItems: this.getDroppedItems(),
+                // Active component→action selection locks (Map serialized to array)
+                selections: [...this.actionSelectController._selectionRegistry.entries()]
+            }
+        };
+
+        // JSON round-trip: guarantees the result is a pure JSON-serializable
+        // snapshot with zero references into the live world state.
+        return JSON.parse(JSON.stringify(snapshot));
+    }
+
+    /**
+     * Restores the complete world state from a snapshot produced by serialize().
+     *
+     * IMPL DECISION — option (a): per-sub-controller state injection.
+     * Each state-owning sub-controller exposes a plain data store
+     * (entities, componentStats, _inventory, _equippedItems/_preEquipStats,
+     * _itemStats, internalComponents, rooms, _droppedItems, _selectionRegistry)
+     * that has NO derived logic — the logic controllers (ActionController,
+     * ComponentCapabilityController, SynergyController, ...) derive everything
+     * on demand. Restoring therefore means:
+     *   1. validate the payload (shape + schemaVersion),
+     *   2. replace each owned store with a deep-cloned copy of the snapshot
+     *      section (no live references shared with the caller),
+     *   3. rebuild derived caches via the EXISTING public APIs:
+     *        - stateEntityController._restoreFromSnapshot() re-syncs each
+     *          entity's internalComponents mirror from the canonical internal
+     *          store (run AFTER the internal store itself is restored, so the
+     *          mirror matches the restored data). Spawn observers are NOT
+     *          fired: the snapshot already contains the final entity state,
+     *          and re-running the declarative initial-spawn path would
+     *          double-add items.
+     *        - actionController.scanAllCapabilities() rebuilds the capability
+     *          cache from the restored state (fresh cache, same as constructor).
+     *        - synergyController.clearCache() drops stale cached results.
+     *
+     * Why (a) over (b) (re-apply via public action APIs): re-applying would
+     * re-run the spawn logic (which generates NEW ids for entities,
+     * components, items — breaking id preservation, a round-trip requirement),
+     * re-generate eqIds, and cannot reconstruct _preEquipStats or
+     * selection locks at all. Direct store injection preserves every id and
+     * bookkeeping field, and it is the same primitive the constructor itself
+     * uses (fresh stores, then populate).
+     *
+     * Known limitation (documented): rooms.json door positions and the idMap
+     * are structural/static; restore() replaces the dynamic room entries
+     * (entities/objects) but keeps the constructor-built structure. Since
+     * room structure is data-driven and immutable at runtime, this is safe
+     * for the current game.
+     *
+     * NOTE: this is an explicit operator/test operation — it does NOT run on
+     * a tick and does NOT broadcast (callers broadcast after a successful
+     * restore, e.g. the /api/world/load route).
+     *
+     * @param {Object} payload - Snapshot as returned by serialize().
+     * @returns {{ success: true } | { success: false, error: { code: string, message: string } }}
+     */
+    restore(payload) {
+        // --- Validation -----------------------------------------------------
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return {
+                success: false,
+                error: { code: 'INVALID_PAYLOAD', message: 'restore() requires a snapshot object (result of serialize()).' }
+            };
+        }
+        if (payload.schemaVersion !== WorldStateController.PERSISTENCE_SCHEMA_VERSION) {
+            return {
+                success: false,
+                error: {
+                    code: 'SCHEMA_VERSION_MISMATCH',
+                    message: `Unsupported schemaVersion ${JSON.stringify(payload.schemaVersion)} — expected ${WorldStateController.PERSISTENCE_SCHEMA_VERSION}.`
+                }
+            };
+        }
+        const s = payload.state;
+        if (!s || typeof s !== 'object') {
+            return {
+                success: false,
+                error: { code: 'INVALID_PAYLOAD', message: 'Snapshot is missing the "state" section.' }
+            };
+        }
+        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections']) {
+            if (!(key in s)) {
+                return {
+                    success: false,
+                    error: { code: 'INVALID_PAYLOAD', message: `Snapshot "state" is missing required section "${key}".` }
+                };
+            }
+        }
+
+        try {
+            // 1. Canonical internal-component store FIRST — the entity
+            //    mirror re-sync in step 2 reads from this store, so the
+            //    restored values must be in place before entities are restored.
+            this.internalComponentController.internalComponents = structuredClone(s.internalComponents);
+
+            // 2. Entities (re-syncs each entity's internalComponents mirror
+            //    from the canonical store above — see stateEntityController)
+            this.stateEntityController._restoreFromSnapshot(structuredClone(s.entities));
+
+            // 3. Component instance stats (plain store replacement)
+            this.componentController.statsController.componentStats = structuredClone(s.components);
+
+            // 4. InventoryManager item index (entity.items already restored
+            //    with the entities above; this re-syncs the manager's index)
+            this.inventoryManager._inventory = structuredClone(s.inventory);
+
+            // 5. Equipped items + pre-equip undo bookkeeping
+            this.holdingCostController._equippedItems = structuredClone(s.equipped);
+            this.holdingCostController._preEquipStats = structuredClone(s.preEquipStats);
+
+            // 6. Mutable per-equipped-item stats
+            this.equippedItemStats._itemStats = structuredClone(s.equippedItemStats);
+
+            // 7. Dynamic room state (replace entries; keep constructor-built
+            //    structure: idMap + doorPositions come from data/rooms.json)
+            const restoredRooms = structuredClone(s.rooms);
+            for (const roomId of Object.keys(this.roomsController.rooms)) {
+                delete this.roomsController.rooms[roomId];
+            }
+            for (const [roomId, room] of Object.entries(restoredRooms)) {
+                this.roomsController.rooms[roomId] = room;
+            }
+
+            // 8. Dropped items
+            this._droppedItems = structuredClone(s.droppedItems);
+
+            // 9. Selection locks (array → Map)
+            const registry = new Map();
+            for (const [componentId, selection] of (Array.isArray(s.selections) ? s.selections : [])) {
+                if (typeof componentId === 'string' && selection && typeof selection === 'object') {
+                    registry.set(componentId, { ...selection });
+                }
+            }
+            this.actionSelectController._selectionRegistry = registry;
+
+            // 10. Rebuild derived caches via existing public APIs
+            this.actionController.scanAllCapabilities(this.getAll());
+            if (this.synergyController?.clearCache) {
+                this.synergyController.clearCache();
+            }
+
+            Logger.info(
+                `[WorldStateController] World state restored from snapshot (schemaVersion ${WorldStateController.PERSISTENCE_SCHEMA_VERSION}, ` +
+                `${Object.keys(this.stateEntityController.entities).length} entities, ${Object.keys(this._droppedItems).length} dropped items).`
+            );
+            return { success: true };
+        } catch (error) {
+            Logger.error(`[WorldStateController] restore() failed: ${error.message}`, { error: error.stack });
+            return {
+                success: false,
+                error: { code: 'RESTORE_FAILED', message: `Failed to restore world state: ${error.message}` }
+            };
+        }
     }
 
     // =========================================================================
@@ -978,7 +1185,7 @@ class WorldStateController {
      * @returns {Array<{ entityId: string, itemId: string, itemType: string, componentId: string }>}
      */
     getAllEquippedItems() {
-        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
         if (!allEquipped || typeof allEquipped !== 'object') return [];
         const allItems = [];
         for (const [entityId, items] of Object.entries(allEquipped)) {
@@ -1013,7 +1220,7 @@ class WorldStateController {
             return null;
         }
 
-        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
         if (!allEquipped || typeof allEquipped !== 'object') return null;
 
         const entityItems = allEquipped[entityId];
@@ -1031,7 +1238,7 @@ class WorldStateController {
      * @returns {Object|null} The equipped item data object, or null if not found.
      */
     getEquippedItemByItemId(entityId, itemId) {
-        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
         if (!allEquipped || typeof allEquipped !== 'object') return null;
 
         const entityItems = allEquipped[entityId];
@@ -1054,7 +1261,7 @@ class WorldStateController {
      * @returns {Object|null} The equipped item data, or null if no item is equipped on this component.
      */
     getEquippedItemForComponent(entityId, componentId) {
-        const allEquipped = this.holdingCostController.getAllEquippedItems();
+        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
         if (!allEquipped || typeof allEquipped !== 'object') return null;
 
         const entityItems = allEquipped[entityId];
@@ -1166,15 +1373,16 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, pickedUpItem?: object }}
      */
     executePickUpItem(entityId, droppedItemId, componentId) {
-        // Access the consequence dispatcher's pickUpItem handler via the public consequenceHandlers property
-        const pickUpHandler = this.actionController?.consequenceHandlers?.handlers?.pickUpItem;
+        // Delegate to the ConsequenceHandlers public dispatch() API (BUG-122:
+        // no more 3-layer deep access through consequenceHandlers.handlers.pickUpItem).
+        const result = this.actionController?.consequenceHandlers?.dispatch('pickUpItem', null, { entityId, droppedItemId, componentId }, { entityId });
 
-        if (typeof pickUpHandler !== 'function') {
-            Logger.error('[WorldStateController] PickUpItem handler not available.');
+        if (!result) {
+            Logger.error('[WorldStateController] ConsequenceHandlers dispatch unavailable for pickUpItem.');
             return { success: false, message: 'PickUpItem handler not available.' };
         }
 
-        return pickUpHandler(null, { entityId, droppedItemId, componentId }, { entityId });
+        return result;
     }
 
     /**
@@ -1456,101 +1664,6 @@ class WorldStateController {
         return nearby;
     }
 
-    /**
-     * Adds a T1 weapon to a spawned entity by finding a suitable hand component
-     * (or any component as fallback) with sufficient available volume.
-     *
-     * Priority:
-     * 1. Hand component (type contains "hand") with available volume >= T1 externalVolume
-     * 2. Any component with available volume >= T1 externalVolume
-     *
-     * @param {string} entityId - The ID of the entity to add the T1 to.
-     * @param {Object} entity - The entity data object with a components array.
-     * @returns {{success: boolean, componentType?: string, message: string}}
-     * @private
-     */
-    _addT1WeaponToEntity(entityId, entity) {
-        // T1 has externalVolume: 1, so we need a component with available volume >= 1
-        const T1_EXTERNAL_VOLUME = 1;
-
-        /**
-         * Calculates the available volume for a component.
-         * @param {Object} component - The component object.
-         * @returns {number} Available volume.
-         * @private
-         */
-        const getAvailableVolume = (component) => {
-            const maxVolume = this.inventoryManager._getComponentMaxVolumeFromEntity(entity, component.id);
-            const usedVolume = this.inventoryManager._calculateComponentUsedVolume(entity, component.id);
-            return maxVolume - usedVolume;
-        };
-
-        /**
-         * Checks if a component type is a "hand" component.
-         * @param {Object} component - The component object.
-         * @returns {boolean}
-         * @private
-         */
-        const isHandComponent = (component) => {
-            const compType = (component.type || '').toLowerCase();
-            return compType.includes('hand');
-        };
-
-        // First priority: Find a hand component with sufficient available volume
-        let handComponent = null;
-        for (const component of entity.components) {
-            if (isHandComponent(component)) {
-                const availableVolume = getAvailableVolume(component);
-                if (availableVolume >= T1_EXTERNAL_VOLUME) {
-                    handComponent = component;
-                    Logger.info(`[WorldStateController] Found hand component ${component.id} (type: ${component.type}) with available volume: ${availableVolume}`);
-                    break; // Use the first valid hand component
-                }
-            }
-        }
-
-        if (handComponent) {
-            const result = this.inventoryManager.addItem(entity, 't1', handComponent.id, {
-                componentController: this.componentController
-            });
-
-            if (result.success) {
-                return { success: true, componentType: handComponent.type, message: 'T1 weapon added to hand component successfully' };
-            }
-
-            Logger.warn(`[WorldStateController] Failed to add T1 to hand component ${handComponent.id}: ${result.message}`);
-        }
-
-        // Second priority: Fall back to any component with sufficient available volume
-        let bestComponent = null;
-        let bestAvailableVolume = 0;
-
-        for (const component of entity.components) {
-            const availableVolume = getAvailableVolume(component);
-            if (availableVolume >= T1_EXTERNAL_VOLUME && availableVolume > bestAvailableVolume) {
-                bestAvailableVolume = availableVolume;
-                bestComponent = component;
-            }
-        }
-
-        if (!bestComponent) {
-            Logger.info(`[WorldStateController] No component with sufficient available volume (>= ${T1_EXTERNAL_VOLUME}) found for T1 weapon on entity ${entityId}`);
-            return { success: false, message: `No component with sufficient available volume (>= ${T1_EXTERNAL_VOLUME}) found for T1 weapon` };
-        }
-
-        Logger.info(`[WorldStateController] Using fallback component ${bestComponent.id} (type: ${bestComponent.type}) with available volume: ${bestAvailableVolume} for T1 weapon on entity ${entityId}`);
-
-        const result = this.inventoryManager.addItem(entity, 't1', bestComponent.id, {
-            componentController: this.componentController
-        });
-
-        if (result.success) {
-            return { success: true, componentType: bestComponent.type, message: 'T1 weapon added successfully (fallback component)' };
-        }
-
-        Logger.warn(`[WorldStateController] Failed to add T1 to fallback component ${bestComponent.id}: ${result.message}`);
-        return { success: false, message: result.message };
-    }
 }
 
 export default WorldStateController;

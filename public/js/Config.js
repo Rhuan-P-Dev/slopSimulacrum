@@ -35,7 +35,10 @@ export const AppConfig = {
         INTERNAL_COMPONENT_RADIUS: 3,
     },
     TARGETING: {
-        PUNCH_TOLERANCE: 20,
+        // Phase 4: renamed from PUNCH_TOLERANCE — the constant is the generic
+        // target-acquisition click tolerance used by ActionExecutor for any
+        // component targeting action (not punch-specific).
+        TARGETING_TOLERANCE: 20,
     },
     ANIMATION: {
         DOOR_FLASH_DURATION: 400,

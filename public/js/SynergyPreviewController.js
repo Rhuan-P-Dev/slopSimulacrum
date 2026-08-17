@@ -1,4 +1,5 @@
 import { AppConfig } from './Config.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * SynergyPreviewController
@@ -93,7 +94,7 @@ class SynergyPreviewController {
      */
     async fetchPreview(actionName, entityId, componentIds) {
         if (!actionName || !entityId || !componentIds || componentIds.length < 1) {
-            console.warn('[SynergyPreviewController] fetchPreview: Invalid input parameters', { actionName, entityId, componentCount: componentIds?.length });
+            ClientLogger.warn('SynergyPreviewController', ' fetchPreview: Invalid input parameters', { actionName, entityId, componentCount: componentIds?.length });
             this.currentSynergyResult = null;
             return null;
         }
@@ -114,7 +115,7 @@ class SynergyPreviewController {
                 // Store synergy result for range calculation
                 this.currentSynergyResult = preview.synergyResult || null;
 
-                console.log('[SynergyPreviewController] Preview fetched successfully', {
+                ClientLogger.info('SynergyPreviewController', ' Preview fetched successfully', {
                     actionName,
                     componentCount: componentIds.length,
                     hasSynergy: !!preview.synergyResult
@@ -123,11 +124,11 @@ class SynergyPreviewController {
                 return preview;
             } else {
                 this.currentSynergyResult = null;
-                console.warn('[SynergyPreviewController] Preview returned null', { actionName });
+                ClientLogger.warn('SynergyPreviewController', ' Preview returned null', { actionName });
                 return null;
             }
         } catch (error) {
-            console.error('[SynergyPreviewController] fetchPreview failed', {
+            ClientLogger.error('SynergyPreviewController', ' fetchPreview failed', {
                 actionName,
                 entityId,
                 error: error.message
@@ -168,7 +169,7 @@ class SynergyPreviewController {
                 return isNaN(multiplier) ? 1.0 : multiplier;
             }
         } catch (error) {
-            console.warn('[SynergyPreviewController] computeSynergyMultiplier failed, using 1.0', error);
+            ClientLogger.warn('SynergyPreviewController', ' computeSynergyMultiplier failed, using 1.0', error);
         }
 
         return 1.0;
@@ -204,7 +205,7 @@ class SynergyPreviewController {
         if (isMove || isDash) {
             // ─── MOVE/DASH: Calculate from move stats + synergy ─────────────
             if (!droid || !droid.components || !state || !state.components || !state.components.instances) {
-                console.warn('[SynergyPreviewController] calculateRange: Missing required data', {
+                ClientLogger.warn('SynergyPreviewController', ' calculateRange: Missing required data', {
                     hasDroid: !!droid,
                     hasComponents: !!(droid?.components),
                     hasState: !!state,
@@ -225,7 +226,7 @@ class SynergyPreviewController {
             }
 
             if (maxMoveStat === null) {
-                console.warn('[SynergyPreviewController] calculateRange: No movement stat found');
+                ClientLogger.warn('SynergyPreviewController', ' calculateRange: No movement stat found');
                 return null;
             }
 
@@ -233,7 +234,7 @@ class SynergyPreviewController {
             const effectiveMove = maxMoveStat * synergyMultiplier;
             const dashRangeMultiplier = this.config.MULTIPLIERS?.DASH_RANGE || 1.0;
 
-            console.log('[SynergyPreviewController] Range calculated', {
+            ClientLogger.info('SynergyPreviewController', ' Range calculated', {
                 actionName,
                 maxMoveStat,
                 synergyMultiplier,
@@ -293,7 +294,7 @@ class SynergyPreviewController {
      */
     setSynergyResult(result) {
         this.currentSynergyResult = result;
-        console.log('[SynergyPreviewController] Synergy result cached', {
+        ClientLogger.info('SynergyPreviewController', ' Synergy result cached', {
             hasResult: !!result
         });
     }
@@ -302,7 +303,7 @@ class SynergyPreviewController {
      * Clears the cached synergy result.
      */
     clearCache() {
-        console.log('[SynergyPreviewController] Cache cleared');
+        ClientLogger.info('SynergyPreviewController', ' Cache cleared');
         this.currentSynergyResult = null;
     }
 }

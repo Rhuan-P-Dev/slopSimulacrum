@@ -109,6 +109,26 @@ class RoomNotFoundError extends GameError {
     }
 }
 
+/**
+ * Thrown when communication with the LLM backend fails.
+ * Carries a machine-readable `code` describing the failure class:
+ *   - LLM_TIMEOUT       request aborted after exceeding the configured timeout
+ *   - LLM_HTTP_ERROR    backend responded with a non-2xx HTTP status
+ *   - LLM_PARSE_ERROR   backend response was invalid JSON or missing the expected schema
+ *   - LLM_REQUEST_ERROR network-level failure (e.g. connection refused)
+ */
+class LLMError extends GameError {
+    /**
+     * @param {string} message - Human-readable error message.
+     * @param {string} [code] - Machine-readable error code (see above).
+     * @param {Error|null} [cause] - The underlying error that caused this.
+     */
+    constructor(message, code = 'LLM_REQUEST_ERROR', cause = null) {
+        super(message, code, cause);
+        this.name = 'LLMError';
+    }
+}
+
 export {
     GameError,
     ValidationError,
@@ -116,5 +136,6 @@ export {
     ComponentNotFoundError,
     EntityNotFoundError,
     BlueprintNotFoundError,
-    RoomNotFoundError
+    RoomNotFoundError,
+    LLMError
 };

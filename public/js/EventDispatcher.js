@@ -5,6 +5,7 @@
  *
  * @implements {IEventDispatcher}
  */
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * @typedef {Object} IHandlers
@@ -28,7 +29,7 @@ class EventDispatcher {
      * @param {Object} config - Application configuration (AppConfig).
      * @param {IHandlers} handlers - Business logic handler callbacks.
      * @param {Object} [options] - Optional configurations.
-     * @param {Object} [options.worldStateManager] - WorldStateManager instance for emitting stateChanged events.
+     * @param {Object} [options.worldStateManager] - WorldStateManager instance for syncing world state on socket updates.
      */
     constructor(socket, config, handlers, options = {}) {
         /** @type {Object} Socket.io client instance. */
@@ -40,7 +41,7 @@ class EventDispatcher {
         /** @type {IHandlers} Business logic handler callbacks. */
         this.handlers = handlers;
 
-        /** @private {Object|null} WorldStateManager for emitting state events. */
+        /** @private {Object|null} WorldStateManager for syncing world state on socket updates. */
         this._worldStateManager = options.worldStateManager || null;
 
         /** @type {Map<string, Array<Function>>} Tracks socket listeners for cleanup. */
@@ -60,7 +61,7 @@ class EventDispatcher {
     setupSocketListeners() {
         const socketHandlers = {
             incarnate: (data) => {
-                console.log('[EventDispatcher] Incarnated as:', data.entityId);
+                ClientLogger.info('EventDispatcher', 'Incarnated as:', data.entityId);
                 if (this.handlers.setMyEntityId) {
                     this.handlers.setMyEntityId(data.entityId);
                 }
@@ -69,11 +70,12 @@ class EventDispatcher {
                 }
             },
             'world-state-update': (data) => {
-                console.log('[EventDispatcher] WORLD STATE UPDATE SIGNAL', data?.state ? '(with payload)' : '(no payload)');
-                // Sync world state and emit stateChanged event for subscribers (e.g., InventoryManager)
+                ClientLogger.info('EventDispatcher', 'WORLD STATE UPDATE SIGNAL', data?.state ? '(with payload)' : '(no payload)');
+                // Sync world state. The previous _emit('stateChanged') was removed in
+                // Phase 4: WorldStateManager's internal event bus had no registered
+                // listeners (App.js's onStatBarsUpdate already syncs state directly).
                 if (this._worldStateManager && data?.state) {
                     this._worldStateManager.state = data.state;
-                    this._worldStateManager._emit('stateChanged', data.state);
                 }
                 // Immediately update stat bars with the state payload (fast path)
                 if (this.handlers.onStatBarsUpdate && data?.state) {
@@ -85,7 +87,7 @@ class EventDispatcher {
                 }
             },
             error: (data) => {
-                console.error('[EventDispatcher] Socket error:', data.message);
+                ClientLogger.error('EventDispatcher', 'Socket error:', data.message);
                 if (this.handlers.handleError) {
                     this.handlers.handleError({
                         code: 'SOCKET_ERROR',
@@ -101,7 +103,7 @@ class EventDispatcher {
             this._socketListeners.set(event, [handler]);
         }
 
-        console.log('[EventDispatcher] Socket listeners setup complete');
+        ClientLogger.debug('EventDispatcher', 'Socket listeners setup complete');
     }
 
     /**
@@ -194,7 +196,7 @@ class EventDispatcher {
             listener: clickHandler
         });
 
-        console.log('[EventDispatcher] Map click listener setup complete');
+        ClientLogger.debug('EventDispatcher', 'Map click listener setup complete');
     }
 
     /**
@@ -275,7 +277,7 @@ class EventDispatcher {
         }
         this._domListeners.length = 0;
 
-        console.log('[EventDispatcher] All listeners destroyed');
+        ClientLogger.debug('EventDispatcher', 'All listeners destroyed');
     }
 }
 

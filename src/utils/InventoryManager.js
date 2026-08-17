@@ -343,6 +343,20 @@ class InventoryManager {
     }
 
     /**
+     * Gets the available (free) volume for a component on an entity.
+     * Public API replacement for the former direct calls to the private
+     * _getComponentMaxVolumeFromEntity() / _calculateComponentUsedVolume() pair.
+     * @param {Object} entity - The entity object.
+     * @param {string} componentId - The component ID.
+     * @returns {number} Available volume (max - used; 0 for unknown components).
+     */
+    getAvailableVolume(entity, componentId) {
+        const maxVolume = this._getComponentMaxVolumeFromEntity(entity, componentId);
+        const usedVolume = this._calculateComponentUsedVolume(entity, componentId);
+        return maxVolume - usedVolume;
+    }
+
+    /**
      * Adds a set of pre-defined items to an entity (bulk add).
      * @param {Object} entity - The entity object.
      * @param {Array} itemsToAdd - Array of { type, componentId? } objects.

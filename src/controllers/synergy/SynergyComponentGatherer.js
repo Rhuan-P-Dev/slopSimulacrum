@@ -12,12 +12,23 @@ import IdResolver from '../../utils/IdResolver.js';
 
 class SynergyComponentGatherer {
     /**
-     * @param {WorldStateController} worldStateController - The root state controller.
      * @param {ActionSelectController|null} actionSelectController - Component selection controller.
+     *
+     * FASE 5: the facade is no longer passed at construction; it is injected via
+     * setWorldStateController() (called by SynergyController.setWorldStateController()).
      */
-    constructor(worldStateController, actionSelectController) {
-        this.worldStateController = worldStateController;
+    constructor(actionSelectController) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.actionSelectController = actionSelectController;
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     // =========================================================================

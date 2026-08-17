@@ -1,5 +1,6 @@
 import { AppConfig } from './Config.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * UIManager
@@ -61,7 +62,7 @@ export class UIManager {
         }
 
         if (!state || !state.rooms || !state.rooms[droid.location]) {
-            console.warn(`[UI] updateWorldView skipped: Room ${droid?.location} not found in state`);
+            ClientLogger.warn('UIManager', ` updateWorldView skipped: Room ${droid?.location} not found in state`);
             return;
         }
 

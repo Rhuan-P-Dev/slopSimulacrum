@@ -107,7 +107,7 @@ export function register(router, { worldStateController, broadcastService }) {
 					finalValue: result.synergy.finalValue,
 					capped: result.synergy.capped,
 					capKey: result.synergy.capKey,
-					contributingComponents: result.synergy.contributingComponents.map((c) => ({
+					contributingComponents: (result.synergy?.contributingComponents ?? []).map((c) => ({
 						componentId: c.componentId,
 						entityId: c.entityId,
 						componentType: c.componentType,

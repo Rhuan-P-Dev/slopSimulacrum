@@ -259,7 +259,8 @@
           "trait": "Physical",
           "stat": "durability",
           "value": 0
-        }
+        },
+        "damageSource": "equippedItem.firstChild.volume"
       },
       {
         "type": "log",

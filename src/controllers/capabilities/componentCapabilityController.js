@@ -28,11 +28,16 @@ import { generateEquippedId } from '../../utils/idGenerator.js';
  */
 class ComponentCapabilityController {
     /**
-     * @param {WorldStateController} worldStateController - The main world state controller.
      * @param {Object} actionRegistry - The registry of available actions.
+     *
+     * FASE 5: the facade (WorldStateController) is no longer passed at construction.
+     * It is injected via setWorldStateController() after the facade is fully built,
+     * because this controller depends on multiple facade surfaces (getAll,
+     * getAllEquippedItems, getItemRegistry, componentController, equippedItemStats).
      */
-    constructor(worldStateController, actionRegistry) {
-        this.worldStateController = worldStateController;
+    constructor(actionRegistry) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.actionRegistry = actionRegistry || {};
 
         /**
@@ -61,6 +66,17 @@ class ComponentCapabilityController {
 
         // Build the reverse index from the action registry
         this._buildTraitStatActionIndex();
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * FASE 5: replaces the constructor-time facade dependency, which broke the
+     * constructor-ordering guarantee (the facade was only partially initialized
+     * when this controller was constructed).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     // =========================================================================

@@ -11,48 +11,6 @@ export class WorldStateManager {
         this.state = null;
         /** @type {string|null} The ID of the entity the user is controlling */
         this.myEntityId = null;
-        /** @private {Map<string, Function[]>} Registered event listeners */
-        this._listeners = new Map();
-    }
-
-    /**
-     * Registers a callback to be called when an event is emitted.
-     * @param {string} eventName - The event name.
-     * @param {Function} callback - The callback function.
-     */
-    addEventListener(eventName, callback) {
-        if (!this._listeners.has(eventName)) {
-            this._listeners.set(eventName, []);
-        }
-        this._listeners.get(eventName).push(callback);
-    }
-
-    /**
-     * Removes a registered callback for an event.
-     * @param {string} eventName - The event name.
-     * @param {Function} callback - The callback function to remove.
-     */
-    removeEventListener(eventName, callback) {
-        const callbacks = this._listeners.get(eventName);
-        if (callbacks) {
-            const index = callbacks.indexOf(callback);
-            if (index !== -1) {
-                callbacks.splice(index, 1);
-            }
-        }
-    }
-
-    /**
-     * Emits an event, calling all registered callbacks with the data.
-     * @param {string} eventName - The event name.
-     * @param {*} data - The data to pass to callbacks.
-     * @private
-     */
-    _emit(eventName, data) {
-        const callbacks = this._listeners.get(eventName);
-        if (callbacks) {
-            callbacks.forEach(cb => cb(data));
-        }
     }
 
     /**
@@ -83,8 +41,6 @@ export class WorldStateManager {
         }
         const data = await response.json();
         this.state = data.state;
-        // Emit stateChanged event so subscribers can react
-        this._emit('stateChanged', this.state);
         return this.state;
     }
 

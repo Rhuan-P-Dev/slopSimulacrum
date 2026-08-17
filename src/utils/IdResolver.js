@@ -182,6 +182,35 @@ export function wrapId(type, uid) {
 }
 
 /**
+ * Legacy (pre-typed) raw UUID format, e.g. "550e8400-e29b-41d4-a716-446655440000".
+ * IDs generated before the typed ID migration carried no ent-/comp- prefix.
+ * @type {RegExp}
+ */
+const LEGACY_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Checks if an ID looks like a legacy (pre-typed) entity ID (raw UUID format).
+ * Consolidated from the duplicated `_isLegacyEntityId` helpers in
+ * ActionController, RangeValidator and ComponentResolver.
+ * @param {string} id - The ID to check.
+ * @returns {boolean}
+ */
+export function isLegacyEntityId(id) {
+    return typeof id === 'string' && LEGACY_UUID_REGEX.test(id);
+}
+
+/**
+ * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
+ * Consolidated from the duplicated `_isLegacyCompId` helpers in
+ * ActionController, ComponentResolver and ActionSelectController.
+ * @param {string} id - The ID to check.
+ * @returns {boolean}
+ */
+export function isLegacyCompId(id) {
+    return typeof id === 'string' && LEGACY_UUID_REGEX.test(id);
+}
+
+/**
  * Unwraps a typed ID, extracting the type and UUID.
  * @param {string} typedId - The typed ID to unwrap.
  * @returns {{ type: string, uid: string } | null} Unwrapped result, or null if not typed.
@@ -218,6 +247,8 @@ export default {
     isItemId,
     isEquippedId,
     isTypedId,
+    isLegacyEntityId,
+    isLegacyCompId,
     resolveComponent,
     resolveItem,
     resolveEquippedItem,

@@ -73,7 +73,10 @@ export class UniversalTickSystem {
         this._intervalId = setInterval(() => {
             this._executeTick();
             this.currentTick++;
-            Logger.info(`[TickSystem] Tick ${this.currentTick} executed. Jobs registered: ${this.jobs.length}`);
+            // Phase 4: demoted from Logger.info to Logger.debug — at 60 ticks/s the
+            // info log produced ~60 lines/second of pure noise. The per-tick line is
+            // now only visible when explicitly raised to debug level.
+            Logger.debug(`[TickSystem] Tick ${this.currentTick} executed. Jobs registered: ${this.jobs.length}`);
         }, intervalMs);
         
         Logger.info(`[TickSystem] World started. Running at ${this.maxTicksPerSecond} ticks/sec.`);

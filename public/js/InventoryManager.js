@@ -1,3 +1,4 @@
+import ClientLogger from '/utils/ClientLogger.js';
 /**
  * InventoryManager - Client-side inventory management module.
  * Manages the inventory overlay panel displaying entity components as containers
@@ -77,7 +78,7 @@ export class InventoryManager {
         this._btnInventory = document.getElementById('btn-inventory');
 
         if (!this._overlay || !this._content) {
-            console.warn('[InventoryManager] Overlay or content element not found.');
+            ClientLogger.warn('InventoryManager', ' Overlay or content element not found.');
             return;
         }
 
@@ -92,7 +93,7 @@ export class InventoryManager {
         // but does NOT attach a click listener to avoid double-toggle with ConfigBarManager.
 
         this._initialized = true;
-        console.log('[InventoryManager] Initialized.');
+        ClientLogger.info('InventoryManager', ' Initialized.');
     }
 
     /**
@@ -124,7 +125,7 @@ export class InventoryManager {
         ]).then(() => {
             this._renderInventory();
         }).catch((err) => {
-            console.error('[InventoryManager] Failed to load inventory data:', err);
+            ClientLogger.error('InventoryManager', ' Failed to load inventory data:', err);
             this._showToast('Failed to load inventory data', 'error');
         });
     }
@@ -158,7 +159,7 @@ export class InventoryManager {
         try {
             const response = await fetch('/inventory/registry');
             if (!response.ok) {
-                console.error('[InventoryManager] Failed to load item registry. HTTP', response.status, response.statusText);
+                ClientLogger.error('InventoryManager', ' Failed to load item registry. HTTP', response.status, response.statusText);
                 this._itemRegistry = {};
                 return;
             }
@@ -167,9 +168,9 @@ export class InventoryManager {
 
             // Log the loaded registry for debugging
             const itemTypes = Object.keys(this._itemRegistry);
-            console.log('[InventoryManager] Item registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
+            ClientLogger.info('InventoryManager', ' Item registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
         } catch (error) {
-            console.error('[InventoryManager] Error loading item registry:', error);
+            ClientLogger.error('InventoryManager', ' Error loading item registry:', error);
             this._itemRegistry = {};
         }
     }
@@ -183,7 +184,7 @@ export class InventoryManager {
         try {
             const response = await fetch('/inventory/holding-cost-registry');
             if (!response.ok) {
-                console.error('[InventoryManager] Failed to load holding cost registry. HTTP', response.status, response.statusText);
+                ClientLogger.error('InventoryManager', ' Failed to load holding cost registry. HTTP', response.status, response.statusText);
                 this._holdingCostRegistry = {};
                 this._showToast('Holding cost registry unavailable — equip buttons will not appear. Server may need restart.', 'error');
                 return;
@@ -193,13 +194,13 @@ export class InventoryManager {
 
             // Log the loaded registry for debugging
             const itemTypes = Object.keys(this._holdingCostRegistry);
-            console.log('[InventoryManager] Holding cost registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
+            ClientLogger.info('InventoryManager', ' Holding cost registry loaded with', itemTypes.length, 'item type(s):', itemTypes);
 
             if (itemTypes.length === 0) {
-                console.warn('[InventoryManager] Holding cost registry is empty — no equip buttons will appear.');
+                ClientLogger.warn('InventoryManager', ' Holding cost registry is empty — no equip buttons will appear.');
             }
         } catch (error) {
-            console.error('[InventoryManager] Error loading holding cost registry:', error);
+            ClientLogger.error('InventoryManager', ' Error loading holding cost registry:', error);
             this._holdingCostRegistry = {};
         }
     }
@@ -214,7 +215,7 @@ export class InventoryManager {
         try {
             const response = await fetch(`/inventory/${entityId}/equipped`);
             if (!response.ok) {
-                console.warn(`[InventoryManager] Failed to load equipped items for entity ${entityId}.`);
+                ClientLogger.warn('InventoryManager', ` Failed to load equipped items for entity ${entityId}.`);
                 this._equippedItems = {};
                 return;
             }
@@ -225,7 +226,7 @@ export class InventoryManager {
                 this._equippedItems[eq.id] = eq;
             }
         } catch (error) {
-            console.warn(`[InventoryManager] Error loading equipped items for entity ${entityId}:`, error);
+            ClientLogger.warn('InventoryManager', ` Error loading equipped items for entity ${entityId}:`, error);
             this._equippedItems = {};
         }
     }
@@ -240,7 +241,7 @@ export class InventoryManager {
         try {
             const response = await fetch(`/inventory/${entityId}`);
             if (!response.ok) {
-                console.error(`[InventoryManager] Failed to load items for entity ${entityId}. HTTP`, response.status, response.statusText);
+                ClientLogger.error('InventoryManager', ` Failed to load items for entity ${entityId}. HTTP`, response.status, response.statusText);
                 this._currentItems = {};
                 return;
             }
@@ -252,9 +253,9 @@ export class InventoryManager {
             for (const compId of Object.keys(this._currentItems)) {
                 totalItems += Array.isArray(this._currentItems[compId]) ? this._currentItems[compId].length : 0;
             }
-            console.log('[InventoryManager] Entity items loaded:', totalItems, 'items across', Object.keys(this._currentItems).length, 'component(s)');
+            ClientLogger.info('InventoryManager', ' Entity items loaded:', totalItems, 'items across', Object.keys(this._currentItems).length, 'component(s)');
         } catch (error) {
-            console.error(`[InventoryManager] Error loading items for entity ${entityId}:`, error);
+            ClientLogger.error('InventoryManager', ` Error loading items for entity ${entityId}:`, error);
             this._currentItems = {};
         }
     }
@@ -714,7 +715,7 @@ export class InventoryManager {
         e.preventDefault();
 
         if (!card || !this._currentEntityId) {
-            console.warn('[InventoryManager] No card or entity ID for drop action.');
+            ClientLogger.warn('InventoryManager', ' No card or entity ID for drop action.');
             this._showToast('No entity available for drop.', 'error');
             return;
         }
@@ -723,7 +724,7 @@ export class InventoryManager {
         const itemType = card.dataset.itemType;
 
         if (!itemId || !itemType) {
-            console.warn('[InventoryManager] Missing item data on drop button.');
+            ClientLogger.warn('InventoryManager', ' Missing item data on drop button.');
             this._showToast('Invalid item data.', 'error');
             return;
         }
@@ -786,7 +787,7 @@ export class InventoryManager {
             this._renderInventory();
 
         } catch (error) {
-            console.error('[InventoryManager] Error equipping item:', error);
+            ClientLogger.error('InventoryManager', ' Error equipping item:', error);
             this._showToast('Failed to equip item', 'error');
         }
     }
@@ -826,7 +827,7 @@ export class InventoryManager {
             this._renderInventory();
 
         } catch (error) {
-            console.error('[InventoryManager] Error unequipping item:', error);
+            ClientLogger.error('InventoryManager', ' Error unequipping item:', error);
             this._showToast('Failed to unequip item', 'error');
         }
     }
@@ -933,14 +934,14 @@ export class InventoryManager {
         try {
             await this._autoUnequipDraggedItem(itemId);
         } catch (error) {
-            console.error('[InventoryManager] Error auto-unequipping dragged item on drop:', error);
+            ClientLogger.error('InventoryManager', ' Error auto-unequipping dragged item on drop:', error);
         }
 
         // Auto-unequip any equipped items on the target component
         try {
             await this._autoUnequipOnTarget(targetCompId);
         } catch (error) {
-            console.error('[InventoryManager] Error auto-unequipping items on drop:', error);
+            ClientLogger.error('InventoryManager', ' Error auto-unequipping items on drop:', error);
         }
 
         // Send move request to server
@@ -965,7 +966,7 @@ export class InventoryManager {
             this._renderInventory();
 
         } catch (error) {
-            console.error('[InventoryManager] Error moving item:', error);
+            ClientLogger.error('InventoryManager', ' Error moving item:', error);
             this._showToast('Failed to move item', 'error');
         }
     }
@@ -993,10 +994,10 @@ export class InventoryManager {
             if (response.ok) {
                 // Update local tracking — delete by eqId
                 delete this._equippedItems[eq.id];
-                console.log(`[InventoryManager] Auto-unequipped ${itemType} from ${componentId} before move.`);
+                ClientLogger.info('InventoryManager', ` Auto-unequipped ${itemType} from ${componentId} before move.`);
             }
         } catch (error) {
-            console.warn(`[InventoryManager] Failed to auto-unequip dragged item ${itemId}:`, error);
+            ClientLogger.warn('InventoryManager', ` Failed to auto-unequip dragged item ${itemId}:`, error);
         }
     }
 
@@ -1030,7 +1031,7 @@ export class InventoryManager {
                     delete this._equippedItems[eqId];
                 }
             } catch (error) {
-                console.warn(`[InventoryManager] Failed to auto-unequip item ${itemId} on drop:`, error);
+                ClientLogger.warn('InventoryManager', ` Failed to auto-unequip item ${itemId} on drop:`, error);
             }
         }
     }
@@ -1174,7 +1175,7 @@ export class InventoryManager {
             const stats = data.stats;
             this._renderItemStats(panel, stats);
         } catch (error) {
-            console.error('[InventoryManager] Error loading item stats:', error);
+            ClientLogger.error('InventoryManager', ' Error loading item stats:', error);
             panel.innerHTML = '<div class="stats-error">Network error</div>';
         }
     }
@@ -1298,7 +1299,7 @@ export class InventoryManager {
 
         // If we're viewing inventory, re-render to show any changes
         await this._loadEntityItems(this._currentEntityId).catch((err) => {
-            console.warn('[InventoryManager] Failed to refresh inventory on state change:', err);
+            ClientLogger.warn('InventoryManager', ' Failed to refresh inventory on state change:', err);
         });
         this._renderInventory();
 
@@ -1472,7 +1473,7 @@ export class InventoryManager {
             this._renderInventory();
 
         } catch (error) {
-            console.error('[InventoryManager] Error moving item into container:', error);
+            ClientLogger.error('InventoryManager', ' Error moving item into container:', error);
             this._showToast('Failed to move item into container', 'error');
         }
     }

@@ -32,6 +32,7 @@ import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import IdResolver from '/utils/IdResolver.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 export class ClientApp {
     constructor() {
@@ -58,9 +59,10 @@ export class ClientApp {
         this.statBars = new StatBarsManager(this.ui, this.worldState);
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
-        this.worldMap = new WorldMapView({
-            onRoomClick: (roomId, door) => this._handleWorldMapRoomClick(roomId, door)
-        });
+        // Phase 4: the onRoomClick wiring was removed — _handleWorldMapRoomClick()
+        // was deprecated (door clicks route through _handleDoorClick instead) and
+        // had no other callers. Room node clicks are now no-ops.
+        this.worldMap = new WorldMapView({});
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
 
         // 5. Socket connection (must be before EventDispatcher)
@@ -115,28 +117,28 @@ export class ClientApp {
             this.actions
         );
 
-        // 10. Overlay manager (replaces ConfigBarManager)
+        // 9. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
-        // 9. Pick-up overlay controller for dropped items on world map
+        // 10. Pick-up overlay controller for dropped items on world map
         this.pickUpOverlay = new PickUpOverlayController({
             onPickUp: (droppedItemInfo) => this._handlePickUpClick(droppedItemInfo),
             onClose: () => {}
         });
 
-        // 10. Wire action execution callback to NavActionsPanel
+        // 11. Wire action execution callback to NavActionsPanel
         this._setupActionCallback();
 
-        // 11. Register pick-up overlay with overlay manager
+        // 12. Register pick-up overlay with overlay manager
         this.overlayManager.register('pick-up', this.pickUpOverlay, null, null);
 
-        // 12. Setup listeners
+        // 13. Setup listeners
         this._setupListeners();
 
-        // 13. Drop item state
+        // 14. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
         this._pendingDropItem = null;
 
-        // 11b. Pending pick-up selector state (pickup mode — mirrors drop flow)
+        // 15. Pending pick-up selector state (pickup mode — mirrors drop flow)
         /** @type {Object|null} Pending pick-up selector { droppedItemId, itemType, name, volume, id, componentIds } */
         this._pendingPickUpSelector = null;
     }
@@ -174,21 +176,6 @@ export class ClientApp {
         this.navActions.setGrayedComponentCallback((lockedActionName, compId) => {
             this.selection.removeGrayedComponent(lockedActionName, compId);
         });
-    }
-
-    /**
-     * Handles clicking a room node on the world map overlay.
-     * Deprecated: retained for backward compatibility with WorldMapView room clicks.
-     * Door connection clicks now route through _handleDoorClick() with range validation.
-     * @param {string} roomId - The target room ID.
-     * @param {string} [sourceDoor] - Optional door name the entity exited from.
-     * @private
-     */
-    _handleWorldMapRoomClick(roomId, sourceDoor) {
-        const droid = this.worldState.getActiveDroid();
-        if (!droid) return;
-        if (droid.location === roomId) return;
-        this.executor.executeMoveDroid(droid.id, roomId, sourceDoor);
     }
 
     /**
@@ -391,7 +378,7 @@ export class ClientApp {
                 event.preventDefault();
                 this._restorePreviousAction().catch(err => {
                     // Suppress unhandled promise rejection for key handler
-                    console.error('[App] Error restoring previous action:', err);
+                    ClientLogger.error('App', 'Error restoring previous action:', err);
                 });
             }
         });

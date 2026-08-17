@@ -56,14 +56,18 @@ class ActionSelectController {
     /**
      * Creates a new ActionSelectController.
      *
-     * @param {WorldStateController} worldStateController - The root state controller (injected).
+     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * setWorldStateController() after the facade is fully built (this controller
+     * depends on facade.getEquippedItem + the stateEntityController, both resolved
+     * through the facade reference).
+     *
      * @param {number} [selectionTtlMs=DEFAULT_SELECTION_TTL_MS] - Time-to-live for selections in ms.
      */
-    constructor(worldStateController, selectionTtlMs = DEFAULT_SELECTION_TTL_MS) {
+    constructor(selectionTtlMs = DEFAULT_SELECTION_TTL_MS) {
         /**
-         * @type {WorldStateController}
+         * @type {WorldStateController|null} Injected post-construction.
          */
-        this.worldStateController = worldStateController;
+        this.worldStateController = null;
 
         /**
          * Time-to-live for selections in milliseconds.
@@ -81,6 +85,15 @@ class ActionSelectController {
         Logger.info('[ActionSelectController] Initialized', {
             selectionTtlMs: this.selectionTtlMs
         });
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * FASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     // =========================================================================
@@ -177,7 +190,7 @@ class ActionSelectController {
         }
 
         // Validate that componentId is a typed component ID (accept legacy UUID for compatibility)
-        if (!IdResolver.isCompId(componentId) && !this._isLegacyCompId(componentId)) {
+        if (!IdResolver.isCompId(componentId) && !IdResolver.isLegacyCompId(componentId)) {
             const error = `Invalid component ID format: "${componentId}". Must be a typed comp-... ID.`;
             Logger.warn('[ActionSelectController] Registration failed: invalid component ID format', { componentId });
             return { success: false, error };
@@ -204,14 +217,23 @@ class ActionSelectController {
                 return { success: true };
             }
 
-            // Locked to a different action — reject
-            const error = `Component "${componentId}" is already locked to action "${existing.actionName}" (entity: ${existing.entityId}). Cannot lock to "${actionName}".`;
+            // Locked to a different action — reject (structured error protocol:
+            // error.details carries machine-readable fields; error.message keeps the
+            // human-readable text for backward compatibility).
+            const message = `Component "${componentId}" is already locked to action "${existing.actionName}" (entity: ${existing.entityId}). Cannot lock to "${actionName}".`;
             Logger.warn('[ActionSelectController] Registration rejected: component locked to different action', {
                 componentId,
                 currentAction: existing.actionName,
                 requestedAction: actionName
             });
-            return { success: false, error };
+            return {
+                success: false,
+                error: {
+                    code: 'COMPONENT_LOCKED',
+                    message,
+                    details: { componentId, lockedAction: existing.actionName }
+                }
+            };
         }
 
         // Register new lock
@@ -265,7 +287,7 @@ class ActionSelectController {
         }
 
         // Validate component ID format (for non-equipment IDs)
-        if (!IdResolver.isCompId(resolvedId) && !this._isLegacyCompId(resolvedId)) {
+        if (!IdResolver.isCompId(resolvedId) && !IdResolver.isLegacyCompId(resolvedId)) {
             Logger.warn(`[ActionSelectController] Invalid component ID format: "${resolvedId}".`);
             return { valid: false, error: `Invalid component ID format: ${resolvedId}` };
         }
@@ -572,8 +594,15 @@ class ActionSelectController {
             const errorMessages = conflicts.map((c) =>
                 `Component "${c.componentId}" is already locked to action "${c.lockedAction}" (entity: ${c.lockedEntity}).`
             );
+            // Structured error protocol (batch): each conflict carries machine-readable
+            // details; the human-readable message text is preserved for back-compat.
+            const structuredErrors = conflicts.map((c) => ({
+                code: 'COMPONENT_LOCKED',
+                message: `Component "${c.componentId}" is already locked to action "${c.lockedAction}" (entity: ${c.lockedEntity}).`,
+                details: { componentId: c.componentId, lockedAction: c.lockedAction }
+            }));
             Logger.warn('[ActionSelectController] Batch registration failed: component conflicts', { conflicts });
-            return { success: false, errors: errorMessages };
+            return { success: false, errors: errorMessages, errorDetails: structuredErrors };
         }
 
         // All validations passed — lock all components
@@ -752,15 +781,6 @@ class ActionSelectController {
         return this.getSelectionsForAction(actionName);
     }
 
-    /**
-     * Checks if an ID looks like a legacy (pre-typed) component ID (raw UUID format).
-     * @param {string} id - The ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isLegacyCompId(id) {
-        return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    }
 }
 
 /**

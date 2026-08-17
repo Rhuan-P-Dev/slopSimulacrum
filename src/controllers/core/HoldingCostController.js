@@ -39,8 +39,13 @@ class HoldingCostController {
      * @param {Object} deps.actionController - ActionController for capability re-evaluation
      * @param {EquippedItemStatsController} deps.equippedItemStats - EquippedItemStatsController for in-memory item stats
      */
-    constructor({ worldStateController, actionController, equippedItemStats }) {
-        this.worldStateController = worldStateController;
+    constructor({ actionController, equippedItemStats } = {}) {
+        /**
+         * @type {WorldStateController|null} Injected post-construction via
+         * setWorldStateController() (FASE 5: the facade is no longer passed at
+         * construction — BUG-100 root cause).
+         */
+        this.worldStateController = null;
         this.actionController = actionController;
         this.equippedItemStats = equippedItemStats;
 
@@ -68,6 +73,15 @@ class HoldingCostController {
          * @type {Object<string, Object<string, Object<string, Object>>>}
          */
         this._preEquipStats = {};
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built.
+     * FASE 5: replaces the constructor-time facade dependency (BUG-100 root cause).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
     }
 
     // =========================================================================
@@ -407,11 +421,17 @@ class HoldingCostController {
     }
 
     /**
-     * Gets all equipped items across all entities.
+     * Gets all equipped items across all entities, keyed by entity.
      * Returns a deep copy filtered to exclude entries with invalid/empty eqId keys.
+     *
+     * Named `getEquippedItemsByEntity` (Phase 4, BUG cleanup) to distinguish it
+     * from `WorldStateController.getAllEquippedItems()`, which returns a FLAT
+     * array of `{ entityId, eqId, itemId, itemType, componentId }`. Same shape
+     * here as before: { [entityId]: { [eqId]: item } }.
+     *
      * @returns {Object<string, Object<string, { eqId: string, itemId: string, itemType: string, componentId: string }>>}
      */
-    getAllEquippedItems() {
+    getEquippedItemsByEntity() {
         const cloned = structuredClone(this._equippedItems);
         const filtered = {};
         for (const [entityId, items] of Object.entries(cloned)) {
@@ -439,7 +459,7 @@ class HoldingCostController {
      */
     getAll() {
         return {
-            _equippedItems: this.getAllEquippedItems()
+            _equippedItems: this.getEquippedItemsByEntity()
         };
     }
 

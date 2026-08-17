@@ -9,6 +9,7 @@
  * @module StatBarsManager
  */
 import { AppConfig } from './Config.js';
+import ClientLogger from '/utils/ClientLogger.js';
 
 /**
  * Default color mapping for trait types.
@@ -650,7 +651,7 @@ export class StatBarsManager {
         const stat = statSelect?.value;
 
         if (!trait || !stat) {
-            console.warn('[StatBarsManager] Trait and stat must be selected.');
+            ClientLogger.warn('StatBarsManager', ' Trait and stat must be selected.');
             return;
         }
 

@@ -23,19 +23,23 @@ class SynergyController {
     /**
      * Creates a new SynergyController.
      *
-     * @param {WorldStateController} worldStateController - The root state controller (injected).
+     * FASE 5: the facade is no longer passed at construction. It is injected via
+     * setWorldStateController() after the facade is fully built (this controller —
+     * and its nested SynergyComponentGatherer — depend on the facade).
+     *
      * @param {Object} actionRegistry - The full action registry from data/actions.json.
      * @param {Object} [synergyRegistry] - The synergy registry from data/synergy.json (optional).
      * @param {ActionSelectController} [actionSelectController] - Component selection controller.
      */
-    constructor(worldStateController, actionRegistry, synergyRegistry, actionSelectController) {
-        this.worldStateController = worldStateController;
+    constructor(actionRegistry, synergyRegistry, actionSelectController) {
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
         this.actionRegistry = actionRegistry || {};
         this.actionSelectController = actionSelectController || null;
 
-        // Inject extracted modules
+        // Inject extracted modules (the gatherer receives the facade later via the setter)
         this.configManager = new SynergyConfigManager();
-        this.componentGatherer = new SynergyComponentGatherer(worldStateController, actionSelectController);
+        this.componentGatherer = new SynergyComponentGatherer(actionSelectController);
         this.calculator = new SynergyCalculator();
         this.cacheManager = new SynergyCacheManager();
 
@@ -49,6 +53,19 @@ class SynergyController {
         Logger.info('[SynergyController] Initialized', {
             actionsWithSynergy: this.configManager.countActionsWithSynergy()
         });
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController) after it is fully built,
+     * and propagates it to the nested SynergyComponentGatherer. FASE 5: replaces the
+     * constructor-time facade dependency (BUG-100 root cause).
+     * @param {WorldStateController} worldStateController - The fully-built facade.
+     */
+    setWorldStateController(worldStateController) {
+        this.worldStateController = worldStateController;
+        if (this.componentGatherer) {
+            this.componentGatherer.setWorldStateController(worldStateController);
+        }
     }
 
     // =========================================================================
