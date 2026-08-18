@@ -80,6 +80,44 @@ export const DROP_BASE_RANGE = 3;
  * @type {number}
  */
 export const DROP_RANGE_MULTIPLIER = 2;
+
+// =========================================================================
+// TURN SYSTEM CONSTANTS (Feature A — spec §5.1)
+//
+// The world runs on a deterministic round cadence: a PLANNING window during
+// which any entity may enqueue actions, a single NPC-AGENT tick where the
+// (future) LLM layer fires, and a SETTLE/resolution window where the queued
+// actions replay through the real ActionController.executeAction pipeline in
+// initiative order. These constants define the round geometry. They are tick-
+// based (not millisecond-based) so the loop is deterministic regardless of
+// the tick rate.
+// =========================================================================
+
+/**
+ * Number of ticks in one full round (6 s at 60 ticks/s).
+ * @type {number}
+ */
+export const TURN_ROUND_TICKS = 360;
+
+/**
+ * Ticks in the planning window (local ticks [0, TURN_PLANNING_TICKS)).
+ * Queue submissions are accepted during this window.
+ * @type {number}
+ */
+export const TURN_PLANNING_TICKS = 300;
+
+/**
+ * Local tick at which NPC agent calls are fired each round.
+ * @type {number}
+ */
+export const TURN_NPC_AGENT_TICK = 20;
+
+/**
+ * Maximum number of queued actions per entity per round.
+ * @type {number}
+ */
+export const TURN_MAX_QUEUED_PER_ROUND = 3;
+
 // =========================================================================
 // TICK SYSTEM CONSTANTS
 // =========================================================================
@@ -89,4 +127,4 @@ export const DROP_RANGE_MULTIPLIER = 2;
  * Controls the speed of the universal tick loop.
  * @type {number}
  */
-export const MAX_TICKS_PER_SECOND = 1;
+export const MAX_TICKS_PER_SECOND = 10;

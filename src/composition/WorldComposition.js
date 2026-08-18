@@ -57,6 +57,15 @@ import EntityController from '../controllers/core/entityController.js';
 import RoomsController from '../controllers/core/RoomsController.js';
 import InventoryManager from '../utils/InventoryManager.js';
 import EquippedItemStatsController from '../controllers/core/EquippedItemStatsController.js';
+import WorldEventLogController from '../controllers/core/WorldEventLogController.js';
+// Feature D backend (spec §7.3, pulled forward to C for speak_in_room):
+// per-room chat ring buffers (state owner; deliberately NO getAll() →
+// excluded from the world-state broadcast aggregation).
+import RoomChatController from '../controllers/core/RoomChatController.js';
+// Feature A: deterministic round/turn system (state owner; needs only the
+// tick system at construction — the facade is injected via setter below).
+import TurnSystemController from '../controllers/core/TurnSystemController.js';
+import LlmContextController from '../controllers/networking/LlmContextController.js';
 import ComponentCapabilityController from '../controllers/capabilities/componentCapabilityController.js';
 import ActionSelectController from '../controllers/actions/actionSelectController.js';
 import SynergyController from '../controllers/synergy/synergyController.js';
@@ -109,6 +118,11 @@ export function buildWorldState(tickSystem = null) {
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
     const inventoryManager = new InventoryManager();
+    // Feature B: world event ring buffer (state owner; capacity 50 per spec §4.1)
+    const worldEventLogController = new WorldEventLogController(50);
+    // Feature D backend (spec §7.3): per-room chat rings (50/room, 200-char
+    // messages). No getAll() on purpose — the full-state broadcast stays lean.
+    const roomChatController = new RoomChatController(50, 200);
     // NOTE: EquippedItemStatsController no longer takes the facade (its reference was
     // dead code — it was stored but never read). It is a pure data store.
     const equippedItemStats = new EquippedItemStatsController();
@@ -126,8 +140,9 @@ export function buildWorldState(tickSystem = null) {
     const synergyController = new SynergyController(actionRegistry, synergyRegistry, actionSelectController);
 
     // --- Layer 3: action system (depends on the controllers above) ---
-    // ConsequenceHandlers: needs equippedItemStats (named); facade injected later.
-    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats });
+    // ConsequenceHandlers: needs equippedItemStats (named); the world event log
+    // feeds the LogConsequenceHandler sink (Feature B); facade injected later.
+    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController });
     // ActionController: needs its named collaborators; facade injected later.
     const actionController = new ActionController(
         consequenceHandlers,
@@ -141,6 +156,12 @@ export function buildWorldState(tickSystem = null) {
     const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
     // HoldingCostController: needs actionController + equippedItemStats (named); facade injected later.
     const holdingCostController = new HoldingCostController({ actionController, equippedItemStats });
+    // Feature B: LLM context renderer (logic controller; reads the facade's
+    // public API — facade injected later, same pattern as the other readers).
+    const llmContextController = new LlmContextController({ actionRegistry });
+    // Feature A: turn system (state owner; needs only the tick system here —
+    // the facade + broadcaster + NPC agent are injected via setters below).
+    const turnSystemController = new TurnSystemController({ tickSystem });
 
     // =========================================================================
     // 2. CONSTRUCT THE FACADE with the already-built sub-controllers (injection).
@@ -161,6 +182,10 @@ export function buildWorldState(tickSystem = null) {
         synergyController,
         consequenceHandlers,
         actionController,
+        worldEventLogController,
+        llmContextController,
+        turnSystemController,
+        roomChatController,
         // NOTE: the imported class is `stateEntityController` (lowercase), so the
         // built instance is referenced explicitly by its local name here.
         stateEntityController: stateEntityControllerInstance,
@@ -176,11 +201,22 @@ export function buildWorldState(tickSystem = null) {
     // =========================================================================
     internalComponentController.setWorldStateController(worldStateController);
     componentCapabilityController.setWorldStateController(worldStateController);
+    llmContextController.setWorldStateController(worldStateController);
     actionSelectController.setWorldStateController(worldStateController);
     synergyController.setWorldStateController(worldStateController);
     actionController.setWorldStateController(worldStateController);
     consequenceHandlers.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
+    turnSystemController.setWorldStateController(worldStateController);
+    // Feature D backend: the room chat layer needs the facade for room
+    // existence checks (sendMessage → ROOM_NOT_FOUND). No subControllers
+    // map entry on purpose — it has no getAll() and must stay out of the
+    // full-state broadcast aggregation (spec §7.3).
+    roomChatController.setWorldStateController(worldStateController);
+    // Expose the turn system to the facade's getAll() aggregation so its
+    // getRoundState() appears as `state.turns` in every world-state broadcast
+    // (spec §5.7 — free via the sub-controller loop).
+    worldStateController.subControllers.turns = turnSystemController;
 
     // =========================================================================
     // 4. WORLD INITIALIZATION + INITIAL CAPABILITY SCAN.
@@ -213,7 +249,11 @@ export function buildWorldState(tickSystem = null) {
             consequenceHandlers,
             actionController,
             stateEntityController: stateEntityControllerInstance,
-            holdingCostController
+            holdingCostController,
+            worldEventLogController,
+            llmContextController,
+            turnSystemController,
+            roomChatController
         }
     };
 }

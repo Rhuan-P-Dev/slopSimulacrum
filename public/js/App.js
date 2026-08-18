@@ -28,9 +28,11 @@ import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
 import { OverlayManager } from './OverlayManager.js';
+import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
+import { RoomChatController } from './RoomChatController.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
@@ -43,7 +45,17 @@ export class ClientApp {
         this.worldState = new WorldStateManager();
         this.ui = new UIManager();
         this.errorController = new ClientErrorController(this.ui);
-        this.actions = new ActionManager(this.ui, this.errorController);
+        // Feature A: turn system HUD + targeting mode. The mode provider is
+        // passed to ActionManager LAZILY (it reads turns.shouldQueueForRound()
+        // at request time), so it is safe to reference `this.turns` from the
+        // closure before it is fully constructed below.
+        this.turns = new TurnController({
+            worldState: () => this.worldState.getState(),
+            getMyEntityId: () => this.worldState.getMyEntityId(),
+            onModeChange: () => this.turns.update(),
+            onCancelQueued: (entityId, queueId) => this._cancelQueuedAction(entityId, queueId)
+        });
+        this.actions = new ActionManager(this.ui, this.errorController, () => this.turns.shouldQueueForRound());
 
         // 3. Controllers
         this.selection = new SelectionController(
@@ -117,7 +129,14 @@ export class ClientApp {
             this.actions
         );
 
-        // 9. Overlay manager (replaces ConfigBarManager)
+        // 9. Feature D: per-room chat overlay (spec §7.4). Focused room =
+        // the active droid's room; synced in refreshWorldAndActions().
+        this.roomChat = new RoomChatController({
+            getState: () => this.worldState.getState(),
+            handleError: (err) => this.errorController.handleError(err)
+        });
+
+        // 10. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
         // 10. Pick-up overlay controller for dropped items on world map
         this.pickUpOverlay = new PickUpOverlayController({
@@ -133,6 +152,22 @@ export class ClientApp {
 
         // 13. Setup listeners
         this._setupListeners();
+
+        // 13b. Feature A: initialize the turn HUD in the config-bar slot.
+        // Wrapped so a missing slot / DOM issue can never break app startup.
+        try {
+            this.turns.init();
+        } catch (err) {
+            ClientLogger.error('App', 'Turn HUD init failed (UI unaffected):', err);
+        }
+
+        // 13c. Feature D: initialize the room chat panel. Same guard — a
+        // missing panel must never break startup.
+        try {
+            this.roomChat.init();
+        } catch (err) {
+            ClientLogger.error('App', 'Room chat init failed (UI unaffected):', err);
+        }
 
         // 14. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
@@ -176,6 +211,35 @@ export class ClientApp {
         this.navActions.setGrayedComponentCallback((lockedActionName, compId) => {
             this.selection.removeGrayedComponent(lockedActionName, compId);
         });
+    }
+
+    /**
+     * Cancels one queued action for the client entity (Feature A).
+     * Calls DELETE /turns/queue/:entityId/:queueId, then refreshes so the HUD
+     * and action list reflect the removal. Failures surface via the error
+     * controller; the UI never breaks.
+     * @param {string} entityId - Typed entity ID (ent-...).
+     * @param {string} queueId - Typed queue entry ID (q-...).
+     * @private
+     */
+    async _cancelQueuedAction(entityId, queueId) {
+        try {
+            const response = await fetch(`${AppConfig.ENDPOINTS.TURNS_QUEUE}/${entityId}/${queueId}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            if (!response.ok || !data?.success) {
+                throw new Error(data?.error || `Cancel failed (HTTP ${response.status})`);
+            }
+            ClientLogger.info('App', `Queued action ${queueId} cancelled for ${entityId}`);
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            ClientLogger.error('App', `Failed to cancel queued action ${queueId}:`, error);
+            this.errorController.handleError({
+                code: 'TURN_QUEUE_CANCEL_FAILED',
+                message: error.message
+            });
+        }
     }
 
     /**
@@ -418,6 +482,27 @@ export class ClientApp {
         document.addEventListener('pick-up-selector:execute', (event) => {
             this._onPickUpSelectorExecute(event.detail);
         });
+
+        // Feature A: dedicated turn transition event (phase/round flips).
+        // The payload does NOT carry queues — just re-read the latest full state
+        // (a full-state broadcast follows on the same tick for resolutions).
+        this.socket.on('turn-round-update', (payload) => {
+            try {
+                this.turns.onTransition(payload);
+            } catch (err) {
+                ClientLogger.error('App', 'turn-round-update handler failed:', err);
+            }
+        });
+
+        // Feature D: GLOBAL room-chat broadcast (spec §7.3) — the payload
+        // carries the roomId; the controller filters by focused room.
+        this.socket.on('room-chat-message', (message) => {
+            try {
+                this.roomChat.onRoomChatMessage(message);
+            } catch (err) {
+                ClientLogger.error('App', 'room-chat-message handler failed:', err);
+            }
+        });
     }
 
     /**
@@ -532,6 +617,9 @@ export class ClientApp {
             );
             this.overlayManager.register('world-map', this.worldMap, 'btn-world-map', '3');
             this.overlayManager.register('inventory', this.inventory, 'btn-inventory', '4');
+            // Feature D: room chat panel (button in the config bar, no number
+            // shortcut — only 1-4 are wired in OverlayManager).
+            this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle
@@ -554,6 +642,10 @@ export class ClientApp {
         try {
             await this.worldState.fetchState();
             const droid = this.worldState.getActiveDroid();
+
+            // Feature D: keep the chat panel scoped to the focused room
+            // (the active droid's room). No-op when the room is unchanged.
+            this.roomChat.setFocusedRoom(droid?.location || null);
 
             // Update the visual world view
             this.ui.updateWorldView(
@@ -599,6 +691,13 @@ export class ClientApp {
 
             // Update NavActionsPanel if it's currently open
             this._updateNavActionsPanelIfOpen();
+
+            // Feature A: refresh the turn HUD (state.turns rides every full state)
+            try {
+                this.turns.update();
+            } catch (err) {
+                ClientLogger.error('App', 'Turn HUD refresh failed (UI unaffected):', err);
+            }
 
             this.ui.hideStatus();
         } catch (error) {

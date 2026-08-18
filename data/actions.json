@@ -1,5 +1,6 @@
 {
   "move": {
+    "description": "Advance your droid toward a target point in the current room using your rolling wheels.",
     "targetingType": "spatial",
     "requirements": [
       {
@@ -25,6 +26,7 @@
     ]
   },
   "dash": {
+    "description": "Sprint: move twice as fast toward the target point, but wear your chassis down by 5 durability.",
     "targetingType": "spatial",
     "requirements": [
       {
@@ -60,6 +62,7 @@
     ]
   },
   "selfHeal": {
+    "description": "Run a self-repair cycle that restores 10 durability to your core.",
     "targetingType": "self_target",
     "requirements": [
       {
@@ -90,6 +93,7 @@
     ]
   },
   "droid punch": {
+    "description": "Throw a punch with your arm, dealing damage equal to your Physical.strength. Close-range melee attack.",
     "targetingType": "component",
     "range": 100,
     "requirements": [
@@ -126,6 +130,7 @@
     ]
   },
   "cut": {
+    "description": "Slice the target with an equipped knife, dealing damage equal to the knife's sharpness. The knife loses 1 sharpness with every cut.",
     "targetingType": "component",
     "range": 50,
     "requirements": [
@@ -167,6 +172,7 @@
     ]
   },
   "dropItem": {
+    "description": "Drop an item from your inventory onto the map near you, where others can pick it up.",
     "targetingType": "spatial",
     "range": 100,
     "requirements": [
@@ -199,6 +205,7 @@
     ]
   },
   "pickUpItem": {
+    "description": "Pick up an item that is lying on the map nearby, or take an item from another entity's hand.",
     "targetingType": "component",
     "range": 50,
     "requirements": [
@@ -242,6 +249,7 @@
     ]
   },
   "shootT1": {
+    "description": "Fire your T1 weapon. Consumes one stored projectile and deals damage equal to the projectile's volume.",
     "targetingType": "component",
     "range": 100,
     "requirements": [

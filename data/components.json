@@ -38,5 +38,33 @@
       "Spatial": { "x": 0, "y": 20 },
       "Movement": { "move": 20 }
     } 
+  },
+  "merchantCore": {
+    "traits": {
+      "Physical": { "mass": 30, "durability": 80, "volume": 12 },
+      "Spatial": { "x": 0, "y": 0 }
+    }
+  },
+  "merchantHead": {
+    "traits": {
+      "Physical": { "durability": 40, "volume": 6 },
+      "Mind": { "think_level": 8 },
+      "Manipulation": { "fine_controls": 20 },
+      "Spatial": { "x": 0, "y": -15 }
+    }
+  },
+  "merchantArm": {
+    "traits": {
+      "Physical": { "durability": 40, "volume": 8, "strength": 12 },
+      "Manipulation": { "fine_controls": 15 },
+      "Spatial": { "x": 18, "y": 10 }
+    }
+  },
+  "merchantRollingBall": {
+    "traits": {
+      "Physical": { "durability": 60, "volume": 10 },
+      "Movement": { "move": 10 },
+      "Spatial": { "x": 0, "y": 20 }
+    }
   }
 }

@@ -67,9 +67,12 @@ class stateEntityController {
      *
      * @param {string} blueprintName - The name of the entity blueprint to use.
      * @param {string} roomId - The initial room where the entity is located.
+     * @param {Object} [extra={}] - Optional record fields merged into the entity
+     *   (Feature D: NPC spawn flags such as isNPC/name/npcConfig). Defaults to {}
+     *   so every existing caller is unchanged.
      * @returns {string} The unique ID of the newly created entity.
      */
-    spawnEntity(blueprintName, roomId) {
+    spawnEntity(blueprintName, roomId, extra = {}) {
         const entityId = generateEntityId();
         const entityData = this.entityController.createEntityFromBlueprint(blueprintName);
 
@@ -79,7 +82,8 @@ class stateEntityController {
             internalComponents: {}, // Internal components stored per entity
             location: roomId,
             spatial: { x: 0, y: 0 },
-            status: 'active'
+            status: 'active',
+            ...extra
         };
 
         // Auto-install internal components (e.g., durabilityRepairSpheres, transcendentSpeedCores)

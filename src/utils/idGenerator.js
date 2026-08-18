@@ -40,4 +40,24 @@ export function generateEquippedId() {
     return `eq-${crypto.randomUUID()}`;
 }
 
+/**
+ * Generates a typed turn-queue entry ID with 'q-' prefix.
+ * Part of the typed-ID family (BUG-107 consistency) used by the turn system
+ * (Feature A) to identify a queued action entry for cancel/listing.
+ * @returns {string} Typed queue entry ID (e.g., "q-6ba7b813-9dad-11d1-80b4-00c04fd430c8").
+ */
+export function generateQueueId() {
+    return `q-${crypto.randomUUID()}`;
+}
+
+/**
+ * Generates a typed room-chat message ID with 'chat-' prefix.
+ * Part of the typed-ID family (BUG-107 consistency) used by the room chat
+ * backend (spec §7.3) to identify one chat message.
+ * @returns {string} Typed chat message ID (e.g., "chat-6ba7b814-9dad-11d1-80b4-00c04fd430c8").
+ */
+export function generateChatId() {
+    return `chat-${crypto.randomUUID()}`;
+}
+
 export default generateUID;

@@ -1,0 +1,501 @@
+/**
+ * LlmContextController — State→text translation layer for the LLM.
+ *
+ * Feature B (spec §4.3): a local LLM can only reason about the world
+ * through text. This controller composes a bounded, sectioned narrative
+ * (hard cap of 4000 chars) from the live world state: entity self-state,
+ * nearby entities, executable actions (with the natural-language
+ * descriptions from data/actions.json), the recent world-event ring buffer,
+ * and (when the room-chat layer exists) the room chat.
+ *
+ * It is a reader/composer — a logic controller, not a state owner. It
+ * receives the facade via setWorldStateController() and only ever reads
+ * through its public API (spec "public API only" rule).
+ *
+ * The section headers are stable and deliberate (prompt engineering):
+ *   === YOUR STATE ===, === NEARBY ENTITIES ===,
+ *   === YOUR ACTIONS (executable now) ===, === RECENT EVENTS ===,
+ *   === ROOM CHAT ===
+ * Empty sections still print their header plus "(none)" so weak local
+ * models always see the same structure.
+ *
+ * @module LlmContextController
+ */
+
+class LlmContextController {
+    static BUDGET = {
+        maxChars: 4000,          // hard cap on the rendered text (~1k–1.3k tokens)
+        maxEntities: 8,          // same-room entities listed
+        otherRoomEntities: 2,    // entities from other rooms (room-named)
+        maxEvents: 20,
+        maxChat: 10,
+        perMessageChars: 200     // per chat/event line truncation
+    };
+
+    /**
+     * @param {Object} deps
+     * @param {Object} deps.actionRegistry - data/actions.json (loaded by the composition root).
+     */
+    constructor({ actionRegistry }) {
+        this.actionRegistry = actionRegistry && typeof actionRegistry === 'object' ? actionRegistry : {};
+        /** @type {WorldStateController|null} Injected post-construction. */
+        this.worldStateController = null;
+    }
+
+    /**
+     * Injects the world state facade (WorldStateController).
+     * @param {WorldStateController} facade
+     */
+    setWorldStateController(facade) {
+        this.worldStateController = facade;
+    }
+
+    /**
+     * Builds the LLM context for one entity.
+     *
+     * @param {string} entityId - Typed entity ID (ent-…).
+     * @param {Object} [options] - May override maxEntities / maxEvents / maxChat
+     *   (each clamped to the BUDGET maximum).
+     * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, events: boolean, chat: boolean } } }}
+     */
+    buildContext(entityId, options = {}) {
+        const facade = this.worldStateController;
+        if (!facade) {
+            throw new Error('LlmContextController: facade not injected (call setWorldStateController first)');
+        }
+
+        const maxEntities = this._clampOption(options.maxEntities, LlmContextController.BUDGET.maxEntities);
+        const maxEvents = this._clampOption(options.maxEvents, LlmContextController.BUDGET.maxEvents);
+        const maxChat = this._clampOption(options.maxChat, LlmContextController.BUDGET.maxChat);
+
+        const entity = facade.getEntity(entityId);
+        if (!entity) {
+            return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, events: false, chat: false } } };
+        }
+
+        const roomName = this._roomName(entity.location);
+        const self = this._buildSelfData(entity);
+        const nearData = this._buildNearbyData(entity, entity.location, maxEntities);
+        const actionData = this._buildActionData(entityId);
+        const eventsData = this._buildEventData(maxEvents);
+        const chatData = this._buildChatData(entity.location, maxChat);
+
+        const stats = {
+            chars: 0,
+            budgetChars: LlmContextController.BUDGET.maxChars,
+            truncated: { entities: false, events: false, chat: false }
+        };
+
+        // Truncation order when over budget (spec §4.3): events first, then
+        // entities (same-room first), then chat (drop to 5). The `data` mirror
+        // always reflects exactly what was rendered (the truncated versions).
+        let near = nearData;
+        let events = eventsData;
+        let chat = chatData;
+        let text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+
+        if (text.length > stats.budgetChars) {
+            events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
+            text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+            stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
+
+            if (text.length > stats.budgetChars) {
+                near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)));
+                text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+                stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
+            }
+
+            if (text.length > stats.budgetChars && chat.length > 5) {
+                chat = chat.slice(0, 5);
+                text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+                stats.truncated.chat = true;
+            }
+        }
+
+        stats.chars = text.length;
+        const data = {
+            self,
+            entities: [
+                ...near.sameRoom.map(e => ({ ...e, room: 'same' })),
+                ...near.otherRooms.map(e => ({ ...e, room: e.roomName }))
+            ],
+            actions: actionData,
+            recentEvents: events,
+            roomChat: chat
+        };
+        return { text, data, stats };
+    }
+
+    // =========================================================================
+    // SECTION BUILDERS — each returns the structured data for one section
+    // =========================================================================
+
+    /**
+     * Self section data: name, durability (lowest-ratio components first, max 2),
+     * key stats, equipped items, inventory grouped by host component.
+     * @param {Object} entity
+     * @returns {Object}
+     * @private
+     */
+    _buildSelfData(entity) {
+        const facade = this.worldStateController;
+        const components = entity.components || [];
+
+        // Durability: components with Physical.durability, lowest ratio first, max 2.
+        const durability = components
+            .map(comp => {
+                const stats = facade.getComponentStats(comp.id);
+                const cur = stats?.Physical?.durability;
+                const def = this._componentDef(comp.type);
+                const max = def?.traits?.Physical?.durability ?? cur;
+                if (typeof cur !== 'number' || typeof max !== 'number' || max <= 0) return null;
+                return { component: comp.type, current: cur, max, ratio: cur / max };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.ratio - b.ratio)
+            .slice(0, 2);
+
+        // Key stats aggregated across components.
+        const stats = {};
+        const sum = (trait, stat) => components.reduce((acc, comp) => {
+            const v = facade.getComponentStats(comp.id)?.[trait]?.[stat];
+            return acc + (typeof v === 'number' ? v : 0);
+        }, 0);
+        const has = (trait, stat) => components.some(comp => {
+            const v = facade.getComponentStats(comp.id)?.[trait]?.[stat];
+            return typeof v === 'number';
+        });
+        const statsLines = {
+            'Physical.strength': has('Physical', 'strength') ? sum('Physical', 'strength') : null,
+            'Physical.sharpness': has('Physical', 'sharpness') ? sum('Physical', 'sharpness') : null,
+            'Movement.move': has('Movement', 'move') ? sum('Movement', 'move') : null,
+            'Mind.think_level': has('Mind', 'think_level') ? sum('Mind', 'think_level') : null
+        };
+
+        // Equipped items (live stats from EquippedItemStatsController).
+        const equipped = (facade.getEquippedItems(entity.id) || []).map(eq => {
+            const itemStats = facade.equippedItemStats?.getStats(eq.eqId) || null;
+            return {
+                eqId: eq.eqId,
+                itemId: eq.itemId,
+                type: eq.itemType,
+                hostComponent: eq.componentId,
+                stats: itemStats || null
+            };
+        });
+
+        // Inventory grouped by host component: type xN.
+        const inventory = [];
+        const itemsByHost = facade.getEntityItems(entity.id) || {};
+        for (const [hostComponentId, items] of Object.entries(itemsByHost)) {
+            const byType = {};
+            for (const item of items || []) {
+                byType[item.type] = (byType[item.type] || 0) + 1;
+            }
+            for (const [type, count] of Object.entries(byType)) {
+                inventory.push({ type, count, hostComponent: hostComponentId });
+            }
+        }
+
+        return {
+            name: entity.name || 'Droid',
+            isNPC: Boolean(entity.isNPC),
+            durability,
+            stats: statsLines,
+            equipped,
+            inventory
+        };
+    }
+
+    /**
+     * Nearby entities: same room (distance-sorted, capped) + up to 2 from
+     * other rooms (room-named).
+     * @param {Object} self
+     * @param {string} selfRoomUid
+     * @param {number} maxEntities
+     * @returns {{ sameRoom: Array, otherRooms: Array }}
+     * @private
+     */
+    _buildNearbyData(self, selfRoomUid, maxEntities) {
+        const facade = this.worldStateController;
+        const all = Object.values(facade.getAll().entities || {});
+        const sameRoom = [];
+        const otherRooms = [];
+
+        for (const other of all) {
+            if (other.id === self.id) continue;
+            const inSameRoom = other.location === selfRoomUid;
+            const distance = inSameRoom
+                ? Math.round(Math.hypot((other.spatial?.x || 0) - (self.spatial?.x || 0), (other.spatial?.y || 0) - (self.spatial?.y || 0)))
+                : null;
+            const durability = this._firstDurability(other);
+            const stats = this._topStats(other, 2);
+            const entry = {
+                id: other.id,
+                name: other.name || 'Droid',
+                distance,
+                durability,
+                stats
+            };
+            if (inSameRoom) {
+                sameRoom.push(entry);
+            } else {
+                otherRooms.push({ ...entry, roomName: this._roomName(other.location) });
+            }
+        }
+
+        sameRoom.sort((a, b) => a.distance - b.distance);
+        return { sameRoom: sameRoom.slice(0, maxEntities), otherRooms: otherRooms.slice(0, LlmContextController.BUDGET.otherRoomEntities) };
+    }
+
+    /**
+     * Action section: one entry per action with at least one executable
+     * component, plus the list of names that are not executable.
+     * @param {string} entityId
+     * @returns {{ entries: Array, notExecutable: string[] }}
+     * @private
+     */
+    _buildActionData(entityId) {
+        const facade = this.worldStateController;
+        const actions = facade.getActionsForEntity(entityId) || {};
+        const entries = [];
+        const notExecutable = [];
+
+        for (const [name, data] of Object.entries(actions)) {
+            const canExecute = data.canExecute || [];
+            if (canExecute.length === 0) {
+                notExecutable.push(name);
+                continue;
+            }
+            entries.push({
+                name,
+                description: data.description || '',
+                range: typeof data.range === 'number' ? data.range : 'self',
+                canExecute: canExecute.map(e => e.componentId),
+                requirement: this._formatRequirements(data.requirements)
+            });
+        }
+        return { entries, notExecutable };
+    }
+
+    /**
+     * Events section: last `limit` world events, rendered as
+     * "[tick] [action] message".
+     * @param {number} limit
+     * @returns {string[]}
+     * @private
+     */
+    _buildEventData(limit) {
+        const facade = this.worldStateController;
+        if (!facade.getRecentEvents) return [];
+        const perMessageChars = LlmContextController.BUDGET.perMessageChars;
+        return (facade.getRecentEvents(limit) || []).map(ev => {
+            const msg = (ev.message || '').slice(0, perMessageChars);
+            return `[${ev.tick ?? '----'}] [${ev.action}] ${msg}`;
+        });
+    }
+
+    /**
+     * Chat section (Feature D's RoomChatController — optional at this step):
+     * "Speaker: text" lines for the entity's current room.
+     * @param {string} roomUid
+     * @param {number} limit
+     * @returns {string[]}
+     * @private
+     */
+    _buildChatData(roomUid, limit) {
+        const facade = this.worldStateController;
+        if (!facade.getRoomChatMessages) return [];
+        try {
+            const messages = facade.getRoomChatMessages(roomUid, limit) || [];
+            const perMessageChars = LlmContextController.BUDGET.perMessageChars;
+            return messages.map(m => `${m.speakerName || '???'}: ${(m.text || '').slice(0, perMessageChars)}`);
+        } catch {
+            return [];
+        }
+    }
+
+    // =========================================================================
+    // RENDER
+    // =========================================================================
+
+    /**
+     * Renders the sectioned narrative text.
+     * @private
+     */
+    _render(entity, roomName, self, near, actions, events, chat, _maxEntities) {
+        const facade = this.worldStateController;
+        const room = entity.location ? (facade.getRooms() || {})[entity.location] : null;
+        const lines = [];
+
+        // === YOUR STATE ===
+        lines.push('=== YOUR STATE ===');
+        lines.push(`Name: ${self.name}`);
+        lines.push(room
+            ? `Room: ${room.name || roomName} - ${room.description || ''}`
+            : `Room: ${roomName || 'unknown'}`);
+        lines.push(self.durability.length > 0
+            ? `Durability: ${self.durability.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
+            : 'Durability: (none)');
+        const statParts = [
+            self.stats['Physical.strength'] !== null && `strength=${self.stats['Physical.strength']}`,
+            self.stats['Physical.sharpness'] !== null && `sharpness=${self.stats['Physical.sharpness']}`,
+            self.stats['Movement.move'] !== null && `move=${self.stats['Movement.move']}`,
+            self.stats['Mind.think_level'] !== null && `think=${self.stats['Mind.think_level']}`
+        ].filter(Boolean);
+        lines.push(statParts.length > 0 ? `Key stats: ${statParts.join(' ')}` : 'Key stats: (none)');
+        lines.push(self.equipped.length > 0
+            ? `Equipped: ${self.equipped.map(eq => eq.type).join(', ')}`
+            : 'Equipped: (none)');
+        lines.push(self.inventory.length > 0
+            ? `Inventory: ${self.inventory.map(i => `${i.type} x${i.count} (${i.hostComponent})`).join(', ')}`
+            : 'Inventory: (none)');
+        lines.push('');
+
+        // === NEARBY ENTITIES ===
+        lines.push('=== NEARBY ENTITIES ===');
+        const nearby = [...near.sameRoom, ...near.otherRooms];
+        if (nearby.length === 0) {
+            lines.push('(none)');
+        } else {
+            nearby.forEach((e, i) => {
+                const stats = Object.entries(e.stats)
+                    .map(([k, v]) => `${k.split('.')[1]}=${v}`)
+                    .slice(0, 2)
+                    .join(', ');
+                const dur = e.durability ? ` - durability ${e.durability.current}/${e.durability.max}` : '';
+                const where = e.roomName ? ` (in ${e.roomName})` : ` (${e.distance} away)`;
+                lines.push(`${i + 1}. ${e.name}${where}${dur}${stats ? `, ${stats}` : ''}`);
+            });
+        }
+        lines.push('');
+
+        // === YOUR ACTIONS (executable now) ===
+        lines.push('=== YOUR ACTIONS (executable now) ===');
+        if (actions.entries.length === 0) {
+            lines.push('(none)');
+        } else {
+            for (const a of actions.entries) {
+                lines.push(`- ${a.name}: ${a.description} | range ${a.range} | needs ${a.requirement || 'nothing'} | use ${a.canExecute[0]}`);
+            }
+        }
+        if (actions.notExecutable.length > 0) {
+            lines.push(`${actions.notExecutable.length} action${actions.notExecutable.length > 1 ? 's' : ''} not executable right now: ${actions.notExecutable.join(', ')}`);
+        }
+        lines.push('');
+
+        // === RECENT EVENTS ===
+        lines.push('=== RECENT EVENTS ===');
+        lines.push(events.length > 0 ? events.join('\n') : '(none)');
+        lines.push('');
+
+        // === ROOM CHAT ===
+        lines.push('=== ROOM CHAT ===');
+        lines.push(chat.length > 0 ? chat.join('\n') : '(none)');
+
+        return lines.join('\n');
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    /**
+     * Component type definition from data/components.json (via the registry
+     * held by the component controller — same source the server merges stats
+     * from, per spec §3: "mesma fonte do server").
+     * @param {string} componentType
+     * @returns {Object|null}
+     * @private
+     */
+    _componentDef(componentType) {
+        // Public accessor only (BUG-032 pattern): no direct reads of
+        // componentController.componentRegistry.
+        return this.worldStateController.componentController?.getComponentDefinition?.(componentType) ?? null;
+    }
+
+    /**
+     * First durability-bearing component of an entity (current/max).
+     * @param {Object} entity
+     * @returns {Object|null}
+     * @private
+     */
+    _firstDurability(entity) {
+        const facade = this.worldStateController;
+        for (const comp of entity.components || []) {
+            const stats = facade.getComponentStats(comp.id);
+            const cur = stats?.Physical?.durability;
+            const max = this._componentDef(comp.type)?.traits?.Physical?.durability ?? cur;
+            if (typeof cur === 'number' && typeof max === 'number' && max > 0) {
+                return { component: comp.type, current: cur, max };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Top-`n` stats (by value) across an entity's components, keyed
+     * trait.stat.
+     * @param {Object} entity
+     * @param {number} n
+     * @returns {Object}
+     * @private
+     */
+    _topStats(entity, n) {
+        const facade = this.worldStateController;
+        const totals = {};
+        for (const comp of entity.components || []) {
+            const stats = facade.getComponentStats(comp.id) || {};
+            for (const [trait, values] of Object.entries(stats)) {
+                if (trait === 'Spatial') continue; // position is not a stat
+                for (const [stat, value] of Object.entries(values)) {
+                    if (typeof value !== 'number') continue;
+                    if (stat === 'durability') continue;
+                    const key = `${trait}.${stat}`;
+                    totals[key] = (totals[key] || 0) + value;
+                }
+            }
+        }
+        return Object.fromEntries(
+            Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, n)
+        );
+    }
+
+    /**
+     * Requirement list → "Trait.stat >= min" summary (joined with ", ").
+     * @param {Array|null} requirements
+     * @returns {string}
+     * @private
+     */
+    _formatRequirements(requirements) {
+        if (!Array.isArray(requirements) || requirements.length === 0) return 'nothing';
+        return requirements.map(r => `${r.trait}.${r.stat} >= ${r.minValue}`).join(', ');
+    }
+
+    /**
+     * Room display name by room UID.
+     * @param {string} roomUid
+     * @returns {string}
+     * @private
+     */
+    _roomName(roomUid) {
+        const rooms = this.worldStateController?.getRooms() || {};
+        return rooms[roomUid]?.name || roomUid || 'unknown';
+    }
+
+    /**
+     * Clamps an optional numeric override to [0, max].
+     * @param {number|undefined} value
+     * @param {number} max
+     * @returns {number}
+     * @private
+     */
+    _clampOption(value, max) {
+        if (value === undefined || value === null) return max;
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 0) return max;
+        return Math.min(n, max);
+    }
+}
+
+export default LlmContextController;

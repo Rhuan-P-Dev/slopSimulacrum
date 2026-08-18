@@ -6,13 +6,40 @@ import ClientLogger from '/utils/ClientLogger.js';
  * Coordinates the execution of game actions and handles the target selection flow for movement.
  */
 export class ActionManager {
-    constructor(uiManager, errorController) {
+    /**
+     * @param {UIManager} uiManager
+     * @param {ClientErrorController} errorController
+     * @param {Function} [queueModeProvider] - Optional lazy getter (Feature A): returns
+     *   true when the client is in Turn mode AND the round is in the planning
+     *   window, so every action request is sent with `queueForRound: true`
+     *   (enqueued instead of executed). Defaults to null → always immediate
+     *   (100% backward compatible).
+     */
+    constructor(uiManager, errorController, queueModeProvider = null) {
         /** @type {UIManager} */
         this.uiManager = uiManager;
         /** @type {ClientErrorController} */
         this.errorController = errorController;
         /** @type {Object|null} The action currently awaiting a target click on the map */
         this.pendingMovementAction = null;
+        /** @private {Function|null} Lazy queue-mode getter (Feature A). */
+        this._queueModeProvider = queueModeProvider;
+    }
+
+    /**
+     * True when the next action request should be enqueued for the round
+     * instead of executed immediately (Feature A, Turn mode + planning window).
+     * Never throws: any error falls back to immediate (legacy) behavior.
+     * @private
+     * @returns {boolean}
+     */
+    _shouldQueueForRound() {
+        if (typeof this._queueModeProvider !== 'function') return false;
+        try {
+            return this._queueModeProvider() === true;
+        } catch (e) {
+            return false;
+        }
     }
 
     /**
@@ -43,10 +70,16 @@ export class ActionManager {
      */
     async _sendActionRequest(payload, errorCode) {
         try {
+            // Feature A (Turn mode): when active, enqueue for the round instead of
+            // executing immediately. The server gate is the additive `queueForRound`
+            // flag; absent/false → the exact legacy immediate behavior.
+            const requestPayload = this._shouldQueueForRound()
+                ? { ...payload, queueForRound: true }
+                : payload;
             const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(requestPayload)
             });
 
             if (!response.ok) {

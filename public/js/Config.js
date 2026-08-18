@@ -67,6 +67,23 @@ export const AppConfig = {
         SYNERGY_PREVIEW: '/synergy/preview',
         SYNERGY_PREVIEW_DATA: '/synergy/preview-data',
         DROPPED_ITEMS: '/dropped-items',
+        // Feature A (turn system, spec §5.4). TURNS_QUEUE is a prefix — append
+        // "/:entityId" or "/:entityId/:queueId" to list or cancel entries.
+        TURNS_STATE: '/turns/state',
+        TURNS_QUEUE: '/turns/queue',
+        // Feature D (spec §7.3/§7.4): per-room chat. Both are PREFIXES —
+        // append "/:roomId" (send) or "/:roomId?limit=N" (history).
+        ROOM_CHAT_SEND: '/rooms',
+        ROOM_CHAT_HISTORY: '/rooms',
+    },
+    // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
+    // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH
+    // mirrors the server-side RoomChatController cap for pre-validation.
+    PLAYER_NAME: 'Player',
+    CHAT_MAX_LENGTH: 200,
+    ROOM_CHAT: {
+        // History depth for GET /rooms/:id/chat (the server ring is 50/room).
+        HISTORY_LIMIT: 50,
     },
     DEFAULTS: {
         DROID_BLUEPRINT: 'smallBallDroid',

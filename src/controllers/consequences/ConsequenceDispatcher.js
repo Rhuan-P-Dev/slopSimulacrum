@@ -198,6 +198,12 @@ class ConsequenceDispatcher {
         const results = [];
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
+            // Failure log consequences in data/actions.json store message/level at the
+            // top level (no params object) — merge them through so the handler logs
+            // the real message instead of the empty fallback.
+            const effectiveParams = consequence.type === 'log'
+                ? { ...(resolvedParams || {}), ...(consequence.message ? { message: consequence.message } : {}), ...(consequence.level ? { level: consequence.level } : {}) }
+                : resolvedParams;
 
             const targetResult = this._resolveTargetForConsequence(consequence, entityId, {}, {}, action, actionName);
 
@@ -214,11 +220,11 @@ class ConsequenceDispatcher {
             }
 
             // Pass the consequence target type to the handler for interpretation
-            const handlerContext = { actionParams: { consequenceTarget: consequence.target } };
+            const handlerContext = { actionName, actionParams: { consequenceTarget: consequence.target } };
             const dispatchResult = this.actionController.consequenceHandlers.dispatch(
                 consequence.type,
                 targetResult.targetId,
-                resolvedParams,
+                effectiveParams,
                 handlerContext
             );
             if (dispatchResult && dispatchResult.error === 'no-handler') {
@@ -299,7 +305,17 @@ class ConsequenceDispatcher {
             const resolvedParams = this._resolveParams(consequence.params, requirementValues, context.actionParams);
 
             try {
-                const effectiveParams = this._applySynergy(resolvedParams, synergyResult);
+                let effectiveParams = this._applySynergy(resolvedParams, synergyResult);
+                // Log consequences in data/actions.json store message/level at the
+                // top level (no params object) — merge them through so the handler
+                // logs the real message instead of the empty fallback.
+                if (consequence.type === 'log') {
+                    effectiveParams = {
+                        ...(effectiveParams || {}),
+                        ...(consequence.message ? { message: consequence.message } : {}),
+                        ...(consequence.level ? { level: consequence.level } : {})
+                    };
+                }
                 const targetResult = this._resolveTargetForConsequence(consequence, entityId, targetParams, fulfillingComponents, action, actionName, primaryComponentId);
 
                 if (!targetResult.success) {
@@ -323,6 +339,7 @@ class ConsequenceDispatcher {
                     && context.actionParams.attackerComponentId && IdResolver.isEquippedId(context.actionParams.attackerComponentId);
                 const handlerContext = {
                     ...context,
+                    actionName,
                     actionParams: { ...context.actionParams, consequenceTarget: consequence.target },
                     // When the source is an equipped item and target is 'self', provide the eqId
                     // so handlers can route to EquippedItemStatsController

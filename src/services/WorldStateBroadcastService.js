@@ -43,6 +43,42 @@ class WorldStateBroadcastService {
 	}
 
 	/**
+		* Broadcasts the dedicated `turn-round-update` transition event (Feature A,
+		* spec §5.7). Fired by the TurnSystemController at the two transition
+		* moments (planning start, resolution start) so the phase flip reaches
+		* clients the same tick it happens — even when no action (hence no
+		* full-state broadcast) occurs. Payload is intentionally small:
+		* { roundNumber, phase, currentTick, planningDeadlineTick, actorOrder }
+		* (queues ride the full state, not this packet).
+		* @param {Object} payload - The transition payload (see above).
+		*/
+	broadcastTurnUpdate(payload) {
+		try {
+			this._io.emit('turn-round-update', payload);
+			Logger.info('Turn round update broadcasted', { roundNumber: payload?.roundNumber, phase: payload?.phase, clientCount: this._io.engine.clientsCount });
+		} catch (error) {
+			Logger.error('Failed to broadcast turn round update', { error: error.message });
+		}
+	}
+
+	/**
+	 * Broadcasts a per-room chat message (Feature D backend, spec §7.3).
+	 * Delivery decision: global emit with the `roomId` IN the payload — the
+	 * codebase has zero socket.join usage, and one player + one NPC does not
+	 * justify server-side Socket.IO rooms (documented re-evaluation trigger:
+	 * many rooms × many players). Clients filter by their focused room.
+	 * @param {Object} message - { id, roomId, speakerName, speakerEntityId, text, tick, ts }.
+	 */
+	broadcastRoomChatMessage(message) {
+		try {
+			this._io.emit('room-chat-message', message);
+			Logger.info('Room chat message broadcasted', { roomId: message?.roomId, clientCount: this._io.engine.clientsCount });
+		} catch (error) {
+			Logger.error('Failed to broadcast room chat message', { error: error.message });
+		}
+	}
+
+	/**
 	 * Transforms raw world state into typed-ID-safe format for broadcast.
 	 * Ensures all IDs use typed format (ent-, comp-, item-, eq-).
 	 * Adds missing typed IDs where needed using generators.

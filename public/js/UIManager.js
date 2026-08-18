@@ -364,6 +364,20 @@ export class UIManager {
             marker.setAttribute("filter", "url(#glow)");
 
             entitiesLayer.appendChild(marker);
+
+            // Entity name label (spec §7.4): named entities (NPCs — "Bolt the
+            // Merchant") are readable on the map; nameless player droids fall
+            // back to 'Droid'.
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", entityX);
+            label.setAttribute("y", entityY - AppConfig.MARKER_SIZES.ENTITY_RADIUS - 4);
+            label.setAttribute("text-anchor", "middle");
+            label.setAttribute("fill", entity.isNPC ? "#ffaa00" : "#88bbff");
+            label.setAttribute("font-size", "9");
+            label.style.pointerEvents = 'none';
+            label.textContent = entity.name || 'Droid';
+
+            entitiesLayer.appendChild(label);
         });
     }
 

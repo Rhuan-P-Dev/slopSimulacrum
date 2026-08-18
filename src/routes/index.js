@@ -6,8 +6,11 @@ import { register as registerActionRoutes } from './actionRoutes.js';
 import { register as registerCapabilityRoutes } from './capabilityRoutes.js';
 import { register as registerSynergyRoutes } from './synergyRoutes.js';
 import { register as registerSelectionRoutes } from './selectionRoutes.js';
+import { register as registerInternalComponentRoutes } from './internalComponentRoutes.js';
 import registerInventoryRoutes from './inventoryRoutes.js';
-import internalComponentRoutes from './internalComponentRoutes.js';
+import { register as registerLlmRoutes } from './llmRoutes.js';
+import { register as registerTurnRoutes } from './turnRoutes.js';
+import { register as registerRoomChatRoutes } from './roomChatRoutes.js';
 
 /**
  * Registers all routes with the given Express app.
@@ -15,13 +18,10 @@ import internalComponentRoutes from './internalComponentRoutes.js';
  * All API routers are mounted behind the shared auth gate
  * (`src/utils/authMiddleware.js`), which is a pass-through in local
  * development and enforces `Authorization: Bearer <API_TOKEN>` when
- * `REQUIRE_AUTH === 'true'`. The gate is applied to:
- *   - the internal-components router (routes defined under /internal-components)
- *   - the main router, which carries every other API endpoint
- * Both routers are mounted behind the single authMiddleware gate at '/'
- * (Phase 4: previously internal-component routes were mounted on a separate
- * app.use('/api/internal-components') line with a divergent /api prefix; they
- * are now consistent with the rest of the API surface, which is unprefixed).
+ * `REQUIRE_AUTH === 'true'`. Every route module follows the standard
+ * `register(router, { deps })` shape (BUG-069: internalComponentRoutes
+ * joined this pattern, replacing the standalone router that reached for a
+ * request-scope side channel nobody ever set, 4/5 endpoints 503).
  * Static assets (public/, shared/) and Socket.IO are NOT gated: they are
  * mounted/attached before this router and Socket.IO upgrades bypass
  * Express routing entirely.
@@ -41,8 +41,11 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerSynergyRoutes(router, { worldStateController });
 	registerSelectionRoutes(router, { worldStateController });
 	registerInventoryRoutes(router, { worldStateController });
+	registerInternalComponentRoutes(router, { worldStateController });
+	registerLlmRoutes(router, { worldStateController });
+	registerTurnRoutes(router, { worldStateController });
+	registerRoomChatRoutes(router, { worldStateController });
 
-	// Phase 4: single mount point for all API routes (auth gate kept).
-	// internalComponentRoutes defines its own /internal-components paths.
-	app.use('/', authMiddleware, internalComponentRoutes, router);
+	// Single mount point for all API routes (auth gate kept).
+	app.use('/', authMiddleware, router);
 }

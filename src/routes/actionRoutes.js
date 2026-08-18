@@ -81,7 +81,7 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * Executes an action on an entity.
 	 */
 	router.post('/execute-action', (req, res) => {
-		const { actionName, entityId, params } = req.body;
+		const { actionName, entityId, params, queueForRound } = req.body;
 
 		if (!actionName || !entityId) {
 			return res.status(400).json({
@@ -93,6 +93,32 @@ export function register(router, { worldStateController, broadcastService }) {
 		const entityIdValidation = validateEntityId(entityId, 'POST /execute-action body');
 		if (!entityIdValidation.valid) {
 			return res.status(400).json({ error: entityIdValidation.error });
+		}
+
+		// FEATURE A (spec §5.4) — queuing gate: `queueForRound: true` (additive
+		// flag) validates the typed IDs as today, then ENQUEUES the action for
+		// the round's resolution instead of executing it immediately. Absent or
+		// false → today's exact behavior (backward compatibility guarantee).
+		// Rule-level rejections (closed window, full queue, unknown entity/
+		// action) follow the project's "rule failure = 200 {result:{success:false, code}}"
+		// contract; only malformed input above is 400.
+		if (queueForRound === true) {
+			try {
+				const turnSystem = worldStateController.turnSystemController;
+				if (!turnSystem) {
+					return res.json({ result: { success: false, code: 'TURNS_DISABLED', error: 'Turn system is not available.' } });
+				}
+				const q = turnSystem.queueAction(entityId, actionName, params || {}, 'player');
+				if (q.success) {
+					broadcastService.broadcast();
+				}
+				return res.status(200).json({ result: q.success
+					? { success: true, queued: true, queueId: q.queueId, queue: q.queue }
+					: { success: false, code: q.code, error: q.error } });
+			} catch (error) {
+				Logger.error('/execute-action (queue) endpoint error', { error: error.message, actionName, entityId });
+				return res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			}
 		}
 
 		try {

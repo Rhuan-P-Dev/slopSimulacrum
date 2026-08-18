@@ -26,13 +26,15 @@ class ConsequenceHandlers {
     /**
      * @param {Object} [deps] - Named dependencies.
      * @param {EquippedItemStatsController} [deps.equippedItemStats] - Mutable equipped-item stats.
+     * @param {WorldEventLogController|null} [deps.worldEventLog] - World event ring buffer
+     *   (Feature B): the log handler forwards every resolved log message to it.
      *
      * FASE 5: the facade (WorldStateController) is no longer passed at construction.
      * It is injected via setWorldStateController() after the facade is fully built,
      * and propagated to the focused handlers (which keep reading
      * `this.worldStateController` exactly as before — their class bodies are untouched).
      */
-    constructor({ equippedItemStats } = {}) {
+    constructor({ equippedItemStats, worldEventLog = null } = {}) {
         /** @type {WorldStateController|null} Injected post-construction. */
         this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
@@ -45,7 +47,17 @@ class ConsequenceHandlers {
         // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
         const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats };
         this.damageHandler = new DamageConsequenceHandler(damageControllers);
-        this.logHandler = new LogConsequenceHandler();
+        // Feature B: single choke point where "something happened in the world"
+        // already produces a human sentence — forward it into the event buffer.
+        // The closure reads this.worldStateController lazily (the facade is
+        // injected post-construction, exactly like the existing handlers).
+        const eventSink = worldEventLog
+            ? (event) => worldEventLog.record({
+                  ...event,
+                  tick: this.worldStateController?.tickSystem?.currentTick ?? null
+              })
+            : null;
+        this.logHandler = new LogConsequenceHandler(eventSink);
         this.eventHandler = new EventConsequenceHandler();
 
         // Cache the handler map once (it used to be rebuilt on every `handlers` access).

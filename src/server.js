@@ -1,5 +1,6 @@
 import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
+import LLMAgentController from './controllers/networking/LLMAgentController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
@@ -18,7 +19,7 @@ const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 const llmController = new LLMController();
 // FASE 5: the world state graph (facade + all sub-controllers) is built by the
 // composition root, which handles topological construction and facade injection.
-const { worldStateController } = buildWorldState(tickSystem);
+const { worldStateController, subControllers } = buildWorldState(tickSystem);
 
 // 4. Initialize broadcast service
 const broadcastService = new WorldStateBroadcastService(io, worldStateController);
@@ -32,6 +33,41 @@ registerRoutes(app, llmController, worldStateController, broadcastService);
 
 // 7. Inject broadcast service into WorldStateController for stat-change-driven broadcasts
 worldStateController.setBroadcastService(broadcastService);
+
+// 7b. Feature A (spec §5.3): give the turn system its broadcaster (full-state
+//     broadcasts after resolution + the dedicated turn-round-update transition
+//     event).
+if (worldStateController.turnSystemController) {
+    worldStateController.turnSystemController.setBroadcaster(broadcastService);
+    Logger.info('[Server] Turn system wired (broadcaster set)');
+}
+
+// 7c. Feature D backend (spec §7.3): the room chat layer needs the broadcast
+//     service for the global `room-chat-message` emit.
+if (subControllers.roomChatController) {
+    subControllers.roomChatController.setBroadcaster(broadcastService);
+    Logger.info('[Server] Room chat wired (broadcaster set; POST/GET /rooms/:roomId/chat)');
+}
+
+// 7d. Feature C (spec §6.6): construct the NPC LLM agent (LLM orchestration
+//     tier — built HERE, not in the composition root) and plug it into the
+//     turn system's agent hook. runRound is fire-and-forget and never throws:
+//     with no LLM endpoint configured (or it being down) every agent tick
+//     logs a graceful "round missed" and the NPC stays silent, never breaking
+//     the turn loop.
+const llmAgentController = new LLMAgentController({
+    llmController,
+    worldStateController,
+    llmContextController: worldStateController.llmContextController,
+    roomChatController: worldStateController.roomChatController,
+    turnSystemController: worldStateController.turnSystemController
+});
+if (worldStateController.turnSystemController) {
+    worldStateController.turnSystemController.setNpcAgent(
+        (npcEntityId, round) => llmAgentController.runRound(npcEntityId, round)
+    );
+    Logger.info('[Server] NPC agent wired (LLMAgentController.runRound → turn system agent hook)');
+}
 
 // 8. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
 worldStateController.triggerInitialBroadcast();

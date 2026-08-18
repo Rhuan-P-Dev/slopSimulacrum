@@ -150,6 +150,8 @@ describe('WorldStateController public method surface', () => {
         'getItemRegistry',
         'getItemStats',
         'getLockedComponents',
+        'getRecentEvents',
+        'getRoomChatMessages',
         'getRoomUidByLogicalId',
         'getRooms',
         'getSynergyConfig',
@@ -170,6 +172,7 @@ describe('WorldStateController public method surface', () => {
         'removeItemFromContainer',
         'removeItemFromEntity',
         'restore',
+        'sendRoomChat',
         'serialize',
         'setBroadcastService',
         'setDroppedItems',
@@ -203,7 +206,34 @@ describe('WorldStateController.getAll() shape', () => {
             'holdingCost',
             'internalComponents',
             'rooms',
+            'turns',
         ]);
+    });
+
+    it('has a turns sub-structure (Feature A) with the spec shape', () => {
+        const state = wsc.getAll();
+        expect(typeOf(state.turns)).toBe('object');
+        expect(keysOf(state.turns)).toEqual([
+            'actorOrder',
+            'currentTick',
+            'phase',
+            'planningDeadlineTick',
+            'queues',
+            'roundNumber',
+        ]);
+        expect(typeOf(state.turns.roundNumber)).toBe('number');
+        expect(['planning', 'resolution']).toContain(state.turns.phase);
+        expect(typeOf(state.turns.currentTick)).toBe('number');
+        expect(typeOf(state.turns.planningDeadlineTick)).toBe('number');
+        expect(typeOf(state.turns.actorOrder)).toBe('array');
+        expect(typeOf(state.turns.queues)).toBe('object');
+        for (const actor of state.turns.actorOrder) {
+            expect(keysOf(actor)).toEqual(['entityId', 'initiative', 'name', 'queuedCount']);
+            expect(typeOf(actor.entityId)).toBe('string');
+            expect(typeOf(actor.initiative)).toBe('number');
+            expect(typeOf(actor.name)).toBe('string');
+            expect(typeOf(actor.queuedCount)).toBe('number');
+        }
     });
 
     it('has a non-empty entities map with a consistent per-entity shape', () => {
@@ -218,16 +248,41 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity)).toBe('object');
 
             // Exact per-entity key set (broadcast adds `equipped` later, not here).
-            expect(keysOf(entity)).toEqual([
-                'blueprint',
-                'components',
-                'id',
-                'internalComponents',
-                'items',
-                'location',
-                'spatial',
-                'status',
-            ]);
+            // Feature D: NPC entities (data/npcs.json) carry the extra spawn
+            // fields (isNPC, name, npcConfig) — player droids keep the base
+            // shape. The world.json opt-out flag lives in the in-memory
+            // _npcSpawnFlags set and must NEVER appear on the entity record
+            // (audit: it used to leak into serialize() snapshots).
+            const isNpc = entity.isNPC === true;
+            expect(entity).not.toHaveProperty('_skipInitialSpawns');
+            expect(keysOf(entity)).toEqual(isNpc
+                ? [
+                    'blueprint',
+                    'components',
+                    'id',
+                    'internalComponents',
+                    'isNPC',
+                    'items',
+                    'location',
+                    'name',
+                    'npcConfig',
+                    'spatial',
+                    'status',
+                ]
+                : [
+                    'blueprint',
+                    'components',
+                    'id',
+                    'internalComponents',
+                    'items',
+                    'location',
+                    'spatial',
+                    'status',
+                ]);
+            if (isNpc) {
+                expect(typeOf(entity.name)).toBe('string');
+                expect(typeOf(entity.npcConfig)).toBe('object');
+            }
 
             // Basic types.
             expect(typeOf(entity.id)).toBe('string');

@@ -547,6 +547,7 @@ export class InventoryManager {
                      data-item-id="${item.id}"
                      data-item-type="${item.type}"
                      data-item-volume="${displayVolume}"
+                     data-container-capacity="${isContainer ? internalCapacity : ''}"
                      data-is-container="${isContainer}"
                      data-parent-host-id="${hostId}"
                      title="${isContainer ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">

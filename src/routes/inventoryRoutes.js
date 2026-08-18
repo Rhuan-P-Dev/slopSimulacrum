@@ -847,36 +847,4 @@ export default function register(router, { worldStateController }) {
 		}
 	});
 
-	/**
-	 * DELETE /inventory/dropped/:droppedItemId
-	 * Removes a dropped item from the world.
-	 */
-	router.delete('/inventory/dropped/:droppedItemId', (req, res) => {
-		try {
-			const { droppedItemId } = req.params;
-
-			// TYPED ID MIGRATION: Validate droppedItemId format
-			const itemIdValidation = validateItemId(droppedItemId, 'DELETE /inventory/dropped/:droppedItemId params');
-			if (!itemIdValidation.valid) {
-				return res.status(400).json({ error: itemIdValidation.error });
-			}
-
-			const result = worldStateController.removeDroppedItem(droppedItemId);
-
-			if (!result.success) {
-				return res.status(400).json({
-					error: 'Failed to remove dropped item',
-					message: result.message,
-				});
-			}
-
-			res.json({ success: true });
-		} catch (error) {
-			Logger.error('/inventory/dropped/:droppedItemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
-		}
-	});
 }

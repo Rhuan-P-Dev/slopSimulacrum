@@ -50,7 +50,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-064](high/BUG-064-nav-actions-panel-signature-mismatch.md) | NavActionsPanel "function is not iterable" error after navigation refactor | ✅ Fixed | `pending` | `App.js`, `NavActionsPanel.js` |
 | [BUG-065](high/BUG-065-world-map-connection-arrows-wrong-direction.md) | World Map Connection Arrows Drawn with Wrong Direction (Center-to-Center) | ✅ Fixed | `pending` | `WorldMapView.js`, `RoomConnectionRenderer.js` |
 | [BUG-066](high/BUG-066-map-connections-not-clickable.md) | Map Connection Arrows Not Clickable (CSS pointer-events Blocks Interaction) | ✅ Fixed | `pending` | `navigation.css`, `WorldMapView.js`, `RoomConnectionRenderer.js`, `UIManager.js` |
-| [BUG-069](high/BUG-069-server-missing-worldStateController-locals.md) | Server Missing `worldStateController` in Express `app.locals` | 🔴 Open | — | `internalComponentRoutes.js`, `server.js`, `routes/index.js` |
+| [BUG-069](high/BUG-069-server-missing-worldStateController-locals.md) | Server Missing `worldStateController` in Express `app.locals` | ✅ Fixed | `pending` | `internalComponentRoutes.js`, `routes/index.js` |
 | [BUG-070](high/BUG-070-evaluateProvidedComponents-empty-contributing.md) | _evaluateProvidedComponents doesn't populate contributingComponents (duplicate BUG-047) | ✅ Fixed | `pending` | `synergyController.js` |
 | [BUG-073](high/BUG-073-missing-inventory-system.md) | Missing Inventory System — Volume-Based Item Storage | ✅ Fixed | — | `InventoryManager.js`, `inventoryRoutes.js`, `inventory.css` |
 | [BUG-074](high/BUG-074-test-item-not-broadcast-to-client.md) | Test Item Added to Server but Not Visible on Client (Broadcast Timing) | ✅ Fixed | `pending` | `WorldStateController.js`, `server.js` |
@@ -124,7 +124,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-117](medium/BUG-117-world-map-arrow-overlap.md) | World Map Arrow Overlap — Bidirectional Connection Arrows and Text Labels Too Close Together | ✅ Fixed | `pending` | `RoomConnectionRenderer.js`, `WorldMapView.js` |
 | [BUG-121](medium/BUG-121-components-json-repeated-loading.md) | components.json Repeatedly Loaded on Every Volume Check | ✅ Fixed | `pending` | `InventoryManager.js` |
 | [BUG-123](medium/BUG-123-client-console-usage.md) | Client-Side InventoryManager Uses console.* Instead of Logger | 🔴 Open | — | `InventoryManager.js` (client) |
-| [BUG-124](medium/BUG-124-checkItemFit-missing-container-volume.md) | _checkItemFit Does Not Account for Container Volume (Nested Inventory) | 🔴 Open | — | `InventoryManager.js` (client) |
+| [BUG-124](medium/BUG-124-checkItemFit-missing-container-volume.md) | _checkItemFit Does Not Account for Container Volume (Nested Inventory) | ✅ Fixed | `pending` | `InventoryManager.js` (client) |
 | [BUG-125](medium/BUG-125-container-header-destroyed-by-toggle.md) | Container Header Destroyed by _toggleContainer() (Double Toggle) | ✅ Fixed | `pending` | `InventoryManager.js` |
 | [BUG-130](medium/BUG-130-consequence-handler-actionParams-modifications-not-propagated.md) | Consequence Handler actionParams Modifications Not Propagated to Subsequent Consequences | ✅ Fixed | `t1-weapon-implementation` | `ConsequenceDispatcher.js` |
 

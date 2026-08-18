@@ -25,7 +25,7 @@ import IdResolver from '../utils/IdResolver.js';
  *     scan are triggered by the composition root, not here, so that all facade
  *     references are in place before any code path that can trigger sub-controllers.
  *
- * The public method surface (64 methods) is unchanged and snapshot-guarded by
+ * The public method surface is snapshot-guarded by
  * test/contract/worldStateController.contract.test.js.
  */
 class WorldStateController {
@@ -48,6 +48,8 @@ class WorldStateController {
      * @param {ActionController} deps.actionController
      * @param {stateEntityController} deps.stateEntityController
      * @param {HoldingCostController} deps.holdingCostController
+     * @param {WorldEventLogController} deps.worldEventLogController
+     * @param {LlmContextController} deps.llmContextController
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -76,6 +78,12 @@ class WorldStateController {
         this.actionController = deps.actionController;
         this.stateEntityController = deps.stateEntityController;
         this.holdingCostController = deps.holdingCostController;
+        this.worldEventLogController = deps.worldEventLogController;
+        this.llmContextController = deps.llmContextController;
+        this.turnSystemController = deps.turnSystemController ?? null;
+        // Feature D backend (spec §7.3): per-room chat ring buffers (state
+        // owner; deliberately NO getAll() → excluded from the broadcast).
+        this.roomChatController = deps.roomChatController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -123,6 +131,12 @@ class WorldStateController {
         // (registers its tick job; the facade reference itself is injected by the
         // composition root via setWorldStateController() AFTER this constructor).
         this.internalComponentController.initialize();
+
+        // Initialize the Turn System (Feature A) with the global tick system —
+        // same pattern as internal components: the job registration is
+        // side-effect-free until tickSystem.start(). The facade reference is
+        // injected by the composition root AFTER this constructor.
+        this.turnSystemController?.initialize();
 
         // Wire equippedItemStats stat change callback to trigger capability
         // re-evaluation. When an equipped item's stats change (e.g., sharpness
@@ -179,6 +193,112 @@ class WorldStateController {
         // Spawn the vault guardian droid in the Deep Vault
         const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
         this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
+
+        // Feature D (spec §7.2): spawn the data-driven NPCs from data/npcs.json
+        // (e.g. "Bolt the Merchant" in the start room). NPCs are NOT in
+        // world.json initialSpawns — their goods come from initialItems.
+        this._spawnNpcs();
+    }
+
+    /**
+     * Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
+     *
+     * Registry shape (key = blueprint name; the same registry LLMAgentController
+     * validates in its constructor):
+     *   { [blueprint]: { displayName, room, personality, initialItems?,
+     *                    maxWorldActionsPerRound?, maxChatMessagesPerRound? } }
+     *
+     * Per entry:
+     *   - the entity is spawned with extra = { isNPC: true, name: displayName,
+     *     npcConfig: {…} }; the persisted isNPC field is what makes the
+     *     world.json spawn observer bypass the NPC (the declarative spawns
+     *     target player-droid component types and would spam warn-logs on an
+     *     NPC). No separate opt-out flag is stored — nothing to leak into
+     *     serialize() snapshots or broadcasts;
+     *   - the entity is positioned at the room center;
+     *   - each initialItems entry { item, count } is placed on a merchantArm
+     *     (fallback: first arm-like component, then any component) via the
+     *     existing addItemToEntity() API.
+     *
+     * Tolerant of a missing/malformed registry — a boot-time warning only,
+     * never a crash (the same tolerance as LLMAgentController._loadNpcRegistry).
+     * @private
+     */
+    _spawnNpcs() {
+        const raw = DataLoader.loadJsonSafe('data/npcs.json', {});
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return; // no NPC registry configured — not an error
+        }
+
+        const roomsData = DataLoader.loadJsonSafe('data/rooms.json', {});
+        let count = 0;
+        for (const [blueprint, entry] of Object.entries(raw)) {
+            try {
+                if (!entry || typeof entry !== 'object') {
+                    Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" is malformed — skipped.`);
+                    continue;
+                }
+                if (typeof entry.displayName !== 'string' || typeof entry.personality !== 'string') {
+                    Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" lacks displayName/personality — skipped.`);
+                    continue;
+                }
+                const roomLogicalId = typeof entry.room === 'string' ? entry.room : 'start_room';
+                const roomUid = this.roomsController.getUidByLogicalId(roomLogicalId);
+                if (!roomUid) {
+                    Logger.warn(`[WorldStateController] npcs.json: "${entry.displayName}" has unknown room "${roomLogicalId}" — skipped.`);
+                    continue;
+                }
+                const room = Object.values(this.roomsController.rooms || {}).find(r => r.id === roomUid) || null;
+
+                const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
+                    isNPC: true,
+                    name: entry.displayName,
+                    npcConfig: {
+                        personality: entry.personality,
+                        maxWorldActionsPerRound: entry.maxWorldActionsPerRound,
+                        maxChatMessagesPerRound: entry.maxChatMessagesPerRound
+                    }
+                });
+                if (!entityId) {
+                    Logger.warn(`[WorldStateController] NPC spawn failed for blueprint "${blueprint}".`);
+                    continue;
+                }
+
+                // Position at the room center (spec §7.2).
+                if (room && typeof room.width === 'number' && typeof room.height === 'number') {
+                    this.stateEntityController.updateEntitySpatial(entityId, { x: room.width / 2, y: room.height / 2 });
+                }
+
+                // Apply initialItems (e.g. Bolt's wares) to an arm component.
+                const entity = this.stateEntityController.getEntity(entityId);
+                const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
+                for (const { item, count: n } of items) {
+                    const times = Math.max(0, Number(n) || 0);
+                    const hostComponent = entity?.components?.find(c => c.type === 'merchantArm')
+                        || entity?.components?.find(c => /arm|hand/i.test(c.type || ''))
+                        || entity?.components?.[0]
+                        || null;
+                    if (!hostComponent) {
+                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}" has no component to hold item "${item}".`);
+                        continue;
+                    }
+                    for (let i = 0; i < times; i++) {
+                        const result = this.addItemToEntity(entityId, item, hostComponent.id);
+                        if (!result.success) {
+                            Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} failed on ${hostComponent.type}: ${result.message}`);
+                        }
+                    }
+                }
+
+                count++;
+                Logger.info(`[WorldStateController] NPC spawned: "${entry.displayName}" (${blueprint}) in room "${roomLogicalId}" as ${entityId}.`);
+            } catch (error) {
+                Logger.error(`[WorldStateController] NPC spawn failed for "${entry?.displayName || blueprint}": ${error.message}`);
+            }
+        }
+        if (count > 0) {
+            Logger.info(`[WorldStateController] ${count} NPC(s) spawned from data/npcs.json.`);
+        }
     }
 
     /**
@@ -208,6 +328,16 @@ class WorldStateController {
      * @private
      */
     _applyInitialSpawns(entityId, spawnConfig) {
+        // Feature D (spec §7.2): NPC entities opt out of the declarative
+        // world.json spawns — their goods come from the npcs.json
+        // initialItems list instead. The opt-out keys off the persisted
+        // `isNPC` field (already merged into the record before this
+        // observer runs): no separate boot-time flag is stored anywhere, so
+        // nothing can leak into persistence snapshots or broadcasts.
+        if (this.stateEntityController.getEntity(entityId)?.isNPC === true) {
+            return { applied: 0, failed: 0 };
+        }
+
         let config = spawnConfig;
         if (!config) {
             config = DataLoader.loadJsonSafe('data/world.json', {});
@@ -400,7 +530,10 @@ class WorldStateController {
      * restore() rejects any other version with SCHEMA_VERSION_MISMATCH.
      */
     static get PERSISTENCE_SCHEMA_VERSION() {
-        return 1;
+        // v2 (Feature B): snapshot gains the "events" section (world event
+        // ring buffer). v1 snapshots are rejected by restore() — the strict
+        // versioning contract is documented in the persistence tests.
+        return 2;
     }
 
     /**
@@ -441,7 +574,7 @@ class WorldStateController {
      *   { schemaVersion: number, serializedAtTick: number|null,
      *     serializedAt: number, state: { entities, components, inventory,
      *     equipped, preEquipStats, equippedItemStats, internalComponents,
-     *     rooms, droppedItems, selections } }
+     *     rooms, droppedItems, selections, events } }
      */
     serialize() {
         const snapshot = {
@@ -449,8 +582,18 @@ class WorldStateController {
             serializedAtTick: this.internalComponentController?.tickSystem?.currentTick ?? null,
             serializedAt: Date.now(),
             state: {
-                // Entities (live instances; structuredClone keeps no live refs)
-                entities: structuredClone(this.stateEntityController.entities),
+                // Entities (live instances; structuredClone keeps no live refs).
+                // Defense-in-depth: strip the legacy boot-time flag
+                // `_skipInitialSpawns` from any entity record so the snapshot
+                // can never carry it (new spawns no longer inject it, but
+                // records restored from older snapshots might).
+                entities: Object.fromEntries(
+                    Object.entries(structuredClone(this.stateEntityController.entities))
+                        .map(([entityId, entity]) => [entityId, {
+                            ...entity,
+                            _skipInitialSpawns: undefined
+                        }])
+                ),
                 // Component instance stats (full merged stats per comp-* id)
                 components: this.componentController.statsController.getAll(),
                 // InventoryManager's per-entity item index
@@ -467,7 +610,16 @@ class WorldStateController {
                 // Dropped items on the map
                 droppedItems: this.getDroppedItems(),
                 // Active component→action selection locks (Map serialized to array)
-                selections: [...this.actionSelectController._selectionRegistry.entries()]
+                selections: [...this.actionSelectController._selectionRegistry.entries()],
+                // World event ring buffer (Feature B, schema v2)
+                events: this.worldEventLogController.serialize(),
+                // Turn system bookkeeping (Feature A, schema v2 — additive, no
+                // version bump: v2 is not yet "released" in production).
+                // { roundNumber, phase, queues, resolvedRound, lastRound }
+                turns: this.turnSystemController?.serialize() ?? { roundNumber: 0, phase: 'planning', queues: {}, resolvedRound: -1, lastRound: -1 },
+                // Room chat store (Feature D backend, schema v2 — additive).
+                // { [roomId]: [ { id, roomId, speakerName, speakerEntityId, text, tick, ts } ] }
+                roomChat: this.roomChatController?.serialize() ?? {}
             }
         };
 
@@ -546,7 +698,7 @@ class WorldStateController {
                 error: { code: 'INVALID_PAYLOAD', message: 'Snapshot is missing the "state" section.' }
             };
         }
-        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections']) {
+        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections', 'events']) {
             if (!(key in s)) {
                 return {
                     success: false,
@@ -554,6 +706,10 @@ class WorldStateController {
                 };
             }
         }
+        // NOTE: "turns" (Feature A) is OPTIONAL in the required list — early v2
+        // snapshots predate it and are still accepted (the turn bookkeeping
+        // simply resumes idle; the next onTick() re-derives phase from the
+        // tick clock). Schema version stays 2: v2 is not yet released.
 
         try {
             // 1. Canonical internal-component store FIRST — the entity
@@ -562,8 +718,16 @@ class WorldStateController {
             this.internalComponentController.internalComponents = structuredClone(s.internalComponents);
 
             // 2. Entities (re-syncs each entity's internalComponents mirror
-            //    from the canonical store above — see stateEntityController)
-            this.stateEntityController._restoreFromSnapshot(structuredClone(s.entities));
+            //    from the canonical store above — see stateEntityController).
+            //    Legacy snapshots may still carry the boot-time
+            //    `_skipInitialSpawns` flag on NPC records — strip it (it is
+            //    never persisted by serialize() anymore); the opt-out of the
+            //    declarative spawns keys off the persisted isNPC field.
+            const restoredEntities = structuredClone(s.entities);
+            for (const entity of Object.values(restoredEntities)) {
+                delete entity._skipInitialSpawns;
+            }
+            this.stateEntityController._restoreFromSnapshot(restoredEntities);
 
             // 3. Component instance stats (plain store replacement)
             this.componentController.statsController.componentStats = structuredClone(s.components);
@@ -601,7 +765,22 @@ class WorldStateController {
             }
             this.actionSelectController._selectionRegistry = registry;
 
-            // 10. Rebuild derived caches via existing public APIs
+            // 10. World event ring buffer (Feature B)
+            this.worldEventLogController.restore(structuredClone(s.events));
+
+            // 10b. Turn system bookkeeping (Feature A — optional section)
+            if (s.turns && typeof s.turns === 'object') {
+                this.turnSystemController?.restore(structuredClone(s.turns));
+            }
+
+            // 10c. Room chat store (Feature D backend — optional section:
+            //     early v2 snapshots predate it and are still accepted; chat
+            //     is ephemeral memory, its absence simply means "empty")
+            if (s.roomChat && typeof s.roomChat === 'object') {
+                this.roomChatController?.restore(structuredClone(s.roomChat));
+            }
+
+            // 11. Rebuild derived caches via existing public APIs
             this.actionController.scanAllCapabilities(this.getAll());
             if (this.synergyController?.clearCache) {
                 this.synergyController.clearCache();
@@ -828,6 +1007,41 @@ class WorldStateController {
     getActionsForEntity(entityId) {
         const state = this.getAll();
         return this.actionController.getActionsForEntity(state, entityId);
+    }
+
+    /**
+     * Returns the last world events (Feature B, spec §4.1).
+     * @param {number} [limit=20] - Maximum number of events (oldest → newest).
+     * @returns {Array} Event entries { tick, action, targetId, message, level, ts }.
+     */
+    getRecentEvents(limit = 20) {
+        return this.worldEventLogController.getRecent(limit);
+    }
+
+    /**
+     * Sends a room chat message (Feature D backend, spec §7.3 — public API
+     * wrapper so the routes never reach into the sub-controller directly).
+     * The room chat layer is deliberately absent-safe: when it was not wired
+     * (e.g. a partial test world) this returns a structured failure instead
+     * of throwing.
+     * @param {Object} args - { roomId, speakerName?, speakerEntityId?, text }.
+     * @returns {Object} { success: true, message } | { success: false, code, error }.
+     */
+    sendRoomChat(args) {
+        if (!this.roomChatController) {
+            return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'Room chat layer is not wired.' };
+        }
+        return this.roomChatController.sendMessage(args);
+    }
+
+    /**
+     * Returns a room's chat history, oldest → newest (spec §7.3).
+     * @param {string} roomId - Room UID.
+     * @param {number} [limit=50] - Maximum number of messages.
+     * @returns {Array}
+     */
+    getRoomChatMessages(roomId, limit = 50) {
+        return this.roomChatController ? this.roomChatController.getMessages(roomId, limit) : [];
     }
 
     /**

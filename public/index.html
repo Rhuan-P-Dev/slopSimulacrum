@@ -17,6 +17,8 @@
     <link rel="stylesheet" href="css/internal-components.css">
     <link rel="stylesheet" href="css/inventory.css">
     <link rel="stylesheet" href="css/floating-windows.css">
+    <link rel="stylesheet" href="css/turns.css">
+    <link rel="stylesheet" href="css/chat.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -27,8 +29,13 @@
             <button id="btn-component-viewer" class="config-btn" title="Component Viewer">🔿</button>
             <button id="btn-nav-actions" class="config-btn" title="Actions">⚔️</button>
             <button id="btn-world-map" class="config-btn" title="World Map">🌐</button>
+            <button id="btn-room-chat" class="config-btn" title="Room Chat">💬</button>
         </div>
-        <div class="config-bar-center"></div>
+        <div class="config-bar-center">
+            <!-- Turn HUD (Feature A): phase/round, progress, initiative order,
+                 my queued actions + mode toggle. Populated by TurnController. -->
+            <div id="turn-hud"></div>
+        </div>
         <div class="config-bar-right">
             <button id="btn-add-stat" class="config-btn" title="Add Stat Bar">➕ Add Stat</button>
         </div>
@@ -113,6 +120,24 @@
         </div>
         <div id="world-map-content" style="width:100%; height:100%;">
             <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Room Chat (Feature D) -->
+    <div id="room-chat-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 class="overlay-title" style="margin: 0;">💬 Room Chat</h3>
+            <span id="room-chat-badge"></span>
+            <span class="room-chat-room-name"></span>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="room-chat-messages" class="room-chat-messages">
+            <!-- Populated by RoomChatController -->
+        </div>
+        <div class="overlay-footer">
+            <input id="room-chat-input" class="room-chat-input" type="text"
+                   placeholder="Say something in this room… (Enter to send)"
+                   maxlength="200" autocomplete="off">
         </div>
     </div>
 

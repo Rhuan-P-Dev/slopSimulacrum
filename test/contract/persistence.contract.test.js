@@ -12,7 +12,7 @@
  *      serialize() yields an identical "state" section. All dynamic IDs
  *      (ent-, comp-, item-, eq-) are preserved — no ID regeneration.
  *   4. restore() validates its payload:
- *        - schemaVersion !== 1 → { success: false, error.code: 'SCHEMA_VERSION_MISMATCH' }
+ *        - schemaVersion !== 2 → { success: false, error.code: 'SCHEMA_VERSION_MISMATCH' }
  *        - missing sections / malformed payload → { success: false, error.code: 'INVALID_PAYLOAD' }
  *   5. The snapshot reflects REAL simulation mutations (stats via actions,
  *      inventory/equipped via equip, spatial via move), i.e. restore()
@@ -129,7 +129,7 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         const snapshot = world.serialize();
 
         // Envelope
-        expect(snapshot.schemaVersion).toBe(1);
+        expect(snapshot.schemaVersion).toBe(2);
         // No tickSystem is running in tests → serializedAtTick is null
         // (it carries tickSystem.currentTick when a tick system is provided)
         expect(snapshot.serializedAtTick === null || typeof snapshot.serializedAtTick === 'number').toBe(true);
@@ -138,7 +138,7 @@ describe('WorldStateController persistence (serialize/restore)', () => {
 
         // Full state coverage: every mutable sub-controller section is present
         const state = snapshot.state;
-        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections']) {
+        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections', 'events', 'turns']) {
             expect(state, `snapshot.state must include "${key}"`).toHaveProperty(key);
         }
 
@@ -159,6 +159,19 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         expect(componentIds.size).toBeGreaterThan(0);
         // Rooms are present (dynamic section of the structure)
         expect(Object.keys(state.rooms).length).toBeGreaterThanOrEqual(3);
+
+        // Feature B: the world event ring buffer is a serialized array
+        // (empty at spawn — events are recorded as actions execute)
+        expect(Array.isArray(state.events)).toBe(true);
+
+        // Feature A: the turn system bookkeeping section (schema v2, additive).
+        expect(state.turns).toEqual(expect.objectContaining({
+            roundNumber: expect.any(Number),
+            phase: expect.any(String),
+            queues: expect.any(Object),
+            resolvedRound: expect.any(Number),
+            lastRound: expect.any(Number)
+        }));
 
         // Pure JSON-serializability: a JSON round-trip changes nothing
         const roundTripped = JSON.parse(JSON.stringify(snapshot));
@@ -246,10 +259,12 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         const liveBefore = JSON.stringify(world.getAll());
 
         expect(world.restore(null)).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
-        // {} has no schemaVersion → treated as version mismatch (undefined !== 1)
+        // {} has no schemaVersion → treated as version mismatch (undefined !== 2)
         expect(world.restore({})).toMatchObject({ success: false, error: { code: 'SCHEMA_VERSION_MISMATCH' } });
+        // v1 snapshots are rejected: strict versioning (spec §4.5)
+        expect(world.restore({ schemaVersion: 1 })).toMatchObject({ success: false, error: { code: 'SCHEMA_VERSION_MISMATCH' } });
         // Version ok, but the "state" section is missing
-        expect(world.restore({ schemaVersion: 1 })).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
+        expect(world.restore({ schemaVersion: 2 })).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
 
         // A valid snapshot missing one required state section
         const broken = world.serialize();

@@ -12,5 +12,13 @@
     ["humanoidDroidFinger", "left"],
     ["humanoidDroidFinger", "middle"],
     ["humanoidDroidFinger", "right"]
+  ],
+  "merchantDroid": ["merchantCore"],
+  "merchantCore": [
+    "merchantHead",
+    ["merchantArm", "left"],
+    ["merchantArm", "right"],
+    ["merchantRollingBall", "left"],
+    ["merchantRollingBall", "right"]
   ]
 }
