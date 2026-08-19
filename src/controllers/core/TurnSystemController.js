@@ -50,11 +50,15 @@ import {
     TURN_MAX_QUEUED_PER_ROUND
 } from '../../utils/Constants.js';
 
+/** How often (in ticks) to broadcast state during the planning phase while the LLM is thinking. 10 ticks = 1.0 second at 10/s. */
+const PLANNING_BROADCAST_INTERVAL = 10;
+
 const DEFAULT_CONFIG = {
     roundTicks: TURN_ROUND_TICKS,
     planningTicks: TURN_PLANNING_TICKS,
     npcAgentTick: TURN_NPC_AGENT_TICK,
-    maxQueuedPerRound: TURN_MAX_QUEUED_PER_ROUND
+    maxQueuedPerRound: TURN_MAX_QUEUED_PER_ROUND,
+    planningBroadcastInterval: PLANNING_BROADCAST_INTERVAL
 };
 
 class TurnSystemController {
@@ -83,6 +87,8 @@ class TurnSystemController {
         this._resolvedRound = -1;
         /** @private {boolean} Whether the NPC agent tick has fired this round. */
         this._agentFiredThisRound = false;
+        /** @private {number} Tick number of the last planning-phase broadcast (for continuous HUD updates). */
+        this._lastPlanningBroadcastTick = -1;
         /** @private {Object<string, Array>} Queued actions: { [entityId]: [entry] }. */
         this._queues = {};
         /** @private {Array} Cached initiative ordering for the current round. */
@@ -137,7 +143,7 @@ class TurnSystemController {
         this.tickSystem.register(new TickJob(
             'turn-system',
             () => this.onTick(),
-            1, // Interval: every tick (phase math is trivial at 60/s)
+            1, // Interval: every tick (phase math is trivial at 10/s)
             1  // Order: after internal-components (order 0)
         ));
         Logger.info('[TurnSystem] Registered with UniversalTickSystem (round=360 ticks, planning=300, agent=20)');
@@ -170,6 +176,24 @@ class TurnSystemController {
             this._agentFiredThisRound = true;
             this._npcAgentPhase(round);
             return;
+        }
+
+        // Periodic planning-phase broadcast: while the LLM agent is thinking
+        // (agent has fired but planning window hasn't closed), emit a lightweight
+        // state broadcast every PLANNING_BROADCAST_INTERVAL ticks so the client's
+        // "🕒 Planning" progress bar updates in real time.
+        if (local < this.config.planningTicks && this._agentFiredThisRound) {
+            const interval = this.config.planningBroadcastInterval;
+            if (currentTick - this._lastPlanningBroadcastTick >= interval) {
+                this._lastPlanningBroadcastTick = currentTick;
+                if (this._broadcaster) {
+                    try {
+                        this._broadcaster.broadcast();
+                    } catch (err) {
+                        Logger.warn(`[TurnSystem] Periodic planning broadcast failed: ${err?.message || err}`);
+                    }
+                }
+            }
         }
 
         if (local === this.config.planningTicks && this._resolvedRound !== round) {
@@ -410,6 +434,7 @@ class TurnSystemController {
     _roundStart(round) {
         this._lastRound = round;
         this._agentFiredThisRound = false;
+        this._lastPlanningBroadcastTick = -1;
         this._queues = {};
         this._actorOrder = this._computeActorOrder();
 
@@ -712,6 +737,7 @@ class TurnSystemController {
         this._lastRound = -1;
         this._resolvedRound = -1;
         this._agentFiredThisRound = false;
+        this._lastPlanningBroadcastTick = -1;
         this._queues = {};
         this._actorOrder = [];
     }
