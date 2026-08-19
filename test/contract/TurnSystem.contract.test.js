@@ -7,7 +7,7 @@
  * advanced by the injected tick counter, never by the event loop.
  *
  * Covers the full §5.12 checklist:
- *   - tick 0: phase 'planning', roundNumber 0, initiative 40 tie → entityId order,
+ *   - tick 0: phase 'planning', roundNumber 0, LLM Killer initiative 50 first, then player droids initiative 40 tie → entityId order,
  *     state.turns present in facade.getAll().
  *   - queueAction during planning → q- id; 4th entry → QUEUE_FULL.
  *   - tick 300: phase 'resolution', selfHeal ran via the REAL pipeline
@@ -59,7 +59,7 @@ function aHeadComponentId(world) {
 }
 
 describe('TurnSystemController (Feature A)', () => {
-    it('tick 0: planning, round 0, initiative 40 tie → ascending entityId, state.turns in getAll()', () => {
+    it('tick 0: planning, round 0, LLM Killer initiative 50 first, then player droids initiative 40 tie → ascending entityId, state.turns in getAll()', () => {
         const { world, tick, turns } = buildWorld();
         const entities = Object.values(world.stateEntityController.entities);
         expect(entities.length).toBeGreaterThanOrEqual(2);
@@ -72,20 +72,22 @@ describe('TurnSystemController (Feature A)', () => {
         expect(state.planningDeadlineTick).toBe(300);
 
         // Feature D: the world now also contains the NPC (data/npcs.json).
+        // LLM Killer: 2× killerRollingBall × move(25) = initiative 50 → sorts FIRST.
         // Player droids: 2× droidRollingBall × move(20) = initiative 40 (tie).
-        // Bolt the Merchant: 2× merchantRollingBall × move(10) = initiative 20
-        // → sorts strictly AFTER every player droid (spec §7.1 / §7.7).
+        // → LLM Killer strictly BEFORE every player droid (spec §7.1 / §7.7).
         expect(state.actorOrder.length).toBeGreaterThanOrEqual(3);
-        for (const actor of state.actorOrder.slice(0, -1)) {
+        // First actor: LLM Killer with initiative 50.
+        const killer = state.actorOrder[0];
+        expect(killer.name).toBe('LLM Killer');
+        expect(killer.initiative).toBe(50);
+        expect(killer.queuedCount).toBe(0);
+        // Remaining actors (after index 0): player droids at initiative 40.
+        for (const actor of state.actorOrder.slice(1)) {
             expect(actor.initiative).toBe(40);
             expect(actor.queuedCount).toBe(0);
         }
-        const bolt = state.actorOrder[state.actorOrder.length - 1];
-        expect(bolt.name).toBe('Bolt the Merchant');
-        expect(bolt.initiative).toBe(20);
-        expect(bolt.queuedCount).toBe(0);
         // Tiebreak among the droids: ascending entityId.
-        for (let i = 1; i < state.actorOrder.length - 1; i++) {
+        for (let i = 2; i < state.actorOrder.length; i++) {
             expect(state.actorOrder[i - 1].entityId < state.actorOrder[i].entityId).toBe(true);
         }
 

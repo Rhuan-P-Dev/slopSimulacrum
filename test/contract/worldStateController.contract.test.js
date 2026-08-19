@@ -262,7 +262,6 @@ describe('WorldStateController.getAll() shape', () => {
                     'id',
                     'internalComponents',
                     'isNPC',
-                    'items',
                     'location',
                     'name',
                     'npcConfig',
@@ -289,7 +288,9 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity.blueprint)).toBe('string');
             expect(typeOf(entity.location)).toBe('string');
             expect(typeOf(entity.status)).toBe('string');
-            expect(typeOf(entity.items)).toBe('array');
+            // NPC entities (llmKillerDroid) have no initialItems → items key absent.
+            // Player droids DO have items after InventoryManager.addItem().
+            if (entity.items) expect(typeOf(entity.items)).toBe('array');
             expect(typeOf(entity.internalComponents)).toBe('object');
 
             // spatial sub-structure: { x: number, y: number }

@@ -11,7 +11,7 @@
  * deterministically (set tick N, onTick() — spec §5.12).
  *
  * Scenarios:
- *   (a) full round with the NPC (Bolt) acting: agent tick 20 → LLM proposes
+ *   (a) full round with the NPC (LLM Killer) acting: agent tick 20 → LLM proposes
  *       selfHeal → queued during planning → executed via the REAL pipeline at
  *       tick 300 (durability delta asserted) + event-log line;
  *   (b) RESTORE mid-planning → resolution: a pending NPC queue must survive a
@@ -106,8 +106,8 @@ function buildWorldWithAgent() {
     });
 
     const bolt = Object.values(world.stateEntityController.entities).find(e => e.isNPC === true);
-    expect(bolt, 'expected the world to have spawned Bolt (data/npcs.json)').toBeTruthy();
-    const boltCore = bolt.components.find(c => c.type === 'merchantCore');
+    expect(bolt, 'expected the world to have spawned the NPC (data/npcs.json)').toBeTruthy();
+    const boltCore = bolt.components.find(c => c.type === 'killerCore');
 
     return { world, tick, turns: subControllers.turnSystemController, agent, agentPromises, bolt, boltCore };
 }
@@ -128,15 +128,15 @@ afterEach(() => {
 // =========================================================================
 
 describe('LLMAgentController × TurnSystemController integration (audit non-regression)', () => {
-    it('(a) full round: Bolt acts — LLM proposes selfHeal at tick 20, queued in planning, executed via the REAL pipeline at tick 300', async () => {
+    it('(a) full round: LLM Killer acts — LLM proposes selfHeal at tick 20, queued in planning, executed via the REAL pipeline at tick 300', async () => {
         const { world, tick, turns, agentPromises, bolt, boltCore } = buildWorldWithAgent();
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
-            jsonResponse(toolCallResponse('selfHeal', { targetComponentId: boltCore.id }, 'A repair cycle for the road.'))
+            jsonResponse(toolCallResponse('selfHeal', { targetComponentId: boltCore.id }))
         ));
 
         stepTo(tick, turns, 0);   // round 0 start (order cached)
-        stepTo(tick, turns, 20);  // NPC agent fires for Bolt
+        stepTo(tick, turns, 20);  // NPC agent fires for LLM Killer
         expect(agentPromises).toHaveLength(1);
         const result = await agentPromises[0]; // let the LLM call land (still planning)
 
@@ -144,7 +144,8 @@ describe('LLMAgentController × TurnSystemController integration (audit non-regr
         expect(result.actions).toHaveLength(1);
         expect(result.actions[0]).toMatchObject({ actionName: 'selfHeal', queued: true, success: true });
         expect(result.actions[0].queueId).toMatch(/^q-/);
-        expect(result.chat).toMatchObject({ sent: true, text: 'A repair cycle for the road.' });
+        // LLM Killer has maxChatMessagesPerRound: 0 → chat is rejected by design.
+        expect(result.chat).toMatchObject({ sent: false });
 
         // Resolution: the REAL pipeline ran the queued selfHeal (+10 durability).
         const before = world.getComponentStats(boltCore.id).Physical.durability;
@@ -155,12 +156,7 @@ describe('LLMAgentController × TurnSystemController integration (audit non-regr
         expect(Object.keys(state.queues)).toHaveLength(0);
 
         const events = world.getRecentEvents(12).filter(e => e.action === 'turn');
-        expect(events.find(e => e.message.includes('executed selfHeal') && e.message.includes('Bolt'))).toBeTruthy();
-
-        // The chat landed in the room chat store (server-side, real controller).
-        const chat = world.roomChatController.serialize();
-        const roomLines = Object.values(chat).flat().map(m => m.text);
-        expect(roomLines).toContain('A repair cycle for the road.');
+        expect(events.find(e => e.message.includes('executed selfHeal'))).toBeTruthy();
     });
 
     it('(b) restore() mid-planning preserves the pending NPC queue — resolution still executes it (audit bug 2)', async () => {
