@@ -320,6 +320,9 @@ class ActionController {
                 attackerComponentIds = [params.attackerComponentId];
             } else if (params?.componentIds && Array.isArray(params.componentIds)) {
                 attackerComponentIds = params.componentIds.filter(c => c.role === 'source').map(c => c.componentId);
+            } else if (params?.componentId) {
+                // Singular componentId from LLM agent tool calls
+                attackerComponentIds = [params.componentId];
             }
 
             // Resolve requirements per-attacker or entity-wide

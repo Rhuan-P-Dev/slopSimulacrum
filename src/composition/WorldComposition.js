@@ -62,6 +62,8 @@ import WorldEventLogController from '../controllers/core/WorldEventLogController
 // per-room chat ring buffers (state owner; deliberately NO getAll() →
 // excluded from the world-state broadcast aggregation).
 import RoomChatController from '../controllers/core/RoomChatController.js';
+// Feature E: per-agent action-outcome feedback store (agent's "what did I do" memory).
+import LlmAgentFeedbackController from '../controllers/networking/LlmAgentFeedbackController.js';
 // Feature A: deterministic round/turn system (state owner; needs only the
 // tick system at construction — the facade is injected via setter below).
 import TurnSystemController from '../controllers/core/TurnSystemController.js';
@@ -123,6 +125,8 @@ export function buildWorldState(tickSystem = null) {
     const inventoryManager = new InventoryManager();
     // Feature B: world event ring buffer (state owner; capacity 50 per spec §4.1)
     const worldEventLogController = new WorldEventLogController(50);
+    // Feature E: per-agent action-outcome feedback store (capacity 5 per agent).
+    const llmAgentFeedbackController = new LlmAgentFeedbackController(5);
     // Feature D backend (spec §7.3): per-room chat rings (50/room, 200-char
     // messages). No getAll() on purpose — the full-state broadcast stays lean.
     const roomChatController = new RoomChatController(50, 200);
@@ -192,6 +196,7 @@ export function buildWorldState(tickSystem = null) {
         hintController,
         turnSystemController,
         roomChatController,
+        llmAgentFeedbackController,
         // NOTE: the imported class is `stateEntityController` (lowercase), so the
         // built instance is referenced explicitly by its local name here.
         stateEntityController: stateEntityControllerInstance,
@@ -262,7 +267,8 @@ export function buildWorldState(tickSystem = null) {
             llmContextController,
             hints: hintController,
             turnSystemController,
-            roomChatController
+            roomChatController,
+            llmAgentFeedbackController
         }
     };
 }

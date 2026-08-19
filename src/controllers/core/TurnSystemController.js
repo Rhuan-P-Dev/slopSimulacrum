@@ -508,6 +508,11 @@ class TurnSystemController {
             return;
         }
 
+        // 0.5. Grab the per-agent feedback store (Feature E) so the resolution
+        // loop can record real outcomes for NPC agents.  Best-effort: missing
+        // feedback controller → no-op (tests that don't wire it must not fail).
+        const feedbackController = facade.llmAgentFeedbackController;
+
         // 0. Reconcile the cached initiative order against the live queues.
         //    Two failure modes must never drop a pending queue silently:
         //      (a) a RESTORE mid-planning that somehow lost _actorOrder
@@ -576,11 +581,42 @@ class TurnSystemController {
                     const line = `${actor.name} executed ${entry.actionName} (init ${actor.initiative}, order ${actorIndex + 1}, entry ${entryIndex + 1})`;
                     Logger.info(`[TurnSystem] Round ${round}: ${line}`);
                     this._recordEvent(`Round ${round}: ${line}`, 'info');
+                    // Capture point A (spec §4.1): record the REAL outcome for
+                    // the NPC agent's short-term memory (Feature E).
+                    if (feedbackController && typeof feedbackController.record === 'function') {
+                        try {
+                            feedbackController.record(actor.entityId, {
+                                round,
+                                actionName: entry.actionName,
+                                componentId: entry.params?.componentId ?? null,
+                                targetEntityId: entry.params?.targetEntityId ?? null,
+                                queued: true,
+                                success: true,
+                                detail: entry.actionName === 'punch' ? 'punch hit' : 'executed',
+                                atTick: this._currentTick()
+                            });
+                        } catch (_) { /* best-effort — must not break the round */ }
+                    }
                 } else {
                     const reason = result?.error || 'unknown failure';
                     const line = `${actor.name}'s ${entry.actionName} discarded: ${reason}`;
                     Logger.warn(`[TurnSystem] Round ${round}: ${line}`);
                     this._recordEvent(`Round ${round}: ${line}`, 'warn');
+                    // Capture point A (failure path): record the failure outcome.
+                    if (feedbackController && typeof feedbackController.record === 'function') {
+                        try {
+                            feedbackController.record(actor.entityId, {
+                                round,
+                                actionName: entry.actionName,
+                                componentId: entry.params?.componentId ?? null,
+                                targetEntityId: entry.params?.targetEntityId ?? null,
+                                queued: true,
+                                success: false,
+                                detail: reason,
+                                atTick: this._currentTick()
+                            });
+                        } catch (_) { /* best-effort */ }
+                    }
                 }
             });
         });

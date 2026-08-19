@@ -69,6 +69,13 @@ if (worldStateController.turnSystemController) {
     Logger.info('[Server] NPC agent wired (LLMAgentController.runRound → turn system agent hook)');
 }
 
+// 7b. Wire the per-agent action-outcome feedback store into the NPC agent
+// controller so pre-validation failures (Capture Point B) are recorded.
+if (worldStateController.llmAgentFeedbackController) {
+    llmAgentController.setFeedbackController(worldStateController.llmAgentFeedbackController);
+    Logger.info('[Server] LLM Agent feedback store wired (LLMAgentController → setFeedbackController)');
+}
+
 // 8. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
 worldStateController.triggerInitialBroadcast();
 

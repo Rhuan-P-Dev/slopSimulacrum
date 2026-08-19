@@ -25,6 +25,13 @@
  *       SILENT — no immediate pipeline execution in a turn world (audit bug
  *       4 / spec §5.8; the pre-fix fallback executed facade.executeAction
  *       directly, bypassing the turn system).
+ *   (e) end-to-end action-feedback lock (Feature E, plan §8.3): an NPC proposes
+ *       "droid punch" with a componentId that lacks Physical.strength >= 15 →
+ *       passes capability gate but fails checkComponentRequirements at resolution
+ *       → per-agent feedback store contains {success:false, queued:true,
+ *       detail: <contains "Requirement failed">} → advance to round 1 → capture
+ *       the user message the LLM receives (via fetch stub) → assert it contains
+ *       "=== YOUR LAST ACTIONS & RESULTS ===" and a failure line.
  *
  * @module test/contract/LLMAgent.integration
  */
@@ -276,5 +283,85 @@ describe('LLMAgentController × TurnSystemController integration (audit non-regr
         const after = world.getComponentStats(boltCore.id).Physical.durability;
         expect(after, 'no immediate execution in a turn world').toBe(before);
         expect(Object.keys(world.turnSystemController.getRoundState().queues)).toHaveLength(0);
+    });
+
+    /**
+     * (e) End-to-end action-feedback lock (Feature E, plan §8.3):
+     *   Round 0: LLM Killer proposes "droid punch" with a componentId that lacks
+     *   Physical.strength >= 15 → passes capability gate (action is executable),
+     *   fails checkComponentRequirements at resolution → per-agent feedback store
+     *   contains { success:false, queued:true, detail: <contains "Requirement failed"> }
+     *   → advance to round 1 → capture the user message the LLM actually receives
+     *   (via the fetch stub) → assert it contains "=== YOUR LAST ACTIONS & RESULTS ==="
+     *   and a failure line.
+     */
+    it('(e) punch fails at resolution → feedback recorded → injected into next round\'s LLM prompt', async () => {
+        const { world, tick, turns, agentPromises, bolt } = buildWorldWithAgent();
+
+        // Find a component on the NPC that does NOT have Physical.strength >= 15.
+        // The killerCore has strength=0 (or very low), so it will fail the requirement.
+        const targetComp = bolt.components.find(c => {
+            const stats = world.getComponentStats(c.id);
+            const strength = stats?.Physical?.strength ?? 0;
+            return strength < 15;
+        });
+        expect(targetComp, 'expected NPC to have a component with strength < 15').toBeTruthy();
+
+        // The LLM proposes "droid punch" targeting the weak component.
+        vi.stubGlobal('fetch', vi.fn().mockImplementation((url, opts) => {
+            const body = JSON.parse(opts.body);
+            // Capture the user message content for assertion. The guard is
+            // intentionally absent so that round-1 context (which includes
+            // feedback from round-0 resolution) overwrites round-0 context.
+            const userMsg = body.messages?.find(m => m.role === 'user');
+            if (userMsg) {
+                world._capturedContext = userMsg.content;
+            }
+            return Promise.resolve(jsonResponse(toolCallResponse('droid punch', { componentId: targetComp.id })));
+        }));
+
+        // Round 0 planning phase: agent fires at tick 20.
+        stepTo(tick, turns, 0);   // round 0 start
+        stepTo(tick, turns, 20);  // NPC agent fires for LLM Killer
+        expect(agentPromises).toHaveLength(1);
+        const result = await agentPromises[0];
+
+        // The action is queued (planning window still open).
+        expect(result.error).toBeNull();
+        expect(result.actions).toHaveLength(1);
+        expect(result.actions[0].actionName).toBe('droid punch');
+        expect(result.actions[0].queued).toBe(true);
+        expect(result.actions[0].success).toBe(true); // queued successfully
+
+        // Resolution: tick 300 → the queued punch is executed through the real pipeline.
+        // It passes capability gate but FAILS checkComponentRequirements (strength < 15).
+        const state = stepTo(tick, turns, 300);
+        expect(state.phase).toBe('resolution');
+
+        // The per-agent feedback store must contain the failure record.
+        const feedback = world.getAgentActionFeedback(bolt.id, 5);
+        expect(feedback).toBeDefined();
+        expect(feedback.length).toBeGreaterThan(0);
+        const latestFeedback = feedback[0]; // newest first
+        expect(latestFeedback.success).toBe(false);
+        expect(latestFeedback.queued).toBe(true);
+        expect(latestFeedback.actionName).toBe('droid punch');
+        expect(latestFeedback.detail).toMatch(/Requirement failed/i);
+
+        // Advance to round 1: tick 360 starts new round, tick 380 triggers agent again.
+        stepTo(tick, turns, 360); // round 1 start
+        stepTo(tick, turns, 380); // NPC agent fires for round 1
+
+        // Capture the user message the LLM receives in round 1.
+        expect(agentPromises.length).toBeGreaterThanOrEqual(2);
+        await agentPromises[1]; // let round 1 context build + LLM call land
+
+        // The captured context must contain the feedback section.
+        const context = world._capturedContext;
+        expect(context).toBeDefined();
+        expect(context).toContain('=== YOUR LAST ACTIONS & RESULTS ===');
+        expect(context).toMatch(/✓|✗/); // status marker for failed action
+        expect(context).toContain('droid punch');
+        expect(context).toMatch(/Requirement failed/i);
     });
 });

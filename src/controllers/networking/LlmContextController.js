@@ -80,36 +80,46 @@ class LlmContextController {
         const hintsData = this._buildHintsData(entityId);
         const eventsData = this._buildEventData(maxEvents);
         const chatData = this._buildChatData(entity.location, maxChat);
+        const feedbackData = this._buildFeedbackData(entityId);
 
         const stats = {
             chars: 0,
             budgetChars: LlmContextController.BUDGET.maxChars,
-            truncated: { entities: false, events: false, chat: false }
+            truncated: { entities: false, events: false, chat: false, feedback: false }
         };
 
         // Truncation order when over budget (spec §4.3): events first, then
-        // entities (same-room first), then chat (drop to 5). The `data` mirror
-        // always reflects exactly what was rendered (the truncated versions).
+        // entities (same-room first), then chat (drop to 5), then feedback
+        // (least critical — dropped entirely). The `data` mirror always reflects
+        // exactly what was rendered (the truncated versions).
         let near = nearData;
         let events = eventsData;
         let chat = chatData;
-        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
+        let feedback = feedbackData;
+        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
 
         if (text.length > stats.budgetChars) {
             events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
-            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
+            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
             stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)));
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && chat.length > 5) {
                 chat = chat.slice(0, 5);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
                 stats.truncated.chat = true;
+            }
+
+            // Drop feedback section first (least critical, spec §4.3)
+            if (text.length > stats.budgetChars && feedback.length > 0) {
+                feedback = [];
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+                stats.truncated.feedback = true;
             }
         }
 
@@ -123,7 +133,8 @@ class LlmContextController {
             actions: actionData,
             hints: hintsData.slice(0, 3),
             recentEvents: events,
-            roomChat: chat
+            roomChat: chat,
+            lastActionsResults: feedback
         };
         return { text, data, stats };
     }
@@ -338,6 +349,25 @@ class LlmContextController {
         }
     }
 
+    /**
+     * Feedback data for "YOUR LAST ACTIONS & RESULTS" section: reads recent
+     * action-outcome entries from the per-agent feedback controller (Feature E).
+     * Returns an array of outcome objects sorted newest-first, limited to 5.
+     * @param {string} entityId
+     * @returns {Array<Object>}
+     * @private
+     */
+    _buildFeedbackData(entityId) {
+        const facade = this.worldStateController;
+        if (!facade.llmAgentFeedbackController?.getRecent) return [];
+        try {
+            const outcomes = facade.llmAgentFeedbackController.getRecent(entityId, 5) || [];
+            return outcomes;
+        } catch {
+            return [];
+        }
+    }
+
     // =========================================================================
     // RENDER
     // =========================================================================
@@ -346,7 +376,7 @@ class LlmContextController {
      * Renders the sectioned narrative text.
      * @private
      */
-    _render(entity, roomName, self, near, actions, hints, events, chat, _maxEntities) {
+    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, _maxEntities) {
         const facade = this.worldStateController;
         const room = entity.location ? (facade.getRooms() || {})[entity.location] : null;
         const lines = [];
@@ -416,6 +446,18 @@ class LlmContextController {
         // === RECENT EVENTS ===
         lines.push('=== RECENT EVENTS ===');
         lines.push(events.length > 0 ? events.join('\n') : '(none)');
+        lines.push('');
+
+        // === YOUR LAST ACTIONS & RESULTS ===
+        lines.push('=== YOUR LAST ACTIONS & RESULTS ===');
+        if (feedback.length === 0) {
+            lines.push('(none — this is your first round or no actions recorded yet)');
+        } else {
+            for (const f of feedback) {
+                const status = f.success ? '✓' : '✗';
+                lines.push(`- ${status} ${f.actionName}: ${f.detail}`);
+            }
+        }
         lines.push('');
 
         // === ROOM CHAT ===

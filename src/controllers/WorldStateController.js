@@ -87,6 +87,9 @@ class WorldStateController {
         // Feature D backend (spec §7.3): per-room chat ring buffers (state
         // owner; deliberately NO getAll() → excluded from the broadcast).
         this.roomChatController = deps.roomChatController ?? null;
+        // Feature E: per-agent action-outcome feedback store (state owner;
+        // deliberately NO getAll() → excluded from the broadcast).
+        this.llmAgentFeedbackController = deps.llmAgentFeedbackController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -1045,6 +1048,19 @@ class WorldStateController {
      */
     getRoomChatMessages(roomId, limit = 50) {
         return this.roomChatController ? this.roomChatController.getMessages(roomId, limit) : [];
+    }
+
+    /**
+     * Returns the last N action-outcome records for a specific entity
+     * (Feature E: per-agent action feedback for LLM context).
+     * @param {string} entityId - The entity ID.
+     * @param {number} [limit=5] - Maximum number of records.
+     * @returns {Array} Action-outcome entries (oldest→newest), empty if none.
+     */
+    getAgentActionFeedback(entityId, limit = 5) {
+        return this.llmAgentFeedbackController
+            ? this.llmAgentFeedbackController.getRecent(entityId, limit)
+            : [];
     }
 
     /**

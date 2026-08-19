@@ -95,6 +95,20 @@ class LLMAgentController {
     }
 
     // =========================================================================
+    // FEEDBACK CONTROLLER SETTER (Feature E: immediate-outcome recording)
+    // =========================================================================
+
+    /**
+     * Injects the per-agent feedback store (LlmAgentFeedbackController) so the
+     * agent can record immediate outcomes (pre-validation failures, queue
+     * rejections) BEFORE the turn system resolution hook sees them.
+     * @param {import('./LlmAgentFeedbackController.js').default} feedbackController
+     */
+    setFeedbackController(feedbackController) {
+        this._feedbackController = feedbackController;
+    }
+
+    // =========================================================================
     // THE HOOK — called fire-and-forget by TurnSystemController at the agent tick
     // =========================================================================
 
@@ -799,6 +813,9 @@ class LLMAgentController {
                 // Defensive: phase said planning but the clock is gone — treat as non-turn.
             } else {
                 // PLANNING_CLOSED / QUEUE_FULL / ENTITY_NOT_FOUND / ACTION_NOT_FOUND
+                // Capture Point B (spec §4.2): immediate failure recording so the NPC
+                // agent knows its action was rejected BEFORE resolution.
+                this._recordImmediateOutcome(npcEntityId, actionName, false, q?.error || q?.code || 'queue rejected');
                 return { actionName, queued: false, success: false, detail: q?.error || q?.code || 'queue rejected' };
             }
         }
@@ -810,8 +827,10 @@ class LLMAgentController {
         // with an immediate execution. Only TURNS_DISABLED / no-turn worlds
         // may fall through to the immediate pipeline.
         if (turnsActive) {
+            const detail = 'planning window closed';
             Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, action "${actionName}" dropped (no immediate execution in a turn world).`);
-            return { actionName, queued: false, success: false, detail: 'planning window closed' };
+            this._recordImmediateOutcome(npcEntityId, actionName, false, detail);
+            return { actionName, queued: false, success: false, detail };
         }
 
         // Immediate fallback (non-turn worlds/tests only).
@@ -820,10 +839,35 @@ class LLMAgentController {
             if (exec?.success) {
                 return { actionName, queued: false, success: true, detail: 'executed immediately' };
             }
+            this._recordImmediateOutcome(npcEntityId, actionName, false, exec?.error || 'execution failed');
             return { actionName, queued: false, success: false, detail: exec?.error || 'execution failed' };
         } catch (err) {
+            this._recordImmediateOutcome(npcEntityId, actionName, false, err?.message || String(err));
             return { actionName, queued: false, success: false, detail: err?.message || String(err) };
         }
+    }
+
+    /**
+     * Capture Point B (spec §4.2): records an immediate outcome for the NPC
+     * agent's short-term memory. Used for pre-validation failures, queue
+     * rejections, and late-LLM-response drops. Best-effort — must never throw.
+     * @private
+     */
+    _recordImmediateOutcome(npcEntityId, actionName, success, detail) {
+        const fb = this._feedbackController;
+        if (!fb || typeof fb.record !== 'function') return;
+        try {
+            fb.record(npcEntityId, {
+                round: 0, // unknown at dispatch time; TurnSystem resolution will overwrite with the real round
+                actionName,
+                componentId: null,
+                targetEntityId: null,
+                queued: false,
+                success,
+                detail: String(detail),
+                atTick: this.turnSystemController?._currentTick?.() ?? 0
+            });
+        } catch (_) { /* best-effort — must not break the agent round */ }
     }
 
     /**

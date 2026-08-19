@@ -127,4 +127,4 @@ export const TURN_MAX_QUEUED_PER_ROUND = 3;
  * Controls the speed of the universal tick loop.
  * @type {number}
  */
-export const MAX_TICKS_PER_SECOND = 10;
+export const MAX_TICKS_PER_SECOND = 30;

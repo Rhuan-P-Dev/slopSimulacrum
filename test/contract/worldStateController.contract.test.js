@@ -127,6 +127,7 @@ describe('WorldStateController public method surface', () => {
         'getActionCapabilities',
         'getActionsForEntity',
         'getActionsWithSynergy',
+        'getAgentActionFeedback',
         'getAll',
         'getAllEquippedItems',
         'getBestComponentForAction',

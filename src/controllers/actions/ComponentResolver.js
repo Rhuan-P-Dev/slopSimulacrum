@@ -81,6 +81,16 @@ class ComponentResolver {
             };
         }
 
+        // Handle singular componentId (used by LLM agent tool calls)
+        if (params?.componentId) {
+            const sourceComponentId = params.componentId;
+            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || 'source' };
+            return {
+                componentList: [entry],
+                sourceComponentId
+            };
+        }
+
         return { componentList: null, sourceComponentId: null };
     }
 
