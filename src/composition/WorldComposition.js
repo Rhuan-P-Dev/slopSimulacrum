@@ -74,6 +74,9 @@ import ActionController from '../controllers/actions/actionController.js';
 import stateEntityController from '../controllers/core/stateEntityController.js';
 import HoldingCostController from '../controllers/core/HoldingCostController.js';
 
+// Hint system (logic controller; facade injected later).
+import HintController from '../controllers/hints/HintController.js';
+
 // The facade
 import WorldStateController from '../controllers/WorldStateController.js';
 
@@ -159,6 +162,8 @@ export function buildWorldState(tickSystem = null) {
     // Feature B: LLM context renderer (logic controller; reads the facade's
     // public API — facade injected later, same pattern as the other readers).
     const llmContextController = new LlmContextController({ actionRegistry });
+    // Hint system: deterministic suggestions for the player and the LLM agent.
+    const hintController = new HintController({ actionRegistry });
     // Feature A: turn system (state owner; needs only the tick system here —
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
@@ -184,6 +189,7 @@ export function buildWorldState(tickSystem = null) {
         actionController,
         worldEventLogController,
         llmContextController,
+        hintController,
         turnSystemController,
         roomChatController,
         // NOTE: the imported class is `stateEntityController` (lowercase), so the
@@ -208,6 +214,8 @@ export function buildWorldState(tickSystem = null) {
     consequenceHandlers.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
+    // Hint system: reads world state; does not mutate it.
+    hintController.setWorldStateController(worldStateController);
     // Feature D backend: the room chat layer needs the facade for room
     // existence checks (sendMessage → ROOM_NOT_FOUND). No subControllers
     // map entry on purpose — it has no getAll() and must stay out of the
@@ -252,6 +260,7 @@ export function buildWorldState(tickSystem = null) {
             holdingCostController,
             worldEventLogController,
             llmContextController,
+            hints: hintController,
             turnSystemController,
             roomChatController
         }

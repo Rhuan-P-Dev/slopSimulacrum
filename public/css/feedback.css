@@ -32,3 +32,39 @@
     from { opacity: 1; }
     to { opacity: 0; }
 }
+
+/* =========================================================================
+   Hint Popup — cyan/teal suggestion follow-up (above error popup)
+   ========================================================================= */
+
+.hint-popup {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    background-color: #00c8d7;
+    color: #000;
+    padding: 12px 25px;
+    border: 2px solid #fff;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    box-shadow: 0 0 20px rgba(0, 200, 215, 0.5), inset 0 0 10px rgba(0,0,0,0.2);
+    z-index: 999;
+    animation: slideInRight 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
+    pointer-events: none;
+    max-width: 400px;
+}
+
+/* =========================================================================
+   Hint Marker — transient SVG circle on the spatial map
+   ========================================================================= */
+
+.hint-marker {
+    animation: hintPulse 1s ease-in-out 2;
+}
+
+@keyframes hintPulse {
+    0%   { r: 14; opacity: 1; }
+    50%  { r: 22; opacity: 0.5; }
+    100% { r: 14; opacity: 1; }
+}

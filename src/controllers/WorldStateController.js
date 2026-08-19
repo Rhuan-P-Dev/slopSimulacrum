@@ -50,6 +50,7 @@ class WorldStateController {
      * @param {HoldingCostController} deps.holdingCostController
      * @param {WorldEventLogController} deps.worldEventLogController
      * @param {LlmContextController} deps.llmContextController
+     * @param {import('./hints/HintController.js')} deps.hintController
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -81,6 +82,8 @@ class WorldStateController {
         this.worldEventLogController = deps.worldEventLogController;
         this.llmContextController = deps.llmContextController;
         this.turnSystemController = deps.turnSystemController ?? null;
+        // Hint system: deterministic suggestions for the player and the LLM agent.
+        this.hintController = deps.hintController ?? null;
         // Feature D backend (spec §7.3): per-room chat ring buffers (state
         // owner; deliberately NO getAll() → excluded from the broadcast).
         this.roomChatController = deps.roomChatController ?? null;

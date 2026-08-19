@@ -11,6 +11,7 @@ import registerInventoryRoutes from './inventoryRoutes.js';
 import { register as registerLlmRoutes } from './llmRoutes.js';
 import { register as registerTurnRoutes } from './turnRoutes.js';
 import { register as registerRoomChatRoutes } from './roomChatRoutes.js';
+import { register as registerHintRoutes } from './hintRoutes.js';
 
 /**
  * Registers all routes with the given Express app.
@@ -45,6 +46,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerLlmRoutes(router, { worldStateController });
 	registerTurnRoutes(router, { worldStateController });
 	registerRoomChatRoutes(router, { worldStateController });
+	registerHintRoutes(router, { worldStateController });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);

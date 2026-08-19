@@ -75,6 +75,8 @@ export const AppConfig = {
         // append "/:roomId" (send) or "/:roomId?limit=N" (history).
         ROOM_CHAT_SEND: '/rooms',
         ROOM_CHAT_HISTORY: '/rooms',
+        // Hint system (deterministic reachability hints).
+        HINTS: '/hints',
     },
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH

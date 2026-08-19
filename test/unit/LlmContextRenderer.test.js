@@ -163,12 +163,13 @@ describe('LlmContextController (context renderer)', () => {
         expect(() => bare.buildContext('ent-self')).toThrow(/facade not injected/);
     });
 
-    it('returns all five stable section headers, in order', () => {
+    it('returns all six stable section headers, in order', () => {
         const { text } = controller.buildContext('ent-self');
         const headers = [
             '=== YOUR STATE ===',
             '=== NEARBY ENTITIES ===',
             '=== YOUR ACTIONS (executable now) ===',
+            '=== HINTS ===',
             '=== RECENT EVENTS ===',
             '=== ROOM CHAT ==='
         ];
@@ -237,7 +238,8 @@ describe('LlmContextController (context renderer)', () => {
         const emptyWorld = makeWorld({
             getRecentEvents: () => [],
             getEquippedItems: () => [],
-            getEntityItems: () => ({})
+            getEntityItems: () => ({}),
+            hintController: null // no hints → (none)
         });
         const emptyController = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         emptyController.setWorldStateController(emptyWorld);
@@ -292,8 +294,8 @@ describe('LlmContextController (context renderer)', () => {
         expect(stats.chars).toBeLessThanOrEqual(4000);
         expect(text.length).toBeLessThanOrEqual(4000);
         expect(stats.truncated.events).toBe(true);
-        // all headers survive truncation
-        for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== RECENT EVENTS ===']) {
+        // all headers survive truncation (including HINTS)
+        for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== HINTS ===', '=== RECENT EVENTS ===']) {
             expect(text).toContain(header);
         }
     });
@@ -312,5 +314,105 @@ describe('LlmContextController (context renderer)', () => {
         expect(result.text).toBe('');
         expect(result.data).toBeNull();
         expect(result.stats.chars).toBe(0);
+    });
+
+    it('includes HINTS section with hint messages when hintController is present', () => {
+        const hintMessages = [
+            'To move to entity target-ent go to (15, 20), you can\'t reach it but you get closer!',
+            'Another hint message'
+        ];
+        const mockHintController = {
+            getHints: () => ({ hints: hintMessages.map((msg, i) => ({ entityId: 'target-ent', message: msg, suggestedPosition: { x: 15 + i * 5, y: 20 } })) })
+        };
+        const hintWorld = makeWorld({ hintController: mockHintController });
+        const ctxCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctxCtrl.setWorldStateController(hintWorld);
+
+        const { text, data } = ctxCtrl.buildContext('ent-self');
+
+        expect(text).toContain('=== HINTS ===');
+        expect(text).toContain(hintMessages[0]);
+        // _buildHintsData returns raw hint objects (not message strings); data.hints is an array of hint objects.
+        expect(data.hints).toHaveLength(2);
+        expect(data.hints[0].message).toBe(hintMessages[0]);
+        expect(data.hints[0].suggestedPosition).toEqual({ x: 15, y: 20 });
+    });
+
+    it('prints "(none)" for empty hints section', () => {
+        const hintWorld = makeWorld({ hintController: { getHints: () => ({ hints: [] }) } });
+        const hintCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        hintCtrl.setWorldStateController(hintWorld);
+
+        const { text } = hintCtrl.buildContext('ent-self');
+        expect(text).toContain('=== HINTS ===\n(none)');
+    });
+
+    // --- LLM Degradation Tests (#9) ---
+
+    it('hintController throws → renders "(none)" and round proceeds (spec degradation contract)', () => {
+        const throwingHintController = {
+            getHints: () => { throw new Error('hint controller failure'); }
+        };
+        const throwWorld = makeWorld({ hintController: throwingHintController });
+        const throwCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        throwCtrl.setWorldStateController(throwWorld);
+
+        // Should not throw; should render (none).
+        expect(() => throwCtrl.buildContext('ent-self')).not.toThrow();
+        const { text } = throwCtrl.buildContext('ent-self');
+        expect(text).toContain('=== HINTS ===\n(none)');
+    });
+
+    it('hintController absent → renders "(none)" (older composition without hints)', () => {
+        const noHintWorld = makeWorld({ hintController: null });
+        const noHintCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        noHintCtrl.setWorldStateController(noHintWorld);
+
+        const { text } = noHintCtrl.buildContext('ent-self');
+        expect(text).toContain('=== HINTS ===\n(none)');
+    });
+
+    it('5 hints → exactly 3 rendered/data (budget cap enforcement)', () => {
+        const fiveHints = [
+            { entityId: 'target-1', message: 'Hint one for target-1', suggestedPosition: { x: 10, y: 10 } },
+            { entityId: 'target-2', message: 'Hint two for target-2', suggestedPosition: { x: 20, y: 20 } },
+            { entityId: 'target-3', message: 'Hint three for target-3', suggestedPosition: { x: 30, y: 30 } },
+            { entityId: 'target-4', message: 'Hint four for target-4', suggestedPosition: { x: 40, y: 40 } },
+            { entityId: 'target-5', message: 'Hint five for target-5', suggestedPosition: { x: 50, y: 50 } }
+        ];
+        const manyHintsController = {
+            getHints: () => ({ hints: fiveHints })
+        };
+        const manyHintsWorld = makeWorld({ hintController: manyHintsController });
+        const manyHintsCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        manyHintsCtrl.setWorldStateController(manyHintsWorld);
+
+        const { text, data } = manyHintsCtrl.buildContext('ent-self');
+
+        // Only 3 hints should be rendered/data.
+        expect(data.hints).toHaveLength(3);
+        expect(text).toContain(fiveHints[0].message);
+        expect(text).toContain(fiveHints[1].message);
+        expect(text).toContain(fiveHints[2].message);
+        expect(text).not.toContain(fiveHints[3].message);
+        expect(text).not.toContain(fiveHints[4].message);
+    });
+
+    it('raw hint objects → data.hints contains raw objects (not message strings)', () => {
+        const rawHint = { entityId: 'target-ent', message: 'Test hint message', suggestedPosition: { x: 15, y: 20 } };
+        const rawHintController = {
+            getHints: () => ({ hints: [rawHint] })
+        };
+        const rawWorld = makeWorld({ hintController: rawHintController });
+        const rawCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        rawCtrl.setWorldStateController(rawWorld);
+
+        const { text, data } = rawCtrl.buildContext('ent-self');
+
+        // data.hints should contain the raw hint objects (after fix #8).
+        expect(data.hints).toHaveLength(1);
+        expect(data.hints[0]).toBe(rawHint);
+        expect(data.hints[0].message).toBe('Test hint message');
+        expect(text).toContain('- Test hint message');
     });
 });

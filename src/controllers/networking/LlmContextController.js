@@ -77,6 +77,7 @@ class LlmContextController {
         const self = this._buildSelfData(entity);
         const nearData = this._buildNearbyData(entity, entity.location, maxEntities);
         const actionData = this._buildActionData(entityId);
+        const hintsData = this._buildHintsData(entityId);
         const eventsData = this._buildEventData(maxEvents);
         const chatData = this._buildChatData(entity.location, maxChat);
 
@@ -92,22 +93,22 @@ class LlmContextController {
         let near = nearData;
         let events = eventsData;
         let chat = chatData;
-        let text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
 
         if (text.length > stats.budgetChars) {
             events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
-            text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
             stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)));
-                text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && chat.length > 5) {
                 chat = chat.slice(0, 5);
-                text = this._render(entity, roomName, self, near, actionData, events, chat, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, maxEntities);
                 stats.truncated.chat = true;
             }
         }
@@ -120,6 +121,7 @@ class LlmContextController {
                 ...near.otherRooms.map(e => ({ ...e, room: e.roomName }))
             ],
             actions: actionData,
+            hints: hintsData.slice(0, 3),
             recentEvents: events,
             roomChat: chat
         };
@@ -279,6 +281,27 @@ class LlmContextController {
     }
 
     /**
+     * Hints section: deterministic suggestions for the entity.
+     * Returns raw hint objects (up to 3) for the data mirror; the rendered
+     * HINTS section uses hint.message strings.
+     * @param {string} entityId
+     * @returns {Object[]}
+     * @private
+     */
+    _buildHintsData(entityId) {
+        try {
+            const facade = this.worldStateController;
+            if (!facade.hintController || !facade.hintController.getHints) return [];
+            const result = facade.hintController.getHints(entityId);
+            if (!result || !Array.isArray(result.hints)) return [];
+            return result.hints.slice(0, 3);
+        } catch {
+            // Missing hintController or getHints() throwing → degrade gracefully.
+            return [];
+        }
+    }
+
+    /**
      * Events section: last `limit` world events, rendered as
      * "[tick] [action] message".
      * @param {number} limit
@@ -323,7 +346,7 @@ class LlmContextController {
      * Renders the sectioned narrative text.
      * @private
      */
-    _render(entity, roomName, self, near, actions, events, chat, _maxEntities) {
+    _render(entity, roomName, self, near, actions, hints, events, chat, _maxEntities) {
         const facade = this.worldStateController;
         const room = entity.location ? (facade.getRooms() || {})[entity.location] : null;
         const lines = [];
@@ -382,6 +405,12 @@ class LlmContextController {
         if (actions.notExecutable.length > 0) {
             lines.push(`${actions.notExecutable.length} action${actions.notExecutable.length > 1 ? 's' : ''} not executable right now: ${actions.notExecutable.join(', ')}`);
         }
+        lines.push('');
+
+        // === HINTS ===
+        lines.push('=== HINTS ===');
+        const hintLines = hints.slice(0, 3).map(h => `- ${h.message || h}`);
+        lines.push(hintLines.length > 0 ? hintLines.join('\n') : '(none)');
         lines.push('');
 
         // === RECENT EVENTS ===

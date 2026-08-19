@@ -719,4 +719,69 @@ export class UIManager {
             popup.remove();
         }, duration);
     }
+
+    /**
+     * Displays a cyan hint pop-up in the bottom-right corner (above the error popup).
+     * @param {string} message The hint message to display.
+     * @param {number} [duration=5000] Duration in ms before the popup is removed from DOM.
+     */
+    showHintPopup(message, duration = 5000) {
+        // Remove existing hint popup before showing new one (single visible hint semantics)
+        const existing = document.querySelector('.hint-popup');
+        if (existing) existing.remove();
+
+        const popup = document.createElement('div');
+        popup.className = 'hint-popup';
+        popup.textContent = message;
+        document.body.appendChild(popup);
+
+        setTimeout(() => {
+            popup.remove();
+        }, duration);
+    }
+
+    /**
+     * Renders a transient pulsing hint marker on the spatial map SVG layer.
+     * Replaces any existing hint marker. Auto-removed after `duration`.
+     * @param {number} x - World-space X (room-relative).
+     * @param {number} y - World-space Y (room-relative).
+     * @param {number} [duration=5000] Display duration in ms.
+     */
+    renderHintMarker(x, y, duration = 5000) {
+        // Clear previous marker timer to prevent race condition
+        if (this._hintMarkerTimer) {
+            clearTimeout(this._hintMarkerTimer);
+            this._hintMarkerTimer = null;
+        }
+        this.clearHintMarker();
+        const entitiesLayer = this.elements.entitiesLayer;
+
+        // Convert world-space (room-relative) to screen-space.
+        const svgX = AppConfig.VIEW.CENTER_X + x;
+        const svgY = AppConfig.VIEW.CENTER_Y + y;
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", svgX);
+        circle.setAttribute("cy", svgY);
+        circle.setAttribute("r", "14");
+        circle.setAttribute("class", "hint-marker");
+        circle.setAttribute("fill", "none");
+        circle.setAttribute("stroke", "#00c8d7");
+        circle.setAttribute("stroke-width", "2");
+
+        entitiesLayer.appendChild(circle);
+
+        this._hintMarkerTimer = setTimeout(() => {
+            this.clearHintMarker();
+            this._hintMarkerTimer = null;
+        }, duration);
+    }
+
+    /**
+     * Immediately removes the current hint marker from the spatial map.
+     */
+    clearHintMarker() {
+        const existing = this.elements.entitiesLayer.querySelector('.hint-marker');
+        if (existing) existing.remove();
+    }
 }

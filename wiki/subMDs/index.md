@@ -92,6 +92,7 @@ Game mechanics, visualizations, and feature systems.
 | [Unique ID System](systems/unique_id_system.md) | Self-describing typed IDs (ent-, comp-, item-, eq- prefixes) for unambiguous client-server resolution |
 | [Sharpness System](systems/sharpness_system.md) | Equipped item mutable stats architecture — sharpness drain, durability, capability re-evaluation |
 | [T1 Weapon System](systems/t1_weapon_system.md) | Container weapon concept — resource scaling damage, dual-volume items, spawn observer auto-assignment |
+| [Hint System](systems/hint_system.md) | Deterministic hint registry — reachability-move suggestion for unreachable entities, extensible rule engine |
 
 ---
 
@@ -99,11 +100,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 36 |
+| Total documents | 37 |
 | Categories | 6 |
 | Architecture docs | 5 |
 | Controller docs | 12 |
 | Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 8 |
+| Systems docs | 9 |

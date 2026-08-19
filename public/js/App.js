@@ -33,6 +33,7 @@ import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
+import { HintManager } from './HintManager.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
@@ -56,6 +57,8 @@ export class ClientApp {
             onCancelQueued: (entityId, queueId) => this._cancelQueuedAction(entityId, queueId)
         });
         this.actions = new ActionManager(this.ui, this.errorController, () => this.turns.shouldQueueForRound());
+        // 2b. Hint system (v1: reachability-move hint only).
+        this.hintManager = new HintManager({ uiManager: this.ui });
 
         // 3. Controllers
         this.selection = new SelectionController(
@@ -1016,6 +1019,11 @@ export class ClientApp {
                 code: 'OUT_OF_RANGE',
                 message: rangeCheckResult.message
             });
+            // Fire-and-forget hint suggestion.
+            const entityId = this.worldState.getMyEntityId();
+            if (entityId && this.hintManager) {
+                this.hintManager.onOutOfRangeClick(entityId, droppedItemId);
+            }
             return;
         }
 

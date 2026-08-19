@@ -41,6 +41,7 @@ WorldStateController (Root Injector)
 | **InternalComponentController** | Internal State | Volume-based auto-install, repair system |
 | **EquippedItemStatsController** | Mutable Stats Store | Per-instance mutable stat tracking for equipped items (sharpness, durability degradation) |
 | **RangeValidator** | Range Validation | Spatial range checks for proximity-based actions with failure consequences |
+| **HintController** | Hint Engine | Deterministic hint registry — register rules by priority, resolve hints per entity, degrade gracefully on missing data |
 
 ## 3. Key Operational Flows
 
@@ -71,5 +72,6 @@ App (Orchestrator)
 ├── ComponentViewer
 ├── NavActionsPanel
 ├── WorldMapView
+├── HintManager (new)
 └── ConfigBarManager
 ```
