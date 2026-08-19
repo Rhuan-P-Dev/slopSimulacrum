@@ -66,5 +66,32 @@
       "Movement": { "move": 10 },
       "Spatial": { "x": 0, "y": 20 }
     }
+  },
+  "killerCore": {
+    "traits": {
+      "Physical": { "mass": 50, "durability": 120, "volume": 15 },
+      "Spatial": { "x": 0, "y": 0 }
+    }
+  },
+  "killerHead": {
+    "traits": {
+      "Physical": { "durability": 60, "volume": 6 },
+      "Mind": { "think_level": 10 },
+      "Spatial": { "x": 0, "y": -15 }
+    }
+  },
+  "killerArm": {
+    "traits": {
+      "Physical": { "durability": 60, "strength": 30, "volume": 8 },
+      "Manipulation": { "fine_controls": 20 },
+      "Spatial": { "x": 18, "y": 10 }
+    }
+  },
+  "killerRollingBall": {
+    "traits": {
+      "Physical": { "durability": 100, "volume": 12 },
+      "Movement": { "move": 25 },
+      "Spatial": { "x": 0, "y": 20 }
+    }
   }
 }

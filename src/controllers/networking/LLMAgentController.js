@@ -136,7 +136,8 @@ class LLMAgentController {
             const npc = { entity, config: this._npcRegistry[entity.blueprint] || null };
             const displayName = npc.config?.displayName || entity.name || 'NPC';
             const maxActions = this._asPositiveInt(npc.config?.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
-            const maxChat = this._asPositiveInt(npc.config?.maxChatMessagesPerRound, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
+            const rawMaxChat = npc.config?.maxChatMessagesPerRound;
+            const maxChat = (rawMaxChat === 0) ? 0 : this._asPositiveInt(rawMaxChat, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
 
             // 2. Context (Feature B). A broken/absent context layer must not
             //    kill the round — fall back to a minimal identity line.
@@ -159,7 +160,7 @@ class LLMAgentController {
 
             const options = {
                 system: this._buildSystemPrompt(npc, this._roomName(entity)),
-                tools: this._buildTools(),
+                tools: this._buildTools({ includeChat: maxChat > 0 }),
                 tool_choice: 'required',
                 temperature: 0.3,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
@@ -398,12 +399,14 @@ class LLMAgentController {
     // =========================================================================
 
     /**
-     * Builds the 2-tool OpenAI schema. The `execute_action` actionName enum +
+     * Builds the tool OpenAI schema. The `execute_action` actionName enum +
      * descriptions are generated from the live action registry (the same
      * `data/actions.json` the rest of the world runs on).
+     * @param {Object} [opts]
+     * @param {boolean} [opts.includeChat=true] - Whether to include the speak_in_room tool.
      * @returns {Array<Object>}
      */
-    _buildTools() {
+    _buildTools({ includeChat = true } = {}) {
         const registry = this.worldStateController?.actionController?.getRegistry?.() || {};
         const actionNames = Object.keys(registry);
 
@@ -433,22 +436,24 @@ class LLMAgentController {
             }
         };
 
-        const speakInRoom = {
-            type: 'function',
-            function: {
-                name: 'speak_in_room',
-                description: 'Say something in the chat of the room you are currently in.',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        message: { type: 'string', maxLength: 200, description: 'The line to say (max 200 characters).' }
-                    },
-                    required: ['message']
+        const tools = [executeAction];
+        if (includeChat) {
+            tools.push({
+                type: 'function',
+                function: {
+                    name: 'speak_in_room',
+                    description: 'Say something in the chat of the room you are currently in.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            message: { type: 'string', maxLength: 200, description: 'The line to say (max 200 characters).' }
+                        },
+                        required: ['message']
+                    }
                 }
-            }
-        };
-
-        return [executeAction, speakInRoom];
+            });
+        }
+        return tools;
     }
 
     // =========================================================================
@@ -463,7 +468,16 @@ class LLMAgentController {
         const displayName = config.displayName || npc.entity.name || 'NPC';
         const personality = config.personality || 'You are a friendly droid. Keep replies short.';
         const maxActions = this._asPositiveInt(config.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
-        const maxChat = this._asPositiveInt(config.maxChatMessagesPerRound, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
+        const rawMaxChatPrompt = config.maxChatMessagesPerRound;
+        const maxChat = (rawMaxChatPrompt === 0) ? 0 : this._asPositiveInt(rawMaxChatPrompt, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
+
+        const chatLine = maxChat > 0
+            ? `- Execute at most ${maxActions} world action(s) and send at most ${maxChat} chat message(s) per round.`
+            : `- Execute at most ${maxActions} world action(s) per round. You MUST NOT use the speak_in_room tool or produce any chat output. Your ONLY output must be world actions.`;
+
+        const talkLine = maxChat > 0
+            ? '- to talk: {"action":"speak","message":"..."}\n'
+            : '';
 
         return [
             `You are ${displayName}, an NPC droid in the room "${roomName}".`,
@@ -471,13 +485,12 @@ class LLMAgentController {
             '',
             'World rules:',
             '- You are the only actor: you never choose another entity\'s ID as the acting entity.',
-            `- Execute at most ${maxActions} world action(s) and send at most ${maxChat} chat message(s) per round.`,
-            '- Only use actions listed under "executable now" in the context. If none fit your goals, talk briefly or stay silent.',
-            '- Keep chat messages under 25 words, in character, no fourth-wall breaks.',
+            chatLine,
+            '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.',
+            ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'Respond with ONE JSON object only, no markdown, no prose:',
-            '- to talk: {"action":"speak","message":"..."}',
-            '- to act: {"action":"do","actionName":"...","targetComponentId":"...","componentId":"...","targetEntityId":"...","itemId":"...","targetX":0,"targetY":0}',
+            talkLine + '- to act: {"action":"do","actionName":"...","targetComponentId":"...","componentId":"...","targetEntityId":"...","itemId":"...","targetX":0,"targetY":0}',
             '- to stay silent: {"action":"none"}'
         ].join('\n');
     }

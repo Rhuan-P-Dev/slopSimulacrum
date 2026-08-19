@@ -20,5 +20,13 @@
     ["merchantArm", "right"],
     ["merchantRollingBall", "left"],
     ["merchantRollingBall", "right"]
+  ],
+  "llmKillerDroid": ["killerCore"],
+  "killerCore": [
+    "killerHead",
+    ["killerArm", "left"],
+    ["killerArm", "right"],
+    ["killerRollingBall", "left"],
+    ["killerRollingBall", "right"]
   ]
 }
