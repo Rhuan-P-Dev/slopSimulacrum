@@ -100,9 +100,15 @@ beforeAll(() => {
     const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     ({ worldStateController: wsc } = buildWorldState(tickSystem));
 
+    // Spawn a test droid (the default world has zero pre-spawned droids after
+    // removing the client/vault guardian spawns). This gives the contract tests
+    // an entity to exercise read-APIs against.
+    const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+    const testEntityId = wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+
     const state = wsc.getAll();
     entityIds = Object.keys(state.entities);
-    firstEntityId = entityIds[0];
+    firstEntityId = testEntityId;
 });
 
 // =========================================================================
@@ -237,12 +243,13 @@ describe('WorldStateController.getAll() shape', () => {
         }
     });
 
-    it('has a non-empty entities map with a consistent per-entity shape', () => {
+    it('has an entities map with the test-spawned droid and a consistent per-entity shape', () => {
         const state = wsc.getAll();
 
         expect(typeOf(state.entities)).toBe('object');
         const ids = Object.keys(state.entities);
-        expect(ids.length).toBeGreaterThanOrEqual(1);
+        // The beforeAll spawns exactly 1 smallBallDroid for testing.
+        expect(ids.length).toBe(1);
 
         for (const id of ids) {
             const entity = state.entities[id];
@@ -289,8 +296,8 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity.blueprint)).toBe('string');
             expect(typeOf(entity.location)).toBe('string');
             expect(typeOf(entity.status)).toBe('string');
-            // NPC entities (llmKillerDroid) have no initialItems → items key absent.
-            // Player droids DO have items after InventoryManager.addItem().
+            // Entities with no initialItems (from data/world.json) have items key absent.
+            // Entities with initial spawns DO have items after InventoryManager.addItem().
             if (entity.items) expect(typeOf(entity.items)).toBe('array');
             expect(typeOf(entity.internalComponents)).toBe('object');
 

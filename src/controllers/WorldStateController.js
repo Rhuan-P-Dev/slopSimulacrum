@@ -168,38 +168,10 @@ class WorldStateController {
     }
 
     /**
-     * Sets up initial world state, including default entities.
+     * Sets up initial world state. NPCs are spawned via _spawnNpcs();
+     * player droids are incarnated only via socket connection.
      */
     initializeWorld() {
-        // Resolve the UUID for the start room to maintain spatial synchronization
-        const startRoomId = this.roomsController.getUidByLogicalId('start_room');
-
-        // Spawn the client entity (small ball droid) in the start room.
-        // The spawn observer registered in the constructor applies the declarative
-        // initial spawns from data/world.json, which fires for every spawned entity
-        // including the initial client entity.
-        const clientEntityId = this.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
-
-        // Client-only initial spawn (not part of the generic world.json initialSpawns):
-        // an extra knife on the droidHand so it is available for equip/cut from the start.
-        if (clientEntityId) {
-            const clientEntity = this.stateEntityController.getEntity(clientEntityId);
-            const handComponent = clientEntity?.components?.find(c => c.type === 'droidHand')
-                || clientEntity?.components?.find(c => c.type === 'droidArm');
-            if (handComponent) {
-                const result = this.addItemToEntity(clientEntityId, 'knife', handComponent.id);
-                if (!result.success) {
-                    Logger.warn(`[WorldStateController] Failed to add client-only knife to ${handComponent.type}: ${result.message}`);
-                }
-            } else {
-                Logger.warn(`[WorldStateController] No droidHand/droidArm component found on client entity "${clientEntityId}" for knife.`);
-            }
-        }
-
-        // Spawn the vault guardian droid in the Deep Vault
-        const vaultRoomId = this.roomsController.getUidByLogicalId('far_right_room');
-        this.stateEntityController.spawnEntity('smallBallDroid', vaultRoomId);
-
         // Feature D (spec §7.2): spawn the data-driven NPCs from data/npcs.json
         // (e.g. "Bolt the Merchant" in the start room). NPCs are NOT in
         // world.json initialSpawns — their goods come from initialItems.

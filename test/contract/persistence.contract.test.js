@@ -28,15 +28,21 @@ import WorldStateController from '../../src/controllers/WorldStateController.js'
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 
 /**
- * Creates a fully constructed WorldStateController (spawns the default
- * world: 2 droid entities with declarative initial spawns from
- * data/world.json). No ticks are started.
+ * Creates a fully constructed WorldStateController and spawns a test droid.
+ * The default world has no pre-spawned droids (players are incarnated via
+ * socket connection). A smallBallDroid is spawned into start_room so the
+ * persistence tests have an entity with declarative initial spawns from
+ * data/world.json.
  * FASE 5: built via the composition root (buildWorldState) — the facade
  * no longer self-instantiates its sub-controllers.
  * @returns {WorldStateController}
  */
 function createWorld() {
-    return buildWorldState(null).worldStateController;
+    const { worldStateController: world } = buildWorldState(null);
+    // Spawn a test droid into start_room (the default world has zero droids).
+    const startRoomId = world.roomsController.getUidByLogicalId('start_room');
+    world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    return world;
 }
 
 /**
@@ -142,8 +148,8 @@ describe('WorldStateController persistence (serialize/restore)', () => {
             expect(state, `snapshot.state must include "${key}"`).toHaveProperty(key);
         }
 
-        // The default world must actually be non-trivial:
-        expect(Object.keys(state.entities).length).toBeGreaterThanOrEqual(2);
+        // The test-spawned world must have at least 1 entity (the droid we spawned):
+        expect(Object.keys(state.entities).length).toBeGreaterThanOrEqual(1);
         expect(Object.keys(state.components).length).toBeGreaterThan(0);
         // Inventory items (incl. nested container children) survived serialization.
         // Nesting is flat + reference-based: a child item's hostComponentId points

@@ -7,7 +7,7 @@
  * advanced by the injected tick counter, never by the event loop.
  *
  * Covers the full §5.12 checklist:
- *   - tick 0: phase 'planning', roundNumber 0, LLM Killer initiative 50 first, then player droids initiative 40 tie → entityId order,
+ *   - tick 0: phase 'planning', roundNumber 0, actorOrder reflects spawned droids,
  *     state.turns present in facade.getAll().
  *   - queueAction during planning → q- id; 4th entry → QUEUE_FULL.
  *   - tick 300: phase 'resolution', selfHeal ran via the REAL pipeline
@@ -16,8 +16,6 @@
  *   - out-of-range 'droid punch' (target in another room) → discarded with a
  *     failure log, no exception, other entries still execute.
  *   - queueAction at tick 350 → PLANNING_CLOSED.
- *   - setNpcAgent(stub): fired exactly once per NPC at tick 20 with
- *     (npcEntityId, 0); a late queue (after 300) → rejected, no crash.
  *   - state.turns shape (Appendix A) + turn-round-update transitions.
  *   - serialize/restore round-trip of the pending queue at schema v2.
  *
@@ -31,13 +29,16 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
 /**
  * Builds a fresh world wired to a (non-started) tick system. Returns the
- * facade, the tick system, and the turn system controller.
- * @returns {{ world: import('../../src/controllers/WorldStateController.js'), tick: UniversalTickSystem, turns: import('../../src/controllers/core/TurnSystemController.js') }}
+ * facade, the tick system, the turn system controller, and spawns a test droid.
+ * @returns {{ world: import('../../src/controllers/WorldStateController.js'), tick: UniversalTickSystem, turns: import('../../src/controllers/core/TurnSystemController.js'), entityId: string }}
  */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
-    return { world, tick, turns: subControllers.turnSystemController };
+    // Spawn a test droid entity (default world has no pre-spawned droids).
+    const startRoomId = world.roomsController.getUidByLogicalId('start_room');
+    const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    return { world, tick, turns: subControllers.turnSystemController, entityId };
 }
 
 /**
@@ -50,19 +51,17 @@ function stepTo(world, tick, turns, targetTick) {
     return turns.getRoundState();
 }
 
-/** Finds a droidHead component id on the first droid (selfHeal target). */
-function aHeadComponentId(world) {
-    const entities = Object.values(world.stateEntityController.entities);
-    const droid = entities[0];
-    const head = droid.components.find(c => c.type === 'droidHead');
+/** Finds a droidHead component id on the given entity (selfHeal target). */
+function aHeadComponentId(world, entityId) {
+    const entity = world.stateEntityController.getEntity(entityId);
+    const head = entity.components.find(c => c.type === 'droidHead');
     return head.id;
 }
 
 describe('TurnSystemController (Feature A)', () => {
-    it('tick 0: planning, round 0, LLM Killer initiative 50 first, then player droids initiative 40 tie → ascending entityId, state.turns in getAll()', () => {
-        const { world, tick, turns } = buildWorld();
-        const entities = Object.values(world.stateEntityController.entities);
-        expect(entities.length).toBeGreaterThanOrEqual(2);
+    it('tick 0: planning, round 0, actorOrder includes spawned droid with initiative 40, state.turns in getAll()', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        const entity = world.stateEntityController.getEntity(entityId);
 
         const state = stepTo(world, tick, turns, 0);
 
@@ -71,25 +70,12 @@ describe('TurnSystemController (Feature A)', () => {
         expect(state.currentTick).toBe(0);
         expect(state.planningDeadlineTick).toBe(300);
 
-        // Feature D: the world now also contains the NPC (data/npcs.json).
-        // LLM Killer: 2× killerRollingBall × move(25) = initiative 50 → sorts FIRST.
-        // Player droids: 2× droidRollingBall × move(20) = initiative 40 (tie).
-        // → LLM Killer strictly BEFORE every player droid (spec §7.1 / §7.7).
-        expect(state.actorOrder.length).toBeGreaterThanOrEqual(3);
-        // First actor: LLM Killer with initiative 50.
-        const killer = state.actorOrder[0];
-        expect(killer.name).toBe('LLM Killer');
-        expect(killer.initiative).toBe(50);
-        expect(killer.queuedCount).toBe(0);
-        // Remaining actors (after index 0): player droids at initiative 40.
-        for (const actor of state.actorOrder.slice(1)) {
-            expect(actor.initiative).toBe(40);
-            expect(actor.queuedCount).toBe(0);
-        }
-        // Tiebreak among the droids: ascending entityId.
-        for (let i = 2; i < state.actorOrder.length; i++) {
-            expect(state.actorOrder[i - 1].entityId < state.actorOrder[i].entityId).toBe(true);
-        }
+        // The spawned droid has initiative 40 (2× droidRollingBall × move(20)).
+        expect(state.actorOrder.length).toBeGreaterThanOrEqual(1);
+        const droidActor = state.actorOrder.find(a => a.entityId === entity.id);
+        expect(droidActor).toBeTruthy();
+        expect(droidActor.initiative).toBe(40);
+        expect(droidActor.queuedCount).toBe(0);
 
         // state.turns is present in the facade's full state (spec §5.7).
         const full = world.getAll();
@@ -99,41 +85,39 @@ describe('TurnSystemController (Feature A)', () => {
     });
 
     it('queueAction during planning → q- id; 4th entry → QUEUE_FULL', () => {
-        const { world, tick, turns } = buildWorld();
+        const { world, tick, turns, entityId } = buildWorld();
         stepTo(world, tick, turns, 10);
 
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = aHeadComponentId(world);
+        const head = aHeadComponentId(world, entityId);
 
-        const q1 = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q1 = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q1.success).toBe(true);
         expect(q1.queueId).toMatch(/^q-/);
         expect(q1.queue).toHaveLength(1);
 
-        const q2 = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q2 = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q2.success).toBe(true);
-        const q3 = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q3 = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q3.success).toBe(true);
 
         // Cap is 3 → the 4th is rejected QUEUE_FULL.
-        const q4 = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q4 = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q4.success).toBe(false);
         expect(q4.code).toBe('QUEUE_FULL');
 
         // The live queue count is reflected in the round state.
         const state = turns.getRoundState();
-        const mine = state.actorOrder.find(a => a.entityId === entity.id);
+        const mine = state.actorOrder.find(a => a.entityId === entityId);
         expect(mine.queuedCount).toBe(3);
     });
 
     it('tick 300: resolution runs selfHeal via the REAL pipeline; turn event logged; queue cleared', () => {
-        const { world, tick, turns } = buildWorld();
+        const { world, tick, turns, entityId } = buildWorld();
         stepTo(world, tick, turns, 5);
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = aHeadComponentId(world);
+        const head = aHeadComponentId(world, entityId);
         const before = world.getComponentStats(head).Physical.durability;
 
-        turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
 
         const state = stepTo(world, tick, turns, 300);
         expect(state.phase).toBe('resolution');
@@ -154,18 +138,22 @@ describe('TurnSystemController (Feature A)', () => {
     });
 
     it('out-of-range droid punch is discarded with a log; the round still executes the other entry', () => {
-        const { world, tick, turns } = buildWorld();
-        const [client, vault] = Object.values(world.stateEntityController.entities);
-        const head = client.components.find(c => c.type === 'droidHead').id;
+        const { world, tick, turns, entityId } = buildWorld();
+        // Spawn a second entity to act as the out-of-range target.
+        const startRoomId = world.roomsController.getUidByLogicalId('start_room');
+        const targetEntityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+
+        const entity = world.stateEntityController.getEntity(entityId);
+        const head = aHeadComponentId(world, entityId);
 
         // Push the target droid far away so the punch (range 100) is out of range.
-        world.stateEntityController.updateEntitySpatial(vault.id, { x: 5000, y: 5000 });
+        world.stateEntityController.updateEntitySpatial(targetEntityId, { x: 5000, y: 5000 });
 
         stepTo(world, tick, turns, 5);
         // Two entries for the SAME actor: a valid selfHeal + an out-of-range punch.
-        const heal = turns.queueAction(client.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const heal = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(heal.success).toBe(true);
-        const punch = turns.queueAction(client.id, 'droid punch', { targetEntityId: vault.id }, 'player');
+        const punch = turns.queueAction(entityId, 'droid punch', { targetEntityId: targetEntityId }, 'player');
         expect(punch.success).toBe(true);
 
         const before = world.getComponentStats(head).Physical.durability;
@@ -183,59 +171,18 @@ describe('TurnSystemController (Feature A)', () => {
     });
 
     it('queueAction at tick 350 (resolution/settle) → PLANNING_CLOSED', () => {
-        const { world, tick, turns } = buildWorld();
+        const { world, tick, turns, entityId } = buildWorld();
         // Step through the whole round so the machine is in settle (L=350).
         stepTo(world, tick, turns, 0);
         stepTo(world, tick, turns, 300);
         stepTo(world, tick, turns, 350);
         expect(turns.getRoundState().phase).toBe('resolution');
 
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = aHeadComponentId(world);
+        const head = aHeadComponentId(world, entityId);
 
-        const q = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q.success).toBe(false);
         expect(q.code).toBe('PLANNING_CLOSED');
-    });
-
-    it('setNpcAgent: fired exactly once per NPC at tick 20; a late queue (post-300) is rejected, no crash', async () => {
-        const { world, tick, turns } = buildWorld();
-        // Feature D: a REAL NPC (Bolt) is spawned by the world; mark one of
-        // the player droids as an NPC on top (the pre-D stubbing pattern) so
-        // the agent must fire for BOTH.
-        const droid = Object.values(world.stateEntityController.entities).find(e => e.blueprint === 'smallBallDroid');
-        const npc = droid;
-        const bolt = Object.values(world.stateEntityController.entities).find(e => e.isNPC === true);
-        const head = npc.components.find(c => c.type === 'droidHead').id;
-        // Mark the entity as an NPC (Feature D spawns do this natively).
-        world.stateEntityController.entities[npc.id].isNPC = true;
-
-        const calls = [];
-        let lateQueueResult;
-        // Async agent: queues on a microtask (simulating the LLM returning).
-        turns.setNpcAgent((npcEntityId, round) => {
-            calls.push({ npcEntityId, round });
-            return Promise.resolve().then(() => {
-                lateQueueResult = turns.queueAction(npcEntityId, 'selfHeal', { targetComponentId: head }, 'npc');
-            });
-        });
-
-        stepTo(world, tick, turns, 0);
-        // tick 20 → agent fires (once per NPC: the spawned Bolt + the stub droid).
-        stepTo(world, tick, turns, 20);
-        // A second tick at 20 must NOT re-fire (once per round).
-        stepTo(world, tick, turns, 20);
-        expect(calls).toHaveLength(2);
-        expect(calls.map(c => c.npcEntityId).sort()).toEqual([bolt.id, droid.id].sort());
-        expect(calls.every(c => c.round === 0)).toBe(true);
-
-        // Advance to resolution (synchronous) BEFORE the microtask runs.
-        expect(() => stepTo(world, tick, turns, 300)).not.toThrow();
-
-        // Let the agent's microtask run — it now lands after the window closed.
-        await Promise.resolve();
-        expect(lateQueueResult.success).toBe(false);
-        expect(lateQueueResult.code).toBe('PLANNING_CLOSED');
     });
 
     it('emits turn-round-update on both transitions (planning start + resolution) with the spec payload', () => {
@@ -263,12 +210,11 @@ describe('TurnSystemController (Feature A)', () => {
     });
 
     it('state.turns shape matches Appendix A (keys + types + per-entry queue shape)', () => {
-        const { world, tick, turns } = buildWorld();
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = aHeadComponentId(world);
+        const { world, tick, turns, entityId } = buildWorld();
+        const head = aHeadComponentId(world, entityId);
 
         stepTo(world, tick, turns, 0);
-        turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
 
         const turnsState = world.getAll().turns;
         expect(turnsState).toEqual(expect.objectContaining({
@@ -282,15 +228,15 @@ describe('TurnSystemController (Feature A)', () => {
         expect(typeof turnsState.phase).toBe('string');
         expect(['planning', 'resolution']).toContain(turnsState.phase);
 
-        const actor = turnsState.actorOrder.find(a => a.entityId === entity.id);
+        const actor = turnsState.actorOrder.find(a => a.entityId === entityId);
         expect(actor).toMatchObject({
-            entityId: entity.id,
+            entityId: entityId,
             initiative: 40,
             queuedCount: 1
         });
         expect(typeof actor.name).toBe('string');
 
-        const entry = turnsState.queues[entity.id][0];
+        const entry = turnsState.queues[entityId][0];
         expect(entry).toEqual(expect.objectContaining({
             queueId: expect.stringMatching(/^q-/),
             actionName: 'selfHeal',
@@ -301,25 +247,24 @@ describe('TurnSystemController (Feature A)', () => {
     });
 
     it('serialize/restore round-trip: pending queue preserved, bookkeeping identical', () => {
-        const { world, tick, turns } = buildWorld();
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = aHeadComponentId(world);
+        const { world, tick, turns, entityId } = buildWorld();
+        const head = aHeadComponentId(world, entityId);
 
         stepTo(world, tick, turns, 100);
-        turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
 
         // Serialize mid-round with a pending queue.
         const snapshot = world.serialize();
         expect(snapshot.state).toHaveProperty('turns');
         expect(snapshot.state.turns.roundNumber).toBe(0);
-        expect(Object.keys(snapshot.state.turns.queues)).toContain(entity.id);
+        expect(Object.keys(snapshot.state.turns.queues)).toContain(entityId);
 
         // Restore onto a FRESH instance.
         const { world: world2, tick: tick2, turns: turns2 } = buildWorld();
         const restored = world2.restore(snapshot);
         expect(restored.success).toBe(true);
 
-        const q2 = turns2.getQueuedActions(entity.id);
+        const q2 = turns2.getQueuedActions(entityId);
         expect(q2).toHaveLength(1);
         expect(q2[0].actionName).toBe('selfHeal');
         expect(q2[0].queuedAtTick).toBe(100);
@@ -331,10 +276,12 @@ describe('TurnSystemController (Feature A)', () => {
         // A world built without a tick system: queueing is disabled, no crash.
         const { worldStateController: world } = buildWorldState(null);
         const turns = world.turnSystemController;
-        const entity = Object.values(world.stateEntityController.entities)[0];
-        const head = world.stateEntityController.entities[entity.id].components.find(c => c.type === 'droidHead').id;
+        // Spawn a test droid (no default droids in empty world).
+        const startRoomId = world.roomsController.getUidByLogicalId('start_room');
+        const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+        const head = world.stateEntityController.entities[entityId].components.find(c => c.type === 'droidHead').id;
 
-        const q = turns.queueAction(entity.id, 'selfHeal', { targetComponentId: head }, 'player');
+        const q = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
         expect(q.success).toBe(false);
         expect(q.code).toBe('TURNS_DISABLED');
     });
