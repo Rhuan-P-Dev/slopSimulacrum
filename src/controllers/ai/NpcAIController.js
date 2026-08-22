@@ -23,6 +23,18 @@ import { resolveRange } from '../../../shared/RangeResolver.js';
 const DEFAULT_ATTACK_RANGE_FALLBACK = 100;
 
 /**
+ * Limiar abaixo do qual um valor de durability é considerado "quebrado" (inutilizável).
+ * @constant
+ */
+const BROKEN_DURABILITY_THRESHOLD = 1;
+
+/**
+ * Chave do stat de durabilidade dos componentes (consumido também pelo pipeline de dano).
+ * @constant
+ */
+const DURABILITY_STAT_KEY = 'Physical.durability';
+
+/**
  * Calcula distância euclidiana entre dois pontos spatial.
  * @param {Object} a — { x, y }
  * @param {Object} b — { x, y }
@@ -249,6 +261,69 @@ class NpcAIController {
     }
 
     /**
+     * Lê o stat de durabilidade de um componente, aceitando apenas números finitos.
+     * Valores não numéricos (strings, booleanos, NaN) são tratados como ausentes.
+     *
+     * Prioridade de leitura:
+     *   1. Loja autoritativa (ComponentStatsController via facade.getComponentStats) —
+     *      a camada aninhada { Physical: { durability } } que o pipeline de dano atualiza.
+     *      Esta é a única fonte viva no runtime, pois EntityController.createEntityFromBlueprint()
+     *      nunca preenche comp.stats na cópia da entity (apenas { type, identifier, id }).
+     *   2. Fallback: chaves planas embutidas em comp.stats — preservado para compatibilidade
+     *      com fixtures de teste que injetam stats flat manualmente no facade mock.
+     *
+     * @param {Object} comp — componente com .id e opcionalmente .stats
+     * @returns {number|undefined}
+     * @private
+     */
+    _readDurability(comp) {
+        // 1. Authoritative nested store via the facade (ComponentStatsController).
+        if (this._facade && typeof this._facade.getComponentStats === 'function' && comp && comp.id) {
+            const value = this._facade.getComponentStats(comp.id)?.Physical?.durability;
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                return value;
+            }
+        }
+        // 2. Fallback: flat-key stats embedded on the component (test fixtures / legacy).
+        if (!comp || !comp.stats || typeof comp.stats !== 'object') {
+            return undefined;
+        }
+        const value = comp.stats[DURABILITY_STAT_KEY];
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+        return undefined;
+    }
+
+    /**
+     * Encontra o primeiro componente com durability numérica finita.
+     * @param {Object[]} components
+     * @returns {Object|null}
+     * @private
+     */
+    _findDurabilityComponent(components) {
+        for (const comp of components) {
+            if (this._readDurability(comp) !== undefined) {
+                return comp;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Filtra componentes utilizáveis para dano: sem stat de durability OU com durability >= limiar.
+     * @param {Object[]} components
+     * @returns {Object[]}
+     * @private
+     */
+    _filterUsableComponents(components) {
+        return components.filter(comp => {
+            const dur = this._readDurability(comp);
+            return (dur === undefined) || (dur >= BROKEN_DURABILITY_THRESHOLD);
+        });
+    }
+
+    /**
      * Comportamento `chase_attack`:
      * - Candidatos: TODAS as outras entities na MESMA sala.
      * - Alvo: o mais próximo (distância euclidiana).
@@ -311,7 +386,7 @@ class NpcAIController {
 
         if (minDistance <= attackRange) {
             // Atacar: seleccionar o melhor componente para o alvo.
-            const targetComponent = this._selectTargetComponent(target);
+            const targetComponent = this._selectTargetComponent(target, entity.id, round);
             if (!targetComponent) {
                 return null;
             }
@@ -330,31 +405,84 @@ class NpcAIController {
      * Seleciona o melhor componente de um alvo para decisões de ataque.
      *
      * Regra de selecção (determinística):
-     * 1. Preferir um componente cujos stats incluem `Physical.durability`
-     *    (a chave de saúde/durabilidade que o pipeline de dano consome).
-     * 2. Fallback: `components[0]` (comportamento existente).
-     * 3. Se não há componentes → retorna null (o caller retorna null → skip).
+     * 1. Preferir o primeiro componente com durability numérica finita.
+     * 2. Fallback: primeiro componente da lista.
+     * 3. Sem componentes válidos → null (o ataque é ignorado).
+     * 4. Se o componente selecionado está quebrado (durability < limiar),
+     *    reselectão determinística entre candidatos utilizáveis; se nenhum
+     *    existir, null (o ataque é ignorado em vez de desperdiçado).
      *
-     * @param {Object} target — entity com `.components[]`
-     * @returns {Object|null} — o componente seleccionado ou null
+     * @param {Object} target — entity com .components[]
+     * @param {string} entityId — id da entity NPC (para selecção determinística)
+     * @param {number} round — round atual
+     * @returns {Object|null}
      * @private
      */
-    _selectTargetComponent(target) {
+    _selectTargetComponent(target, entityId, round) {
         const components = target.components;
         if (!Array.isArray(components) || components.length === 0) {
             return null;
         }
 
-        // Preferir componente com Physical.durability (health-equivalent stat).
-        for (const comp of components) {
-            const stats = comp && comp.stats;
-            if (stats && typeof stats === 'object' && stats['Physical.durability'] != null) {
-                return comp;
-            }
+        // Normaliza: remove entradas que não são objetos (evita TypeError a jusante).
+        const validComponents = components.filter(c => c != null && typeof c === 'object');
+        if (validComponents.length === 0) {
+            return null;
         }
 
-        // Fallback: primeiro componente (comportamento existente).
-        return components[0];
+        const selected = this._findDurabilityComponent(validComponents);
+        if (selected === null) {
+            return validComponents[0];
+        }
+
+        const durability = this._readDurability(selected);
+        if (durability !== undefined && durability < BROKEN_DURABILITY_THRESHOLD) {
+            const candidates = this._filterUsableComponents(validComponents);
+
+            if (candidates.length > 0) {
+                Logger.debug(`[NpcAI] Alvo ${selected.id} quebrado (durability: ${durability}) — reselectão entre ${candidates.length} candidato(s).`);
+                return this._pickRandomComponent(candidates, entityId, round);
+            }
+
+            Logger.debug(`[NpcAI] Todos os componentes do alvo ${target.id} estão quebrados — ataque ignorado.`);
+            return null;
+        }
+
+        return selected;
+    }
+
+    /**
+     * Seleciona um componente de um array usando uma escolha determinística por tick.
+     * A seed é derivada de entityId + round — garantindo resultados reproduzíveis
+     * em replay/debug/cenários de save-load.
+     * @param {Object[]} components
+     * @param {string} entityId — id da entity NPC (parte da seed)
+     * @param {number} round — número do round atual (parte da seed)
+     * @param {Function} [rng] — override opcional para testes; padrão é hash determinístico
+     * @returns {Object|null}
+     * @private
+     */
+    _pickRandomComponent(components, entityId, round, rng) {
+        if (!Array.isArray(components) || components.length === 0) {
+            return null;
+        }
+        if (components.length === 1) {
+            return components[0];
+        }
+        if (typeof rng === 'function') {
+            const index = Math.min(Math.floor(rng() * components.length), components.length - 1);
+            return components[index];
+        }
+        // Determinístico: hash simples de (entityId + '|' + round), misturado com o round
+        // para que rounds diferentes escolham candidatos diferentes.
+        let seed = 0;
+        const seedStr = entityId + '|' + round;
+        for (let i = 0; i < seedStr.length; i++) {
+            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
+            seed |= 0; // clamp a int 32 bits
+        }
+        const index = ((seed >>> 0) + round) % components.length;
+        return components[index];
     }
 }
 

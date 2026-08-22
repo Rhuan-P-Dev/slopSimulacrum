@@ -22,6 +22,11 @@
  *   14. think() throws inside strategy (bug simulated) → root guard captures; returns structured skip
  *   15. registerBehavior('test_idle', → null) + entry in registry → dispatch uses registered behavior
  *   16. Custom config: ai.attackRange = 50 + target at 70 → move (not attack)
+ *   C11a. Target with first component durability=0, second durability>=1 → valid component selected
+ *   C11b. All components durability < 1 → attack skipped (think returns acted:false)
+ *   C11c. First component non-numeric durability, second numeric >=1 → numeric component selected
+ *   C11d. Components array contains null + healthy component → healthy selected
+ *   Picker: deterministic hash, edge rng values, empty/single-element guards
  *
  * @module test/unit/NpcAIController
  */
@@ -131,9 +136,34 @@ const ACTION_REGISTRY = {
 
 /**
  * Builds a fake facade with configurable state.
+ *
+ * NOTE: getComponentStats() is wired to read durability from the entity's
+ * component stats (flat-keyed) so that _readDurability() — which now prefers
+ * the authoritative nested store via this._facade.getComponentStats — still
+ * works with the existing flat-stats fixtures used by all unit tests.
  */
 function makeFacade({ entities = {}, canExecute = {}, executeResult } = {}) {
     const executeCalls = [];
+
+    // Build a lookup: compId → flat stats (for getComponentStats).
+    const compStatsMap = {};
+    for (const ent of Object.values(entities)) {
+        for (const comp of Array.isArray(ent.components) ? ent.components : []) {
+            if (comp && comp.id && comp.stats) {
+                // Convert flat keys to nested: { 'Physical.durability': 100 } → { Physical: { durability: 100 } }
+                const nested = {};
+                for (const [flatKey, val] of Object.entries(comp.stats)) {
+                    if (typeof flatKey === 'string' && flatKey.includes('.')) {
+                        const [trait, stat] = flatKey.split('.');
+                        if (!nested[trait]) nested[trait] = {};
+                        nested[trait][stat] = val;
+                    }
+                }
+                compStatsMap[comp.id] = nested;
+            }
+        }
+    }
+
     return {
         executeCalls,
         getEntity: (id) => entities[id] || null,
@@ -161,7 +191,10 @@ function makeFacade({ entities = {}, canExecute = {}, executeResult } = {}) {
         executeAction: (actionName, entityId, params) => {
             executeCalls.push({ actionName, entityId, params });
             return executeResult ?? { success: true };
-        }
+        },
+        // Authoritative store for _readDurability — wired to flat-keyed stats
+        // so existing tests keep working without rewriting every fixture.
+        getComponentStats: (compId) => compStatsMap[compId] || null
     };
 }
 
@@ -733,6 +766,195 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             expect(turns.queued).toHaveLength(1);
             expect(turns.queued[0].actionName).toBe('droid punch');
             expect(turns.queued[0].params.targetComponentId).toBe('comp-plain-a'); // fallback to components[0]
+        });
+    });
+
+    // C11: Broken-target reselection — deterministic reselection + all-broken skip.
+    describe('chase_attack broken-target reselection (C11)', () => {
+        const NPC_ENTITY_C11 = {
+            ...NPC_ENTITY,
+            spatial: { x: 0, y: 0 }
+        };
+
+        function makeC11Facade(targetEntity) {
+            const entities = { [NPC_ID]: NPC_ENTITY_C11, [targetEntity.id]: targetEntity };
+            return makeFacade({
+                entities,
+                canExecute: { 'default': { 'droid punch': ['comp-hand-1'], 'move': ['comp-wheel-1'] } }
+            });
+        }
+
+        it('C11a. target first comp durability=0, second durability>=1 → valid component selected', () => {
+            const targetEntity = {
+                id: 'ent-c11a',
+                name: 'BrokenFirstValidSecond',
+                blueprint: 'smallBallDroid',
+                isNPC: false,
+                location: 'room-main',
+                spatial: { x: 30, y: 0 },
+                components: [
+                    { id: 'comp-broken', type: 'centralBall', stats: { 'Physical.durability': 0 } },
+                    { id: 'comp-valid', type: 'droidArm', stats: { 'Physical.durability': 100 } }
+                ],
+                status: 'active',
+                internalComponents: {},
+                items: []
+            };
+            const facade = makeC11Facade(targetEntity);
+            const turns = makeTurns();
+            const { controller } = makeController({ facade, turns });
+
+            const result = controller.think(NPC_ID, 1);
+            expect(result.acted).toBe(true);
+            expect(turns.queued).toHaveLength(1);
+            expect(turns.queued[0].actionName).toBe('droid punch');
+            expect(turns.queued[0].params.targetComponentId).toBe('comp-valid');
+        });
+
+        it('C11b. ALL components durability < 1 → attack skipped (think returns acted:false)', () => {
+            const targetEntity = {
+                id: 'ent-c11b',
+                name: 'AllBroken',
+                blueprint: 'smallBallDroid',
+                isNPC: false,
+                location: 'room-main',
+                spatial: { x: 30, y: 0 },
+                components: [
+                    { id: 'comp-broken-a', type: 'centralBall', stats: { 'Physical.durability': 0 } },
+                    { id: 'comp-broken-b', type: 'droidArm', stats: { 'Physical.durability': 0.5 } }
+                ],
+                status: 'active',
+                internalComponents: {},
+                items: []
+            };
+            const facade = makeC11Facade(targetEntity);
+            const turns = makeTurns();
+            const { controller } = makeController({ facade, turns });
+
+            const result = controller.think(NPC_ID, 1);
+            // Behavior returns null when all components are broken → think returns acted:false.
+            expect(result.acted).toBe(false);
+            expect(turns.queued).toHaveLength(0);
+        });
+
+        it('C11c. first comp non-numeric durability "0", second numeric>=1 → numeric component selected', () => {
+            const targetEntity = {
+                id: 'ent-c11c',
+                name: 'NonNumericDurability',
+                blueprint: 'smallBallDroid',
+                isNPC: false,
+                location: 'room-main',
+                spatial: { x: 30, y: 0 },
+                components: [
+                    { id: 'comp-non-numeric', type: 'centralBall', stats: { 'Physical.durability': '0' } },
+                    { id: 'comp-numeric', type: 'droidArm', stats: { 'Physical.durability': 50 } }
+                ],
+                status: 'active',
+                internalComponents: {},
+                items: []
+            };
+            const facade = makeC11Facade(targetEntity);
+            const turns = makeTurns();
+            const { controller } = makeController({ facade, turns });
+
+            const result = controller.think(NPC_ID, 1);
+            expect(result.acted).toBe(true);
+            expect(turns.queued).toHaveLength(1);
+            expect(turns.queued[0].actionName).toBe('droid punch');
+            expect(turns.queued[0].params.targetComponentId).toBe('comp-numeric');
+        });
+
+        it('C11d. components array contains null + healthy component → healthy selected', () => {
+            const targetEntity = {
+                id: 'ent-c11d',
+                name: 'NullInComponents',
+                blueprint: 'smallBallDroid',
+                isNPC: false,
+                location: 'room-main',
+                spatial: { x: 30, y: 0 },
+                components: [
+                    null,
+                    { id: 'comp-healthy', type: 'centralBall', stats: { 'Physical.durability': 100 } }
+                ],
+                status: 'active',
+                internalComponents: {},
+                items: []
+            };
+            const facade = makeC11Facade(targetEntity);
+            const turns = makeTurns();
+            const { controller } = makeController({ facade, turns });
+
+            const result = controller.think(NPC_ID, 1);
+            expect(result.acted).toBe(true);
+            expect(turns.queued).toHaveLength(1);
+            expect(turns.queued[0].actionName).toBe('droid punch');
+            expect(turns.queued[0].params.targetComponentId).toBe('comp-healthy');
+        });
+    });
+
+    // Picker unit tests — _pickRandomComponent deterministic + rng override.
+    describe('_pickRandomComponent (picker unit tests)', () => {
+        function makePickerController() {
+            const facade = makeFacade();
+            const turns = makeTurns();
+            return makeController({ facade, turns }).controller;
+        }
+
+        it('determinism: same (comps, entityId, round) called twice → same result', () => {
+            const controller = makePickerController();
+            const comps = [
+                { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }
+            ];
+            const r1 = controller._pickRandomComponent(comps, 'npc-1', 5);
+            const r2 = controller._pickRandomComponent(comps, 'npc-1', 5);
+            expect(r1.id).toBe(r2.id);
+        });
+
+        it('different round values → valid member of list', () => {
+            const controller = makePickerController();
+            const comps = [
+                { id: 'a' }, { id: 'b' }, { id: 'c' }
+            ];
+            const r = controller._pickRandomComponent(comps, 'npc-1', 99);
+            expect(['a', 'b', 'c']).toContain(r.id);
+        });
+
+        it('empty array → null', () => {
+            const controller = makePickerController();
+            expect(controller._pickRandomComponent([], 'npc-1', 1)).toBeNull();
+        });
+
+        it('single element → that element', () => {
+            const controller = makePickerController();
+            const comps = [{ id: 'only' }];
+            expect(controller._pickRandomComponent(comps, 'npc-1', 1).id).toBe('only');
+        });
+
+        it('injected rng: () => 0.0 → first (index 0)', () => {
+            const controller = makePickerController();
+            const comps = [{ id: '0' }, { id: '1' }, { id: '2' }];
+            expect(controller._pickRandomComponent(comps, 'npc-1', 1, () => 0.0).id).toBe('0');
+        });
+
+        it('injected rng: () => 0.5 → middle (index 1 for 3 elements)', () => {
+            const controller = makePickerController();
+            const comps = [{ id: '0' }, { id: '1' }, { id: '2' }];
+            // Math.floor(0.5 * 3) = Math.floor(1.5) = 1
+            expect(controller._pickRandomComponent(comps, 'npc-1', 1, () => 0.5).id).toBe('1');
+        });
+
+        it('injected rng: () => 0.99 → last (index 2 for 3 elements)', () => {
+            const controller = makePickerController();
+            const comps = [{ id: '0' }, { id: '1' }, { id: '2' }];
+            // Math.floor(0.99 * 3) = Math.floor(2.97) = 2
+            expect(controller._pickRandomComponent(comps, 'npc-1', 1, () => 0.99).id).toBe('2');
+        });
+
+        it('injected rng: () => 1.0 → last (clamped, not undefined)', () => {
+            const controller = makePickerController();
+            const comps = [{ id: '0' }, { id: '1' }, { id: '2' }];
+            // Math.min(Math.floor(1.0 * 3), 2) = Math.min(3, 2) = 2
+            expect(controller._pickRandomComponent(comps, 'npc-1', 1, () => 1.0).id).toBe('2');
         });
     });
 });

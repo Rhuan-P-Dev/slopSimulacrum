@@ -18,7 +18,7 @@ Behaviors are functions receiving `{ entity, round, ai, facade, allEntities? }` 
 
 | Name | Description |
 |------|-------------|
-| `chase_attack` | Pursues the closest entity in the same room; attacks when within `attackRange`. Attack decision selects `targetComponentId` by preferring a component with `Physical.durability` (health-equivalent stat); fallback is `components[0]`. |
+| `chase_attack` | Pursues the closest entity in the same room; attacks when within `attackRange`. The attack targets a component that can receive damage; if the preferred component is destroyed, the AI deterministically selects an alternative viable component so the action stays effective. When no viable component exists, the attack is skipped. |
 
 ## Dispatch Contract
 
