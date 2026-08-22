@@ -228,13 +228,56 @@ class WorldStateController {
                 }
                 const room = Object.values(this.roomsController.rooms || {}).find(r => r.id === roomUid) || null;
 
+                // M1 + M4: Validate ai.behavior and ai.attackRange at boot.
+                const rawAi = entry.ai;
+                let normalizedAi = null;
+
+                if (rawAi && typeof rawAi === 'object') {
+                    const hasValidBehavior = typeof rawAi.behavior === 'string' && rawAi.behavior !== '';
+
+                    let hasValidAttackRange = true;
+                    if (rawAi.attackRange !== undefined && rawAi.attackRange !== null) {
+                        if (typeof rawAi.attackRange === 'number') {
+                            hasValidAttackRange = isFinite(rawAi.attackRange) && rawAi.attackRange > 0;
+                            if (!hasValidAttackRange) {
+                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${rawAi.attackRange} is invalid (must be finite and > 0) — ignoring config value, will use registry fallback.`);
+                            }
+                        } else {
+                            Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${JSON.stringify(rawAi.attackRange)} is present but has type ${typeof rawAi.attackRange}, expected number — ignoring config value, will use registry fallback.`);
+                            hasValidAttackRange = false;
+                        }
+                    }
+
+                    if (hasValidBehavior && hasValidAttackRange) {
+                        normalizedAi = { behavior: rawAi.behavior };
+                        if (rawAi.attackAction !== undefined && rawAi.attackAction !== null) {
+                            if (typeof rawAi.attackAction === 'string' && rawAi.attackAction !== '') {
+                                normalizedAi.attackAction = rawAi.attackAction;
+                            } else {
+                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackAction=${JSON.stringify(rawAi.attackAction)} is present but has type ${typeof rawAi.attackAction}, expected non-empty string — ignoring config value.`);
+                            }
+                        }
+                        if (rawAi.moveAction !== undefined && rawAi.moveAction !== null) {
+                            if (typeof rawAi.moveAction === 'string' && rawAi.moveAction !== '') {
+                                normalizedAi.moveAction = rawAi.moveAction;
+                            } else {
+                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.moveAction=${JSON.stringify(rawAi.moveAction)} is present but has type ${typeof rawAi.moveAction}, expected non-empty string — ignoring config value.`);
+                            }
+                        }
+                        if (hasValidAttackRange) normalizedAi.attackRange = rawAi.attackRange;
+                    } else if (!hasValidBehavior) {
+                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.behavior is missing or empty — AI disabled for this entity.`);
+                    }
+                }
+
                 const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
                     isNPC: true,
                     name: entry.displayName,
                     npcConfig: {
                         personality: entry.personality,
                         maxWorldActionsPerRound: entry.maxWorldActionsPerRound,
-                        maxChatMessagesPerRound: entry.maxChatMessagesPerRound
+                        maxChatMessagesPerRound: entry.maxChatMessagesPerRound,
+                        ai: normalizedAi
                     }
                 });
                 if (!entityId) {
@@ -497,6 +540,32 @@ class WorldStateController {
         }
 
         return globalState;
+    }
+
+    /**
+     * Returns a deep clone of the entity map (same data as
+     * stateEntityController.getAll()), exposed as a public facade method so
+     * that callers do not need to reach into sub-controllers directly.
+     * @returns {Object} Deep clone of the entities store.
+     */
+    getAllEntities() {
+        if (typeof this.stateEntityController?.getAll === 'function') {
+            return this.stateEntityController.getAll();
+        }
+        return {};
+    }
+
+    /**
+     * Returns the action registry from the action sub-controller, exposed as a
+     * public facade method so that callers do not need to reach into
+     * sub-controllers directly.
+     * @returns {Object} The action registry keyed by action name.
+     */
+    getActionRegistry() {
+        if (typeof this.actionController?.getRegistry === 'function') {
+            return structuredClone(this.actionController.getRegistry());
+        }
+        return {};
     }
 
     // =========================================================================
@@ -985,6 +1054,49 @@ class WorldStateController {
     getActionsForEntity(entityId) {
         const state = this.getAll();
         return this.actionController.getActionsForEntity(state, entityId);
+    }
+
+    /**
+     * Clone-free capability gate: checks whether an entity can execute a specific action.
+     *
+     * This method is intentionally lightweight — it reads the small action registry and
+     * inspects the per-action capability cache directly, avoiding the full-world `getAll()`
+     * clone that `getActionsForEntity()` performs.  If the cache is empty (e.g. world not
+     * yet initialized), it falls back to the full path which will populate the cache.
+     *
+     * @param {string} entityId - The entity ID.
+     * @param {string} actionName - The action name to check.
+     * @returns {boolean} True if the entity has at least one component that can execute the action.
+     */
+    canEntityExecuteAction(entityId, actionName) {
+        try {
+            const actionController = this.actionController;
+            if (!actionController) return false;
+
+            const registry = actionController.getActionRegistry?.();
+            if (!registry || !actionName) return false;
+
+            const capabilityController = actionController.componentCapabilityController;
+            if (!capabilityController) return false;
+
+            const cache = capabilityController._capabilityCache;
+            if (!cache) return false;
+
+            // Check the per-action cache for entries matching this entityId.
+            const actionEntries = cache[actionName];
+            if (!Array.isArray(actionEntries)) return false;
+
+            for (let i = 0; i < actionEntries.length; i++) {
+                if (actionEntries[i].entityId === entityId) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (error) {
+            // Defensive: never throw on a capability check.
+            Logger.warn(`[WorldStateController] canEntityExecuteAction() failed for ${entityId}/${actionName}: ${error.message}`);
+            return false;
+        }
     }
 
     /**

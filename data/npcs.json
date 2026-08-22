@@ -1,1 +1,8 @@
-{}
+{
+  "smallBallDroid": {
+    "displayName": "Rogue Droid",
+    "room": "start_room",
+    "personality": "A rogue combat droid that hunts anything that moves in its room.",
+    "ai": { "behavior": "chase_attack" }
+  }
+}

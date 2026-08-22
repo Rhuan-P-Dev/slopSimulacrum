@@ -4,6 +4,16 @@ This is the master index for all sub-documentation in `wiki/subMDs/`. Files are 
 
 ---
 
+## 🤖 AI & Decision Systems
+
+AI controllers, behavior registration, deterministic vs. LLM-based decision making.
+
+| Document | Description |
+|----------|-------------|
+| [NPC AI Controller](controllers/npc_ai_controller.md) | Stateless, data-driven AI brain with behavior registry — `chase_attack`, capability gate, dispatch contract |
+
+---
+
 ## 🏛️ Architecture & System Design
 
 System-level architecture documents describing the overall design, data flow, and communication patterns.

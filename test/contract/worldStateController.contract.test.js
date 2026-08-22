@@ -26,6 +26,7 @@ import WorldStateController from '../../src/controllers/WorldStateController.js'
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
+import DataLoader from '../../src/utils/DataLoader.js';
 
 // =========================================================================
 // Public-method extraction (mirrors the documented public surface)
@@ -100,6 +101,16 @@ beforeAll(() => {
     const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     ({ worldStateController: wsc } = buildWorldState(tickSystem));
 
+    // Load the NPC registry from data/npcs.json so we can compute expected counts
+    // data-driven (matching how WorldStateController._spawnNpcs() loads it).
+    const npcRegistry = DataLoader.loadJsonSafe('data/npcs.json', {});
+    const npcEntryCount = npcRegistry && typeof npcRegistry === 'object' && !Array.isArray(npcRegistry)
+        ? Object.keys(npcRegistry).length
+        : 0;
+
+    // Store npcEntryCount for use in tests (1 test-spawned droid + N NPCs from data).
+    wsc._npcTestData = { npcEntryCount };
+
     // Spawn a test droid (the default world has zero pre-spawned droids after
     // removing the client/vault guardian spawns). This gives the contract tests
     // an entity to exercise read-APIs against.
@@ -122,6 +133,7 @@ describe('WorldStateController public method surface', () => {
         'addInternalComponent',
         'addItemToContainer',
         'addItemToEntity',
+        'canEntityExecuteAction',
         'cleanupInternalComponents',
         'computeSynergy',
         'despawnEntity',
@@ -131,10 +143,12 @@ describe('WorldStateController public method surface', () => {
         'expireStaleSelections',
         'findDroppedItemsNear',
         'getActionCapabilities',
+        'getActionRegistry',
         'getActionsForEntity',
         'getActionsWithSynergy',
         'getAgentActionFeedback',
         'getAll',
+        'getAllEntities',
         'getAllEquippedItems',
         'getBestComponentForAction',
         'getCachedCapabilities',
@@ -248,8 +262,9 @@ describe('WorldStateController.getAll() shape', () => {
 
         expect(typeOf(state.entities)).toBe('object');
         const ids = Object.keys(state.entities);
-        // The beforeAll spawns exactly 1 smallBallDroid for testing.
-        expect(ids.length).toBe(1);
+        // The beforeAll spawns exactly 1 smallBallDroid for testing + N NPCs from data/npcs.json.
+        const expectedNpcCount = wsc._npcTestData?.npcEntryCount ?? 0;
+        expect(ids.length).toBe(1 + expectedNpcCount);
 
         for (const id of ids) {
             const entity = state.entities[id];
@@ -289,6 +304,21 @@ describe('WorldStateController.getAll() shape', () => {
             if (isNpc) {
                 expect(typeOf(entity.name)).toBe('string');
                 expect(typeOf(entity.npcConfig)).toBe('object');
+                // AI system: entities with ai block — assert DATA-DRIVEN shape, not exact values.
+                // Each spawned NPC with an `ai` block in the data has `npcConfig.ai` as an object
+                // whose `behavior` is a non-empty string; if the data entry has `attackRange`,
+                // the spawned `ai.attackRange` is a finite number > 0; if the data entry lacks
+                // a valid `ai`, the spawned `npcConfig.ai` is null/absent.
+                if (entity.npcConfig && entity.npcConfig.ai) {
+                    expect(typeOf(entity.npcConfig.ai)).toBe('object');
+                    expect(typeOf(entity.npcConfig.ai.behavior)).toBe('string');
+                    expect(entity.npcConfig.ai.behavior.length).toBeGreaterThan(0);
+                    // attackRange (if present in data) should be a finite positive number.
+                    if (entity.npcConfig.ai.attackRange !== undefined) {
+                        expect(Number.isFinite(entity.npcConfig.ai.attackRange)).toBeTruthy();
+                        expect(entity.npcConfig.ai.attackRange).toBeGreaterThan(0);
+                    }
+                }
             }
 
             // Basic types.
@@ -317,6 +347,81 @@ describe('WorldStateController.getAll() shape', () => {
                 expect(typeOf(comp.identifier)).toBe('string');
             }
         }
+    });
+
+    // Additional data-driven NPC shape assertions (robust to content changes).
+    it('asserts NPC count matches data/npcs.json entry count and at least one NPC has ai.behavior', () => {
+        const state = wsc.getAll();
+        const npcEntries = Object.values(state.entities).filter((e) => e.isNPC === true);
+        const expectedNpcCount = wsc._npcTestData?.npcEntryCount ?? 0;
+        expect(npcEntries.length).toBe(expectedNpcCount);
+
+        // Guard: if there are NPCs in the data, at least one spawned NPC must have a
+        // non-empty string ai.behavior (catches the whole block silently dropping).
+        if (expectedNpcCount > 0) {
+            const npcsWithBehavior = npcEntries.filter((e) =>
+                e.npcConfig?.ai?.behavior && typeof e.npcConfig.ai.behavior === 'string'
+                    && e.npcConfig.ai.behavior.length > 0
+            );
+            expect(npcsWithBehavior.length).toBeGreaterThan(0);
+        }
+    });
+
+    // =========================================================================
+    // (c) New public methods — getAllEntities() / getActionRegistry()
+    // =========================================================================
+
+    describe('WorldStateController.getAllEntities()', () => {
+        it('returns an object (entity map) with string-keyed entries', () => {
+            const entities = wsc.getAllEntities();
+
+            expect(typeOf(entities)).toBe('object');
+            const ids = Object.keys(entities);
+            expect(ids.length).toBeGreaterThan(0);
+
+            for (const id of ids) {
+                expect(typeOf(id)).toBe('string');
+                const entity = entities[id];
+                expect(typeOf(entity)).toBe('object');
+                expect(typeOf(entity.id)).toBe('string');
+            }
+        });
+
+        it('returns a deep clone (mutation does not affect internal state)', () => {
+            const entities1 = wsc.getAllEntities();
+            // Mutate the returned object.
+            entities1['__muted'] = true;
+
+            const entities2 = wsc.getAllEntities();
+            expect(entities2).not.toHaveProperty('__muted');
+        });
+    });
+
+    describe('WorldStateController.getActionRegistry()', () => {
+        it('returns an object keyed by action name', () => {
+            const registry = wsc.getActionRegistry();
+
+            expect(typeOf(registry)).toBe('object');
+            const names = Object.keys(registry);
+            expect(names.length).toBeGreaterThan(0);
+
+            for (const name of names) {
+                expect(typeOf(name)).toBe('string');
+                const action = registry[name];
+                expect(typeOf(action)).toBe('object');
+                // Each registered action has at least a `requirements` array.
+                expect(Array.isArray(action.requirements)).toBeTruthy();
+            }
+        });
+
+        it('returns a deep clone (mutation does not affect internal state)', () => {
+            const registry1 = wsc.getActionRegistry();
+            // Mutate the returned object.
+            registry1['__muted'] = true;
+
+            const registry2 = wsc.getActionRegistry();
+            expect(registry2).not.toHaveProperty('__muted');
+        });
     });
 
     it('has a components sub-structure with registry + instances + globalTraits', () => {

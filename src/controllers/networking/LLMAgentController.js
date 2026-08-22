@@ -29,6 +29,7 @@
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 
 /** Hard cap on the agent's conversation memory per NPC (rounds). */
 const TRANSCRIPT_ROUNDS = 2;
@@ -146,6 +147,15 @@ class LLMAgentController {
                 result.error = 'NPC_GONE';
                 this._storeTranscript(npcEntityId, round, { error: 'NPC_GONE' });
                 return result;
+            }
+
+            // Deterministic AI guard: if the entity has a behavior configured,
+            // skip the LLM entirely — the deterministic brain handles it.
+            if (hasDeterministicBrain(entity)) {
+                const aiBehavior = entity.npcConfig?.ai?.behavior;
+                Logger.info(`[LLMAgent] runRound: ${npcEntityId} has a deterministic AI brain (${aiBehavior}) — LLM agent skips.`);
+                result.error = 'DETERMINISTIC_AI';
+                return result; // never call the LLM, no transcript
             }
             const npc = { entity, config: this._npcRegistry[entity.blueprint] || null };
             const displayName = npc.config?.displayName || entity.name || 'NPC';

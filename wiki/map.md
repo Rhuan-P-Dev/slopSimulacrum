@@ -33,6 +33,7 @@ graph TD
     HCC[HoldingCostController]
     SCH[StatConsequenceHandler]
     RNGV[RangeValidator]
+    NAC[NpcAIController]
 
     SVR --> LLMC
     SVR --> WSC
@@ -82,7 +83,17 @@ graph TD
 
     AC --> RNGV
     RNGV -->|uses| WSC
+
+    NAC -->|hasDeterministicBrain| WSC
+    NAC -->|think() called by| SVR
+    LLMC -->|skips if hasDeterministicBrain| NAC
     ```
+
+## 🤖 AI Controllers
+
+| Controller | Path | Description |
+|------------|------|-------------|
+| NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry, chase_attack |
 
 ## 📁 Data Files
 

@@ -1,6 +1,7 @@
 import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
 import LLMAgentController from './controllers/networking/LLMAgentController.js';
+import NpcAIController from './controllers/ai/NpcAIController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
@@ -49,12 +50,9 @@ if (subControllers.roomChatController) {
     Logger.info('[Server] Room chat wired (broadcaster set; POST/GET /rooms/:roomId/chat)');
 }
 
-// 7d. Feature C (spec §6.6): construct the NPC LLM agent (LLM orchestration
-//     tier — built HERE, not in the composition root) and plug it into the
-//     turn system's agent hook. runRound is fire-and-forget and never throws:
-//     with no LLM endpoint configured (or it being down) every agent tick
-//     logs a graceful "round missed" and the NPC stays silent, never breaking
-//     the turn loop.
+// 7d. Feature C (spec §6.6) + AI system (spec §4.4): construct the NPC LLM agent (LLM
+//     tier — built HERE, not in the composition root) AND the deterministic AI brain.
+//     The dispatcher routes NPCs with `ai.behavior` to the brain; others go to LLM.
 const llmAgentController = new LLMAgentController({
     llmController,
     worldStateController,
@@ -62,11 +60,24 @@ const llmAgentController = new LLMAgentController({
     roomChatController: worldStateController.roomChatController,
     turnSystemController: worldStateController.turnSystemController
 });
+
+// Build the deterministic AI brain (outside composition root — spec §A6).
+const npcAIController = new NpcAIController({
+    worldStateController,
+    turnSystemController: worldStateController.turnSystemController
+});
+
 if (worldStateController.turnSystemController) {
-    worldStateController.turnSystemController.setNpcAgent(
-        (npcEntityId, round) => llmAgentController.runRound(npcEntityId, round)
-    );
-    Logger.info('[Server] NPC agent wired (LLMAgentController.runRound → turn system agent hook)');
+    worldStateController.turnSystemController.setNpcAgent((npcEntityId, round) => {
+        const entity = worldStateController.getEntity(npcEntityId);
+        if (NpcAIController.hasDeterministicBrain(entity)) {
+            // Deterministic NPC → brain (synchronous, stateless; pass pre-fetched entity to avoid double-fetch).
+            return Promise.resolve(npcAIController.think(npcEntityId, round, entity));
+        }
+        // LLM NPC → fallback to LLM agent.
+        return llmAgentController.runRound(npcEntityId, round);
+    });
+    Logger.info('[Server] NPC agent wired (dispatcher: NpcAIController brain for deterministic NPCs → turn system agent hook)');
 }
 
 // 7b. Wire the per-agent action-outcome feedback store into the NPC agent

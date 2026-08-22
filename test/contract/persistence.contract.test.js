@@ -57,7 +57,9 @@ function createWorld() {
  * @returns {void}
  */
 function applyMutations(world, handles) {
-    const entity = Object.values(world.stateEntityController.entities)[0];
+    // Find the test-spawned entity (not an NPC — data/npcs.json spawns Rogue Droid).
+    const allEntities = Object.values(world.stateEntityController.entities);
+    const entity = allEntities.find(e => e.isNPC !== true) || allEntities[0];
     handles.entityId = entity.id;
 
     const head = entity.components.find(c => c.type === 'droidHead');

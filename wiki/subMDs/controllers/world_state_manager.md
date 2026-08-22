@@ -13,6 +13,9 @@ Client-side module for state synchronization. Single source of truth for the cur
 | `getMyEntityId()` | entity ID or null | Gets incarnated entity ID |
 | `getActiveDroid()` | Droid object or null | Returns active droid for navigation |
 | `getState()` | State object or null | Returns full world state |
+| `getAllEntities()` | Object | Returns a deep clone of the entity map (string-keyed entity objects) |
+| `getActionRegistry()` | Object | Returns the action registry keyed by action name |
+| `canEntityExecuteAction(entityId, actionName)` | boolean | Clone-free capability gate: returns true if the entity has components that can execute the action |
 
 ## 3. Active Droid Resolution
 

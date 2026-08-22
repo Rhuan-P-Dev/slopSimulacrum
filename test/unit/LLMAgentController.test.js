@@ -659,3 +659,55 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(seenOptions[0].max_tokens).toBe(512);
     });
 });
+
+// =========================================================================
+// AI system: Deterministic AI guard (spec §9.2)
+// =========================================================================
+
+describe('LLMAgentController.runRound — DETERMINISTIC_AI guard (spec §9.2)', () => {
+    it('NPC with npcConfig.ai.behavior → returns error DETERMINISTIC_AI, chatFull not called, nothing queued', async () => {
+        const npcWithAi = {
+            ...NPC,
+            id: NPC_ID,
+            npcConfig: { personality: 'Rogue', ai: { behavior: 'chase_attack' } }
+        };
+        const world = makeWorld();
+        world.getEntity = () => npcWithAi;
+
+        let chatCalled = false;
+        let queuedCount = 0;
+        world.turnSystemController = {
+            queueAction: () => { queuedCount++; return { success: true }; },
+            getRoundState: () => ({ phase: 'planning' })
+        };
+
+        const { agent } = makeAgent({
+            world,
+            chatFullImpl: () => { chatCalled = true; return {}; }
+        });
+
+        const result = await agent.runRound(NPC_ID, 5);
+
+        expect(result.error).toBe('DETERMINISTIC_AI');
+        expect(chatCalled).toBe(false);
+        expect(world.executeCalls).toHaveLength(0);
+        expect(queuedCount).toBe(0); // nothing should be queued via LLM path
+    });
+
+    it('NPC without ai → LLM flow intact (regression)', async () => {
+        const npcWithoutAi = { ...NPC, npcConfig: { personality: 'Passive' } };
+        const world = makeWorld();
+        world.getEntity = () => npcWithoutAi;
+
+        let chatCalled = false;
+        const { agent } = makeAgent({
+            world,
+            chatFullImpl: () => { chatCalled = true; return { content: 'Hello', toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: 'Hello' } }; }
+        });
+
+        const result = await agent.runRound(NPC_ID, 5);
+
+        expect(result.error).toBeNull();
+        expect(chatCalled).toBe(true);
+    });
+});
