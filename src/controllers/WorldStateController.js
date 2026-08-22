@@ -1061,8 +1061,9 @@ class WorldStateController {
      *
      * This method is intentionally lightweight — it reads the small action registry and
      * inspects the per-action capability cache directly, avoiding the full-world `getAll()`
-     * clone that `getActionsForEntity()` performs.  If the cache is empty (e.g. world not
-     * yet initialized), it falls back to the full path which will populate the cache.
+     * clone that `getActionsForEntity()` performs.  If the cache is empty or lacks an entry
+     * array for the requested action, it falls back to a full-scan (via
+     * `scanAllCapabilities`) to self-heal the cache, then re-checks.
      *
      * @param {string} entityId - The entity ID.
      * @param {string} actionName - The action name to check.
@@ -1073,7 +1074,7 @@ class WorldStateController {
             const actionController = this.actionController;
             if (!actionController) return false;
 
-            const registry = actionController.getActionRegistry?.();
+            const registry = actionController.getRegistry?.();
             if (!registry || !actionName) return false;
 
             const capabilityController = actionController.componentCapabilityController;
@@ -1083,8 +1084,18 @@ class WorldStateController {
             if (!cache) return false;
 
             // Check the per-action cache for entries matching this entityId.
-            const actionEntries = cache[actionName];
-            if (!Array.isArray(actionEntries)) return false;
+            let actionEntries = cache[actionName];
+            if (!Array.isArray(actionEntries)) {
+                // Self-heal fallback: if the cache lacks an entry array for this action,
+                // trigger a full-scan to populate the cache (mirrors getActionsForEntity pattern).
+                const state = this.getAll();
+                capabilityController.scanAllCapabilities(state);
+
+                // Re-read the cache reference (scanAllCapabilities may replace the cache object).
+                const healedCache = capabilityController._capabilityCache;
+                actionEntries = healedCache?.[actionName];
+                if (!Array.isArray(actionEntries)) return false;
+            }
 
             for (let i = 0; i < actionEntries.length; i++) {
                 if (actionEntries[i].entityId === entityId) {
