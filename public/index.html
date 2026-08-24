@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="css/floating-windows.css">
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
+    <link rel="stylesheet" href="css/events.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -30,6 +31,7 @@
             <button id="btn-nav-actions" class="config-btn" title="Actions">⚔️</button>
             <button id="btn-world-map" class="config-btn" title="World Map">🌐</button>
             <button id="btn-room-chat" class="config-btn" title="Room Chat">💬</button>
+            <button id="btn-events" class="config-btn" title="Events">📜</button>
         </div>
         <div class="config-bar-center">
             <!-- Turn HUD (Feature A): phase/round, progress, initiative order,
@@ -139,6 +141,15 @@
                    placeholder="Say something in this room… (Enter to send)"
                    maxlength="200" autocomplete="off">
         </div>
+    </div>
+
+    <!-- Floating Overlay: Events (world event log) -->
+    <div id="events-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">📜 Events</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="event-log-list" class="event-log-list"></div>
     </div>
 
     <!-- Floating Overlay: Drop Selector -->

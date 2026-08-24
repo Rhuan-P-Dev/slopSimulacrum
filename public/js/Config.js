@@ -77,6 +77,8 @@ export const AppConfig = {
         ROOM_CHAT_HISTORY: '/rooms',
         // Hint system (deterministic reachability hints).
         HINTS: '/hints',
+        // World event log (spec: Events tab).
+        WORLD_EVENTS: '/world-events',
     },
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH
@@ -85,6 +87,10 @@ export const AppConfig = {
     CHAT_MAX_LENGTH: 200,
     ROOM_CHAT: {
         // History depth for GET /rooms/:id/chat (the server ring is 50/room).
+        HISTORY_LIMIT: 50,
+    },
+    EVENTS: {
+        // History depth for GET /world-events (must stay in sync with WORLD_EVENTS_MAX_LIMIT on the server).
         HISTORY_LIMIT: 50,
     },
     DEFAULTS: {

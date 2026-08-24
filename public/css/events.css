@@ -1,0 +1,12 @@
+/**
+ * Events Tab Styles
+ * Single Responsibility: Layout and styling for the world event log panel.
+ * Uses only design tokens from base.css; does NOT re-declare .overlay-panel chrome.
+ */
+
+#events-overlay { width: 380px; height: 420px; top: 120px; right: 40px; left: auto; font-size: 0.85em; }
+#event-log-list { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; background-color: var(--bg-black); }
+.event-log-row { line-height: 1.35; overflow-wrap: break-word; color: var(--text-main); }
+.event-log-time { color: var(--text-dim); margin-right: 6px; }
+.event-log-row-warn { color: var(--neon-orange); }
+.event-log-empty { color: var(--text-dim); font-style: italic; }

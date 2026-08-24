@@ -43,6 +43,7 @@
 
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import { WORLD_EVENTS_MAX_LIMIT } from '../utils/Constants.js';
 
 // Bottom-level data stores
 import ComponentStatsController from '../controllers/core/componentStatsController.js';
@@ -131,8 +132,8 @@ export function buildWorldState(tickSystem = null) {
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
     const inventoryManager = new InventoryManager();
-    // Feature B: world event ring buffer (state owner; capacity 50 per spec §4.1)
-    const worldEventLogController = new WorldEventLogController(50);
+    // Feature B: world event ring buffer (state owner; capacity WORLD_EVENTS_MAX_LIMIT per spec §4.1)
+    const worldEventLogController = new WorldEventLogController(WORLD_EVENTS_MAX_LIMIT);
     // Feature E: per-agent action-outcome feedback store (capacity 5 per agent).
     const llmAgentFeedbackController = new LlmAgentFeedbackController(5);
     // Feature D backend (spec §7.3): per-room chat rings (50/room, 200-char

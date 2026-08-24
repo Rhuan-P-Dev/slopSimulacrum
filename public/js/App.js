@@ -33,6 +33,7 @@ import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
+import { EventLogPanel } from './EventLogPanel.js';
 import { HintManager } from './HintManager.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
@@ -139,6 +140,9 @@ export class ClientApp {
             handleError: (err) => this.errorController.handleError(err)
         });
 
+        // 10b. Feature (Events tab): world event log overlay panel.
+        this.events = new EventLogPanel({ handleError: (err) => this.errorController.handleError(err) });
+
         // 10. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
         // 10. Pick-up overlay controller for dropped items on world map
@@ -170,6 +174,12 @@ export class ClientApp {
             this.roomChat.init();
         } catch (err) {
             ClientLogger.error('App', 'Room chat init failed (UI unaffected):', err);
+        }
+        // 13d. Events tab init — same guard pattern.
+        try {
+            this.events.init();
+        } catch (err) {
+            ClientLogger.error('App', 'Events panel init failed (UI unaffected):', err);
         }
 
         // 14. Drop item state
@@ -623,6 +633,8 @@ export class ClientApp {
             // Feature D: room chat panel (button in the config bar, no number
             // shortcut — only 1-4 are wired in OverlayManager).
             this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
+            // Events tab (no keyboard shortcut).
+            this.overlayManager.register('events', this.events, 'btn-events', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle
@@ -649,6 +661,8 @@ export class ClientApp {
             // Feature D: keep the chat panel scoped to the focused room
             // (the active droid's room). No-op when the room is unchanged.
             this.roomChat.setFocusedRoom(droid?.location || null);
+            // Refresh events panel if open (stays fresh on every world-state-update).
+            if (this.events?.isVisible()) this.events.refresh();
 
             // Update the visual world view
             this.ui.updateWorldView(

@@ -128,3 +128,15 @@ export const TURN_MAX_QUEUED_PER_ROUND = 3;
  * @type {number}
  */
 export const MAX_TICKS_PER_SECOND = 30;
+
+// =========================================================================
+// WORLD EVENT LOG CONSTANTS
+// =========================================================================
+
+/**
+ * Maximum number of recent events returned by the /world-events endpoint
+ * and the default capacity for the WorldEventLogController ring buffer.
+ * The client constant Config.EVENTS.HISTORY_LIMIT must stay in sync with this value.
+ * @type {number}
+ */
+export const WORLD_EVENTS_MAX_LIMIT = 50;
