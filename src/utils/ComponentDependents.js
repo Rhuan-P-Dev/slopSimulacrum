@@ -1,36 +1,36 @@
 /**
- * ComponentDependents — puro, stateless (§3.6.4).
- * 
- * Constrói o índice reverso: parentId → childIds[] a partir de
- * `dependsOn` das instâncias de componente (entity.components[]).
- * 
- * Entrada: components[] com campo `dependsOn: [parentInstanceId, ...]`
- * Saída: Map<parentId, childId[]> na ordem do array preservada.
- * 
- * Seguro para arestas órfãs (parentId que não resolve em nenhum component)
- * e para auto-dependência (A.dependsOn contém A.id): o visited-set da
- * cascata impede loop (§3.6.4).
- * 
+ * ComponentDependents — pure, stateless (§3.6.4).
+ *
+ * Builds the reverse index: parentId → childIds[] from
+ * `dependsOn` of component instances (entity.components[]).
+ *
+ * Input: components[] with `dependsOn: [parentInstanceId, ...]` field
+ * Output: Map<parentId, childId[]> in preserved array order.
+ *
+ * Safe for orphan edges (parentId that doesn't resolve to any component)
+ * and for self-dependency (A.dependsOn contains A.id): the cascade's
+ * visited-set prevents loops (§3.6.4).
+ *
  * @module ComponentDependents
  */
 
 /**
- * Constrói o índice reverso de dependências.
- * @param {Array<{id: string, dependsOn: string[]}>} components - Instâncias de componente com dependsOn.
+ * Builds the reverse index of dependencies.
+ * @param {Array<{id: string, dependsOn: string[]}>} components - Component instances with dependsOn.
  * @returns {Map<string, string[]>} parentId → childIds[].
  */
 function buildReverseIndex(components) {
     if (!Array.isArray(components)) return new Map();
     const reverseIndex = new Map();
 
-    // Inicializa todos como vazios (garante que todos apareçam no mapa)
+    // Initialize all as empty (ensures all appear in the map)
     for (const comp of components) {
         if (!reverseIndex.has(comp.id)) {
             reverseIndex.set(comp.id, []);
         }
     }
 
-    // Para cada componente, para cada pai, adiciona este filho à lista do pai
+    // For each component, for each parent, add this child to the parent's list
     for (const comp of components) {
         if (Array.isArray(comp.dependsOn)) {
             for (const parentId of comp.dependsOn) {

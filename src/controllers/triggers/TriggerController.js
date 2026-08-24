@@ -1,14 +1,14 @@
 /**
- * TriggerController — núcleo do sistema de eventos de engine (§3.2).
+ * TriggerController — core of the engine's event system (§3.2).
  *
- * Consumidor das notificações de stat já existentes (ComponentController +
- * EquippedItemStatsController, delegadas pela façade WorldStateController).
- * Detecta crossing `old > 0 → new <= 0` em Physical.durability (threshold 0,
- * spec §3.1) e emite `component:broke` com payload do §3.3.
+ * Consumer of existing stat notifications (ComponentController +
+ * EquippedItemStatsController, delegated via the WorldStateController facade).
+ * Detects crossing `old > 0 → new <= 0` in Physical.durability (threshold 0,
+ * spec §3.1) and emits `component:broke` with payload from §3.3.
  *
- * Padrão DI: on/off para registro de handlers, emit para execução com
- * isolamento por handler (try/catch). Construído na composition root, com
- * façade e broadcaster injetados pós-construção.
+ * DI pattern: on/off for handler registration, emit for execution with
+ * isolation per handler (try/catch). Built at the composition root, with
+ * facade and broadcaster injected post-construction.
  *
  * @module TriggerController
  */
@@ -16,15 +16,15 @@
 import Logger from '../../utils/Logger.js';
 
 /**
- * Limiar de quebra — spec §3.1: crossing é oldValue > 0 && newValue <= 0.
- * Threshold = 0 garante que FRACTIONAL values (e.g. 0.5) NÃO disparam break;
- * apenas o cruzamento estrito de positivo → zero ou negativo dispara.
+ * Break threshold — spec §3.1: crossing is oldValue > 0 && newValue <= 0.
+ * Threshold = 0 ensures FRACTIONAL values (e.g. 0.5) DO NOT trigger break;
+ * only the strict crossing from positive → zero or negative triggers.
  * @constant
  */
 const BROKEN_DURABILITY_THRESHOLD = 0;
 
 /**
- * Nome do stat que dispara o evento.
+ * Name of the stat that triggers the event.
  * @constant
  */
 const STAT_TRAIT = 'Physical';
@@ -41,7 +41,7 @@ class TriggerController {
     }
 
     /**
-     * Injeta a façade WorldStateController (chamado pela composition root).
+     * Injects the WorldStateController facade (called by the composition root).
      * @param {import('../WorldStateController.js').default} wsc
      */
     setWorldStateController(wsc) {
@@ -49,7 +49,7 @@ class TriggerController {
     }
 
     /**
-     * Injeta o serviço de broadcast (chamado pela composition root).
+     * Injects the broadcast service (called by the composition root).
      * @param {Function} broadcaster
      */
     setBroadcaster(broadcaster) {
@@ -57,9 +57,9 @@ class TriggerController {
     }
 
     /**
-     * Registra um handler para um evento.
-     * @param {string} event - Nome do evento.
-     * @param {Function} handler - Função callback(payload).
+     * Registers a handler for an event.
+     * @param {string} event - Event name.
+     * @param {Function} handler - Callback function(payload).
      */
     on(event, handler) {
         if (!this._handlers.has(event)) {
@@ -69,9 +69,9 @@ class TriggerController {
     }
 
     /**
-     * Remove um handler registrado.
-     * @param {string} event - Nome do evento.
-     * @param {Function} handler - Handler a remover.
+     * Removes a registered handler.
+     * @param {string} event - Event name.
+     * @param {Function} handler - Handler to remove.
      */
     off(event, handler) {
         const handlers = this._handlers.get(event);
@@ -84,9 +84,9 @@ class TriggerController {
     }
 
     /**
-     * Executa todos os handlers registrados para o evento, com isolamento por handler.
-     * @param {string} event - Nome do evento.
-     * @param {Object} payload - Payload do evento.
+     * Executes all registered handlers for the event, with isolation per handler.
+     * @param {string} event - Event name.
+     * @param {Object} payload - Event payload.
      */
     emit(event, payload) {
         const handlers = this._handlers.get(event);
@@ -112,14 +112,14 @@ class TriggerController {
     }
 
     /**
-     * Verifica crossing de durability e emite `component:broke` se aplicável.
-     * §3.1: old > 0 → new <= 0 apenas dispara.
-     * 
-     * @param {string} componentId - ID da instância de componente.
-     * @param {string} entityId - Entidade dona do componente.
-     * @param {number} oldValue - Valor antigo da durabilidade.
-     * @param {number} newValue - Novo valor da durabilidade.
-     * @param {Object} extra - Dados adicionais (roomId, position, tick).
+     * Checks for durability crossing and emits `component:broke` if applicable.
+     * §3.1: old > 0 → new <= 0 only triggers.
+     *
+     * @param {string} componentId - ID of the component instance.
+     * @param {string} entityId - Entity owning the component.
+     * @param {number} oldValue - Old durability value.
+     * @param {number} newValue - New durability value.
+     * @param {Object} extra - Additional data (roomId, position, tick).
      */
     onComponentBrokeCheck(componentId, entityId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
@@ -142,7 +142,7 @@ class TriggerController {
     }
 
     /**
-     * Monta o payload do evento `component:broke` (§3.3).
+     * Constructs the `component:broke` event payload (§3.3).
      * @private
      */
     _buildPayload(componentId, entityId, oldValue, newValue, extra) {
@@ -173,13 +173,13 @@ class TriggerController {
     }
 
     /**
-     * Versão para item equipado (§3.3 kind = 'equipped-item').
-     * @param {string} eqId - ID do item equipado.
-     * @param {string} entityId - Entidade dona.
-     * @param {string} hostComponentId - Componente host.
-     * @param {number} oldValue - Valor antigo.
-     * @param {number} newValue - Novo valor.
-     * @param {Object} extra - Dados adicionais.
+     * Version for equipped item (§3.3 kind = 'equipped-item').
+     * @param {string} eqId - ID of the equipped item.
+     * @param {string} entityId - Owning entity.
+     * @param {string} hostComponentId - Host component.
+     * @param {number} oldValue - Old value.
+     * @param {number} newValue - New value.
+     * @param {Object} extra - Additional data.
      */
     onEquippedItemBrokeCheck(eqId, entityId, hostComponentId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
@@ -211,7 +211,7 @@ class TriggerController {
                 tick: extra.tick ?? 0
             };
 
-            // Registra no event log
+            // Records in the event log
             if (this._worldStateController && this._worldStateController.worldEventLogController) {
                 this._worldStateController.worldEventLogController.record({
                     action: 'component:broke',

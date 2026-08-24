@@ -119,11 +119,11 @@ describe('NpcAIController durability desync (real controller chain)', () => {
         const ok = dealDamage(world, comp0.id, -175);
         expect(ok).toBe(true);
 
-        // NOVA SEMÂNTICA (trigger system): após quebra, o componente é removido
-        // do mundo (spill + cleanup). getStats retorna null (componente não existe mais).
+        // NEW SEMANTICS (trigger system): after break, the component is removed
+        // from the world (spill + cleanup). getStats returns null (component no longer exists).
         expect(world.getComponentStats(comp0.id)).toBeNull();
 
-        // Layer (2) — entity copy: componente saiu do array components[].
+        // Layer (2) — entity copy: component left the components[] array.
         const after = world.stateEntityController.getEntity(victimId);
         const compFound = after.components.find(c => c.id === comp0.id);
         expect(compFound).toBeUndefined();
@@ -139,7 +139,7 @@ describe('NpcAIController durability desync (real controller chain)', () => {
         // Break the first component: 100 → -75 via the real damage path.
         dealDamage(world, comp0.id, -175);
         
-        // NOVA SEMÂNTICA (trigger system): componente removido do mundo após quebra.
+        // NEW SEMANTICS (trigger system): component removed from world after break.
         expect(world.getComponentStats(comp0.id)).toBeNull();
 
         const turns = makeRecordingTurns();

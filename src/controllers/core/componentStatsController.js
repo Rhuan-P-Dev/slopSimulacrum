@@ -59,7 +59,7 @@ class ComponentStatsController {
     /**
      * Removes the stats record for a specific component instance.
      * §3.5.2(c): called during broken component removal to eliminate
-     * orphaned stat entries ("componente fantasma").
+     * orphaned stat entries ("phantom component").
      * @param {string} componentId - The unique ID of the component instance.
      * @returns {boolean} True if the stats existed and were removed.
      */

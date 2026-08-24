@@ -19,7 +19,7 @@ import { generateItemId } from '../../utils/idGenerator.js';
  * Writes a dropped item record to the droppedItems map.
  * §4.4: extracted from handleDropItem, parameterized by nestedItems (default []).
  *
- * @param {Object} worldState - Narrow-deps stub (not the full façade), implementing only:
+ * @param {Object} worldState - Narrow-deps stub (not the full facade), implementing only:
  *   `getDroppedItems(): object` — returns the dropped-items map;
  *   `setDroppedItems(items: object)` — merges `items` into the map via Object.assign (batch accumulation).
  *   The handler must not assume other WorldStateController methods exist on this dependency.
@@ -43,7 +43,7 @@ function writeDroppedItem(worldStateController, itemType, x, y, roomId, ownerId,
     // FASE 9: ID gerado via generateItemId() + crypto.randomUUID() para unicidade.
     const itemId = generateItemId();
     
-    // FASE 9: usar itemDef passado (sem re-fetch que o sobrescreve)
+    // PHASE 9: use itemDef passed (no re-fetch that overwrites it)
     const def = itemDef || {};
 
     // Store dropped item at world coordinates

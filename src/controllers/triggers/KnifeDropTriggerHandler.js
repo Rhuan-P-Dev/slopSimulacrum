@@ -1,12 +1,12 @@
 /**
- * KnifeDropTriggerHandler — gatilho de teste, sempre ativo (§4.6, §3.5.3).
- * 
- * Ao receber `component:broke`, dropa 3× item `knife` em posições
- * independentes via o MESMO sampler de disco (raio 5, centro `payload.position`,
- * sem clamp). Reusa o helper de gravação do DropItemHandler.
- * 
- * Registrado 2º (após BrokenComponentRemovalHandler) na composition root.
- * 
+ * KnifeDropTriggerHandler — test trigger, always active (§4.6, §3.5.3).
+ *
+ * Upon receiving `component:broke`, drops 3× `knife` items at independent
+ * positions via the SAME disk sampler (radius 5, center `payload.position`,
+ * no clamp). Reuses the write helper from DropItemHandler.
+ *
+ * Registered 2nd (after BrokenComponentRemovalHandler) at the composition root.
+ *
  * @module KnifeDropTriggerHandler
  */
 
@@ -14,13 +14,13 @@ import Logger from '../../utils/Logger.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
 import { writeDroppedItem } from '../consequences/DropItemHandler.js';
 
-/** Raio de amostragem em unidades do espaço (exportado como constante). */
+/** Sampling radius in space units (exported as a constant). */
 const RADIUS = DEFAULT_TRIGGER_RADIUS;
 
-/** Tipo de item a dropar. */
+/** Item type to drop. */
 const KNIFE_TYPE = 'knife';
 
-/** Quantidade de facas por evento. */
+/** Number of knives per event. */
 const KNIFE_COUNT = 3;
 
 class KnifeDropTriggerHandler {
@@ -33,8 +33,8 @@ class KnifeDropTriggerHandler {
     }
 
     /**
-     * Handler para evento `component:broke`.
-     * @param {Object} payload - Payload do evento (§3.3).
+     * Handler for `component:broke` event.
+     * @param {Object} payload - Event payload (§3.3).
      */
     handle(payload) {
         const { position, roomId, entityId } = payload;
@@ -60,7 +60,7 @@ class KnifeDropTriggerHandler {
         }
 
         for (let i = 0; i < KNIFE_COUNT; i++) {
-            // Isolamento por item (§3.5: falha logada + continua)
+            // Item isolation (§3.5: failure logged + continues)
             try {
                 const point = sampleDiskPoint(position.x, position.y, RADIUS);
                 writeDroppedItem(
@@ -71,7 +71,7 @@ class KnifeDropTriggerHandler {
                     roomId,
                     entityId,
                     knifeDef,
-                    [] // facas não têm nestedItems
+                    [] // knives have no nestedItems
                 );
             } catch (error) {
                 Logger.error(`[KnifeDropTrigger] Error dropping knife ${i + 1}: ${error.message}`);

@@ -1,25 +1,25 @@
 /**
- * DiskSampler — utilitário puro para amostragem uniforme em disco (§4.2).
+ * DiskSampler — pure utility for uniform disk sampling (§4.2).
  *
- * Usa ângulo uniforme em 0..2π e raio por raiz quadrada do uniforme
- * para evitar viés para o centro. Compartilhado pelo gatilho de facas
- * e pelo spill do §3.5.1.
+ * Uses uniform angle in 0..2π and radius via square root of the uniform
+ * to avoid bias toward the center. Shared by the knife trigger
+ * and the spill from §3.5.1.
  *
  * @module DiskSampler
  */
 
 import Logger from '../utils/Logger.js';
 
-/** Raio padrão para triggers (5 unidades) — exportado para uso compartilhado (§3.5.1, §4.6). */
+/** Default radius for triggers (5 units) — exported for shared use (§3.5.1, §4.6). */
 export const DEFAULT_TRIGGER_RADIUS = 5;
 
 /**
- * Gera um ponto aleatório uniforme em disco.
+ * Generates a uniform random point on a disk.
  * @param {number} cx - Centro X.
  * @param {number} cy - Centro Y.
- * @param {number} radius - Raio do disco.
- * @param {() => number} [rand=Math.random] - Função geradora de random (para testes).
- * @returns {{ x: number, y: number }} Ponto dentro do disco.
+ * @param {number} radius - Disk radius.
+ * @param {() => number} [rand=Math.random] - Random generator function (for testing).
+ * @returns {{ x: number, y: number }} Point inside the disk.
  */
 function sampleDiskPoint(cx, cy, radius, rand = Math.random) {
     // Guard: non-finite or non-positive radius must not produce garbage coordinates.
@@ -28,7 +28,7 @@ function sampleDiskPoint(cx, cy, radius, rand = Math.random) {
         return null;
     }
     const angle = rand() * 2 * Math.PI;
-    // Raio por raiz quadrada do uniforme para distribuição uniforme
+    // Radius via square root of uniform for uniform distribution
     const r = radius * Math.sqrt(rand());
     const x = cx + r * Math.cos(angle);
     const y = cy + r * Math.sin(angle);

@@ -1,9 +1,9 @@
 /**
- * TriggerController — component:broke event pipeline (spec §7, revisão 3).
+ * TriggerController — component:broke event pipeline (spec §7, revision 3).
  *
- * Segue padrão de `test/unit/NpcAIController.durabilityDesync.test.js`:
- * `buildWorldState(tick)` com UniversalTickSystem **não iniciado**; dano
- * aplicado com `updateComponentStatDelta(compId, 'Physical', 'durability', delta)`.
+ * Follows convention of `test/unit/NpcAIController.durabilityDesync.test.js`:
+ * `buildWorldState(tick)` with UniversalTickSystem **not started**; damage
+ * applied via `updateComponentStatDelta(compId, 'Physical', 'durability', delta)`.
  *
  * NOTE: Tests verify behavior through SIDE EFFECTS (knife counts, component
  * removal, event log entries) rather than spying on emit(), because vi.spyOn
@@ -153,7 +153,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
         expect(countBrokeEvents(world)).toBe(1);
     });
 
-    it('Test 2: Dano repetido com old ≤ 0 → zero eventos novos', () => {
+    it('Test 2: Repeated damage with old ≤ 0 → zero new events', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
@@ -168,7 +168,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
         expect(countBrokeEvents(world)).toBe(1); // still 1
     });
 
-    it('Test 3: Reparo 0 → +1 (delta positivo) → zero eventos', () => {
+    it('Test 3: Repair 0 → +1 (positive delta) → zero events', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
@@ -187,7 +187,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
 // =========================================================================
 
 describe('Trigger system — knife drop (test 4)', () => {
-    it('Test 4: Quebra gera exatamente 3 facas, distância ≤ 5, roomId correto', () => {
+    it('Test 4: Break generates exactly 3 knives, distance ≤ 5, correct roomId', () => {
         const { world } = buildWorld();
         const room = world.roomsController.getUidByLogicalId('start_room');
         const { entityId: eid, entity } = spawnDroid(world);
@@ -228,7 +228,7 @@ describe('Trigger system — knife drop (test 4)', () => {
 // =========================================================================
 
 describe('Trigger system — multiple components (test 5)', () => {
-    it('Test 5: 3 componentes quebram → 3 eventos, 9 facas', () => {
+    it('Test 5: 3 components break → 3 events, 9 knives', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comps = entity.components.slice(0, 3);
@@ -248,7 +248,7 @@ describe('Trigger system — multiple components (test 5)', () => {
 // =========================================================================
 
 describe('Trigger system — despawn (test 6)', () => {
-    it('Test 6: Quebra após despawn → evento registrado, mas sem spill/drop', () => {
+    it('Test 6: Break after despawn → event logged, but no spill/drop', () => {
         const { world } = buildWorld();
         const { entityId, entity } = spawnDroid(world);
         const comp = entity.components[0];
@@ -272,7 +272,7 @@ describe('Trigger system — despawn (test 6)', () => {
 // =========================================================================
 
 describe('Trigger system — component removal (test 7)', () => {
-    it('Test 7: Após quebra → componente fora do components[], stats removidos, selection liberada', () => {
+    it('Test 7: After break → component removed from components[], stats removed, selection freed', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components[0];
@@ -294,7 +294,7 @@ describe('Trigger system — component removal (test 7)', () => {
 // =========================================================================
 
 describe('Trigger system — single component entity (test 9)', () => {
-    it('Test 9: Entidade com único componente que quebra → permanece no mundo', () => {
+    it('Test 9: Entity with single breaking component → remains in world', () => {
         const { world } = buildWorld();
         const { entityId, entity } = spawnDroid(world);
 
@@ -318,7 +318,7 @@ describe('Trigger system — single component entity (test 9)', () => {
 // =========================================================================
 
 describe('Trigger system — idempotency (test 10)', () => {
-    it('Test 10: Segunda escrita cruzando → sem remoção dupla', () => {
+    it('Test 10: Second crossing write → no double removal', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components[0];
@@ -340,7 +340,7 @@ describe('Trigger system — idempotency (test 10)', () => {
 // =========================================================================
 
 describe('Trigger system — handler isolation (test 11)', () => {
-    it('Test 11: Handler que lança erro não afeta pipeline', () => {
+    it('Test 11: Handler that throws error does not affect pipeline', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components[0];
@@ -377,7 +377,7 @@ describe('Trigger system — handler isolation (test 11)', () => {
 // =========================================================================
 
 describe('Trigger system — dependency cascade (tests 16–21)', () => {
-    it('Test 16: Cascata smallBallDroid — quebrar centralBall → 14 eventos, 42 facas (árvore completa)', () => {
+    it('Test 16: smallBallDroid cascade — break centralBall → 14 events, 42 knives (full tree)', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroidWithCascade(world);
 
@@ -396,7 +396,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(updatedEntity.components.length).toBe(0);
     });
 
-    it('Test 17: Ciclo A↔B — terminação em tempo finito, 2 eventos', () => {
+    it('Test 17: Cycle A↔B — termination in finite time, 2 events', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
 
@@ -452,10 +452,10 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         world.componentController.updateComponentStat(compParent.id, 'Physical', 'durability', 1);
         damageComponent(world, compParent.id, -10);
 
-        expect(countBrokeEvents(world)).toBe(1); // FASE 8-7a: contagem EXATA
+        expect(countBrokeEvents(world)).toBe(1); // PHASE 8-7a: EXACT count
     });
 
-    it('Test 20: Árvore completa do droid (centralBall) = 14 eventos / 42 facas', () => {
+    it('Test 20: Full droid tree (centralBall) = 14 events / 42 knives', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroidWithCascade(world);
 
@@ -468,7 +468,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(countAllKnives(world)).toBe(42);
     });
 
-    it('Test 21a: Dependente com dur ≤ 0 → remoção direta sem evento', () => {
+    it('Test 21a: Dependent with dur ≤ 0 → direct removal without event', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
 
@@ -482,16 +482,16 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         damageComponent(world, compParent.id, -10);
 
         // Parent event fires (1); child forced to 0 via updateComponentStat → crossing detected (old=-5 is NOT >0, so no crossing).
-        // Mas o forçamento usa updateComponentStat(curId, 'Physical', 'durability', 0) onde curId=child tem old=-5.
-        // -5 > 0 é false → sem crossing → sem evento extra. Total = 1.
-        // Por que está 2? O child foi setado para -5 inicialmente (updateComponentStat compChild.id, 'Physical', 'durability', -5)
-        // Isso já cruza! old=100 (default) → new=-5: crossing detectado! Então child tem seu próprio evento.
-        // Depois parent quebra → cascade força child a 0, mas child já quebrou antes.
-        // Correção: o teste define durabilidade -5 NO CHILD ANTES de quebrar o parent.
-        // O stat inicial do child é 100 (blueprint). updateComponentStat(compChild.id, 'Physical', 'durability', -5) faz 100 → -5: CROSSING!
-        // Depois damage no parent: parent 100→-10: CROSSING! Cascade tenta forçar child a 0, mas child já tem dur= -5 ≤ 0 → direct removal sem evento.
-        // Total = 2 eventos (child primeiro, depois parent).
-        expect(countBrokeEvents(world)).toBe(2); // FASE 8-7a: contagem EXATA (child + parent)
+        // But the forcing uses updateComponentStat(curId, 'Physical', 'durability', 0) where curId=child has old=-5.
+        // -5 > 0 is false → no crossing → no extra event. Total = 1.
+        // Why is it 2? The child was set to -5 initially (updateComponentStat compChild.id, 'Physical', 'durability', -5)
+        // That already crosses! old=100 (default) → new=-5: crossing detected! So child has its own event.
+        // Then parent breaks → cascade forces child to 0, but child already broke before.
+        // Fix: the test sets durability -5 ON THE CHILD BEFORE breaking the parent.
+        // The child's initial stat is 100 (blueprint). updateComponentStat(compChild.id, 'Physical', 'durability', -5) does 100 → -5: CROSSING!
+        // Then damage to parent: parent 100→-10: CROSSING! Cascade tries to force child to 0, but child already has dur= -5 ≤ 0 → direct removal without event.
+        // Total = 2 events (child first, then parent).
+        expect(countBrokeEvents(world)).toBe(2); // PHASE 8-7a: EXACT count (child + parent)
         
         // B2-H6: Assert per-component removal for the cascade branch.
         // Both parent AND child must be removed from the entity — not just the root.
@@ -513,14 +513,14 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         world.componentController.updateComponentStat(compParent.id, 'Physical', 'durability', 1);
         damageComponent(world, compParent.id, -10);
 
-        expect(countBrokeEvents(world)).toBe(1); // FASE 8-7a: contagem EXATA
+        expect(countBrokeEvents(world)).toBe(1); // PHASE 8-7a: EXACT count
     });
 
     // =========================================================================
     // Tests 8/12/13/14/15: spec §7 tests (FASE 8)
     // =========================================================================
 
-    it('Test 8: Item equipado quebra → eqId removido, holding cost restaurado, 1 evento', () => {
+    it('Test 8: Equipped item breaks → eqId removed, holding cost restored, 1 event', () => {
         const { world } = buildWorld();
         const { entityId, entity } = spawnDroid(world);
         
@@ -553,7 +553,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(countBrokeEvents(world)).toBe(1);
     });
 
-    it('Test 12: Spill de container com nestedItems preservados, sem flatten', () => {
+    it('Test 12: Container spill with nestedItems preserved, no flatten', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         
@@ -591,7 +591,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         }
     });
 
-    it('Test 13: Cadeia completa → batch único (verificado por knives count + broadcast)', () => {
+    it('Test 13: Full chain → single batch (verified by knives count + broadcast)', () => {
         const { world, bc } = buildWorldWithBroadcastSpy();
         const { entity } = spawnDroid(world);
         
@@ -610,7 +610,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(bc.count).toBeGreaterThanOrEqual(1);
     });
 
-    it('Test 14: Entidade despawnada → evento logado, zero itens no chão', () => {
+    it('Test 14: Despwned entity → event logged, zero items on floor', () => {
         const { world } = buildWorld();
         const { entityId, entity } = spawnDroid(world);
         
@@ -637,7 +637,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(itemCount).toBe(0);
     });
 
-    it('Test 15: Quebras encadeadas → 1 batch (verificado por eventos + knives + broadcast)', () => {
+    it('Test 15: Chained breaks → 1 batch (verified by events + knives + broadcast)', () => {
         const { world, bc } = buildWorldWithBroadcastSpy();
         const { entity } = spawnDroid(world);
         
@@ -672,7 +672,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
      * Test 22: Repair from zero — durability going 0 → positive must NOT fire component:broke.
      * No event, no removal, no drop.
      */
-    it('Test 22: Reparo 0 → positivo (durability 0→1) NÃO dispara component:broke', () => {
+    it('Test 22: Repair 0 → positive (durability 0→1) DOES NOT trigger component:broke', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
@@ -707,7 +707,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
      * Test 23: Nested-container spill — a component containing a nested container item breaks.
      * No crash; the container's contents are placed/handled without exception.
      */
-    it('Test 23: Componente com container nested quebra sem crash', () => {
+    it('Test 23: Component with nested container breaks without crash', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp0 = entity.components[0];
@@ -730,7 +730,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
      * Test 24: Dropped-item accumulation — two separate components each break once.
      * Dropped items from both breaks both exist in dropped-items state.
      */
-    it('Test 24: Quebra dupla acumula itens dropados de ambas as quebras', () => {
+    it('Test 24: Double break accumulates dropped items from both breaks', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         
@@ -787,7 +787,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
      * Test 26: Knife-id uniqueness across two separate breaks — two components break,
      * each dropping 3 knives with unique IDs (6 total unique IDs).
      */
-    it('Test 26: Facas dropadas em quebras separadas têm IDs diferentes', () => {
+    it('Test 26: Knives dropped in separate breaks have different IDs', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         

@@ -1,13 +1,13 @@
 /**
- * NpcAIController — "cérebro" stateless e data-driven para NPCs determinísticos.
+ * NpcAIController — stateless, data-driven "brain" for deterministic NPCs.
  *
- * O controller lê o estado do mundo via API pública do facade (WorldStateController),
- * nunca muta estado diretamente, e enfileira no máximo 1 ação por round via TurnSystem.
+ * The controller reads the world state via the facade's public API (WorldStateController),
+ * never mutates state directly, and queues at most 1 action per round via TurnSystem.
  *
- * Comportamentos são registrados via `registerBehavior(name, strategyFn)`.
- * A strategy recebe `{ entity, round, ai, facade }` e devolve `{ actionName, params }` ou null.
+ * Behaviors are registered via `registerBehavior(name, strategyFn)`.
+ * The strategy receives `{ entity, round, ai, facade }` and returns `{ actionName, params }` or null.
  *
- * Primeiro comportamento: `chase_attack` (perseguir e atacar a entity mais próxima na mesma sala).
+ * First behavior: `chase_attack` (chase and attack the nearest entity in the same room).
  *
  * @module NpcAIController
  */
@@ -17,25 +17,25 @@ import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 import { resolveRange } from '../../../shared/RangeResolver.js';
 
 /**
- * Fallback para range de ataque quando não é possível resolver.
+ * Fallback for attack range when resolution is not possible.
  * @constant
  */
 const DEFAULT_ATTACK_RANGE_FALLBACK = 100;
 
 /**
- * Limiar abaixo do qual um valor de durability é considerado "quebrado" (inutilizável).
+ * Threshold below which a durability value is considered "broken" (unusable).
  * @constant
  */
 const BROKEN_DURABILITY_THRESHOLD = 1;
 
 /**
- * Chave do stat de durabilidade dos componentes (consumido também pelo pipeline de dano).
+ * Key for the components' durability stat (also consumed by the damage pipeline).
  * @constant
  */
 const DURABILITY_STAT_KEY = 'Physical.durability';
 
 /**
- * Calcula distância euclidiana entre dois pontos spatial.
+ * Calculates Euclidean distance between two spatial points.
  * @param {Object} a — { x, y }
  * @param {Object} b — { x, y }
  * @returns {number}
@@ -47,22 +47,22 @@ function dist(a, b) {
 class NpcAIController {
     /**
      * @param {Object} deps
-     * @param {Object} deps.worldStateController — facade (API pública só)
-     * @param {Object|null} deps.turnSystemController — TurnSystemController ou null (mundo sem turns)
+     * @param {Object} deps.worldStateController — facade (public API only)
+     * @param {Object|null} deps.turnSystemController — TurnSystemController or null (world without turns)
      */
     constructor({ worldStateController, turnSystemController }) {
         this._facade = worldStateController;
         this._turnSystem = turnSystemController;
         this._behaviors = new Map();
 
-        // Pré-registra o 1º comportamento.
+        // Pre-registers the first behavior.
         this.registerBehavior('chase_attack', this._chaseAttackBehavior.bind(this));
     }
 
     /**
-     * Predicado centralizado: a entity tem um cérebro determinístico configurado?
-     * Usado pelo dispatcher (server.js), pela guarda do LLM e pelo guard NO_AI do think().
-     * @param {Object} entity — entity com possivelmente npcConfig.ai
+     * Centralized predicate: does the entity have a deterministic brain configured?
+     * Used by the dispatcher (server.js), the LLM guard, and the NO_AI guard in think().
+     * @param {Object} entity — entity with possibly npcConfig.ai
      * @returns {boolean}
      */
     static hasDeterministicBrain(entity) {
@@ -70,9 +70,9 @@ class NpcAIController {
     }
 
     /**
-     * Registra um comportamento (behavior name → strategy function).
+     * Registers a behavior (behavior name → strategy function).
      * @param {string} name
-     * @param {Function} strategy — recebe ctx = { entity, round, ai, facade }
+     * @param {Function} strategy — receives ctx = { entity, round, ai, facade }
      */
     registerBehavior(name, strategy) {
         this._behaviors.set(name, strategy);
@@ -80,8 +80,8 @@ class NpcAIController {
     }
 
     /**
-     * PONTO DE ENTRADA (chamado pelo dispatcher no slot de agente, tick 20).
-     * Sincrono, stateless, NUNCA lança.
+     * ENTRY POINT (called by the dispatcher in the agent slot, tick 20).
+     * Synchronous, stateless, NEVER throws.
      * @param {string} npcEntityId
      * @param {number} round
      * @param {Object|null} [preFetchedEntity=null] — optional pre-fetched entity (avoids double-fetch from dispatcher)
@@ -100,7 +100,7 @@ class NpcAIController {
                 return { acted: false, skipped: 'NO_AI' };
             }
 
-            // 3. Buscar strategy no registro
+            // 3. Look up strategy in registry
             const ai = entity.npcConfig?.ai;
             const strategy = this._behaviors.get(ai.behavior);
             if (!strategy) {
@@ -108,7 +108,7 @@ class NpcAIController {
                 return { acted: false, skipped: 'UNKNOWN_BEHAVIOR' };
             }
 
-            // 4. Executar estratégia (stateless) — single per-tick snapshot via allEntities.
+            // 4. Execute strategy (stateless) — single per-tick snapshot via allEntities.
             const allEntities = this._facade.getEntities?.();
             const decision = strategy({ entity, round, ai, facade: this._facade, allEntities });
             if (decision === null) {
@@ -131,18 +131,18 @@ class NpcAIController {
             Logger.warn(`[NpcAI] Round ${round}: ${entity.name || npcEntityId} decision "${decision.actionName}" rejected: ${dispatchResult.reason}.`);
             return { acted: false, reason: dispatchResult.reason };
         } catch (error) {
-            // Failsafe na raiz: bug de comportamento não pode quebrar o loop de turnos.
+            // Root-level failsafe: behavior bug cannot break the turn loop.
             Logger.error(`[NpcAI] think() failed for ${npcEntityId}: ${error.message}`);
             return { acted: false, skipped: 'THINK_ERROR', reason: error.message };
         }
     }
 
     /**
-     * Espelha a semântica de LLMAgentController._dispatchAction:
+     * Mirrors LLMAgentController._dispatchAction semantics:
      *  - phase === 'planning' → turnSystem.queueAction(entityId, actionName, params, 'npc')
-     *  - TURNS_DISABLED → fallback executeAction imediato (espelhamento do LLM)
-     *  - PLANNING_CLOSED / janela fechada → descarta com log
-     *  - sem tick clock (tests/mundo sem turns) → facade.executeAction imediato (fallback)
+     *  - TURNS_DISABLED → immediate executeAction fallback (LLM mirroring)
+     *  - PLANNING_CLOSED / closed window → discard with log
+     *  - no tick clock (tests/world without turns) → immediate facade.executeAction (fallback)
      * @returns {{ acted: boolean, reason?: string }}
      */
     _dispatchDecision(entityId, decision) {
@@ -205,7 +205,7 @@ class NpcAIController {
     }
 
     /**
-     * Lê o range declarado no registry de ações.
+     * Reads the range declared in the actions registry.
      * @param {Object} facade
      * @param {string} actionName
      * @returns {number|string|undefined}
@@ -219,10 +219,10 @@ class NpcAIController {
     }
 
     /**
-     * Resolve o range de uma ação usando o registry + RangeResolver.
+     * Resolves an action's range using the registry + RangeResolver.
      * @param {Object} facade
      * @param {string} actionName
-     * @param {Object} entity — para resolver placeholders
+     * @param {Object} entity — to resolve placeholders
      * @returns {number}
      */
     _resolveActionRange(facade, actionName, entity) {
@@ -231,17 +231,17 @@ class NpcAIController {
             return rawRange;
         }
         if (typeof rawRange === 'string' && rawRange.startsWith(':')) {
-            // Resolver placeholders via stats da entity.
+            // Resolve placeholders via entity stats.
             const statMap = this._buildStatMap(entity);
             return resolveRange(rawRange, statMap, DEFAULT_ATTACK_RANGE_FALLBACK);
         }
-        // Se for número em string ou outro formato, tenta parse.
+        // If it's a string number or other format, try parsing.
         const parsed = Number(rawRange);
         return isFinite(parsed) ? parsed : DEFAULT_ATTACK_RANGE_FALLBACK;
     }
 
     /**
-     * Constrói um statMap básico a partir da entity.
+     * Builds a basic statMap from the entity.
      * @param {Object} entity
      * @returns {Object}
      */
@@ -251,7 +251,7 @@ class NpcAIController {
         for (const comp of components) {
             const stats = comp.stats || {};
             for (const [key, value] of Object.entries(stats)) {
-                // key pode ser "Physical.strength", "Movement.move", etc.
+                // key can be "Physical.strength", "Movement.move", etc.
                 if (typeof value === 'number') {
                     statMap[key] = value;
                 }
@@ -261,18 +261,18 @@ class NpcAIController {
     }
 
     /**
-     * Lê o stat de durabilidade de um componente, aceitando apenas números finitos.
-     * Valores não numéricos (strings, booleanos, NaN) são tratados como ausentes.
+     * Reads the durability stat of a component, accepting only finite numbers.
+     * Non-numeric values (strings, booleans, NaN) are treated as missing.
      *
-     * Prioridade de leitura:
-     *   1. Loja autoritativa (ComponentStatsController via facade.getComponentStats) —
-     *      a camada aninhada { Physical: { durability } } que o pipeline de dano atualiza.
-     *      Esta é a única fonte viva no runtime, pois EntityController.createEntityFromBlueprint()
-     *      nunca preenche comp.stats na cópia da entity (apenas { type, identifier, id }).
-     *   2. Fallback: chaves planas embutidas em comp.stats — preservado para compatibilidade
-     *      com fixtures de teste que injetam stats flat manualmente no facade mock.
+     * Read priority:
+     *   1. Authoritative store (ComponentStatsController via facade.getComponentStats) —
+     *      the nested layer { Physical: { durability } } that the damage pipeline updates.
+     *      This is the only live source at runtime, since EntityController.createEntityFromBlueprint()
+     *      never fills comp.stats on the entity copy (only { type, identifier, id }).
+     *   2. Fallback: flat keys embedded in comp.stats — preserved for compatibility
+     *      with test fixtures that inject flat stats manually into the facade mock.
      *
-     * @param {Object} comp — componente com .id e opcionalmente .stats
+     * @param {Object} comp — component with .id and optionally .stats
      * @returns {number|undefined}
      * @private
      */
@@ -296,7 +296,7 @@ class NpcAIController {
     }
 
     /**
-     * Encontra o primeiro componente com durability numérica finita.
+     * Finds the first component with finite numeric durability.
      * @param {Object[]} components
      * @returns {Object|null}
      * @private
@@ -311,7 +311,7 @@ class NpcAIController {
     }
 
     /**
-     * Filtra componentes utilizáveis para dano: sem stat de durability OU com durability >= limiar.
+     * Filters components usable for damage: no durability stat OR durability >= threshold.
      * @param {Object[]} components
      * @returns {Object[]}
      * @private
@@ -324,18 +324,18 @@ class NpcAIController {
     }
 
     /**
-     * Comportamento `chase_attack`:
-     * - Candidatos: TODAS as outras entities na MESMA sala.
-     * - Alvo: o mais próximo (distância euclidiana).
-     * - dist ≤ attackRange → ataca (droid punch por padrão).
-     * - dist > attackRange → move em direção ao alvo.
+     * `chase_attack` behavior:
+     * - Candidates: ALL other entities in the SAME room.
+     * - Target: the closest (Euclidean distance).
+     * - dist ≤ attackRange → attack (droid punch by default).
+     * - dist > attackRange → move toward the target.
      *
      * @param {Object} ctx
      * @param {Object} ctx.entity
      * @param {number} ctx.round
      * @param {Object} ctx.ai
      * @param {Object} ctx.facade
-     * @param {Object} [ctx.allEntities] — opcional; fallback para facade.stateEntityController?.getAll()
+     * @param {Object} [ctx.allEntities] — optional; fallback to facade.stateEntityController?.getAll()
      * @returns {{ actionName: string, params: Object }|null}
      */
     _chaseAttackBehavior({ entity, round, ai, facade, allEntities }) {
@@ -344,23 +344,23 @@ class NpcAIController {
             return null;
         }
 
-        // L2: Guard non-finite spatial na entity.
+        // L2: Guard non-finite spatial on the entity.
         if (!Number.isFinite(entity.spatial.x) || !Number.isFinite(entity.spatial.y)) {
             Logger.warn(`[NpcAI] ${entity.name || entity.id} has non-finite spatial — skipping.`);
             return null;
         }
 
-        // Candidatos: TODAS as outras entities na MESMA sala.
+        // Candidates: ALL other entities in the SAME room.
         const all = allEntities ?? (facade.getEntities?.() || {});
         const candidates = Object.values(all).filter(e =>
             e && e.id !== entity.id && e.location === room && e.spatial
         );
 
         if (candidates.length === 0) {
-            return null; // sala vazia → idle
+            return null; // empty room → idle
         }
 
-        // Alvo: o mais próximo (distância euclidiana).
+        // Target: the closest (Euclidean distance).
         let target = candidates[0];
         let minDistance = dist(entity.spatial, candidates[0].spatial);
 
@@ -372,7 +372,7 @@ class NpcAIController {
             }
         }
 
-        // L2: Guard non-finite spatial no alvo selecionado.
+        // L2: Guard non-finite spatial on the selected target.
         if (!Number.isFinite(target.spatial.x) || !Number.isFinite(target.spatial.y)) {
             Logger.warn(`[NpcAI] Target ${target.name || target.id} has non-finite spatial — skipping.`);
             return null;
@@ -385,7 +385,7 @@ class NpcAIController {
             : this._resolveActionRange(facade, attackAction, entity);
 
         if (minDistance <= attackRange) {
-            // Atacar: seleccionar o melhor componente para o alvo.
+            // Attack: select the best component for the target.
             const targetComponent = this._selectTargetComponent(target, entity.id, round);
             if (!targetComponent) {
                 return null;
@@ -394,7 +394,7 @@ class NpcAIController {
             return { actionName: attackAction, params: { targetComponentId: targetComponent.id } };
         }
 
-        // Perseguir: move com targetX/Y = posição do alvo.
+        // Chase: move with targetX/Y = target's position.
         Logger.debug(`[NpcAI] Round ${round}: ${entity.name} chases ${target.name || target.id} (dist: ${minDistance.toFixed(1)} > ${attackRange}) → move.`);
         return {
             actionName: moveAction,
@@ -402,19 +402,19 @@ class NpcAIController {
         };
     }
     /**
-     * Seleciona o melhor componente de um alvo para decisões de ataque.
+     * Selects the best component of a target for attack decisions.
      *
-     * Regra de selecção (determinística):
-     * 1. Preferir o primeiro componente com durability numérica finita.
-     * 2. Fallback: primeiro componente da lista.
-     * 3. Sem componentes válidos → null (o ataque é ignorado).
-     * 4. Se o componente selecionado está quebrado (durability < limiar),
-     *    reselectão determinística entre candidatos utilizáveis; se nenhum
-     *    existir, null (o ataque é ignorado em vez de desperdiçado).
+     * Selection rule (deterministic):
+     * 1. Prefer the first component with finite numeric durability.
+     * 2. Fallback: first component in the list.
+     * 3. No valid components → null (attack is ignored).
+     * 4. If the selected component is broken (durability < threshold),
+     *    deterministic reselection among usable candidates; if none
+     *    exist, null (attack is ignored rather than wasted).
      *
-     * @param {Object} target — entity com .components[]
-     * @param {string} entityId — id da entity NPC (para selecção determinística)
-     * @param {number} round — round atual
+     * @param {Object} target — entity with .components[]
+     * @param {string} entityId — NPC entity id (for deterministic selection)
+     * @param {number} round — current round
      * @returns {Object|null}
      * @private
      */
@@ -424,7 +424,7 @@ class NpcAIController {
             return null;
         }
 
-        // Normaliza: remove entradas que não são objetos (evita TypeError a jusante).
+        // Normalize: removes entries that are not objects (prevents TypeError downstream).
         const validComponents = components.filter(c => c != null && typeof c === 'object');
         if (validComponents.length === 0) {
             return null;
@@ -440,11 +440,11 @@ class NpcAIController {
             const candidates = this._filterUsableComponents(validComponents);
 
             if (candidates.length > 0) {
-                Logger.debug(`[NpcAI] Alvo ${selected.id} quebrado (durability: ${durability}) — reselectão entre ${candidates.length} candidato(s).`);
+                Logger.debug(`[NpcAI] Target ${selected.id} broken (durability: ${durability}) — reselection among ${candidates.length} candidate(s).`);
                 return this._pickRandomComponent(candidates, entityId, round);
             }
 
-            Logger.debug(`[NpcAI] Todos os componentes do alvo ${target.id} estão quebrados — ataque ignorado.`);
+                Logger.debug(`[NpcAI] All components of target ${target.id} are broken — attack ignored.`);
             return null;
         }
 
@@ -452,13 +452,13 @@ class NpcAIController {
     }
 
     /**
-     * Seleciona um componente de um array usando uma escolha determinística por tick.
-     * A seed é derivada de entityId + round — garantindo resultados reproduzíveis
-     * em replay/debug/cenários de save-load.
+     * Selects a component from an array using a deterministic per-tick choice.
+     * The seed is derived from entityId + round — ensuring reproducible results
+     * in replay/debug/save-load scenarios.
      * @param {Object[]} components
-     * @param {string} entityId — id da entity NPC (parte da seed)
-     * @param {number} round — número do round atual (parte da seed)
-     * @param {Function} [rng] — override opcional para testes; padrão é hash determinístico
+     * @param {string} entityId — NPC entity id (part of the seed)
+     * @param {number} round — current round number (part of the seed)
+     * @param {Function} [rng] — optional override for testing; default is deterministic hash
      * @returns {Object|null}
      * @private
      */
@@ -473,13 +473,13 @@ class NpcAIController {
             const index = Math.min(Math.floor(rng() * components.length), components.length - 1);
             return components[index];
         }
-        // Determinístico: hash simples de (entityId + '|' + round), misturado com o round
-        // para que rounds diferentes escolham candidatos diferentes.
+        // Deterministic: simple hash of (entityId + '|' + round), mixed with the round
+        // so that different rounds choose different candidates.
         let seed = 0;
         const seedStr = entityId + '|' + round;
         for (let i = 0; i < seedStr.length; i++) {
             seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-            seed |= 0; // clamp a int 32 bits
+            seed |= 0; // clamp to int 32 bits
         }
         const index = ((seed >>> 0) + round) % components.length;
         return components[index];

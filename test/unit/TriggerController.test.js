@@ -1,11 +1,11 @@
 /**
- * TriggerController — testes unitários (B1-M1: fractional-crossing semantics).
+ * TriggerController — unit tests (B1-M1: fractional-crossing semantics).
  *
- * Constrói o TriggerController diretamente (sem WorldComposition / façade pesada),
- * com handlers spy para capturar emissões. Segue convenção de `test/unit/DiskSampler.test.js`.
+ * Builds the TriggerController directly (without heavy WorldComposition / facade),
+ * with spy handlers to capture emissions. Follows convention of `test/unit/DiskSampler.test.js`.
  *
- * Escopo B1-M1: spec §3.1 — crossing é oldValue > 0 && newValue <= 0 (threshold = 0).
- * FRACTIONAL values (ex. 2 → 0.5) NÃO disparam break.
+ * Scope B1-M1: spec §3.1 — crossing is oldValue > 0 && newValue <= 0 (threshold = 0).
+ * FRACTIONAL values (e.g. 2 → 0.5) DO NOT trigger break.
  *
  * @module test/unit/TriggerController
  */
@@ -19,7 +19,7 @@ import Logger from '../../src/utils/Logger.js';
 // =========================================================================
 
 /**
- * Cria um controller com um handler spy registrado para 'component:broke'.
+ * Creates a controller with a spy handler registered for 'component:broke'.
  */
 function buildWithSpy() {
     const controller = new TriggerController();

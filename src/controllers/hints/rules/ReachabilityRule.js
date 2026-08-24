@@ -147,7 +147,7 @@ export class ReachabilityRule {
 
             const roundedX = Math.round(clampedX * 10) / 10;
             const roundedY = Math.round(clampedY * 10) / 10;
-            const targetName = cand.name || cand.itemType || (cand.spatial ? 'entidade' : 'item');
+            const targetName = cand.name || cand.itemType || (cand.spatial ? 'entity' : 'item');
             const isEntity = cand.spatial !== undefined && cand.id !== undefined && cand.location !== undefined;
 
             hints.push({

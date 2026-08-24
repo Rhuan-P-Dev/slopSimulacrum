@@ -2,7 +2,7 @@
  * WorldStateController — equipped-item durability without triggerController (regression).
  *
  * Regression for the missing null-guard on the equipped-item (P8) durability path.
- * Prior to the fix, any world/façade that did NOT inject a `triggerController` would
+ * Prior to the fix, any world/facade that did NOT inject a `triggerController` would
  * crash on the first equipped-item durability stat change with:
  *   `TypeError: Cannot read properties of undefined (reading 'onEquippedItemBrokeCheck')`
  *

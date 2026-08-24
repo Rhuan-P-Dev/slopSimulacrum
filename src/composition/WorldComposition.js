@@ -183,7 +183,7 @@ export function buildWorldState(tickSystem = null) {
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
 
-    // §3.2: TriggerController — constructed before facade, façade injected later.
+    // §3.2: TriggerController — constructed before facade, facade injected later.
     const triggerController = new TriggerController();
 
     // =========================================================================
@@ -242,7 +242,7 @@ export function buildWorldState(tickSystem = null) {
     // InstinctController: reads world state for generation/expansion.
     instinctController.setWorldStateController(worldStateController);
     
-    // §3.2/§5: TriggerController — inject façade + broadcaster, register handlers.
+    // §3.2/§5: TriggerController — inject facade + broadcaster, register handlers.
     // Handler order matters: BrokenComponentRemovalHandler 1º, KnifeDropTriggerHandler 2º.
     triggerController.setWorldStateController(worldStateController);
     // Broadcaster will be injected after setBroadcastService is called on the facade.

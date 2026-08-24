@@ -1,10 +1,10 @@
 /**
- * DiskSampler — testes unitários (§4.2, FASE 7).
- * 
- * Verifica: constante DEFAULT_TRIGGER_RADIUS === 5; propriedade r = radius·√u
- * para pontos amostrados com rand semeado/injetado; distribuição uniforme.
- * Guard NaN/invalid: raio não-finito, zero ou negativo retorna null + Logger.warn.
- * 
+ * DiskSampler — unit tests (§4.2, PHASE 7).
+ *
+ * Verifies: constant DEFAULT_TRIGGER_RADIUS === 5; property r = radius·√u
+ * for sampled points with seeded/injected rand; uniform distribution.
+ * NaN/invalid guard: non-finite, zero or negative radius returns null + Logger.warn.
+ *
  * @module test/unit/DiskSampler
  */
 
@@ -17,8 +17,8 @@ describe('DiskSampler', () => {
         expect(DEFAULT_TRIGGER_RADIUS).toBe(5);
     });
 
-    it('Ponto amostrado com rand injetado: r = radius · √u', () => {
-        // Injetar rand determinístico: u=0.25 → √0.25 = 0.5 → r = 10 * 0.5 = 5
+    it('Sampled point with injected rand: r = radius · √u', () => {
+        // Inject deterministic rand: u=0.25 → √0.25 = 0.5 → r = 10 * 0.5 = 5
         const u = 0.25;
         const rand = () => u;
         const cx = 0;
@@ -35,8 +35,8 @@ describe('DiskSampler', () => {
         expect(actualR).toBeCloseTo(expectedR, 5);
     });
 
-    it('Ponto sempre dentro do raio (r ≤ radius)', () => {
-        // Testar com vários valores de u ∈ (0, 1)
+    it('Point always inside radius (r ≤ radius)', () => {
+        // Test with various u values ∈ (0, 1)
         const testCases = [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99];
         const radius = 10;
 
@@ -49,7 +49,7 @@ describe('DiskSampler', () => {
         }
     });
 
-    it('Centro do disco como ponto de amostragem', () => {
+    it('Disc center as sampling point', () => {
         const cx = 100;
         const cy = 200;
         const radius = 5;
@@ -114,7 +114,7 @@ describe('DiskSampler', () => {
         warnSpy.mockRestore();
     });
 
-    it('Raio válido produz ponto dentro do disco (regressão)', () => {
+    it('Valid radius produces point inside disk (regression)', () => {
         const radius = 10;
         for (const u of [0.01, 0.25, 0.5, 0.75, 0.99]) {
             const rand = () => u;
