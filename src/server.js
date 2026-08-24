@@ -58,7 +58,8 @@ const llmAgentController = new LLMAgentController({
     worldStateController,
     llmContextController: worldStateController.llmContextController,
     roomChatController: worldStateController.roomChatController,
-    turnSystemController: worldStateController.turnSystemController
+    turnSystemController: worldStateController.turnSystemController,
+    instinctController: worldStateController.instinctController
 });
 
 // Build the deterministic AI brain (outside composition root — spec §A6).

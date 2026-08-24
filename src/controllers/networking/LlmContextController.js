@@ -29,6 +29,7 @@ class LlmContextController {
         otherRoomEntities: 2,    // entities from other rooms (room-named)
         maxEvents: 20,
         maxChat: 10,
+        maxInstincts: 5,         // displayed instincts (display cap)
         perMessageChars: 200     // per chat/event line truncation
     };
 
@@ -85,41 +86,62 @@ class LlmContextController {
         const stats = {
             chars: 0,
             budgetChars: LlmContextController.BUDGET.maxChars,
-            truncated: { entities: false, events: false, chat: false, feedback: false }
+            truncated: { entities: false, events: false, chat: false, feedback: false, instincts: false }
         };
+
+        // Build instincts data: preferred source is options.instincts (agent path),
+        // else facade fallback (debug endpoint path).
+        const instincts = options.instincts !== undefined
+            ? options.instincts
+            : (facade.instinctController?.generateForEntity?.(entityId) ?? []);
 
         // Truncation order when over budget (spec §4.3): events first, then
         // entities (same-room first), then chat (drop to 5), then feedback
-        // (least critical — dropped entirely). The `data` mirror always reflects
-        // exactly what was rendered (the truncated versions).
+        // (least critical — dropped entirely), then instincts (reduced to 3).
+        // The `data` mirror always reflects exactly what was rendered (the truncated versions).
         let near = nearData;
         let events = eventsData;
         let chat = chatData;
         let feedback = feedbackData;
-        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+        let instinctSection = instincts.slice(0, LlmContextController.BUDGET.maxInstincts);
+        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
 
         if (text.length > stats.budgetChars) {
             events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
-            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
             stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)));
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && chat.length > 5) {
                 chat = chat.slice(0, 5);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
                 stats.truncated.chat = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
             if (text.length > stats.budgetChars && feedback.length > 0) {
                 feedback = [];
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
                 stats.truncated.feedback = true;
+            }
+
+            // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
+            if (instinctSection.length > 3) {
+                instinctSection = instinctSection.slice(0, 3);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                stats.truncated.instincts = true;
+            }
+
+            // Final fallback: if still over budget after all truncation, truncate instincts further
+            if (text.length > stats.budgetChars && instinctSection.length > 0) {
+                instinctSection = [];
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                stats.truncated.instincts = true; // already set, but ensure clarity
             }
         }
 
@@ -134,7 +156,8 @@ class LlmContextController {
             hints: hintsData.slice(0, 3),
             recentEvents: events,
             roomChat: chat,
-            lastActionsResults: feedback
+            lastActionsResults: feedback,
+            instincts: instinctSection
         };
         return { text, data, stats };
     }
@@ -376,7 +399,7 @@ class LlmContextController {
      * Renders the sectioned narrative text.
      * @private
      */
-    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, _maxEntities) {
+    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, instincts, _maxEntities) {
         const facade = this.worldStateController;
         const room = entity.location ? (facade.getRooms() || {})[entity.location] : null;
         const lines = [];
@@ -437,6 +460,17 @@ class LlmContextController {
         }
         lines.push('');
 
+        // === YOUR INSTINCTS ===
+        lines.push('=== YOUR INSTINCTS ===');
+        if (instincts.length === 0) {
+            lines.push('(none)');
+        } else {
+            for (const inst of instincts) {
+                lines.push(`- ${inst.name}: ${inst.description}`);
+            }
+        }
+        lines.push('');
+
         // === HINTS ===
         lines.push('=== HINTS ===');
         const hintLines = hints.slice(0, 3).map(h => `- ${h.message || h}`);
@@ -455,7 +489,8 @@ class LlmContextController {
         } else {
             for (const f of feedback) {
                 const status = f.success ? '✓' : '✗';
-                lines.push(`- ${status} ${f.actionName}: ${f.detail}`);
+                const instinctTag = f.instinct ? ` (instinct: ${f.instinct})` : '';
+                lines.push(`- ${status} ${f.actionName}: ${f.detail}${instinctTag}`);
             }
         }
         lines.push('');

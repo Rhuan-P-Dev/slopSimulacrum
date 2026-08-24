@@ -8,7 +8,8 @@
  * `WorldEventLogController` and `RoomChatController`.
  *
  * Outcome entry shape:
- *   { round, actionName, componentId, targetEntityId, queued, success, detail, atTick }
+ *   { round, actionName, componentId, targetEntityId, queued, success, detail, instinct?, atTick }
+ *   `instinct` is an optional sanitized string field (present when the action came from an instinct expansion).
  *
  * @module LlmAgentFeedbackController
  */
@@ -48,6 +49,9 @@ class LlmAgentFeedbackController {
             this._stores.set(entityId, []);
         }
         const ring = this._stores.get(entityId);
+        // Sanitize the optional instinct field: must be a non-empty string, else null.
+        const rawInstinct = outcome.instinct;
+        const instinct = (typeof rawInstinct === 'string' && rawInstinct.length > 0) ? rawInstinct : null;
         const entry = {
             round: typeof outcome.round === 'number' ? outcome.round : 0,
             actionName: typeof outcome.actionName === 'string' ? outcome.actionName : 'unknown',
@@ -56,6 +60,7 @@ class LlmAgentFeedbackController {
             queued: Boolean(outcome.queued),
             success: Boolean(outcome.success),
             detail: typeof outcome.detail === 'string' ? outcome.detail : 'unknown outcome',
+            instinct,
             atTick: typeof outcome.atTick === 'number' ? outcome.atTick : 0
         };
         ring.push(entry);

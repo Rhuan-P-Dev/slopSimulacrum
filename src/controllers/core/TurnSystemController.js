@@ -583,6 +583,7 @@ class TurnSystemController {
                     this._recordEvent(`Round ${round}: ${line}`, 'info');
                     // Capture point A (spec §4.1): record the REAL outcome for
                     // the NPC agent's short-term memory (Feature E).
+                    // Forward the reserved _instinct key from queued params into the outcome.
                     if (feedbackController && typeof feedbackController.record === 'function') {
                         try {
                             feedbackController.record(actor.entityId, {
@@ -593,6 +594,7 @@ class TurnSystemController {
                                 queued: true,
                                 success: true,
                                 detail: entry.actionName === 'punch' ? 'punch hit' : 'executed',
+                                instinct: entry.params?._instinct ?? null,
                                 atTick: this._currentTick()
                             });
                         } catch (_) { /* best-effort — must not break the round */ }
@@ -603,6 +605,7 @@ class TurnSystemController {
                     Logger.warn(`[TurnSystem] Round ${round}: ${line}`);
                     this._recordEvent(`Round ${round}: ${line}`, 'warn');
                     // Capture point A (failure path): record the failure outcome.
+                    // Forward the reserved _instinct key from queued params into the outcome.
                     if (feedbackController && typeof feedbackController.record === 'function') {
                         try {
                             feedbackController.record(actor.entityId, {
@@ -613,6 +616,7 @@ class TurnSystemController {
                                 queued: true,
                                 success: false,
                                 detail: reason,
+                                instinct: entry.params?._instinct ?? null,
                                 atTick: this._currentTick()
                             });
                         } catch (_) { /* best-effort */ }

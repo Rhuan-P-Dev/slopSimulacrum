@@ -163,12 +163,14 @@ describe('LlmContextController (context renderer)', () => {
         expect(() => bare.buildContext('ent-self')).toThrow(/facade not injected/);
     });
 
-    it('returns all six stable section headers, in order', () => {
+    // R1: updated to seven headers (instincts section added between ACTIONS and HINTS)
+    it('returns all seven stable section headers, in order (R1)', () => {
         const { text } = controller.buildContext('ent-self');
         const headers = [
             '=== YOUR STATE ===',
             '=== NEARBY ENTITIES ===',
             '=== YOUR ACTIONS (executable now) ===',
+            '=== YOUR INSTINCTS ===',       // R1: new section
             '=== HINTS ===',
             '=== RECENT EVENTS ===',
             '=== ROOM CHAT ==='
@@ -414,5 +416,108 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.hints[0]).toBe(rawHint);
         expect(data.hints[0].message).toBe('Test hint message');
         expect(text).toContain('- Test hint message');
+    });
+
+    // R2: instinct line format
+    it('R2: renders instinct lines in format "- name: description"', () => {
+        const instincts = [
+            { name: 'chase', description: 'move toward the target' },
+            { name: 'chase_attack', description: 'chase and attack with punch' }
+        ];
+        const { text } = controller.buildContext('ent-self', { instincts });
+
+        expect(text).toContain('=== YOUR INSTINCTS ===');
+        expect(text).toContain('- chase: move toward the target');
+        expect(text).toContain('- chase_attack: chase and attack with punch');
+    });
+
+    // R3: empty list → (none); absent → (none), no throw
+    it('R3: empty instincts array → header + (none); absent → (none)', () => {
+        const { text: textEmpty } = controller.buildContext('ent-self', { instincts: [] });
+        expect(textEmpty).toContain('=== YOUR INSTINCTS ===');
+        expect(textEmpty).toContain('(none)');
+
+        // Absent instincts (undefined) should also render (none)
+        const { text: textAbsent } = controller.buildContext('ent-self');
+        expect(textAbsent).toContain('=== YOUR INSTINCTS ===');
+        expect(textAbsent).toContain('(none)');
+    });
+
+    // R4: facade fallback when options.instincts absent but facade has instinctController
+    it('R4: options.instincts absent → falls back to facade instinctController (debug path)', () => {
+        const facadeWithInstincts = {
+            getEntity: world.getEntity,
+            getAll: world.getAll,
+            getRooms: world.getRooms,
+            getComponentStats: world.getComponentStats,
+            getEquippedItems: world.getEquippedItems,
+            getEntityItems: world.getEntityItems,
+            getActionsForEntity: world.getActionsForEntity,
+            getRecentEvents: world.getRecentEvents,
+            componentController: world.componentController,
+            equippedItemStats: world.equippedItemStats,
+            getRoomChatMessages: world.getRoomChatMessages,
+            // Facade has instinct controller stub
+            instinctController: {
+                generateForEntity: () => [{ name: 'debug_instinct', description: 'from facade' }]
+            }
+        };
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(facadeWithInstincts);
+
+        const { text } = ctrl.buildContext('ent-self'); // no options.instincts
+
+        expect(text).toContain('=== YOUR INSTINCTS ===');
+        expect(text).toContain('- debug_instinct: from facade');
+    });
+
+    // R5: budget truncation — > 5 instincts reduced to 3, stats.truncated.instincts = true
+    it('R5: budget over 4000 chars with > 5 instincts → truncated to 3, stats.truncated.instincts = true', () => {
+        // Create many instincts with VERY long descriptions to ensure they contribute significantly
+        const manyInstincts = Array.from({ length: 8 }, (_, i) => ({
+            name: `instinct_${i}`,
+            description: 'x'.repeat(300) // very long descriptions (~320 chars each)
+        }));
+
+        // Flood events to blow past budget (these get truncated to perMessageChars=200)
+        const floodEvents = Array.from({ length: 200 }, (_, i) => ({
+            tick: i, action: 'droid punch', targetId: null,
+            message: 'Droid performed a punch dealing 25 damage! '.repeat(8),
+            level: 'info', ts: i
+        }));
+
+        const floodWorld = makeWorld({
+            getRecentEvents: (limit) => floodEvents.slice(-limit)
+        });
+        const floodCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        floodCtrl.setWorldStateController(floodWorld);
+
+        const { text, stats } = floodCtrl.buildContext('ent-self', { instincts: manyInstincts });
+
+        expect(stats.chars).toBeLessThanOrEqual(4000);
+        expect(stats.truncated.instincts).toBe(true);
+        // Only 3 instinct lines should appear in rendered text
+        const instinctSection = text.slice(text.indexOf('=== YOUR INSTINCTS ==='));
+        const nextSection = instinctSection.indexOf('=== HINTS ===');
+        const instinctContent = nextSection > 0 ? instinctSection.substring(0, nextSection) : instinctSection;
+        // Count lines starting with "- "
+        const instinctLines = instinctContent.match(/^- /gm) || [];
+        expect(instinctLines.length).toBeLessThanOrEqual(3);
+    });
+
+    // R6: data.instincts mirror present in structured output (raw objects, not rendered lines)
+    it('R6: data.instincts mirror contains the raw instinct objects', () => {
+        const instincts = [
+            { name: 'chase', description: 'move toward target' },
+            { name: 'flee', description: 'run away from danger' }
+        ];
+        const { data } = controller.buildContext('ent-self', { instincts });
+
+        expect(data.instincts).toBeDefined();
+        expect(Array.isArray(data.instincts)).toBe(true);
+        expect(data.instincts).toHaveLength(2);
+        // data.instincts contains raw objects, not rendered lines
+        expect(data.instincts[0]).toEqual({ name: 'chase', description: 'move toward target' });
+        expect(data.instincts[1]).toEqual({ name: 'flee', description: 'run away from danger' });
     });
 });

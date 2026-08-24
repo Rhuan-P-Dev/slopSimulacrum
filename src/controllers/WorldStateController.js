@@ -54,6 +54,7 @@ class WorldStateController {
      * @param {WorldEventLogController} deps.worldEventLogController
      * @param {LlmContextController} deps.llmContextController
      * @param {import('./hints/HintController.js')} deps.hintController
+     * @param {import('../controllers/ai/InstinctController.js')} [deps.instinctController]
      * @param {import('./triggers/TriggerController.js')} [deps.triggerController]
      */
     constructor(deps) {
@@ -96,6 +97,8 @@ class WorldStateController {
         // Feature E: per-agent action-outcome feedback store (state owner;
         // deliberately NO getAll() → excluded from the broadcast).
         this.llmAgentFeedbackController = deps.llmAgentFeedbackController ?? null;
+        // InstinctController: stateless behavior-primitive generator (null-tolerant).
+        this.instinctController = deps.instinctController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */

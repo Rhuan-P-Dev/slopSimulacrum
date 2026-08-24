@@ -103,6 +103,7 @@ Game mechanics, visualizations, and feature systems.
 | [Sharpness System](systems/sharpness_system.md) | Equipped item mutable stats architecture — sharpness drain, durability, capability re-evaluation |
 | [T1 Weapon System](systems/t1_weapon_system.md) | Container weapon concept — resource scaling damage, dual-volume items, spawn observer auto-assignment |
 | [Hint System](systems/hint_system.md) | Deterministic hint registry — reachability-move suggestion for unreachable entities, extensible rule engine |
+| [Instinct System](systems/instinct_system.md) | Runtime-generated behavior primitives for the LLM agent — one instinct call per behavior instead of per-action micromanagement; names and action lists derived live from the action registry and capabilities so the model's vocabulary stays stable and data stays clean |
 
 ---
 
@@ -110,11 +111,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 37 |
+| Total documents | 38 |
 | Categories | 6 |
 | Architecture docs | 5 |
 | Controller docs | 12 |
 | Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 9 |
+| Systems docs | 10 |

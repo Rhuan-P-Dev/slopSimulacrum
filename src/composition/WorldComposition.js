@@ -84,6 +84,9 @@ import KnifeDropTriggerHandler from '../controllers/triggers/KnifeDropTriggerHan
 // Hint system (logic controller; facade injected later).
 import HintController from '../controllers/hints/HintController.js';
 
+// Instinct system (stateless logic controller for LLM agent behavior primitives).
+import InstinctController from '../controllers/ai/InstinctController.js';
+
 // The facade
 import WorldStateController from '../controllers/WorldStateController.js';
 
@@ -173,6 +176,8 @@ export function buildWorldState(tickSystem = null) {
     const llmContextController = new LlmContextController({ actionRegistry });
     // Hint system: deterministic suggestions for the player and the LLM agent.
     const hintController = new HintController({ actionRegistry });
+    // InstinctController: stateless logic controller for LLM agent behavior primitives.
+    const instinctController = new InstinctController({ actionRegistry });
     // Feature A: turn system (state owner; needs only the tick system here —
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
@@ -210,7 +215,9 @@ export function buildWorldState(tickSystem = null) {
         stateEntityController: stateEntityControllerInstance,
         holdingCostController,
         // §5: trigger controller for component:broke events
-        triggerController
+        triggerController,
+        // InstinctController: stateless behavior-primitive generator (null-tolerant).
+        instinctController
     });
 
     // =========================================================================
@@ -231,6 +238,8 @@ export function buildWorldState(tickSystem = null) {
     turnSystemController.setWorldStateController(worldStateController);
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);
+    // InstinctController: reads world state for generation/expansion.
+    instinctController.setWorldStateController(worldStateController);
     
     // §3.2/§5: TriggerController — inject façade + broadcaster, register handlers.
     // Handler order matters: BrokenComponentRemovalHandler 1º, KnifeDropTriggerHandler 2º.
@@ -289,7 +298,9 @@ export function buildWorldState(tickSystem = null) {
             hints: hintController,
             turnSystemController,
             roomChatController,
-            llmAgentFeedbackController
+            llmAgentFeedbackController,
+            // Inspection-only (not in broadcast) — per spec §2.1 exclusion rule.
+            instincts: instinctController
         }
     };
 }

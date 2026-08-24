@@ -711,3 +711,461 @@ describe('LLMAgentController.runRound — DETERMINISTIC_AI guard (spec §9.2)', 
         expect(chatCalled).toBe(true);
     });
 });
+
+// =========================================================================
+// Instincts System Tests (spec §6.8 — T1-T7)
+// =========================================================================
+
+describe('LLMAgentController — Instincts system (T1-T7)', () => {
+    const NPC_ID = 'ent-npc-0001';
+    const NPC = {
+        id: NPC_ID,
+        name: 'Bolt',
+        blueprint: 'merchantDroid',
+        isNPC: true,
+        location: 'room-main',
+        spatial: { x: 50, y: 50 }
+    };
+
+    const ACTION_REGISTRY = {
+        move: { description: 'walk', range: 100, requirements: [] },
+        droidPunch: { description: 'punch', range: 10, requirements: [] },
+        selfHeal: { description: 'heal', range: 0, requirements: [] }
+    };
+
+    function makeWorld(overrides = {}) {
+        return {
+            getEntity: (id) => (id === NPC_ID ? NPC : null),
+            getRooms: () => ({ 'room-main': { name: 'Main Room' } }),
+            actionController: { getRegistry: () => ACTION_REGISTRY },
+            stateEntityController: { getAll: () => ({ [NPC_ID]: NPC }) },
+            getActionsForEntity: (id) => {
+                if (id !== NPC_ID) return {};
+                return {
+                    move: { canExecute: ['comp-hand'], cannotExecute: [] },
+                    droidPunch: { canExecute: overrides.punchCanExecute || ['comp-hand'], cannotExecute: [] }
+                };
+            },
+            executeAction: () => ({ success: true })
+        };
+    }
+
+    function makeRoomChat() {
+        return { sent: [], sendMessage: () => ({ success: true }) };
+    }
+
+    function makeTurns(overrides = {}) {
+        const queued = [];
+        return {
+            queued,
+            getRoundState: () => ({ phase: 'planning', roundNumber: 0 }),
+            queueAction: (entityId, actionName, params, source) => {
+                queued.push({ entityId, actionName, params, source });
+                return overrides.rejectSecond && queued.length >= 2
+                    ? { success: false, code: 'QUEUE_FULL' }
+                    : { success: true };
+            }
+        };
+    }
+
+    /** Builds an agent with a scripted chatFull and optional instinctController. */
+    function makeAgent({ world, roomChat, turns, chatFullImpl, instincts = [], instinctController = null, llmContextController = null, roomChat: rc = null } = {}) {
+        const llmStub = { chatFull: async (messages, options) => chatFullImpl(messages, options) };
+        const fakeInstinctCtrl = instinctController ?? {
+            generateForEntity: () => instincts,
+            expand: () => ({ ok: true, steps: [] })
+        };
+        const agent = new LLMAgentController({
+            llmController: llmStub,
+            worldStateController: world ?? makeWorld(),
+            llmContextController: llmContextController ?? { buildContext: () => ({ text: '=== ROOM ===\nMain Room' }) },
+            roomChatController: rc ?? roomChat ?? makeRoomChat(),
+            turnSystemController: turns ?? makeTurns(),
+            instinctController: fakeInstinctCtrl
+        });
+        return { agent };
+    }
+
+    function toolMessage(calls) {
+        return {
+            role: 'assistant',
+            content: null,
+            tool_calls: calls.map((c, i) => ({
+                id: `call_${i + 1}`,
+                type: 'function',
+                function: { name: c.name, arguments: JSON.stringify(c.args) }
+            }))
+        };
+    }
+
+    // T1: use_instinct with targetEntityId → two queueAction calls in order
+    it('T1: use_instinct {instinct:"chase_attack", targetEntityId} → two queueAction calls (move then selfHeal)', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        // Override getActionsForEntity to provide canExecute for both actions
+        world.getActionsForEntity = (id) => {
+            if (id !== NPC_ID) return {};
+            return {
+                move: { canExecute: ['comp-hand'], cannotExecute: [] },
+                selfHeal: { canExecute: ['comp-core'], cannotExecute: [] }
+            };
+        };
+        const instincts = [
+            { name: 'chase_attack', description: 'chase and attack' }
+        ];
+        const instinctController = {
+            generateForEntity: () => instincts,
+            expand: (entityId, instinctName) => {
+                const inst = instincts.find(i => i.name === instinctName);
+                return inst ? { ok: true, steps: [{ actionName: 'move' }, { actionName: 'selfHeal' }] } : { ok: false, error: 'unknown' };
+            }
+        };
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            instinctController,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(turns.queued).toHaveLength(2);
+        expect(turns.queued[0].actionName).toBe('move');
+        expect(turns.queued[1].actionName).toBe('selfHeal');
+        for (const q of turns.queued) {
+            expect(q.entityId).toBe(NPC_ID);
+            expect(q.source).toBe('npc');
+        }
+        expect(result.actions).toHaveLength(2);
+        expect(result.actions[0].instinct).toBe('chase_attack');
+        expect(result.actions[1].instinct).toBe('chase_attack');
+        expect(result.error).toBeNull();
+    });
+
+    // T2: use_instinct without target → params use nearest entity position
+    it('T2: use_instinct without target → params use nearest entity position', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        // Override getActionsForEntity to provide canExecute for move
+        world.getActionsForEntity = (id) => {
+            if (id !== NPC_ID) return {};
+            return {
+                move: { canExecute: ['comp-hand'], cannotExecute: [] }
+            };
+        };
+        const instincts = [
+            { name: 'chase', description: 'chase target' }
+        ];
+        // Add a nearby entity for nearest selection
+        world.getAll = () => ({
+            [NPC_ID]: NPC,
+            'ent-nearby': { id: 'ent-nearby', location: 'room-main', spatial: { x: 60, y: 50 } }
+        });
+        const instinctController = {
+            generateForEntity: () => instincts,
+            expand: (entityId, instinctName) => {
+                const inst = instincts.find(i => i.name === instinctName);
+                return inst ? { ok: true, steps: [{ actionName: 'move', params: { targetX: 60, targetY: 50 } }] } : { ok: false, error: 'unknown' };
+            }
+        };
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            instinctController,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase' } }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.actions).toHaveLength(1);
+        expect(result.actions[0].instinct).toBe('chase');
+        expect(result.actions[0].success).toBe(true);
+        expect(result.error).toBeNull();
+    });
+
+    // T3: unknown instinct name → one failed action + exactly one retry
+    it('T3: unknown instinct name → one failed action + exactly one retry', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        let callCount = 0;
+        const instincts = [{ name: 'known_instinct', description: 'known' }];
+        const instinctController = {
+            generateForEntity: () => instincts,
+            expand: (entityId, instinctName) => {
+                if (instinctName === 'nonexistent_instinct') {
+                    return { ok: false, error: 'unknown instinct' };
+                }
+                return { ok: true, steps: [{ actionName: 'move' }] };
+            }
+        };
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            instinctController,
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                if (callCount === 1) {
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([{ name: 'use_instinct', args: { instinct: 'nonexistent_instinct' } }])
+                    };
+                }
+                // Retry: model gives up
+                return {
+                    content: 'OK, I\'ll wait.',
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: 'OK, I\'ll wait.' }
+                };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(callCount).toBe(2); // initial + retry
+        expect(result.actions).toHaveLength(1);
+        expect(result.actions[0].instinct).toBe('nonexistent_instinct');
+        expect(result.actions[0].success).toBe(false);
+        expect(result.error).toBeNull(); // the round itself doesn't error, just the action
+    });
+
+    // T4: mid-sequence capability flip → first step queued, second failed/aborted
+    it('T4: mid-sequence capability flip → first step queued, second aborted', async () => {
+        const world = makeWorld();
+        let moveEnabled = true;
+        // Override getActionsForEntity to dynamically control canExecute
+        world.getActionsForEntity = (id) => {
+            if (id !== NPC_ID) return {};
+            return {
+                move: { canExecute: moveEnabled ? ['comp-hand'] : [], cannotExecute: [] },
+                selfHeal: { canExecute: moveEnabled ? [] : ['comp-core'], cannotExecute: [] }
+            };
+        };
+        const turns = makeTurns();
+        const instincts = [
+            { name: 'chase_attack', description: 'chase and attack' }
+        ];
+        const instinctController = {
+            generateForEntity: () => instincts,
+            expand: (entityId, instinctName) => {
+                const inst = instincts.find(i => i.name === instinctName);
+                return inst ? { ok: true, steps: [{ actionName: 'move' }, { actionName: 'selfHeal' }] } : { ok: false, error: 'unknown' };
+            }
+        };
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            instinctController,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.actions.length).toBeGreaterThanOrEqual(1);
+        // First step should succeed (move is enabled initially)
+        expect(result.actions[0].actionName).toBe('use_instinct(chase_attack):move');
+        expect(result.actions[0].success).toBe(true);
+        // Round completes without throw
+        expect(result.error).toBeNull();
+    });
+
+    // T5: tool schema — use_instinct present in tools when instincts non-empty, absent when empty
+    it('T5: tool schema includes use_instinct when instincts non-empty; absent when empty', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        const seenOptions = [];
+
+        // With instincts
+        const instincts = [{ name: 'chase', description: 'chase' }];
+        const { agent: agentWith } = makeAgent({
+            world,
+            turns,
+            instincts,
+            chatFullImpl: (messages, options) => {
+                seenOptions.push(options);
+                return {
+                    content: '{"action":"none"}',
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: '{"action":"none"}' }
+                };
+            }
+        });
+
+        await agentWith.runRound(NPC_ID, 0);
+        expect(seenOptions).toHaveLength(1);
+        const toolsWith = seenOptions[0].tools || [];
+        const toolNamesWith = toolsWith.map(t => t.function.name);
+        expect(toolNamesWith).toContain('use_instinct');
+        const instinctTool = toolsWith.find(t => t.function.name === 'use_instinct');
+        expect(instinctTool.function.parameters.properties.instinct.enum).toEqual(['chase']);
+
+        // Without instincts
+        seenOptions.length = 0;
+        const { agent: agentWithout } = makeAgent({
+            world,
+            turns,
+            instincts: [],
+            chatFullImpl: (messages, options) => {
+                seenOptions.push(options);
+                return {
+                    content: '{"action":"none"}',
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: '{"action":"none"}' }
+                };
+            }
+        });
+
+        await agentWithout.runRound(NPC_ID, 0);
+        const toolsWithout = seenOptions[0].tools || [];
+        const toolNamesWithout = toolsWithout.map(t => t.function.name);
+        expect(toolNamesWithout).not.toContain('use_instinct');
+        expect(toolNamesWithout).toContain('execute_action');
+        expect(toolNamesWithout).toContain('speak_in_room');
+    });
+
+    // T6: turn mock rejects second queueAction (QUEUE_FULL) → second step failed, third aborted
+    it('T6: QUEUE_FULL on second step → second failed, round completes', async () => {
+        const world = makeWorld();
+        // Override getActionsForEntity to provide canExecute for both actions
+        world.getActionsForEntity = (id) => {
+            if (id !== NPC_ID) return {};
+            return {
+                move: { canExecute: ['comp-hand'], cannotExecute: [] },
+                selfHeal: { canExecute: ['comp-core'], cannotExecute: [] }
+            };
+        };
+        const turns = makeTurns({ rejectSecond: true });
+        const instincts = [
+            { name: 'chase_attack', description: 'chase and attack' }
+        ];
+        const instinctController = {
+            generateForEntity: () => instincts,
+            expand: (entityId, instinctName) => {
+                const inst = instincts.find(i => i.name === instinctName);
+                return inst ? { ok: true, steps: [{ actionName: 'move' }, { actionName: 'selfHeal' }] } : { ok: false, error: 'unknown instinct' };
+            }
+        };
+        let instinctCallCount = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            instinctController,
+            chatFullImpl: () => {
+                instinctCallCount += 1;
+                // First call: return instinct tool call
+                // Retry (second call): return plain text to avoid extra actions in result
+                if (instinctCallCount === 1) {
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+                    };
+                }
+                // Retry response: plain text (no additional actions)
+                return {
+                    content: 'Retry OK, stopping.',
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: 'Retry OK, stopping.' }
+                };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.actions).toHaveLength(2);
+        expect(result.actions[0].actionName).toBe('use_instinct(chase_attack):move');
+        expect(result.actions[0].success).toBe(true);
+        expect(result.actions[1].actionName).toBe('use_instinct(chase_attack):selfHeal');
+        expect(result.actions[1].success).toBe(false);
+        expect(result.actions[1].detail).toBe('QUEUE_FULL');
+        expect(result.error).toBeNull(); // round completes
+    });
+
+    // T7: buildContext receives options.instincts equal to generated list
+    it('T7: buildContext receives options.instincts equal to the generated list', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        let capturedInstincts = null;
+        const instincts = [
+            { name: 'chase', description: 'chase target' },
+            { name: 'flee', description: 'run away' }
+        ];
+        const ctxCtrl = {
+            buildContext: (entityId, options) => {
+                capturedInstincts = options?.instincts ?? null;
+                return { text: '=== ROOM ===\nMain Room' };
+            }
+        };
+        const { agent } = makeAgent({
+            world,
+            turns,
+            instincts,
+            chatFullImpl: () => ({
+                content: '{"action":"none"}',
+                toolCalls: [],
+                finishReason: 'stop',
+                message: { role: 'assistant', content: '{"action":"none"}' }
+            }),
+            instinctController: {
+                generateForEntity: () => instincts,
+                expand: () => ({ ok: true, steps: [] })
+            },
+            roomChat: makeRoomChat(),
+            llmContextController: ctxCtrl
+        });
+
+        await agent.runRound(NPC_ID, 0);
+
+        expect(capturedInstincts).toBe(instincts);
+        expect(capturedInstincts).toHaveLength(2);
+        expect(capturedInstincts[0].name).toBe('chase');
+        expect(capturedInstincts[1].name).toBe('flee');
+    });
+
+    // Additional: null-tolerant controller (spec §2.5 — graceful degradation)
+    it('null-tolerant: absent instinctController → runRound completes normally without instincts', async () => {
+        const world = makeWorld();
+        const turns = makeTurns();
+        const roomChat = makeRoomChat();
+
+        const agent = new LLMAgentController({
+            llmController: { chatFull: async () => ({ content: '{"action":"none"}', toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: '{"action":"none"}' } }) },
+            worldStateController: world,
+            llmContextController: { buildContext: () => ({ text: '=== ROOM ===\nMain Room' }) },
+            roomChatController: roomChat,
+            turnSystemController: turns,
+            instinctController: null // explicitly null
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.error).toBeNull();
+        expect(turns.queued).toHaveLength(0);
+    });
+});

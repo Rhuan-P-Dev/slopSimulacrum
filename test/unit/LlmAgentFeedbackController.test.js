@@ -20,6 +20,7 @@ function makeOutcome(overrides = {}) {
         queued: overrides.queued ?? false,
         success: overrides.success ?? true,
         detail: overrides.detail ?? 'hit',
+        instinct: overrides.instinct,  // Forward optional instinct field
         atTick: overrides.atTick ?? 10
     };
 }
@@ -205,5 +206,61 @@ describe('LlmAgentFeedbackController', () => {
         expect(recent).toHaveLength(3);
         expect(recent[0].round).toBe(3);
         expect(recent[2].round).toBe(5);
+    });
+
+    // =========================================================================
+    // Instincts System Tests (spec §6.8 — F1-F4)
+    // =========================================================================
+
+    // F1: record with instinct → getRecent returns it
+    it('F1: record with instinct:"chase_attack" → getRecent returns it', () => {
+        const fb = new LlmAgentFeedbackController();
+        fb.record('npc_1', makeOutcome({ round: 1, instinct: 'chase_attack' }));
+        const recent = fb.getRecent('npc_1');
+        expect(recent).toHaveLength(1);
+        expect(recent[0].instinct).toBe('chase_attack');
+    });
+
+    // F2: record without instinct → instinct === null
+    it('F2: record without instinct → instinct is null', () => {
+        const fb = new LlmAgentFeedbackController();
+        fb.record('npc_1', makeOutcome({ round: 1 }));
+        const recent = fb.getRecent('npc_1');
+        expect(recent).toHaveLength(1);
+        expect(recent[0].instinct).toBeNull();
+    });
+
+    // F3: non-string instinct → sanitized to null
+    it('F3: non-string instinct values → sanitized to null', () => {
+        const fb = new LlmAgentFeedbackController();
+
+        // Number
+        fb.record('npc_1', makeOutcome({ round: 1, instinct: 123 }));
+        expect(fb.getRecent('npc_1')[0].instinct).toBeNull();
+
+        // Object
+        fb.record('npc_1', makeOutcome({ round: 2, instinct: { name: 'chase' } }));
+        expect(fb.getRecent('npc_1')[1].instinct).toBeNull();
+
+        // Array
+        fb.record('npc_1', makeOutcome({ round: 3, instinct: ['chase', 'flee'] }));
+        expect(fb.getRecent('npc_1')[2].instinct).toBeNull();
+
+        // Empty string
+        fb.record('npc_1', makeOutcome({ round: 4, instinct: '' }));
+        expect(fb.getRecent('npc_1')[3].instinct).toBeNull();
+
+        // Valid string should still work
+        fb.record('npc_1', makeOutcome({ round: 5, instinct: 'valid_instinct' }));
+        expect(fb.getRecent('npc_1')[4].instinct).toBe('valid_instinct');
+    });
+
+    // F4: defensive copy includes the instinct field
+    it('F4: getRecent returns defensive copy — mutating instinct field never touches store', () => {
+        const fb = new LlmAgentFeedbackController();
+        fb.record('npc_1', makeOutcome({ round: 1, instinct: 'chase_attack' }));
+        const read = fb.getRecent('npc_1');
+        read[0].instinct = 'MUTATED';
+        expect(fb.getRecent('npc_1')[0].instinct).toBe('chase_attack');
     });
 });

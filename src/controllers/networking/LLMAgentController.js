@@ -50,13 +50,15 @@ class LLMAgentController {
      * @param {import('./LlmContextController.js')} deps.llmContextController
      * @param {import('../core/RoomChatController.js')} deps.roomChatController
      * @param {import('../core/TurnSystemController.js')} deps.turnSystemController
+     * @param {import('../ai/InstinctController.js')} [deps.instinctController]
      */
-    constructor({ llmController, worldStateController, llmContextController, roomChatController, turnSystemController }) {
+    constructor({ llmController, worldStateController, llmContextController, roomChatController, turnSystemController, instinctController = null }) {
         this.llmController = llmController;
         this.worldStateController = worldStateController;
         this.llmContextController = llmContextController;
         this.roomChatController = roomChatController;
         this.turnSystemController = turnSystemController;
+        this.instinctController = instinctController;
 
         /**
          * NPC registry (data/npcs.json, spec §7.1): key = blueprint name,
@@ -107,6 +109,27 @@ class LLMAgentController {
      */
     setFeedbackController(feedbackController) {
         this._feedbackController = feedbackController;
+    }
+
+    // =========================================================================
+    // INSTINCT GENERATION (spec §2.3/§2.5)
+    // =========================================================================
+
+    /**
+     * Safely generates instincts for one NPC (try/catch → [] + Logger.warn).
+     * The result is passed to buildContext and _buildTools.
+     * @private
+     */
+    _safeGenerateInstincts(npcEntityId) {
+        try {
+            if (!this.instinctController) {
+                return [];
+            }
+            return this.instinctController.generateForEntity(npcEntityId) || [];
+        } catch (err) {
+            Logger.warn(`[LLMAgent] _safeGenerateInstincts failed for ${npcEntityId}: ${err?.message || err}`);
+            return [];
+        }
     }
 
     // =========================================================================
@@ -163,11 +186,14 @@ class LLMAgentController {
             const rawMaxChat = npc.config?.maxChatMessagesPerRound;
             const maxChat = (rawMaxChat === 0) ? 0 : this._asPositiveInt(rawMaxChat, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
 
-            // 2. Context (Feature B). A broken/absent context layer must not
+            // 2. Generate instincts (live from capabilities — spec §2.5).
+            const instincts = this._safeGenerateInstincts(npcEntityId);
+
+            // 3. Context (Feature B). A broken/absent context layer must not
             //    kill the round — fall back to a minimal identity line.
             let contextText;
             try {
-                const ctx = this.llmContextController.buildContext(npcEntityId);
+                const ctx = this.llmContextController.buildContext(npcEntityId, { instincts });
                 contextText = ctx && typeof ctx.text === 'string' && ctx.text.length > 0
                     ? ctx.text
                     : this._minimalContextLine(entity);
@@ -176,7 +202,7 @@ class LLMAgentController {
                 contextText = this._minimalContextLine(entity);
             }
 
-            // 3. Conversation: transcript replay (last ≤2 rounds) + fresh context.
+            // 4. Conversation: transcript replay (last ≤2 rounds) + fresh context.
             const messages = [
                 ...this._transcriptFor(npcEntityId),
                 { role: 'user', content: contextText }
@@ -184,7 +210,7 @@ class LLMAgentController {
 
             const options = {
                 system: this._buildSystemPrompt(npc, this._roomName(entity)),
-                tools: this._buildTools({ includeChat: maxChat > 0 }),
+                tools: this._buildTools({ includeChat: maxChat > 0, instincts }),
                 tool_choice: 'required',
                 temperature: 0.3,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
@@ -235,7 +261,7 @@ class LLMAgentController {
                     }
                 }
 
-                // 5. Parse + dispatch every tool call.
+                // 5. Parse tool calls (includes use_instinct).
                 const parsed = this._parseToolCalls(full.message);
                 let actionableFailure = null; // → triggers the single retry
 
@@ -282,7 +308,7 @@ class LLMAgentController {
                     const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
                     if (sendResult.success) {
                         sentChats += 1;
-                        result.chat = { sent: true, text: sendResult.message.text };
+                        result.chat = { sent: true, text: sendResult.message?.text ?? text };
                         // Remember the send outcome (tool_call id + success) so
                         // the transcript replay is truthful next round.
                         speakResults.push({
@@ -297,8 +323,20 @@ class LLMAgentController {
                     }
                 }
 
+                // 7. Dispatch instinct calls (use_instinct tool).
+                if (this.instinctController && parsed.instincts && parsed.instincts.length > 0) {
+                    for (const entry of parsed.instincts) {
+                        const instinctResult = await this._dispatchInstinct(npcEntityId, entry, round, result);
+                        result.actions.push(...instinctResult.actions);
+                        if (instinctResult.actionable && !actionableFailure) {
+                            actionableFailure = { call: entry, error: instinctResult.detail || 'instinct failed' };
+                        }
+                    }
+                }
+
                 // No tool_calls extracted: attempt fallback from content.
-                if (parsed.actions.length === 0 && parsed.speaks.length === 0) {
+                // Skip fallback if there's an actionable failure from instincts (retry will handle it).
+                if ((parsed.actions.length === 0 && parsed.speaks.length === 0) && !actionableFailure) {
                     const content = parsed.prose;
                     if (!content) {
                         result.chat = { sent: false, reason: 'no response' };
@@ -344,7 +382,7 @@ class LLMAgentController {
                             const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
                             if (sendResult.success) {
                                 sentChats += 1;
-                                result.chat = { sent: true, text: sendResult.message.text };
+                                result.chat = { sent: true, text: sendResult.message?.text ?? text };
                             } else {
                                 result.chat = { sent: false, reason: sendResult.error || sendResult.code };
                             }
@@ -363,7 +401,7 @@ class LLMAgentController {
                             const sendResult = this._dispatchSpeak(entity, displayName, text);
                             if (sendResult.success) {
                                 sentChats += 1;
-                                result.chat = { sent: true, text: sendResult.message.text };
+                                result.chat = { sent: true, text: sendResult.message?.text ?? text };
                             } else {
                                 result.chat = { sent: false, reason: sendResult.error || sendResult.code };
                             }
@@ -428,9 +466,10 @@ class LLMAgentController {
      * `data/actions.json` the rest of the world runs on).
      * @param {Object} [opts]
      * @param {boolean} [opts.includeChat=true] - Whether to include the speak_in_room tool.
+     * @param {Array<Object>} [opts.instincts] - Generated instincts for this round (if non-empty, adds use_instinct tool).
      * @returns {Array<Object>}
      */
-    _buildTools({ includeChat = true } = {}) {
+    _buildTools({ includeChat = true, instincts = [] } = {}) {
         const registry = this.worldStateController?.actionController?.getRegistry?.() || {};
         const actionNames = Object.keys(registry);
 
@@ -461,6 +500,31 @@ class LLMAgentController {
         };
 
         const tools = [executeAction];
+
+        // Add use_instinct tool only when instincts are generated (spec §2.5)
+        if (instincts && instincts.length > 0) {
+            const instinctNames = instincts.map(i => i.name);
+            tools.push({
+                type: 'function',
+                function: {
+                    name: 'use_instinct',
+                    description: 'Perform a whole behavior at once: the server executes the instinct\'s action sequence for you. See the YOUR INSTINCTS section of the context.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            instinct: {
+                                type: 'string',
+                                enum: instinctNames,
+                                description: 'The instinct to perform (see YOUR INSTINCTS in the context).'
+                            },
+                            targetEntityId: { type: 'string', description: 'ent-… entity the instinct acts on; default: nearest entity in your room.' }
+                        },
+                        required: ['instinct']
+                    }
+                }
+            });
+        }
+
         if (includeChat) {
             tools.push({
                 type: 'function',
@@ -511,6 +575,7 @@ class LLMAgentController {
             '- You are the only actor: you never choose another entity\'s ID as the acting entity.',
             chatLine,
             '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.',
+            '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'Respond with ONE JSON object only, no markdown, no prose:',
@@ -591,12 +656,13 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
         const speaks = [];
         const actions = [];
+        const instincts = [];
         const prose = (message && typeof message.content === 'string' && message.content.trim() !== '')
             ? message.content
             : null;
@@ -626,10 +692,11 @@ class LLMAgentController {
             const entry = { id: typeof call?.id === 'string' ? call.id : '', args };
             if (name === 'speak_in_room') speaks.push(entry);
             else if (name === 'execute_action') actions.push(entry);
+            else if (name === 'use_instinct') instincts.push(entry);
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, prose };
+        return { speaks, actions, instincts, prose };
     }
 
     /**
@@ -901,6 +968,85 @@ class LLMAgentController {
     }
 
     // =========================================================================
+    // INSTINCT DISPATCH (spec §2.5, §2.4)
+    // =========================================================================
+
+    /**
+     * Dispatches one use_instinct tool call: expands the instinct into ordered
+     * steps, pre-validates and dispatches each step via the existing pipeline.
+     * A failed step aborts remaining steps (spec §2.4).
+     *
+     * @param {string} npcEntityId - The NPC's typed entity ID.
+     * @param {Object} entry - The parsed instinct call { id, args: { instinct, targetEntityId? } }.
+     * @param {number} round - The turn round number.
+     * @param {Object} result - The runRound result object (actions pushed here).
+     * @returns {Promise<{ actions: Array<Object>, actionable: boolean, detail?: string }>}
+     * @private
+     */
+    async _dispatchInstinct(npcEntityId, entry, round, result) {
+        const instinctName = entry.args?.instinct;
+        if (!instinctName || typeof instinctName !== 'string') {
+            const detail = 'missing or invalid instinct name';
+            result.actions.push({ actionName: 'use_instinct', success: false, detail, instinct: null });
+            return { actions: [{ actionName: 'use_instinct', success: false, detail, instinct: null }], actionable: false, detail };
+        }
+
+        const fullName = `use_instinct(${instinctName})`;
+
+        // Expand the instinct
+        let expanded;
+        try {
+            expanded = this.instinctController.expand(npcEntityId, instinctName, {
+                targetEntityId: entry.args?.targetEntityId
+            });
+        } catch (err) {
+            const detail = err?.message || 'expansion failed';
+            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctName }], actionable: true, detail };
+        }
+
+        if (!expanded.ok) {
+            const detail = expanded.error || `expansion failed (${expanded.code})`;
+            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctName }], actionable: true, detail };
+        }
+
+        // Dispatch each step in order
+        const actions = [];
+        let actionable = false;
+
+        for (const step of expanded.steps) {
+            const stepFullName = `use_instinct(${instinctName}):${step.actionName}`;
+
+            // Pre-validate
+            const validation = this._prevalidateAction(npcEntityId, step);
+            if (!validation.ok) {
+                const entry = { actionName: stepFullName, success: false, detail: validation.error, instinct: instinctName };
+                actions.push(entry);
+                actionable = true;
+                break; // Abort remaining steps (spec §2.4)
+            }
+
+            // Dispatch
+            const dispatch = this._dispatchAction(npcEntityId, step.actionName, validation.params);
+            const stepEntry = {
+                actionName: stepFullName,
+                queued: dispatch.queued,
+                queueId: dispatch.queueId,
+                success: dispatch.success,
+                detail: dispatch.detail,
+                instinct: instinctName
+            };
+            actions.push(stepEntry);
+
+            if (!dispatch.success) {
+                actionable = true;
+                break; // Abort remaining steps (spec §2.4)
+            }
+        }
+
+        return { actions, actionable, detail: expanded.ok ? null : 'steps aborted' };
+    }
+
+    // =========================================================================
     // FEEDBACK / HELPERS
     // =========================================================================
 
@@ -930,9 +1076,10 @@ class LLMAgentController {
             // the raw assistant tool_call only has function.arguments (a JSON
             // string) — matching by id keeps the feedback faithful.
             const parsedEntry = call?.id
-                ? [...(parsed.actions || []), ...(parsed.speaks || [])].find(p => p.id === call.id)
+                ? [...(parsed.actions || []), ...(parsed.speaks || []), ...(parsed.instincts || [])].find(p => p.id === call.id)
                 : null;
             const actionName = parsedEntry ? String(parsedEntry.args?.actionName ?? '') : '';
+            const instinctName = parsedEntry?.args?.instinct || null;
             let payload;
             if (name === 'speak_in_room') {
                 payload = result.chat.sent
@@ -945,6 +1092,17 @@ class LLMAgentController {
                 payload = matched
                     ? { success: matched.success, ...(matched.detail ? { error: matched.detail } : {}) }
                     : { success: false, error: 'not dispatched' };
+            } else if (name === 'use_instinct') {
+                // Aggregate over the call's steps: all success → true; else first failure
+                const instinctActions = result.actions.filter(a => a.instinct === instinctName && a.actionName.startsWith(`use_instinct(${instinctName})`));
+                const failed = instinctActions.find(a => !a.success);
+                if (instinctActions.length === 0) {
+                    payload = { success: false, error: 'not dispatched' };
+                } else if (failed) {
+                    payload = { success: false, error: failed.detail || 'instinct failed' };
+                } else {
+                    payload = { success: true };
+                }
             } else {
                 payload = { success: false, error: `unknown tool "${name}"` };
             }
