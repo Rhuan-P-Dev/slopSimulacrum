@@ -168,7 +168,7 @@ function makeFacade({ entities = {}, canExecute = {}, executeResult } = {}) {
         executeCalls,
         getEntity: (id) => entities[id] || null,
         // New public API methods added by C2 — required for brain to find entities / registry
-        getAllEntities: () => entities,
+        getEntities: () => entities,
         getActionRegistry: () => ACTION_REGISTRY,
         // Clone-free capability gate (sub task C3): returns boolean.
         canEntityExecuteAction: (id, actionName) => {
@@ -652,16 +652,16 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     // C3: Hot-path performance — clone-free capability gate
-    it('C3. Single think() results in at most 1 getAllEntities() call and 0 getActionsForEntity() calls', () => {
+    it('C3. Single think() results in at most 1 getEntities() call and 0 getActionsForEntity() calls', () => {
         const entities = { [NPC_ID]: NPC_ENTITY, [TARGET_ID]: TARGET_ENTITY };
-        let getAllEntitiesCallCount = 0;
+        let getEntitiesCallCount = 0;
         let getActionsForEntityCallCount = 0;
         const facade = {
             ...makeFacade({
                 entities,
                 canExecute: { 'default': { 'droid punch': ['comp-hand-1'], 'move': ['comp-wheel-1'] } }
             }),
-            getAllEntities: () => { getAllEntitiesCallCount++; return entities; },
+            getEntities: () => { getEntitiesCallCount++; return entities; },
             getActionsForEntity: () => { getActionsForEntityCallCount++; return {}; }
         };
         const turns = makeTurns();
@@ -669,7 +669,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
 
         const result = controller.think(NPC_ID, 1);
         expect(result.acted).toBe(true);
-        expect(getAllEntitiesCallCount).toBeLessThanOrEqual(1);
+        expect(getEntitiesCallCount).toBeLessThanOrEqual(1);
         expect(getActionsForEntityCallCount).toBe(0);
     });
 

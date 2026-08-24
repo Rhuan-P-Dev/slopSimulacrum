@@ -109,7 +109,7 @@ class NpcAIController {
             }
 
             // 4. Executar estratégia (stateless) — single per-tick snapshot via allEntities.
-            const allEntities = this._facade.getAllEntities?.();
+            const allEntities = this._facade.getEntities?.();
             const decision = strategy({ entity, round, ai, facade: this._facade, allEntities });
             if (decision === null) {
                 return { acted: false, reason: 'idle' };
@@ -351,7 +351,7 @@ class NpcAIController {
         }
 
         // Candidatos: TODAS as outras entities na MESMA sala.
-        const all = allEntities ?? (facade.getAllEntities?.() || {});
+        const all = allEntities ?? (facade.getEntities?.() || {});
         const candidates = Object.values(all).filter(e =>
             e && e.id !== entity.id && e.location === room && e.spatial
         );

@@ -2,6 +2,9 @@ import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
+import { buildReverseIndex } from '../utils/ComponentDependents.js';
+import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
+import { writeDroppedItem } from '../controllers/consequences/DropItemHandler.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -51,6 +54,7 @@ class WorldStateController {
      * @param {WorldEventLogController} deps.worldEventLogController
      * @param {LlmContextController} deps.llmContextController
      * @param {import('./hints/HintController.js')} deps.hintController
+     * @param {import('./triggers/TriggerController.js')} [deps.triggerController]
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -64,6 +68,8 @@ class WorldStateController {
         // --- Store the injected sub-controllers (named dependencies) -------------
         /** @private {UniversalTickSystem|null} */
         this.tickSystem = deps.tickSystem ?? null;
+        /** @private {import('./triggers/TriggerController.js').default|null} */
+        this.triggerController = deps.triggerController ?? null;
         this.statsController = deps.statsController;
         this.traitsController = deps.traitsController;
         this.internalComponentController = deps.internalComponentController;
@@ -95,6 +101,20 @@ class WorldStateController {
         /** @private {WorldStateBroadcastService|null} */
         this._broadcastService = null;
 
+        // §3.5.3: re-entrancy counter for stat-change listeners.
+        // Incremented at entry of removeBrokenComponent, decremented in finally.
+        // Listeners only broadcast when counter === 0 → exactly 1 broadcast per cascade chain.
+        /** @private {number} */
+        this._cascadeReentrancyCount = 0;
+        /**
+         * @private {Set<string>|null} — shared visited-set across recursive cascade (§3.6.4).
+         * One logical cascade chain per re-entrant break event; the shared set prevents
+         * re-visiting components within that chain. The chain terminates, and the set is
+         * (re)established per chain via the re-entrancy counter guards at lines ~2104-2106
+         * and ~2147-2148. This is by design — not a spec violation.
+         */
+        this._cascadeVisitedSet = null;
+
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
             rooms: this.roomsController,
@@ -108,6 +128,8 @@ class WorldStateController {
             inventory: this.inventoryManager,
             holdingCost: this.holdingCostController,
             equippedItemStats: this.equippedItemStats
+            // NOTE: `triggers` entry removed — no code in src/ reads `subControllers.triggers`;
+            // TriggerController is accessed directly via `this.triggerController` where needed.
         };
 
         // --- Wire internal observers/listeners between sub-controllers -----------
@@ -125,10 +147,52 @@ class WorldStateController {
         // Wire up stat change notifications from ComponentController to
         // ComponentCapabilityController — enables automatic capability
         // re-evaluation when component stats change (+ broadcast).
+        // §3.2/§3.5.3: also delegate to TriggerController for component:broke detection.
+        // Broadcast only when cascadeReentrancyCount === 0 (exactly 1 broadcast per chain).
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
-            // Trigger broadcast if broadcastService is available
-            if (this._broadcastService) {
+            
+            // §3.2: delegate to TriggerController for crossing detection
+            if (this.triggerController && traitId === 'Physical' && statName === 'durability') {
+                // Find which entity owns this component via public API
+                let owningEntity = null;
+                owningEntity = this.stateEntityController.findEntityByComponent(componentId);
+                // Spec §6 (Edge cases): when owning entity is despawned, the component:broke
+                // event must STILL be logged; only removal/spill/drop side-effects are skipped.
+                // We always call onComponentBrokeCheck so the event is emitted per spec.
+                // When the entity or its anchors are missing we pass honest fallbacks.
+                if (!owningEntity || !owningEntity.location || !owningEntity.spatial) {
+                    Logger.warn(
+                        `[WorldStateController] Component ${componentId} broke but owning entity/anchors missing — event still logged per spec §6; removal/spill/drop skipped.`
+                    );
+                    this.triggerController.onComponentBrokeCheck(
+                        componentId,
+                        owningEntity?.id ?? componentId,
+                        oldValue,
+                        newValue,
+                        {
+                            roomId: null,
+                            position: { x: 0, y: 0 },
+                            tick: this.tickSystem?.currentTick ?? 0
+                        }
+                    );
+                } else {
+                    this.triggerController.onComponentBrokeCheck(
+                        componentId,
+                        owningEntity.id,
+                        oldValue,
+                        newValue,
+                        {
+                            roomId: owningEntity.location,
+                            position: owningEntity.spatial,
+                            tick: this.tickSystem?.currentTick ?? 0
+                        }
+                    );
+                }
+            }
+            
+            // Trigger broadcast if broadcastService is available and not in middle of cascade
+            if (this._broadcastService && this._cascadeReentrancyCount === 0) {
                 this._broadcastService.broadcast();
             }
         });
@@ -148,7 +212,34 @@ class WorldStateController {
         // re-evaluation. When an equipped item's stats change (e.g., sharpness
         // drain from cut), the capability cache re-scans with CURRENT stats, not
         // stale base stats.
+        // §3.2/§3.5: also delegate to TriggerController.onEquippedItemBrokeCheck
+        // when traitId==='Physical' && statName==='durability' (P8 path).
         this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
+            // P8 delegado: delegar para TriggerController ANTES do broadcast
+            if (this.triggerController && traitId === 'Physical' && statName === 'durability') {
+                const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
+                for (const [entityId, items] of Object.entries(allEquipped)) {
+                    if (items[eqId]) {
+                        const equippedData = items[eqId]; // { eqId, itemId, itemType, componentId }
+                        // Resolve entity spatial position via public API
+                        const entity = this.stateEntityController.getEntity(entityId);
+                        const extra = {
+                            roomId: entity?.location ?? null,
+                            position: entity?.spatial ?? { x: 0, y: 0 },
+                            itemType: equippedData.itemType || null,
+                            componentId: equippedData.componentId || null,
+                            itemId: equippedData.itemId || eqId,
+                            tick: this.tickSystem?.currentTick ?? 0
+                        };
+                        this.triggerController.onEquippedItemBrokeCheck(
+                            eqId, entityId, equippedData.componentId || null,
+                            oldValue, newValue, extra
+                        );
+                        break; // only one entity can own this eqId
+                    }
+                }
+            }
+
             // Find which entity this item belongs to by scanning equipped items.
             // HoldingCostController.getEquippedItemsByEntity() returns: { [entityId]: { [eqId]: itemData } }
             const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
@@ -157,7 +248,8 @@ class WorldStateController {
                     // Entity found — re-evaluate its capabilities with current stats
                     const state = this.getAll();
                     this.actionController.reEvaluateEntityCapabilities(state, entityId);
-                    if (this._broadcastService) {
+                    // §3.5.3: broadcast only when cascadeReentrancyCount === 0
+                    if (this._broadcastService && this._cascadeReentrancyCount === 0) {
                         this._broadcastService.broadcast();
                     }
                     Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
@@ -548,7 +640,7 @@ class WorldStateController {
      * that callers do not need to reach into sub-controllers directly.
      * @returns {Object} Deep clone of the entities store.
      */
-    getAllEntities() {
+    getEntities() {
         if (typeof this.stateEntityController?.getAll === 'function') {
             return this.stateEntityController.getAll();
         }
@@ -629,13 +721,15 @@ class WorldStateController {
             serializedAtTick: this.internalComponentController?.tickSystem?.currentTick ?? null,
             serializedAt: Date.now(),
             state: {
-                // Entities (live instances; structuredClone keeps no live refs).
+                // Entities (live instances; the spread in .map() creates new objects,
+                // and the final JSON round-trip at the method bottom guarantees no
+                // live references — so the intermediate structuredClone is redundant).
                 // Defense-in-depth: strip the legacy boot-time flag
                 // `_skipInitialSpawns` from any entity record so the snapshot
                 // can never carry it (new spawns no longer inject it, but
                 // records restored from older snapshots might).
                 entities: Object.fromEntries(
-                    Object.entries(structuredClone(this.stateEntityController.entities))
+                    Object.entries(this.stateEntityController.getAll())
                         .map(([entityId, entity]) => [entityId, {
                             ...entity,
                             _skipInitialSpawns: undefined
@@ -835,7 +929,7 @@ class WorldStateController {
 
             Logger.info(
                 `[WorldStateController] World state restored from snapshot (schemaVersion ${WorldStateController.PERSISTENCE_SCHEMA_VERSION}, ` +
-                `${Object.keys(this.stateEntityController.entities).length} entities, ${Object.keys(this._droppedItems).length} dropped items).`
+                `${Object.keys(this.stateEntityController.getAll()).length} entities, ${Object.keys(this._droppedItems).length} dropped items).`
             );
             return { success: true };
         } catch (error) {
@@ -1407,6 +1501,10 @@ class WorldStateController {
      */
     setBroadcastService(broadcastService) {
         this._broadcastService = broadcastService;
+        // §3.2: also inject broadcaster into TriggerController (fallback defensivo).
+        if (this.triggerController) {
+            this.triggerController.setBroadcaster(() => broadcastService.broadcast());
+        }
     }
 
     /**
@@ -1667,7 +1765,10 @@ class WorldStateController {
     setDroppedItems(droppedItems) {
         this._droppedItems = droppedItems;
 
-        if (this._broadcastService) {
+        // §3.5.3: gatear broadcast por cascata — apenas quando _cascadeReentrancyCount === 0
+        // O caller removeDroppedItem (e writeDroppedItem via façade) continua broadcastando
+        // normalmente; durante cascata, o gate suprime broadcasts intermediários.
+        if (this._broadcastService && this._cascadeReentrancyCount === 0) {
             this._broadcastService.broadcast();
         }
     }
@@ -1990,6 +2091,343 @@ class WorldStateController {
         }
 
         return nearby;
+    }
+
+    // =========================================================================
+    // TRIGGER SYSTEM — removeBrokenComponent (§3.5, §3.6)
+    // =========================================================================
+
+    /**
+     * Orquestrador façade para remoção completa de componente/item quebrado.
+     * §3.5.2: ordem (a)→(a½)→(b)→(c).
+     * §3.5.3: contador de reentrância para broadcast único.
+     *
+     * @param {Object} payload - Payload do evento component:broke (§3.3).
+     */
+    removeBrokenComponent(payload) {
+        const { entityId, componentId, kind, position, roomId } = payload;
+
+        // Incrementa contador de reentrância (§3.5.3)
+        this._cascadeReentrancyCount++;
+        // Inicializa visited-set compartilhado na chamada raiz
+        if (this._cascadeReentrancyCount === 1) {
+            this._cascadeVisitedSet = new Set();
+        }
+        try {
+            // Busca a entidade
+            const entity = this.stateEntityController.getEntity(entityId);
+            if (!entity) {
+                Logger.warn(`[removeBrokenComponent] Entity "${entityId}" not found — skipping removal.`);
+                return;
+            }
+
+            // === (a) Spill: drenar conteúdo do componente/recipiente ===
+            try {
+                this._spillContent(entity, payload);
+            } catch (error) {
+                Logger.error(`[removeBrokenComponent] Phase (a) _spillContent failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
+                // Continue to next phase — a failed spill must not block removal or cleanup
+            }
+
+            // === (a½) Cascata de dependência (§3.6) ===
+            if (kind === 'component') {
+                try {
+                    this._cascadeDependents(entity, componentId);
+                } catch (error) {
+                    Logger.error(`[removeBrokenComponent] Phase (a½) _cascadeDependents failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
+                    // Continue to next phase — a failed cascade must not block removal or cleanup
+                }
+            }
+
+            // === (b) Desequip + remover instância — UNGUARDED (primary path) ===
+            this._removeComponentOrItem(entity, payload);
+
+            // === (c) Limpeza ===
+            try {
+                this._cleanupAfterRemoval(entity, payload);
+            } catch (error) {
+                Logger.error(`[removeBrokenComponent] Phase (c) _cleanupAfterRemoval failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
+                // Continue — cleanup failure must not block the result
+            }
+        } finally {
+            // Decrementa contador — broadcast só ocorre quando chega a 0
+            this._cascadeReentrancyCount--;
+            // Limpa visited-set na saída da cadeia raiz
+            if (this._cascadeReentrancyCount === 0) {
+                this._cascadeVisitedSet = null;
+            }
+        }
+    }
+
+    /**
+     * Fase (a): spill do conteúdo do componente/recipiente destruído.
+     * @private
+     */
+    _spillContent(entity, payload) {
+        const { componentId, kind, position, roomId, entityId } = payload;
+        let hostId = componentId;
+        if (kind === 'equipped-item') {
+            // Para item equipado, o host é o itemId do payload (recipiente)
+            hostId = payload.itemId || componentId;
+        }
+
+        // Obtém items armazenados no host destruído
+        const inventory = this.inventoryManager.getEntityItems(entity);
+        const items = inventory[hostId] || [];
+
+        if (items.length === 0) return;
+
+        // Fetch item registry for definitions
+        const itemRegistry = this.getItemRegistry();
+
+        // FASE 9: batch — acumular itens no map local e escrever uma vez (evita read-modify-write O(n))
+        const batchDroppedItems = this.getDroppedItems() || {};
+
+        for (const item of items) {
+            // Isolamento por item (§3.5.1: falha logada + continua)
+            try {
+                // Snapshot dos netos — usar wrapper público (§3.5.1)
+                let nestedItems = [];
+                try {
+                    nestedItems = this.inventoryManager.collectNestedItems(entity, item.id);
+                } catch (error) {
+                    Logger.error(`[removeBrokenComponent] Error collecting nested items for ${item.id}: ${error.message}`);
+                }
+
+                // Amostragem de disco raio DEFAULT_TRIGGER_RADIUS, centro position, sem clamp
+                // No-magic-numbers rule: use shared constant from DiskSampler for spill radius
+                // Defensively skip null results (should never happen with DEFAULT_TRIGGER_RADIUS=5)
+                const point = sampleDiskPoint(position.x, position.y, DEFAULT_TRIGGER_RADIUS);
+                if (point === null) {
+                    Logger.warn(`[removeBrokenComponent] sampleDiskPoint returned null for item ${item.id}; skipping spill.`);
+                    continue;
+                }
+
+                // Busca definição do item (usar itemDef passado para evitar re-fetch)
+                const itemDef = itemRegistry[item.type] || itemRegistry[item.itemType] || {};
+
+                // Acumular no batch map local
+                // writeDroppedItem receives a narrow-deps stub (not the full façade), implementing only:
+                //   getDroppedItems()  → returns the dropped-items map
+                //   setDroppedItems(items) → merges `items` into the map via Object.assign (batch accumulation)
+                // The handler must not assume other WorldStateController methods exist on this dependency.
+                writeDroppedItem(
+                    {
+                        getDroppedItems: () => batchDroppedItems,
+                        setDroppedItems: (items) => { Object.assign(batchDroppedItems, items); }
+                    },
+                    item.type || item.itemType,
+                    point.x,
+                    point.y,
+                    roomId,
+                    entityId,
+                    itemDef,
+                    nestedItems
+                );
+
+                Logger.info(`[removeBrokenComponent] Spilled item ${item.id} (${item.type}) from broken ${kind}.`);
+            } catch (error) {
+                Logger.error(`[removeBrokenComponent] Error spilling item ${item.id}: ${error.message}`);
+                // Skip this item, continue with cascade (§3.5: isolamento por item)
+            }
+        }
+
+        // Escrever uma vez no fim (batch write)
+        this.setDroppedItems(batchDroppedItems);
+
+        // Remove todos os items do inventário da entidade — isolamento por item
+        for (const item of items) {
+            try {
+                this.inventoryManager.removeItem(entity, item.id);
+            } catch (error) {
+                Logger.error(`[removeBrokenComponent] Error removing item ${item.id} from inventory: ${error.message}`);
+            }
+        }
+    }
+
+    /**
+     * Fase (a½): cascata de dependência (§3.6.4).
+     * DFS pré-ordem com visited-set.
+     * @private
+     */
+    _cascadeDependents(entity, originId) {
+        const components = entity.components || [];
+        const reverseIndex = buildReverseIndex(components);
+        // Use shared visited-set across recursive cascade (§3.6.4: visited-set previne loops)
+        const visited = this._cascadeVisitedSet || new Set([originId]);
+        const queue = [originId];
+
+        Logger.debug(`[removeBrokenComponent] _cascadeDependents starting for origin ${originId}, components count: ${components.length}`);
+        
+        // Log reverse index for debugging (trace → debug)
+        for (const [parentId, children] of reverseIndex) {
+            if (children.length > 0) {
+                Logger.debug(`[removeBrokenComponent] Reverse index: ${parentId} → [${children.join(', ')}]`);
+            }
+        }
+
+        while (queue.length > 0) {
+            const curId = queue.shift();
+            Logger.info(`[removeBrokenComponent] Processing from queue: ${curId}`);
+            
+            // origin é skipado (já quebrou — foi o evento que abriu a cascata)
+            if (curId === originId) {
+                // Adiciona filhos do origin na fila para continuar a cascata
+                const children = reverseIndex.get(curId) || [];
+                Logger.info(`[removeBrokenComponent] Origin ${originId} has ${children.length} children: [${children.join(', ')}]`);
+                for (const childId of children) {
+                    if (!visited.has(childId)) {
+                        visited.add(childId);
+                        queue.push(childId);
+                        Logger.info(`[removeBrokenComponent] Enqueued child ${childId}`);
+                    } else {
+                        Logger.info(`[removeBrokenComponent] Child ${childId} already visited, skipping`);
+                    }
+                }
+                continue;
+            }
+
+            // Liveness no pop: id já removido?
+            const comp = components.find(c => c.id === curId);
+            if (!comp) {
+                Logger.warn(`[removeBrokenComponent] Component ${curId} not found in entity.components (may have been removed)`);
+                continue;
+            }
+
+            // Verifica se ainda tem stats de durabilidade
+            const stats = this.statsController.getStats(curId);
+            if (!stats || !stats.Physical || stats.Physical.durability === undefined) {
+                Logger.warn(`[removeBrokenComponent] Dependent ${curId} has no durability stat — skipping.`);
+                continue;
+            }
+
+            const dur = stats.Physical.durability;
+            Logger.info(`[removeBrokenComponent] Component ${curId} has durability ${dur}`);
+
+            if (dur <= 0) {
+                // §3.6: defensivo — remoção direta SEM evento (já quebrado)
+                Logger.warn(`[removeBrokenComponent] Dependent ${curId} already broken (dur=${dur}) — direct removal without event.`);
+                this._forceDirectRemoval(curId, entity);
+                continue;
+            }
+
+            // Força quebra: write 0 no mutator existente → re-entra no funil
+            Logger.info(`[removeBrokenComponent] Forcing break of dependent ${curId} (dur=${dur} → 0).`);
+            this.componentController.updateComponentStat(curId, 'Physical', 'durability', 0);
+            
+            // Adiciona filhos deste dependente na fila para continuar a cascata
+            const children = reverseIndex.get(curId) || [];
+            Logger.info(`[removeBrokenComponent] Dependent ${curId} has ${children.length} children: [${children.join(', ')}]`);
+            for (const childId of children) {
+                if (!visited.has(childId)) {
+                    visited.add(childId);
+                    queue.push(childId);
+                    Logger.info(`[removeBrokenComponent] Enqueued child ${childId}`);
+                } else {
+                    Logger.info(`[removeBrokenComponent] Child ${childId} already visited, skipping`);
+                }
+            }
+        }
+        
+        Logger.info(`[removeBrokenComponent] _cascadeDependents finished. Visited: [${[...visited].join(', ')}]`);
+    }
+
+    /**
+     * Remoção direta SEM evento (para dependentes já ≤ 0).
+     * @private
+     */
+    _forceDirectRemoval(compId, entity) {
+        try {
+            // Spill conteúdo
+            this._spillContent(entity, { componentId: compId, kind: 'component', position: entity.spatial, roomId: entity.location });
+            // Desequip + remover
+            const payload = { componentId: compId, kind: 'component', entityId: entity.id };
+            this._removeComponentOrItem(entity, payload);
+            // Limpeza
+            this._cleanupAfterRemoval(entity, payload);
+        } catch (error) {
+            Logger.error(`[removeBrokenComponent] Error in _forceDirectRemoval for ${compId}: ${error.message}`);
+        }
+    }
+
+    /**
+     * Fase (b): desequipar + remover instância.
+     * @private
+     */
+    _removeComponentOrItem(entity, payload) {
+        const { componentId, kind, eqId, itemId } = payload;
+
+        if (kind === 'equipped-item') {
+            // Desequip (restaura holding cost no host)
+            if (eqId) {
+                this.holdingCostController.unequipItem(entity.id, eqId);
+            }
+            // Remove instância do item do inventário — usar payload.itemId (não eqId) §3.5.2
+            const removeId = itemId || eqId;
+            if (removeId) {
+                this.inventoryManager.removeItem(entity, removeId);
+            }
+        } else {
+            // removeComponent via stateEntityController (substituição por filter)
+            this.stateEntityController.removeComponent(entity.id, componentId);
+        }
+    }
+
+    /**
+     * Fase (c): limpeza — stats, internos, selection, capacidades.
+     * @private
+     */
+    _cleanupAfterRemoval(entity, payload) {
+        const { componentId, kind, eqId } = payload;
+
+        if (kind === 'component') {
+            // (3) removeStats
+            this.statsController.removeStats(componentId);
+
+            // (4) Limpa componentes internos do host (o componente quebrou é o host)
+            // InternalComponentController.removeInternalComponent(entityId, hostComponentId, internalCompId)
+            // Mas aqui queremos limpar TODOS os internos deste componente — itera
+            const internalComps = this.internalComponentController.getInternalComponents(entity.id, componentId);
+            for (const ic of internalComps) {
+                this.internalComponentController.removeInternalComponent(entity.id, componentId, ic.id);
+            }
+
+            // Resync entity's internalComponents snapshot with the authoritative source
+            // from InternalComponentController — prevents stale ids after cascade removal
+            const liveEntity = this.getEntity(entity.id);
+            if (liveEntity) {
+                liveEntity.internalComponents = this.internalComponentController.getInternalComponentsForEntity(entity.id);
+            }
+
+            // (5) removeEntityFromCache + reEvaluateEntityCapabilities
+            // Narrowed: build a minimal state with only the affected entity —
+            // reEvaluateEntityCapabilities reads state.entities[entityId] and then
+            // fetches component stats directly from the controller, so a full-world
+            // getAll() is unnecessary here.
+            if (this.actionController) {
+                this.actionController.removeEntityFromCache(entity.id);
+                const liveEntity = this.getEntity(entity.id);
+                const narrowState = liveEntity ? { entities: { [liveEntity.id]: liveEntity } } : { entities: {} };
+                this.actionController.reEvaluateEntityCapabilities(narrowState, entity.id);
+            }
+
+            // (6) releaseSelection do componente
+            this.actionSelectController.releaseSelection(componentId);
+        } else if (kind === 'equipped-item') {
+            // (3') cleanupEquippedItem wrapper do HoldingCostController (§3.5.2)
+            this.holdingCostController.cleanupEquippedItem?.(entity.id, eqId);
+
+            // (5') reavaliar capacidades — APENAS da entity host (não de todas) §3.5.2
+            // Narrowed: same minimal-state approach as the component path above.
+            if (this.actionController) {
+                const liveEntity = this.getEntity(entity.id);
+                const narrowState = liveEntity ? { entities: { [liveEntity.id]: liveEntity } } : { entities: {} };
+                this.actionController.reEvaluateEntityCapabilities(narrowState, entity.id);
+            }
+
+            // (6') liberar selection do eqId
+            this.actionSelectController.releaseSelection(eqId);
+        }
     }
 
 }

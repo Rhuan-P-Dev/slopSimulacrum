@@ -296,23 +296,27 @@ class HoldingCostController {
     }
 
     /**
-     * Unequips an item from its component by item ID.
-     * Finds the eqId by itemId, then unequips.
+     * Unequips an item from its component by eqId OR itemId.
+     * Looks up eqId first, falls back to itemId scan — no duplicated logic.
      * Restores the component stats to pre-equip state and re-evaluates capabilities.
      *
      * @param {string} entityId - The entity ID.
-     * @param {string} itemId - The item ID being unequipped.
+     * @param {string} lookupId - The eqId or itemId being unequipped.
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
-       unequipItem(entityId, itemId) {
-        // Find the eqId for this itemId
-        const items = this._equippedItems[entityId] || {};
-        const equippedEntry = Object.values(items).find(eq => eq.itemId === itemId);
-        if (!equippedEntry) {
-            Logger.warn(`[HoldingCostController] Item "${itemId}" is not equipped on entity "${entityId}".`);
-            return { success: false, message: `Item not equipped: ${itemId}` };
-        }
-        const { eqId } = equippedEntry;
+       unequipItem(entityId, lookupId) {
+         const items = this._equippedItems[entityId] || {};
+         
+         // Try eqId first, then fallback to itemId lookup
+         let equippedEntry = items[lookupId];
+         if (!equippedEntry) {
+             equippedEntry = Object.values(items).find(eq => eq.itemId === lookupId);
+         }
+         if (!equippedEntry) {
+             Logger.warn(`[HoldingCostController] ID "${lookupId}" is not equipped on entity "${entityId}".`);
+             return { success: false, message: `Not equipped: ${lookupId}` };
+         }
+         const { eqId } = equippedEntry;
         const equippedItem = equippedEntry;
 
         const { itemType, componentId } = equippedItem;
@@ -558,6 +562,15 @@ class HoldingCostController {
         if (this._preEquipStats[entityId]) {
             delete this._preEquipStats[entityId][eqId];
         }
+    }
+
+    /**
+     * Public wrapper for _cleanupTracking (§3.5.2).
+     * @param {string} entityId - The entity ID.
+     * @param {string} eqId - The equipped item ID.
+     */
+    cleanupEquippedItem(entityId, eqId) {
+        this._cleanupTracking(entityId, eqId);
     }
 }
 

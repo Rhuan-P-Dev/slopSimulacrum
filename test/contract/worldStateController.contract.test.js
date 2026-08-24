@@ -148,7 +148,6 @@ describe('WorldStateController public method surface', () => {
         'getActionsWithSynergy',
         'getAgentActionFeedback',
         'getAll',
-        'getAllEntities',
         'getAllEquippedItems',
         'getBestComponentForAction',
         'getCachedCapabilities',
@@ -158,6 +157,7 @@ describe('WorldStateController public method surface', () => {
         'getContainerItems',
         'getDroppedItems',
         'getDroppedItemsByRoom',
+        'getEntities',
         'getEntity',
         'getEntityItems',
         'getEquippedItem',
@@ -188,6 +188,7 @@ describe('WorldStateController public method surface', () => {
         'registerSelection',
         'registerSelections',
         'releaseSelection',
+        'removeBrokenComponent',
         'removeDroppedItem',
         'removeInternalComponent',
         'removeItemFromContainer',
@@ -337,14 +338,16 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity.spatial.x)).toBe('number');
             expect(typeOf(entity.spatial.y)).toBe('number');
 
-            // components array: each entry { id, identifier, type } (strings).
+            // components array: each entry { id, identifier, type, dependsOn } (strings).
+            // §3.6.2: dependsOn is additive — array of parent instance ids (root = []).
             expect(typeOf(entity.components)).toBe('array');
             expect(entity.components.length).toBeGreaterThan(0);
             for (const comp of entity.components) {
-                expect(keysOf(comp)).toEqual(['id', 'identifier', 'type']);
+                expect(keysOf(comp)).toEqual(['dependsOn', 'id', 'identifier', 'type']);
                 expect(typeOf(comp.id)).toBe('string');
                 expect(typeOf(comp.type)).toBe('string');
                 expect(typeOf(comp.identifier)).toBe('string');
+                expect(typeOf(comp.dependsOn)).toBe('array');
             }
         }
     });
@@ -368,12 +371,12 @@ describe('WorldStateController.getAll() shape', () => {
     });
 
     // =========================================================================
-    // (c) New public methods — getAllEntities() / getActionRegistry()
+    // (c) New public methods — getEntities() / getActionRegistry()
     // =========================================================================
 
-    describe('WorldStateController.getAllEntities()', () => {
+    describe('WorldStateController.getEntities()', () => {
         it('returns an object (entity map) with string-keyed entries', () => {
-            const entities = wsc.getAllEntities();
+            const entities = wsc.getEntities();
 
             expect(typeOf(entities)).toBe('object');
             const ids = Object.keys(entities);
@@ -388,11 +391,11 @@ describe('WorldStateController.getAll() shape', () => {
         });
 
         it('returns a deep clone (mutation does not affect internal state)', () => {
-            const entities1 = wsc.getAllEntities();
+            const entities1 = wsc.getEntities();
             // Mutate the returned object.
             entities1['__muted'] = true;
 
-            const entities2 = wsc.getAllEntities();
+            const entities2 = wsc.getEntities();
             expect(entities2).not.toHaveProperty('__muted');
         });
     });

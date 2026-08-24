@@ -511,6 +511,16 @@ class InventoryManager {
     }
 
     /**
+     * Public wrapper for _collectNestedItems (§3.5.1).
+     * @param {Object} entity - The entity object.
+     * @param {string} parentId - The parent item ID to collect from.
+     * @returns {Array} Deep copy of nested items.
+     */
+    collectNestedItems(entity, parentId) {
+        return this._collectNestedItems(entity, parentId);
+    }
+
+    /**
      * Removes an item and all its descendants from entity.items.
      * @param {Object} entity - The entity object
      * @param {string} itemId - The item ID to remove (and all descendants)

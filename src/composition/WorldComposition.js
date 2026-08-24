@@ -76,6 +76,11 @@ import ActionController from '../controllers/actions/actionController.js';
 import stateEntityController from '../controllers/core/stateEntityController.js';
 import HoldingCostController from '../controllers/core/HoldingCostController.js';
 
+// Trigger system (§3.2 — component:broke event pipeline).
+import TriggerController from '../controllers/triggers/TriggerController.js';
+import BrokenComponentRemovalHandler from '../controllers/triggers/BrokenComponentRemovalHandler.js';
+import KnifeDropTriggerHandler from '../controllers/triggers/KnifeDropTriggerHandler.js';
+
 // Hint system (logic controller; facade injected later).
 import HintController from '../controllers/hints/HintController.js';
 
@@ -172,6 +177,9 @@ export function buildWorldState(tickSystem = null) {
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
 
+    // §3.2: TriggerController — constructed before facade, façade injected later.
+    const triggerController = new TriggerController();
+
     // =========================================================================
     // 2. CONSTRUCT THE FACADE with the already-built sub-controllers (injection).
     //    The facade no longer instantiates anything itself.
@@ -200,7 +208,9 @@ export function buildWorldState(tickSystem = null) {
         // NOTE: the imported class is `stateEntityController` (lowercase), so the
         // built instance is referenced explicitly by its local name here.
         stateEntityController: stateEntityControllerInstance,
-        holdingCostController
+        holdingCostController,
+        // §5: trigger controller for component:broke events
+        triggerController
     });
 
     // =========================================================================
@@ -221,6 +231,17 @@ export function buildWorldState(tickSystem = null) {
     turnSystemController.setWorldStateController(worldStateController);
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);
+    
+    // §3.2/§5: TriggerController — inject façade + broadcaster, register handlers.
+    // Handler order matters: BrokenComponentRemovalHandler 1º, KnifeDropTriggerHandler 2º.
+    triggerController.setWorldStateController(worldStateController);
+    // Broadcaster will be injected after setBroadcastService is called on the facade.
+    // Register handlers in deterministic order.
+    const brokenComponentRemovalHandler = new BrokenComponentRemovalHandler({ worldStateController });
+    const knifeDropTriggerHandler = new KnifeDropTriggerHandler({ worldStateController });
+    triggerController.on('component:broke', (payload) => brokenComponentRemovalHandler.handle(payload));
+    triggerController.on('component:broke', (payload) => knifeDropTriggerHandler.handle(payload));
+    
     // Feature D backend: the room chat layer needs the facade for room
     // existence checks (sendMessage → ROOM_NOT_FOUND). No subControllers
     // map entry on purpose — it has no getAll() and must stay out of the

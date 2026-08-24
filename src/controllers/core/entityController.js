@@ -8,6 +8,10 @@ import DataLoader from '../../utils/DataLoader.js';
  * 
  * Blueprints are data-driven: loaded from data/blueprints.json at runtime
  * via the DataLoader utility, following the data-driven design principle.
+ * 
+ * §3.6.2 dependsOn: expandBlueprint builds a tree structure with parent
+ * references; createEntityFromBlueprint flattens it and resolves
+ * `dependsOn: [parentInstanceId]` after ids are generated.
  */
 class EntityController {
     constructor(componentController, blueprints = null) {
@@ -20,78 +24,111 @@ class EntityController {
 
     /**
      * Recursively expands a blueprint into a flat list of component definitions.
-     * Uses a per-branch visited set to prevent infinite recursion while allowing
-     * the same blueprint to be expanded in different branches (e.g., left and right arms).
+     * Uses a per-branch visited set to prevent infinite recursion.
+     * 
+     * §3.6.2: returns array of [compName, identifier, parentFlatIndex] where
+     * parentFlatIndex is -1 for roots or the absolute index of the parent
+     * in the resulting flat list.
+     * 
      * @param {string} blueprintName - The name of the blueprint to expand.
-     * @param {Set<string>} [visited] - Set of already-visited blueprint names to prevent infinite recursion.
+     * @param {Set<string>} [visited] - Set of already-visited blueprint names.
+     * @param {number} [parentFlatIndex=-1] - Absolute flat-list index of parent.
+     * @param {Array} [result=[]] - Accumulator for the flat list.
      * @returns {Array} A list of components needed for the entity.
      */
-    expandBlueprint(blueprintName, visited = new Set()) {
+    expandBlueprint(blueprintName, visited = new Set(), parentFlatIndex = -1, result = []) {
         if (visited.has(blueprintName)) {
-            // Prevent infinite recursion for leaf-only blueprints (e.g., knife)
-            return [];
+            return result;
         }
 
-        const components = [];
         const blueprint = this.blueprints[blueprintName];
 
         if (!blueprint) {
             throw new Error(`Blueprint ${blueprintName} not found in EntityController.`);
         }
 
+        // Always take the passed-in visited set (default parameter is already a fresh Set);
+        // the `isNewCall` flag was always false, so this simplifies to a direct pass-through.
+        const branchVisited = visited;
+        branchVisited.add(blueprintName);
+
         for (const item of blueprint) {
             if (Array.isArray(item)) {
                 const [compName, identifier] = item;
-                // Always add the component itself
-                components.push([compName, identifier]);
+                // Current length = this component's future index
+                const myIndex = result.length;
                 
-                // If the component itself is also a blueprint, expand it to add its children
-                // Create a NEW visited set for each branch to allow sibling blueprints
-                // to be expanded independently (e.g., left and right arms both expanding droidArm)
+                // Add this component with parent reference
+                result.push([compName, identifier, parentFlatIndex]);
+                
+                // If the component itself is also a blueprint, expand it
                 if (this.blueprints[compName]) {
-                    const branchVisited = new Set(visited);
-                    branchVisited.add(blueprintName);
-                    components.push(...this.expandBlueprint(compName, branchVisited).map(c => 
-                        Array.isArray(c) ? [c[0], `${c[1]}_${identifier}`] : [c, identifier]
-                    ));
+                    const childVisited = new Set(branchVisited);
+                    childVisited.add(blueprintName);
+                    // Recursively get children — they use myIndex as parent
+                    this.expandBlueprint(compName, childVisited, myIndex, result);
+                    // Remap identifiers for children: append _${identifier}
+                    // Children were added after myIndex, so remap them
+                    for (let i = myIndex + 1; i < result.length; i++) {
+                        const c = result[i];
+                        if (Array.isArray(c) && c.length >= 2 && typeof c[1] === 'string') {
+                            result[i] = [c[0], `${c[1]}_${identifier}`, c[2]];
+                        }
+                    }
                 }
             } else {
-                // If it's a string, it might be a blueprint or a leaf component
                 const compName = item;
                 const identifier = "default";
+                const myIndex = result.length;
                 
-                // Always add the component itself
-                components.push([compName, identifier]);
+                // Add this component with parent reference
+                result.push([compName, identifier, parentFlatIndex]);
                 
-                // If the component itself is also a blueprint, expand it to add its children
-                // Create a NEW visited set for this branch
+                // If the component itself is also a blueprint, expand it
                 if (this.blueprints[compName]) {
-                    const branchVisited = new Set(visited);
-                    branchVisited.add(blueprintName);
-                    components.push(...this.expandBlueprint(compName, branchVisited));
+                    const childVisited = new Set(branchVisited);
+                    childVisited.add(blueprintName);
+                    this.expandBlueprint(compName, childVisited, myIndex, result);
                 }
             }
         }
-        return components;
+        return result;
     }
 
     /**
      * Creates a new entity instance based on a blueprint.
+     * §3.6.2: resolves parent-index propagation to `dependsOn: [parentInstanceId]`.
      * @param {string} blueprintName - The blueprint to use.
-     * @returns {Object} The created entity structure with instance IDs.
+     * @returns {Object} The created entity structure with instance IDs and dependsOn.
      */
     createEntityFromBlueprint(blueprintName) {
-        const flattenedComponents = this.expandBlueprint(blueprintName);
+        const flattenedComponentsWithParentIndex = this.expandBlueprint(blueprintName);
         const instanceComposition = [];
 
-        for (const [compType, identifier] of flattenedComponents) {
+        // First pass: generate all instance ids
+        for (const [compType, identifier] of flattenedComponentsWithParentIndex) {
             const instanceId = generateCompId();
-            this.componentController.initializeComponent(compType, instanceId);
             instanceComposition.push({
                 type: compType,
                 identifier: identifier,
                 id: instanceId
             });
+        }
+
+        // Second pass: resolve dependsOn from parent indices
+        for (let i = 0; i < instanceComposition.length; i++) {
+            const entry = flattenedComponentsWithParentIndex[i];
+            const parentIndex = entry[2]; // parent index from expandBlueprint
+            if (parentIndex >= 0 && parentIndex < instanceComposition.length) {
+                instanceComposition[i].dependsOn = [instanceComposition[parentIndex].id];
+            } else {
+                instanceComposition[i].dependsOn = [];
+            }
+        }
+
+        // Initialize all component stats
+        for (const comp of instanceComposition) {
+            this.componentController.initializeComponent(comp.type, comp.id);
         }
 
         return {

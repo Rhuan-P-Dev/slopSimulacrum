@@ -199,6 +199,46 @@ class stateEntityController {
         return structuredClone(this.entities);
     }
 
+    /**
+     * Finds the entity that owns a component by ID.
+     * Scans active entities and returns the first entity whose components array
+     * contains a component with the given ID, or null if not found.
+     * @param {string} componentId - The component instance ID to search for.
+     * @returns {Object|null} The owning entity data, or null.
+     */
+    findEntityByComponent(componentId) {
+        for (const entity of Object.values(this.entities)) {
+            if (entity?.components?.some(c => c.id === componentId)) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Removes a component from an entity's components array via filter (substitution, never in-place).
+     * §3.5.2(b): concurrent-safe removal — loop over old array is safe because we return new reference.
+     * @param {string} entityId - The entity ID.
+     * @param {string} componentId - The component instance ID to remove.
+     * @returns {boolean} True if the component was found and removed.
+     */
+    removeComponent(entityId, componentId) {
+        const entity = this.entities[entityId];
+        if (!entity) {
+            return false;
+        }
+
+        const originalLength = entity.components?.length || 0;
+        entity.components = (entity.components || []).filter(c => c.id !== componentId);
+
+        if (entity.components.length === originalLength) {
+            return false; // not found
+        }
+
+        Logger.info(`[stateEntityController] Removed component ${componentId} from entity ${entityId}.`);
+        return true;
+    }
+
     // =========================================================================
     // PERSISTENCE — snapshot restore (FASE 3)
     // =========================================================================

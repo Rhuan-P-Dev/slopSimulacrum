@@ -6,10 +6,67 @@
  *
  * Extracted from ConsequenceDispatcher to adhere to the Single Responsibility Principle.
  *
+ * §4.4: `writeDroppedItem` helper exported for reuse by handleDropItem,
+ * KnifeDropTriggerHandler, and BrokenComponentRemovalHandler spill.
+ *
  * @module DropItemHandler
  */
 
 import Logger from '../../utils/Logger.js';
+import { generateItemId } from '../../utils/idGenerator.js';
+
+/**
+ * Writes a dropped item record to the droppedItems map.
+ * §4.4: extracted from handleDropItem, parameterized by nestedItems (default []).
+ *
+ * @param {Object} worldState - Narrow-deps stub (not the full façade), implementing only:
+ *   `getDroppedItems(): object` — returns the dropped-items map;
+ *   `setDroppedItems(items: object)` — merges `items` into the map via Object.assign (batch accumulation).
+ *   The handler must not assume other WorldStateController methods exist on this dependency.
+ * @param {string} itemType - The item type string.
+ * @param {number} x - X coordinate.
+ * @param {number} y - Y coordinate.
+ * @param {string|null} roomId - Room ID for the dropped item.
+ * @param {string|null} ownerId - Owner entity ID.
+ * @param {Object} [itemDef={}] - Item registry definition (name, description, volume).
+ * @param {Array} [nestedItems=[]] - Nested items snapshot (default []).
+ * @returns {{ id: string, droppedItemId: string }}
+ */
+function writeDroppedItem(worldStateController, itemType, x, y, roomId, ownerId, itemDef = {}, nestedItems = []) {
+    // Defensive guard: reject falsy itemType to prevent silent junk entries.
+    if (!itemType) {
+        const entityId = ownerId || 'unknown';
+        Logger.warn(`[DropItemHandler] writeDroppedItem called with falsy itemType for entity ${entityId}; aborting.`);
+        return;
+    }
+
+    // FASE 9: ID gerado via generateItemId() + crypto.randomUUID() para unicidade.
+    const itemId = generateItemId();
+    
+    // FASE 9: usar itemDef passado (sem re-fetch que o sobrescreve)
+    const def = itemDef || {};
+
+    // Store dropped item at world coordinates
+    const droppedItems = worldStateController.getDroppedItems() || {};
+    const droppedItemId = `dropped-${crypto.randomUUID().slice(0, 12)}-${itemId.slice(0, 8)}`;
+    droppedItems[droppedItemId] = {
+        id: droppedItemId,
+        itemType: itemType,
+        itemId: itemId,
+        x: x,
+        y: y,
+        roomId: roomId ?? 'unassigned',
+        ownerId: ownerId,
+        name: def.name || itemType,
+        description: def.description || '',
+        volume: def.volume ?? 1,
+        nestedItems: nestedItems
+    };
+
+    // §3.5.3: gatear broadcast por cascata — setDroppedItems gatinga internamente
+    worldStateController.setDroppedItems(droppedItems);
+    return { id: itemId, droppedItemId };
+}
 
 /**
  * Handles the "dropItem" consequence type.
@@ -93,28 +150,21 @@ function handleDropItem(deps, params, context) {
         return { success: false, message: `Failed to remove item: ${inventoryResult.message}` };
     }
 
-    // Fetch item definition to include name, description, and volume in dropped item data
+    // Fetch item definition for fallback
     const itemRegistry = worldStateController.getItemRegistry();
     const itemDef = itemRegistry[usedItemType] || {};
 
-    // Store dropped item at world coordinates, including nested items if present
-    const droppedItems = worldStateController.getDroppedItems() || {};
-    const droppedItemId = `dropped-${Date.now()}-${itemId.slice(0, 8)}`;
-    droppedItems[droppedItemId] = {
-        id: droppedItemId,
-        itemType: usedItemType,
-        itemId: itemId,
-        x: targetX,
-        y: targetY,
-        roomId: entity.location || null,
-        ownerId: entityId,
-        name: itemDef.name || usedItemType,
-        description: itemDef.description || '',
-        volume: itemDef.volume || 1,
-        nestedItems: nestedItems
-    };
-
-    worldStateController.setDroppedItems(droppedItems);
+    // Use extracted helper to write the dropped item record
+    const { droppedItemId } = writeDroppedItem(
+        worldStateController,
+        usedItemType,
+        targetX,
+        targetY,
+        entity.location || null,
+        entityId,
+        itemDef,
+        nestedItems
+    );
 
     Logger.info(`[DropItemHandler] Dropped item "${usedItemType}" (${itemId}) at (${targetX}, ${targetY}) with ${nestedItems.length} nested item(s).`);
     return { success: true, droppedItemId };
@@ -146,4 +196,4 @@ function validateParams(params) {
     return { valid: true };
 }
 
-export { handleDropItem, validateParams };
+export { handleDropItem, validateParams, writeDroppedItem };
