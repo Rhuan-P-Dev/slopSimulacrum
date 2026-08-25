@@ -1,4 +1,6 @@
 import ClientLogger from '/utils/ClientLogger.js';
+import MaterialRegistry from './MaterialRegistry.js';
+
 /**
  * InventoryManager - Client-side inventory management module.
  * Manages the inventory overlay panel displaying entity components as containers
@@ -483,6 +485,7 @@ export class InventoryManager {
             const percentageStr = displayVolume > 0 ? '100' : '0';
             const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
             const isEquipped = this._isEquippedByItemId(item.id);
+            const materialBadges = MaterialRegistry.formatBadges(item.type);
 
             // Build equip/unequip button only for items with holding cost
             let equipButtonHtml = '';
@@ -552,6 +555,7 @@ export class InventoryManager {
                      data-parent-host-id="${hostId}"
                      title="${isContainer ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">
                     <span class="drag-handle">${isContainer ? '📦' : '⠿'}</span>
+                    ${materialBadges ? `<div class="inventory-materials-row">${materialBadges}</div>` : ''}
                     <span class="inventory-item-name">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${displayVolume}v</span>
                     <button class="equip-btn stats-toggle"

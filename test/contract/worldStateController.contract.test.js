@@ -171,6 +171,7 @@ describe('WorldStateController public method surface', () => {
         'getItemRegistry',
         'getItemStats',
         'getLockedComponents',
+        'getMaterialRegistry',
         'getRecentEvents',
         'getRoomChatMessages',
         'getRoomUidByLogicalId',

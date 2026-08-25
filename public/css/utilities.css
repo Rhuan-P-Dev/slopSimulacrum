@@ -10,3 +10,26 @@
 /* Detail card utilities */
 .detail-subheader { color: var(--text-dim); margin: 5px 0 0 0; }
 
+/* Material badges (shared: ComponentViewer + Inventory) */
+.material-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: rgba(0, 255, 128, 0.1);
+    border: 1px solid rgba(0, 255, 128, 0.4);
+    border-radius: 3px;
+    font-size: 0.78em;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--neon-green);
+    white-space: nowrap;
+    cursor: help;
+    transition: all 0.15s ease;
+}
+
+.material-badge:hover {
+    background: rgba(0, 255, 128, 0.2);
+    border-color: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 128, 0.3);
+}
+

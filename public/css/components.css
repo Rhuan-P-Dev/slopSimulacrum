@@ -350,3 +350,18 @@
 .nav-actions-content {
     /* Inherits existing .room-info + .action-section styling */
 }
+
+/* =========================================================================
+   Material Badge Styles (ComponentViewer)
+   ========================================================================= */
+
+.component-materials-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    background: rgba(0, 255, 255, 0.05);
+    border-left: 2px solid var(--neon-cyan);
+    align-items: center;
+}

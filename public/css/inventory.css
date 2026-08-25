@@ -608,3 +608,19 @@
     color: var(--text-dim);
     opacity: 0.6;
 }
+
+/* =========================================================================
+   Material Badge Styles (InventoryManager)
+   ========================================================================= */
+
+.inventory-materials-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 8px;
+    margin: 4px 0;
+    background: rgba(0, 255, 255, 0.03);
+    border-left: 2px solid var(--neon-cyan);
+    align-items: center;
+    font-size: 0.85em;
+}
