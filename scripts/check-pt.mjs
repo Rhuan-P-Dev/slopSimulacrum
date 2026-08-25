@@ -183,15 +183,16 @@ async function* walkDir(dirPath, baseDir) {
  * @param {string} absPath - Absolute path to file
  */
 async function isBinaryFile(absPath) {
+  const fd = await openFile(absPath, 'r');
   try {
-    const fd = await openFile(absPath, 'r');
     const buf = Buffer.alloc(1024);
     const { bytesRead } = await fd.read(buf, 0, 1024, 0);
-    fd.close();
     // Only check the bytes that were actually read (uninitialized buffer regions are null)
     return buf.subarray(0, bytesRead).indexOf(0x00) !== -1;
-  } catch {
+  } catch (err) {
     return false; // If we can't read it, skip gracefully
+  } finally {
+    await fd.close();
   }
 }
 

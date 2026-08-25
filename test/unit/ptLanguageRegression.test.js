@@ -18,7 +18,6 @@ describe('Portuguese Language Regression Scanner', () => {
   });
 
   it('integration: should find no Portuguese in the clean repo', async () => {
-    const projectRoot = join(import.meta.url, '../../..').replace(/\/index\.js$/, '');
     // Use '.' to scan from project root (scanForPT resolves relative to PROJECT_ROOT internally)
     const { matches } = await scanForPT(['.']);
     expect(matches).toHaveLength(0);
