@@ -8,6 +8,9 @@
  *
  * @module ComponentViewer
  */
+import MaterialRegistry from './MaterialRegistry.js';
+import ClientLogger from '/utils/ClientLogger.js';
+
 export class ComponentViewer {
     /**
      * Creates a new ComponentViewer.
@@ -35,6 +38,8 @@ export class ComponentViewer {
         this._internalComponentCache = {};
         /** @private {Object<string, boolean>} */
         this._expandedInternalComponents = {};
+        /** @private {number} Render generation for stale-write prevention */
+        this._renderGeneration = 0;
     }
 
     /**
@@ -78,7 +83,10 @@ export class ComponentViewer {
         this._internalComponentCache = {};
         this._expandedInternalComponents = {};
 
-        this._renderComponentGrid(entity, state);
+        this._renderGeneration = (this._renderGeneration || 0) + 1;
+        this._renderComponentGrid(entity, state).catch((error) => {
+            ClientLogger.error('ComponentViewer', `Failed to render component grid: ${error.message}`);
+        });
         this._lastComponentId = entity.components?.[0]?.id || null;
         this.overlay.style.display = 'block';
 
@@ -91,6 +99,7 @@ export class ComponentViewer {
         if (this.overlay) {
             this.overlay.style.display = 'none';
         }
+        this._renderGeneration = (this._renderGeneration || 0) + 1;
     }
 
     /**
@@ -127,100 +136,110 @@ export class ComponentViewer {
      * @param {Object} state - The complete world state.
      * @private
      */
-             async _renderComponentGrid(entity, state) {
-        if (!this._content) return;
+   async _renderComponentGrid(entity, state) {
+       const generation = this._renderGeneration;
 
-        // Preserve scroll position of the actual scrollable container (the overlay panel)
-        const previousScrollTop = this.overlay ? this.overlay.scrollTop : 0;
+       if (!this._content) return;
 
-        const instances = state?.components?.instances || {};
+       // Ensure material registry is loaded for badge rendering
+       await MaterialRegistry.ensureLoaded();
 
-        // Internal components are stored directly on the entity object as entity.internalComponents
-        // { [hostComponentId]: [internalComponentInstances] }
-        // This is the same source that the map's internal component rendering uses.
-        // We must NOT use state.internalComponents[entity.id] because that structure may not
-        // be synchronized with the entity object's internalComponents property.
-        const entityInternalComponents = entity?.internalComponents || {};
+       // Abort if superseded by a newer show()/hide() call
+       if (generation !== this._renderGeneration) return;
 
-        let html = '<div class="component-viewer-grid">';
+       // Preserve scroll position of the actual scrollable container (the overlay panel)
+       const previousScrollTop = this.overlay ? this.overlay.scrollTop : 0;
 
-        for (const comp of entity.components) {
-            const stats = instances[comp.id] || {};
-            const statsHtml = this._renderStatsAsBadges(stats, comp.id);
+       const instances = state?.components?.instances || {};
 
-            // Check if this component has internal components from the entity object
-            const compInternalComps = entityInternalComponents[comp.id] || [];
-            const hasInternalComps = compInternalComps.length > 0;
+       // Internal components are stored directly on the entity object as entity.internalComponents
+       // { [hostComponentId]: [internalComponentInstances] }
+       // This is the same source that the map's internal component rendering uses.
+       // We must NOT use state.internalComponents[entity.id] because that structure may not
+       // be synchronized with the entity object's internalComponents property.
+       const entityInternalComponents = entity?.internalComponents || {};
 
-            html += `
-                <div class="component-card" data-comp-id="${comp.id}">
-                    <div class="component-card-header">
-                        <span class="component-card-type">${comp.type}</span>
-                        <span class="component-card-id">${comp.identifier}</span>
-                        ${hasInternalComps ? `<button class="component-internal-btn" data-comp-id="${comp.id}" title="View internal components">🔮</button>` : ''}
-                        <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component">➕</button>
-                    </div>
-                    <div class="component-card-stats">
-                        ${statsHtml || '<em class="component-stats-placeholder">No stats</em>'}
-                    </div>
-                    ${hasInternalComps ? `<div class="component-internal-container" data-comp-id="${comp.id}" style="display: none;"></div>` : ''}
-                </div>`;
-        }
+       let html = '<div class="component-viewer-grid">';
 
-        html += '</div>';
-        this._content.innerHTML = html;
+       for (const comp of entity.components) {
+           const stats = instances[comp.id] || {};
+           const statsHtml = this._renderStatsAsBadges(stats, comp.id);
+           const materialBadges = MaterialRegistry.formatBadges(comp.type);
 
-        // Restore scroll position on the overlay, clamped to the new scroll height
-        if (this.overlay) {
-            this.overlay.scrollTop = Math.min(previousScrollTop, this.overlay.scrollHeight);
-        }
+           // Check if this component has internal components from the entity object
+           const compInternalComps = entityInternalComponents[comp.id] || [];
+           const hasInternalComps = compInternalComps.length > 0;
 
-        // Attach event listeners for the add-stat buttons
-        this._content.querySelectorAll('.component-add-stat-btn').forEach((btn) => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                this._onAddStatFromComponent(btn.dataset.compId);
-            };
-        });
+           html += `
+               <div class="component-card" data-comp-id="${comp.id}">
+                   <div class="component-card-header">
+                       <span class="component-card-type">${comp.type}</span>
+                       <span class="component-card-id">${comp.identifier}</span>
+                       ${hasInternalComps ? `<button class="component-internal-btn" data-comp-id="${comp.id}" title="View internal components">🔮</button>` : ''}
+                       <button class="component-add-stat-btn" data-comp-id="${comp.id}" title="Add stat bar from this component">➕</button>
+                   </div>
+                   ${materialBadges ? `<div class="component-materials-row">${materialBadges}</div>` : ''}
+                   <div class="component-card-stats">
+                       ${statsHtml || '<em class="component-stats-placeholder">No stats</em>'}
+                   </div>
+                   ${hasInternalComps ? `<div class="component-internal-container" data-comp-id="${comp.id}" style="display: none;"></div>` : ''}
+               </div>`;
+       }
 
-        // Attach click listeners to stat badges to open add dialog pre-filled with that stat's current value
-        this._content.querySelectorAll('.component-stat-clickable').forEach((badge) => {
-            badge.onclick = (e) => {
-                e.stopPropagation();
-                this._statBarsManager.openAddDialog({
-                    componentId: badge.dataset.compId,
-                    trait: badge.dataset.trait,
-                    stat: badge.dataset.stat,
-                    max: parseFloat(badge.dataset.value) || 0,
-                    label: `${this._getComponentLabel(badge.dataset.compId)}.${badge.dataset.trait}.${badge.dataset.stat}`,
-                    color: '',
-                });
-            };
-        });
+       html += '</div>';
+       this._content.innerHTML = html;
 
-        // Attach event listeners for the internal component buttons
-        this._content.querySelectorAll('.component-internal-btn').forEach((btn) => {
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                this._onToggleInternalComponents(btn.dataset.compId, entity.internalComponents);
-            };
-        });
+       // Restore scroll position on the overlay, clamped to the new scroll height
+       if (this.overlay) {
+           this.overlay.scrollTop = Math.min(previousScrollTop, this.overlay.scrollHeight);
+       }
 
-        // Attach click listener to component cards for pick-up flow
-        this._content.querySelectorAll('.component-card').forEach((card) => {
-            card.onclick = (e) => {
-                // Don't trigger if clicking a button
-                if (e.target.tagName === 'BUTTON') return;
-                const compId = card.dataset.compId;
-                if (compId && this._onPickUpComponentClick) {
-                    this._onPickUpComponentClick(compId, entity);
-                }
-            };
-        });
+       // Attach event listeners for the add-stat buttons
+       this._content.querySelectorAll('.component-add-stat-btn').forEach((btn) => {
+           btn.onclick = (e) => {
+               e.stopPropagation();
+               this._onAddStatFromComponent(btn.dataset.compId);
+           };
+       });
 
-        // Attach trait label hover/click interaction listeners
-        this._attachTraitInteractionListeners();
-    }
+       // Attach click listeners to stat badges to open add dialog pre-filled with that stat's current value
+       this._content.querySelectorAll('.component-stat-clickable').forEach((badge) => {
+           badge.onclick = (e) => {
+               e.stopPropagation();
+               this._statBarsManager.openAddDialog({
+                   componentId: badge.dataset.compId,
+                   trait: badge.dataset.trait,
+                   stat: badge.dataset.stat,
+                   max: parseFloat(badge.dataset.value) || 0,
+                   label: `${this._getComponentLabel(badge.dataset.compId)}.${badge.dataset.trait}.${badge.dataset.stat}`,
+                   color: '',
+               });
+           };
+       });
+
+       // Attach event listeners for the internal component buttons
+       this._content.querySelectorAll('.component-internal-btn').forEach((btn) => {
+           btn.onclick = (e) => {
+               e.stopPropagation();
+               this._onToggleInternalComponents(btn.dataset.compId, entity.internalComponents);
+           };
+       });
+
+       // Attach click listener to component cards for pick-up flow
+       this._content.querySelectorAll('.component-card').forEach((card) => {
+           card.onclick = (e) => {
+               // Don't trigger if clicking a button
+               if (e.target.tagName === 'BUTTON') return;
+               const compId = card.dataset.compId;
+               if (compId && this._onPickUpComponentClick) {
+                   this._onPickUpComponentClick(compId, entity);
+               }
+           };
+       });
+
+       // Attach trait label hover/click interaction listeners
+       this._attachTraitInteractionListeners();
+   }
 
     /**
      * Renders stats as clickable badges.

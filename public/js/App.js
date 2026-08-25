@@ -35,6 +35,7 @@ import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
 import { EventLogPanel } from './EventLogPanel.js';
 import { HintManager } from './HintManager.js';
+import MaterialRegistry from './MaterialRegistry.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
@@ -617,6 +618,9 @@ export class ClientApp {
             this.inventory.init();
             this.dropSelector.init();
             this.pickUpOverlay.init();
+
+            // Fire-and-forget: preload material registry for inventory badges
+            MaterialRegistry.load();
 
             // Wire drop selector to inventory manager
             this.inventory.setDropSelector(this.dropSelector);
