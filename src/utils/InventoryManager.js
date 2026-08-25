@@ -9,7 +9,14 @@ import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
 
 class InventoryManager {
-    constructor() {
+    constructor(options = {}) {
+        /**
+         * Optional MaterialController for deriving trait stats from material compositions.
+         * When null, items are created with raw blueprint traits (backward-compatible).
+         * @type {import('../controllers/materials/MaterialController.js')|null}
+         */
+        this._materialController = options.materialController ?? null;
+
         /**
          * Item type definitions loaded from data/inventoryItems.json
          * Format: { [itemType]: { name, description, volume, traits } }
@@ -33,6 +40,65 @@ class InventoryManager {
          * @type {Object}
          */
         this._inventory = {};
+    }
+
+    /**
+     * Merges material-derived stats under blueprint trait overrides.
+     * Material layer sits below blueprint overrides — blueprint wins on conflict.
+     * Global defaults are NOT injected (items never carried them; doing so would
+     * flood the panel with irrelevant stats like temperature/strength).
+     * @param {Object} itemDef - The item definition from inventoryItems.json.
+     * @returns {Object} Merged traits object.
+     * @private
+     */
+    _mergeItemTraits(itemDef) {
+        const traits = itemDef.traits ? structuredClone(itemDef.traits) : {};
+
+        if (!this._materialController || !Array.isArray(itemDef.materials) || itemDef.materials.length === 0) {
+            return traits; // backward-compatible passthrough
+        }
+
+        try {
+            const derived = this._materialController.derive(itemDef);
+            for (const [traitId, stats] of Object.entries(derived)) {
+                traits[traitId] = { ...stats, ...(traits[traitId] || {}) }; // blueprint wins
+            }
+        } catch (error) {
+            Logger.warn(`[InventoryManager] Failed to derive material traits for "${itemDef.name}" (${itemDef.type}): ${error.message}. Using raw blueprint traits.`);
+        }
+
+        return traits;
+    }
+
+    /**
+     * Re-derives material traits for item instances after a snapshot restore.
+     * Fill-only (wiki/subMDs/data/materials.md, resyncItemTraits section): keys already present in the
+     * persisted item.traits are PRESERVED; only missing keys are filled from blueprint ⊕ material-derived.
+     * Non-destructive by contract — data re-tuning does not retroactively change already-persisted items;
+     * new items pick up new values on first spawn. This stays safe even if a future feature mutates
+     * item traits at runtime (an implicit, undocumented invariant we now enforce explicitly).
+     * @returns {void}
+     */
+    resyncItemTraits() {
+        if (!this._materialController) return;
+        for (const entityId of Object.keys(this._inventory)) {
+            const entityInv = this._inventory[entityId];
+            if (!entityInv) continue;
+            for (const [itemId, item] of Object.entries(entityInv)) {
+                if (!item.type) continue;
+                const itemDef = this._itemDefinitions[item.type];
+                if (!itemDef || !Array.isArray(itemDef.materials) || itemDef.materials.length === 0) continue;
+                const derivedTraits = this._mergeItemTraits(itemDef);
+                if (!derivedTraits) continue;
+                if (!item.traits) item.traits = {};
+                for (const [group, stats] of Object.entries(derivedTraits)) {
+                    if (!item.traits[group] || typeof item.traits[group] !== 'object') item.traits[group] = {};
+                    for (const [key, value] of Object.entries(stats)) {
+                        if (item.traits[group][key] === undefined) item.traits[group][key] = value;
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -142,7 +208,7 @@ class InventoryManager {
             volume: itemDef.volume,
             hostVolume: hostVolume,
             externalVolume: itemDef.externalVolume ?? null,
-            traits: itemDef.traits ? structuredClone(itemDef.traits) : {},
+            traits: this._mergeItemTraits(itemDef),
             hostComponentId: hostComponentId
         };
 
@@ -585,7 +651,7 @@ class InventoryManager {
             type: itemType,
             name: itemDef.name,
             volume: itemDef.volume,
-            traits: itemDef.traits ? structuredClone(itemDef.traits) : {},
+            traits: this._mergeItemTraits(itemDef),
             hostComponentId: containerItemId
         };
 
