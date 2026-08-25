@@ -31,29 +31,33 @@ class TraitsController {
     /**
      * Performs the Merge Process to calculate the final state of a component.
      * Final Value = Component Override || Global Default Value.
-     * 
-     * Merge algorithm:
+     *
+     * Merge algorithm (4-layer order):
      * 1. Start with global defaults for each trait
-     * 2. Overlay blueprint overrides on top
-     * 3. Return the merged result
-     * 
+     * 2. Overlay material-derived stats (if provided — from MaterialController)
+     * 3. Overlay blueprint overrides on top (blueprint wins over materials)
+     * 4. Return the merged result
+     *
      * @param {Object<string, Object<string, any>>} blueprintTraits - Map of traitId → propertyKey → overrideValue.
+     * @param {Object<string, Object<string, any>>} [materialDerived=null] - Optional material-derived stats from MaterialController.derive().
      * @returns {Object<string, Object<string, any>>} The merged stats object with all defaults applied.
      */
-    mergeTraits(blueprintTraits) {
+    mergeTraits(blueprintTraits, materialDerived = null) {
         const finalStats = {};
 
-        // Iterate through all traits defined in the blueprint
-        for (const [traitId, overrides] of Object.entries(blueprintTraits)) {
-            const globalDefaults = this.globalTraits[traitId] || {};
-            
-            // Initialize the trait category in the final stats
-            finalStats[traitId] = { ...globalDefaults };
+        // Collect all trait keys from blueprint and material-derived only (Fix 4: union of blueprint groups ∪ material-derived groups).
+        // Global defaults are still used as the base for each key, but we only iterate keys that appear in blueprint or material-derived.
+        const blueprintKeys = Object.keys(blueprintTraits || {});
+        const derivedKeys = materialDerived ? Object.keys(materialDerived) : [];
+        const allTraitKeys = new Set([...blueprintKeys, ...derivedKeys]);
 
-            // Apply overrides from the blueprint
-            for (const [propertyKey, overrideValue] of Object.entries(overrides)) {
-                finalStats[traitId][propertyKey] = overrideValue;
-            }
+        for (const traitId of allTraitKeys) {
+            const globalDefaults = this.globalTraits[traitId] || {};
+            const derivedStats = materialDerived && materialDerived[traitId] ? materialDerived[traitId] : {};
+            const blueprintOverrides = blueprintTraits[traitId] || {};
+
+            // Layer 1: global defaults → Layer 2: material-derived → Layer 3: blueprint overrides (blueprint wins)
+            finalStats[traitId] = { ...globalDefaults, ...derivedStats, ...blueprintOverrides };
         }
 
         return finalStats;
