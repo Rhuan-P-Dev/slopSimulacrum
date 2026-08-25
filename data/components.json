@@ -1,9 +1,12 @@
 {
-  "centralBall": { 
-    "traits": { 
+  "centralBall": {
+    "materials": [
+      { "material": "iron", "fraction": 1.0 }
+    ],
+    "traits": {
       "Physical": { "mass": 20, "durability": 100, "volume": 10 },
       "Spatial": { "x": 0, "y": 0 }
-    } 
+    }
   },
   "droidHead": { 
     "traits": { 

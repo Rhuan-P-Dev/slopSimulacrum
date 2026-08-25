@@ -5,7 +5,8 @@
     "volume": 1,
     "temperature": 20,
     "strength": 10,
-    "sharpness": 10
+    "sharpness": 10,
+    "flammability": 0
   },
   "Mind": {
     "think_level": 10
@@ -14,9 +15,7 @@
     "x": 0,
     "y": 0
   },
-  "Movement": {
-    "move": 10
-  },
+  "Movement": {},
   "Manipulation": {
     "fine_controls": 10
   }

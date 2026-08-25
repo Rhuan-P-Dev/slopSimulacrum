@@ -1,0 +1,17 @@
+{
+  "Physical.mass": {
+    "formula": "densityVolume"
+  },
+  "Physical.durability": {
+    "sources": {
+      "wearResistance": 0.5,
+      "impactResistance": 0.3,
+      "cutResistance": 0.2
+    }
+  },
+  "Physical.flammability": {
+    "sources": {
+      "flammability": 1.0
+    }
+  }
+}

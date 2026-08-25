@@ -51,6 +51,10 @@
     "name": "Knife",
     "description": "A sharp blade capable of cutting.",
     "volume": 1,
+    "materials": [
+      { "material": "iron", "fraction": 0.6, "role": "blade" },
+      { "material": "wood", "fraction": 0.4, "role": "handle" }
+    ],
     "traits": {
       "Physical": { "durability": 30, "sharpness": 50 }
     }
@@ -59,6 +63,9 @@
     "name": "Metal Box",
     "description": "A sturdy container for storing small items.",
     "volume": 10,
+    "materials": [
+      { "material": "iron", "fraction": 1.0 }
+    ],
     "traits": {
       "Physical": { "mass": 2, "durability": 100 }
     }
@@ -67,6 +74,9 @@
     "name": "Tool Crate",
     "description": "A large wooden crate for organizing tools.",
     "volume": 30,
+    "materials": [
+      { "material": "wood", "fraction": 1.0 }
+    ],
     "traits": {
       "Physical": { "mass": 5, "durability": 60 }
     }
