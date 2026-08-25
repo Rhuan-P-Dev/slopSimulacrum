@@ -49,6 +49,7 @@ import { WORLD_EVENTS_MAX_LIMIT } from '../utils/Constants.js';
 import ComponentStatsController from '../controllers/core/componentStatsController.js';
 import TraitsController from '../controllers/traits/TraitsController.js';
 import InternalComponentController from '../controllers/core/InternalComponentController.js';
+import MaterialController from '../controllers/materials/MaterialController.js';
 
 // Logic controllers (depend on data stores)
 import ComponentController from '../controllers/core/componentController.js';
@@ -129,9 +130,28 @@ export function buildWorldState(tickSystem = null) {
     // --- Layer 0: data stores (no controller deps) ---
     const statsController = new ComponentStatsController();
     const traitsController = new TraitsController(traitsRegistry);
+    const materialController = new MaterialController(
+        DataLoader.loadJsonSafe('data/materials.json', {}),
+        DataLoader.loadJsonSafe('data/propertyTraitMapping.json', {})
+    );
+
+    // =========================================================================
+    // 0.5: FAIL-FAST STARTUP VALIDATION — validate all compositions now,
+    //      not mid-game. Component and inventory-item registries are loaded;
+    //      any data defect throws TypeError here (boot failure).
+    // =========================================================================
+    const inventoryItemRegistry = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+    for (const [type, def] of Object.entries(componentRegistry)) {
+        if (def.materials) materialController.validateComposition(type, def.materials);
+    }
+    for (const [type, def] of Object.entries(inventoryItemRegistry)) {
+        if (def.materials) materialController.validateComposition(type, def.materials);
+    }
+
+    Logger.info(`[WorldComposition] Startup validation passed: ${Object.keys(componentRegistry).length} components, ${Object.keys(inventoryItemRegistry).length} inventory items`);
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
-    const inventoryManager = new InventoryManager();
+    const inventoryManager = new InventoryManager({ materialController });
     // Feature B: world event ring buffer (state owner; capacity WORLD_EVENTS_MAX_LIMIT per spec §4.1)
     const worldEventLogController = new WorldEventLogController(WORLD_EVENTS_MAX_LIMIT);
     // Feature E: per-agent action-outcome feedback store (capacity 5 per agent).
@@ -144,7 +164,7 @@ export function buildWorldState(tickSystem = null) {
     const equippedItemStats = new EquippedItemStatsController();
 
     // --- Layer 1: logic controllers (depend on data stores + registries) ---
-    const componentController = new ComponentController(statsController, traitsController, componentRegistry);
+    const componentController = new ComponentController(statsController, traitsController, componentRegistry, materialController);
     const entityController = new EntityController(componentController, blueprintRegistry);
 
     // --- Layer 2: facade-independent top-level controllers ---
@@ -218,7 +238,10 @@ export function buildWorldState(tickSystem = null) {
         // §5: trigger controller for component:broke events
         triggerController,
         // InstinctController: stateless behavior-primitive generator (null-tolerant).
-        instinctController
+        instinctController,
+        // MaterialController: provides static material definitions + compositions
+        // to the client via getMaterialRegistry() / GET /materials/registry.
+        materialController
     });
 
     // =========================================================================

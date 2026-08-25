@@ -11,10 +11,11 @@ import Logger from '../../utils/Logger.js';
  * (e.g., ActionController) can re-evaluate action capabilities when stats change.
  */
 class ComponentController {
-    constructor(statsController, traitsController, componentRegistry) {
+    constructor(statsController, traitsController, componentRegistry, materialController = null) {
         this.statsController = statsController;
         this.traitsController = traitsController;
         this.componentRegistry = componentRegistry || {};
+        this.materialController = materialController;
         
         // Stat change subscribers (observer pattern for action capability re-evaluation)
         this._statChangeListeners = [];
@@ -73,7 +74,7 @@ class ComponentController {
             throw new Error(`Component type ${componentType} is not registered in ComponentController.`);
         }
   
-        // Merge Process: Blueprint Overrides + Global Defaults
+        // Merge Process: Global Defaults ← Material-Derived ← Blueprint Overrides
         // We incorporate initialOverrides into the blueprint traits for the merge
         const mergeInput = { ...blueprint.traits };
         
@@ -82,7 +83,17 @@ class ComponentController {
             mergeInput[traitId] = { ...(mergeInput[traitId] || {}), ...properties };
         }
 
-        const finalStats = this.traitsController.mergeTraits(mergeInput);
+        // Fail-safe: on derivation failure, fall back to blueprint/global traits (mirrors InventoryManager semantics).
+        let materialDerived = null;
+        if (this.materialController && blueprint.materials) {
+            try {
+                materialDerived = this.materialController.derive(blueprint);
+            } catch (error) {
+                Logger.warn(`[ComponentController] Material derivation failed for "${componentType}", using blueprint traits: ${error.message}`);
+            }
+        }
+
+        const finalStats = this.traitsController.mergeTraits(mergeInput, materialDerived);
 
         // Cache the result in the stats controller
         this.statsController.setStats(instanceId, finalStats);
@@ -162,6 +173,15 @@ class ComponentController {
             registry: structuredClone(this.componentRegistry),
             instances: this.statsController.getAll()
         };
+    }
+
+    /** @returns {Object<string,Array>} deep-cloned { [componentType]: materials[] } for types that declare materials */
+    getComponentMaterialsByType() {
+        const out = {};
+        for (const [type, def] of Object.entries(this.componentRegistry)) {
+            if (Array.isArray(def.materials)) out[type] = structuredClone(def.materials);
+        }
+        return out;
     }
 }
 
