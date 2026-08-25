@@ -24,7 +24,8 @@ The monolithic stylesheet was split into modules for three reasons:
 | `actions.css` | Action list and selection states |
 | `synergy.css` | Synergy preview and result display |
 | `components.css` | Component cards, durability bars, HUD |
-| `utilities.css` | Micro-utilities (text colors, alignment) |
+| `inventory.css` | Inventory item cards, drag-and-drop visual feedback, volume bars |
+| `utilities.css` | Micro-utilities (text colors, alignment) + shared cross-panel component styles (`.material-badge`) |
 | `feedback.css` | Error notifications, animations |
 | `internal-components.css` | Internal component rendering and viewer |
 

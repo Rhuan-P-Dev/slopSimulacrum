@@ -335,6 +335,16 @@ This was introduced to support the T1 weapon system, where the weapon needs a sm
 | `metalBox` | 10 | — | Container where footprint equals capacity |
 | `t1` | 10 | 1 | Compact weapon with internal ammo storage |
 
+## Material Trait Derivation
+
+Inventory items with a `materials` composition array receive material-derived trait stats via `MaterialController.derive()`. The derivation pipeline runs during `addItem()` through `_mergeItemTraits()` and after snapshot restore through `resyncItemTraits()`.
+
+### Fill-Only Resync Contract
+
+`resyncItemTraits()` uses a **fill-only** strategy: persisted `item.traits` keys are the source of truth; only *missing* keys are filled from blueprint ⊕ material-derived values. The invariant is: "persisted item.traits is the source of truth after restore; derivation is gap-filling only; item traits are not mutated at runtime by other systems." Data re-tuning does not retroactively change already-persisted items — new items pick up new values on first spawn.
+
+See [Materials System — resyncItemTraits](materials.md) for the full fill-only contract and trade-off discussion.
+
 ## Related Documentation
 
 - [Holding Cost System](holding_cost.md) — Equipped item debuffs that affect item stats
