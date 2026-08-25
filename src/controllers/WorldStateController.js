@@ -56,6 +56,7 @@ class WorldStateController {
      * @param {import('./hints/HintController.js')} deps.hintController
      * @param {import('../controllers/ai/InstinctController.js')} [deps.instinctController]
      * @param {import('./triggers/TriggerController.js')} [deps.triggerController]
+     * @param {import('./materials/MaterialController.js')} [deps.materialController]
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -99,6 +100,8 @@ class WorldStateController {
         this.llmAgentFeedbackController = deps.llmAgentFeedbackController ?? null;
         // InstinctController: stateless behavior-primitive generator (null-tolerant).
         this.instinctController = deps.instinctController ?? null;
+        /** @private {import('./materials/MaterialController.js')|null} */
+        this.materialController = deps.materialController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -877,8 +880,10 @@ class WorldStateController {
             this.componentController.statsController.componentStats = structuredClone(s.components);
 
             // 4. InventoryManager item index (entity.items already restored
-            //    with the entities above; this re-syncs the manager's index)
+            //    with the entities above; this re-syncs the manager's index).
+            //    Re-derive material traits for old-format snapshots that lack them.
             this.inventoryManager._inventory = structuredClone(s.inventory);
+            this.inventoryManager.resyncItemTraits();
 
             // 5. Equipped items + pre-equip undo bookkeeping
             this.holdingCostController._equippedItems = structuredClone(s.equipped);
@@ -1722,6 +1727,24 @@ class WorldStateController {
      */
     getHoldingCostRegistry() {
         return this.holdingCostController.getHoldingCostRegistry();
+    }
+
+    /**
+     * Returns the material definitions and blueprint compositions to the client.
+     * Static data — served via GET /materials/registry, never embedded in the
+     * mutable world state or persistence snapshot (static vs mutable separation).
+     * @returns {{ materials: Object, compositions: Object }}
+     */
+    getMaterialRegistry() {
+        const materials = this.materialController ? this.materialController.getMaterialsRegistry() : {};
+        const compositions = {};
+        if (this.componentController) Object.assign(compositions, this.componentController.getComponentMaterialsByType());
+        if (this.inventoryManager) {
+            for (const [type, def] of Object.entries(this.inventoryManager.getItemDefinitions())) {
+                if (Array.isArray(def.materials)) compositions[type] = def.materials; // getItemDefinitions() already deep-clones
+            }
+        }
+        return { materials, compositions };
     }
 
     // =========================================================================
