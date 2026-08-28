@@ -29,9 +29,13 @@
  * broadcast → refreshWorldAndActions() → refreshIfOpen(), so this panel
  * never applies manual inventory edits from the response.
  *
- * The pure pool/satisfaction logic is extracted as named exports at the
- * bottom of the header section and is unit-tested without any DOM
+ * The pure pool/satisfaction/liveness logic is extracted as named exports
+ * (addToPendingPool, removeFromPendingPool, clearPendingPool,
+ * getPoolItemIds, getLiveItemIds, prunePool, computeRecipeSatisfaction,
+ * selectCraftItemIds) and unit-tested without any DOM
  * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
+ * Standing rule: every server-fetched map is defensive — guard group
+ * values with Array.isArray before iteration.
  *
  * Logging: ClientLogger only (BUG-123 — no console.* on the client).
  *
@@ -119,6 +123,26 @@ export function getPoolItemIds(pool) {
             for (const id of itemIds) {
                 ids.push(id);
             }
+        }
+    }
+    return ids;
+}
+
+/**
+ * Flattens the GET /inventory/:entityId items map into the list of live
+ * item IDs. Written for the SERVER shape {componentId: [item, ...]}:
+ * group keys are host component IDs but may also be container item IDs
+ * (nested items, InventoryManager.getEntityItems) or '__unassigned__',
+ * so only array-valued groups are walked and only string `id`s collected.
+ * @param {Object|null} itemsByComponent
+ * @returns {string[]}
+ */
+export function getLiveItemIds(itemsByComponent) {
+    const ids = [];
+    for (const items of Object.values(itemsByComponent ?? {})) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+            if (item && typeof item.id === 'string') ids.push(item.id);
         }
     }
     return ids;
@@ -386,19 +410,26 @@ export class CraftingPanel {
     // ==================== Data loading ====================
 
     /**
-     * Loads recipes, item registry, and entity items in parallel, then renders.
+     * Loads recipes, item registry, and entity items in parallel, then
+     * prunes the pool and renders. The whole body is guarded: a failed
+     * load or render must not strand the overlay blank — every
+     * world-state-update retries via refreshIfOpen().
      * @param {string} entityId - The entity to load items for.
      * @private
      */
     async _loadAll(entityId) {
-        await Promise.all([
-            this._loadRecipes(),
-            this._loadItemRegistry(),
-            this._loadEntityItems(entityId)
-        ]);
-        this._prunePoolToLiveItems();
-        if (this._overlay.style.display !== 'block') return; // closed meanwhile
-        this._render();
+        try {
+            await Promise.all([
+                this._loadRecipes(),
+                this._loadItemRegistry(),
+                this._loadEntityItems(entityId)
+            ]);
+            this._prunePoolToLiveItems();
+            if (this._overlay.style.display !== 'block') return; // closed meanwhile
+            this._render();
+        } catch (error) {
+            ClientLogger.warn('CraftingPanel', `Load/render failed, will retry on next update: ${error.message}`);
+        }
     }
 
     /**
@@ -555,11 +586,13 @@ export class CraftingPanel {
     }
 
     /**
-     * Drops pooled items that no longer exist in the live inventory.
+     * Drops pooled items that no longer exist in the live inventory: the
+     * live set is getLiveItemIds(this._items) — the flattened GET /inventory
+     * items map (see its JSDoc for the shape rationale).
      * @private
      */
     _prunePoolToLiveItems() {
-        this._pool = prunePool(this._pool, getPoolItemIds(this._items));
+        this._pool = prunePool(this._pool, getLiveItemIds(this._items));
     }
 
     // ==================== Rendering ====================

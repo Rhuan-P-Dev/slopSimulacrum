@@ -1,12 +1,15 @@
 /**
  * Unit tests for the pure logic extracted from public/js/CraftingPanel.js
  * (crafting design spec §2.5/§4.7, architect decision 6):
- * pending-pool add/dedupe/remove/clear/prune and per-recipe requirement
- * satisfaction computation.
+ * pending-pool add/dedupe/remove/clear/prune, live-item flattening
+ * (getLiveItemIds), and per-recipe requirement satisfaction computation.
  *
  * Per the client-testing convention (pattern: test/unit/RoomChatController.client.test.js),
  * these tests exercise ONLY the extracted pure functions — no raw DOM is
  * tested; the panel class (DOM/event wiring) stays out of scope here.
+ *
+ * Standing rule: every server-fetched map is defensive — guard group
+ * values with Array.isArray before iteration.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -14,6 +17,7 @@ import {
     removeFromPendingPool,
     clearPendingPool,
     getPoolItemIds,
+    getLiveItemIds,
     prunePool,
     computeRecipeSatisfaction,
     selectCraftItemIds
@@ -180,6 +184,76 @@ describe('prunePool', () => {
     it('treats an empty live set as "everything stale"', () => {
         const pool = { knife_to_t1: { knife: ['item-1'] } };
         expect(prunePool(pool, new Set())).toEqual({});
+    });
+});
+
+describe('getLiveItemIds', () => {
+    it('flattens the server items map ({componentId: [item, ...]}) into live item IDs', () => {
+        // The exact regression input: group keys can be host component IDs,
+        // container item IDs (nested items), or '__unassigned__'.
+        const itemsByComponent = {
+            'comp-a': [{ id: 'item-1' }, { id: 'item-2' }],
+            'item-container': [{ id: 'item-3' }],
+            '__unassigned__': [{ id: 'item-4' }]
+        };
+        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1', 'item-2', 'item-3', 'item-4']);
+    });
+
+    it('returns [] for an empty map', () => {
+        expect(getLiveItemIds({})).toEqual([]);
+    });
+
+    it('returns [] for null/undefined', () => {
+        expect(getLiveItemIds(undefined)).toEqual([]);
+        expect(getLiveItemIds(null)).toEqual([]);
+    });
+
+    it('skips non-array group values (defensive against malformed shapes)', () => {
+        const itemsByComponent = {
+            'comp-a': [{ id: 'item-1' }],
+            broken: { id: 'item-should-not-appear' },
+            'comp-b': 'not-an-array'
+        };
+        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1']);
+    });
+
+    it('skips entries without a string id', () => {
+        const itemsByComponent = {
+            'comp-a': [null, {}, { id: 42 }, { id: 'item-1' }]
+        };
+        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1']);
+    });
+});
+
+describe('prunePool × getLiveItemIds composition', () => {
+    it('keeps pooled items present in the items map and drops the absent ones', () => {
+        // item-2 was consumed elsewhere; the map no longer lists it.
+        const items = {
+            'comp-a': [{ id: 'item-1', type: 'knife' }]
+        };
+        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+
+        const next = prunePool(pool, getLiveItemIds(items));
+        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
+        expect(next).not.toBe(pool);
+    });
+
+    it('survives nested (container-grouped) items and __unassigned__ groups', () => {
+        const items = {
+            'comp-a': [{ id: 'item-1', type: 'knife' }],
+            'item-container': [{ id: 'item-2', type: 'knife' }],
+            '__unassigned__': [{ id: 'item-3', type: 'knife' }]
+        };
+        const pool = { knife_to_t1: { knife: ['item-1', 'item-2', 'item-3'] } };
+
+        expect(prunePool(pool, getLiveItemIds(items))).toBe(pool);
+    });
+
+    it('returns the same pool reference when nothing changed', () => {
+        const items = { 'comp-a': [{ id: 'item-1' }] };
+        const pool = { knife_to_t1: { knife: ['item-1'] } };
+
+        expect(prunePool(pool, getLiveItemIds(items))).toBe(pool);
     });
 });
 
