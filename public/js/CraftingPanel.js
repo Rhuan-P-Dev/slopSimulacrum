@@ -41,7 +41,7 @@
  * resolveComponentLabel, addToPendingPool, removeFromPendingPool,
  * clearPendingPool, getPoolItemIds, getLiveItemIds, prunePool,
  * pooledIdsKey, escapeHtml, computeRecipeSatisfaction, selectCraftItemIds,
- * getCraftableHost) and unit-tested without any DOM
+ * getCraftableHost, unwrapEnvelope) and unit-tested without any DOM
  * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
  * Standing rule: every server-fetched map is defensive — guard group values
  * with Array.isArray before iteration. Every server-sourced value is
@@ -488,6 +488,33 @@ export function getCraftableHost(recipe, pool) {
     return host;
 }
 
+/**
+ * Unwraps the response envelope of a server GET consumed by this panel
+ * (pure). Every endpoint returns a keyed envelope, never a bare payload:
+ * GET /crafting/recipes → { recipes: [...] } (src/routes/
+ * craftingRoutes.js); GET /inventory/:entityId →
+ * { items: { [hostId]: [item, ...] } } and GET /inventory/registry →
+ * { registry: {...} } (src/routes/inventoryRoutes.js). The unwrapped
+ * payload is returned only when it is an object/array under the exact
+ * key; any other shape (bare payload, missing key, wrong inner type,
+ * null) yields `fallback` — the defensive contract for server-fetched
+ * data (never throw, never leak the envelope itself).
+ *
+ * @param {unknown} body - The parsed JSON response body.
+ * @param {string} key - The envelope key to unwrap
+ *   (`recipes` | `items` | `registry`).
+ * @param {Object|Array} fallback - Returned when the body is not a plain
+ *   object whose `key` holds an object or array.
+ * @returns {Object|Array} The unwrapped payload, or `fallback`.
+ */
+export function unwrapEnvelope(body, key, fallback) {
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+        const inner = body[key];
+        if (inner && typeof inner === 'object') return inner;
+    }
+    return fallback;
+}
+
 export class CraftingPanel {
     /**
      * @param {Object} deps
@@ -656,7 +683,9 @@ export class CraftingPanel {
     }
 
     /**
-     * GET /crafting/recipes. Returns the recipes array (or [] on failure).
+     * GET /crafting/recipes — the server responds with the envelope
+     * { recipes: [...] } (src/routes/craftingRoutes.js). Returns the
+     * recipes array (or [] on failure/malformed body).
      * @private
      */
     async _loadRecipes() {
@@ -666,9 +695,10 @@ export class CraftingPanel {
                 throw new Error(`Failed to fetch recipes (HTTP ${response.status})`);
             }
             const data = await response.json();
-            // Guarded: the server returns a plain array, but stay defensive
-            // about the shape (no array methods on a malformed body).
-            return Array.isArray(data) ? data : [];
+            // Unwrap the { recipes: [...] } envelope; a malformed body or
+            // a bare array yields [] (no array methods on junk).
+            const recipes = unwrapEnvelope(data, 'recipes', []);
+            return Array.isArray(recipes) ? recipes : [];
         } catch (error) {
             ClientLogger.error('CraftingPanel', ' Failed to load crafting recipes:', error);
             return [];
@@ -676,9 +706,11 @@ export class CraftingPanel {
     }
 
     /**
-     * GET /inventory/registry. Returns the item definitions map (or {} on
-     * failure). Display names/volumes are client-side only (design spec
-     * decision: not stored per item, not in the crafting schema).
+     * GET /inventory/registry — the server responds with the envelope
+     * { registry: {...} } (src/routes/inventoryRoutes.js). Returns the
+     * item definitions map (or {} on failure/malformed body). Display
+     * names/volumes are client-side only (design spec decision: not
+     * stored per item, not in the crafting schema).
      * @private
      */
     async _loadItemRegistry() {
@@ -688,7 +720,9 @@ export class CraftingPanel {
                 throw new Error(`Failed to fetch item registry (HTTP ${response.status})`);
             }
             const data = await response.json();
-            return (data && typeof data === 'object') ? data : {};
+            // Unwrap the { registry: {...} } envelope; any other shape
+            // (bare map, missing key, null) is malformed → {}.
+            return unwrapEnvelope(data, 'registry', {});
         } catch (error) {
             ClientLogger.error('CraftingPanel', ' Failed to load item registry:', error);
             return {};
@@ -696,8 +730,11 @@ export class CraftingPanel {
     }
 
     /**
-     * GET /inventory/:entityId. Returns the items-by-component map
-     * ({ [componentId]: [item, ...] }) or {} on failure.
+     * GET /inventory/:entityId — the server responds with the envelope
+     * { items: { [hostId]: [item, ...] } } (src/routes/inventoryRoutes.js).
+     * Returns the items-by-host map (group keys: entity component IDs,
+     * container item IDs, `__unassigned__`) or {} on failure/malformed
+     * body.
      * @param {string} entityId - The entity whose inventory to load.
      * @returns {Promise<Object>}
      * @private
@@ -709,7 +746,10 @@ export class CraftingPanel {
                 throw new Error(`Failed to fetch inventory (HTTP ${response.status})`);
             }
             const data = await response.json();
-            return (data && typeof data === 'object') ? data : {};
+            // Unwrap the { items: {...} } envelope; the host-keyed map's
+            // group values stay Array.isArray-guarded downstream
+            // (groupItemsByComponent).
+            return unwrapEnvelope(data, 'items', {});
         } catch (error) {
             ClientLogger.error('CraftingPanel', ` Failed to load inventory for ${entityId}:`, error);
             return {};

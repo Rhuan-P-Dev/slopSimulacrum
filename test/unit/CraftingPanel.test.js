@@ -7,9 +7,10 @@
  * clearPendingPool / getPoolItemIds), broadcast pruning incl. host changes
  * (prunePool over the fresh items map), live-item flattening
  * (getLiveItemIds), the shared-host auto-craft rule (getCraftableHost),
- * pooled-set keys (pooledIdsKey), HTML escaping (escapeHtml), and
+ * pooled-set keys (pooledIdsKey), HTML escaping (escapeHtml),
  * per-recipe satisfaction / exact-ID selection (computeRecipeSatisfaction,
- * selectCraftItemIds).
+ * selectCraftItemIds), and server response envelope unwrapping
+ * (unwrapEnvelope).
  *
  * Per the client-testing convention (pattern:
  * test/unit/RoomChatController.client.test.js), these tests exercise ONLY
@@ -37,7 +38,8 @@ import {
     escapeHtml,
     computeRecipeSatisfaction,
     selectCraftItemIds,
-    getCraftableHost
+    getCraftableHost,
+    unwrapEnvelope
 } from '../../public/js/CraftingPanel.js';
 
 // --- Fixtures ------------------------------------------------------------------
@@ -660,5 +662,42 @@ describe('selectCraftItemIds', () => {
             }
         };
         expect(selectCraftItemIds(DUP_TYPE_RECIPE, pool)).toEqual(['item-1', 'item-2']);
+    });
+});
+
+// --- unwrapEnvelope (server response envelope contract) -----------------------
+
+describe('unwrapEnvelope', () => {
+    it('unwraps the { recipes: [...] } envelope (GET /crafting/recipes contract)', () => {
+        const body = { recipes: [KNIFE_TO_T1] };
+        expect(unwrapEnvelope(body, 'recipes', [])).toEqual([KNIFE_TO_T1]);
+    });
+
+    it('unwraps the { items: {...} } envelope and the result feeds the grouper', () => {
+        const body = { items: ITEMS_BY_COMPONENT };
+        const groups = groupItemsByComponent(unwrapEnvelope(body, 'items', {}), ENTITY_COMP_IDS);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-a', 'comp-b']);
+        // regression guard: the envelope key must never surface as a group
+        expect(groups.some((g) => g.componentId === 'items')).toBe(false);
+    });
+
+    it('unwraps the { registry: {...} } envelope (GET /inventory/registry contract)', () => {
+        const reg = { knife: { name: 'Knife', volume: 1 } };
+        const out = unwrapEnvelope({ registry: reg }, 'registry', {});
+        expect(out).toEqual(reg);
+        expect(out.registry).toBeUndefined();
+    });
+
+    it('returns the fallback for a bare payload (missing envelope key)', () => {
+        expect(unwrapEnvelope([KNIFE_TO_T1], 'recipes', [])).toEqual([]);
+        expect(unwrapEnvelope({ 'comp-a': [] }, 'items', {})).toEqual({});
+    });
+
+    it('returns the fallback for missing/null/wrong-type envelope values', () => {
+        expect(unwrapEnvelope({}, 'recipes', [])).toEqual([]);
+        expect(unwrapEnvelope({ recipes: 'nope' }, 'recipes', [])).toEqual([]);
+        expect(unwrapEnvelope({ recipes: null }, 'recipes', [])).toEqual([]);
+        expect(unwrapEnvelope(null, 'registry', {})).toEqual({});
+        expect(unwrapEnvelope(undefined, 'items', {})).toEqual({});
     });
 });
