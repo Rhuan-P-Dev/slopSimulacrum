@@ -24,10 +24,14 @@ export class EventLogPanel {
     /**
      * @param {Object} deps
      * @param {Function} [deps.handleError] - Error surface (ClientErrorController.handleError).
+     * @param {Function} [deps.getEntityId] - Returns the incarnated/active entity ID
+     *   (or null) so the request can be enriched with the current room context.
      */
-    constructor({ handleError } = {}) {
+    constructor({ handleError, getEntityId } = {}) {
         /** @type {Function|null} */
         this._handleError = typeof handleError === 'function' ? handleError : null;
+        /** @type {Function|null} */
+        this._getEntityId = typeof getEntityId === 'function' ? getEntityId : null;
 
         /** @type {HTMLElement|null} */
         this.overlay = null;
@@ -97,7 +101,13 @@ export class EventLogPanel {
         if (!this.isVisible()) return;
         const seq = ++this._refreshSeq;
         try {
-            const url = `${AppConfig.ENDPOINTS.WORLD_EVENTS}?limit=${AppConfig.EVENTS.HISTORY_LIMIT}`;
+            // Send the active entity so the server can attach the current room
+            // context (spec: better text & vision). Omitted when unknown.
+            let url = `${AppConfig.ENDPOINTS.WORLD_EVENTS}?limit=${AppConfig.EVENTS.HISTORY_LIMIT}`;
+            const entityId = this._getEntityId?.() || null;
+            if (entityId) {
+                url += `&entityId=${encodeURIComponent(entityId)}`;
+            }
             const response = await fetch(url);
             if (!response.ok) {
                 // Discard stale / post-hide responses.
@@ -153,8 +163,71 @@ export class EventLogPanel {
 
             row.appendChild(timeSpan);
             row.appendChild(messageSpan);
+
+            // Enriched current-room context sub-line (spec: better text & vision).
+            if (event.context) {
+                const ctxSpan = document.createElement('span');
+                ctxSpan.className = 'event-log-context';
+                ctxSpan.textContent = this._formatContext(event.context);
+                row.appendChild(ctxSpan);
+            }
+
             this._listEl.appendChild(row);
         }
+    }
+
+    /**
+     * Formats the enriched room context as a compact one-line summary.
+     * @private
+     * @param {Object} context - Enriched context object from /world-events.
+     * @returns {string}
+     */
+    _formatContext(context) {
+        const size = (context.roomWidth != null && context.roomHeight != null)
+            ? ` ${context.roomWidth}x${context.roomHeight}`
+            : '';
+        const you = (context.playerPosition)
+            ? ` you: (${Math.round(context.playerPosition.x)}, ${Math.round(context.playerPosition.y)})`
+            : '';
+        const others = this._formatOthers(context.entities);
+        const items = Array.isArray(context.droppedItems) ? context.droppedItems.length : 0;
+        const exits = Array.isArray(context.exits) && context.exits.length > 0
+            ? ` | exits: ${context.exits.map(e => `${e.door}→${e.targetRoomName}`).join(', ')}`
+            : '';
+        return `@ ${context.roomName || 'unknown'}${size}${you} | ${others} | items: ${items}${exits}`;
+    }
+
+    /**
+     * Renders the `others:` segment of the context sub-line: each other same-room
+     * entity by name with its position, e.g. `others: Droid A (10, 20), Droid B (5, 5)`.
+     *
+     * Entities lacking a position render as the bare name (no coordinate slot).
+     * The list is capped at AppConfig.EVENTS.CONTEXT_MAX_ENTITIES (mirrors the
+     * server-side CONTEXT_MAX_ENTITIES); beyond that the remainder is collapsed
+     * into a trailing `… +N` marker to keep the line compact.
+     * @private
+     * @param {Array<{name?: string, x?: number|null, y?: number|null}>|*} entities
+     *   - The same-room entity records from the event context.
+     * @returns {string} The `others: …` segment (always non-empty).
+     */
+    _formatOthers(entities) {
+        if (!Array.isArray(entities) || entities.length === 0) {
+            return 'others: none';
+        }
+        const max = AppConfig.EVENTS.CONTEXT_MAX_ENTITIES;
+        const shown = entities.slice(0, max);
+        const overflow = entities.length - shown.length;
+
+        const parts = shown.map(e => {
+            const name = e?.name || 'Droid';
+            const hasCoords = typeof e?.x === 'number' && typeof e?.y === 'number';
+            return hasCoords
+                ? `${name} (${Math.round(e.x)}, ${Math.round(e.y)})`
+                : name;
+        });
+
+        const tail = overflow > 0 ? ` … +${overflow}` : '';
+        return `others: ${parts.join(', ')}${tail}`;
     }
 
     /**

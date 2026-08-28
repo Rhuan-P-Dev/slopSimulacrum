@@ -92,6 +92,11 @@ export const AppConfig = {
     EVENTS: {
         // History depth for GET /world-events (must stay in sync with WORLD_EVENTS_MAX_LIMIT on the server).
         HISTORY_LIMIT: 50,
+        // Max number of same-room "others" entities the event-panel context
+        // sub-line renders before collapsing the remainder into "… +N".
+        // Must stay in sync with CONTEXT_MAX_ENTITIES in src/utils/Constants.js
+        // (the server caps context.entities at this value in worldEventRoutes).
+        CONTEXT_MAX_ENTITIES: 8,
     },
     DEFAULTS: {
         DROID_BLUEPRINT: 'smallBallDroid',
