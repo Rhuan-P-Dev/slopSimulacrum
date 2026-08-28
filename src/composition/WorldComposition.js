@@ -50,6 +50,7 @@ import ComponentStatsController from '../controllers/core/componentStatsControll
 import TraitsController from '../controllers/traits/TraitsController.js';
 import InternalComponentController from '../controllers/core/InternalComponentController.js';
 import MaterialController from '../controllers/materials/MaterialController.js';
+import CraftingController from '../controllers/crafting/CraftingController.js';
 
 // Logic controllers (depend on data stores)
 import ComponentController from '../controllers/core/componentController.js';
@@ -149,6 +150,15 @@ export function buildWorldState(tickSystem = null) {
     }
 
     Logger.info(`[WorldComposition] Startup validation passed: ${Object.keys(componentRegistry).length} components, ${Object.keys(inventoryItemRegistry).length} inventory items`);
+    // CraftingController: state controller owning the recipe registry
+    // (data/crafting.json). Receives the already-loaded item registry so every
+    // recipe input/output type is cross-validated against inventoryItems.json
+    // right here (fail-fast at boot, per §0.5 above). No controller deps —
+    // no setWorldStateController() needed (it never reads world state).
+    const craftingController = new CraftingController(
+        DataLoader.loadJsonSafe('data/crafting.json', {}),
+        inventoryItemRegistry
+    );
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
     const inventoryManager = new InventoryManager({ materialController });
@@ -241,7 +251,11 @@ export function buildWorldState(tickSystem = null) {
         instinctController,
         // MaterialController: provides static material definitions + compositions
         // to the client via getMaterialRegistry() / GET /materials/registry.
-        materialController
+        materialController,
+        // CraftingController: recipe registry (data/crafting.json). The facade
+        // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
+        // so tests that hand-build the facade can omit it.
+        craftingController
     });
 
     // =========================================================================
@@ -323,6 +337,10 @@ export function buildWorldState(tickSystem = null) {
             turnSystemController,
             roomChatController,
             llmAgentFeedbackController,
+            // Inspection-only (not in broadcast) — the controller has no getAll()
+            // by design (static recipe data; must stay out of the full-state
+            // broadcast aggregation, same rule as roomChatController).
+            craftingController,
             // Inspection-only (not in broadcast) — per spec §2.1 exclusion rule.
             instincts: instinctController
         }
