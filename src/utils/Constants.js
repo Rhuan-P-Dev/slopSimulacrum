@@ -140,3 +140,35 @@ export const MAX_TICKS_PER_SECOND = 30;
  * @type {number}
  */
 export const WORLD_EVENTS_MAX_LIMIT = 50;
+
+// =========================================================================
+// SPATIAL CONTEXT CAPS (spec "better text & vision")
+//
+// Single source of truth for how much spatial detail the LLM text layer
+// (LlmContextController.BUDGET) and the frontend event panel
+// (worldEventRoutes.CONTEXT_CAPS) surface per room: nearby entities,
+// dropped items, and exits. Both layers derive their caps from these
+// constants so the two views of the same room always agree.
+// =========================================================================
+
+/**
+ * Maximum number of same-room entities listed in the enriched spatial
+ * context (LLM "NEARBY ENTITIES" section and event-panel context).
+ * @type {number}
+ */
+export const CONTEXT_MAX_ENTITIES = 8;
+
+/**
+ * Maximum number of current-room dropped items listed in the enriched
+ * spatial context (LLM "Dropped items:" line and event-panel context).
+ * @type {number}
+ */
+export const CONTEXT_MAX_DROPPED_ITEMS = 6;
+
+/**
+ * Maximum number of current-room exits listed in the enriched spatial
+ * context (LLM "Exits:" line and event-panel context). Rooms rarely have
+ * more than 2–3 doors; this is a safety cap.
+ * @type {number}
+ */
+export const CONTEXT_MAX_EXITS = 6;
