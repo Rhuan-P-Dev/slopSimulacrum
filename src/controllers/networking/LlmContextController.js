@@ -3,7 +3,7 @@
  *
  * Feature B (spec §4.3): a local LLM can only reason about the world
  * through text. This controller composes a bounded, sectioned narrative
- * (hard cap of 4000 chars) from the live world state: entity self-state,
+ * (hard cap of 5000 chars) from the live world state: entity self-state,
  * nearby entities, executable actions (with the natural-language
  * descriptions from data/actions.json), the recent world-event ring buffer,
  * and (when the room-chat layer exists) the room chat.
@@ -22,11 +22,20 @@
  * @module LlmContextController
  */
 
+import {
+    CONTEXT_MAX_ENTITIES,
+    CONTEXT_MAX_DROPPED_ITEMS,
+    CONTEXT_MAX_EXITS
+} from '../../utils/Constants.js';
+import { resolveRoomExits } from '../../utils/ContextResolution.js';
+
 class LlmContextController {
     static BUDGET = {
-        maxChars: 4000,          // hard cap on the rendered text (~1k–1.3k tokens)
-        maxEntities: 8,          // same-room entities listed
+        maxChars: 5000,          // hard cap on the rendered text (~1.3k–1.5k tokens); raised from 4000 to preserve the enriched spatial detail (room size/positions/exits)
+        maxEntities: CONTEXT_MAX_ENTITIES,       // same-room entities listed (single-sourced in Constants.js)
         otherRoomEntities: 2,    // entities from other rooms (room-named)
+        maxDroppedItems: CONTEXT_MAX_DROPPED_ITEMS, // current-room dropped items listed (positions) (single-sourced in Constants.js)
+        maxExits: CONTEXT_MAX_EXITS,             // current-room exits listed (safety cap) (single-sourced in Constants.js)
         maxEvents: 20,
         maxChat: 10,
         maxInstincts: 5,         // displayed instincts (display cap)
@@ -74,9 +83,13 @@ class LlmContextController {
             return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, events: false, chat: false } } };
         }
 
-        const roomName = this._roomName(entity.location);
+        // Compute the rooms map ONCE (a defensive deep clone from the facade)
+        // and thread it into every room-reading helper below. The UID-keyed
+        // map is the O(1) index, so no separate reverse map is needed (spec §9.5).
+        const rooms = this.worldStateController?.getRooms() || {};
+        const roomName = this._roomName(entity.location, rooms);
         const self = this._buildSelfData(entity);
-        const nearData = this._buildNearbyData(entity, entity.location, maxEntities);
+        const nearData = this._buildNearbyData(entity, entity.location, maxEntities, rooms);
         const actionData = this._buildActionData(entityId);
         const hintsData = this._buildHintsData(entityId);
         const eventsData = this._buildEventData(maxEvents);
@@ -104,43 +117,44 @@ class LlmContextController {
         let chat = chatData;
         let feedback = feedbackData;
         let instinctSection = instincts.slice(0, LlmContextController.BUDGET.maxInstincts);
-        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+        const droppedItems = this._buildDroppedItemsData(entity.location);
+        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
 
         if (text.length > stats.budgetChars) {
             events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
-            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
             stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
 
             if (text.length > stats.budgetChars) {
-                near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)));
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)), rooms);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && chat.length > 5) {
                 chat = chat.slice(0, 5);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.chat = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
             if (text.length > stats.budgetChars && feedback.length > 0) {
                 feedback = [];
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.feedback = true;
             }
 
             // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
             if (instinctSection.length > 3) {
                 instinctSection = instinctSection.slice(0, 3);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.instincts = true;
             }
 
             // Final fallback: if still over budget after all truncation, truncate instincts further
             if (text.length > stats.budgetChars && instinctSection.length > 0) {
                 instinctSection = [];
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, maxEntities);
+                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.instincts = true; // already set, but ensure clarity
             }
         }
@@ -148,10 +162,12 @@ class LlmContextController {
         stats.chars = text.length;
         const data = {
             self,
+            room: this._buildRoomData(entity.location, rooms),
             entities: [
                 ...near.sameRoom.map(e => ({ ...e, room: 'same' })),
                 ...near.otherRooms.map(e => ({ ...e, room: e.roomName }))
             ],
+            droppedItems,
             actions: actionData,
             hints: hintsData.slice(0, 3),
             recentEvents: events,
@@ -244,15 +260,70 @@ class LlmContextController {
     }
 
     /**
+     * Room data for the "You are in" block: identity, description, size and
+     * resolved exits. Reads the room from the UID-keyed rooms map supplied by
+     * the caller (computed once in buildContext).
+     * @param {string|null} roomUid - Room UID (entity.location).
+     * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
+     * @returns {{ id: string, name: string, description: string, width: number, height: number, x: number, y: number, exits: Array<{ door: string, targetRoomName: string }> }|null}
+     *   Null when the room cannot be resolved (degrade gracefully).
+     * @private
+     */
+    _buildRoomData(roomUid, rooms) {
+        const room = this._getRoomByUid(roomUid, rooms);
+        if (!room) return null;
+
+        const exits = resolveRoomExits(rooms, room, LlmContextController.BUDGET.maxExits);
+
+        return {
+            id: room.id,
+            name: room.name || roomUid,
+            description: room.description || '',
+            width: room.width,
+            height: room.height,
+            x: room.x,
+            y: room.y,
+            exits
+        };
+    }
+
+    /**
+     * Dropped items in the current room with positions, for the
+     * "Dropped items:" line. Capped at BUDGET.maxDroppedItems.
+     * @param {string|null} roomUid - Room UID (entity.location).
+     * @returns {Array<{ id: string, name: string, itemType: string, x: number, y: number }>}
+     * @private
+     */
+    _buildDroppedItemsData(roomUid) {
+        const facade = this.worldStateController;
+        if (!roomUid || !facade.getDroppedItemsByRoom) return [];
+        try {
+            const items = facade.getDroppedItemsByRoom(roomUid) || {};
+            return Object.values(items)
+                .slice(0, LlmContextController.BUDGET.maxDroppedItems)
+                .map(it => ({
+                    id: it.id,
+                    name: it.name || it.itemType || 'item',
+                    itemType: it.itemType,
+                    x: it.x,
+                    y: it.y
+                }));
+        } catch {
+            return [];
+        }
+    }
+
+    /**
      * Nearby entities: same room (distance-sorted, capped) + up to 2 from
      * other rooms (room-named).
      * @param {Object} self
      * @param {string} selfRoomUid
      * @param {number} maxEntities
+     * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
      * @returns {{ sameRoom: Array, otherRooms: Array }}
      * @private
      */
-    _buildNearbyData(self, selfRoomUid, maxEntities) {
+    _buildNearbyData(self, selfRoomUid, maxEntities, rooms) {
         const facade = this.worldStateController;
         const all = Object.values(facade.getAll().entities || {});
         const sameRoom = [];
@@ -274,9 +345,15 @@ class LlmContextController {
                 stats
             };
             if (inSameRoom) {
-                sameRoom.push(entry);
+                // Room-relative coordinates so the LLM can "see" where each
+                // same-room entity stands (spec: better text & vision).
+                sameRoom.push({
+                    ...entry,
+                    x: typeof other.spatial?.x === 'number' ? other.spatial.x : null,
+                    y: typeof other.spatial?.y === 'number' ? other.spatial.y : null
+                });
             } else {
-                otherRooms.push({ ...entry, roomName: this._roomName(other.location) });
+                otherRooms.push({ ...entry, roomName: this._roomName(other.location, rooms) });
             }
         }
 
@@ -397,19 +474,29 @@ class LlmContextController {
 
     /**
      * Renders the sectioned narrative text.
+     * @param {Object} rooms - UID-keyed rooms map (from `getRooms()`), threaded in
+     *   by buildContext so the room block is resolved from the same single clone.
      * @private
      */
-    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, instincts, _maxEntities) {
-        const facade = this.worldStateController;
-        const room = entity.location ? (facade.getRooms() || {})[entity.location] : null;
+    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, instincts, droppedItems, _maxEntities, rooms) {
+        const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
         // === YOUR STATE ===
         lines.push('=== YOUR STATE ===');
         lines.push(`Name: ${self.name}`);
-        lines.push(room
-            ? `Room: ${room.name || roomName} - ${room.description || ''}`
-            : `Room: ${roomName || 'unknown'}`);
+        if (roomData) {
+            lines.push(`You are in: ${roomData.name} — ${roomData.description || ''}`);
+            const pos = (entity.spatial?.x != null && entity.spatial?.y != null)
+                ? `Your position: (${Math.round(entity.spatial.x)}, ${Math.round(entity.spatial.y)})`
+                : '';
+            lines.push(`Room size: ${roomData.width} x ${roomData.height}${pos ? ` | ${pos}` : ''}`);
+            lines.push(roomData.exits.length > 0
+                ? `Exits: ${roomData.exits.map(ex => `${ex.door} → ${ex.targetRoomName}`).join(' | ')}`
+                : 'Exits: (none)');
+        } else {
+            lines.push(`You are in: ${roomName || 'unknown'}`);
+        }
         lines.push(self.durability.length > 0
             ? `Durability: ${self.durability.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
             : 'Durability: (none)');
@@ -441,8 +528,14 @@ class LlmContextController {
                     .join(', ');
                 const dur = e.durability ? ` - durability ${e.durability.current}/${e.durability.max}` : '';
                 const where = e.roomName ? ` (in ${e.roomName})` : ` (${e.distance} away)`;
-                lines.push(`${i + 1}. ${e.name}${where}${dur}${stats ? `, ${stats}` : ''}`);
+                // Same-room entities carry their room-relative position so the
+                // LLM can gauge where each one stands; other-room entries do not.
+                const at = (e.x != null && e.y != null) ? ` at (${Math.round(e.x)}, ${Math.round(e.y)})` : '';
+                lines.push(`${i + 1}. ${e.name}${where}${at}${dur}${stats ? `, ${stats}` : ''}`);
             });
+        }
+        if (Array.isArray(droppedItems) && droppedItems.length > 0) {
+            lines.push(`Dropped items: ${droppedItems.map(it => `${it.name} at (${Math.round(it.x)}, ${Math.round(it.y)})`).join(', ')}`);
         }
         lines.push('');
 
@@ -580,13 +673,29 @@ class LlmContextController {
 
     /**
      * Room display name by room UID.
-     * @param {string} roomUid
+     * @param {string|null} roomUid
+     * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
      * @returns {string}
      * @private
      */
-    _roomName(roomUid) {
-        const rooms = this.worldStateController?.getRooms() || {};
-        return rooms[roomUid]?.name || roomUid || 'unknown';
+    _roomName(roomUid, rooms) {
+        const room = this._getRoomByUid(roomUid, rooms);
+        return room?.name || roomUid || 'unknown';
+    }
+
+    /**
+     * Centralized null-guarded room lookup by UID against the UID-keyed rooms
+     * map (spec §9.4). Returns the room record or null when the UID is missing
+     * or not present in the map, so callers never index the map directly.
+     * @param {string|null} roomUid - Room UID to look up.
+     * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
+     * @returns {Object|null} The room record, or null.
+     * @private
+     */
+    _getRoomByUid(roomUid, rooms) {
+        if (!roomUid) return null;
+        const room = rooms[roomUid];
+        return room || null;
     }
 
     /**

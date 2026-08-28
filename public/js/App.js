@@ -142,8 +142,13 @@ export class ClientApp {
             handleError: (err) => this.errorController.handleError(err)
         });
 
-        // 10b. Feature (Events tab): world event log overlay panel.
-        this.events = new EventLogPanel({ handleError: (err) => this.errorController.handleError(err) });
+        // 10b. Feature (Events tab): world event log overlay panel. The
+        // getEntityId getter lets the panel enrich its /world-events request
+        // with the active entity's current-room context.
+        this.events = new EventLogPanel({
+            handleError: (err) => this.errorController.handleError(err),
+            getEntityId: () => this.worldState?.getMyEntityId?.() || this.worldState?.getActiveDroid?.()?.id || null
+        });
 
         // 10. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
