@@ -41,6 +41,7 @@ The `fulfillingComponents` map is used by consequence handlers to determine whic
 | `checkEntityRequirements(requirements, entityId)` | Checks if entity-level requirements can be satisfied across any combination of components |
 | `checkComponentRequirements(requirements, entityId, componentId)` | Checks if a specific component (or its equipped item) satisfies all action requirements |
 | `resolveRequirementValues(componentId)` | Builds a map of resolved trait-to-stat numeric values |
+| `resolveEntityRequirementValues(entityId)` | Builds a flat `"trait.stat"` → value map across the entity's entire component set (entity-level aggregate, no equipped-item merging). Single source of truth for entity-level stat maps, shared by `RangeValidator` and the requirement-checking path. |
 
 ## Integration Points
 
@@ -48,6 +49,7 @@ The `fulfillingComponents` map is used by consequence handlers to determine whic
 |------------|-------------|
 | **ActionController** | Calls `checkEntityRequirements()` and `checkComponentRequirements()` during action execution |
 | **ComponentResolver** | Uses `resolveRequirementValues()` during binding validation |
+| **RangeValidator** | Uses `resolveEntityRequirementValues()` to resolve range expressions — entity-level stat map as the single source of truth, shared with the requirement-checking path to prevent duplicated component-scan logic |
 | **WorldStateController** | Provides component stats, equipped items, and item registry access |
 
 ## Validation

@@ -14,6 +14,10 @@ import Logger from './Logger.js';
  * Checks if a target entity is within range of a source entity.
  * Used for grab actions to verify the item is close enough to pick up.
  *
+ * NOTE: For spatial actions (drop, place) where the target is a coordinate
+ * rather than an entity, use checkPointRange() instead — its failure message
+ * is phrased for a point target, not an item to grab.
+ *
  * @param {Object} sourceEntity - The source entity (with spatial data).
  * @param {Object} targetEntity - The target entity (with spatial data).
  * @param {number} maxRange - The maximum allowed distance (must be a positive number).
@@ -53,5 +57,57 @@ export function checkGrabRange(sourceEntity, targetEntity, maxRange) {
     }
 
     Logger.info(`[RangeChecker] Grab range check passed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
+    return { success: true, distance: Math.round(distance) };
+}
+
+/**
+ * Checks if a target POINT (coordinate) is within range of a source entity.
+ * Used for spatial actions (dropItem, place) where the client sends a target
+ * coordinate (targetX/targetY) instead of a target entity.
+ *
+ * Uses the same Euclidean distance as checkGrabRange(), but returns a
+ * point-appropriate error message ("Target is too far away") instead of the
+ * grab-specific "Item is too far away ... Move closer to grab it." message.
+ *
+ * @param {Object} sourceEntity - The source entity (with spatial data).
+ * @param {number} targetX - Target X coordinate (room-center-relative).
+ * @param {number} targetY - Target Y coordinate (room-center-relative).
+ * @param {number} maxRange - The maximum allowed distance (must be a positive number).
+ * @returns {{ success: boolean, error?: string, distance?: number }}
+ * @throws {TypeError} If sourceEntity is not an object, or maxRange is not a positive number.
+ */
+export function checkPointRange(sourceEntity, targetX, targetY, maxRange) {
+    // Validate sourceEntity
+    if (!sourceEntity || typeof sourceEntity !== 'object') {
+        throw new TypeError('Invalid sourceEntity: must be an object.');
+    }
+
+    // Validate target coordinates are finite numbers
+    if (typeof targetX !== 'number' || typeof targetY !== 'number' || !isFinite(targetX) || !isFinite(targetY)) {
+        throw new TypeError('Invalid target coordinates: must be finite numbers.');
+    }
+
+    // Validate maxRange is a positive number
+    if (typeof maxRange !== 'number' || maxRange <= 0 || !isFinite(maxRange)) {
+        throw new TypeError('Invalid maxRange: must be a positive number.');
+    }
+
+    // Source entity must have spatial data
+    if (!sourceEntity.spatial) {
+        return { success: false, error: 'Source entity lacks spatial data.' };
+    }
+
+    // Calculate Euclidean distance
+    const dx = sourceEntity.spatial.x - targetX;
+    const dy = sourceEntity.spatial.y - targetY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > maxRange) {
+        const error = `Target is too far away (${Math.round(distance)} units, max range: ${maxRange}).`;
+        Logger.warn(`[RangeChecker] Point range check failed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
+        return { success: false, error, distance: Math.round(distance) };
+    }
+
+    Logger.info(`[RangeChecker] Point range check passed: distance=${distance.toFixed(1)}, maxRange=${maxRange}`);
     return { success: true, distance: Math.round(distance) };
 }

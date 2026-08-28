@@ -38,6 +38,7 @@ import { HintManager } from './HintManager.js';
 import MaterialRegistry from './MaterialRegistry.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
+import { resolveRange } from '../../shared/RangeResolver.js';
 
 export class ClientApp {
     constructor() {
@@ -1294,44 +1295,50 @@ export class ClientApp {
     }
 
     /**
-     * Resolves drop range from the action's range expression.
-     * Reads from availableActions cache, falls back to hardcoded formula.
+     * Resolves drop/pickup range from the action's range value using the shared
+     * RangeResolver (single source of truth, identical to the server's resolution).
      *
-     * @param {string} rangeExpression - The range expression (e.g., ":Physical.strength*2+3")
-     * @param {number} strength - The max Physical.strength value
-     * @returns {number} The resolved drop range
+     * The rangeExpression may be a plain number (e.g. 100), a numeric string
+     * (e.g. "100"), or an expression string (e.g. ":Physical.strength*2+3").
+     * All forms are resolved by the shared RangeResolver — the same module the
+     * server uses in RangeValidator._resolveMaxRange() — so the displayed range
+     * circle always matches the server-enforced range exactly.
+     *
+     * @param {string|number} rangeExpression - The range value from data/actions.json
+     *   (number, numeric string, or expression string).
+     * @param {number} strength - The max Physical.strength value (used to resolve
+     *   ":Physical.strength" placeholders in the expression).
+     * @returns {number} The resolved range (same value the server enforces).
      * @private
      */
     _resolveDropRange(rangeExpression, strength) {
-        if (!rangeExpression) {
-            return AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+        // Fallback: legacy hardcoded formula, used only when no range is defined
+        // in the action data (matches ActionExecutor's fallback semantics).
+        const fallback = AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
+
+        // Build a minimal stat map with the strength value under the same key the
+        // shared RangeResolver expects ("Physical.strength"). This mirrors the
+        // server's _resolveMaxRange() resolution context so the displayed range
+        // ALWAYS matches the enforced range (single source of truth: the shared
+        // RangeResolver + data/actions.json range value).
+        const statMap = strength > 0 ? { 'Physical.strength': strength } : {};
+
+        // Delegate to the shared RangeResolver — the same single source of truth
+        // used by the server (RangeValidator._resolveMaxRange) and by
+        // ActionExecutor.executeDropItem(). This fixes two prior discrepancies:
+        //   1. Expression ranges (e.g. ":Physical.strength*2+3") were parsed by a
+        //      broken regex that skipped the "+3" offset, making the displayed
+        //      circle smaller than the enforced range.
+        //   2. Plain-number ranges (e.g. 100) had no ":Placeholder" tokens, so the
+        //      regex found nothing and fell back to the legacy formula, ignoring
+        //      the actual range value entirely.
+        const resolved = resolveRange(rangeExpression, statMap, fallback);
+
+        // Guard: if resolution returned a non-finite or negative value, fall back.
+        if (typeof resolved !== 'number' || !isFinite(resolved) || resolved <= 0) {
+            return fallback;
         }
-
-        // Match tokens: [+|-](:Placeholder[multiplier])
-        const tokenRegex = /([+])|(-)?(:[a-zA-Z0-9_.]+)(?:\*(-?\d+))?/g;
-        let result = 0;
-        let foundPlaceholder = false;
-
-        let match;
-        while ((match = tokenRegex.exec(rangeExpression)) !== null) {
-            if (match[1] === '+') continue;
-
-            const sign = match[2] === '-' ? -1 : 1;
-            const placeholder = match[3] ? match[3].substring(1) : null;
-            const multiplier = match[4] ? parseInt(match[4].substring(1), 10) : 1;
-
-            if (placeholder) {
-                const value = (placeholder === 'Physical.strength') ? strength : 0;
-                result += sign * value * multiplier;
-                foundPlaceholder = true;
-            }
-        }
-
-        if (!foundPlaceholder) {
-            return AppConfig.DROP.BASE_RANGE + (strength * AppConfig.MULTIPLIERS.DROP_RANGE);
-        }
-
-        return result;
+        return resolved;
     }
 
     // ==================== Delegate Methods ====================

@@ -148,6 +148,39 @@ class RequirementResolver {
     }
 
     /**
+     * Resolves requirement values for an entity by gathering ALL trait stats
+     * from the entity's components. Builds a flat "trait.stat" → numeric value
+     * map over the entity's entire component set (no equipped-item merging —
+     * this is the entity-level aggregate used for range-expression resolution).
+     *
+     * This is the single source of truth for entity-level stat maps; both
+     * RequirementResolver consumers and RangeValidator delegate here rather
+     * than re-implementing the component-scan loop.
+     *
+     * @param {string} entityId - The entity ID (typed ent-... or legacy UUID).
+     * @returns {Object} Map of "trait.stat" → numeric value. Empty object if
+     *   the entity is not found or has no components.
+     */
+    resolveEntityRequirementValues(entityId) {
+        const entity = this.worldStateController.getEntity(entityId);
+        if (!entity || !entity.components) return {};
+
+        const values = {};
+        for (const comp of entity.components) {
+            const stats = this.worldStateController.getComponentStats(comp.id);
+            if (!stats) continue;
+            for (const [traitId, traitData] of Object.entries(stats)) {
+                for (const [statName, statValue] of Object.entries(traitData)) {
+                    if (typeof statValue === 'number') {
+                        values[`${traitId}.${statName}`] = statValue;
+                    }
+                }
+            }
+        }
+        return values;
+    }
+
+    /**
      * Resolves requirement values from a component's stats.
      * Builds a map of "trait.stat" → numeric value.
      *

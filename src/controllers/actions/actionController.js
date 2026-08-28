@@ -82,11 +82,13 @@ class ActionController {
         this.synergyController = synergyController || null;
         this.actionSelectController = actionSelectController || null;
 
-        // Inject extracted modules (each receives the facade later via setWorldStateController)
-        this.rangeValidator = new RangeValidator(this);
         this.componentResolver = new ComponentResolver();
         // Pass equippedItemStats so RequirementResolver can read current mutable stats
         this.requirementResolver = new RequirementResolver(equippedItemStats);
+        // Inject extracted modules (each receives the facade later via setWorldStateController).
+        // RangeValidator receives the RequirementResolver so range-expression resolution
+        // shares the entity-level stat-map logic (Single Source of Truth, no duplication).
+        this.rangeValidator = new RangeValidator(this, this.requirementResolver);
         this.consequenceDispatcher = new ConsequenceDispatcher(this, synergyController);
     }
 
@@ -278,12 +280,12 @@ class ActionController {
             }
 
             // ─── Range Check (delegated to RangeValidator) ────────────────────
-            if (action.range && params.targetEntityId) {
-                const rangeCheck = this.rangeValidator.checkGrabRange(entityId, params.targetEntityId, action.range);
-                if (!rangeCheck.success) {
-                    const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
-                    return { success: false, error: rangeCheck.error, ...failureResults };
-                }
+            // Kept lean by extracting the range-gate into _validateRange() so the
+            // param-shape branching (targetEntityId vs targetX/targetY) does not
+            // bloat executeAction().
+            const rangeResult = this._validateRange(actionName, action, entityId, params);
+            if (!rangeResult.success) {
+                return { success: false, error: rangeResult.error, ...rangeResult.failureResults };
             }
 
             // ─── Build Component List (delegated to ComponentResolver) ────────
@@ -509,6 +511,64 @@ class ActionController {
                 this.actionSelectController.releaseSelections(componentsToRelease, entityId);
             }
         }
+    }
+
+    // =========================================================================
+    // PRIVATE: RANGE GATE
+    // =========================================================================
+
+    /**
+     * Runs the action's range gate, if any, by delegating to RangeValidator.
+     *
+     * Extracted from executeAction() so the param-shape branching (entity-targeted
+     * vs. spatial) does not inflate the main execution pipeline. The method
+     * determines which range path applies, calls the matching RangeValidator
+     * method, and — on failure — executes the action's range-failure consequences
+     * before returning a failure result. On success (or when the action has no
+     * range constraint) it returns `{ success: true }`.
+     *
+     * @param {string} actionName - The name of the action (used to look up its range-failure consequences).
+     * @param {Object} action - The action definition (may declare `range`).
+     * @param {string} entityId - The ID of the entity performing the action.
+     * @param {Object} params - Action parameters (may carry targetEntityId, or targetX/targetY).
+     * @returns {{ success: boolean, error?: string, failureResults?: Object }}
+     *   `{ success: true }` when the range check passes (or is not applicable);
+     *   `{ success: false, error, failureResults }` when it fails and the failure
+     *   consequences have been executed.
+     * @private
+     */
+    _validateRange(actionName, action, entityId, params) {
+        // Actions without a declared range have no gate to enforce.
+        if (!action.range) {
+            return { success: true };
+        }
+
+        // Entity-targeted range check (e.g. punch, cut): the client sent a
+        // target entity ID.
+        if (params.targetEntityId) {
+            const rangeCheck = this.rangeValidator.checkGrabRange(entityId, params.targetEntityId, action.range);
+            if (!rangeCheck.success) {
+                const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
+                return { success: false, error: rangeCheck.error, failureResults };
+            }
+            return { success: true };
+        }
+
+        // Spatial range check (e.g. dropItem): the client sent a target
+        // coordinate. Enforce the SAME range the client displays so the actual
+        // drop range matches the displayed range (single source of truth:
+        // data/actions.json range, resolved via the shared RangeResolver).
+        if (params.targetX !== undefined && params.targetY !== undefined) {
+            const spatialCheck = this.rangeValidator.checkSpatialRange(entityId, params.targetX, params.targetY, action.range);
+            if (!spatialCheck.success) {
+                const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
+                return { success: false, error: spatialCheck.error, failureResults };
+            }
+            return { success: true };
+        }
+
+        // No applicable range parameter — nothing to enforce.
+        return { success: true };
     }
 
     // =========================================================================

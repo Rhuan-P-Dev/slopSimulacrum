@@ -29,18 +29,23 @@ Range validation failures are not simple rejections — they trigger defined con
 | Method | Purpose |
 |--------|---------|
 | `checkGrabRange(sourceEntityId, targetEntityId, maxRange)` | Checks if a grab action is within range of the target entity. Accepts a number or expression string (e.g., `":Physical.strength*2"`). |
+| `checkSpatialRange(sourceEntityId, targetX, targetY, maxRange)` | Checks if a spatial target point is within range of the source entity. Used for spatial actions (e.g. `dropItem`) where the client sends a target coordinate instead of a target entity. |
 | `executeRangeFailureConsequences(entityId, actionName)` | Executes `rangeFailure` consequences defined in the action data |
+
+### Why server-side spatial range enforcement?
+
+Historically only entity-targeted actions (e.g. `punch`, `cut`) were range-checked on the server, via `checkGrabRange`. Spatial actions (e.g. `dropItem`) sent a target coordinate (`targetX`/`targetY`) rather than a target entity, so the client rendered a range indicator but the server never enforced it — a player could drop an item at any coordinate, regardless of the displayed range (the drop-range bug). `checkSpatialRange` closes that gap: it applies the **same** range expression (from `data/actions.json`, resolved via the shared `RangeResolver`) to a point target, so the actual enforced drop range always matches the range the client displays. The point-target failure message is also phrased for a coordinate ("Target is too far away") rather than a grab ("Item is too far away … Move closer to grab it"), since the target is a location, not an item.
 
 ## Range Expression Resolution
 
-When `maxRange` is a string (e.g., `":Physical.strength*2"`), it is resolved to a numeric value before distance validation:
+When `maxRange` is a string (e.g., `":Physical.strength*2"`), the shared `_resolveMaxRange()` helper resolves it to a validated numeric value before distance validation:
 
-1. `_resolveRequirementValues()` gathers all trait stats from the source entity's components, building a `"trait.stat"` → `value` map
-2. `resolvePlaceholders()` (from `PlaceholderResolver`) resolves the expression using this map
-3. The resolved numeric value is validated — negative, zero, NaN, or non-finite values are rejected with a graceful failure (not a thrown exception)
-4. The resolved numeric value is passed to `RangeChecker.checkGrabRange()` for distance validation
+1. The entity-level `"trait.stat"` → `value` map is gathered via `RequirementResolver.resolveEntityRequirementValues()` — the single source of truth for entity-level stat maps, shared with the requirement-checking path (no duplicated component-scan logic).
+2. `resolveRange()` (from the shared `RangeResolver`) resolves the expression using this map. The shared resolver is the single source of truth for all `:Trait.stat` range expressions across the action system, and is the same module the client uses to render the range indicator.
+3. The resolved numeric value is validated — negative, zero, NaN, or non-finite values are rejected with a graceful failure (not a thrown exception).
+4. The resolved numeric value is passed to `RangeChecker` for distance validation (`checkGrabRange()` for an entity target, `checkPointRange()` for a point target).
 
-This mirrors the consequence resolution path: `PlaceholderResolver` is the single resolution mechanism for all `:Trait.stat` expressions in the action system.
+Because the same shared `RangeResolver` and the same range expression from `data/actions.json` are used on both server and client, the enforced range always matches the displayed range.
 
 ### Edge Case Handling
 
@@ -56,9 +61,10 @@ This mirrors the consequence resolution path: `PlaceholderResolver` is the singl
 
 | Controller | Relationship |
 |------------|-------------|
-| **ActionController** | Calls `checkGrabRange()` and `executeRangeFailureConsequences()` during action execution. Passes raw range value (number or expression string). |
-| **RangeChecker** | Utility module used by `checkGrabRange()` for distance computation. Receives resolved numeric maxRange. |
-| **PlaceholderResolver** | Resolves `:Trait.stat` expressions in range strings using the same logic as consequences. |
+| **ActionController** | Calls `checkGrabRange()` and `checkSpatialRange()` during action execution (via its range gate) and executes range-failure consequences on failure. Passes raw range value (number or expression string). |
+| **RangeChecker** | Utility module used for distance computation. `checkGrabRange()` for entity targets, `checkPointRange()` for point targets. Receives resolved numeric maxRange. |
+| **RequirementResolver** | Provides `resolveEntityRequirementValues()` — the entity-level stat map used to resolve range expressions (Single Source of Truth, shared with the requirement-checking path). |
+| **RangeResolver (shared)** | Environment-agnostic `resolveRange()` — the single source of truth for `:Trait.stat` range expressions on both server and client. |
 
 ## Validation
 
@@ -68,6 +74,9 @@ Range validation fails safely — if the source or target entity is not found in
 
 - Related wiki: `wiki/subMDs/architecture/action_system.md` — Action pipeline architecture
 - Related wiki: `wiki/subMDs/controllers/consequence_handler_architecture.md` — Consequence dispatch system
+- Related wiki: `wiki/subMDs/controllers/requirement_resolver.md` — Entity-level requirement value resolution (shared stat map)
 - Related controller: `ActionController`
+- Related controller: `RequirementResolver`
 - Related utility: `RangeChecker`
+- Related shared module: `shared/RangeResolver.js` — Shared range-expression resolver (server + client)
 - Related data file: `data/actions.json` — Action definitions with `rangeFailure` consequences
