@@ -689,6 +689,14 @@ export class ClientApp {
                     state
                 );
 
+                // Re-render pending drop/pickup range indicators that were destroyed
+                // by the entities-layer wipe inside _renderEntities(). Punch/dash
+                // indicators are already re-rendered by updateActionList() (further
+                // below), but drop and pickup use separate pending-state channels
+                // (_pendingDropItem / _pendingPickUpSelector) that updateActionList()
+                // does not inspect, so they would otherwise be lost permanently.
+                this._reRenderPendingRangeIndicators();
+
                 // Render dropped items on the spatial map with hover range indicator
                 const droppedItems = state.droppedItems || {};
                 const currentRoom = droid.location || null;
@@ -728,6 +736,83 @@ export class ClientApp {
                 message: error.message
             });
         }
+    }
+
+    /**
+     * Re-renders the drop and pickup range indicators that were destroyed by the
+     * entities-layer wipe in UIManager._renderEntities().
+     *
+     * Punch/dash range indicators are re-created by updateActionList() on every
+     * UI update, but drop and pickup use separate pending-state channels
+     * (_pendingDropItem / _pendingPickUpSelector) that updateActionList() does not
+     * inspect. Without this re-render, those circles would be destroyed once and
+     * never restored, making them permanently invisible.
+     *
+     * This mirrors the existing punch/dash re-render pattern and is called from
+     * refreshWorldAndActions() immediately after updateEntityAndComponentViews(),
+     * ensuring the indicators are restored in the same synchronous update that
+     * destroyed them.
+     * @private
+     */
+    /**
+     * Returns the range expression for the 'dropItem' action, or undefined when
+     * no drop action is currently available. Pickup reuses the same expression
+     * (symmetric reachability), so this centralizes a repeated idiom.
+     * @returns {string|undefined} The dropItem range expression.
+     * @private
+     */
+    _getDropRangeExpression() {
+        return this.availableActions['dropItem']?.range;
+    }
+
+    _reRenderPendingRangeIndicators() {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            ClientLogger.debug('App', 'Skipping range-indicator re-render: no active droid');
+            return;
+        }
+
+        const state = this.worldState.getState();
+
+        // Re-render the drop range indicator if a drop action is pending.
+        if (this._pendingDropItem) {
+            const rangeExpression = this._getDropRangeExpression();
+            const maxStrength = this._getMaxPhysicalStrength(droid, state);
+            const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
+            this.ui.renderRangeIndicator(droid, dropRange, AppConfig.COLORS.RANGE.OUT_OF_RANGE, 'drop');
+        }
+
+        // Re-render the pickup range indicator if a pickup action is pending.
+        // _pendingPickUpSelector is set in _onPickUpSelectorExecute() and cleared
+        // after execution; while non-null it represents a confirmed pickup that
+        // is awaiting a map click.
+        if (this._pendingPickUpSelector) {
+            const pickUpRange = this._resolvePickupRange(droid, state);
+            this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
+        }
+    }
+
+    /**
+     * Computes the maximum Physical.strength across the droid's components.
+     * The resolved value is fed into _resolveDropRange() so the displayed
+     * range matches the server-enforced range exactly.
+     * @param {Object} droid - The active droid entity.
+     * @param {Object} state - The current world state.
+     * @returns {number} The max Physical.strength value.
+     * @private
+     */
+    _getMaxPhysicalStrength(droid, state) {
+        let maxStrength = 0;
+        if (droid.components && Array.isArray(droid.components)) {
+            for (const comp of droid.components) {
+                const compId = comp.id || comp;
+                const stats = state.components?.instances?.[compId];
+                if (stats?.Physical?.strength) {
+                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
+                }
+            }
+        }
+        return maxStrength;
     }
 
     /**
@@ -879,20 +964,8 @@ export class ClientApp {
 
         // For non-component actions (spatial, self_target), store drop info for Inventory-style drop flow
         // Resolve drop range from dropItem action (NOT the item's primary action)
-        const dropActionData = this.availableActions['dropItem'] || {};
-        const rangeExpression = dropActionData?.range;
-
-        // Calculate max Physical.strength from droid's components
-        let maxStrength = 0;
-        if (droid.components) {
-            for (const comp of droid.components) {
-                const compId = comp.id || comp;
-                const stats = state.components?.instances?.[compId];
-                if (stats?.Physical?.strength) {
-                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
-                }
-            }
-        }
+        const rangeExpression = this._getDropRangeExpression();
+        const maxStrength = this._getMaxPhysicalStrength(droid, state);
 
         const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
 
@@ -961,23 +1034,13 @@ export class ClientApp {
         };
 
         // Resolve drop range from dropItem action (NOT the item's primary action)
-        const dropActionData = this.availableActions['dropItem'] || {};
-        const rangeExpression = dropActionData?.range;
+        const rangeExpression = this._getDropRangeExpression();
 
         const droid = this.worldState.getActiveDroid();
         if (!droid) return;
 
         const state = this.worldState.getState();
-        let maxStrength = 0;
-        if (droid.components && Array.isArray(droid.components)) {
-            for (const comp of droid.components) {
-                const compId = comp.id || comp;
-                const stats = state.components?.instances?.[compId];
-                if (stats?.Physical?.strength) {
-                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
-                }
-            }
-        }
+        const maxStrength = this._getMaxPhysicalStrength(droid, state);
 
         const dropRange = this._resolveDropRange(rangeExpression, maxStrength);
         this.ui.renderRangeIndicator(droid, dropRange, '#ff4444', 'drop');
@@ -1053,20 +1116,8 @@ export class ClientApp {
         const droid = this.worldState.getActiveDroid();
         if (droid) {
             const state = this.worldState.getState();
-            const dropActionData = this.availableActions['dropItem'] || {};
-            const rangeExpression = dropActionData?.range;
-            
-            let maxStrength = 0;
-            if (droid.components && Array.isArray(droid.components)) {
-                for (const comp of droid.components) {
-                    const compId = comp.id || comp;
-                    const stats = state.components?.instances?.[compId];
-                    if (stats?.Physical?.strength) {
-                        maxStrength = Math.max(maxStrength, stats.Physical.strength);
-                    }
-                }
-            }
-            
+            const rangeExpression = this._getDropRangeExpression();
+            const maxStrength = this._getMaxPhysicalStrength(droid, state);
             const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
             this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
         }
@@ -1183,19 +1234,8 @@ export class ClientApp {
      * @private
      */
     _resolvePickupRange(droid, state) {
-        const dropActionData = this.availableActions['dropItem'] || {};
-        const rangeExpression = dropActionData?.range;
-
-        let maxStrength = 0;
-        if (droid.components && Array.isArray(droid.components)) {
-            for (const comp of droid.components) {
-                const compId = comp.id || comp;
-                const stats = state.components?.instances?.[compId];
-                if (stats?.Physical?.strength) {
-                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
-                }
-            }
-        }
+        const rangeExpression = this._getDropRangeExpression();
+        const maxStrength = this._getMaxPhysicalStrength(droid, state);
 
         return this._resolveDropRange(rangeExpression, maxStrength);
     }
@@ -1209,19 +1249,8 @@ export class ClientApp {
         if (!droid) return { inRange: false, message: 'No active droid.' };
 
         const state = this.worldState.getState();
-        const dropActionData = this.availableActions['dropItem'] || {};
-        const rangeExpression = dropActionData?.range;
-
-        let maxStrength = 0;
-        if (droid.components && Array.isArray(droid.components)) {
-            for (const comp of droid.components) {
-                const compId = comp.id || comp;
-                const stats = state.components?.instances?.[compId];
-                if (stats?.Physical?.strength) {
-                    maxStrength = Math.max(maxStrength, stats.Physical.strength);
-                }
-            }
-        }
+        const rangeExpression = this._getDropRangeExpression();
+        const maxStrength = this._getMaxPhysicalStrength(droid, state);
 
         const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
         const droidX = droid.spatial?.x || 0;
