@@ -7,14 +7,14 @@ The `NpcAIController` provides a deterministic, stateless alternative to LLM-bas
 ## Design Principles
 
 - **Stateless**: reads world state via public APIs; never mutates state directly.
-- **Public API only**: always communicates with the WorldStateController facade via its public methods (`getAllEntities()`, `getActionRegistry()`); never accesses sub-controllers (`stateEntityController`, `actionController`) directly.
-- **Data-driven**: behaviors registered via `registerBehavior(name, strategyFn)` — no hardcoded branches in the brain.
-- **Fail-safe**: root-level try/catch ensures bugs in behavior strategies cannot break the turn system loop.
-- **Single responsibility**: one decision = one action per round; dispatch centralized in `_dispatchDecision`.
+- **Public API only**: always communicates with the WorldStateController facade through its public surface; never accesses sub-controllers directly.
+- **Data-driven**: behaviors are registered as named strategies; the brain contains no hardcoded branches.
+- **Fail-safe**: failures in behavior strategies are contained so they can never break the turn-system loop.
+- **Single responsibility**: one decision = one action per round, with dispatch centralized in a single place.
 
 ## Behavior Registration
 
-Behaviors are functions receiving `{ entity, round, ai, facade, allEntities? }` and returning `{ actionName, params }` or `null`.
+A behavior is a registered strategy that receives the entity, the round, and the AI facade, and returns the action it has chosen (or a skip when no action is warranted).
 
 | Name | Description |
 |------|-------------|
@@ -22,24 +22,21 @@ Behaviors are functions receiving `{ entity, round, ai, facade, allEntities? }` 
 
 ## Dispatch Contract
 
-`_dispatchDecision` mirrors `LLMAgentController._dispatchAction`:
-- `phase === 'planning'` → `queueAction(entityId, action, params, 'npc')`
-- no `roundState` (TURNS_DISABLED) → immediate `executeAction` fallback
-- window closed → discard with log, returns `{ acted: false, reason: 'window_closed' }`
+The dispatch path mirrors the LLM agent's dispatch contract, so deterministic decisions flow through the same action pipeline as LLM decisions. Decisions made during the planning phase are queued for the turn, and when the turn system is disabled they execute immediately. A decision that arrives after the action window has closed is discarded with a log rather than executed — NPC actions are subject to the same turn discipline as LLM actions.
 
 ## Performance
 
-- **Single per-tick snapshot**: `getAllEntities()` is called once per `think()` and passed into the behavior strategy via `allEntities` context.
-- **Clone-free capability gate**: uses `canEntityExecuteAction(entityId, actionName)` instead of `getActionsForEntity()` to avoid full-world deep clones on the hot path.
+- **Single per-tick snapshot**: the world is snapshotted once per decision and shared with the behavior strategy, avoiding repeated state fetches on the hot path.
+- **Clone-free capability gate**: capability checks answer "can this entity execute this action?" without building the entity's full action list, avoiding full-world deep clones on the hot path.
 
 ## Public API
 
-- `think(entityId, round, preFetchedEntity = null)` — entry point called by the turn-system agent hook (tick 20); optional third parameter allows dispatcher to pass a pre-fetched entity to avoid double-fetch.
-- `registerBehavior(name, strategy)` — register a new behavior.
-- `hasDeterministicBrain(entity)` — static routing predicate (brain vs. LLM); the underlying predicate logic now lives in [`src/utils/npcAiUtils.js`](../../src/utils/npcAiUtils.js) and this method delegates to it.
+The entry point is invoked by the turn-system agent hook on a fixed tick; it accepts an optional pre-fetched entity so the dispatcher can avoid a duplicate state fetch. Behavior registration is the extension point for new deterministic behaviors.
+
+The brain-vs-LLM routing predicate is a static helper extracted to a shared utility ([`src/utils/npcAiUtils.js`](../../src/utils/npcAiUtils.js)) so that every caller routes on the same implementation.
 
 ## Integration Points
 
-- **Dispatcher** (`src/server.js`): `ai.behavior` → `think()`; otherwise → LLM agent.
-- **Boot validation** (`WorldStateController._spawnNpcs`): validates `ai.behavior`/`ai.attackRange` once at spawn (warns + normalizes); present-but-mistyped values (e.g. `"attackRange": "50"` string, `attackAction: 123` number) produce a `Logger.warn` identifying the NPC, field, offending value, and expected type.
-- **LLM guard** (`LLMAgentController.runRound`): skips entities with deterministic brains (`DETERMINISTIC_AI`).
+- **Dispatcher** (`src/server.js`): entities with a deterministic brain are routed to this controller; all others go to the LLM agent.
+- **Boot validation** (`WorldStateController`): AI configuration (behavior and attack range) is validated once at spawn; present-but-mistyped values are logged with the NPC, field, offending value, and expected type, so bad data is fixed in the data files rather than failing at runtime.
+- **LLM guard** (`LLMAgentController`): skips entities with deterministic brains, so both decision systems never drive the same entity.

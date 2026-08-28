@@ -18,27 +18,11 @@ The inventory system was not implemented. While components had `Physical.volume`
 
 ## Fix
 
-Implemented a complete inventory system with:
+Implemented a complete inventory system: volume-based item storage on components, a data file defining item types, and a UI overlay (opened from the config bar) that shows components as containers with their items inside and allows moving items between components by drag-and-drop. Why this design:
 
-### Server-Side
-- `src/utils/InventoryManager.js` — Inventory state management and volume validation
-- `src/routes/inventoryRoutes.js` — REST API endpoints for inventory operations
-- Extended `WorldStateController.js` with inventory public API methods
-- `data/inventoryItems.json` — Item type definitions
-
-### Client-Side
-- `public/js/InventoryManager.js` — Inventory overlay with drag-and-drop
-- `public/css/inventory.css` — Inventory styling with neon theme
-- Config bar button (🎒) for inventory access
-- Inventory overlay panel
-
-### Features
-- Volume-based storage per component
-- Hierarchical display: components as containers with items inside
-- HTML5 drag-and-drop between components with server-side validation
-- Volume progress bars (green → yellow → orange → red)
-- Toast notifications for success/error feedback
-- Server-authoritative state (client cannot bypass volume limits)
+- **Volume-based capacity** — components already model `Physical.volume`, so item storage reuses that physical property instead of inventing a separate capacity concept.
+- **Server-authoritative state** — the server validates every move against volume limits, so a client can never bypass capacity by talking to the API directly.
+- **Hierarchical container display** — items live *inside* components, so the UI mirrors that structure (container → items) rather than a flat list.
 
 ## Prevention
 

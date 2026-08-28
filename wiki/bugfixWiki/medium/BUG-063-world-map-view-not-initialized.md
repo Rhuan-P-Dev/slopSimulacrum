@@ -7,32 +7,15 @@
 
 ## Symptoms
 
-The 🌐 World Map button appears in the config bar, but clicking it may fail to display the overlay properly. The `WorldMapView._overlay` reference remains `null` because `init()` was never called, causing `show()` to silently return without rendering.
+The 🌐 World Map button appears in the config bar, but clicking it may fail to display the overlay properly — the map overlay silently fails to render.
 
 ## Root Cause
 
-In `ClientApp.init()`, the `worldMap.init()` method is not called alongside the other module initializations (`statBars.init()`, `componentViewer.init()`, `navActions.init()`, `configBar.init()`). This means `WorldMapView._overlay` is never set to the DOM element.
+In `ClientApp.init()`, the `worldMap.init()` method is not called alongside the other module initializations (`statBars.init()`, `componentViewer.init()`, `navActions.init()`, `configBar.init()`). This means `WorldMapView._overlay` is never set to the DOM element, so when `show()` is invoked the overlay reference is still `null` and it silently returns without rendering.
 
 ## Fix
 
-Add `this.worldMap.init()` to the `ClientApp.init()` method:
-
-```javascript
-async init() {
-    console.log('%c[ClientApp] 🚀 Initializing System...', 'color: #00ff00; font-weight: bold;');
-    try {
-        // Initialize new modules
-        this.statBars.init();
-        this.componentViewer.init();
-        this.navActions.init();
-        this.configBar.init();
-        this.worldMap.init();  // ← ADD THIS LINE
-        await this.refreshWorldAndActions();
-    } catch (error) {
-        // ...
-    }
-}
-```
+The `worldMap.init()` call was added to the `ClientApp.init()` boot sequence so the World Map view is initialized alongside every other module. This ensures the overlay reference is bound to the DOM element before any button can trigger `show()`.
 
 ## Prevention
 

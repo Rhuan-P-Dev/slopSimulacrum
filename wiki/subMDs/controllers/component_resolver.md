@@ -22,19 +22,15 @@ The resolver explicitly rejects component IDs containing `undefined` or `null` p
 
 ## Public Methods
 
-| Method | Purpose |
-|--------|---------|
-| `buildComponentList(params)` | Builds a validated component list from action parameters, filtering malformed IDs |
-| `resolveSourceComponent(action, entityId, params, fallbackResult)` | Resolves the source component ID using the priority chain |
-| `validateComponentBinding(action, entityId, sourceComponentId, params)` | Validates that a resolved component matches the expected binding role |
+The public surface covers the resolution pipeline: sanitizing the component list supplied by callers (filtering malformed IDs), resolving the action's source component under the priority chain, and validating that a resolved component fits its expected binding role.
 
 ## Integration Points
 
-| Controller | Relationship |
-|------------|-------------|
-| **ActionController** | Calls `resolveSourceComponent()` and `validateComponentBinding()` during execution |
-| **RequirementResolver** | Used for binding validation of trait requirements |
-| **WorldStateController** | Provides entity and component data access |
+| Controller | Why it interacts |
+|------------|------------------|
+| **ActionController** | Needs deterministic component resolution during action execution |
+| **RequirementResolver** | Validates that resolved components satisfy the action's trait requirements |
+| **WorldStateController** | Is the source of truth for entity and component data |
 
 ## Related Files
 

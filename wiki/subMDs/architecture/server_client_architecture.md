@@ -15,17 +15,7 @@ The architecture follows a layered pattern: browser UI connects to a server via 
 
 ## 3. REST Endpoint Categories
 
-| Category | Method | Description |
-|----------|--------|-------------|
-| Chat | POST | LLM chat completion |
-| World State | GET | Full world state snapshot |
-| Rooms | GET | All room definitions |
-| Actions | GET | Action registry (optionally filtered by entity) |
-| World Map | GET | World graph with room names |
-| Entity Movement | POST | Move entity to a room |
-| Action Execution | POST | Execute an action |
-| Capability Cache | GET/POST | Capability cache endpoints |
-| Synergy | GET/POST | Synergy preview and computation |
-| Component Selection | POST | Component selection and locking |
-| Selections | GET | Locked components |
-| Internal Components | GET/POST/DELETE | Internal components management |
+The REST surface groups the server's query and command operations by domain (chat, world
+state, rooms, actions, movement, capabilities, synergy, selection, internal components); the
+WebSocket channel is reserved for identity assignment and real-time world-state broadcast.
+Individual endpoint contracts live in the server's route modules (code), not in the wiki.

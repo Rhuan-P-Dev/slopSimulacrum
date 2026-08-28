@@ -7,17 +7,7 @@
 
 ## Symptoms
 
-When a user drops an item and attempts to pick it up via the overlay, the client receives a **500 Internal Server Error**:
-
-```
-POST http://localhost:3000/pick-up-item 500 (Internal Server Error)
-[ClientErrorController] [PICKUP_FAILED] Internal Server Error
-```
-
-Server-side error log:
-```
-ERROR: /pick-up-item endpoint error | Context: {"error":"PickUpItem consequence handler not registered.","entityId":"03ed4e16-2aa0-4972-9ee8-25d055875c7f","droppedItemId":"dropped-1779922321643-item-14","componentId":"ef27614e-4379-4d04-9b44-19821031b928"}
-```
+When a user drops an item and attempts to pick it up via the overlay, the client receives a **500 Internal Server Error** (`[ClientErrorController] [PICKUP_FAILED] Internal Server Error`), and the server logs `ERROR: /pick-up-item endpoint error` with the context `"PickUpItem consequence handler not registered."`
 
 ## Root Cause
 
@@ -25,16 +15,7 @@ Two issues combined to cause this bug:
 
 ### Issue 1: Property Name Mismatch (Direct Cause)
 
-In `src/routes/worldRoutes.js` (before fix), line 140 accessed a **non-existent** internal property:
-
-```javascript
-// BEFORE (broken):
-const consequenceHandlers = worldStateController.actionController._consequenceHandlers;
-//                                         ^^^^^^^^^^^^^^^^^^
-//                                         Wrong! Property is "consequenceHandlers" (no underscore)
-```
-
-In `src/controllers/actions/actionController.js` (line 72), the property is stored as `this.consequenceHandlers` (without the `_` prefix). This caused the lookup chain to resolve to `undefined`, making `pickUpHandler` undefined, and the error was thrown.
+In `src/routes/worldRoutes.js` (before fix), the route looked up the handler registry as `actionController._consequenceHandlers` (with underscore prefix), but `actionController.js` stores the registry as `consequenceHandlers` (without the `_` prefix). The lookup chain therefore resolved to `undefined`, `pickUpHandler` was undefined, and the "handler not registered" error was thrown.
 
 ### Issue 2: Architectural Violation (Underlying Cause)
 
@@ -48,35 +29,11 @@ This pattern is fragile and breaks encapsulation, as demonstrated by this proper
 
 ### 1. Added `executePickUpItem()` Public API Method
 
-Added a new public method to `WorldStateController` (`src/controllers/WorldStateController.js`):
-
-```javascript
-/**
- * Picks up a dropped item from the map and adds it to an entity's inventory component.
- * This is the public API for the pick-up-item operation, delegating to the consequence handler system.
- */
-executePickUpItem(entityId, droppedItemId, componentId) {
-    const pickUpHandler = this.actionController?.consequenceHandlers?.handlers?.pickUpItem;
-
-    if (typeof pickUpHandler !== 'function') {
-        Logger.error('[WorldStateController] PickUpItem handler not available.');
-        return { success: false, message: 'PickUpItem handler not available.' };
-    }
-
-    return pickUpHandler(null, { entityId, droppedItemId, componentId }, { entityId });
-}
-```
+Added a public `executePickUpItem(entityId, droppedItemId, componentId)` method to `WorldStateController` that locates the pick-up handler internally and delegates to it, returning a structured failure if the handler is unavailable. Why: the root controller is the only layer allowed to reach into the consequence handler system, so the lookup belongs behind a public method.
 
 ### 2. Updated Route to Use Public API
 
-Changed `src/routes/worldRoutes.js` to call the public API method:
-
-```javascript
-// AFTER (fixed):
-const result = worldStateController.executePickUpItem(entityId, droppedItemId, componentId);
-```
-
-This eliminates the direct property access and follows the **Public API Only** rule.
+`worldRoutes.js` now calls the public method instead of walking the private property chain, eliminating the direct property access and following the **Public API Only** rule.
 
 ## Prevention
 

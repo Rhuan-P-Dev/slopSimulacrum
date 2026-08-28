@@ -24,7 +24,7 @@ The damage handler only accepted `worldStateController` in its constructor. It h
 
 ### 2. `ConsequenceHandlers` Constructor Didn't Pass `equippedItemStats`
 
-The `ConsequenceHandlers` constructor received only `{ worldStateController: this }`. It created `StatConsequenceHandler` with this object (which didn't include `equippedItemStats`), then relied on post-construction injection. `DamageConsequenceHandler` received the same incomplete object.
+The `ConsequenceHandlers` constructor received only the world-state controller. It built the `StatConsequenceHandler` from that incomplete dependency set and relied on post-construction injection; the `DamageConsequenceHandler` received the same incomplete set.
 
 ### 3. `WorldStateController` Stat Change Callback Had Wrong Iteration
 
@@ -34,106 +34,15 @@ The stat change callback iterated over `getAllEquippedItems()` using `Object.ent
 
 ### 1. `src/controllers/consequences/DamageConsequenceHandler.js`
 
-Added `equippedItemStats` to constructor and equipped-item routing in `_handleDamageComponent`:
-
-```javascript
-constructor(controllers) {
-    this.worldStateController = controllers.worldStateController;
-    this.equippedItemStats = controllers.equippedItemStats || null;
-}
-
-_handleDamageComponent(targetId, resolvedParams, context) {
-    // ...
-    // Check if target is an equipped item — route to EquippedItemStatsController
-    if (this.equippedItemStats?.hasStats(targetId)) {
-        const success = this.equippedItemStats.updateStatDelta(targetId, trait, stat, value);
-        return {
-            success,
-            message: success ? `Dealt ${Math.abs(value)} damage to ${targetId}` : `Failed to damage ${targetId}`,
-            data: success ? { targetId, trait, stat, value } : null
-        };
-    }
-    // ... fall through to component damage
-}
-```
+The handler now receives the equipped-stats store at construction and, when the damage target is an equipped item with tracked stats, routes the stat delta to the item itself instead of falling through to the host component.
 
 ### 2. `src/controllers/consequences/consequenceHandlers.js`
 
-Pass `equippedItemStats` to both `StatConsequenceHandler` and `DamageConsequenceHandler` at construction time:
-
-```javascript
-constructor(controllers) {
-    this.worldStateController = controllers.worldStateController;
-    this.equippedItemStats = controllers.equippedItemStats || null;
-
-    this.spatialHandler = new SpatialConsequenceHandler(controllers);
-    this.statHandler = new StatConsequenceHandler(controllers);
-    // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
-    const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats };
-    this.damageHandler = new DamageConsequenceHandler(damageControllers);
-    this.logHandler = new LogConsequenceHandler();
-    this.eventHandler = new EventConsequenceHandler();
-}
-```
+The stat and damage handlers are now constructed with the equipped-stats store included, rather than relying on partial objects plus post-construction injection.
 
 ### 3. `src/controllers/WorldStateController.js`
 
-**a.** Pass `equippedItemStats` to `ConsequenceHandlers` constructor:
-
-```javascript
-const consequenceHandlers = new ConsequenceHandlers({
-    worldStateController: this,
-    equippedItemStats: equippedItemStats
-});
-```
-
-**b.** Remove redundant post-construction injection:
-
-```javascript
-// REMOVED: consequenceHandlers.statHandler.equippedItemStats = equippedItemStats;
-// (No longer needed — now injected at construction time)
-```
-
-**c.** Fix stat change callback to iterate using direct key lookup:
-
-```javascript
-equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
-    // HoldingCostController.getAllEquippedItems() returns: { [entityId]: { [eqId]: itemData } }
-    const allEquipped = this.holdingCostController.getAllEquippedItems();
-    for (const [entityId, items] of Object.entries(allEquipped)) {
-        if (items[eqId]) {  // Direct key lookup instead of Object.entries(items)
-            // Entity found — re-evaluate its capabilities
-            const state = this.getAll();
-            this.actionController.reEvaluateEntityCapabilities(state, entityId);
-            if (this._broadcastService) {
-                this._broadcastService.broadcast();
-            }
-            return;
-        }
-    }
-});
-```
-
-**d.** Fix `getAllEquippedItems()` to include `eqId` in returned objects:
-
-```javascript
-getAllEquippedItems() {
-    const allEquipped = this.holdingCostController.getAllEquippedItems();
-    // ...
-    for (const [entityId, items] of Object.entries(allEquipped)) {
-        for (const [eqId, item] of Object.entries(items)) {
-            allItems.push({
-                entityId,
-                eqId,  // ← Added: eqId was missing before
-                itemId: item.itemId,
-                itemType: item.itemType,
-                componentId: item.componentId
-            });
-        }
-    }
-    return allItems;
-}
-```
+The world-state controller now passes the equipped-stats store when constructing the consequence handlers, and the redundant post-construction injection was removed. Its stat-change callback identifies the owning entity by direct key lookup against the nested equipped-items structure instead of iterating entries, and the flattened `getAllEquippedItems()` result includes the `eqId` field so the lookup can match.
 
 ## Prevention
 

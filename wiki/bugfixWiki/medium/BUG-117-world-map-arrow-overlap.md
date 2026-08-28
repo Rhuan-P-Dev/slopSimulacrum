@@ -13,17 +13,13 @@
 
 ## Root Cause
 
-- `CURVE_OFFSET` constant was too small (25px in RoomConnectionRenderer, 30px in WorldMapView) — resulting in insufficient perpendicular offset for bidirectional arrow curves
-- `LABEL_OFFSET` constant was too small (8px in both files) — resulting in text labels sitting too close to arrow curves and each other
-- No background rectangle for text labels in WorldMapView.js reduced readability when text overlapped with map elements
+- The `CURVE_OFFSET` constant was too small in both connection renderers — the perpendicular offset between bidirectional arrow curves (A→B and B→A) was insufficient, so the arrows nearly overlapped
+- The `LABEL_OFFSET` constant was too small in both renderers — text labels sat too close to the arrow curves and to each other
+- The world map view had no background rectangle behind connection labels, reducing readability when text overlapped map elements
 
 ## Fix
 
-- Increased `CURVE_OFFSET` from 25 to 50 in [`RoomConnectionRenderer.js`](../../../../../public/js/RoomConnectionRenderer.js:99)
-- Increased `CURVE_OFFSET` from 30 to 50 in [`WorldMapView.js`](../../../../../public/js/WorldMapView.js:237)
-- Increased `LABEL_OFFSET` from 8 to 16 in [`RoomConnectionRenderer.js`](../../../../../public/js/RoomConnectionRenderer.js:142)
-- Increased `LABEL_OFFSET` from 8 to 16 in [`WorldMapView.js`](../../../../../public/js/WorldMapView.js:294)
-- Added text background rectangle for connection labels in [`WorldMapView.js`](../../../../../public/js/WorldMapView.js:305-318)
+The `CURVE_OFFSET` and `LABEL_OFFSET` constants were increased in both renderers so bidirectional arrow curves and labels are visually distinct, and a background rectangle was added behind the world map's connection labels so text stays readable over map elements.
 
 ## Prevention
 

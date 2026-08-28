@@ -13,36 +13,12 @@
 
 ## Root Cause
 
-The broadcast service (`_broadcastService`) is `null` during `WorldStateController` initialization:
-
-1. `WSC` constructor runs → `initializeWorld()` → spawns entity → adds test item
-2. Inside `addItemToEntity()`, the check `if (result.success && this._broadcastService)` fails because `_broadcastService` is `null` (initialized on line 111, injected via `setBroadcastService()` on `server.js` line 27)
-3. `setBroadcastService(broadcastService)` is called **AFTER** the WSC constructor completes
-4. The entity's `items` array exists on the server but the state is never broadcast to clients
+Dependency-injection ordering: the broadcast service is injected via `setBroadcastService()` **after** `WorldStateController` construction and `initializeWorld()` have already completed. Spawn-time item additions therefore happen while `_broadcastService` is still `null`, the broadcast guard inside item addition silently skips, and the server state (including the test item) is never pushed to clients. Why it was subtle: the server state was correct and no error was logged — the data simply never crossed the wire.
 
 ## Fix
 
-Added `triggerInitialBroadcast()` method to `WorldStateController` that is called from `server.js` **after** `setBroadcastService()`:
+Added a `triggerInitialBroadcast()` method to `WorldStateController` and call it from `server.js` **after** `setBroadcastService()`. Why this shape: the controller cannot broadcast during its own construction (the service does not exist yet by DI order), so the server explicitly triggers one full-state broadcast once wiring is complete. This ensures:
 
-### WorldStateController.js
-```javascript
-triggerInitialBroadcast() {
-    if (this._broadcastService) {
-        this._broadcastService.broadcast();
-        Logger.info('[WorldStateController] Initial broadcast triggered after broadcast service injection.');
-    } else {
-        Logger.warn('[WorldStateController] Broadcast service not available for initial broadcast.');
-    }
-}
-```
-
-### server.js
-```javascript
-// After setBroadcastService
-worldStateController.triggerInitialBroadcast();
-```
-
-This ensures:
 - All entities are fully initialized
 - Test items and other spawn-time data are added
 - Broadcast service is active

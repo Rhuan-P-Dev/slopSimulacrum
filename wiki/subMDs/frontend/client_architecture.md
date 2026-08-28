@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-A modular vanilla JavaScript architecture using dependency injection. The main orchestrator initializes modules in a specific order, wires up callbacks between them, establishes a WebSocket connection, and starts event dispatching.
+A modular vanilla JavaScript architecture using dependency injection. The main orchestrator owns module initialization, callback wiring between modules, the WebSocket connection to the server, and event dispatch.
 
 **Modules**:
 | Module | Responsibility |
@@ -23,31 +23,19 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
 | Client Error Controller | Error resolution and formatting |
 
-## 2. Dependency Injection Wiring Order
+## 2. Dependency Injection Wiring
 
-The orchestrator initializes core modules first, then selection and synergy controllers, then UI modules, then the drop selector and overlay manager, establishes the WebSocket connection, and finally the event dispatcher with handler callbacks.
+The orchestrator is the single place that owns module construction and dependency injection. Initialization respects dependency availability — a module only receives already-initialized instances of the modules it depends on. Centralizing wiring in the orchestrator means no module needs to know about, or import, its own dependencies.
 
-**Drop Selector Wiring**: The `DropSelectorController` is instantiated before the `ActionExecutor` and initialized in `init()`. The `InventoryManager` receives its reference via `setDropSelector()` after both controllers are initialized.
+**Drop Selector Wiring**: The `InventoryManager` receives its drop selector reference from the orchestrator rather than constructing it itself. This keeps the two modules decoupled — the inventory routes drop requests through the shared selection flow without importing the selector directly.
 
 ## 3. Data Flow
 
 User interactions flow through the event dispatcher into the selection controller, which triggers UI updates and synergy preview fetching. The action executor sends HTTP requests for action execution. Server updates flow through the WebSocket into the state manager, which triggers UI updates.
 
-**Drop Selector Data Flow**:
-1. User clicks "Drop" button on an inventory item card
-2. `InventoryManager._onDropClick()` creates a pending drop object and calls `DropSelectorController.show()`
-3. `DropSelectorController` fetches capable components from the server
-4. User selects components and clicks "Execute"
-5. `DropSelectorController` dispatches a `drop-selector:execute` custom event
-6. `App.js` receives the event, calculates the drop range, and shows the range indicator
-7. User clicks on the map to specify the drop location
-8. `ActionManager.executeDropItem()` sends the drop request to the server
+**Why the drop flow spans multiple modules**: Each part of the drop interaction owns a distinct concern — the inventory owns item selection, the drop selector owns target-component selection, the world map owns location selection, and action execution dispatches the final request. Splitting the flow this way keeps each module single-responsibility, and the server remains the authority on whether a drop is valid.
 
-**Overlay Registration Flow**:
-1. All panel controllers are instantiated
-2. `OverlayManager.register()` is called for each panel with: panel ID, controller reference, config bar button ID, keyboard shortcut key
-3. `OverlayManager.init()` attaches click listeners to config bar buttons, creates the shared backdrop element, and sets up keyboard shortcuts
-4. Panel toggle requests go through `OverlayManager.toggle()` which ensures exclusive visibility (only one panel open at a time)
+**Overlay Registration**: Each panel registers itself with the OverlayManager rather than managing its own visibility. Registration gives the manager a single coordination point: it owns the config bar button listeners, keyboard shortcuts, and shared backdrop for all registered panels, so panel controllers never need to know about each other.
 
 **Why centralized overlay coordination**: Previously, each panel managed its own visibility independently, allowing multiple panels to overlap. The OverlayManager enforces exclusive visibility, manages z-index stacking, provides keyboard shortcuts (1-4 for panels, Escape to close all), and click-outside dismissal via a shared backdrop.
 
@@ -69,7 +57,7 @@ The Component Viewer overlay displays all components of a selected entity as int
 
 Stats within each component card are visually grouped by trait. Each trait group consists of a trait label and its associated stat badges contained within a dedicated container. This grouping enables two complementary interaction modes:
 
-**Hover-to-hide**: Hovering over a trait label temporarily hides the stats for that trait while the mouse remains over the label. This uses a visibility transition rather than immediate display removal, providing a smooth visual feedback loop. The design rationale is to allow users to scan component cards without visual distraction from stats they are not currently interested in, simply by moving their cursor over the trait name.
+**Hover-to-hide**: Hovering over a trait label temporarily hides the stats for that trait while the mouse remains over the label. The design rationale is to allow users to scan component cards without visual distraction from stats they are not currently interested in, simply by moving their cursor over the trait name.
 
 **Click-to-collapse**: Clicking a trait label permanently toggles the collapse state for that trait's stats until clicked again. This enables focused inspection of individual traits within a component — a user can collapse all traits except the one they are analyzing, reducing cognitive load when evaluating complex components with many stats across multiple traits.
 

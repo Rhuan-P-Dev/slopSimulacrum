@@ -16,72 +16,17 @@
 Three separate bugs in `componentCapabilityController.js`:
 
 ### Bug 1: Stats Lookup Used itemId Instead of eqId (Line 1012)
-```javascript
-// BEFORE (WRONG):
-const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.itemId);
-
-// AFTER (FIXED):
-const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.eqId);
-```
-Stats are stored by `eqId` (eq-uuid) but looked up by `itemId` (item-uuid), causing a lookup mismatch.
+Per-instance stats are stored by `eqId` (eq-uuid) but were looked up by `itemId` (item-uuid), causing a lookup mismatch.
 
 ### Bug 2: Legacy Format in fulfillingComponents (Line 1192)
-```javascript
-// BEFORE (WRONG):
-fulfillingComponents[key] = `equipped-${equipped.itemId}`;
-
-// AFTER (FIXED):
-fulfillingComponents[key] = equipped.eqId;
-```
-Constructed old synthetic format instead of using typed eqId.
+`fulfillingComponents` was constructed with the old synthetic `equipped-<itemId>` format instead of the typed `eqId`.
 
 ### Bug 3: Equipped Item Stats Replaced Instead of Merged (Lines 1125-1134)
-```javascript
-// BEFORE (WRONG):
-_getEffectiveStatsForComponent(componentId) {
-    const hostStats = this.worldStateController.componentController.getComponentStats(componentId);
-    const equippedTraits = this._getEquippedTraitsForHostComponent(componentId);
-    if (equippedTraits) {
-        return equippedTraits; // ← REPLACED host stats entirely
-    }
-    return hostStats || null;
-}
-
-// AFTER (FIXED):
-_getEffectiveStatsForComponent(componentId) {
-    const hostStats = this.worldStateController.componentController.getComponentStats(componentId);
-    const equippedTraits = this._getEquippedTraitsForHostComponent(componentId);
-    if (equippedTraits) {
-        // MERGE equipped item traits with host component stats
-        const mergedStats = {};
-        if (hostStats) {
-            for (const [trait, data] of Object.entries(hostStats)) {
-                mergedStats[trait] = { ...data };
-            }
-        }
-        for (const [trait, data] of Object.entries(equippedTraits)) {
-            if (!mergedStats[trait]) {
-                mergedStats[trait] = { ...data };
-            } else {
-                for (const [stat, value] of Object.entries(data)) {
-                    if (!mergedStats[trait][stat] && value !== undefined) {
-                        mergedStats[trait][stat] = value;
-                    }
-                }
-            }
-        }
-        return mergedStats;
-    }
-    return hostStats || null;
-}
-```
-When an equipped item's traits were checked, they **fully replaced** the host component's traits. This caused the host's `Physical.strength=25` to be lost, making strength-based requirements fail.
+When an equipped item's traits were resolved, they **fully replaced** the host component's traits. This caused the host's `Physical.strength=25` to be lost, making strength-based requirements fail.
 
 ## Fix
 
-1. Changed stats lookup to use `equipped.eqId` (typed eq-uuid) instead of `equipped.itemId`
-2. Changed `fulfillingComponents` to use `equipped.eqId` directly
-3. Changed `_getEffectiveStatsForComponent` to **merge** equipped item traits with host component stats instead of replacing
+Stats lookup and consequence routing were switched to the typed `eqId`, and effective-stats resolution was changed to **merge** equipped item traits with host component stats instead of replacing them. Rationale: the typed ID is the single key under which per-instance stats are stored, and merging preserves the host's own traits (e.g., strength) alongside the item's traits (e.g., sharpness) — replacing silently discarded whichever source had stats the other lacked.
 
 ## Prevention
 

@@ -32,13 +32,10 @@ The door range indicator renders as a circle on the world map SVG, identical in 
 
 ## 3. Range Calculation
 
-The client computes effective movement range by finding the maximum `Movement.move` value across all droid components, matching the pattern used for synergy-based range calculations. This approach ensures consistency across all range-based interactions — the same stat that determines action range also determines door reachability.
+A droid's effective reach is the best of what its parts can do — an entity with multiple locomotion components can move as far as its most capable part allows. Modeling door range this way keeps it consistent with every other range-based interaction in the game: the same movement capability that governs how far an action reaches also governs how far the entity can walk to a door.
 
-If the entity has no components with a `Movement.move` stat, range validation is skipped entirely (unrestricted movement).
+When an entity has no movement capability at all, door range is treated as unrestricted rather than zero. A body without an explicit locomotion stat is not a body that cannot move — it is a body with no range defined to enforce, and blocking its transitions would be a false gate.
 
 ## 4. Integration Points
 
-- **RoomConnectionRenderer**: Exposes door position through hover/click callbacks. No range data is passed — the client computes it from entity stats.
-- **UIManager**: Renders the range indicator circle at the entity position with the entity's movement range as radius.
-- **App (click handler)**: Computes `Movement.move` range, validates distance from entity to door position before issuing the room transition request, blocking the transition with an error message if out of range.
-- **App (hover handler)**: Computes `Movement.move` range on hover, displays green/red indicator based on whether the entity can reach the door.
+Door range deliberately keeps geometry and reachability separate: the map layer that draws doors only knows *where* a door is, and the reachability decision is derived from entity stats at interaction time. No range data travels with door geometry — each interaction computes reach from the live entity, so stat changes (synergy multipliers, buffs) are reflected immediately. The green/red indicator is rendered by the shared range-indicator UI, so doors speak the same visual language as pickup and drop (see §2).

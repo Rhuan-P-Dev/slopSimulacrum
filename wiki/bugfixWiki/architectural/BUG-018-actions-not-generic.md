@@ -13,78 +13,13 @@ Actions were hardcoded directly in the controller code:
 - Actions were tied to specific entity/component types
 - Testing actions required mocking controller internals
 
-### Example: Hardcoded Punch Action
-
-```javascript
-// ❌ BEFORE (buggy - hardcoded action)
-executePunch(entity) {
-    const damage = entity.components[0].stats.strength * 2;
-    const range = 1;
-    // Apply damage to first enemy component found
-    const target = findFirstEnemy(entity);
-    target.stats.durability -= damage;
-}
-```
-
 ## Root Cause
 
-The action system was implemented as individual methods in `ActionController`, each with hardcoded logic:
-
-```javascript
-// ❌ BEFORE (buggy - hardcoded methods)
-class ActionController {
-    executePunch(entity) { /* hardcoded logic */ }
-    executeKick(entity) { /* hardcoded logic */ }
-    executeMove(entity) { /* hardcoded logic */ }
-    // ... one method per action
-}
-```
-
-This violated the **Data-Driven Design** principle from `wiki/code_quality_and_best_practices.md` Section 1.3.
+The action system was implemented as individual methods in `ActionController`, each with hardcoded logic, so the engine could only perform actions for which a method existed. This violated the **Data-Driven Design** principle from `wiki/code_quality_and_best_practices.md` Section 1.3.
 
 ## Fix
 
-Implemented a data-driven action system where actions are defined in JSON configuration files:
-
-```javascript
-// ✅ AFTER (fixed - data-driven action)
-// data/actions.json
-{
-    "punch": {
-        "requirements": [
-            { "trait": "Physical", "stat": "strength", "minValue": 5 }
-        ],
-        "consequences": [
-            {
-                "type": "damageComponent",
-                "params": {
-                    "damage": "-:Physical.strength*2"
-                }
-            }
-        ],
-        "targetingType": "source"
-    }
-}
-
-// ActionController executes ANY action from the registry
-executeAction(actionName, entityId, params) {
-    const actionData = this.actionRegistry[actionName];
-    // Generic execution flow for ALL actions
-    const requirements = this._checkRequirements(actionData, entityId);
-    const consequences = this._executeConsequences(actionData, context);
-}
-```
-
-### Data-Driven Architecture
-
-```
-data/actions.json (action definitions)
-    → DataLoader.loadJsonSafe() → actionRegistry
-        → ActionController.executeAction() (generic executor)
-            → _checkRequirements() (validates requirements)
-            → _executeConsequences() (dispatches to handlers)
-            → ConsequenceHandlers (per-type logic)
-```
+Implemented a data-driven action system where actions are defined in JSON configuration files and the controller executes them generically from a registry, so adding or tuning actions requires data changes only.
 
 ## Prevention
 

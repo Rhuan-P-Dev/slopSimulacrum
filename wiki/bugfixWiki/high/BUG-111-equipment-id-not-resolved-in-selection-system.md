@@ -9,10 +9,7 @@
 
 When a user equips an item (e.g., knife) and then tries to use an action that requires that equipped item (e.g., "cut" action):
 
-1. **Server Log Warning**:
-```
-⚠️ WARN: [ActionSelectController] Invalid component ID format in batch: "eq-f1e132d2-e1f6-4622-a6cc-ec5b224ddc3b".
-```
+1. **Server Log Warning**: `⚠️ WARN: [ActionSelectController] Invalid component ID format in batch: "eq-f1e132d2-e1f6-4622-a6cc-ec5b224ddc3b".`
 
 2. The action fails because the server rejects the equipment ID (`eq-*`) as an invalid component ID format.
 
@@ -33,98 +30,27 @@ The ID resolution gap existed because:
 
 ### 1. Added ID Resolution Helper to `ActionSelectController`
 
-Added `_resolveToComponentId()` method that resolves equipment IDs to their host component IDs:
-
-```javascript
-_resolveToComponentId(id, entityId) {
-    if (!id) {
-        return { resolvedId: null, wasEquipped: false };
-    }
-
-    // If already a component ID, return as-is
-    if (IdResolver.isCompId(id)) {
-        return { resolvedId: id, wasEquipped: false };
-    }
-
-    // If an equipment ID, resolve to host component
-    if (IdResolver.isEquippedId(id)) {
-        const equippedItem = this.worldStateController.getEquippedItem(entityId, id);
-        if (equippedItem && equippedItem.componentId) {
-            Logger.info('[ActionSelectController] Resolved equipment ID to component ID', {
-                eqId: id,
-                componentId: equippedItem.componentId
-            });
-            return { resolvedId: equippedItem.componentId, wasEquipped: true };
-        }
-        Logger.warn('[ActionSelectController] Equipment ID not found for resolution', { eqId: id, entityId });
-        return { resolvedId: null, wasEquipped: true };
-    }
-
-    // Unknown ID type — return as-is (will fail validation later)
-    return { resolvedId: id, wasEquipped: false };
-}
-```
+A `_resolveToComponentId()` helper resolves equipment IDs to their host component IDs (component IDs pass through unchanged), so selection logic can work with both ID types transparently.
 
 ### 2. Updated Selection Methods to Use Resolution
 
-Modified the following methods to resolve equipment IDs before validation/locking:
-
-- `registerSelection(actionName, componentId, entityId, role)` - Now resolves eq-* IDs before locking
-- `registerSelections(actionName, entityId, componentList)` - Batch version also resolves eq-* IDs
-- `validateSelection(componentId, actionName, entityId)` - Validates resolved IDs
-- `validateSelections(actionName, componentIds, entityId)` - Batch validation resolves eq-* IDs
-- `releaseSelection(componentId, entityId)` - Releases by resolved comp-* ID
-- `releaseSelections(componentIds, entityId)` - Batch release resolves eq-* IDs
+All selection register/validate/release methods (including batch variants) now resolve equipment IDs before locking, validation, or release.
 
 ### 3. Updated Selection Routes
 
-Modified `selectionRoutes.js` to accept both `comp-*` and `eq-*` IDs:
-
-```javascript
-// Accept both comp-* (component IDs) and eq-* (equipped item IDs)
-const isCompId = IdResolver.isCompId(compId);
-const isEquippedId = IdResolver.isEquippedId(compId);
-if (!isCompId && !isEquippedId) {
-    return res.status(400).json({
-        success: false,
-        error: `Invalid component ID format: "${compId}". Expected comp-* or eq-* format.`
-    });
-}
-```
+`selectionRoutes.js` now accepts both `comp-*` and `eq-*` IDs, rejecting only truly malformed IDs.
 
 ### 4. Updated Call Sites in `actionController.js`
 
-Updated all calls to selection methods to pass `entityId` for equipment resolution:
-
-```javascript
-// Validation
-this.actionSelectController.validateSelections(actionName, componentList.map(c => c.componentId), entityId)
-this.actionSelectController.validateSelection(sourceComponentId, actionName, entityId)
-
-// Release
-this.actionSelectController.releaseSelections(componentsToRelease, entityId)
-```
+All calls to selection methods now pass `entityId`, which equipment ID resolution requires to find the owning entity.
 
 ### 5. Updated `ComponentResolver.js`
 
-Modified `buildComponentList()` and `resolveSourceComponent()` to accept both `comp-*` and `eq-*` IDs:
-
-```javascript
-// Accept typed component IDs (comp-...), equipped item IDs (eq-...), and legacy raw UUIDs
-if (IdResolver.isCompId(compId) || IdResolver.isEquippedId(compId) || this._isLegacyCompId(compId)) {
-    // ...
-}
-```
+Component list building and source-component resolution now accept both `comp-*` and `eq-*` IDs (plus legacy raw UUIDs).
 
 ### 6. Updated `actionController.js` Validation
 
-Updated attacker component ID validation to accept `eq-*` IDs:
-
-```javascript
-if (!IdResolver.isCompId(atkId) && !IdResolver.isEquippedId(atkId) && !this._isLegacyCompId(atkId)) {
-    // reject
-}
-```
+Attacker component ID validation now accepts `eq-*` IDs alongside `comp-*` IDs and legacy raw UUIDs.
 
 ## Prevention
 

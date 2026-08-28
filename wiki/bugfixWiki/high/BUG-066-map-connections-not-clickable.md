@@ -15,18 +15,7 @@ Three independent issues prevented clicking on map connections:
 
 ### 1. CSS `pointer-events: none` Blocks All Clicks
 
-In `public/css/navigation.css` (lines 143-157):
-```css
-.room-connection-line {
-    pointer-events: none;
-}
-
-.room-connection-arrow {
-    pointer-events: none;
-}
-```
-
-This CSS rule made connection lines and arrowheads completely ignore all mouse events, including clicks.
+The connection lines and arrowheads in `public/css/navigation.css` were styled with `pointer-events: none`, which made the elements completely ignore all mouse events, including clicks.
 
 ### 2. No Click Handlers on Connection Elements
 
@@ -34,115 +23,27 @@ Neither `WorldMapView._drawConnection()` nor `RoomConnectionRenderer._drawConnec
 
 ### 3. Pan/Mousedown Handler Captures All Clicks
 
-In `WorldMapView._setupPanZoom()` (line 331):
-```javascript
-svg.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    this._isPanning = true;  // Always starts panning on left-click
-    this._lastMouseX = e.clientX;
-    this._lastMouseY = e.clientY;
-    svg.style.cursor = 'grabbing';
-});
-```
-
-This handler fires on ALL `mousedown` events on the SVG canvas, including clicks on room nodes and connection lines. Since it starts panning immediately, the `click` event never has a chance to fire on interactive elements. There was also no `mouseup` handler to distinguish short clicks from drag pans.
+The SVG canvas `mousedown` handler in `WorldMapView._setupPanZoom()` started panning immediately on every left mousedown, including clicks on room nodes and connection lines, so the `click` event never had a chance to fire on interactive elements. There was also no `mouseup`/movement threshold to distinguish short clicks from drag pans.
 
 ## Fix
 
+Addressed all three causes:
+
 ### 1. CSS: Enable pointer-events on connections (`navigation.css`)
-```css
-.room-connection-line {
-    pointer-events: stroke;
-    cursor: pointer;
-    transition: stroke-opacity 0.2s ease;
-}
 
-.room-connection-line:hover {
-    stroke-opacity: 1;
-    stroke-width: 3;
-}
-
-.room-connection-arrow {
-    pointer-events: fill;
-    cursor: pointer;
-    transition: opacity 0.2s ease;
-}
-
-.room-connection-arrow:hover {
-    opacity: 1;
-}
-```
+Connection lines and arrowheads now receive pointer events and show hover affordance (line thickens, arrow brightens), so users get visible feedback that they are interactive.
 
 ### 2. WorldMapView: Skip panning on interactive elements + add click handler
 
-**`_setupPanZoom()`**: Added target class checking to skip panning when clicking on room nodes or connections:
-```javascript
-svg.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    const targetClass = e.target.className?.baseVal || '';
-    if (targetClass.includes('world-map-room-node') ||
-        targetClass.includes('world-map-connection-line') ||
-        targetClass.includes('room-connection-line') ||
-        targetClass.includes('room-connection-arrow')) {
-        return;  // Skip panning for interactive elements
-    }
-    // ... rest of pan logic
-});
-```
-
-Also added a 3-pixel movement threshold before panning starts to distinguish clicks from drags.
-
-**`_drawConnection()`**: Added a wide transparent hit-area line with click handler:
-```javascript
-const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-line.setAttribute('stroke-width', '15'); // Wide hit area
-line.setAttribute('opacity', '0');       // Transparent
-line.style.pointerEvents = 'stroke';
-line.style.cursor = 'pointer';
-
-line.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (this._onRoomClick) {
-        this._onRoomClick(conn.targetId);
-    }
-});
-```
+The pan handler now checks the mousedown target and skips panning when it is a room node or a connection element, and a small movement threshold before panning starts distinguishes short clicks from drag pans. Connection lines got a click handler via a wide, invisible hit-area line: thin SVG strokes are unreliable click targets, so an invisible, wider, zero-opacity stroke provides a dependable hit area.
 
 ### 3. RoomConnectionRenderer: Add click handler + callback parameter
 
-**`renderRoomConnections()`**: Added optional `onConnectionClick` and `entityId` parameters:
-```javascript
-static renderRoomConnections(room, rooms, roomLayer, onConnectionClick = null, entityId = null) {
-    // ... passes onConnectionClick and entityId to _drawConnection
-}
-```
-
-**`_drawConnection()`**: Added invisible wide hit-area line with click handler (spatial map only):
-```javascript
-const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-hitLine.setAttribute('stroke-width', '15');
-hitLine.setAttribute('opacity', '0');
-hitLine.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (onConnectionClick) onConnectionClick(entityId, targetRoom.id);
-});
-```
-
-**Note:** The hit-area line pattern is used in `RoomConnectionRenderer.js` (spatial map). The `WorldMapView.js` (world map overlay) uses inline `pointer-events: 'stroke'` directly on the connection `<line>` element with a click handler — it does not use a separate hit-area line.
+The renderer now accepts an optional connection-click callback and entity ID, and draws an invisible wide hit-area line (spatial map) that invokes the callback with the target room ID. The world map overlay instead attaches pointer events directly on the visible connection line with a click handler — it does not use a separate hit-area line.
 
 ### 4. UIManager: Wire click handler through
 
-**`renderRoomConnections()`**: Now accepts and passes `onConnectionClick` and `entityId`:
-```javascript
-renderRoomConnections(room, rooms, onConnectionClick = null, entityId = null) {
-    RoomConnectionRenderer.renderRoomConnections(room, rooms, this._currentRoomLayer, onConnectionClick, entityId);
-}
-```
-
-**`updateWorldView()`**: Passes `onMoveCallback` as the connection click handler and `droid.id` as entityId:
-```javascript
-this.renderRoomConnections(room, state.rooms, onMoveCallback, droid?.id);
-```
+`UIManager` now passes the move callback and the entity ID through to the connection renderer, so a connection click triggers room navigation for that entity.
 
 ## Prevention
 

@@ -59,9 +59,9 @@ All **state controllers** (controllers that store raw data, per [Controller Patt
 
 **Prohibited:** Direct use of `fs.readFileSync()` or `require()` for data loading in controllers.
 
-### 5.1. Pattern Description
+### 5.1. Purpose
 
-State controllers import `DataLoader`, call `loadJsonSafe(filePath, fallback)` with a fallback value, validate via `_validate*()`, log the count, and use controller-specific validation method names.
+Every state controller loads its data through a single, safe path: `DataLoader.loadJsonSafe()` supplies a fallback when a file is missing or unreadable, and the controller validates what it loaded before trusting it. The goal is one consistent, defensive way for every controller to bootstrap its data instead of each controller reinventing file I/O.
 
 ### 5.2. Rules
 

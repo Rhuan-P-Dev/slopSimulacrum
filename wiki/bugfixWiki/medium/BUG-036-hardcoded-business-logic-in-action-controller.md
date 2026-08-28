@@ -11,10 +11,7 @@
 - Adding new actions requires code changes instead of just updating JSON files
 
 ## Root Cause
-1. **Line 471**: `if (actionName === 'droid punch' && attackerComponentIds.length > 1` — Multi-attacker special case hardcoded
-2. **Line 887**: `const spatialTypes = ['updateSpatial', 'deltaSpatial']` — Spatial consequence types hardcoded
-
-These checks violate the Data-Driven Design principle (wiki/code_quality_and_best_practices.md §1.3).
+Business rules that belong in data are hardcoded in the controller: a multi-attacker special case for the `droid punch` action, and a hardcoded list of spatial consequence types (`updateSpatial`, `deltaSpatial`). These checks violate the Data-Driven Design principle (wiki/code_quality_and_best_practices.md §1.3).
 
 ## Fix (Recommended)
 1. Move `droid punch` multi-attacker logic to `synergy.json` with a `multiAttacker: true` flag

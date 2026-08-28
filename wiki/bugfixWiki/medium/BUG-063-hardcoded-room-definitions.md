@@ -16,68 +16,11 @@ This caused:
 
 ## Root Cause
 
-The `RoomsController` constructor contained a hardcoded `roomDefinitions` object with literal room data:
-
-```javascript
-const roomDefinitions = {
-    'start_room': {
-        name: 'The Entrance Hall',
-        description: 'A dimly lit hall...',
-        connections: { 'right_door': 'right_room' },
-        x: 200, y: 250, width: 300, height: 200
-    },
-    // ... more hardcoded rooms
-};
-```
-
-This deviated from the pattern used by `WorldStateController`, which loads all data via `DataLoader.loadJsonSafe()`.
+The `RoomsController` constructor contained a hardcoded `roomDefinitions` object with literal room data. This deviated from the pattern used by `WorldStateController`, which loads all data via `DataLoader.loadJsonSafe()` — room definitions were the only game data not externalized to a JSON file.
 
 ## Fix
 
-1. **Created `data/rooms.json`** — externalized room definitions to a JSON data file, following the same format as `data/actions.json`, `data/components.json`, etc.
-
-2. **Updated `RoomsController.js`** — replaced hardcoded definitions with `DataLoader.loadJsonSafe('data/rooms.json', {})`
-
-3. **Added `_validateRoomDefinitions()` method** — validates all loaded room definitions before initialization, checking:
-   - `name` is a non-empty string
-   - `description` is a string
-   - `connections` is an object with string door names and string target IDs
-   - `x`, `y` are numbers
-   - `width`, `height` are numbers
-
-4. **Added `Logger` import** — per wiki/CORE.md logging standard, logs initialization count on success.
-
-### Before:
-```javascript
-import { generateUID } from '../../utils/idGenerator.js';
-
-class RoomsController {
-    constructor() {
-        const roomDefinitions = { /* hardcoded */ };
-        // ...
-    }
-}
-```
-
-### After:
-```javascript
-import { generateUID } from '../../utils/idGenerator.js';
-import DataLoader from '../../utils/DataLoader.js';
-import Logger from '../../utils/Logger.js';
-
-class RoomsController {
-    constructor() {
-        const roomDefinitions = DataLoader.loadJsonSafe('data/rooms.json', {});
-        this._validateRoomDefinitions(roomDefinitions);
-        // ...
-        Logger.info(`[RoomsController] Initialized with ${Object.keys(this.rooms).length} rooms`);
-    }
-
-    _validateRoomDefinitions(defs) {
-        // Validation logic...
-    }
-}
-```
+Room definitions were externalized to `data/rooms.json` so that rooms can be added or modified as data rather than through code changes. `RoomsController` now loads the file via `DataLoader.loadJsonSafe()`, validates it with the standard `_validate*()` pattern before initialization, and logs the initialization count via `Logger` — aligning room handling with the data loading standard used by every other state controller.
 
 ## Prevention
 

@@ -22,14 +22,7 @@ Specifically, four points in the data flow failed to pass the door argument:
 
 ## Fix
 
-Restored the `doorName` argument through the complete client-side data flow chain by ensuring each layer in the call chain passes the door parameter to the next:
-
-1. **WorldMapView callback wrapper (`App.js`)** — The constructor callback for `onRoomClick` now includes the `door` argument so the door value reaches the navigation handler.
-2. **Bidirectional click handler (`WorldMapView.js`)** — The click listener on curved connection paths passes `conn.door` to the room click callback, ensuring bidirectional connections carry door data.
-3. **Unrestricted movement path (`App.js`)** — The `_handleDoorClick()` method's unrestricted branch (when movement range is null) now passes `doorName` to `executeMoveDroid()`.
-4. **In-range movement path (`App.js`)** — The `_handleDoorClick()` method's in-range branch now passes `doorName` to `executeMoveDroid()`.
-
-The design decision to pass the door through every layer of the client-side flow ensures the server receives accurate source door information, allowing it to compute the correct spawn position near the target room's door rather than defaulting to the room center.
+The `doorName` argument was restored at every broken link in the client-side chain — the `onRoomClick` callback wrapper in the `App.js` constructor, the bidirectional connection click handler in `WorldMapView.js` (which now forwards `conn.door`), and both movement branches (unrestricted and in-range) of `_handleDoorClick()`. Passing the door through every layer is deliberate: the server needs accurate source-door information to compute the spawn position next to the target room's door instead of defaulting to the room center.
 
 ## Prevention
 

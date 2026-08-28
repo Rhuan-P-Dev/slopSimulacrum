@@ -7,43 +7,15 @@
 
 ## Symptoms
 
-In the synergy preview "Modified Values:" section, `deltaSpatial` values did not appear:
-
-```
-⚡ Synergy: 1.500x (+50%)
-Modified Values:
-  (deltaSpatial missing!)
-🔻 updateComponentStatDelta (value): 5 → 9.8 (+95%)
-```
-
-The `deltaSpatial` consequence was silently skipped.
+In the synergy preview "Modified Values:" section, `deltaSpatial` values did not appear — the `deltaSpatial` consequence was silently skipped while stat-delta consequences rendered normally.
 
 ## Root Cause
 
-The `UIManager._buildSynergyPreviewHtml()` method checked `typeof baseResolved.value !== 'number'` to determine if a consequence should be displayed. However, `deltaSpatial` resolved values use a `speed` property (e.g., `{ "speed": 20 }`) instead of `value`:
-
-```javascript
-// Broken: { speed: 20 } has no .value property
-if (!baseResolved || typeof baseResolved.value !== 'number') continue;
-```
-
-Since `baseResolved.value` was `undefined`, the consequence was skipped entirely.
+The `UIManager._buildSynergyPreviewHtml()` method determined whether to display a consequence by checking for a numeric `value` property. However, `deltaSpatial` resolved values carry their number in a `speed` property (e.g., `{ "speed": 20 }`) instead of `value`, so `baseResolved.value` was `undefined` and the consequence was skipped entirely.
 
 ## Fix
 
-Added special handling for `deltaSpatial` in both `_buildActionDataHtml()` and `_buildSynergyPreviewHtml()`:
-
-```javascript
-// UIManager.js - _buildSynergyPreviewHtml
-let baseValue;
-if (consequence.type === 'deltaSpatial') {
-    if (!baseResolved || typeof baseResolved.speed !== 'number') continue;
-    baseValue = baseResolved.speed;
-} else {
-    if (!baseResolved || typeof baseResolved.value !== 'number') continue;
-    baseValue = baseResolved.value;
-}
-```
+The preview builders (`_buildActionDataHtml()` and `_buildSynergyPreviewHtml()`) now recognize `deltaSpatial`'s `speed` property alongside the generic `value` property, so spatial deltas are rendered instead of silently dropped.
 
 ## Prevention
 

@@ -22,25 +22,7 @@ The `ActionController` contained all capability cache logic internally. When sta
 
 ## Fix
 
-Extracted capability cache management into a dedicated `ComponentCapabilityController`:
-
-| Before (ActionController) | After (ComponentCapabilityController) |
-|--------------------------|--------------------------------------|
-| `scanAllCapabilities()` | `scanAllCapabilities()` |
-| `reEvaluateActionForComponent()` | `reEvaluateActionForComponent()` |
-| `_calculateComponentScore()` | `_calculateComponentScore()` |
-| `_buildTraitStatActionIndex()` | `_buildTraitStatActionIndex()` |
-
-`ActionController` now delegates all capability cache queries to `ComponentCapabilityController` via constructor injection.
-
-### Stat Change Notification Flow
-
-```
-ComponentController → ComponentCapabilityController.onStatChange()
-    → _traitStatActionIndex lookup (trait.stat → actions)
-    → reEvaluateActionForComponent() for affected actions only
-    → _notifySubscribers() for capability changes
-```
+Extracted capability cache management into a dedicated `ComponentCapabilityController`, which `ActionController` now delegates to via constructor injection. The split was chosen because cache maintenance (scanning, scoring, re-evaluation) is a separate reason to change from action execution, and it enables targeted re-evaluation: a stat change is routed to the capability controller, which uses a trait-stat → action index to re-evaluate only the affected actions and notify subscribers, instead of re-scanning the entire cache.
 
 ## Prevention
 

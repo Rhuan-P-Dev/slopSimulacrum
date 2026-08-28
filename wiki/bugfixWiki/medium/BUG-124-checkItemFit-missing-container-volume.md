@@ -7,7 +7,7 @@
 
 ## Symptoms
 
-The `_checkItemFit()` method only checks component-level volume (`_currentItems[targetCompId]`). It does not account for items that might be inside containers on that component. This means drag-and-drop on a component could allow placing an item that would exceed the component's volume if container items are also present.
+The client-side volume check only accounts for items held directly by the target component. It does not account for items inside containers on that component, so drag-and-drop could allow a placement that would exceed the component's total volume once container contents are included.
 
 ## Root Cause
 
@@ -15,31 +15,7 @@ The client-side volume check was not updated when nested inventory was added. Th
 
 ## Fix
 
-Update `_checkItemFit()` to also check container item volumes when the target component has container items:
-
-```javascript
-// Before (incomplete):
-_checkItemFit(targetCompId, itemVolume) {
-    const currentItems = this._currentItems[targetCompId] || 0;
-    const maxVolume = this._getComponentMaxVolume(targetCompId);
-    return (currentItems + itemVolume) <= maxVolume;
-}
-
-// After (complete):
-_checkItemFit(targetCompId, itemVolume) {
-    let currentItems = this._currentItems[targetCompId] || 0;
-
-    // Add container item volumes if any containers exist on this component
-    const containerIds = this._getContainerIdsForComponent(targetCompId);
-    for (const containerId of containerIds) {
-        const containerItems = this._getContainerItemVolumes(containerId);
-        currentItems += containerItems;
-    }
-
-    const maxVolume = this._getComponentMaxVolume(targetCompId);
-    return (currentItems + itemVolume) <= maxVolume;
-}
-```
+The client-side fit check (`_checkItemFit()`) needs to include the volume of items inside containers on the target component, so the client's validation mirrors the server-side nested-volume rule and the UI cannot accept a placement the server would reject.
 
 ## Prevention
 

@@ -28,14 +28,7 @@ This approach was chosen because it reuses existing validation, traversal, and d
 
 ### Action Integration
 
-The `shootT1` action is registered in the action registry with a single custom consequence type: `consumeItemAndDamage`. This consequence bridges the inventory system and the damage system:
-
-1. The consequence handler locates the T1 weapon on the attacking entity by resolving the equipped item reference.
-2. It queries the T1's internal inventory for available ammunition.
-3. It removes the first available ammo item and stores its volume in the action context.
-4. The stored volume is then used as the damage value for the target's durability.
-
-This design keeps the action definition declarative — the action only specifies that damage should be dealt using a resolved value, while the handler determines what that value is at runtime.
+The `shootT1` action is registered in the action registry with a single custom consequence type that bridges the inventory system and the damage system. This keeps the action definition declarative — the action only specifies that damage should be dealt using a resolved value, while the consequence handler determines at runtime what that value is (the volume of the ammunition item consumed from the weapon's own internal inventory).
 
 ### Spawn Observer Pattern
 

@@ -38,12 +38,9 @@ The backend consequence system remains fully data-driven. The action's `conseque
 
 ## Data Schema
 
-Actions with `targetingType: 'component'` require:
-
-- `targetingType: 'component'` — identifies this as a component-targeted attack
-- `range` — numeric value or expression string defining maximum attack distance
-- `requirements` — component/equipped item requirements that must be satisfied
-- `consequences` — effects applied to the target, defined entirely in data
+Component-targeted attacks declare everything they do — range, requirements, and
+consequences — entirely in data, so the unified handler can execute any of them without
+per-action code.
 
 ## Adding New Attack Types
 

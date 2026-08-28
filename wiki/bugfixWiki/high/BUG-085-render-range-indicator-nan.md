@@ -7,15 +7,7 @@
 
 ## Symptoms
 
-After dropping an item via the drop selector, the console shows:
-
-```
-Error: <circle> attribute r: Expected length, "NaN".
-renderRangeIndicator @ UIManager.js:192
-_onDropSelectorExecute @ App.js?v=2:538
-```
-
-The range indicator circle fails to render, and the error propagates to the console.
+After dropping an item via the drop selector, the console shows `Error: <circle> attribute r: Expected length, "NaN".` from `renderRangeIndicator` via `_onDropSelectorExecute`. The range indicator circle fails to render, and the error propagates to the console.
 
 ## Root Cause
 
@@ -23,21 +15,7 @@ The range indicator circle fails to render, and the error propagates to the cons
 
 ## Fix
 
-Added input validation guard at the top of `renderRangeIndicator()`:
-
-```javascript
-renderRangeIndicator(droid, range, color = 'red', indicatorType = 'default') {
-    const entitiesLayer = this.elements.entitiesLayer;
-
-    // Guard: prevent NaN/Infinity range values from breaking SVG
-    if (typeof range !== 'number' || isNaN(range) || !isFinite(range)) {
-        return;
-    }
-    // ... rest of method
-}
-```
-
-This defensive guard prevents SVG errors from invalid range values, allowing the application to continue gracefully.
+`renderRangeIndicator()` now starts with a defensive guard that returns early when the range value is not a finite number (NaN/Infinity/non-numeric). Why: the indicator is purely cosmetic, so an invalid range should simply suppress the ring instead of throwing an SVG attribute error that aborts the rest of the render path — the bad value is a symptom of upstream expression-parsing edge cases, and the renderer should degrade gracefully rather than become the place it surfaces.
 
 ## Prevention
 

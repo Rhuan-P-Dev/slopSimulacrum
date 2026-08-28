@@ -14,12 +14,7 @@
 The SRP refactor of `actionController.js` (BUG-039) extracted `_resolvePlaceholders` logic but the method was completely removed instead of being preserved as a private delegation method. `resolveActionValues()` and `previewActionData()` call `this._resolvePlaceholders()` which no longer exists.
 
 ## Fix
-Added `_resolvePlaceholders(params, requirementValues, context)` private method back to `ActionController`:
-```javascript
-_resolvePlaceholders(params, requirementValues, context) {
-    // Resolves :placeholder, -:placeholder, *:placeholder patterns
-}
-```
+Restored the missing `_resolvePlaceholders` private delegation method on `ActionController`, so `resolveActionValues()` and `previewActionData()` delegate placeholder resolution to the extracted module instead of throwing at call time.
 
 ## Prevention
 - When extracting code during SRP refactoring, ensure all calling sites are updated to use the extracted module OR preserve a delegation wrapper method.

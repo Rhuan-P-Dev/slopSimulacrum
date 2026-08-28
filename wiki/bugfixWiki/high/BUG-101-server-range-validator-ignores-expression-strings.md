@@ -7,11 +7,7 @@
 
 ## Symptoms
 
-When `data/actions.json` defines a range expression like `":Physical.strength*2"`, the server throws a `TypeError` in `RangeChecker.checkGrabRange()`:
-
-```
-TypeError: Invalid maxRange: must be a positive number.
-```
+When `data/actions.json` defines a range expression like `":Physical.strength*2"`, the server throws a `TypeError` in `RangeChecker.checkGrabRange()` ("Invalid maxRange: must be a positive number").
 
 Because `RangeValidator.checkGrabRange()` passes the raw string value directly to `RangeChecker`, which validates `typeof maxRange !== 'number'` and rejects any non-number.
 
@@ -19,37 +15,11 @@ This means any action with an expression `range` field silently fails on the ser
 
 ## Root Cause
 
-`RangeValidator.checkGrabRange()` at line 41 of the original file passed `maxRange` directly to `checkGrabRange()` from `RangeChecker`:
-
-```javascript
-return checkGrabRange(sourceEntity, targetEntity, maxRange);
-```
-
-`RangeChecker.checkGrabRange()` at line 35 validates:
-```javascript
-if (typeof maxRange !== 'number' || maxRange <= 0 || !isFinite(maxRange)) {
-    throw new TypeError('Invalid maxRange: must be a positive number.');
-}
-```
-
-There was no expression resolution on the server side — `PlaceholderResolver.resolvePlaceholders()` was only used for consequence parameters, not for the `range` field.
+`RangeValidator.checkGrabRange()` passed the raw `maxRange` value directly to `RangeChecker`, which rejects anything that is not a positive finite number. There was no expression resolution on the server side — `PlaceholderResolver.resolvePlaceholders()` was only used for consequence parameters, not for the `range` field.
 
 ## Fix
 
-Modified `RangeValidator.js` to:
-
-1. Import `resolvePlaceholders` from `PlaceholderResolver`
-2. In `checkGrabRange()`, check if `maxRange` is a string. If so, resolve it:
-   ```javascript
-   if (typeof maxRange === 'string') {
-       const requirementValues = this._resolveRequirementValues(sourceEntityId);
-       const resolved = resolvePlaceholders(maxRange, requirementValues);
-       maxRange = typeof resolved === 'number' ? resolved : Number(resolved);
-   }
-   ```
-3. Added `_resolveRequirementValues()` private method that gathers all `"trait.stat"` → `value` pairs from the source entity's components, using the same pattern as `RequirementResolver.resolveRequirementValues()`.
-
-This ensures range, consequences, and failureConsequences all share the **same** `PlaceholderResolver` expression resolution mechanism.
+`RangeValidator` now resolves string range expressions before validation, gathering the source entity's trait values and resolving the expression through the shared `PlaceholderResolver` — the same mechanism used for consequence parameters. Rationale: range, consequences, and failureConsequences must all share a single expression-resolution mechanism; separate per-field resolution paths are what allowed `range` to be the only field that never resolved expressions server-side.
 
 ## Prevention
 

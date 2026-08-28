@@ -7,15 +7,7 @@
 
 ## Symptoms
 
-The `/pick-up-item` POST endpoint bypasses the public API and directly accesses internal controller properties:
-
-```javascript
-// worldRoutes.js lines 117-118
-const consequenceHandlers = worldStateController.actionController._consequenceHandlers;
-const pickUpHandler = consequenceHandlers?.handlers?.pickUpItem;
-```
-
-This violates the **"No Direct Property Access"** and **"Public API Only"** rules from [project_rules.md](../../project_rules.md).
+The `/pick-up-item` POST endpoint bypasses the public API and reaches through a sub-controller (`actionController`) into a deeply nested private handler registry to pull out the pick-up handler directly. This violates the **"No Direct Property Access"** and **"Public API Only"** rules from [project_rules.md](../../project_rules.md).
 
 ## Root Cause
 
@@ -29,26 +21,7 @@ The proper pattern would be for `WorldStateController` to expose a public method
 
 ## Fix
 
-Add a public method to `WorldStateController`:
-
-```javascript
-// In WorldStateController.js
-pickUpItem(droppedItemId, componentId) {
-    const { actionController } = this;
-    const pickUpHandler = actionController?._consequenceHandlers?.handlers?.pickUpItem;
-    if (typeof pickUpHandler === 'function') {
-        return pickUpHandler(null, { droppedItemId, componentId }, { entityId: this._myEntityId });
-    }
-    throw new Error('PickUpItem handler not available.');
-}
-```
-
-Then update `worldRoutes.js`:
-
-```javascript
-// In worldRoutes.js
-const result = worldStateController.pickUpItem(droppedItemId, componentId);
-```
+Expose a public `pickUpItem(droppedItemId, componentId)` method on `WorldStateController` that internally invokes the pick-up consequence handler, and point `worldRoutes.js` at that public method. Why: the root controller is the only layer allowed to reach into the consequence handler system; the route must depend only on the public API so that internal restructuring of the handler registry can never break it again.
 
 ## Prevention
 

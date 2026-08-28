@@ -19,12 +19,7 @@ The root architectural issue is that pending state carried a generic `actionName
 
 ## Fix
 
-Applied a defensive fix at three layers to ensure the drop flow always reads the `dropItem` action definition regardless of what action name is stored in pending state:
-
-1. `App.js _handleEquippedItemClick`: Reads `dropItem` action data directly instead of using `pending.actionName`.
-2. `App.js _onDropSelectorExecute`: Reads `dropItem` action data directly instead of `pendingDropItem.actionName`.
-3. `ActionExecutor.js executeDropItem`: Reads `dropItem` action data directly instead of `pending.actionName`.
-4. `App.js _handleEquippedItemClick` and `_onDropSelectorExecute`: Set `_pendingDropItem.actionName` to `'dropItem'` to prevent downstream lookups from using the source item's action name.
+The drop flow now always reads the `dropItem` action definition directly at every point where range or action data is consumed, instead of resolving through the shared pending action name, and drop-related pending state carries the semantic `'dropItem'` action name rather than the source item's action name. Rationale: a dedicated operation must not depend on state that unrelated actions can overwrite — pinning the read to the dropItem definition removes the cross-action leakage at its source.
 
 ## Prevention
 

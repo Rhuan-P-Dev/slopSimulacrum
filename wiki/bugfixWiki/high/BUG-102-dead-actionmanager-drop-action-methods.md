@@ -20,19 +20,7 @@ The original drop/pickup refactor introduced state management in `App.js` using 
 
 ## Fix
 
-1. **Removed** from `ActionManager.js`:
-   - `clearPendingDropAction()` method (lines 244-248)
-   - `setPendingDropAction()` method (lines 254-263)
-   - `getPendingDropAction()` method (lines 268-271)
-
-2. **Removed** from `App.js`:
-   - Call to `this.actions.setPendingDropAction()` at line 486 (state is managed directly via `this._pendingDropItem`)
-
-3. **Removed** from `ActionExecutor.js`:
-   - Dead no-op call to `this.actions.clearPendingDropAction()` in `executePickUpItem()` (lines 372-374)
-   - Call to `this.actions.clearPendingDropAction()` in `executeDropItem()` (line 469)
-
-4. **Fixed** range indicator color inconsistency in `executePickUpItem()`: changed `'red'` to `'#44ff44'` to match pickup flow visual language (range=0 so indicator is cleared anyway, but consistency matters)
+Removed the dead drop-state methods from `ActionManager` and their no-op call sites in `App.js` and `ActionExecutor.js`. Rationale: drop/pickup state has been owned by `App.js` pending-state properties since the refactor, so the `ActionManager` methods were unreachable leftovers writing to a property nothing reads — leaving them in place risks future code trusting the wrong state owner. The pickup range indicator color was also aligned with the pickup flow's visual language.
 
 ## Prevention
 

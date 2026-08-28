@@ -38,25 +38,9 @@ RequirementResolver is the **gateway** between the action system and stat values
 2. The action system is decoupled from the stats storage
 3. Replacing EquippedItemStatsController with a different implementation wouldn't require changing RequirementChecker.js
 
-## Sharpness Drain Flow
+## Sharpness Drain — Why It's Routed to the Item
 
-When the `cut` action executes:
-
-1. **Requirement**: `Physical.sharpness >= 20` is resolved from the equipped knife's mutable stats
-2. **Damage consequence**: `-.Physical.sharpness` deals damage based on **current** sharpness
-3. **Sharpness drain**: `updateComponentStatDelta` on `self` with value `-1` drains the knife's sharpness
-4. **Callback**: `EquippedItemStatsController._notifyStatChange` triggers capability re-evaluation
-5. **Broadcast**: Updated state is sent to the client
-
-### Why "Self" Target Routes to the Equipped Item
-
-The `self` target in the cut action's sharpness drain consequence resolves to the **equipped item's eqId** (not the host component). This is because:
-
-1. `RequirementResolver.checkComponentRequirements` finds the equipped knife and stores its eqId in `fulfillingComponents`
-2. `ConsequenceDispatcher._resolveTargetForConsequence` with `targetType === 'self'` returns `fulfillingComponents[key]` which is the eqId
-3. `StatConsequenceHandler._handleUpdateComponentStatDelta` receives the eqId and routes to `EquippedItemStatsController.updateStatDelta`
-
-This ensures the knife's sharpness is drained, not the player's body part sharpness.
+When the `cut` action executes, it consumes the equipped knife's sharpness (draining it a small fixed amount per use) and deals damage based on the knife's **current** sharpness — so a worn knife requires less to start cutting and does less as it dulls. The drain is applied to the **equipped item's** stat store, not the host component's, because the knife is the consumable that degrades: the "self" target in the drain resolves to the item that fulfilled the requirement, ensuring the knife's sharpness is drained, not the player's body-part sharpness. The stat change triggers a capability re-evaluation so the action's requirements reflect the new sharpness immediately.
 
 ## Known Bugs (Fixed)
 

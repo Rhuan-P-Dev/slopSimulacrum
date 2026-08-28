@@ -13,46 +13,16 @@ On the world map overlay (🌐 button), connection arrows between rooms point fr
 
 Three coordinate system mismatches caused arrows to render in wrong positions:
 
-1. **`_renderRoom()` ignores `room.x`/`room.y`** — it centers the current room rect at `(CENTER_X, CENTER_Y)` regardless of data coordinates. But `RoomConnectionRenderer` included `room.x`/`room.y` in its center calculations, making the current room's SVG center at `(CENTER_X + room.x, CENTER_Y + room.y)`.
+1. **The two renderers used different bases for the current room** — `_renderRoom()` centers the current room rect at the viewport center regardless of data coordinates, but `RoomConnectionRenderer` included `room.x`/`room.y` in its center calculations, so the connection renderer drew the current room from a different origin.
 
-2. **Target room coordinates were absolute instead of relative** — `targetCX = offsetX + targetRoom.x + width/2` used absolute data coordinates, not relative to the current room. This meant the direction vector was wrong.
+2. **Target room coordinates were absolute instead of relative** — target rooms were placed in absolute data coordinates rather than relative to the current room, so the direction vector was wrong.
 
-3. **`_getEdgePoint()` clamping used wrong coordinate space** — clamping used `room.x`/`room.y` (data coords) instead of `offsetX`/`offsetY` (SVG coords).
+3. **`_getEdgePoint()` clamping used the wrong coordinate space** — clamping used data coordinates (`room.x`/`room.y`) instead of SVG-space offsets, so edge points were clamped against the wrong bounds.
 4. **Edge determination used strict `>` instead of `>=`** — tie cases (horizontal/vertical connections) hit corners instead of edges.
-
-### Code Before Fix (inconsistent coordinates):
-```javascript
-// _renderRoom() — centers at viewport center, ignores room.x/room.y
-const roomX = AppConfig.VIEW.CENTER_X - room.width / 2;
-
-// RoomConnectionRenderer — included room.x/room.y
-const roomCX = offsetX + room.x + room.width / 2;  // = 275 + 400 + 125 = 800!
-const targetCX = offsetX + targetRoom.x + targetRoom.width / 2;  // = 275 + 0 + 150 = 425
-// Clamping: edgeX = Math.max(offsetX + room.x, ...) — wrong base!
-```
-
-### Code After Fix (consistent coordinates):
-```javascript
-// Current room: no room.x/room.y (matches _renderRoom)
-const roomCX = offsetX + room.width / 2;  // = 275 + 125 = 400
-
-// Target room: relative to current room
-const targetCX = offsetX + (targetRoom.x - room.x) + targetRoom.width / 2;  // = 275 + (0-400) + 150 = 25
-
-// Edge point uses same relative coordinates
-const otherCX = offsetX + (otherRoom.x - room.x) + otherRoom.width / 2;
-
-// Clamping: SVG-space bounds
-edgeX = Math.max(offsetX, Math.min(offsetX + room.width, edgeX));
-```
 
 ## Fix
 
-1. **`renderRoomConnections()`**: Calculates `offsetX = CENTER_X - room.width / 2` to match `_renderRoom()`.
-
-2. **`_drawConnection()`**: Current room center excludes `room.x/room.y`. Target room uses relative coordinates `(targetRoom.x - room.x)`. Added `targetOffsetX/Y` for end-point clamping.
-
-3. **`_getEdgePoint()` in RoomConnectionRenderer.js**: Uses `(otherRoom.x - room.x)` for relative positioning. Uses `offsetX/offsetY` (not `offsetX + room.x`) for clamping. Changed `>` to `>=` in edge determination to handle tie cases correctly.
+Both renderers now agree on a single coordinate space: the current room center is computed the same way the room renderer draws it (viewport-centered, ignoring `room.x`/`room.y`), and all other rooms are positioned relative to the current room. Edge-point clamping moved to SVG-space bounds, and the edge-determination comparison changed from `>` to `>=` so horizontal/vertical tie cases resolve to an edge instead of a corner. Why: two renderers drawing the same visual element must share one coordinate space — the pre-fix mismatch (data coordinates vs. SVG coordinates) is exactly what made the arrows overlap room rectangles.
 
 ## Prevention
 

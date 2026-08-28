@@ -16,17 +16,26 @@ Room-related actions interact with rooms via a room lookup service. Spatial move
 
 ## 2. Action Registry Structure
 
-Each action definition in the registry specifies a targeting type, range, an array of trait-based requirements, an array of success consequences, and an optional array of failure consequences.
+Actions are fully data-driven: an action's behavior (targeting, range, requirements, success
+effects, and optional failure effects) is defined in the registry data, not in code, so new
+actions can be added without touching the pipeline.
 
 ### Mandatory Target Field
 
-Every consequence must declare a target field indicating whether it applies to the source component, the selected target, or the entity as a whole. The dispatcher resolves this to a concrete target ID before dispatching.
+Every consequence must declare which entity it applies to — the source component, the
+selected target, or the entity as a whole — because a single action can affect several
+different entities, and the dispatcher must resolve each effect to one concrete target
+before applying it.
 
 ---
 
 ## 3. Component Binding Resolution
 
-When executing an action, the source component is resolved through a priority chain: explicit attacker component, explicit target component, spatial targeting auto-resolution, self-target auto-resolution, and finally entity-wide fallback.
+The system must decide which of the actor's components actually performs the action.
+Callers may name one explicitly; when they don't, the system falls back through
+contextually sensible defaults — the component implied by spatial targeting, a
+self-targeted component, and finally the whole entity — so actions work with minimal
+caller input.
 
 ---
 
@@ -36,7 +45,8 @@ When executing an action, the source component is resolved through a priority ch
 Dispatched through the consequence handler system. Supported types include spatial translation, stat updates, component stat delta changes, component damage, logging, and event triggering.
 
 ### Failure Consequences
-Executed via the same dispatcher with lower priority. Same structure as success consequences.
+Failure consequences let an action define what happens when it fails (instead of a silent
+no-op); they are handled by the same consequence pipeline as success consequences.
 
 ### Multi-Attacker Actions
 Some actions process multiple attacker components separately, each dealing damage based on its own stats.
@@ -45,35 +55,20 @@ Some actions process multiple attacker components separately, each dealing damag
 
 ### Range Expressions
 
-The `range` field in action definitions supports **expression syntax** using the same `PlaceholderResolver` mechanism as consequences:
-
-```json
-{
-  "dropItem": {
-    "range": ":Physical.strength*2"
-  }
-}
-```
-
-Supported patterns:
-- `:Trait.stat` — resolves to the stat value (e.g., `:Physical.strength` → `25`)
-- `:Trait.stat*N` — scales the stat value (e.g., `:Physical.strength*2` → `50`)
-- `-:Trait.stat` — negates the stat value (e.g., `-:Physical.mass` → `-20`)
-- Literal numbers — passed through unchanged (e.g., `10` → `10`)
-
-Resolution flow:
-1. `ActionController.executeAction()` passes the raw range value to `RangeValidator.checkGrabRange()`
-2. `RangeValidator._resolveRequirementValues()` gathers all `"trait.stat"` → `value` pairs from the source entity's components
-3. `resolvePlaceholders()` resolves the expression to a number
-4. The resolved number is passed to `RangeChecker.checkGrabRange()` for distance validation
-
-This design ensures range, consequences, and failureConsequences all share a single expression resolution mechanism.
+Ranges in action definitions can be written as expressions over an entity's stats instead of
+a fixed number, so that reach can scale with the actor's characteristics (e.g. a stronger
+actor has a longer reach). Expressions reuse the same placeholder mechanism that
+consequences use, ensuring range, consequences, and failureConsequences all share a single
+dynamic-value resolution path.
 
 ---
 
 ## 5. Public API Methods
 
-Methods for executing actions, checking requirements, retrieving actions for an entity, getting all capabilities, resolving dynamic values in consequences, and previewing action data with synergy. Cache management is delegated to the capability controller.
+The action controller is the single entry point for executing actions and querying what an
+entity can do. Capability caching is deliberately delegated to the capability controller:
+capabilities are derived data that must stay current as stats change, and giving them a
+single owner keeps action execution decoupled from cache management.
 
 ---
 
@@ -93,4 +88,5 @@ See [consequence_handler_architecture.md](./consequence_handler_architecture.md)
 
 ## 7. Placeholder Resolution
 
-Numeric placeholders embedded in consequence parameters are resolved at execution time using stat references, negated references, and scaled references. Placeholders can be embedded within strings alongside literal text.
+Consequence parameters can reference an entity's stats instead of fixed numbers, so that
+effect magnitudes scale with the entity's characteristics and are tuned through data.

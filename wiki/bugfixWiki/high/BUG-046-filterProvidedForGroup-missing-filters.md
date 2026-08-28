@@ -14,18 +14,7 @@
 When `SynergyController` was refactored (BUG-042), the `_filterProvidedForGroup` method was rewritten but lost the `componentType` filter for `sameComponentType` groups and the `groupType`-specific filters (`movementComponents`, `anyPhysical`). The original code had these checks but they were accidentally removed.
 
 ## Fix
-Added missing filters to `_filterProvidedForGroup`:
-```javascript
-// Check componentType filter for sameComponentType groups
-if (groupDef.componentType && component.type !== groupDef.componentType) return false;
-
-// Check groupType-specific filters
-if (groupDef.groupType === 'movementComponents') {
-    if (!stats.Movement || Object.keys(stats.Movement).length === 0) return false;
-} else if (groupDef.groupType === 'anyPhysical') {
-    if (!stats.Physical || Object.keys(stats.Physical).length === 0) return false;
-}
-```
+Restored the filter checks that the rewrite had dropped in `_filterProvidedForGroup`: the component-type match required by `sameComponentType` groups, and the group-type-specific stat checks (`movementComponents` requires actual Movement stats, `anyPhysical` requires actual Physical stats). Without them, groups with those constraints silently matched nothing and the multiplier collapsed to 1.0; restoring them brings back the pre-refactor matching semantics.
 
 ## Prevention
 - When extracting modules during SRP refactoring, verify all filter criteria are preserved.

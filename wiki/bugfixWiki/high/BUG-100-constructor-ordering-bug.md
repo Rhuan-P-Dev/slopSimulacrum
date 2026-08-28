@@ -21,22 +21,7 @@ The constructor was written in logical grouping order rather than dependency ord
 
 ## Fix
 
-Reordered constructor to follow strict dependency order:
-
-```
-1. Available actions cache
-2. Core modules (WorldState, UIManager, ErrorController, ActionManager)
-3. Controllers (Selection, Synergy)
-4. UI modules (StatBars, ComponentViewer, NavActions, WorldMap, Inventory)
-5. Socket connection ← must be first for EventDispatcher
-6. ActionExecutor ← must be before dispatcher (dispatcher callbacks reference this.executor)
-7. EventDispatcher ← must be before DropSelectorController
-8. DropSelectorController ← depends on dispatcher
-9. OverlayManager
-10. PickUpOverlayController
-11. Event listeners
-12. State variables
-```
+Reordered constructor to follow strict dependency order: every module is now created only after the objects its callbacks reference (socket, executor, dispatcher) exist. Rationale: the original ordering grouped modules by type rather than by dependency, so dependents were constructed before their dependencies and received `undefined`.
 
 ## Prevention
 

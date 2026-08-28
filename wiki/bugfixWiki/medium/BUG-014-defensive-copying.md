@@ -14,55 +14,20 @@ When entity state was modified:
 
 ## Root Cause
 
-Entity objects were passed by reference and modified directly without creating copies:
-
-```javascript
-// ❌ BEFORE (direct mutation - buggy)
-entity.components.push(newComponent);  // Mutates original entity!
-entity.stats.durability = 50;          // Mutates original stats!
-```
-
-This caused:
+Entity objects were passed by reference and modified directly without creating copies. This caused:
 - Side effects in unrelated code that held references to the same entity
 - Capability cache not reflecting actual state (stale references)
 - Save/Load producing corrupted data (shared references between entities)
 
 ## Fix
 
-Enforced defensive copying throughout the entity management system:
-
-```javascript
-// ✅ AFTER (defensive copying - fixed)
-// Deep clone before returning
-getEntity(entityId) {
-    return JSON.parse(JSON.stringify(this.entities[entityId]));
-}
-
-// Deep clone before mutating
-updateEntity(entityId, updates) {
-    const entity = JSON.parse(JSON.stringify(this.entities[entityId]));
-    // Apply updates to the clone
-    Object.assign(entity, updates);
-    // Save the clone
-    this.entities[entityId] = JSON.parse(JSON.stringify(entity));
-}
-```
-
-### Defensive Copying Rules
-
-| Operation | Copy Type | Reason |
-|-----------|-----------|--------|
-| **Returning entity** | Deep copy | Prevents external mutation |
-| **Accepting updates** | Deep copy | Prevents reference pollution |
-| **Internal storage** | Deep copy | Ensures isolation |
-| **Capability cache entries** | Deep copy | Prevents stale references |
+Enforced defensive copying throughout the entity management system: entities are deep-copied when returned and when updates are applied, so external code cannot mutate internal state through shared references and state snapshots never alias live objects.
 
 ## Prevention
 
 - Never return internal state directly — always return a copy
 - Never mutate received objects — clone first
 - Follow the **Long-term State Persistence** principle from `wiki/code_quality_and_best_practices.md` Section 6.2
-- Use `JSON.parse(JSON.stringify(obj))` for deep cloning in JavaScript
 
 ## References
 

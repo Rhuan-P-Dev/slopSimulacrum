@@ -23,51 +23,13 @@ The two evaluation paths had **asymmetric filtering**:
 ## Fix (Round 2: Deterministic Type Detection)
 
 ### Phase 1: Initial Fix (Round 2a)
-Added type auto-detection to `_filterProvidedForGroup` that mirrors the behavior in `gatherSameComponentType`:
-
-```javascript
-_filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef) {
-    // First pass: detect type from first valid component (regardless of roleFilter)
-    let detectedType = null;
-    for (const { componentId } of providedComponentIds) {
-        if (lockedComponentIds.has(componentId)) continue;
-        const component = entity.components.find(c => c.id === componentId);
-        if (component) {
-            detectedType = component.type;
-            break;
-        }
-    }
-
-    // Second pass: filter by roleFilter and same type
-    const validComponents = providedComponentIds
-        .filter(({ componentId, role }) => {
-            if (lockedComponentIds.has(componentId)) return false;
-            const component = entity.components.find(c => c.id === componentId);
-            if (!component) return false;
-            const stats = this.worldStateController.componentController.getComponentStats(componentId);
-            if (!stats) return false;
-
-            if (groupDef.roleFilter) {
-                if (!this._matchesRoleFilter(stats, groupDef.roleFilter)) return false;
-            }
-
-            if (detectedType && component.type !== detectedType) return false;
-            return true;
-        })
-        .map(...);
-
-    return validComponents;
-}
-```
+Added type auto-detection to the provided-components filtering path, mirroring the behavior the group evaluation path already had, so both paths filter by the source component's type.
 
 ### Phase 2: Preview Path Fixes
-Added `sourceComponentId` to all synergy preview paths:
-
-1. **`actionController.js`**: `previewActionData()` now passes `sourceComponentId` to `computeSynergy()`.
-2. **`synergyRoutes.js`**: Both `/synergy/preview` and `/synergy/preview-data` routes now pass `sourceComponentId`.
+The synergy preview paths now pass the source component into the synergy computation, so type detection applies to previews as well as execution.
 
 ### Phase 3: Fallback Path Fix
-Added `allowedComponentIds` filtering to `SynergyComponentGatherer.gatherSameComponentType()` fallback path.
+The component gatherer's fallback path now applies the same allowed-component restriction as its primary path, so provided components can never bypass it.
 
 ## Prevention
 

@@ -2,21 +2,14 @@
 
 ## Architecture
 
-The world map system has two distinct components:
+The world map system provides two distinct visualizations that serve different cognitive needs:
 
-1. **Spatial Map (`#world-map`)** — In-game room-level map showing the current room, entities, components, and dropped items. Rendered in `UIManager.js` via `renderDroppedItemsOnSpatialMap()`.
-
-2. **World Map Overlay (`#world-map-svg`)** — Full-screen overlay showing ALL rooms as nodes with connections. Managed by `WorldMapView.js`. No longer renders dropped items (moved to spatial map).
+1. **Spatial Map** — In-game room-level map showing the current room, its entities, components, and dropped items.
+2. **World Map Overlay** — Full-screen overlay showing ALL rooms as nodes with connections. It does not render dropped items (those moved to the spatial map).
 
 ## Dropped Items Rendering
 
-Dropped items are rendered on the **spatial map** (`#world-map`) via `UIManager.renderDroppedItemsOnSpatialMap()`, not on the world map overlay. This follows the Single Responsibility Principle — the spatial map is responsible for showing all entities and items within the current context.
-
-**Data flow:**
-- Server: `WorldStateController.getDroppedItems()` → `getAll()` includes dropped items in broadcast
-- Socket: `world-state-update` event delivers dropped items to client
-- Client: `App.refreshWorldAndActions()` → `UIManager.renderDroppedItemsOnSpatialMap()` renders items on spatial map
-- Click: `UIManager.renderDroppedItemsOnSpatialMap()` callback → `App._handleDroppedItemClick()` → opens pick-up overlay
+Dropped items are rendered on the **spatial map**, not the world map overlay. This follows the Single Responsibility Principle — the spatial map is responsible for showing all entities and items within the current room context, while the overlay is reserved for the whole-world graph.
 
 See also: [World Map Pick-Up System](world_map_pickup.md)
 
@@ -39,12 +32,8 @@ The room graph data lives on the server, but rendering is delegated to the clien
 
 ### Why Room Graph Is Server-Side
 
-The world graph builder constructs the room connectivity graph from `data/rooms.json` on the server. This exists because:
+The world graph is constructed from the room data on the server. This exists because:
 
 - **Consistency**: All clients receive the same graph, preventing visual desynchronization
 - **Validation**: Room connections can be validated server-side before being exposed to clients
 - **Single source**: The graph is derived from room data, not duplicated in a separate format
-
-## 3. CSS Architecture
-
-Room connection elements use CSS classes for styling. The class names follow a consistent pattern: `.room-connection-*` for in-map arrows and `.world-map-*` for the overlay.

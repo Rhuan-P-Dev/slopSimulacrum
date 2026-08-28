@@ -6,9 +6,9 @@ A **State Controller** that stores room definitions and manages spatial data. It
 
 ## 2. Data Schema
 
-Rooms are loaded from a JSON data file. Each room has a name, description, connections, coordinates, dimensions, and runtime arrays for objects and entities.
+Rooms are loaded from a JSON data file. Definitions describe the space itself — where each room sits and how it connects to its neighbors — while each room also carries the live occupancy of entities and objects currently inside it, so the controller answers both authored-layout questions and runtime-occupancy questions from a single store.
 
-**ID Strategy**: Logical names are mapped to internal unique identifiers. Connections are resolved from logical names to internal identifiers at initialization time.
+**ID Strategy**: Room data uses human-readable logical names, which are mapped to internal unique identifiers at initialization, and connections are resolved to those identifiers up front. This keeps authored data readable and stable while the runtime operates purely on unique IDs, decoupling content authoring from runtime identity.
 
 ### Why Connections Support Both String and Object Formats
 
@@ -34,16 +34,7 @@ The server's edge-intersection calculation mirrors the client's [`RoomConnection
 
 ## 3. Public API
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `getUidByLogicalId` | room UID or null | Resolve logical name to UID |
-| `getAll` | defensive copy | All rooms |
-| `getRoom` | defensive copy or null | Single room |
-| `getConnectionTarget` | target UID or null | Target room for a specific door |
-| `getDoorPosition` | coordinates or null | Spatial position of a named door |
-| `getSpawnPositionForDoorTraversal` | coordinates or null | Spawn position in target room during traversal |
-
-All getters return defensive deep copies to prevent external mutation of internal state.
+The public surface answers identity and spatial questions about the room graph: resolving logical room names to internal identifiers, fetching room definitions, and looking up both where a door leads and where an entity appears when it traverses. All getters return defensive deep copies to prevent external mutation of internal state.
 
 ### Why Multiple Connection Accessors Exist
 

@@ -15,18 +15,7 @@ The client-side code predates the centralized logging pattern or was not updated
 
 ## Fix
 
-Create or import a client-side Logger module and replace all 27 instances of `console.*` with appropriate Logger methods (`log`, `warn`, `error`). If a client-side Logger already exists in `public/utils/` or similar, import and use it. Otherwise, create a lightweight client-compatible Logger that mirrors the server-side interface.
-
-```javascript
-// Before:
-console.log(`[InventoryManager] Adding item: ${itemId}`);
-console.error(`[InventoryManager] Failed to fit item: ${error}`);
-
-// After:
-import { Logger } from './utils/Logger.js'; // or equivalent
-Logger.log(`[InventoryManager] Adding item: ${itemId}`);
-Logger.error(`[InventoryManager] Failed to fit item: ${error}`);
-```
+The intended fix is to route all InventoryManager output through a client-side Logger module — reusing an existing client logging utility if one is present, or adding a lightweight client-compatible module that mirrors the server-side interface — so client-side logs can be filtered, routed, and disabled consistently with the centralized logging standard.
 
 ## Prevention
 

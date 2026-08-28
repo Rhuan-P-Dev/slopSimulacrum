@@ -17,40 +17,7 @@
 
 ### Bug 1: checkComponentRequirements (Lines 81-102)
 
-```javascript
-// BEFORE (WRONG):
-componentStats = equipped.traits; // ← REPLACED host stats entirely
-resolvingTargetId = eqId;
-
-// AFTER (FIXED):
-const hostStats = this.worldStateController.getComponentStats(componentId);
-const baseTraits = this.equippedItemStats?.hasStats(eqId)
-    ? this.equippedItemStats.getStats(eqId)
-    : equipped.traits;
-const baseTraitsToUse = baseTraits || equipped.traits;
-
-// Start with host stats (e.g., droidHand has Physical.strength: 25)
-const mergedStats = {};
-if (hostStats) {
-    for (const [trait, data] of Object.entries(hostStats)) {
-        mergedStats[trait] = { ...data };
-    }
-}
-// Overlay equipped item traits (knife has Physical.sharpness: 50)
-for (const [trait, data] of Object.entries(baseTraitsToUse)) {
-    if (!mergedStats[trait]) {
-        mergedStats[trait] = { ...data };
-    } else {
-        for (const [stat, value] of Object.entries(data)) {
-            if (mergedStats[trait][stat] === undefined) {
-                mergedStats[trait][stat] = value;
-            }
-        }
-    }
-}
-componentStats = mergedStats;
-resolvingTargetId = eqId;
-```
+When an equipped item was present, the host component's stats (e.g., `Physical.strength: 25`) were discarded and only the item's traits were used for the requirement check.
 
 ### Bug 2: resolveRequirementValues (Lines 146-160)
 

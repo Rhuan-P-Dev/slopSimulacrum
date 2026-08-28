@@ -19,14 +19,7 @@ Two interconnected bugs in the consequence handling pipeline for equipped item a
 
 ### Bug #1: `resolvedSourceComponentId` Overwritten to Host Component ID
 
-In `actionController.js`, when an equipped item (eqId) was resolved as the source component, the code **overwrote** the eqId with the host component ID:
-
-```javascript
-// OLD CODE — BUG
-resolvedSourceComponentId = foundEquipped.componentId;  // Loses eqId reference!
-```
-
-This meant consequence handlers received the host component ID (`comp-...`) instead of the equipped item ID (`eq-...`), preventing them from routing stat changes to `EquippedItemStatsController`.
+In `actionController.js`, when an equipped item (eqId) was resolved as the source component, the code **overwrote** the eqId with the host component ID, losing the eqId reference. Consequence handlers therefore received the host component ID (`comp-...`) instead of the equipped item ID (`eq-...`), preventing them from routing stat changes to `EquippedItemStatsController`.
 
 ### Bug #2: `fulfillingComponents` Map Lost eqId Reference
 
@@ -40,47 +33,15 @@ The `fulfillingComponents` map stored the host component ID as the fulfilling co
 
 ### 1. `actionController.js` — Preserve eqId, Store hostComponentId Separately
 
-```javascript
-// NEW CODE — Fixed
-let resolvedSourceComponentId = this.componentResolver.resolveSourceComponent(action, entityId, params, requirementCheckResult);
-let hostComponentId = null;
-
-if (resolvedSourceComponentId && IdResolver.isEquippedId(resolvedSourceComponentId)) {
-    // ... find equipped item ...
-    hostComponentId = foundEquipped.componentId;
-    // DO NOT overwrite resolvedSourceComponentId — the eqId is preserved for consequence routing
-}
-
-// For equipped item actions, pass hostComponentId in params for debugging
-if (resolvedSourceComponentId && IdResolver.isEquippedId(resolvedSourceComponentId) && hostComponentId) {
-    params.hostComponentId = hostComponentId;
-}
-```
+The resolved source component id is no longer overwritten when it is an equipped item: the eqId is preserved for consequence routing, and the host component id is stored separately in the action params for reference.
 
 ### 2. `ConsequenceDispatcher.js` — Pass eqId in Context for 'self' Targets
 
-```javascript
-const isEquippedItemSelf = consequence.target === 'self' && 
-    context.actionParams.attackerComponentId && 
-    IdResolver.isEquippedId(context.actionParams.attackerComponentId);
-
-const handlerContext = {
-    ...context,
-    actionParams: { ...context.actionParams, consequenceTarget: consequence.target },
-    ...(isEquippedItemSelf ? { resolvedSourceId: context.actionParams.attackerComponentId } : {})
-};
-```
+For 'self' targets on equipped item actions, the handler context now carries the equipped item's eqId as the resolved source id, so downstream handlers can route stat changes to the item.
 
 ### 3. `StatConsequenceHandler.js` — Route to EquippedItemStatsController via resolvedSourceId
 
-```javascript
-// For equipped item 'self' targets on host components, try the resolvedSourceId
-const resolvedSourceId = context?.resolvedSourceId;
-if (resolvedSourceId && this.equippedItemStats?.hasStats(resolvedSourceId)) {
-    const success = this.equippedItemStats.updateStatDelta(resolvedSourceId, trait, stat, value);
-    return { /* ... */ };
-}
-```
+When the consequence target resolves to a host component, the handler now consults the context's resolved source id first and routes the stat delta to the equipped item's stats store when that id is a tracked equipped item.
 
 ## Prevention
 

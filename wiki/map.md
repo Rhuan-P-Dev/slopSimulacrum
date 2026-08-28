@@ -104,13 +104,13 @@ graph TD
 
 | File | Purpose |
 |------|---------|
-| `data/actions.json` | Action definitions (requirements, consequences) |
+| `data/actions.json` | Action definitions |
 | `data/components.json` | Component type definitions with trait templates |
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
-| `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
-| `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
-| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits, externalVolume) — includes T1 container weapon with dual-volume support |
-| `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
-| `data/propertyTraitMapping.json` | Property-to-trait mapping table (formulas: densityVolume, weighted sources) |
+| `data/rooms.json` | Room definitions |
+| `data/internalComponents.json` | Internal component type definitions |
+| `data/inventoryItems.json` | Item type definitions — includes the T1 container weapon with dual-volume support |
+| `data/materials.json` | Material definitions for composition-driven trait derivation |
+| `data/propertyTraitMapping.json` | Property-to-trait mapping table |

@@ -15,38 +15,9 @@
 
 `WorldStateManager.getEquippedItem(entityId, eqId)` in `public/js/WorldStateManager.js` was checking `eq.id === eqId`, but equipped item objects from the backend use `eq.eqId` as the typed ID field (e.g., `eq-550e8400-e29b-41d4-a716-446655440000`), not `eq.id`.
 
-```javascript
-// BEFORE (WRONG):
-getEquippedItem(entityId, eqId) {
-    // ...
-    return entity.equipped.find(eq => eq.id === eqId) || null;  // ← eq.id doesn't exist
-}
-
-// AFTER (FIXED):
-getEquippedItem(entityId, eqId) {
-    // ...
-    return entity.equipped.find(eq => eq.eqId === eqId) || null;  // ← eq.eqId is the typed ID
-}
-```
-
-The equipped item objects have this structure (from the backend):
-```javascript
-{
-    eqId: "eq-550e8400-e29b-41d4-a716-446655440000",  // ← typed eq-uuid
-    itemId: "item-abc123",
-    itemType: "knife",
-    componentId: "comp-def456",
-    entityId: "ent-ghi789"
-}
-```
-
 ## Click Flow Analysis
 
-1. User clicks knife entry in ⚔️ Actions panel
-2. NavActionsPanel reads `data-comp-id="eq-xxx"` → calls callback with eqId
-3. App.js `_setupActionCallback` detects `isEquippedId(componentId)` → calls `_handleEquippedItemClick`
-4. `_handleEquippedItemClick` calls `worldState.getEquippedItem(entityId, eqId)` → **BUG: returns null**
-5. Method silently returns without selecting anything
+A click on an equipped item flows through `NavActionsPanel` → `App.js` `_handleEquippedItemClick` → `worldState.getEquippedItem(entityId, eqId)`; because the lookup returned `null`, the handler silently exited without ever calling `selection.toggleComponent()`.
 
 ## Fix
 

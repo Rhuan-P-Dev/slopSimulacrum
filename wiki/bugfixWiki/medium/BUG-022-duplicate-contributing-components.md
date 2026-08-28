@@ -7,62 +7,15 @@
 
 ## Symptoms
 
-In the synergy preview "Contributing Components:" section, the same component appeared multiple times:
-
-```
-Contributing Components:
-• droidRollingBall (c60b12ba...)
-• droidRollingBall (8b926599...)
-• droidRollingBall (c60b12ba...)  ← duplicate
-• droidRollingBall (8b926599...)  ← duplicate
-Synergy: 1.95x, 4 components
-```
-
-Only 2 physical `droidRollingBall` components existed, but 4 entries were shown.
+In the synergy preview "Contributing Components:" section, the same component appeared multiple times — only 2 physical `droidRollingBall` components existed, but 4 entries were shown.
 
 ## Root Cause
 
-The `dash` synergy configuration in `data/synergy.json` has **two component groups**:
-
-```json
-{
-  "dash": {
-    "componentGroups": [
-      {
-        "groupType": "sameComponentType",
-        "componentType": "droidRollingBall",
-        ...
-      },
-      {
-        "groupType": "movementComponents",
-        ...
-      }
-    ]
-  }
-}
-```
-
-Both groups matched the same 2 `droidRollingBall` components (they have both `droidRollingBall` type AND `Movement` traits), creating 4 entries in `contributingComponents`:
-- Group 1 (`sameComponentType`): 2 entries
-- Group 2 (`movementComponents`): 2 entries (same components)
+The `dash` synergy configuration in `data/synergy.json` has **two component groups** (a `sameComponentType` group for `droidRollingBall` and a `movementComponents` group). Both groups matched the same 2 `droidRollingBall` components (they have both the `droidRollingBall` type AND `Movement` traits), so each component was counted once per matching group, producing 4 entries for 2 physical components.
 
 ## Fix
 
-Added deduplication by `componentId` in both `_evaluateProvidedComponents()` and `_evaluateComponentGroups()`:
-
-```javascript
-// synergyController.js
-// Deduplicate: each component should appear at most once
-const seen = new Set();
-const unique = [];
-for (const c of contributingComponents) {
-    if (!seen.has(c.componentId)) {
-        seen.add(c.componentId);
-        unique.push(c);
-    }
-}
-return { multiplier: totalMultiplier, components: unique };
-```
+Contributing components are now deduplicated by `componentId` before being returned, in both of the SynergyController's evaluation paths, so each component contributes at most once regardless of how many component groups it matches.
 
 ## Prevention
 

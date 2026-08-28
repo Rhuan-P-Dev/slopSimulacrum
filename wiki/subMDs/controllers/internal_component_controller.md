@@ -14,7 +14,7 @@ The controller stores *what* exists (state) but delegates *how* to modify traits
 
 ### Storage Design
 
-Internal components are stored as a nested mapping: entity → host component → list of instances. This structure mirrors the physical constraint that internal components occupy volume within host components, making it natural to query by host or by entity.
+Internal components are stored nested per host component and per entity. This mirrors the physical constraint that internal components occupy volume within host components — the same nesting that models the physical constraint makes queries by host or by entity natural.
 
 ## 2. Unified Tick System
 
@@ -24,22 +24,22 @@ Instead of spawning a separate `setInterval` per internal component type, the co
 
 - **Resource efficiency**: One timer instead of N timers reduces GC pressure and scheduling overhead
 - **Deterministic ordering**: All effects fire in a known, consistent sequence each second, preventing timing-dependent bugs
-- **Simplified lifecycle**: One `startTickSystem()` / `stopTickSystem()` pair controls everything
+- **Simplified lifecycle**: One start/stop pair controls everything
 
-Each component type defines its own `tickInterval` and `tickEffects` in the registry (`data/internalComponents.json`). The controller reads the registry and applies effects generically — no code changes are needed to add a new component type.
+Each component type declares its own cadence and effects in the data registry, and the controller applies them generically — no code changes are needed to add a new component type.
 
 ### Effect System Design
 
-The effect system supports three operations: increment (`add`), assign (`set`), and scale (`multiply`). This covers the full range of stat modification intents without requiring custom effect logic per component type.
+The effect system supports three operations: increment, assign, and scale. This covers the full range of stat modification intents without requiring custom effect logic per component type.
 
 ## 3. Auto-Installation Design
 
 Internal components auto-install on eligible host components during entity spawn. Auto-installation filters by:
 
-- **Lifecycle flag**: Only types with `autoInstallOnSpawn` are considered
-- **Blueprint targeting**: Optional `targetBlueprintTypes` restricts installation to specific entity types
-- **Required traits**: Optional `requiredTraits` restricts installation to host components that expose specific stats with minimum values
-- **Type exclusions**: `excludedComponentTypes` prevents installation on incompatible hosts
+- **Lifecycle flag**: Only types marked for auto-installation are considered
+- **Blueprint targeting**: Optional targeting restricts installation to specific entity types
+- **Required traits**: Optional trait requirements restrict installation to host components that expose specific stats with minimum values
+- **Type exclusions**: Exclusions prevent installation on incompatible hosts
 - **Volume capacity**: The host must have sufficient free volume
 - **Uniqueness**: A host cannot receive duplicate instances of the same internal component type
 
@@ -51,21 +51,13 @@ The filter order follows a **fail-fast, low-cost-to-high-cost** progression. Ear
 
 ### Required Traits Filter Rationale
 
-The `requiredTraits` filter ensures internal components only auto-install on host components that possess specific capabilities. For example, a mobility-enhancing internal component should only attach to components that define a `Movement` trait with sufficient `move` stat value. This declarative constraint eliminates the need for post-spawn validation or corrective logic — if a component lacks the required traits, the internal component simply does not install.
+The required-traits filter ensures internal components only auto-install on host components that possess specific capabilities. For example, a mobility-enhancing internal component should only attach to components that define a `Movement` trait with sufficient `move` stat value. This declarative constraint eliminates the need for post-spawn validation or corrective logic — if a component lacks the required traits, the internal component simply does not install.
 
-The filter operates at component type resolution time, checking against `data/components.json` trait definitions. This decouples eligibility requirements from the component type definitions, allowing internal component constraints to evolve independently.
+The filter operates at component type resolution time, checking against the global trait definitions in `data/components.json`. This decouples eligibility requirements from the component type definitions, allowing internal component constraints to evolve independently.
 
 ## 4. Instance Management
 
-| Method | Purpose |
-|--------|---------|
-| `addInternalComponent` | Manually attach a component |
-| `removeInternalComponent` | Detach a specific instance |
-| `getInternalComponents` | Query by host (deep copy) |
-| `getInternalComponentsForEntity` | Query by entity (deep copy) |
-| `hasInternalComponent` | Type presence check |
-| `cleanupEntity` | Resource cleanup on despawn |
-| `getAll` | Full state snapshot (deep copy) |
+The public surface covers the full instance lifecycle: attaching and detaching components, querying instances by host or by entity, checking whether a type is present on a host, and cleaning up all of a host's instances on despawn. All queries return defensive deep copies, per the state-controller rule against external mutation of internal state.
 
 ## 5. Component Types
 
@@ -79,12 +71,12 @@ Increases `Movement.move` over time, auto-installs only on `smallBallDroid` enti
 
 ## 6. Dependency Injection
 
-The controller is self-instantiated. The `worldStateController` is injected after initialization via `setWorldStateController()`, enabling the tick system to modify component stats through the public API. This delayed injection prevents circular dependencies while maintaining access to the stat mutation pipeline.
+The controller is self-instantiated. The world state controller is injected after initialization, enabling the tick system to modify component stats through the public API. This delayed injection prevents circular dependencies while maintaining access to the stat mutation pipeline.
 
 ## 7. Integration Points
 
 | Point | Why |
 |-------|-----|
 | `WorldStateController` | Owns and starts the tick system; coordinates world-state broadcast |
-| `server.js` | Triggers `stopTickSystem()` on graceful shutdown |
-| `stateEntityController` | Calls `autoInstallOnEntitySpawn()` during entity creation |
+| `server.js` | Triggers tick shutdown on graceful shutdown |
+| `stateEntityController` | Requests auto-installation during entity creation |

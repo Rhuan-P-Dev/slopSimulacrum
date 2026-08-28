@@ -22,10 +22,7 @@ CSS files were created by different developers at different times without cross-
 
 ## Fix
 
-1. Kept authoritative definitions in `layout.css` (the layout/structure file)
-2. Removed duplicate `.overlay-panel` and `.add-stat-dialog`/`.add-stat-dialog-overlay` from `components.css`
-3. Merged `.overlay-panel` transition from `floating-windows.css` into the authoritative definition in `layout.css`
-4. Removed empty `.overlay-panel` block from `floating-windows.css`
+Each duplicated selector now has a single authoritative definition in `layout.css`, since that file owns layout/structure styling. The stray fragments in `components.css` and `floating-windows.css` were removed, with the `.overlay-panel` transition merged into the authoritative definition rather than left orphaned in a second file.
 
 ## Prevention
 

@@ -11,38 +11,11 @@ The `_isDescendantOf()` method walks up the parent chain via `current.hostCompon
 
 ## Root Cause
 
-The method used a simple `while (current)` loop without any visited tracking or depth limit:
-
-```javascript
-// Before (vulnerable):
-_isDescendantOf(itemId, ancestorId) {
-    let current = this._items[itemId];
-    while (current) {
-        if (current.hostComponentId === ancestorId) return true;
-        current = this._items[current.hostComponentId];
-    }
-    return false;
-}
-```
+The method walked `hostComponentId` up the parent chain in a simple `while (current)` loop with no visited tracking or depth limit, so a circular host reference would never terminate.
 
 ## Fix
 
-Added a `visited` Set to track visited `hostComponentId` values. If a circular reference is detected, the method returns `false` instead of looping:
-
-```javascript
-// After (protected):
-_isDescendantOf(itemId, ancestorId) {
-    const visited = new Set();
-    let current = this._items[itemId];
-    while (current) {
-        if (visited.has(current.hostComponentId)) return false;
-        visited.add(current.hostComponentId);
-        if (current.hostComponentId === ancestorId) return true;
-        current = this._items[current.hostComponentId];
-    }
-    return false;
-}
-```
+The walk now tracks visited `hostComponentId` values in a `Set`; when a cycle is detected it returns `false` immediately instead of looping forever.
 
 ## Prevention
 

@@ -20,47 +20,17 @@ The socket.io `connection` handler lacked:
 2. A `try...catch` block around the entity spawning logic
 3. A centralized cleanup function for socket mapping removal
 
-When `worldStateController.spawnEntity()` threw an exception (e.g., invalid room ID), the error was unhandled, the socket was never notified, and the `socketToEntityMap` entry was never added — but if the error occurred AFTER partial initialization, the map could be left in an inconsistent state.
-
-```javascript
-// BEFORE (vulnerable):
-io.on('connection', (socket) => {
-    // No error handler
-    // No try/catch around spawn
-    const entityId = worldStateController.spawnEntity('smallBallDroid', startRoomId);
-    socketToEntityMap.set(socket.id, entityId);
-    // If spawnEntity throws, socket is never notified and map is inconsistent
-});
-```
+When `worldStateController.spawnEntity()` threw an exception (e.g., invalid room ID), the error was unhandled, the socket was never notified, and the `socketToEntityMap` could be left half-populated if the failure occurred after partial initialization.
 
 ## Fix
 
-1. **Added `cleanupSocketMapping()` helper function** (lines 48-57):
-   - Centralizes socket-to-entity cleanup logic
-   - Despawns the entity and removes the map entry atomically
-   - Logs the cleanup action for debugging
+Three changes make the connection handler failure-safe:
 
-2. **Added socket error event listener** (lines 71-74):
-   ```javascript
-   socket.on('error', (error) => {
-       Logger.error('Socket error', { socketId: socket.id, error: error.message });
-       cleanupSocketMapping(socket.id);
-   });
-   ```
+- A centralized `cleanupSocketMapping()` helper despawns the entity and removes the socket mapping in one place, so every failure path (error, disconnect, spawn failure) shares identical cleanup semantics and can never diverge.
+- A socket `error` event listener catches connection-level errors that were previously unhandled, so an error mid-incarnation cleans up the mapping instead of orphaning it.
+- The incarnation sequence is wrapped in `try...catch` so that if entity spawning fails, the socket is notified of the failure and any partial state is cleaned up rather than left half-initialized.
 
-3. **Wrapped incarnation logic in try...catch** (lines 76-104):
-   ```javascript
-   try {
-       // ... spawn logic ...
-   } catch (error) {
-       Logger.error('Failed to incarnate player', { socketId: socket.id, error: error.message });
-       socket.emit('error', { message: 'Failed to incarnate player entity.' });
-       cleanupSocketMapping(socket.id);
-       return;
-   }
-   ```
-
-4. **Improved JSDoc documentation** for the connection handler with bullet points explaining the lifecycle.
+The connection handler's JSDoc was also expanded to document the expected socket lifecycle.
 
 ## Prevention
 
