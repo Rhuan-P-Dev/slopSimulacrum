@@ -65,20 +65,30 @@ Crafting is per-component: the component that supplied the inputs receives the o
 
 ## 9. The Client-Side Model
 
-### 9.1 Why the Panel Auto-Executes on Satisfaction
+### 9.1 Why the Strip Shows All Non-Empty Components
 
-The player's intent is expressed by dropping item cards onto a recipe card. The moment every required input is present, crafting is the only sensible completion of that intent — an extra "execute" click would add friction with no decision attached. Satisfaction is unambiguous (the card shows exactly what is still missing), so the craft fires the moment the last required item lands.
+The available-items strip renders one section per entity component that holds at least one top-level item, in the entity's own component order, so every item the entity owns on an entity component is visible as a potential craft source:
 
-### 9.2 Why the Pending Pool Is Client-Local
+- **A hidden component is a broken drop target.** The previous single-strip design resolved one component (the most item-heavy one) and showed only its items. Items on any other component could not be dragged at all, and the strip's label displayed a raw internal ID. Since a component's items are the raw material for every recipe, showing only a slice of the inventory forces the player to juggle the inventory panel first — friction with no decision attached.
+- **A section is named, never ID'd.** Each header shows the component's human-readable name (its `type` from the world-state component reference, with the component-stats instance as fallback and "Unknown" as last resort) — a raw `comp-…` ID is never rendered to the player.
+- **Nested items are excluded on purpose.** Only top-level items hosted on entity components appear. Items nested inside a container item, and items in `__unassigned__` (no host at all), cannot be crafting inputs: the server only accepts inputs hosted on a real entity component. The player must first move a nested item out in the inventory UI; showing it in the strip would advertise an action that cannot succeed.
+- **The order is stable.** Groups follow the entity's component order rather than the items-map insertion order, so the layout does not shuffle between broadcasts.
 
-Dropped items are staged in a client-local **pending pool** before any server request is made. The pool exists because:
+### 9.2 Why the Pool Stores Each Item's Host
+
+Dropped items are staged in a client-local **pending pool** before any server request is made, and every pooled entry records not just the item but the component that hosted it when it was proposed. The pool is client-local and host-aware because:
 
 - **A drop is a proposal, not a commitment.** A dropped item is only *proposed* as an input; on the server it stays untouched in the inventory until the recipe is complete.
+- **The POST names one component.** The craft endpoint consumes one `componentId` with all `itemIds` hosted on it. The client can construct a legal request only if it knows the host of every pooled input, so the host is part of the record, not a lookup performed at fire time.
+- **An item can only be proposed once, but its host can change.** The global dedupe is by item ID (a physical instance can be consumed by a single craft). When the same item is re-proposed from a different component — because it moved in the meantime — the recorded host is updated to the current one, so the shared-host check always reflects reality instead of firing against a stale host.
 - **It must survive rejection.** If the server refuses a craft (full component, stale reference, concurrent change), the pool is preserved so the player can retry or adjust — a failed craft costs nothing, mirroring the server's item-loss guarantee.
-- **An item can only be proposed once.** An item instance can physically be consumed by a single craft, so the pool tracks each item exactly once across all recipe cards.
-- **It is reconciled against reality.** On every world-state broadcast, pool entries whose items no longer exist (consumed or moved by another client or an NPC) are pruned, so the pool never references phantom instances.
+- **It is reconciled against reality.** On every world-state broadcast the pool is pruned against the fresh items map, which supplies both facts in one pass: entries whose item no longer exists (consumed, moved, or desynced) are dropped, and entries whose host changed are dropped too — a pooled input that moved to another component is no longer the input that was proposed.
 
-### 9.3 Why the Broadcast — Not the Response — Is Authoritative
+### 9.3 Why a Craft Requires a Single Host (and Why the Auto-Fire Is Gated on It)
+
+The player's intent is expressed by dropping item cards onto a recipe card. The moment every required input is present, crafting is the only sensible completion of that intent — an extra "execute" click would add friction with no decision attached. That auto-fire is gated on one extra condition: all pooled inputs of the recipe must share a single host, and the shared host is the POST's `componentId` (the request body is exactly the shape of any legal manual request). The gate exists because the server's own contract rejects inputs hosted across components; without it, the client would fire a request that is destined to fail after the server's validation, producing a confusing rejection for what the player sees as a complete selection. When the inputs are satisfied but split across components, the card instead shows a split-host hint state: the pool is kept, the inputs stay where they are, and the player can remove items or move them onto one common component. A blocked craft never loses or mutates anything.
+
+### 9.4 Why the Broadcast — Not the Response — Is Authoritative
 
 Like every other mutation in the project, the panel treats the craft response only as an immediate confirmation flash; the authoritative inventory update arrives through the world-state broadcast (see [Client Action Execution](../frontend/client_action_execution.md)). This keeps a single synchronization path for all inventory changes, and the panel can never drift from the server, even if a response is lost or stale.
 
