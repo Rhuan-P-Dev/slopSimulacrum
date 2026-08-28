@@ -82,8 +82,26 @@ function makeWorld(overrides = {}) {
     const entities = { 'ent-self': selfEntity, 'ent-same': sameRoomEntity, 'ent-other': otherRoomEntity };
 
     const rooms = {
-        'room-1': { id: 'room-1', name: 'The Entrance Hall', description: 'A dimly lit hall.' },
-        'room-2': { id: 'room-2', name: 'The Deep Vault', description: 'Cold and metallic.' }
+        'room-1': {
+            id: 'room-1',
+            name: 'The Entrance Hall',
+            description: 'A dimly lit hall.',
+            width: 300,
+            height: 200,
+            x: 0,
+            y: 0,
+            connections: { right_door: { target: 'room-2' } }
+        },
+        'room-2': {
+            id: 'room-2',
+            name: 'The Deep Vault',
+            description: 'Cold and metallic.',
+            width: 320,
+            height: 220,
+            x: 900,
+            y: 250,
+            connections: { left_door: { target: 'room-1' } }
+        }
     };
 
     // Live component stats (current values); max durability comes from COMPONENT_REGISTRY.
@@ -136,6 +154,10 @@ function makeWorld(overrides = {}) {
             : {}),
         getActionsForEntity: (id) => (id === 'ent-self' ? actionsForEntity : {}),
         getRecentEvents: (limit) => recentEvents.slice(-limit),
+        // Dropped items in the current room (positions), for the "Dropped items:" line.
+        getDroppedItemsByRoom: (roomId) => (roomId === 'room-1'
+            ? { 'dropped-1': { id: 'dropped-1', itemType: 'knife', name: 'Knife', x: 150, y: 120, roomId: 'room-1' } }
+            : {}),
         // Public accessor only (BUG-032 pattern): the renderer must read the
         // component registry via getComponentDefinition(), never the internal
         // componentRegistry property directly.
@@ -183,10 +205,13 @@ describe('LlmContextController (context renderer)', () => {
         }
     });
 
-    it('renders the self section (name, room, durability lowest-ratio-first, key stats, equipped, inventory)', () => {
+    it('renders the self section (name, room block, durability lowest-ratio-first, key stats, equipped, inventory)', () => {
         const { text, data } = controller.buildContext('ent-self');
         expect(text).toContain('Name: Bolt the Merchant');
-        expect(text).toContain('Room: The Entrance Hall - A dimly lit hall.');
+        // Enriched room block (spec: better text & vision).
+        expect(text).toContain('You are in: The Entrance Hall — A dimly lit hall.');
+        expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
+        expect(text).toContain('Exits: right_door → The Deep Vault');
         // max 2 durability components, lowest ratio first (stable sort keeps
         // component order on ties: head 45/50 = 0.9 and core 90/100 = 0.9)
         expect(data.self.durability).toHaveLength(2);
@@ -201,16 +226,134 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.self.isNPC).toBe(true);
     });
 
-    it('lists same-room entities with Euclidean distance and other-room entities room-named', () => {
+    it('lists same-room entities with distance + position and other-room entities room-named', () => {
         const { text, data } = controller.buildContext('ent-self');
-        expect(text).toContain('1. Player Droid (34 away)');
+        expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
         expect(text).toContain('in The Deep Vault');
         const same = data.entities.filter(e => e.room === 'same');
         const other = data.entities.filter(e => e.room !== 'same');
         expect(same).toHaveLength(1);
-        expect(same[0]).toMatchObject({ id: 'ent-same', distance: 34 });
+        expect(same[0]).toMatchObject({ id: 'ent-same', distance: 34, x: 134, y: 100 });
         expect(other).toHaveLength(1);
         expect(other[0].room).toBe('The Deep Vault');
+        // Dropped items sub-list with positions (spec: better text & vision).
+        expect(text).toContain('Dropped items: Knife at (150, 120)');
+        expect(data.droppedItems).toEqual([{ id: 'dropped-1', name: 'Knife', itemType: 'knife', x: 150, y: 120 }]);
+    });
+
+    it('exposes the enriched room detail in data.room (name, size, description, resolved exits)', () => {
+        const { data } = controller.buildContext('ent-self');
+        expect(data.room).toEqual({
+            id: 'room-1',
+            name: 'The Entrance Hall',
+            description: 'A dimly lit hall.',
+            width: 300,
+            height: 200,
+            x: 0,
+            y: 0,
+            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }]
+        });
+    });
+
+    // L4-1: empty dropped-items case → no "Dropped items:" line, data.droppedItems === []
+    it('L4-1: omits the "Dropped items:" line and sets data.droppedItems to [] when the room has none', () => {
+        const noDropWorld = makeWorld({ getDroppedItemsByRoom: () => ({}) });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(noDropWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        expect(text).not.toContain('Dropped items:');
+        expect(data.droppedItems).toEqual([]);
+    });
+
+    // L4-2: no-connections room → "Exits: (none)", data.room.exits === []
+    it('L4-2: renders "Exits: (none)" and data.room.exits === [] for a room with no connections', () => {
+        const noConnWorld = makeWorld({
+            getRooms: () => ({
+                'room-1': {
+                    id: 'room-1',
+                    name: 'The Entrance Hall',
+                    description: 'A dimly lit hall.',
+                    width: 300,
+                    height: 200,
+                    x: 0,
+                    y: 0,
+                    connections: {}
+                },
+                'room-2': {
+                    id: 'room-2',
+                    name: 'The Deep Vault',
+                    description: 'Cold and metallic.',
+                    width: 320,
+                    height: 220,
+                    x: 900,
+                    y: 250,
+                    connections: { left_door: { target: 'room-1' } }
+                }
+            })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(noConnWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        expect(text).toContain('Exits: (none)');
+        expect(data.room.exits).toEqual([]);
+    });
+
+    // L4-3: same-room entity WITHOUT spatial → no "at (" slot, x/y null in data
+    it('L4-3: a same-room entity without spatial renders no "at (x, y)" slot and carries null x/y in data', () => {
+        const selfEntity = {
+            id: 'ent-self',
+            name: 'Bolt the Merchant',
+            isNPC: true,
+            location: 'room-1',
+            spatial: { x: 100, y: 100 },
+            components: [
+                makeComponent('comp-core', 'coreBall'),
+                makeComponent('comp-head', 'head'),
+                makeComponent('comp-hand', 'hand'),
+                makeComponent('comp-roller', 'roller')
+            ]
+        };
+        // Same-room entity with NO spatial (not yet placed).
+        const sameRoomNoSpatial = {
+            id: 'ent-same',
+            name: 'Player Droid',
+            location: 'room-1',
+            components: [makeComponent('comp-same-core', 'coreBall'), makeComponent('comp-same-hand', 'hand')]
+        };
+        const noSpatialWorld = makeWorld({
+            getEntity: (id) => (id === 'ent-self' ? selfEntity : null),
+            getAll: () => ({ entities: { 'ent-self': selfEntity, 'ent-same': sameRoomNoSpatial } })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(noSpatialWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        const sameEntry = text.split('\n').find(l => l.startsWith('1. Player Droid'));
+        expect(sameEntry).toBeDefined();
+        expect(sameEntry).not.toContain(' at (');
+        const dataSame = data.entities.find(e => e.id === 'ent-same');
+        expect(dataSame).toBeDefined();
+        expect(dataSame.x).toBeNull();
+        expect(dataSame.y).toBeNull();
+    });
+
+    it('degrades gracefully when the room is missing (no throw, fallback line, room: null)', () => {
+        // Entity in a room UID that does not exist in the rooms map.
+        const world2 = makeWorld();
+        world2.getEntity = (id) => (id === 'ent-self'
+            ? { id: 'ent-self', name: 'Bolt', isNPC: true, location: 'room-missing', spatial: { x: 10, y: 10 }, components: [] }
+            : null);
+        const ctrl2 = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl2.setWorldStateController(world2);
+
+        const result = ctrl2.buildContext('ent-self');
+        expect(result.data.room).toBeNull();
+        expect(result.text).toContain('You are in: room-missing');
+        // No size/position/exits lines when the room cannot be resolved.
+        expect(result.text).not.toContain('Room size:');
+        expect(result.text).not.toContain('Exits:');
     });
 
     it('renders executable actions with description, range, requirement and a valid canExecute id', () => {
@@ -280,7 +423,7 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.roomChat[0]).toContain('Player: Do you have fresh power cells?');
     });
 
-    it('caps the rendered text at the 4000-char budget and flags truncation', () => {
+    it('caps the rendered text at the 5000-char budget and flags truncation', () => {
         // Flood the event log with long lines to blow the budget.
         const flood = Array.from({ length: 200 }, (_, i) => ({
             tick: i, action: 'droid punch', targetId: null,
@@ -292,9 +435,9 @@ describe('LlmContextController (context renderer)', () => {
         floodController.setWorldStateController(floodWorld);
 
         const { text, stats } = floodController.buildContext('ent-self');
-        expect(stats.budgetChars).toBe(4000);
-        expect(stats.chars).toBeLessThanOrEqual(4000);
-        expect(text.length).toBeLessThanOrEqual(4000);
+        expect(stats.budgetChars).toBe(5000);
+        expect(stats.chars).toBeLessThanOrEqual(5000);
+        expect(text.length).toBeLessThanOrEqual(5000);
         expect(stats.truncated.events).toBe(true);
         // all headers survive truncation (including HINTS)
         for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== HINTS ===', '=== RECENT EVENTS ===']) {
@@ -472,7 +615,7 @@ describe('LlmContextController (context renderer)', () => {
     });
 
     // R5: budget truncation — > 5 instincts reduced to 3, stats.truncated.instincts = true
-    it('R5: budget over 4000 chars with > 5 instincts → truncated to 3, stats.truncated.instincts = true', () => {
+    it('R5: budget over 5000 chars with > 5 instincts → truncated to 3, stats.truncated.instincts = true', () => {
         // Create many instincts with VERY long descriptions to ensure they contribute significantly
         const manyInstincts = Array.from({ length: 8 }, (_, i) => ({
             name: `instinct_${i}`,
@@ -494,7 +637,7 @@ describe('LlmContextController (context renderer)', () => {
 
         const { text, stats } = floodCtrl.buildContext('ent-self', { instincts: manyInstincts });
 
-        expect(stats.chars).toBeLessThanOrEqual(4000);
+        expect(stats.chars).toBeLessThanOrEqual(5000);
         expect(stats.truncated.instincts).toBe(true);
         // Only 3 instinct lines should appear in rendered text
         const instinctSection = text.slice(text.indexOf('=== YOUR INSTINCTS ==='));
