@@ -1,0 +1,238 @@
+/* =============================================================================
+ * Crafting Panel (crafting design spec §2.5 / §4.8, docs/crafting_design_spec.md)
+ * Single-responsibility CSS module: owns ALL `crafting-` selectors —
+ * available-items strip, recipe-card grid, input slots, the four card state
+ * modifiers (--idle/--valid/--invalid/--satisfied), status line, and the
+ * generic empty state. Uses only `:root` custom properties from styles.css
+ * plus neutral literals (precedent: layout.css, inventory.css).
+ * No selector in this file may be duplicated in any other CSS module (BUG-105).
+ * ============================================================================= */
+
+/* ---- Root / scroll container ------------------------------------------------ */
+
+.crafting-root {
+    padding: 8px;
+    font-size: 0.9em;
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+.crafting-empty {
+    text-align: center;
+    padding: 24px 8px;
+    color: var(--text-dim);
+}
+
+.crafting-empty-icon {
+    display: block;
+    font-size: 2em;
+    margin-bottom: 8px;
+}
+
+/* ---- Available-items strip (drag sources) ------------------------------------ */
+
+.crafting-strip {
+    margin-bottom: 10px;
+    padding: 6px 8px;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: var(--bg-black);
+}
+
+.crafting-strip-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 0.9em;
+}
+
+.crafting-strip-title {
+    color: var(--text-dim);
+}
+
+.crafting-strip-component {
+    color: var(--neon-green);
+    font-weight: bold;
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 3px;
+    padding: 0 6px;
+}
+
+.crafting-strip-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.crafting-strip-hint {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+.crafting-item-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 90px;
+    padding: 4px 8px;
+    background: var(--panel-bg);
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: grab;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.crafting-item-card:hover {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 5px rgba(0, 255, 0, 0.25);
+}
+
+.crafting-item-card--dragging {
+    opacity: 0.5;
+    border-style: dashed;
+    cursor: grabbing;
+}
+
+.crafting-item-name {
+    color: var(--text-main);
+}
+
+.crafting-item-volume {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+/* ---- Recipe cards (CSS grid) -------------------------------------------------- */
+
+.crafting-recipes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.crafting-recipe-card {
+    padding: 8px;
+    background: var(--panel-bg);
+    border: 1px solid #333;
+    border-radius: 4px;
+    transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+
+/* Base state: not dragging-relevant */
+.crafting-recipe-card.crafting-card--idle {
+    border-color: #333;
+}
+
+/* Dragged item matches an unsatisfied input of this recipe */
+.crafting-recipe-card.crafting-card--valid {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 0, 0.35);
+}
+
+/* Dragged item does not match any unsatisfied input of this recipe */
+.crafting-recipe-card.crafting-card--invalid {
+    opacity: 0.55;
+    border-color: #222;
+}
+
+/* All inputs satisfied — auto-craft fires (or is in progress) */
+.crafting-recipe-card.crafting-card--satisfied {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+.crafting-card-header {
+    margin-bottom: 6px;
+}
+
+.crafting-card-name {
+    margin: 0;
+    color: var(--neon-green);
+    font-size: 0.95em;
+}
+
+.crafting-card-desc {
+    margin: 2px 0 0;
+    color: var(--text-dim);
+    font-size: 0.8em;
+}
+
+/* ---- Input slots ---------------------------------------------------------------- */
+
+.crafting-slots {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.crafting-slot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px;
+    background: var(--bg-black);
+    border-radius: 3px;
+}
+
+.crafting-slot-label {
+    color: var(--text-main);
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.crafting-slot-count {
+    color: var(--neon-green);
+}
+
+.crafting-slot-drop {
+    min-width: 28px;
+    height: 18px;
+    border: 1px dashed #444;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.25);
+    flex-shrink: 0;
+}
+
+/* ---- Outputs ---------------------------------------------------------------------- */
+
+.crafting-outputs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.crafting-output-chip {
+    color: var(--neon-green);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.8em;
+}
+
+/* ---- Status line -------------------------------------------------------------------- */
+
+.crafting-status {
+    min-height: 1em;
+    margin-top: 4px;
+    font-size: 0.85em;
+}
+
+.crafting-status--info {
+    color: var(--text-dim);
+}
+
+.crafting-status--error {
+    color: #ff5555;
+}
+
+.crafting-status--crafted {
+    color: var(--neon-green);
+    text-shadow: var(--glow);
+}
