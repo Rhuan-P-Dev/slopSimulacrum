@@ -121,42 +121,54 @@ class CraftingController {
     }
 
     /**
-     * Checks whether a recipe ID exists in the registry.
-     * @param {string} recipeId - The recipe ID.
-     * @returns {boolean}
+     * Checks whether the given item instances satisfy the recipe's inputs
+     * EXACTLY: the multiset of input types named by the caller must equal the
+     * recipe's input multiset (a type appearing in two input entries is summed;
+     * non-input types in the list are ignored — the caller names the exact
+     * items to consume). Sufficiency ("have at least") is intentionally NOT a
+     * public concept here: crafting consumes exactly what is named, so
+     * exactness is the contract that matters.
+     * @param {Array<{type: string}>} items - Resolved item instances (type only).
+     * @param {Object|null} recipe - A recipe from this registry.
+     * @returns {{satisfied: boolean, missing: Array<{type: string, have: number, need: number}>}}
      */
-    hasRecipe(recipeId) {
-        return Object.prototype.hasOwnProperty.call(this._recipeRegistry, recipeId);
-    }
-
-    /**
-     * Pure check: do the given items satisfy the recipe's inputs?
-     * This method receives an already-filtered array (the caller is responsible
-     * for selecting the items hosted on the crafting component) and only counts
-     * occurrences of each required input type; extra item types are ignored.
-     * @param {Array<Object>} componentItems - Item instances to count (each has a `type`).
-     * @param {Object} recipe - A recipe (raw or deep-copied).
-     * @returns {{ satisfied: boolean, missing: Array<{ type: string, have: number, need: number }> }}
-     */
-    checkRequirements(componentItems, recipe) {
-        const counts = {};
-        for (const item of componentItems) {
-            if (item && typeof item.type === 'string') {
-                counts[item.type] = (counts[item.type] || 0) + 1;
-            }
+    checkExactInputs(items, recipe) {
+        // Total-function guard: a null/malformed recipe is simply not
+        // satisfied (the facade only ever passes a construction-validated
+        // recipe, but the check stays safe to call with anything).
+        if (!recipe || !Array.isArray(recipe.inputs)) {
+            return { satisfied: false, missing: [] };
         }
 
-        const missing = [];
-        let satisfied = true;
+        // Count the caller's items; sum the recipe's requirement per type
+        // (a type listed in two input entries accumulates).
+        const have = {};
+        for (const item of items) have[item.type] = (have[item.type] || 0) + 1;
+        const need = {};
         for (const input of recipe.inputs) {
-            const have = counts[input.type] || 0;
-            if (have < input.quantity) {
-                satisfied = false;
-                missing.push({ type: input.type, have, need: input.quantity });
-            }
+            need[input.type] = (need[input.type] || 0) + input.quantity;
         }
 
-        return { satisfied, missing };
+        // Walk the same union order the old inline facade check used
+        // (item order first, then recipe order) so that missing[0] is the
+        // first differing type and the facade's error message stays
+        // byte-identical. Only input types are compared: non-input types in
+        // `items` are ignored (the caller names the exact items to consume).
+        // Both shortfalls AND excesses of an input type are mismatches —
+        // crafting consumes exactly what the recipe names.
+        const allTypes = new Set([...Object.keys(have), ...Object.keys(need)]);
+        const missing = [];
+        for (const type of allTypes) {
+            if (!(type in need)) continue;
+            const got = have[type] || 0;
+            const required = need[type];
+            if (got !== required) missing.push({ type, have: got, need: required });
+        }
+
+        return {
+            satisfied: missing.length === 0,
+            missing
+        };
     }
 }
 

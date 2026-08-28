@@ -1607,9 +1607,14 @@ class WorldStateController {
         }
 
         // 5. The multiset of item types must exactly match the recipe inputs.
-        const mismatch = this._checkInputMultiset(recipe, items);
-        if (mismatch !== null) {
-            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${mismatch}.` };
+        //    The controller is non-null here because the recipe was resolved
+        //    from it in step 1.
+        const { satisfied, missing } = this.craftingController.checkExactInputs(items, recipe);
+        if (!satisfied) {
+            // missing[0] is the first differing type (same order as the old
+            // inline check) — the message text is unchanged.
+            const first = missing[0];
+            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${first.type}: have ${first.have}, need ${first.need}.` };
         }
 
         // 6. Volume pre-check BEFORE consuming anything (item-loss guard).
@@ -1700,35 +1705,6 @@ class WorldStateController {
      */
     _isRecipeInputType(recipe, itemType) {
         return recipe.inputs.some(input => input.type === itemType);
-    }
-
-    /**
-     * Compares the multiset of item types against the recipe's input
-     * multiset (counts must be exactly equal, per type).
-     * @param {Object} recipe - The recipe (deep copy from CraftingController).
-     * @param {Array<Object>} items - Resolved item instances to consume.
-     * @returns {string|null} null when the multisets match exactly, otherwise
-     *   a human-readable description of the first differing type.
-     * @private
-     */
-    _checkInputMultiset(recipe, items) {
-        const counts = {};
-        for (const item of items) {
-            counts[item.type] = (counts[item.type] || 0) + 1;
-        }
-        const required = {};
-        for (const input of recipe.inputs) {
-            required[input.type] = (required[input.type] || 0) + input.quantity;
-        }
-        const allTypes = new Set([...Object.keys(counts), ...Object.keys(required)]);
-        for (const type of allTypes) {
-            const have = counts[type] || 0;
-            const need = required[type] || 0;
-            if (have !== need) {
-                return `${type}: have ${have}, need ${need}`;
-            }
-        }
-        return null;
     }
 
     // =========================================================================

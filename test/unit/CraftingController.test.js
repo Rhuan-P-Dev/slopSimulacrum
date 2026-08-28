@@ -5,7 +5,7 @@
  * loads them via DataLoader.loadJsonSafe), with src/utils/Logger mocked.
  * Covers: _validateRecipeDefinitions() throw matrix, acceptance of a valid
  * registry, defensive-copy behavior of getRecipes()/getRecipe(), unknown-ID
- * lookup, and the pure checkRequirements()/multiset semantics.
+ * lookup, and the pure checkExactInputs() multiset semantics.
  *
  * @module test/unit/CraftingController
  */
@@ -152,7 +152,7 @@ describe('CraftingController', () => {
 
         it('accepts a valid registry (2× knife → 1× t1)', () => {
             const controller = build(structuredClone(VALID_REGISTRY));
-            expect(controller.hasRecipe('knife_to_t1')).toBe(true);
+            expect(controller.getRecipe('knife_to_t1')).not.toBeNull();
         });
 
         it('accepts an empty registry object (missing file fallback)', () => {
@@ -197,39 +197,69 @@ describe('CraftingController', () => {
         it('getRecipe returns null for an unknown ID', () => {
             const controller = build(structuredClone(VALID_REGISTRY));
             expect(controller.getRecipe('nope')).toBeNull();
-            expect(controller.hasRecipe('nope')).toBe(false);
         });
     });
 
-    describe('checkRequirements (pure multiset logic)', () => {
+    describe('checkExactInputs (exact multiset logic)', () => {
         const recipe = VALID_REGISTRY.knife_to_t1;
 
         it('is satisfied by exactly the required inputs', () => {
             const items = [{ type: 'knife' }, { type: 'knife' }];
-            expect(build({}).checkRequirements(items, recipe)).toEqual({ satisfied: true, missing: [] });
+            expect(build({}).checkExactInputs(items, recipe)).toEqual({ satisfied: true, missing: [] });
         });
 
-        it('is satisfied when the component holds extra (non-input) items', () => {
+        it('is satisfied when the list holds extra (non-input) types (ignored)', () => {
             const items = [{ type: 'knife' }, { type: 'knife' }, { type: 'powerCell' }];
-            expect(build({}).checkRequirements(items, recipe)).toEqual({ satisfied: true, missing: [] });
+            expect(build({}).checkExactInputs(items, recipe)).toEqual({ satisfied: true, missing: [] });
         });
 
         it('reports the exact missing entry when partially satisfied', () => {
             const items = [{ type: 'knife' }];
-            expect(build({}).checkRequirements(items, recipe)).toEqual({
+            expect(build({}).checkExactInputs(items, recipe)).toEqual({
                 satisfied: false,
                 missing: [{ type: 'knife', have: 1, need: 2 }]
             });
         });
 
         it('reports have=0 for zero items', () => {
-            expect(build({}).checkRequirements([], recipe)).toEqual({
+            expect(build({}).checkExactInputs([], recipe)).toEqual({
                 satisfied: false,
                 missing: [{ type: 'knife', have: 0, need: 2 }]
             });
         });
 
-        it('reports multiple missing types for multi-input recipes', () => {
+        it('is not satisfied when an input type is named more times than the recipe requires', () => {
+            const items = [{ type: 'knife' }, { type: 'knife' }, { type: 'knife' }];
+            expect(build({}).checkExactInputs(items, recipe)).toEqual({
+                satisfied: false,
+                missing: [{ type: 'knife', have: 3, need: 2 }]
+            });
+        });
+
+        it('sums two entries of the same input type (1+1) to a need of 2', () => {
+            // Same shape as the DUP_TYPE_RECIPE fixture in test/unit/CraftingPanel.test.js.
+            const dupType = {
+                id: 'dup_type',
+                name: 'Dup',
+                inputs: [
+                    { type: 'knife', quantity: 1 },
+                    { type: 'knife', quantity: 1 }
+                ],
+                outputs: [{ type: 't1', quantity: 1 }]
+            };
+            const controller = build({ dup_type: dupType });
+            expect(controller.checkExactInputs([{ type: 'knife' }, { type: 'knife' }], dupType))
+                .toEqual({ satisfied: true, missing: [] });
+            expect(controller.checkExactInputs([{ type: 'knife' }], dupType))
+                .toEqual({ satisfied: false, missing: [{ type: 'knife', have: 1, need: 2 }] });
+        });
+
+        it('is not satisfied for a null or malformed recipe', () => {
+            expect(build({}).checkExactInputs([{ type: 'knife' }], null)).toEqual({ satisfied: false, missing: [] });
+            expect(build({}).checkExactInputs([{ type: 'knife' }], {})).toEqual({ satisfied: false, missing: [] });
+        });
+
+        it('reports multiple differing types for multi-input recipes (union order)', () => {
             const multi = {
                 id: 'multi',
                 name: 'Multi',
@@ -240,12 +270,21 @@ describe('CraftingController', () => {
                 outputs: [{ type: 't1', quantity: 1 }]
             };
             const controller = build({ multi });
-            const result = controller.checkRequirements([{ type: 'knife' }], multi);
+            const result = controller.checkExactInputs([{ type: 'knife' }], multi);
             expect(result.satisfied).toBe(false);
             expect(result.missing).toEqual([
                 { type: 'knife', have: 1, need: 2 },
                 { type: 'powerCell', have: 0, need: 1 }
             ]);
+        });
+    });
+
+    describe('public surface', () => {
+        it('exposes exactly checkExactInputs, getRecipe, and getRecipes (no hasRecipe, no checkRequirements)', () => {
+            const publicNames = Object.getOwnPropertyNames(CraftingController.prototype)
+                .filter((n) => n !== 'constructor' && !n.startsWith('_'))
+                .sort();
+            expect(publicNames).toEqual(['checkExactInputs', 'getRecipe', 'getRecipes']);
         });
     });
 });
