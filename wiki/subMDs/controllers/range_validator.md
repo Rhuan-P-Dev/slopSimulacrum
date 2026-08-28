@@ -4,7 +4,7 @@
 
 Validates spatial range for proximity-based actions and executes failure consequences when range checks fail. Extracted from `ActionController` to adhere to the Single Responsibility Principle — range logic is decoupled from the main action execution pipeline.
 
-The `range` field in `data/actions.json` supports **expression syntax** (e.g., `":Physical.strength*2"`), which is resolved at check time using the same `PlaceholderResolver` logic used by `consequences` and `failureConsequences`. This ensures consistency across all data-driven expressions in the action system.
+Range values in `data/actions.json` support the same **expression syntax** as consequences (e.g., `":Physical.strength*2"`), resolved at check time by the same `PlaceholderResolver` mechanism. This ensures consistency across all data-driven expressions in the action system.
 
 ## Design Decisions
 
@@ -14,7 +14,7 @@ Range validation requires entity position lookups and distance calculations that
 
 - **Prevents ActionController bloat** — range checking is a distinct concern from action dispatch and consequence handling
 - **Enables independent testing** — range validation and failure consequence execution can be tested in isolation
-- **Centralizes range failure behavior** — all range-related failure consequences flow through a single method, ensuring consistent error handling
+- **Centralizes range failure behavior** — all range-related failure consequences flow through one central entry point, ensuring consistent error handling
 
 ### Why rangeFailure consequences?
 
@@ -22,7 +22,7 @@ Range validation failures are not simple rejections — they trigger defined con
 
 ### Separation from RangeChecker utility
 
-`RangeChecker` is a pure utility module that computes whether two entities are within a given distance. `RangeValidator` is a controller that orchestrates the full range check flow: resolving entities, delegating to `RangeChecker`, and executing consequences on failure. This separation follows the pattern of keeping pure computation in utilities and action orchestration in controllers.
+`RangeChecker` is a pure utility module that computes whether two entities are within a given distance. `RangeValidator` is a controller that owns the full range-check concern, including its failure consequences. This separation follows the pattern of keeping pure computation in utilities and action orchestration in controllers.
 
 ## Public Methods
 

@@ -25,10 +25,7 @@ Accumulated technical debt from refactoring and feature development without syst
 
 ## Fix
 
-1. Removed `_getActionRegistry()` method from ComponentResolver.js and updated error message to not reference it
-2. Removed `updateStat()` method from ComponentStatsController.js
-3. Removed unused import and re-exports from DropItemHandler.js
-4. Removed dead `BINDING_ROLES` and `DEFAULT_SELECTION_TTL_MS` exports from actionSelectController.js
+Removed the dead methods, unused imports/re-exports, and exports without consumers listed in Symptoms, so the controller surface matches the actual call graph.
 
 ## Prevention
 

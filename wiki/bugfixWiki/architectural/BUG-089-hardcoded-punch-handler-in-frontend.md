@@ -15,11 +15,7 @@ The frontend had hardcoded action-name branching logic in `EventDispatcher.js` t
 
 ## Fix
 
-Replaced all three hardcoded elements with a single generic handler that routes based on `targetingType: 'component'` from the action definition:
-
-1. `EventDispatcher.js`: `_handleComponentClick()` now calls `executeComponentAttack()` for all component-targeted actions, regardless of name.
-2. `App.js`: Replaced `executePunch` handler with `executeComponentAttack` handler in the EventDispatcher wiring.
-3. `ActionExecutor.js`: Replaced `executePunch()` with `executeComponentAttack()`, which reads `range` from the available actions registry instead of hardcoding it.
+Replaced all three hardcoded elements (dispatcher branch, app-level callback, dedicated executor method) with a single generic handler that routes on the action definition's `targetingType: 'component'` and reads `range` from the available-actions registry, so any new component-targeted attack works without frontend changes.
 
 ## Prevention
 

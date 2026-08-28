@@ -26,12 +26,6 @@ With 2 components (but only 1 selected):
 
 The `SynergyComponentGatherer` methods gathered **ALL matching components on the entity**, not just the source component that was selected. For spatial actions, component selection validation is skipped (so no components are locked), meaning ALL Movement components on the entity contribute to synergy even when only 1 was selected.
 
-**Data flow:**
-1. `actionController.executeAction()` → `computeSynergy()` with `sourceComponentId` but no `providedComponentIds`
-2. `synergyController._evaluateComponentGroups()` → `_gatherGroupMembers()` → `gatherSameComponentType()`
-3. `gatherSameComponentType()` with `sourceComponentId` → only includes source + same-type siblings
-4. But siblings were NOT filtered by `allowedComponentIds`, so ALL same-type siblings counted
-
 **Expected behavior:**
 - 1 droidRollingBall: synergy = 1.0x → speed = 20
 - 2 droidRollingBalls: synergy = 1.5 × 1.3 = 1.95x → speed = 39
@@ -42,85 +36,11 @@ The `SynergyComponentGatherer` methods gathered **ALL matching components on the
 
 ## Fix (Round 2: Post groupType Unification)
 
-### 1. `SynergyComponentGatherer.js` — Add `allowedComponentIds` filtering
-
-All gather methods now accept an `allowedComponentIds` parameter. When provided (from `providedComponentIds`), only those specific component IDs count toward synergy — not all same-type siblings on the entity.
-
-```javascript
-// Example: gatherSameComponentType with allowedComponentIds
-gatherSameComponentType(entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds) {
-    // ...source logic...
-    for (const comp of entity.components) {
-        if (comp.id === sourceComponentId) continue;
-        if (lockedComponentIds.has(comp.id)) continue;
-        if (comp.type !== detectedType) continue;
-        if (allowedComponentIds && !allowedComponentIds.has(comp.id)) continue; // NEW: filter siblings
-        // ...
-    }
-}
-```
-
-### 2. `synergyController.js` — Add type filtering and `allowedComponentIds`
-
-#### a) `_filterProvidedForGroup`: Auto-detect component type
-```javascript
-_filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef) {
-    let detectedType = null;
-    const validComponents = providedComponentIds
-        .filter(({ componentId, role }) => {
-            // ...role filter...
-            if (detectedType === null) detectedType = component.type; // NEW: auto-detect type
-            return component.type === detectedType; // NEW: same-type filter
-        })
-        .map(...);
-}
-```
-
-#### b) `computeSynergy`: Build `allowedComponentIds` set
-```javascript
-let allowedComponentIds = null;
-if (providedComponentIds && providedComponentIds.length > 0) {
-    allowedComponentIds = new Set(providedComponentIds.map(c => c.componentId));
-}
-```
-
-#### c) `_gatherGroupMembers`: Pass `allowedComponentIds` to gatherer
-```javascript
-return this.componentGatherer.gatherSameComponentType(
-    entity, groupDef, roleFilter, lockedComponentIds, sourceComponentId, allowedComponentIds
-);
-```
-
-### 3. `data/synergy.json` — Change groupType to `sameComponentType`
-
-All `groupType` values now use `"sameComponentType"`. The `componentType` field has been removed — type is auto-detected from the source component at runtime.
-
-```json
-{
-    "groupType": "sameComponentType",
-    "minCount": 2,
-    "scaling": "linear",
-    "baseMultiplier": 1.0,
-    "perUnitBonus": 0.5,
-    "roleFilter": "source",
-    "description": "Multiple droidRollingBall components on the same entity boost dash distance."
-}
-```
-
-### 4. `actionController.js` — Pass `sourceComponentId` to preview
-
-`previewActionData()` now adds `sourceComponentId` to the context before calling `computeSynergy()`, ensuring synergy previews match actual execution.
-
-```javascript
-synergyResult = this.synergyController.computeSynergy(actionName, entityId, {
-    ...context,
-    sourceComponentId: resolveComponentId
-});
-```
-
-### 5. `synergyRoutes.js` — Pass `sourceComponentId` in API routes
-
-Both `/synergy/preview` and `/synergy/preview-data` routes now add `sourceComponentId` from `componentIds[0]`.
+1. **`SynergyComponentGatherer.js`** — The gather methods now respect an `allowedComponentIds` filter: when components are explicitly provided for the action, only those count toward synergy — same-type siblings on the entity are no longer auto-included.
+2. **`synergyController.js`** — Provided components are filtered to a single component type (auto-detected from the provided components, since the static type field was removed from the config), and an allowed-ID set built from the provided components is passed down to the gatherer.
+3. **`data/synergy.json`** — All groups now use `groupType: "sameComponentType"` without a static `componentType` field; the component type is auto-detected from the source component at runtime, removing the risk of a stale or mismatched configured type.
+4. **`actionController.js`** — The preview path now passes the source component ID into the synergy computation, so previews reflect what actual execution will do.
+5. **`synergyRoutes.js`** — Both synergy preview routes pass the source component ID in the same way.
 
 ## Prevention
 

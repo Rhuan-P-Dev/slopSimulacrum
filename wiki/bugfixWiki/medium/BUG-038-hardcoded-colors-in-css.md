@@ -11,25 +11,11 @@
 - Changing a theme color requires searching through all CSS files for hex values
 
 ## Root Cause
-Several CSS files use raw hex values instead of CSS custom properties:
-
-| File | Hardcoded Values | Should Be |
-|------|-----------------|-----------|
-| `actions.css:54` | `color: #ffff00;` | `color: var(--neon-yellow)` |
-| `actions.css:62` | `color: #ffaa00;` | `color: var(--neon-orange)` |
-| `actions.css:66` | `color: #ff4444;` | `color: var(--error-red)` |
-| `synergy.css:22` | `border: 2px solid #ffff00;` | `border: 2px solid var(--neon-yellow)` |
-| `feedback.css:21` | `background-color: #ff4444;` | `background-color: var(--error-red)` |
-| `map.css:66` | `fill: #fff;` | `fill: var(--text-main)` |
+Several CSS files (`actions.css`, `synergy.css`, `feedback.css`, `map.css`) use raw hex values in rules where theme CSS custom properties should be used, so a theme change requires hunting for hex literals across files.
 
 ## Fix (Recommended)
-1. Add missing CSS variables to `:root` in `base.css`:
-   ```css
-   --neon-yellow: #ffff00;
-   --neon-orange: #ffaa00;
-   --error-red: #ff4444;
-   ```
-2. Replace all hardcoded hex values with corresponding `var()` references
+1. Add the missing theme variables (`--neon-yellow`, `--neon-orange`, `--error-red`) to `:root` in `base.css`
+2. Replace all hardcoded hex values with the corresponding `var()` references
 
 ## Prevention
 - All theme colors should be CSS variables defined in `:root`

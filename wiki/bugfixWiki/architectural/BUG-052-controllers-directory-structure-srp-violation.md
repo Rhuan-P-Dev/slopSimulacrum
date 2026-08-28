@@ -25,85 +25,11 @@ The controllers were extracted into single-focused modules (per BUG-041, BUG-042
 
 ### New Directory Structure
 
-```
-src/controllers/
-├── WorldStateController.js          # Root injector (stays at top level)
-├── index.js                         # Barrel export (NEW)
-│
-├── core/                            # Core state management
-│   ├── RoomsController.js
-│   ├── stateEntityController.js
-│   ├── entityController.js
-│   ├── ComponentController.js
-│   └── ComponentStatsController.js
-│
-├── traits/                          # Traits subsystem
-│   └── TraitsController.js
-│
-├── actions/                         # Action execution system
-│   ├── ActionController.js
-│   ├── actionSelectController.js
-│   ├── ComponentResolver.js
-│   ├── RequirementResolver.js
-│   └── RangeValidator.js
-│
-├── capabilities/                    # Capability caching system
-│   └── ComponentCapabilityController.js
-│
-├── synergy/                         # Synergy computation system
-│   ├── SynergyController.js
-│   ├── SynergyConfigManager.js
-│   ├── SynergyComponentGatherer.js
-│   ├── SynergyCalculator.js
-│   └── SynergyCacheManager.js
-│
-├── consequences/                    # Consequence handling system
-│   ├── ConsequenceHandlers.js
-│   ├── ConsequenceDispatcher.js
-│   ├── DamageConsequenceHandler.js
-│   ├── StatConsequenceHandler.js
-│   ├── SpatialConsequenceHandler.js
-│   ├── LogConsequenceHandler.js
-│   └── EventConsequenceHandler.js
-│
-└── networking/                      # Network/communication layer
-    ├── SocketLifecycleController.js
-    └── LLMController.js
-```
-
-### Import Path Updates
-
-All internal controller imports updated to use correct relative paths:
-
-| Old Import Path | New Import Path |
-|----------------|-----------------|
-| `./componentController.js` | `./core/componentController.js` |
-| `./traitsController.js` | `./traits/TraitsController.js` |
-| `./actionController.js` | `./actions/actionController.js` |
-| `./consequenceHandlers.js` | `./consequences/consequenceHandlers.js` |
-| `./synergyController.js` | `./synergy/synergyController.js` |
-| `./componentCapabilityController.js` | `./capabilities/componentCapabilityController.js` |
-| `./LLMController.js` | `./networking/LLMController.js` |
-| `./SocketLifecycleController.js` | `./networking/SocketLifecycleController.js` |
+Controllers are grouped into per-subsystem directories (core state, traits, actions, capabilities, synergy, consequences, networking), with the root injector kept at the top level, so the directory tree mirrors the system architecture and every controller has an obvious home.
 
 ### Barrel Export
 
-Created `src/controllers/index.js` providing a single entry point:
-
-```javascript
-import { WorldStateController, ActionController, SynergyController } from '@controllers';
-```
-
-### Files Modified
-
-- `src/controllers/WorldStateController.js` — 12 import paths updated
-- `src/controllers/core/componentController.js` — 1 import path updated
-- `src/controllers/actions/actionController.js` — 1 import path updated
-- `src/server.js` — 2 import paths updated
-- `test/actionController.test.js` — 1 import path updated
-- `test/synergyController.test.js` — 1 import path updated
-- `test/componentCapabilityController.test.js` — 1 import path updated
-- `wiki/map.md` — Changes log updated
+Created `src/controllers/index.js` as a single entry point so consumers can import controllers without tracking individual file locations.
 
 ## ✅ Prevention
 

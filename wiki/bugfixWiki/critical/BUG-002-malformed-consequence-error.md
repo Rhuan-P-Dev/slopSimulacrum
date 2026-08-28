@@ -14,35 +14,11 @@ When a consequence handler encountered an error and the catch block tried to log
 
 ## Root Cause
 
-The catch block in `_executeMultiAttackerConsequences()` accessed nested properties on potentially undefined objects:
-
-```javascript
-// ❌ BEFORE (buggy)
-try {
-    // consequence execution
-} catch (error) {
-    console.error(`CRITICAL: Failed to execute consequence ${consequence.type}: ${error.message}`);
-}
-```
-
-If `consequence` was undefined or `consequence.type` was null, accessing these properties threw an additional error on top of the original failure.
+The catch block in `_executeMultiAttackerConsequences()` accessed nested properties on potentially undefined objects. If `consequence` was undefined or `consequence.type` was null, the error logging itself threw an additional error on top of the original failure.
 
 ## Fix
 
-Added defensive null checking with optional chaining and fallback values:
-
-```javascript
-// ✅ AFTER (fixed)
-try {
-    // consequence execution
-} catch (error) {
-    console.error(`CRITICAL: Failed to execute consequence ${consequence?.type || 'unknown'}: ${consequence?.params?.message || error.message}`);
-}
-```
-
-Key changes:
-- `consequence?.type || 'unknown'` — prevents undefined type access
-- `consequence?.params?.message` — safely accesses nested message property
+Error logging now degrades gracefully: consequence fields are read defensively with fallback values, so a malformed or undefined consequence record is logged with a placeholder instead of throwing a second error. Rationale: a logging path in an error handler must never be able to mask the original failure it is reporting.
 
 ## Prevention
 

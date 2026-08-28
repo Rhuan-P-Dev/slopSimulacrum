@@ -21,20 +21,7 @@ The original CSS file was created as a single monolithic file without planning f
 
 ## Fix
 
-Refactored `public/styles.css` from a 785-line monolithic file into **9 single-responsibility modules**:
-
-| File | Lines | Responsibility |
-|------|-------|----------------|
-| `styles.css` | ~20 | `:root` variables + `@import` |
-| `css/base.css` | ~25 | Body, h1 typography |
-| `css/layout.css` | ~20 | Grid layout, panel containers |
-| `css/map.css` | ~65 | SVG map visualization |
-| `css/navigation.css` | ~95 | Nav buttons, detail overlays |
-| `css/actions.css` | ~85 | Action list, selection states |
-| `css/synergy.css` | ~110 | Synergy preview display |
-| `css/components.css` | ~110 | Component HUD, tactical targeting |
-| `css/utilities.css` | ~15 | Micro-utilities |
-| `css/feedback.css` | ~55 | Error popups, release buttons |
+Refactored `public/styles.css` from a 785-line monolithic file into **9 single-responsibility modules**, one per UI concern, with a single entry stylesheet chaining them.
 
 **Loading mechanism**: Browser-native `@import` chaining via single `<link>` tag — no build tools required.
 

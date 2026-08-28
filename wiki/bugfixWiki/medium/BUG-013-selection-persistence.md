@@ -20,20 +20,7 @@ When the user refreshed the page while having component selections:
 
 ## Fix
 
-1. **Client-side**: Added refresh handling in `App.js` to clear stale selections on load
-2. **Server-side**: Added `releaseSelections()` call in the `finally` block of `actionController.js` to ensure locks are always released
-3. **Synchronization**: Added explicit spatial component tracking after `_resolveSourceComponent()` to ensure locks are properly managed
-
-### Refresh Flow
-
-```
-Page Refresh
-    → Client: App.js initializes with empty selectedComponentIds
-    → Client: POST /refresh-state to sync with server
-    → Server: ActionSelectController releases all stale locks
-    → Server: Response includes current lock state
-    → Client: UI updates to reflect clean state
-```
+Addresses each root cause: the client clears stale selections on load, the server now always releases component locks after action execution (including error paths) so a refresh never inherits stale locks, and explicit spatial component tracking ensures locked components are released consistently. On refresh, the client re-synchronizes with the server's authoritative lock state so the UI reflects a clean state.
 
 ## Prevention
 

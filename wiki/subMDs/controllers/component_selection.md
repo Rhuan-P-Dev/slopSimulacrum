@@ -14,28 +14,15 @@ The server-side controller manages component locking with automatic TTL-based ex
 
 ## 3. Lifecycle
 
-1. **Lock**: Single or batch component lock
-2. **Validate**: Selection is validated before action execution
-3. **Execute**: Consequences apply to locked components
-4. **Release**: Locks are released after action execution, including spatial actions that resolve components differently
-
-**Auto-Expiry**: Stale selections expire before action execution.
+A lock commits a component to exactly one action: it must survive validation and execution, and is always released once the action completes — including spatial actions, which resolve components differently. Stale selections auto-expire via TTL before they can interfere with a later action, so a forgotten selection can never block or misdirect execution.
 
 ## 4. Multi-Component Flow
 
-1. Click-to-toggle components on the client
-2. Live synergy preview when two or more components are selected
-3. Map click triggers batch lock followed by execution and release
+Multi-component actions are assembled incrementally so the user sees a live synergy preview before anything commits — the combined effect is visible before the action executes. Committing performs a single batch lock covering all selected components: all-or-nothing, so a multi-component action can never execute with only part of its selection locked.
 
 ## 5. API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/select-component` | POST | Lock single component |
-| `/select-components` | POST | Lock multiple components (batch) |
-| `/release-selection` | POST | Release single component |
-| `/selections/:entityId` | GET | Get all selections for entity |
-| `/synergy/preview` | POST | Preview synergy without executing |
+Selection state is mutated only through dedicated server-side endpoints so the locking semantics (one component per action, batch locking, TTL expiry) cannot be bypassed by the client, while a separate preview path lets the UI evaluate a multi-component selection without executing it.
 
 ## 6. Previous Action Restoration
 

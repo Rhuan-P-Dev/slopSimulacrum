@@ -9,10 +9,7 @@
 
 When executing multi-attacker actions (e.g., "punch" with multiple attackers) where one or more attackers are equipped items:
 
-1. **Warning in logs**:
-```
-⚠️ WARN: [ConsequenceDispatcher] Attacker "eq-c997b01d-146d-4387-90b4-3aae8d14f930" has no Physical.strength — skipping
-```
+1. **Warning in logs**: `⚠️ WARN: [ConsequenceDispatcher] Attacker "eq-c997b01d-146d-4387-90b4-3aae8d14f930" has no Physical.strength — skipping`
 
 2. **Silent Skip**: The equipped item attacker is skipped entirely
 3. **Missing Damage**: No damage is dealt by the equipped item attacker
@@ -20,15 +17,7 @@ When executing multi-attacker actions (e.g., "punch" with multiple attackers) wh
 
 ## Root Cause
 
-The `ConsequenceDispatcher.executeMultiAttacker()` method tries to get attacker stats using:
-```javascript
-const attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
-```
-
-This only works for `comp-*` IDs (body parts), not `eq-*` IDs (equipped items). When an equipped item is an attacker:
-1. `getComponentStats(eq-abc123...)` returns `null` because equipment IDs aren't in the component stats store
-2. The code checks `!attackerStats` and skips the attacker
-3. The equipped item's damage is never applied
+The `ConsequenceDispatcher.executeMultiAttacker()` method fetches attacker stats from the component stats store (`componentController.getComponentStats(attackerId)`), which only contains `comp-*` IDs — an `eq-*` ID returns `null`, so the `!attackerStats` check skips the equipped-item attacker and its damage is never applied.
 
 ### Why This Happened
 
@@ -38,43 +27,11 @@ The multi-attacker flow wasn't updated when the equipment ID resolution was adde
 
 ### Updated `executeMultiAttacker()` in `ConsequenceDispatcher.js`
 
-Added equipment ID resolution before stats lookup:
-
-```javascript
-// Resolve equipment IDs (eq-*) to host component IDs (comp-*) for stats lookup
-let resolvedAttackerId = attackerId;
-let attackerStats = null;
-
-if (IdResolver.isEquippedId(attackerId)) {
-    // For equipped items, try to get stats from EquippedItemStatsController first
-    const equippedItemStats = this.actionController.equippedItemStats;
-    if (equippedItemStats && equippedItemStats.hasStats(attackerId)) {
-        const itemStats = equippedItemStats.getStats(attackerId);
-        if (itemStats && itemStats.Physical && itemStats.Physical.strength !== undefined) {
-            attackerStats = itemStats;
-        }
-    }
-
-    // If not found in equipped item stats, resolve to host component
-    if (!attackerStats) {
-        const equipped = this.worldStateController.getEquippedItem(entityId, attackerId);
-        if (equipped && equipped.componentId) {
-            resolvedAttackerId = equipped.componentId;
-            attackerStats = this.worldStateController.componentController.getComponentStats(resolvedAttackerId);
-        }
-    }
-} else {
-    // For regular components, get stats directly
-    attackerStats = this.worldStateController.componentController.getComponentStats(attackerId);
-}
-```
+Attacker stats are now resolved through a dedicated path for equipped items instead of the raw component stats lookup, so `eq-*` attackers are no longer silently dropped.
 
 ### Resolution Strategy
 
-1. **First**: Check if the attacker is an equipped item (`eq-*` ID)
-2. **Second**: Try to get stats from `EquippedItemStatsController` (for mutable stats like sharpness)
-3. **Third**: If not found, resolve to host component ID and get stats from component stats store
-4. **Fourth**: If still not found, skip the attacker (original behavior)
+For an `eq-*` attacker, stats are first read from `EquippedItemStatsController` (which holds mutable per-instance stats like sharpness); if absent, the ID is resolved to the host component and looked up in the component stats store; if still not found, the attacker is skipped as before. The item-level store must win because equipped items carry their own mutable stats that diverge from the host component's static stats.
 
 ## Prevention
 

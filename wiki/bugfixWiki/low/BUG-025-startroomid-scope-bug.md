@@ -7,37 +7,15 @@
 
 ## Symptoms
 
-Initial implementation of `_spawnKnifeInStartRoom()` referenced `startRoomId`, which was only in scope within the `initializeWorld()` method. This would cause a `ReferenceError` at runtime:
-
-```
-ReferenceError: startRoomId is not defined
-    at WorldStateController._spawnKnifeInStartRoom (file:///src/controllers/WorldStateController.js:129:46)
-```
+The initial implementation of `_spawnKnifeInStartRoom()` referenced `startRoomId`, which was only in scope within the `initializeWorld()` method. This threw a `ReferenceError` (`startRoomId is not defined`) at runtime, breaking world initialization.
 
 ## Root Cause
 
-The `_spawnKnifeInStartRoom()` method was initially written as:
-
-```javascript
-_spawnKnifeInStartRoom() {
-    const knifeEntityId = this.stateEntityController.spawnEntity('knife', startRoomId);
-    this.stateEntityController.updateEntitySpatial(knifeEntityId, { x: -50, y: 30 });
-}
-```
-
-`startRoomId` was a local variable inside `initializeWorld()`, not accessible from `_spawnKnifeInStartRoom()`.
+`startRoomId` was a local variable inside `initializeWorld()`, not accessible from `_spawnKnifeInStartRoom()` — the helper depended on an outer-scope variable it could not see.
 
 ## Fix
 
-Resolved the room ID inside the method itself:
-
-```javascript
-_spawnKnifeInStartRoom() {
-    const knifeRoomId = this.roomsController.getUidByLogicalId('start_room');
-    const knifeEntityId = this.stateEntityController.spawnEntity('knife', knifeRoomId);
-    this.stateEntityController.updateEntitySpatial(knifeEntityId, { x: -50, y: 30 });
-}
-```
+The method now resolves the room ID itself via the rooms controller's public lookup (logical ID → UID) instead of referencing the outer-scope variable. Rationale: helper methods must be self-contained, and resolving room identity through the rooms controller's public API preserves the single source of truth for room UIDs.
 
 ## Prevention
 

@@ -16,17 +16,6 @@ Three curve shapes shape how synergy multipliers grow with group size:
 
 Non-linear curves were chosen to prevent simple arithmetic scaling from dominating strategy. The curve shape becomes a **design lever** that developers can adjust to shape player behavior without touching code.
 
-### Curve Configuration
-
-Each curve is defined in `data/synergy.json` with these parameters:
-
-| Parameter | Purpose |
-|-----------|---------|
-| `baseMultiplier` | Starting multiplier at 1 component |
-| `perComponentBonus` | Additional multiplier per component added |
-| `cap` | Maximum multiplier regardless of group size |
-| `curve` | Shape function name |
-
 ## 3. Synergy Group Types
 
 Synergy groups unify `componentType` and `groupType` into a single classification system. This unification exists because:

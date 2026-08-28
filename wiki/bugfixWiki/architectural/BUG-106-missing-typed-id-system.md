@@ -24,29 +24,7 @@ No type information was embedded in the IDs themselves. The server had to use fa
 
 ## Fix
 
-Implemented a typed ID system where every ID is prefixed with its type:
-
-| Type | Format | Example |
-|------|--------|---------|
-| Entity | `ent-${uuid}` | `ent-550e8400-e29b-41d4-a716-446655440000` |
-| Component | `comp-${uuid}` | `comp-6ba7b810-9dad-11d1-80b4-00c04fd430c8` |
-| Item (Inventory) | `item-${uuid}` | `item-6ba7b811-9dad-11d1-80b4-00c04fd430c8` |
-| Equipped Item | `eq-${uuid}` | `eq-6ba7b812-9dad-11d1-80b4-00c04fd430c8` |
-
-The `IdResolver` utility parses any typed ID and determines its type and UUID in O(1) time via prefix matching. All controllers now validate incoming IDs before processing.
-
-### Files Modified
-
-- **`src/utils/idGenerator.js`**: Added `generateEntityId()`, `generateCompId()`, `generateItemId()`, `generateEquippedId()`
-- **`src/utils/IdResolver.js`** (NEW): Complete ID parsing, validation, and resolution utility
-- **`src/controllers/core/entityController.js`**: Uses `generateCompId()` for component IDs
-- **`src/controllers/core/stateEntityController.js`**: Uses `generateEntityId()` for entity IDs
-- **`src/utils/InventoryManager.js`**: Uses `generateItemId()` for item IDs
-- **`src/controllers/core/HoldingCostController.js`**: Tracks equipped items with `eqId` field
-- **`src/controllers/core/EquippedItemStatsController.js`**: Keys stats by `eqId` instead of `itemId`
-- **`src/controllers/actions/ComponentResolver.js`**: Validates typed component IDs
-- **`src/controllers/actions/actionController.js`**: Validates typed IDs in action execution
-- **`src/controllers/actions/actionSelectController.js`**: Validates typed IDs in selection locking
+Implemented a typed ID system where every ID is prefixed with its type, so the kind of object an ID refers to is self-evident from the ID itself and the server no longer needs to guess or fall back through multiple lookup strategies. The `IdResolver` utility parses any typed ID and determines its type and UUID in O(1) time via prefix matching, and all controllers now validate incoming IDs before processing.
 
 ## Prevention
 

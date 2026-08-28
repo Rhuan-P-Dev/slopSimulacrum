@@ -24,11 +24,11 @@ Actions are classified by their targeting requirements:
 
 ### Component Attack Execution
 
-The component attack system provides a **generic, data-driven handler** for all component-targeted actions (`targetingType === 'component'`). Previously, each attack type had its own frontend handler, which violated the Single Responsibility Principle by coupling frontend logic to specific action names. The unified handler reads the action definition's `targetingType` and `range` from `data/actions.json` at runtime, enabling new attacks to be added without frontend code changes.
+The component attack system provides a **generic, data-driven handler** for all component-targeted actions. Previously, each attack type had its own frontend handler, which violated the Single Responsibility Principle by coupling frontend logic to specific action names. Because the unified handler derives its behavior from the action definition rather than the action name, new attacks can be added without frontend code changes.
 
 ### Range Resolution
 
-The component attack handler resolves range from the available actions registry, supporting both numeric values and runtime-resolved expressions. Expression-based ranges enable attacks whose reach scales with the entity's stats (e.g., a stronger character having a longer reach). This decouples range logic from hardcoded values.
+Range values come from the action definition and may be fixed or runtime-resolved expressions. Expression-based ranges enable attacks whose reach scales with the entity's stats (e.g., a stronger character having a longer reach), decoupling range logic from hardcoded values.
 
 ### Multi-Attacker Synergy
 

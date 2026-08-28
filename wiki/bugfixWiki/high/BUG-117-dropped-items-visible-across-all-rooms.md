@@ -19,70 +19,19 @@ The server-side `DropItemHandler` was storing dropped item coordinates (`x`, `y`
 
 ### Server: `DropItemHandler.js` (line 102)
 
-Now captures `roomId` from the entity's current location when creating dropped items:
-
-```javascript
-droppedItems[droppedItemId] = {
-    id: droppedItemId,
-    itemType: usedItemType,
-    itemId: itemId,
-    x: targetX,
-    y: targetY,
-    roomId: entity.location || null,  // NEW: room association
-    ownerId: entityId,
-    name: itemDef.name || usedItemType,
-    description: itemDef.description || '',
-    volume: itemDef.volume || 1
-};
-```
+Dropped item records now capture `roomId` from the entity's current location, so each dropped item carries its room context.
 
 ### Server: `PickUpItemHandler.js` (lines 82-88)
 
-Added room validation before allowing item pickup — entity and item must be in the same room:
-
-```javascript
-const entityRoomId = entity.location || null;
-const itemRoomId = droppedItem.roomId || null;
-if (entityRoomId !== itemRoomId) {
-    Logger.warn(`[PickUpItemHandler] Entity "${entityId}" is in room "${entityRoomId}" but item "${droppedItemId}" is in room "${itemRoomId}".`);
-    return { success: false, message: `Item is in a different room. Entity is in "${entityRoomId}", item is in "${itemRoomId}".` };
-}
-```
+Pickup now validates that the entity and the item are in the same room, rejecting cross-room pickups with a warning log.
 
 ### Server: `WorldStateController.js` (lines 1007-1018)
 
-Added `getDroppedItemsByRoom(roomId)` for room-filtered queries:
-
-```javascript
-getDroppedItemsByRoom(roomId) {
-    if (!this._droppedItems) {
-        return {};
-    }
-    const filtered = {};
-    for (const [id, item] of Object.entries(this._droppedItems)) {
-        if (item.roomId === roomId) {
-            filtered[id] = item;
-        }
-    }
-    return structuredClone(filtered);
-}
-```
+Added a `getDroppedItemsByRoom(roomId)` query so dropped items can be fetched already filtered to a single room.
 
 ### Client: `App.js` (lines 413-419)
 
-Client now filters dropped items by `droid.location` before rendering on the spatial map:
-
-```javascript
-const droppedItems = state.droppedItems || {};
-const currentRoom = droid.location || null;
-const roomFilteredItems = {};
-for (const [id, item] of Object.entries(droppedItems)) {
-    if (item.roomId === currentRoom) {
-        roomFilteredItems[id] = item;
-    }
-}
-this.ui.renderDroppedItemsOnSpatialMap(roomFilteredItems, ...);
-```
+The spatial map renderer now filters dropped items by the droid's current room before drawing, so items from other rooms never appear.
 
 ## Prevention
 

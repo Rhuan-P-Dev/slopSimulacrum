@@ -37,34 +37,20 @@ Per project rules, state controllers must return deep copies to prevent external
 
 ## Public Methods
 
-| Method | Purpose |
-|--------|---------|
-| `initializeStats(itemId, itemType)` | Loads base stats from inventory item definitions for a newly equipped item |
-| `updateStatDelta()` | Applies an additive stat change to an equipped item |
-| `updateStat()` | Sets a stat to an absolute value on an equipped item |
-| `getStats()` | Returns a deep copy of stats for a specific item |
-| `getAll()` | Returns a deep copy of all tracked item stats |
-| `hasStats()` | Checks whether a given item ID has tracked stats |
+The public surface splits into mutation and inspection: initializing a newly equipped item's stats from its definition, applying stat changes (additive or absolute), and reading stats back (per-item, all items, or presence checks). All reads return defensive copies.
 
 ## Integration Points
 
-| Controller | Relationship |
-|------------|-------------|
-| **HoldingCostController** | Passes `equippedItemStats` via constructor DI during initialization |
-| **StatConsequenceHandler** | Routes damage consequences to equipped items via DI |
-| **ComponentCapabilityController** | Reads current stats during capability scans to score equipped item actions |
-| **WorldStateController** | Wires the stat change callback to trigger capability re-evaluation and broadcast |
+| Controller | Why it interacts |
+|------------|------------------|
+| **HoldingCostController** | Owns the equip/unequip flow, so it initializes per-instance stats when an item enters a slot |
+| **StatConsequenceHandler** | Routes stat consequences to the right store, so damage lands on the equipped item — not its host component |
+| **ComponentCapabilityController** | Reads live item stats during capability scans, so degraded items gain or lose capabilities correctly |
+| **WorldStateController** | Wires the stat-change callback that fans out capability re-evaluation and client broadcast |
 
 ## Validation
 
-On construction, item definitions are validated to ensure structural integrity:
-
-- Item definitions must be valid objects
-- Each item must have a non-empty `name`
-- If `traits` exists, it must be a valid object with numeric stat values
-- Non-numeric trait properties are silently ignored
-
-Invalid definitions throw `TypeError`, preventing corrupted data from entering the stats store.
+Item definitions are validated on construction and rejected outright if malformed, so the stats store can never be seeded with corrupted data — per the project's validation pattern, which fails fast before bad data is trusted.
 
 ## Related
 

@@ -14,27 +14,11 @@ When executing a multi-attacker punch action with multiple entities attacking to
 
 ## Root Cause
 
-In `_executeMultiAttackerConsequences()`, the filter for identifying attacker components incorrectly included both `source` AND `target` role components:
-
-```javascript
-// ❌ BEFORE (buggy)
-const attackerComponents = entity.components.filter(
-    c => c.role === 'source' || c.role === 'target'
-);
-```
-
-This meant enemy/target components were treated as attackers. When resolving requirement values for damage calculation (e.g., `:Physical.strength`), the enemy components didn't have the attacker's strength values, causing damage to be skipped entirely.
+In `_executeMultiAttackerConsequences()`, the filter for identifying attacker components incorrectly included both `source` AND `target` role components. Enemy/target components were therefore treated as attackers, and when requirement values for damage calculation (e.g., `:Physical.strength`) were resolved, the enemy components didn't have the attacker's strength values, causing damage to be skipped entirely.
 
 ## Fix
 
-Changed the filter to only include `source` role components:
-
-```javascript
-// ✅ AFTER (fixed)
-const attackerComponents = entity.components.filter(
-    c => c.role === 'source'
-);
-```
+The attacker filter now includes only `source` role components. Rationale: damage requirements must resolve against the actual attackers; including target components in the attacker set was a pure role misclassification, and excluding targets is the minimal correct correction.
 
 ## Prevention
 

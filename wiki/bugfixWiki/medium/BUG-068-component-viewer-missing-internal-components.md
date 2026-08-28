@@ -24,31 +24,9 @@
 
 ## Fix
 
-### 1. ComponentViewer.js Enhancements
+The internal-components toggle now reads from the **same entity reference** that was used when the 🔮 button was rendered: the click handler passes `entity.internalComponents` directly to the toggle handler, eliminating the second, potentially stale data source. If the entity reference is unavailable, the handler falls back to fetching from the server.
 
-- Added `🔮` (internal components) button to component cards that have internal components
-- Added `_onToggleInternalComponents()` method to fetch and render internal components
-- Added `_renderInternalComponentPanel()` to display internal component details
-- Added `_loadInternalComponentRegistry()` to fetch type descriptions from server
-- Added `_getInternalComponentDescription()` to generate human-readable descriptions
-- Added `_formatInternalComponentType()` to convert camelCase to readable labels
-- Added `_currentEntity` and `_currentEntityId` to store entity reference
-- **Fixed**: `_onToggleInternalComponents()` now receives `entity.internalComponents` as a parameter from the button click handler, ensuring it reads from the exact same source that rendered the 🔮 button
-- **Fallback**: If entity reference is not available, falls back to API fetch
-
-### 2. New Server Endpoint
-
-- `GET /api/internal-components/registry` — Returns internal component type definitions with descriptions
-- `GET /api/internal-components/:entityId/:hostComponentId` — Returns internal components for a specific host
-
-### 3. CSS Styles
-
-Added styles for the new UI elements:
-- `.component-internal-btn` — 🔮 button styling
-- `.component-internal-container` — Container for internal component cards
-- `.internal-component-detail-card` — Individual internal component card
-- `.internal-component-type-badge` — Type badge styling
-- `.internal-component-description` — Description text styling
+Supporting this, the Component Viewer gained a dedicated internal-component panel (button, container, and detail cards with human-readable type labels and descriptions), backed by new server endpoints that expose the internal-component type registry and per-host internal components as the fallback data path.
 
 ## Prevention
 

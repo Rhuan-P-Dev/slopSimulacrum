@@ -14,75 +14,15 @@ When an action has a requirement with `minValue: 0`:
 
 ## Root Cause
 
-In `ActionScoring.js`, the scoring algorithm calculates an excess ratio:
-
-```javascript
-// ❌ BEFORE (division by zero when minValue = 0)
-const excessRatio = value / minValue;  // NaN when minValue = 0!
-```
-
-When `minValue = 0`, `value / 0 = Infinity` (for positive values) or `NaN` (for zero values).
-
-### Scoring Constants Reference
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `REQUIREMENT_MET` | 1.0 | Base score when requirement is met |
-| `REQUIREMENT_EXCEEDED_BONUS` | 0.1 | Bonus multiplier for exceeding threshold |
-| `CLOSE_TO_THRESHOLD_PENALTY` | -0.2 | Penalty for being close but not meeting |
-| `EXCEEDED_THRESHOLD_MULTIPLIER` | 2.0 | Ratio threshold for bonus activation |
-
-### Division by Zero Path
-
-```javascript
-// When minValue = 0 and value = 0:
-const satisfied = 0 >= 0;  // true
-const excessRatio = 0 / 0;  // NaN
-const bonus = NaN > 2.0 ? 0.1 * (NaN - 1) : 0;  // 0 (NaN comparison is false)
-// Score = 1.0 + 0 = 1.0 (works by accident)
-
-// When minValue = 0 and value > 0:
-const satisfied = 5 >= 0;  // true
-const excessRatio = 5 / 0;  // Infinity
-const bonus = Infinity > 2.0 ? 0.1 * (Infinity - 1) : 0;  // Infinity!
-// Score = 1.0 + Infinity = Infinity (breaks sorting!)
-```
+In `ActionScoring.js`, the scoring algorithm computes an excess ratio by dividing the actual stat value by `minValue`. When `minValue = 0`, that division produces `Infinity` (for positive values) or `NaN` (for zero values), which corrupts the score and breaks capability sorting.
 
 ## Workaround
 
-Actions should avoid using `minValue: 0` in requirements. Use a very small positive value instead:
-
-```json
-// ❌ BAD
-{ "trait": "strength", "stat": "power", "minValue": 0 }
-
-// ✅ GOOD
-{ "trait": "strength", "stat": "power", "minValue": 0.001 }
-```
+Actions should avoid using `minValue: 0` in requirements; use a very small positive threshold instead so the excess-ratio division stays finite.
 
 ## Proposed Fix
 
-Add a guard for zero minValue in the scoring algorithm:
-
-```javascript
-// ✅ PROPOSED FIX
-function calculateScore(value, minValue) {
-    if (minValue === 0) {
-        // For zero requirements, any defined stat satisfies the requirement
-        return value >= 0 ? 1.0 : 0;
-    }
-    
-    const satisfied = value >= minValue;
-    if (!satisfied) {
-        const ratio = value / minValue;
-        return ratio > 0.8 ? -0.2 : 0;
-    }
-    
-    const excessRatio = value / minValue;
-    const bonus = excessRatio > 2.0 ? 0.1 * (excessRatio - 1) : 0;
-    return 1.0 + bonus;
-}
-```
+Add a guard for zero `minValue` in the scoring algorithm: a zero requirement is satisfied by any defined stat (base score only, no excess bonus), and the excess-ratio math is applied only when `minValue > 0`.
 
 ## Prevention
 

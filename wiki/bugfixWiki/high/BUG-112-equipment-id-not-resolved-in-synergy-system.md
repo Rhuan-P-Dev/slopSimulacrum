@@ -25,23 +25,7 @@ When an equipped item is selected:
 
 ### Affected Code Paths
 
-**`SynergyController._filterProvidedForGroup()`** (3 occurrences):
-```javascript
-// Line 212, 223, 239
-const component = entity.components.find(c => c.id === componentId);
-```
-
-**`SynergyComponentGatherer.gatherSameComponentType()`** (2 occurrences):
-```javascript
-// Line 39, 140
-const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
-```
-
-**`SynergyComponentGatherer.gatherAllComponents()`** (1 occurrence):
-```javascript
-// Line 140
-const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
-```
+Six raw `entity.components.find(...)` lookups were affected: three in `SynergyController._filterProvidedForGroup()`, two in `SynergyComponentGatherer.gatherSameComponentType()`, and one in `SynergyComponentGatherer.gatherAllComponents()`.
 
 ## Impact
 
@@ -53,42 +37,11 @@ const sourceComponent = entity.components.find(c => c.id === sourceComponentId);
 
 ### 1. Added ID Resolution Helper to `SynergyComponentGatherer`
 
-Added `_resolveToComponentId()` method that resolves equipment IDs to their host component IDs:
-
-```javascript
-_resolveToComponentId(id, entityId) {
-    if (!id) return null;
-
-    // If already a component ID, return as-is
-    if (IdResolver.isCompId(id)) {
-        return id;
-    }
-
-    // If an equipment ID, resolve to host component
-    if (IdResolver.isEquippedId(id)) {
-        const equippedItem = this.worldStateController.getEquippedItem(entityId, id);
-        if (equippedItem && equippedItem.componentId) {
-            return equippedItem.componentId;
-        }
-        Logger.warn('[SynergyComponentGatherer] Equipment ID not found for resolution', { eqId: id, entityId });
-        return null;
-    }
-
-    // Unknown ID type — return as-is
-    return id;
-}
-```
+Added a `_resolveToComponentId()` helper that resolves `eq-*` IDs to their host `comp-*` ID via the equipped item record, leaves `comp-*` IDs untouched, and logs a warning when an equipment ID cannot be resolved.
 
 ### 2. Updated `gatherSameComponentType()` in `SynergyComponentGatherer`
 
-Modified to resolve equipment IDs before looking up components:
-
-```javascript
-const resolvedSourceComponentId = this._resolveToComponentId(sourceComponentId, entity.id);
-
-// Use resolved ID for component lookup
-const sourceComponent = entity.components.find(c => c.id === resolvedSourceComponentId);
-```
+The component lookup now uses the helper-resolved ID instead of the raw selection ID.
 
 ### 3. Updated `gatherAllComponents()` in `SynergyComponentGatherer`
 
@@ -96,28 +49,11 @@ Same pattern — resolve equipment IDs before component lookup.
 
 ### 4. Updated `_filterProvidedForGroup()` in `SynergyController`
 
-Added inline equipment ID resolution before component lookups:
-
-```javascript
-// Resolve equipment IDs to component IDs for lookup
-let resolvedId = componentId;
-if (IdResolver.isEquippedId(componentId)) {
-    const equipped = this.worldStateController.getEquippedItem(entityId, componentId);
-    if (equipped && equipped.componentId) {
-        resolvedId = equipped.componentId;
-    } else {
-        continue; // Equipment not found, skip
-    }
-}
-
-const component = entity.components.find(c => c.id === resolvedId);
-```
+All three lookup sites now resolve `eq-*` IDs to their host component before the `entity.components` lookup, skipping any entry whose equipment ID cannot be resolved.
 
 ### 5. Added IdResolver Import to `SynergyController`
 
-```javascript
-import IdResolver from '../../utils/IdResolver.js';
-```
+The controller now imports the shared `IdResolver` utility so it can distinguish `comp-*` from `eq-*` IDs before lookup.
 
 ## Prevention
 

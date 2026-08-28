@@ -14,12 +14,7 @@
 `SynergyComponentGatherer.js` calls `this.actionSelectController.getLockedComponentsForAction(actionName)` to get locked components for synergy exclusion, but `ActionSelectController` only has `getSelectionsForAction(actionName)`. The method name mismatch occurred during the SRP refactor of synergy (BUG-042) when `SynergyComponentGatherer` was extracted.
 
 ## Fix
-Added `getLockedComponentsForAction(actionName)` alias method to `ActionSelectController`:
-```javascript
-getLockedComponentsForAction(actionName) {
-    return this.getSelectionsForAction(actionName);
-}
-```
+Added the missing `getLockedComponentsForAction` method to `ActionSelectController` as a delegation to the existing `getSelectionsForAction()`, so the call made by the extracted gatherer resolves at runtime.
 
 ## Prevention
 - When extracting modules that depend on other controllers, verify all method names exist.

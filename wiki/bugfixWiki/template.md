@@ -39,10 +39,10 @@ When fixing a bug, document it here:
 What the bug manifested as.
 
 ## Root Cause
-Why it happened.
+Why it happened. Describe the root cause conceptually; do not paste code.
 
 ## Fix
-How it was resolved (with code snippets if relevant).
+Why the chosen fix was made (conceptual rationale); do not paste code.
 
 ## Prevention
 How to avoid this class of bug in the future.

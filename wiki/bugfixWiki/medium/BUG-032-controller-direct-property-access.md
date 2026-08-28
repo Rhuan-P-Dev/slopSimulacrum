@@ -7,7 +7,7 @@
 
 ## Symptoms
 
-- ActionController directly accessed `this.worldStateController.stateEntityController.getEntity()` in 5+ locations (lines 539, 683, 734, 896, 901)
+- ActionController directly accessed `stateEntityController` internals in multiple locations, bypassing the root controller's public API
 - Tight coupling between ActionController and stateEntityController
 - Changes to stateEntityController's internal API require modifications in ActionController
 - Violates Controller Patterns wiki §5 (Controllers must communicate via public methods)
@@ -18,18 +18,7 @@ Controllers were accessing internal properties of other controllers directly ins
 
 ## Fix
 
-Added public API wrapper methods to `WorldStateController`:
-
-1. `getEntity(entityId)` — Returns entity by ID
-2. `getComponent(componentId)` — Returns component by ID
-3. `getComponentStats(componentId)` — Returns component stats by ID
-
-Refactored `actionController.js` to use `this.worldStateController.getEntity()` instead of `this.worldStateController.stateEntityController.getEntity()`.
-
-Extracted the following logic into utility modules:
-- `src/utils/PlaceholderResolver.js` — Placeholder resolution
-- `src/utils/RequirementChecker.js` — Requirement validation
-- `src/utils/RangeChecker.js` — Entity proximity calculations
+`WorldStateController` now exposes public API wrapper methods for entity, component, and component-stats lookups, and `actionController.js` uses the root controller's public API instead of reaching into `stateEntityController` internals. Logic shared across controllers (placeholder resolution, requirement validation, proximity checks) was extracted into dedicated utility modules so controllers depend on shared utilities rather than each other's internals.
 
 ## Prevention
 

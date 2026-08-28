@@ -16,20 +16,7 @@
 The original `ActionSelectController.getLockedComponentIds(actionName)` method accepts an `excludeActionName` parameter that EXCLUDES components locked to that action from the returned set — exactly what synergy needs.
 
 ## Fix
-Changed `SynergyComponentGatherer.getLockedComponentIds()` to call `this.actionSelectController.getLockedComponentIds(actionName)` instead of `getLockedComponentsForAction(actionName)`:
-
-```javascript
-// Before (wrong):
-getLockedComponentIds(actionName) {
-    const locked = this.actionSelectController.getLockedComponentsForAction(actionName);
-    return new Set(locked ? locked.map(c => c.componentId) : []);
-}
-
-// After (correct):
-getLockedComponentIds(actionName) {
-    return this.actionSelectController.getLockedComponentIds(actionName);
-}
-```
+Switched `SynergyComponentGatherer.getLockedComponentIds()` to call `ActionSelectController.getLockedComponentIds(actionName)` instead of `getLockedComponentsForAction(actionName)`. The two similarly named methods have inverted semantics: one returns the components locked **to** the given action, the other returns locked components with those locked to that action **excluded**. Synergy needs the latter — the components locked to the current action are exactly the ones that must remain in the pool to produce the multiplier, not the ones to filter out.
 
 ## Prevention
 - When extracting modules that interact with selection controllers, verify the semantic meaning of method names.

@@ -37,13 +37,7 @@ Use **public methods only** — never access another controller's private or int
 
 ### WorldStateController Public API
 
-| Method | Purpose |
-|--------|---------|
-| `spawnEntity` | Creates an entity from a blueprint |
-| `despawnEntity` | Removes an entity and cleans up |
-| `moveEntity` | Moves entity to a different room |
-| `getRoomUidByLogicalId` | Resolves a logical name to its UUID |
-| `getWorldGraph` | Returns the world graph with resolved room names |
+The root controller exposes a public API covering entity lifecycle (spawn, despawn, move), room identity resolution, and world graph queries. It is the sole sanctioned interface for reading or mutating world state from outside the controller hierarchy, keeping the dependency graph explicit and the single source of truth intact.
 
 ## 6. Controller Roles
 

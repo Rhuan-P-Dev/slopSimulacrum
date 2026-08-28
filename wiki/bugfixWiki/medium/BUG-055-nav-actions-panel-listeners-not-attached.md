@@ -13,43 +13,11 @@
 
 ## Root Cause
 
-The `_attachNavListeners()` method was defined in `NavActionsPanel.js` (line 171) but **never called** after the panel rendered. The `show()` method built the navigation buttons via `_buildNavSection()` but did not invoke `_attachNavListeners()` to attach the `onclick` handlers.
-
-```
-NavActionsPanel.show()
-  → _buildNavSection() creates <button class="nav-btn" data-target="..."> ✅
-  → _attachNavListeners() is NEVER called ❌
-  → Buttons exist but have no click handlers
-```
-
-Additionally, the `toggle()` method also did not accept or pass the `onActionClick` callback.
+The `_attachNavListeners()` method was defined in `NavActionsPanel.js` but **never called** after the panel rendered. The `show()` method built the navigation buttons but did not invoke `_attachNavListeners()` to attach the click handlers, so the buttons existed without behavior. Additionally, the `toggle()` method did not accept or pass the `onActionClick` callback.
 
 ## Fix
 
-**File:** `public/js/NavActionsPanel.js`
-
-1. Added `onActionClick` parameter to `show()` and `toggle()` methods
-2. Called `_attachNavListeners()` and `_attachActionListeners()` at the end of `show()` after DOM rendering
-3. Added `_attachActionListeners()` method to handle action item clicks
-
-```javascript
-// Before: show() never called _attachNavListeners()
-show(room, actions, entityId, onNavClick) {
-    // ... builds DOM ...
-    this._content.innerHTML = html;
-    this._overlay.style.display = 'block';
-    // _attachNavListeners() was never called!
-}
-
-// After: listeners are attached after DOM rendering
-show(room, actions, entityId, onNavClick, onActionClick) {
-    // ... builds DOM ...
-    this._content.innerHTML = html;
-    this._overlay.style.display = 'block';
-    this._attachNavListeners();       // ← NEW
-    this._attachActionListeners();    // ← NEW
-}
-```
+**File:** `public/js/NavActionsPanel.js` — after DOM rendering, the panel now attaches both the navigation and action click listeners, and `show()`/`toggle()` accept an `onActionClick` callback so clicks are forwarded to the caller instead of dying in the panel.
 
 ## Prevention
 

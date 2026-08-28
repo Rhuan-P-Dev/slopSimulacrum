@@ -13,13 +13,7 @@ When the user clicks on the knife item row under the "cut" action in the ⚔️ 
 - No console errors appear
 - The click appears to silently do nothing
 
-Console output shows:
-```
-[App DEBUG] → getEquippedItem: null
-[App DEBUG] → Early exit: equippedItem not found
-[App DEBUG] → entity.equipped: none
-[App DEBUG] → state.entities[entityId]: {hasEquipped: false, keys: Array(8)}
-```
+Console output shows: `[App DEBUG] → getEquippedItem: null`, `[App DEBUG] → Early exit: equippedItem not found`, `[App DEBUG] → entity.equipped: none`, `[App DEBUG] → state.entities[entityId]: {hasEquipped: false, keys: Array(8)}`.
 
 ## Root Cause
 
@@ -27,29 +21,11 @@ Three issues in the data flow chain caused this bug:
 
 ### Issue 1: HoldingCostController Missing `getAll()` Method
 
-`WorldStateController.getAll()` (line 319-323) iterates over `this.subControllers` and calls `controller.getAll()` on each to aggregate state:
-
-```javascript
-for (const [key, controller] of Object.entries(this.subControllers)) {
-    if (typeof controller.getAll === 'function') {
-        globalState[key] = controller.getAll();
-    }
-}
-```
-
-`holdingCostController` was registered in `subControllers` but **did not implement a `getAll()` method**. This meant `holdingCost` was never included in the global state, so `worldState.holdingCost._equippedItems` was always undefined.
+`WorldStateController.getAll()` aggregates global state by calling each sub-controller's `getAll()`. `holdingCostController` was registered in `subControllers` but **did not implement a `getAll()` method**, so `holdingCost` was never included in the global state and `worldState.holdingCost._equippedItems` was always undefined.
 
 ### Issue 2: _transformForBroadcast() Had Nothing to Transform
 
-`WorldStateBroadcastService._transformForBroadcast()` checks `transformed.holdingCost._equippedItems` (line 87):
-
-```javascript
-if (transformed.holdingCost && transformed.holdingCost._equippedItems) {
-    // Process and attach to entity.equipped
-}
-```
-
-Since `holdingCost` was never in the world state, this entire block was skipped — `entity.equipped` was never populated.
+`WorldStateBroadcastService._transformForBroadcast()` only populates `entity.equipped` when `holdingCost._equippedItems` is present. Since `holdingCost` was never in the world state, that block was skipped and `entity.equipped` was never populated.
 
 ### Issue 3: HTTP /world-state Endpoint Bypassed Transformation (Partially Fixed Earlier)
 
@@ -59,30 +35,11 @@ The `/world-state` HTTP endpoint (used by `WorldStateManager.fetchState()`) was 
 
 ### Fix: Add `getAll()` to HoldingCostController
 
-Added a `getAll()` method that returns the equipped items data in the format expected by `_transformForBroadcast()`:
-
-```javascript
-/**
- * Returns the holding cost state for serialization/broadcast.
- * Called by WorldStateController.getAll() to include holding cost data
- * in the global world state. The format must match what
- * WorldStateBroadcastService._transformForBroadcast() expects:
- * holdingCost._equippedItems.
- */
-getAll() {
-    return {
-        _equippedItems: this.getAllEquippedItems()
-    };
-}
-```
+Added a `getAll()` method to `HoldingCostController` that exposes the equipped items data in the shape the broadcast transform expects, so holding cost is included in the global world state. Rationale: sub-controllers are only visible to the broadcast pipeline through their `getAll()` output — a registered controller without one is silently invisible.
 
 ### Why This Works
 
-1. `WorldStateController.getAll()` now includes `holdingCost: { _equippedItems: {...} }` in the global state
-2. `_transformForBroadcast()` receives this data and iterates through `_equippedItems`
-3. For each entity with equipped items, `entity.equipped` is populated as an array of `{eqId, itemId, itemType, componentId}`
-4. The client's `WorldStateManager.getEquippedItem(entityId, eqId)` finds the item in `entity.equipped`
-5. `_handleEquippedItemClick()` proceeds to call `selection.toggleComponent()`
+With `holdingCost` present in the global state, the broadcast transform populates `entity.equipped`, the client's state lookup finds the item, and the click handler proceeds to selection as designed.
 
 ## Prevention
 

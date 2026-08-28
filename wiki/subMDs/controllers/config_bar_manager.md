@@ -6,7 +6,7 @@ Manages the top config bar buttons and overlay coordination. Wires together all 
 
 ## 2. Public API
 
-Methods for initializing the DOM and event listeners, closing individual overlays (component viewer, actions panel, world map), closing all overlays, and toggling a single panel while closing others.
+The public surface is the overlay lifecycle: initializing the bar, opening and closing individual panels, and closing all overlays at once — always enforcing the single-overlay invariant.
 
 ## 3. Buttons
 

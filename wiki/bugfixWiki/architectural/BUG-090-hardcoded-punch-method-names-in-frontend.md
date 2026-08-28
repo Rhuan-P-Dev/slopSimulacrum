@@ -15,10 +15,7 @@ Adding a new component-targeted attack action to `data/actions.json` required fr
 
 ## Fix
 
-1. `ActionManager.js`: Renamed methods to generic names — `executePunch()` → `executeComponentAttack()`, `executeMultiPunch()` → `executeMultiComponentAttack()`.
-2. `ActionExecutor.js`: Updated all calls to use the renamed methods.
-3. `actionController.js`: Replaced hardcoded action name check with `action.targetingType === 'component'`.
-4. `data/actions.json`: Updated `cut` action to use component targeting, automatically benefiting from the generic system.
+Renamed the punch-specific methods to generic component-attack names, and replaced the backend's hardcoded action-name check with a `targetingType` check, so multi-attacker synergy applies to any component-targeted action rather than one named action. The existing `cut` action was switched to component targeting purely in data, demonstrating that actions now opt into behavior through configuration rather than code.
 
 ## Prevention
 

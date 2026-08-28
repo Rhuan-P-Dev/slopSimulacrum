@@ -7,12 +7,7 @@
 
 ## Symptoms
 
-After equipping a knife and successfully executing the "cut" action against an enemy, the "Actions" panel shows for cut:
-
-```
-cut
-0 capables · 1 incapable
-```
+After equipping a knife and successfully executing the "cut" action against an enemy, the "Actions" panel shows "cut — 0 capables · 1 incapable".
 
 The cut action disappears from the available actions even though the knife is still equipped with `Physical.sharpness: 50`.
 
@@ -20,60 +15,17 @@ The cut action disappears from the available actions even though the knife is st
 
 ### The Chain of Events
 
-1. User executes cut action — sharpness drains from equipped knife
-2. `EquippedItemStatsController._notifyStatChange` fires the callback registered in `WorldStateController`
-3. The callback iterated over `HoldingCostController.getAllEquippedItems()` to find which entity owns the item
-4. **Bug**: The iteration used `Object.entries(items)` with `id === itemId` comparison, where `id` was the loop variable from `Object.entries(items)`. But the comparison parameter was `itemId` (the callback's first argument from `EquippedItemStatsController`), which was the **eqId**.
-5. The comparison worked because `Object.entries(items)[0][0]` returns the eqId, matching the callback parameter. **However**, the bug was that `WorldStateController.getAllEquippedItems()` returned a flattened array **without** the `eqId` field, so any code relying on that flattened array for eqId lookup would fail.
+1. Executing the `cut` action drained the equipped knife's sharpness, firing the stat-change callback.
+2. The callback had to find which entity owns the item in order to re-evaluate that entity's capabilities.
+3. **Bug**: The entity lookup compared the item id against the wrong key, and `WorldStateController.getAllEquippedItems()` returned a flattened array **without** the `eqId` field, so the owning entity could not be reliably identified.
 
 ### Why The Capability Cache Became Stale
 
-When sharpness drains:
-1. The stat change callback triggers `reEvaluateEntityCapabilities` for the entity
-2. This correctly re-scans capabilities with current stats
-3. But if the callback's entity lookup fails (wrong iteration), the re-evaluation never fires
-4. The stale cache persists — showing "can execute" based on old sharpness (50) while the knife actually has less
+When the entity lookup fails, the capability re-evaluation never fires, so the cache keeps showing "can execute" based on the old sharpness value while the knife actually has less.
 
 ### The Fix
 
-**a.** Fixed `WorldStateController` stat change callback to iterate `HoldingCostController.getAllEquippedItems()` using direct key lookup (`items[eqId]`) instead of `Object.entries(items)`:
-
-```javascript
-equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
-    const allEquipped = this.holdingCostController.getAllEquippedItems();
-    for (const [entityId, items] of Object.entries(allEquipped)) {
-        if (items[eqId]) {  // Direct key lookup — O(1) instead of O(n) iteration
-            // Entity found — re-evaluate its capabilities
-            const state = this.getAll();
-            this.actionController.reEvaluateEntityCapabilities(state, entityId);
-            if (this._broadcastService) {
-                this._broadcastService.broadcast();
-            }
-            return;
-        }
-    }
-});
-```
-
-**b.** Fixed `WorldStateController.getAllEquippedItems()` to include `eqId` in all returned objects, ensuring consistency across all callers:
-
-```javascript
-getAllEquippedItems() {
-    // ...
-    for (const [entityId, items] of Object.entries(allEquipped)) {
-        for (const [eqId, item] of Object.entries(items)) {
-            allItems.push({
-                entityId,
-                eqId,  // ← Added: eqId was missing before
-                itemId: item.itemId,
-                itemType: item.itemType,
-                componentId: item.componentId
-            });
-        }
-    }
-    return allItems;
-}
-```
+The stat-change callback now identifies the owning entity by direct key lookup against the nested equipped-items structure (entity → equipped items) instead of iterating entries and comparing ids, and the flattened `getAllEquippedItems()` result includes the `eqId` field so all callers see consistent identifiers. A stat change therefore always triggers capability re-evaluation for the correct entity.
 
 ## Prevention
 

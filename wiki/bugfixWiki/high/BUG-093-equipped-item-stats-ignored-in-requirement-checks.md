@@ -27,14 +27,9 @@ The fallback parsing in `_resolveEquippedItemTraits()` tried to parse `equipped-
 
 ## Fix
 
-Added `_resolveEquippedTraitsForHostComponent(componentId, entityId)` private method to `RequirementResolver` that:
+`RequirementResolver` now resolves an equipped item's traits when the component ID it receives is a host component that has an item equipped: it matches the host component against the equipped items and looks the item up in the item registry. Both the requirement check and the value-resolution paths perform this host-component lookup **before** falling back to the component's own stats.
 
-1. Calls `worldStateController.getAllEquippedItems()` to get all equipped items across entities
-2. Matches `eq.componentId === componentId` to find if this host component has an equipped item
-3. Looks up the item definition from `worldStateController.getItemRegistry()` by `equipped.itemType`
-4. Returns the item's traits directly as a shallow-copied stats object
-
-Both `checkComponentRequirements()` and `resolveRequirementValues()` now check for equipped items on the host component **before** falling back to the component's own stats.
+Rationale: the resolver must accept the ID format the capability controller actually emits (host component IDs); a prefix-only check is structurally insufficient, so the host-component fallback is the durable fix for the mismatch described above.
 
 ## Prevention
 

@@ -13,38 +13,11 @@ When a knife is equipped and used for the `cut` action, its sharpness stat drain
 
 `HoldingCostController.unequipItem()` called `this.equippedItemStats.removeStats(itemId)`, which completely deleted the item's mutable stats from the in-memory `_itemStats` map. On re-equip, `EquippedItemStatsController.initializeStats()` creates a fresh copy from `data/inventoryItems.json`, restoring all stats to their base values.
 
-**Flow:**
-```
-1. Equip knife → initializeStats() creates sharpness = 1000
-2. Use "cut" → sharpness drains by -999 → sharpness = 1
-3. sharpness < 20 → "cut" unavailable ✅
-4. Unequip → removeStats() DELETES all in-memory stats ❌
-5. Re-equip → initializeStats() creates FRESH sharpness = 1000 ❌
-6. sharpness >= 20 → "cut" available again ❌ (BUG!)
-```
-
-`EquippedItemStatsController.initializeStats()` already has a guard that preserves existing stats:
-```javascript
-if (this._itemStats[itemId]) {
-    return { success: true, message: `Stats already initialized for item "${itemId}".` };
-}
-```
-
-But this guard was never reached because `removeStats()` deleted the stats before re-equip could trigger the guard.
+`EquippedItemStatsController.initializeStats()` already had a guard that preserves existing stats, but the guard was never reached: `removeStats()` deleted the stats on unequip, so re-equip always treated the item as brand-new and re-initialized every stat to its base value.
 
 ## Fix
 
-Removed the `this.equippedItemStats.removeStats(itemId)` call from `HoldingCostController.unequipItem()`. The mutable stats now persist across equip/unequip cycles. On re-equip, `initializeStats()`'s existing guard detects the pre-existing stats and preserves them.
-
-**Behavior after fix:**
-```
-1. Equip knife → initializeStats() creates sharpness = 1000
-2. Use "cut" → sharpness = 1
-3. "cut" unavailable (sharpness < 20) ✅
-4. Unequip → stats preserved in memory ✅
-5. Re-equip → initializeStats() sees existing stats, preserves them ✅
-6. sharpness still = 1 → "cut" still unavailable ✅ (CORRECT!)
-```
+Removed the `removeStats()` call from the unequip path so mutable stats persist across equip/unequip cycles. On re-equip, the existing `initializeStats()` guard detects the pre-existing stats and preserves them. Rationale: wear accumulated during use (e.g., sharpness drain) is a property of the item instance, so the unequip path must not destroy it — otherwise action availability would keep resetting in lockstep with equip/unequip cycles.
 
 ## Prevention
 

@@ -29,31 +29,7 @@ The client and server used different logic for resolving component roles:
 
 ## Fix
 
-Added explicit role mismatch skip logic for actions where client/server resolution differs:
-
-```javascript
-// Role validation skip for targetingType actions
-const skipRoleValidation = [
-    'spatial',      // Client: 'spatial' → Server: 'source'
-    'none',         // Client: 'source' → Server: 'self_target'
-    'self_target'   // Self-targeting (instant execution)
-];
-
-if (skipRoleValidation.includes(targetingType)) {
-    // Skip role validation — component resolution happens differently
-    // between client and server for these action types
-} else {
-    // Normal role validation
-}
-```
-
-### Binding Resolution Priority
-
-1. `attackerComponentId` from params → punch actions
-2. `targetComponentId` from params → spatial/self_target actions with explicit selection
-3. `targetingType: 'spatial'` → auto-find Movement component
-4. `targetingType: 'none'` or `'self_target'` → auto-find Physical self-target component
-5. Fallback → entity-wide requirement check
+Role validation is now explicitly skipped for the action types whose client and server resolve component roles differently (`spatial`, `none`, `self_target`). Because these actions resolve components on opposite sides — the client sends the raw `targetingType` while the server resolves it to an internal role — a strict comparison of client-sent role against server-resolved role would always fail. The skip lets requirement checks proceed against the server-resolved role, fixing the mismatch without weakening validation for action types that resolve identically on both sides.
 
 ## Prevention
 

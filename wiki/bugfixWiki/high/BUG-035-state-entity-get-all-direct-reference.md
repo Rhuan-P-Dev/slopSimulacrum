@@ -11,20 +11,10 @@
 - State mutations from capability cache or consequence handlers could corrupt internal store
 
 ## Root Cause
-```javascript
-getAll() {
-    return this.entities; // ❌ Returns direct reference to internal state
-}
-```
-The method returned the internal `this.entities` object directly instead of a deep clone.
+`getAll()` returned the internal entity store by direct reference instead of a defensive copy, so any caller held a live handle to the controller's private state.
 
 ## Fix
-Changed to return a deep clone:
-```javascript
-getAll() {
-    return structuredClone(this.entities);
-}
-```
+`getAll()` now returns a deep clone, so callers can no longer mutate the controller's internal store through the returned reference. This enforces the project's **Defensive Copying** constraint: state controllers must expose copies, never internal references.
 
 ## Prevention
 - All public getter methods that return collections or objects must return deep clones

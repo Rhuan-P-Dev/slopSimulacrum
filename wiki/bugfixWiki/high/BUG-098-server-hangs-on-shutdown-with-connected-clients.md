@@ -23,21 +23,7 @@ Socket.IO 4.x's `io.close()` followed by `http.Server.close()` waits for **all**
 
 Added `io.sockets.disconnect(true)` **before** calling `io.close()`. The `true` parameter forces immediate TCP connection closure for all connected sockets, without waiting for client acknowledgment.
 
-### Code Change
-
-```diff
- // Disconnect all Socket.IO clients
- if (io) {
-+    const socketCount = io.sockets?.sockets?.size || 0;
-+    if (socketCount > 0) {
-+        Logger.info(`[Server] Force disconnecting ${socketCount} connected client(s)...`);
-+        io.sockets.disconnect(true); // true = force immediate disconnect
-+    }
-     io.close();
- }
-```
-
-Also reduced the forced exit timeout from 60 seconds to 10 seconds, since the force disconnect handles the primary case.
+The forced exit timeout was also reduced from 60 seconds to 10 seconds, since the force disconnect handles the primary case.
 
 ## Prevention
 

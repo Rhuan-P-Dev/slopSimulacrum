@@ -6,47 +6,13 @@ Central coordinator for all floating window overlay panels. Replaces ConfigBarMa
 
 **Why this pattern**: Without a coordinator, each panel managed its own visibility independently, allowing multiple panels to overlap. This created visual conflicts and no way to close all panels at once.
 
-## API
+## Registration Model
 
-### Constructor
-```javascript
-const overlayManager = new OverlayManager();
-```
+Each panel registers itself with the manager at application startup rather than managing its own visibility. Registration is the manager's single coordination point: it tells the manager which panels it coordinates, along with each panel's config bar entry point and keyboard shortcut, so the manager can own open/close behavior, z-index stacking, and dismissal without any panel knowing about the others.
 
-### Registration
-Panels register themselves with the manager during `App.init()`:
-```javascript
-overlayManager.register('component-viewer', componentViewer, 'btn-component-viewer', '1');
-overlayManager.register('nav-actions', navActions, 'btn-nav-actions', '2');
-overlayManager.register('world-map', worldMap, 'btn-world-map', '3');
-overlayManager.register('inventory', inventory, 'btn-inventory', '4');
-```
+## Panel Contract
 
-Each registration maps: panel ID → controller + config bar button + keyboard shortcut.
-
-### Initialization
-`overlayManager.init()` handles all setup:
-- Creates shared backdrop element (click-outside dismissal)
-- Attaches click listeners to config bar buttons
-- Sets up keyboard shortcuts (1-4 toggles panels, Escape closes all)
-
-### Toggle
-`overlayManager.toggle(panelId)` ensures exclusive visibility:
-- If the panel is already open → closes it
-- If another panel is open → closes it, then opens the requested panel
-- If no panel is open → opens the requested panel
-
-### Close
-`overlayManager.close(panelId)` closes a specific panel.
-`overlayManager.closeAll()` closes all panels and hides the backdrop.
-
-## Panel Requirements
-
-Each panel controller must implement:
-- `init()` — Gets DOM references, attaches close button listener
-- `show(data?)` — Shows the panel
-- `hide()` — Hides the panel
-- `overlay` — Public reference to the overlay DOM element (for z-index management)
+Panels interact with the manager through a small uniform interface. The uniformity is what lets the manager coordinate any panel without knowing its internals — a new panel joins by implementing the same contract, not by extending the manager.
 
 ## Design Decisions
 

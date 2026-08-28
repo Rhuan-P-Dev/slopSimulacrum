@@ -18,7 +18,7 @@ When scanning host components for the "droid punch" action (which requires Physi
 
 **Why punch reappeared after cut**: After executing cut, a code path triggered a full capability re-scan that accidentally re-added the punch entry. This was an unintended side effect of the cache rebuild logic, not a correct fix.
 
-**The fix**: Created `_checkRequirementsForHostComponent()` — a variant that uses **only host component stats** without any equipped item override. This is used by `scanAllCapabilities()` for host component entries. The original `_checkRequirementsForComponent()` (with equipped item override) is used only for re-evaluation after stat changes. This ensures proper separation: host components are evaluated against host stats, and equipped item actions are handled by `_scanEquippedItemsForActions()` using item traits.
+**The fix**: A host-only variant of the requirement check was introduced and used for host-component entries during capability scanning, so host components are evaluated against their own stats while equipped-item actions continue to be resolved from item traits by the dedicated equipped-item scan. Rationale: host components and equipped items need different stat sources, and sharing one override path for both contexts is what caused the regression — proper separation between the two evaluation paths is the durable fix.
 
 ## Prevention
 

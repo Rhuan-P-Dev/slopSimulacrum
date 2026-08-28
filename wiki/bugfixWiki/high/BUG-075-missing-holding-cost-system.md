@@ -22,11 +22,7 @@ The inventory system only handled volume-based storage. There was no holding cos
 
 ### Secondary (Critical): Express Route Ordering Bug — THE ACTUAL BUG CAUSING THE MISSING BUTTON
 
-The `/inventory/holding-cost-registry` endpoint was registered **after** the parameterized `GET /inventory/:entityId` route in Express. Express matches routes in registration order, so requests to `/inventory/holding-cost-registry` were intercepted by `/:entityId` with `entityId = "holding-cost-registry"`, causing a 500 error:
-
-```
-WARN: [WorldStateController] Entity "holding-cost-registry" not found for inventory query.
-```
+The `/inventory/holding-cost-registry` endpoint was registered **after** the parameterized `GET /inventory/:entityId` route in Express. Express matches routes in registration order, so requests to `/inventory/holding-cost-registry` were intercepted by `/:entityId` with `entityId = "holding-cost-registry"`, causing the server to log `WARN: [WorldStateController] Entity "holding-cost-registry" not found for inventory query.` and respond with a 500 error.
 
 The client silently failed to load the holding cost registry, resulting in an empty `_holdingCostRegistry` object. Without it, the equip button condition `this._holdingCostRegistry[item.type]` was always falsy.
 
@@ -38,44 +34,21 @@ The capability controller (`ComponentCapabilityController`) only scanned entity 
 
 ## Fix
 
-### 1. Created `HoldingCostController` with equip/unequip/transfer logic
+### 1. Holding cost system (controller + data + API + UI)
 
-### 2. Data-driven holding cost definitions in `data/holdingCost.json`
+A server-side `HoldingCostController` now owns equip/unequip/transfer: it validates minimum stats before equipping, applies the holding-cost debuffs to the host component, and clears them on unequip. Why: equipment must impose physical demands (stat requirements plus debuffs), not just consume volume, and equip state must be server-owned so a client cannot fake it. Definitions live in `data/holdingCost.json` so new stat-requiring items are data changes, not code changes (data-driven design standard). The client shows equip/unequip buttons and a visual indicator distinguishing actions provided by an equipped item.
 
-### 3. Server API endpoints for equip/unequip/transfer operations
+### 2. Equipped Item Action Discovery
 
-### 4. Client UI with equip/unequip buttons (CSS + JS)
+The capability controller now scans equipped items in addition to entity components during capability (re)evaluation. Why: an equipped item *is* a stat source, so excluding it from the scan made the actions it enables (e.g., `cut` for a sharp knife) invisible; scanning on every re-evaluation is what makes actions appear and disappear on equip/unequip.
 
-### 5. Integration with capability system for action discovery
+### 3. Fixed Express route ordering: static routes BEFORE parameterized routes
 
-### 6. Equipped Item Action Discovery — The NEW FIX
+A parameterized route matches any path segment, so registering it before a static path silently intercepts that path. The ordering requirement is now a documented standard (see Prevention).
 
-Added equipped item scanning to `ComponentCapabilityController`:
+### 4. Public access to equipped items
 
-- **`_scanEquippedItemsForActions(state)`** — New private method that scans equipped items across all entities, converts their traits from `data/inventoryItems.json` to stats-like objects, and checks them against all action requirements. If an equipped item satisfies an action's requirements, a capability entry is added with `_isEquippedItem: true` metadata.
-
-- **`_convertTraitsToStats(traits)`** — Helper method that converts item traits to a stats-like format compatible with the existing scoring system.
-
-- **`_checkEquippedItemRequirements(requirements, itemStats, equipped)`** — Helper that checks if equipped item traits satisfy all action requirements.
-
-- **`scanAllCapabilities()`** — Now calls `_scanEquippedItemsForActions()` after scanning entity components.
-
-- **`reEvaluateEntityCapabilities()`** — Now calls `_scanEquippedItemsForActions()` after re-scanning entity components, so equipped items appear/disappear from the action list on equip/unequip.
-
-### 7. WorldStateController public API additions
-
-- **`getAllEquippedItems()`** — Returns all equipped items across all entities as a flat array with `entityId` enrichment. Used by the capability controller.
-
-### 8. UI: Equipped Item Indicator in Action Panel
-
-`NavActionsPanel._buildActionSection()` detects equipped item entries (componentId starts with `"equipped-"`) and adds:
-- 🔪 knife icon before the item name
-- `nav-equipped-item` CSS class for orange left border
-- `data-equipped-type` attribute for CSS targeting
-
-### 9. Fixed Express route ordering: static routes BEFORE parameterized routes
-
-### 10. Added defensive logging and error toasts in client-side `InventoryManager`
+`WorldStateController` exposes a public getter for all equipped items so the capability controller obtains them through the controller API instead of reaching into private state (single-source-of-truth standard).
 
 ## Prevention
 
@@ -99,11 +72,7 @@ When dragging an equipped item (e.g., a knife) to another component, the item wa
 `InventoryManager._onDrop()` only called `_autoUnequipOnTarget()` which checked for equipped items on the **target** component. It did not check if the **dragged item itself** was equipped.
 
 ### Fix
-Added `_autoUnequipDraggedItem(itemId)` method that:
-1. Checks if the dragged item exists in `this._equippedItems`
-2. If equipped, calls the unequip endpoint to remove debuffs
-3. Updates local `_equippedItems` tracking
-4. Called BEFORE `_autoUnequipOnTarget()` in `_onDrop()`
+The drop handler now auto-unequips the **dragged** item (server-side, which removes its debuffs) whenever it is equipped, before handling the target component. Why: equip state is tied to the item's physical host — moving an equipped item changes that host, so every drop involving an equipped item must trigger the server-side unequip or the debuffs and capability entries stay anchored to the wrong component.
 
 ### Prevention
 - Whenever drag-and-drop moves items, always check if the dragged item is equipped
@@ -123,8 +92,8 @@ After equipping an item (knife), clicking "Unequip" would show "Item unequipped 
 After equip/unequip, `_onEquipClick` and `_onUnequipClick` only called `_loadEquippedItems()` but NOT `_loadEntityItems()`. The `_renderInventory()` method used stale `_currentItems` data. When combined with the world state broadcast potentially arriving at a different time, the UI could render with inconsistent state.
 
 ### Fix
-1. Removed premature `_cleanupTracking` calls from error paths in `HoldingCostController.unequipItem()` — tracking is only cleaned up on **successful** unequip
-2. Changed `_onEquipClick` and `_onUnequipClick` to reload both `_loadEntityItems` and `_loadEquippedItems` in parallel via `Promise.all()` before re-rendering
+1. Tracking cleanup now happens only on a **successful** unequip. Why: cleaning up tracking on a failed unequip orphans the debuffs — the record that says where they came from is gone, so nothing can remove them.
+2. After equip/unequip, the client reloads both the entity's items and the equipped-item state before re-rendering, so the panel never renders from a stale mix of the two data sets.
 
 ### Third Bug: `data-is-equipped` Attribute Always `false` — THE ACTUAL UNEQUIP BUG
 
@@ -132,14 +101,10 @@ After equip/unequip, `_onEquipClick` and `_onUnequipClick` only called `_loadEqu
 Clicking "🔓 Unequip" fires the equip handler instead — server log shows `Equipped knife` 3 times with ZERO `Unequipped` calls.
 
 #### Root Cause
-In `_renderItems()`, the `data-is-equipped` attribute was set to the raw object value:
-```javascript
-data-is-equipped="${isEquipped}"   // isEquipped = { itemId, itemType, componentId }
-```
-When coerced to string, this becomes `"[object Object]"` not `"true"`. The event listener check `btn.dataset.isEquipped === 'true'` was therefore **always `false`**, so all equip buttons wired to `_onEquipClick` regardless of actual equip status.
+In `_renderItems()`, the `data-is-equipped` attribute was set from the raw equipped-state value (an object), which stringifies to `"[object Object]"` rather than `"true"`. The event-listener check compared the attribute against the literal string `'true'`, so it was **always `false`**, and every button wired to the equip handler regardless of actual equip status.
 
 #### Fix
-Changed to explicit ternary: `data-is-equipped="${isEquipped ? 'true' : 'false'}"`
+The attribute is now set to an explicit `'true'`/`'false'` string, so the listener's string comparison reflects the actual equip state.
 
 ## References
 - Related wiki: `wiki/subMDs/data/holding_cost.md`

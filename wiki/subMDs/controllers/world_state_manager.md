@@ -6,25 +6,15 @@ Client-side module for state synchronization. Single source of truth for the cur
 
 ## 2. Public API
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `fetchState()` | Promise with state object | Fetches world state from server |
-| `setMyEntityId(entityId)` | void | Sets incarnated entity ID |
-| `getMyEntityId()` | entity ID or null | Gets incarnated entity ID |
-| `getActiveDroid()` | Droid object or null | Returns active droid for navigation |
-| `getState()` | State object or null | Returns full world state |
-| `getAllEntities()` | Object | Returns a deep clone of the entity map (string-keyed entity objects) |
-| `getActionRegistry()` | Object | Returns the action registry keyed by action name |
-| `canEntityExecuteAction(entityId, actionName)` | boolean | Clone-free capability gate: returns true if the entity has components that can execute the action |
+The public surface serves state consumers: fetching the world state from the server, tracking which entity the player is incarnated as, resolving the active droid for navigation and rendering, and reading the state back (full state, entity map, action registry). Reads of world data return defensive clones so UI code can work with the data without corrupting the single source of truth. Capability checks are deliberately clone-free — answering "can this entity execute this action?" without deep-cloning the world, because they run on hot UI paths where a full clone would be pure waste.
 
 ## 3. Active Droid Resolution
 
-1. **Priority 1**: Use the player's incarnated entity ID if it exists in state
-2. **Priority 2**: Fallback to any entity with the default droid blueprint
+The active droid is the entity the player is incarnated as. When no incarnation exists, resolution falls back to a default droid entity, so navigation and rendering always have a valid subject even before the player incarnates.
 
 ## 4. Integration
 
 - The app orchestrator calls fetchState during world refresh cycles
 - getActiveDroid() provides droid for rendering
 - State includes internal components for ComponentViewer
-- ComponentViewer accesses internal components on individual entity objects within the state entities array, NOT directly from the top-level internal components field
+- Internal components live on the entity objects that own them rather than in a top-level field, keeping component data scoped to its owner

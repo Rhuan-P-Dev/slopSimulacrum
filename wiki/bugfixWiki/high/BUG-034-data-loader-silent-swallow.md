@@ -11,25 +11,10 @@
 - Debugging missing config files is difficult because failures are invisible
 
 ## Root Cause
-```javascript
-static loadJsonSafe(relativePath, defaultValue = {}) {
-    try {
-        return this.loadJson(relativePath);
-    } catch (error) {
-        return defaultValue; // ⚠️ Silent swallow - error never logged
-    }
-}
-```
-The `catch` block returns `defaultValue` without any logging.
+`loadJsonSafe()` caught load failures and returned the default value with no logging at all, so a missing or corrupt config file was indistinguishable from an intentionally empty one.
 
 ## Fix
-Added `Logger.warn()` call before returning the default value:
-```javascript
-} catch (error) {
-    Logger.warn(`[DataLoader] Failed to load ${relativePath}, using default: ${error.message}`);
-    return defaultValue;
-}
-```
+A `Logger.warn()` call now emits which file failed and why before the fallback default is returned. The fallback itself was deliberately kept — the system must still boot with defaults when a config file is missing — but the failure is no longer invisible.
 
 ## Prevention
 - Never silently swallow errors in production code

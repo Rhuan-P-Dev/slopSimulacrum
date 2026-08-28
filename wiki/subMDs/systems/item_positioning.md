@@ -28,18 +28,12 @@ Room validation is enforced when an entity attempts to pick up an item, not when
 
 ## Data Flow Overview
 
-The room-based positioning system follows this flow:
-
-1. When an item is dropped, the system captures the entity's current room identifier from the entity's `location` property and stores it on the dropped item record.
-2. The dropped item (with its `roomId` attached) is stored in the centralized dropped items collection managed by `WorldStateController`.
-3. The updated world state is broadcast to all connected clients.
-4. Each client filters dropped items by the current room before rendering them on the spatial map, ensuring items only appear in the room where they were dropped.
-5. When an entity attempts to pick up an item, the server verifies that the entity's room matches the item's stored `roomId`, rejecting the pickup if they differ.
+The system's entire job is to bind an item to a room at drop time and to enforce that binding at pickup time. The room is recorded once, when the dropping entity's location is authoritative, and verified again only when an entity tries to pick the item up — the point at which spatial correctness actually matters.
 
 ## Relationship to Existing Systems
 
-The item positioning system integrates with the existing drop and pickup flows without modifying their core logic:
+The item positioning system integrates with the existing drop and pickup flows without modifying their core logic. Each concern is owned by the layer best placed to enforce it:
 
-- The **DropItemHandler** captures room context at the point of drop, which is the natural moment when the entity's location is known.
-- The **PickUpItemHandler** validates room alignment as part of its spatial checks, which is the appropriate enforcement point.
-- The **client-side rendering layer** applies room filtering before presenting items on the map, which is the correct boundary for visual correctness.
+- **Drop** captures the room context, because that is the natural moment when the dropping entity's location is known.
+- **Pickup** validates room alignment, because that is where spatial correctness matters.
+- **Client rendering** applies room filtering, because that is the correct boundary for visual correctness.

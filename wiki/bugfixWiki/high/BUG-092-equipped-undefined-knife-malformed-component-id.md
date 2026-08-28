@@ -23,19 +23,13 @@ There was no validation at any layer to reject malformed component IDs. `Holding
 
 ## Fix
 
-A five-layer defense was implemented:
+A multi-layer defense was added so malformed equipped IDs can no longer propagate:
 
-1. **WorldStateController.js** — Fixed `itemId` extraction from `Object.entries` key. Changed `[, item]` to `[itemId, item]` to capture the key as the `itemId` variable.
-2. **componentCapabilityController.js** — Added skip for equipped items with invalid or empty `itemId`.
-3. **componentCapabilityController.js** — Used actual `equipped.componentId` as primary, falling back to synthetic ID.
-4. **HoldingCostController.js** — Added `itemId` validation on equip with clear error message.
-5. **HoldingCostController.js** — Filtered invalid keys in `getAllEquippedItems()` before returning.
-6. **actionController.js** — Rejected malformed equipped component IDs containing `undefined` or `null`.
-7. **actionController.js** — Added fallback to match by `eq.componentId` directly when parsing synthetic ID fails.
-8. **actionSelectController.js** — Filtered malformed IDs in batch validation.
-9. **actionSelectController.js** — Rejected malformed IDs in `validateSelection`.
-10. **ComponentResolver.js** — Filtered malformed entries in `buildComponentList`.
-11. **ComponentResolver.js** — Rejected malformed IDs in `resolveSourceComponent`.
+- `WorldStateController` now captures the item id from the equipped-items map key, so downstream systems receive a real `itemId` instead of `undefined`.
+- Every boundary that processes equipped component ids — equip, capability scanning, action validation/selection, and component resolution — now validates against `undefined`/`null` placeholders and filters or rejects malformed ids.
+- Capability entries prefer the item's real `componentId` over the synthetic `equipped-${itemId}-${itemType}` format.
+
+Rationale: the root failure was that one layer produced bad data and every subsequent layer trusted it unchecked; the fix makes each boundary reject what it cannot validate.
 
 ## Prevention
 

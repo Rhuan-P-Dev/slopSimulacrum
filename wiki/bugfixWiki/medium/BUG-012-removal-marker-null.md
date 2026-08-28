@@ -14,50 +14,11 @@ When a capability cache entry was removed (e.g., component stats dropped below r
 
 ## Root Cause
 
-The `_notifySubscribers()` method passed `null` when an entry was removed from the cache:
-
-```javascript
-// ❌ BEFORE (buggy - null removal)
-_notifySubscribers(actionName, null)  // Can't tell what was removed!
-```
-
-Subscribers had no way to know which component was removed, making it impossible to clean up UI state or related data.
+The `_notifySubscribers()` method passed `null` when an entry was removed from the cache, so subscribers had no way to know which component was removed, making it impossible to clean up UI state or related data.
 
 ## Fix
 
-Implemented structured `RemovalMarker` objects for removal notifications:
-
-```javascript
-// ✅ AFTER (fixed - structured removal)
-_notifySubscribers(actionName, {
-    _type: 'REMOVAL',
-    componentId: componentId,
-    entityId: entityId
-})
-```
-
-### RemovalMarker Structure
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `_type` | `string` | Always `'REMOVAL'` |
-| `componentId` | `string` | ID of the removed component |
-| `entityId` | `string` | ID of the entity containing the component |
-
-### Subscriber Handling
-
-Subscribers now check for removal markers:
-
-```javascript
-actionController.on('punch', (actionName, capability) => {
-    if (capability && capability._type === 'REMOVAL') {
-        // Handle removal: clean up UI, update state
-        console.log(`Component ${capability.componentId} removed from ${actionName}`);
-    } else if (capability) {
-        // Handle new/updated entry
-    }
-});
-```
+Implemented structured `RemovalMarker` objects for removal notifications. A marker carries the identity of the removed component and entity, so subscribers can distinguish a removal from an update and clean up dependent UI state.
 
 ## Prevention
 

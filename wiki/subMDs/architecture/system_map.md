@@ -46,16 +46,26 @@ WorldStateController (Root Injector)
 ## 3. Key Operational Flows
 
 ### Entity Spawn
-Create entity from blueprint → expand hierarchy → initialize components → merge traits → set stats → auto-install internal components → re-evaluate capabilities
+Purpose: materialize a fully initialized entity from its data definition — components expanded
+from the blueprint, traits merged, stats seeded, internal components installed — so that every
+downstream system (capability evaluation, consequences, broadcasting) sees a complete,
+consistent entity the moment it enters the world.
 
 ### Action Execution
-Validate requirements → resolve components → compute synergy → dispatch consequences → release locks
+Purpose: make actions safe and consistent — an action only takes effect when its requirements
+are provably satisfiable by the actor's components, and every effect (success or failure)
+flows through the consequence pipeline, so state changes, synergy, and lock management stay
+consistent in one place.
 
 ### Stat Change
-Notify listeners → identify dependent actions via reverse index → re-evaluate affected capabilities → notify subscribers → broadcast updates
+Purpose: keep the capability cache and every dependent system current whenever a stat changes,
+so no decision is ever made on stale capabilities; the change is propagated to the affected
+subsystems and broadcast to clients.
 
 ### Equipped Item Stat Change
-HoldingCostController.equipItem() → EquippedItemStatsController.initializeStats() → ConsequenceDispatcher routes damage to EquippedItemStatsController.updateStatDelta() → stat change callback fires → WorldStateController triggers reEvaluateEntityCapabilities() → ComponentCapabilityController rescans equipped items with current stats → broadcast to client
+Purpose: track per-instance degradation of equipped items (e.g. sharpness, durability) so that
+capabilities depending on *current* equipped stats are re-evaluated automatically whenever such
+a stat changes, and the updated state reaches the client.
 
 ## 4. Client-Side Architecture
 

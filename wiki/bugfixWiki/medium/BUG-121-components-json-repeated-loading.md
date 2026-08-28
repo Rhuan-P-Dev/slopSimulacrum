@@ -7,31 +7,15 @@
 
 ## Symptoms
 
-`DataLoader.loadJsonSafe('data/components.json', {})` was called inside `_getComponentMaxVolume()` and `_getComponentMaxVolumeFromEntity()`, which are invoked on every `addItem` and `moveItem` call. This caused redundant file reads and unnecessary I/O overhead on every inventory operation.
+Every inventory operation (adding or moving an item) triggered redundant re-reads of `data/components.json`, causing unnecessary I/O overhead on every inventory operation.
 
 ## Root Cause
 
-The component definitions were not cached at the InventoryManager level. Each volume check triggered a fresh file load, even though `components.json` is static data that rarely changes.
+The component definitions were not cached at the InventoryManager level: the volume-check methods (`_getComponentMaxVolume()`, `_getComponentMaxVolumeFromEntity()`) loaded `data/components.json` fresh on every invocation, even though the file is static data that rarely changes.
 
 ## Fix
 
-Added `this._componentDefinitions` property loaded once in the constructor. Both methods now use the cached reference:
-
-```javascript
-// In constructor:
-constructor() {
-    this._items = {};
-    this._containers = {};
-    this._componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
-}
-
-// In methods:
-_getComponentMaxVolume(componentId) {
-    const def = this._componentDefinitions[componentId];
-    if (!def) return 0;
-    return def.maxVolume || 0;
-}
-```
+The component definitions are now loaded once in the constructor and held as a class-level cache. The volume-check methods read from that cache instead of re-reading the file, eliminating per-operation I/O on static data.
 
 ## Prevention
 

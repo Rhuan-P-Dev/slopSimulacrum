@@ -15,20 +15,7 @@ The WorldStateController should use a public method on `actionController` or `co
 
 ## Fix
 
-Replace direct access with a proper public method call on `actionController` or create a dedicated public method for pick-up execution. For example:
-
-```javascript
-// Before (direct private access):
-const pickUpHandler = this.actionController?.consequenceHandlers?.handlers?.pickUpItem;
-if (pickUpHandler) {
-    pickUpHandler(item, entity);
-}
-
-// After (public API call):
-if (this.actionController) {
-    await this.actionController.executePickUpItem(item, entity);
-}
-```
+Replace the direct nested private access with a proper public method call on `actionController` (or a dedicated public pick-up execution method), keeping cross-controller interactions inside the "Public API Only" boundary.
 
 ## Prevention
 

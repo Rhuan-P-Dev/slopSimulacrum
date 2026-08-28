@@ -19,31 +19,7 @@ The server.js file was initially written with raw `console.*` calls for simplici
 
 ## Fix
 
-1. Added Logger import: `import Logger from './utils/Logger.js';`
-2. Replaced all 23 `console.*` calls with appropriate `Logger.*` methods:
-   - `console.log()` → `Logger.info()` with structured context objects
-   - `console.warn()` → `Logger.warn()` with context
-   - `console.error()` → `Logger.error()` with error details
-   - `console.error('[Socket Error] ...')` → `Logger.critical()` for critical failures
-3. Renamed generic variable `state` to `worldState` in `broadcastWorldState()` for semantic clarity
-4. Added JSDoc `@returns {void}` and `@param` type hints where missing
-
-### Example Changes:
-```javascript
-// Before
-console.log(`[Socket] New connection: ${socket.id}`);
-
-// After
-Logger.info('New socket connection', { socketId: socket.id });
-```
-
-```javascript
-// Before
-console.error(`[Server Error] ${error.message}`);
-
-// After
-Logger.error('/execute-action endpoint error', { error: error.message, actionName, entityId });
-```
+All 23 `console.*` calls in `src/server.js` were replaced with the centralized `Logger` at appropriate severity levels (log → info, warn → warn, error → error, critical failures → critical), with structured context objects so log entries carry the details needed for diagnosis. The entry point was also tidied for consistency: the generic `state` variable in `broadcastWorldState()` was renamed `worldState`, and missing JSDoc type hints were added.
 
 ## Prevention
 

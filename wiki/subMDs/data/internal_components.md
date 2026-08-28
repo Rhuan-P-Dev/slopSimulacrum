@@ -4,7 +4,7 @@
 
 Internal components are passive, data-driven augmentations that attach to host components and apply periodic effects. Unlike regular components or equipped items, they do not participate in actions directly — their sole purpose is to modify host component stats over time.
 
-This data model defines the structure of `data/internalComponents.json`, consumed by the `InternalComponentController`.
+`data/internalComponents.json` declares the available internal component types — what each type does to a host and where it is allowed to live — and is consumed by the `InternalComponentController`.
 
 ## Design Rationale
 
@@ -18,46 +18,24 @@ Internal components modify **component-level** stats (e.g., `Physical.durability
 
 ### Why tick-based rather than event-based?
 
-A unified tick system provides predictable, synchronized periodic effects across all internal components. The `InternalComponentController` manages a centralized tick counter, firing effects at configured intervals. This avoids race conditions from event-driven timing and simplifies reasoning about effect scheduling.
+A unified tick system provides predictable, synchronized periodic effects across all internal components, avoiding race conditions from event-driven timing and simplifying reasoning about effect scheduling.
 
-## Data Structure
+## Data Model
 
-Each entry in `data/internalComponents.json` represents a distinct internal component type:
-
-- `volume` — physical volume occupied by this internal component
-- `traits` — trait templates applied to the host component
-- `tickInterval` — how often (in ticks) effects fire
-- `tickEffects` — list of stat modification effects applied per tick
-- `autoInstallOnSpawn` — whether this component auto-installs on eligible hosts during entity creation
-- `targetBlueprintTypes` — filter: only install on entities of these blueprint types
-- `requiredTraits` — filter: only install on hosts with these trait values meeting minimums
-- `excludedComponentTypes` — filter: never install on these component types
-
-### Tick Effects
-
-Each effect in `tickEffects` defines a stat modification:
-
-- `effect` — type of modification: `add`, `set`, or `multiply`
-- `targetTrait` — trait category (e.g., `"Physical"`, `"Movement"`)
-- `targetStat` — stat name within the trait (e.g., `"durability"`, `"move"`)
-- `amount` — magnitude of the modification
-
-Effect operations:
-
-- `add` — adds `amount` to the current stat
-- `set` — sets the stat to exactly `amount`
-- `multiply` — multiplies the current stat by `amount`
+Each entry in `data/internalComponents.json` describes one internal component type conceptually: what it does to a host (the traits it applies and the periodic effects it schedules) and where it may live (its volume cost and the eligibility filters that gate auto-installation).
 
 ## Auto-Installation Filters
 
-Auto-installation uses a fail-fast pipeline that evaluates filters from low-cost to high-cost:
+A type auto-installs on a host only if it passes every eligibility gate:
 
-1. **Lifecycle check** — only types with `autoInstallOnSpawn: true` are considered
-2. **Blueprint targeting** — if `targetBlueprintTypes` is set, entity must match
-3. **Required traits** — if `requiredTraits` is set, host must possess those traits at sufficient levels
-4. **Type exclusions** — host must not be in `excludedComponentTypes`
-5. **Volume capacity** — host must have sufficient free volume
-6. **Uniqueness** — host cannot receive duplicate instances of the same type
+- **Opt-in**: the type is marked for spawn-time installation
+- **Blueprint targeting**: the entity's blueprint type is allowed
+- **Required traits**: the host possesses the required traits at sufficient levels
+- **Type exclusions**: the host's component type is not excluded
+- **Volume capacity**: the host has enough free volume
+- **Uniqueness**: the host does not already carry that type
+
+The checks are ordered from cheap to expensive so that ineligible hosts fail fast without the costlier capacity work.
 
 ## Auto-Installation Default Change
 
@@ -65,7 +43,7 @@ Auto-installation uses a fail-fast pipeline that evaluates filters from low-cost
 
 The `autoInstallOnSpawn` flag was changed from `true` to `false` for existing components (`durabilityRepairSphere` and `transcendentSpeedCore`). Previously, all entities inherited internal components automatically, which caused unintended stat modifications on entity types not designed to support them.
 
-Setting the default to `false` requires explicit opt-in via `InternalComponentController.addInternalComponent()`. This gives developers deliberate control over which entities receive internal components, preventing silent behavior changes when new entity types are added.
+Setting the default to `false` requires explicit opt-in at runtime for each installation. This gives developers deliberate control over which entities receive internal components, preventing silent behavior changes when new entity types are added.
 
 ## Related
 

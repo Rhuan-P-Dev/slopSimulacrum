@@ -10,90 +10,30 @@
 
 ## Problem Description
 
-The `internalComponentRoutes.js` module accesses the `worldStateController` via `req.app.locals.worldStateController` at lines 39, 60, 78, and 107:
-
-```javascript
-// src/routes/internalComponentRoutes.js (line 39)
-const worldStateController = req.app.locals.worldStateController;
-if (!worldStateController) {
-    return res.status(503).json({ error: 'WorldStateController not available' });
-}
-```
-
-However, `src/server.js` **never sets** `app.locals.worldStateController`. The `registerRoutes()` function receives `worldStateController` as a parameter but only passes it to specific route modules (chat, world, action, capability, synergy, selection routes). The internal component routes bypass this pattern by directly accessing `req.app.locals.worldStateController`.
+The `internalComponentRoutes.js` module accesses the `worldStateController` via `req.app.locals.worldStateController` at lines 39, 60, 78, and 107, and responds with `503 WorldStateController not available` when it is missing. However, `src/server.js` **never sets** `app.locals.worldStateController`. The `registerRoutes()` function receives `worldStateController` as a parameter but only passes it to specific route modules (chat, world, action, capability, synergy, selection routes). The internal component routes bypass this pattern by directly accessing `req.app.locals.worldStateController`.
 
 **Result**: All four internal component API endpoints that require `worldStateController` (GET `/:entityId/:hostComponentId`, GET `/:entityId`, POST `/:entityId/:hostComponentId/add`, DELETE `/:entityId/:hostComponentId/:internalComponentId`) will receive a `503 WorldStateController not available` response at runtime because `req.app.locals.worldStateController` is `undefined`.
 
 ## Affected Endpoints
 
-| Endpoint | Behavior |
-|----------|----------|
-| `GET /api/internal-components/registry` | ✅ Works (uses `DataLoader.loadJsonSafe()`, no `worldStateController` needed) |
-| `GET /api/internal-components/:entityId/:hostComponentId` | ❌ Returns 503 — `worldStateController` is `undefined` |
-| `GET /api/internal-components/:entityId` | ❌ Returns 503 — `worldStateController` is `undefined` |
-| `POST /api/internal-components/:entityId/:hostComponentId/add` | ❌ Returns 503 — `worldStateController` is `undefined` |
-| `DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId` | ❌ Returns 503 — `worldStateController` is `undefined` |
+Only the registry endpoint works (it loads data via `DataLoader.loadJsonSafe()` and needs no controller). The other four internal-component endpoints — the two lookups, the add, and the remove — all return `503 WorldStateController not available` at runtime because the `app.locals` lookup resolves to `undefined`.
 
 ## Root Cause
 
-The `internalComponentRoutes` module was registered differently from all other route modules in `src/routes/index.js`:
-
-```javascript
-// src/routes/index.js (line 26)
-// Internal component routes — uses req.app.locals (BROKEN)
-app.use('/api/internal-components', internalComponentRoutes);
-
-// All other routes — receive worldStateController as parameter (CORRECT)
-registerWorldRoutes(router, { worldStateController, broadcastService });
-registerActionRoutes(router, { worldStateController, broadcastService });
-registerCapabilityRoutes(router, { worldStateController });
-registerSynergyRoutes(router, { worldStateController });
-registerSelectionRoutes(router, { worldStateController });
-```
-
-All other route modules follow the pattern of receiving `worldStateController` as a constructor/registration parameter. The internal component routes were registered inline without passing the controller, and instead rely on `app.locals` which is never populated.
+The `internalComponentRoutes` module was registered differently from all other route modules in `src/routes/index.js`: it is mounted directly on the app without a registration function, so its handlers fetch the controller from `req.app.locals` at request time. All other route modules receive `worldStateController` as a registration parameter. Since the server never populates `app.locals.worldStateController`, the internal component routes always see `undefined`. Why it was missed: the route still "worked" structurally (the 503 guard responded cleanly), so the failure only surfaced when clients actually used the API.
 
 ## Fix Options
 
 ### Option A: Set `app.locals.worldStateController` in `server.js` (Minimal Fix)
 
-```javascript
-// src/server.js — after line 14
-const worldStateController = new WorldStateController();
-app.locals.worldStateController = worldStateController; // ADD THIS LINE
-```
+Populate `app.locals.worldStateController` at server startup so the route's runtime lookup succeeds.
 
 **Pros**: Quickest fix, no changes to routes.
-**Cons**: Violates the loose coupling principle — routes access state directly via `app.locals` instead of receiving it through parameters.
+**Cons**: Violates the loose coupling principle — routes access state directly via `app.locals` instead of receiving it through parameters, and every route must silently depend on server-startup order.
 
 ### Option B: Refactor Internal Component Routes to Match Other Route Modules (Recommended)
 
-Update `src/routes/index.js` to pass `worldStateController` as a parameter:
-
-```javascript
-// src/routes/index.js
-import { register as registerInternalComponentRoutes } from './internalComponentRoutes.js';
-
-export function registerRoutes(app, llmController, worldStateController, broadcastService) {
-    const router = express.Router();
-    // ...
-    registerInternalComponentRoutes(router, { worldStateController });
-    // ...
-}
-```
-
-Update `src/routes/internalComponentRoutes.js` to accept a configuration parameter:
-
-```javascript
-// src/routes/internalComponentRoutes.js
-export function register(router, { worldStateController }) {
-    const routeRouter = express.Router();
-    // ... use worldStateController directly
-    router.use('/api/internal-components', routeRouter);
-}
-
-export default router; // Keep default export for backward compatibility
-```
+Register the internal component routes through a `register(router, { worldStateController })` function like all other route modules, so the controller is injected at registration time and the route no longer needs the `app.locals` lookup at all.
 
 **Pros**: Consistent with all other route modules, maintains loose coupling, follows the DI pattern.
 **Cons**: Requires changes to both `index.js` and `internalComponentRoutes.js`.

@@ -20,21 +20,7 @@ The server file grew organically over time as new endpoints and features were ad
 
 ## Fix
 
-Split `src/server.js` into 11 focused modules:
-
-| File | Responsibility | Lines |
-|------|----------------|-------|
-| `src/server.js` | Minimal entry point, controller initialization | ~22 |
-| `src/utils/serverBootstrap.js` | Express app, HTTP server, Socket.IO setup | ~25 |
-| `src/controllers/SocketLifecycleController.js` | Socket connection/incarnation/disconnect/error | ~95 |
-| `src/services/WorldStateBroadcastService.js` | Broadcasting world state to clients | ~35 |
-| `src/routes/index.js` | Router composition, route registration | ~20 |
-| `src/routes/chatRoutes.js` | POST /chat | ~30 |
-| `src/routes/worldRoutes.js` | GET /world-state, GET /rooms, POST /move-entity | ~75 |
-| `src/routes/actionRoutes.js` | GET /actions, POST /execute-action | ~85 |
-| `src/routes/capabilityRoutes.js` | Action capabilities endpoints | ~105 |
-| `src/routes/synergyRoutes.js` | Synergy endpoints | ~110 |
-| `src/routes/selectionRoutes.js` | Component selection endpoints | ~120 |
+Split `src/server.js` into 11 focused modules — a minimal entry point, a bootstrap module for framework setup, a socket lifecycle controller, a world-state broadcast module, and one routes module per resource domain — so each module has a single reason to change and the entry point stops accumulating feature logic.
 
 All modules follow:
 - **DI Pattern**: Dependencies injected via constructor or function parameters

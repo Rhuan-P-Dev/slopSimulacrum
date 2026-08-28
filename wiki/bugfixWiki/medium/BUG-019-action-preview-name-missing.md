@@ -7,33 +7,15 @@
 
 ## Symptoms
 
-In the action preview panel (synergy preview), the action name displayed as:
-```
-📋 Action: Unknown
-```
-Instead of the actual action name (e.g., "dash", "move", "droid punch").
+In the action preview panel (synergy preview), the action name displayed as `📋 Action: Unknown` instead of the actual action name (e.g., "dash", "move", "droid punch").
 
 ## Root Cause
 
 The `ActionController.previewActionData()` method returned `actionDef` directly from the action registry without adding a `_name` property. The frontend `UIManager._buildActionDataHtml()` tried to access `actionData._name`, which was `undefined`, causing the fallback to `'Unknown'`.
 
-```javascript
-// Broken: actionData._name is undefined
-html += `📋 Action: ${actionData._name || 'Unknown'}`;
-```
-
 ## Fix
 
-Added `_name: actionName` to the returned action object in `previewActionData()`:
-
-```javascript
-// actionController.js line 1219
-return {
-    actionData: { ...actionDef, _name: actionName },  // Added _name
-    resolvedValues,
-    synergyResult
-};
-```
+`previewActionData()` now includes the action's name in the returned action object, so the preview UI can render the actual action name instead of falling back to `Unknown`.
 
 ## Prevention
 

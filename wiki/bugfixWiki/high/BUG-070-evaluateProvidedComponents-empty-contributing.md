@@ -14,41 +14,8 @@
 The `_evaluateProvidedComponents` method computed the correct multiplier but didn't populate the `contributingComponents` array. When `providedComponentIds` was used (preview endpoint), the method skipped the population loop that exists in `_evaluateComponentGroups`.
 
 ## Fix
-Modified `_evaluateProvidedComponents` to:
-1. Accept `contributingComponents` as a parameter
-2. Add members to contributingComponents after filtering
-3. Deduplicate members using `calculator.deduplicate()`
 
-```javascript
-_evaluateProvidedComponents(actionName, entityId, providedComponentIds, config, contributingComponents) {
-    let totalMultiplier = 1.0;
-    for (const groupDef of config.componentGroups) {
-        const members = this._filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef);
-        if (members.length < groupDef.minCount) continue;
-        const multiplier = this.calculator.computeMultiplier(...);
-        totalMultiplier *= multiplier;
-        for (const member of members) {
-            contributingComponents.push({
-                componentId: member.componentId,
-                entityId: member.entityId,
-                componentType: member.componentType,
-                contribution: multiplier / members.length
-            });
-        }
-    }
-    const unique = this.calculator.deduplicate(contributingComponents);
-    contributingComponents.length = 0;
-    contributingComponents.push(...unique);
-    return totalMultiplier;
-}
-```
-
-Also updated the call site to pass `contributingComponents`:
-```javascript
-totalMultiplier *= this._evaluateProvidedComponents(
-    actionName, entityId, context.providedComponentIds, config, contributingComponents
-);
-```
+`_evaluateProvidedComponents` now populates the same `contributingComponents` output (with deduplication) that the group-based path fills. Why: the two evaluation paths share a contract — computing a multiplier must also record *which* components produced it — otherwise the preview endpoint returns a synergy number with no way to display its source, which is exactly what the UI rendered as "0 components".
 
 ## Prevention
 - When adding logic to compute values, always ensure the side-effect of populating contributing data is also handled.

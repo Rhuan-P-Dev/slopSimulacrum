@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This controller manages the **capability cache** that maps each action to an array of qualifying component entries. It was extracted from the action controller to adhere to the Single Responsibility Principle.
+This controller manages the **capability cache**, which records every component that qualifies for each action, best match first. It was extracted from the action controller to adhere to the Single Responsibility Principle.
 
 **What it does**: Scan, score, cache, re-evaluate component capabilities, and notify subscribers of changes.
 
@@ -22,11 +22,11 @@ Root Controller
 
 ## 3. Public API
 
-Methods for full cache scans, single entry re-evaluation, all-actions re-evaluation for a component, entity-scoped re-evaluation, entity cache removal, cache retrieval, best-component lookup, all-capabilities lookup by action, capabilities by entity, filtered actions for an entity, and event subscription.
+The public surface serves two jobs: answering capability queries (which components qualify for an action, which is the best fit, or what an entity as a whole can do) and triggering re-evaluation when world state changes. It also exposes event subscription so consumers can react to capability changes as they happen.
 
 ## 4. Stat Change Flow
 
-The controller registers itself as a listener on the component controller. When any component stat changes, the reverse index maps the changed trait-stat combination to dependent actions, which are re-evaluated individually. Updated or removed entries trigger subscriber notifications.
+Stat changes do not trigger a full cache rebuild. A reverse index maps each trait-stat combination to the actions that depend on it, so only the affected actions are re-evaluated for the changed component — keeping the cache current at a fraction of the cost of a full rescan. Subscribers are notified whenever an entry is updated or removed, so downstream consumers never re-derive capabilities themselves.
 
 ## 5. Internal Component Impact
 
@@ -38,7 +38,7 @@ The repair system modifies component durability, which triggers the stat-change 
 
 ### 1. Overview
 
-The capability cache maps each **action name** to an **array of all qualifying component entries**, sorted by score (best first). Every component that meets an action's requirements gets its own entry.
+The capability cache records, for each **action**, **every component that qualifies for it**, best match first. Every qualifying component gets its own entry, not just the winner.
 
 **Key behavior**:
 - **All qualifying components** are tracked, not just the best one
@@ -48,25 +48,23 @@ The capability cache maps each **action name** to an **array of all qualifying c
 
 ### 2. Data Structure
 
-Each entry in the cache stores the component identity, its computed score, which requirements it fulfills, and the resolved role it plays for the action (source, target, spatial, or self-target). A special removal marker is emitted to subscribers when entries are deleted.
+Entries carry everything a consumer needs to act on a capability: which component it is, how well it fits, and the role it plays in the action (source, target, spatial, or self-target). Because subscribers track individual entries over time, deletions are signalled explicitly with a removal marker rather than implied by an entry's absence from the cache.
 
 ### 3. Scoring Algorithm
 
-A numeric score is computed per component per action. Satisfied requirements contribute a base score. Exceeding thresholds by a large margin adds a small bonus. Being close to a threshold (but not meeting it) applies a penalty. Components that fail all requirements receive a score of zero and are not cached.
+Scoring exists to rank viable components by how well their stats match an action's demands, so consumers can prefer the best tool while still seeing every viable option. Components that meet none of the requirements are excluded from the cache entirely — surfacing incapable components would only add noise.
 
 ### 4. Event Subscription
 
-Actions emit change events when components gain or lose capability. Subscribers receive either a new/updated entry or a removal marker. Events fire on stat changes, entity spawn/despawn, and component add/remove.
+Capability changes are pushed to subscribers rather than polled: any mutation that can change who is capable (stat changes, entity spawn/despawn, component add/remove) notifies the affected action's subscribers. This keeps consumers in sync without them re-deriving capabilities themselves.
 
 ### 5. Stat Change Flow
 
-When a component stat changes, the reverse index identifies which actions depend on that trait-stat combination. Only those actions are re-evaluated for the affected component. Updated or removed entries trigger re-sorting and subscriber notification.
+Re-evaluation is incremental by design: a stat change re-evaluates only the actions its trait-stat combination affects, keeping the cache current without a full rescan, and subscribers are notified as entries update or disappear.
 
 ### 6. Public API
 
-The controller provides methods for full cache scans, individual entry re-evaluation, entity-scoped re-evaluation, cache lookups by action/entity/action-for-entity, and event subscription.
-
-An HTTP API exposes read-only access to the cache and a refresh endpoint.
+The controller's public surface covers capability queries, re-evaluation triggers for world state changes, and event subscription. A read-only HTTP surface also exposes the cache (with a refresh trigger) so it can be inspected externally without mutating it.
 
 ### 7. Internal Component Impact
 

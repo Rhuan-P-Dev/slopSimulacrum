@@ -36,7 +36,7 @@ When the user clicks to drop an item from the inventory panel, selects component
 
 **Root Cause:** `_resolveParams()` was called with raw `params` (no entityId) instead of `context.actionParams`. Additionally, `PlaceholderResolver` only matched `:Trait.stat` patterns (with dot), never simple `:variable` names.
 
-**Fix:** Pass `context.actionParams` to resolver. Extended regex to `:[a-zA-Z0-9_.]+`.
+**Fix:** Pass `context.actionParams` to the resolver, and extend `PlaceholderResolver`'s matching so plain `:variable` names resolve (previously only dotted `:Trait.stat` patterns matched).
 
 ### 080-D: DropItemHandler Only Checks Equipped Items
 
@@ -47,57 +47,9 @@ When the user clicks to drop an item from the inventory panel, selects component
 
 **Fix:** Check equipped items first, then fall back to `getEntityItems()` for inventory items. Unequip only if equipped.
 
-```js
-_onDropSelectorExecute(detail) {
-    const { pendingDropItem, componentIds } = detail;
-    if (!pendingDropItem) return;  // ← Early return, silently does nothing
-```
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant DropSel as DropSelectorController
-    participant Event as DOM Event
-    participant App as App.js
-
-    User->>DropSel: Clicks "Execute"
-    DropSel->>DropSel: _onExecute()
-    DropSel->>DropSel: this.hide()
-    DropSel->>DropSel: _clearSelection()
-    DropSel->>DropSel: this._pendingDropItem = null
-    DropSel->>Event: dispatch drop-selector:execute<br/>{ pendingDropItem: null }
-    Event->>App: _onDropSelectorExecute(detail)
-    App->>App: !pendingDropItem → return
-    Note over App: Nothing happens
-```
-
 ## Fix
 
-Capture `this._pendingDropItem` and `_selectedComponentIds` in local variables **before** calling `this.hide()`:
-
-```js
-_onExecute() {
-    if (this._selectedComponentIds.size === 0) {
-        console.warn('[DropSelectorController] No components selected.');
-        return;
-    }
-
-    // Capture state BEFORE hiding — hide() calls _clearSelection() which nullifies _pendingDropItem
-    const pendingDropItem = this._pendingDropItem;
-    const componentIds = Array.from(this._selectedComponentIds);
-
-    console.info(`[DropSelectorController] Execute clicked with ${componentIds.length} component(s).`);
-
-    this.hide();
-
-    document.dispatchEvent(new CustomEvent('drop-selector:execute', {
-        detail: {
-            pendingDropItem,
-            componentIds
-        }
-    }));
-}
-```
+The execute handler now captures the pending drop item and selected component IDs in local variables **before** the selector hides itself — hiding clears the selection, so dispatching after `hide()` was sending a nullified `pendingDropItem`. The event now carries the captured data, so the App handler receives a valid pending item instead of silently no-op'ing.
 
 ## Prevention
 

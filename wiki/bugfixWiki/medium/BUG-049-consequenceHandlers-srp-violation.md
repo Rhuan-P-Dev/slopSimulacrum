@@ -31,31 +31,7 @@ Split `ConsequenceHandlers.js` into **5 single-focused modules**:
 | `LogConsequenceHandler.js` | `log` | ~30 |
 | `EventConsequenceHandler.js` | `triggerEvent` | ~25 |
 
-The original `ConsequenceHandlers.js` was refactored into a **lightweight dispatcher** (~62 lines) that:
-1. Instantiates all focused handlers via Dependency Injection
-2. Exposes a `handlers` getter maintaining the same backward-compatible interface
-3. Routes calls to the appropriate focused handler
-
-### Dispatcher Pattern
-
-```javascript
-class ConsequenceHandlers {
-    constructor(controllers) {
-        this.spatialHandler = new SpatialConsequenceHandler(controllers);
-        this.statHandler = new StatConsequenceHandler(controllers);
-        this.damageHandler = new DamageConsequenceHandler(controllers);
-        this.logHandler = new LogConsequenceHandler();
-        this.eventHandler = new EventConsequenceHandler();
-    }
-
-    get handlers() {
-        return {
-            updateSpatial: (t, p, c) => this.spatialHandler._handleUpdateSpatial(t, p, c),
-            // ... other handlers
-        };
-    }
-}
-```
+The original `ConsequenceHandlers.js` was refactored into a **lightweight dispatcher** that instantiates the focused handlers via Dependency Injection and routes each consequence type to its handler, while preserving the same interface existing callers already used — so the split required no changes outside the module.
 
 ## Prevention
 

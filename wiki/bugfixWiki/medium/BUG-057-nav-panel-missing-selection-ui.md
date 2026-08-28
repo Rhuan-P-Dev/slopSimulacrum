@@ -23,50 +23,29 @@
 
 ## Fix
 
-### 1. Added `updateRoom()` method to `NavActionsPanel.js`
+### 1. Added `updateRoom()` refresh method to `NavActionsPanel.js`
 
-```javascript
-updateRoom(room, actions, entityId, onNavClick, onActionClick, activeActionName, selectedComponentIds, crossActionSelections) {
-    // Re-renders panel content without closing the overlay
-    // Re-attaches DOM listeners after innerHTML replacement
-}
-```
+Re-renders the panel content without closing the overlay, so an open panel can be refreshed in place.
 
-### 2. Rewrote `_buildActionSection()` for multi-component selection
+### 2. Rewrote the action section for multi-component selection
 
-- Renders interactive component rows with CSS classes: `nav-component-row`, `nav-selected`, `nav-locked`
-- Builds `componentToActionMap` for cross-action conflict detection
-- Displays lock icons (🔒) with tooltips on locked components
-- Highlights active action with `nav-active` class (yellow border)
-- Shows capable/incapable component counts
+Action items now render interactive component rows that support multi-selection, with visual states for selected and locked components, lock icons with tooltips, highlighting of the active action, and capable/incapable component counts — including cross-action conflict detection.
 
-### 3. Rewrote `_attachActionListeners()` for selection toggle
+### 3. Rewrote action click handling for selection toggle
 
-- Click on component row → calls `_onActionClick(actionName, entityId, compId, compIdentifier)` to toggle selection
-- Does NOT auto-execute on component click
-- Only allows toggling capable components (`canExecute === 'true'`)
+Clicking a component row now toggles its selection (no auto-execution on click), limited to capable components.
 
-### 4. Updated `App.js` with `_updateNavActionsPanelIfOpen()`
+### 4. `App.js` keeps the open panel in sync
 
-Called after `refreshWorldAndActions()` and `updateActionList()` to keep the panel in sync when open.
+When world state or the action list is refreshed, the panel is updated while open so its content never goes stale after a room change.
 
-### 5. Updated `ConfigBarManager._onNavActionsClick()`
+### 5. `ConfigBarManager` refreshes an already-open panel
 
-Checks `isPanelOpen` state:
-- Panel open → calls `updateRoom()` instead of `show()`
-- Panel closed → calls `show()` as before
+Clicking the nav/actions button while the panel is open refreshes its content instead of only (re)showing the panel.
 
-### 6. Added CSS styles to `actions.css`
+### 6. Added the selection-UI styles to `actions.css`
 
-- `.nav-action-item` — panel action container
-- `.nav-action-name` — action name header (hoverable)
-- `.nav-component-row` — interactive component row
-- `.nav-component-row.nav-selected` — green highlight for selected
-- `.nav-component-row.nav-locked` — grayed out with red tint for locked
-- `.nav-lock-icon` — lock icon
-- `.nav-comp-type` / `.nav-comp-identifier` — component labels
-- `.nav-capable-count` — capability count badge
-- `.nav-action-item.nav-active` — active action yellow highlight
+Styles for the new component rows and their selected/locked/active visual states were added so the selection state is legible at a glance.
 
 ## Prevention
 

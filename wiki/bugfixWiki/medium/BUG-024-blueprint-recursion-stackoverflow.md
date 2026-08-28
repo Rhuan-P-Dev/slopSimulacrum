@@ -7,46 +7,15 @@
 
 ## Symptoms
 
-When spawning a knife entity or any entity with a leaf-only blueprint (e.g., `"knife": ["knife"]`), the server crashed with:
-
-```
-RangeError: Maximum call stack size exceeded
-    at EntityController.expandBlueprint (file:///src/controllers/entityController.js:39:20)
-    at EntityController.expandBlueprint (file:///src/controllers/entityController.js:69:45)
-    at EntityController.expandBlueprint (file:///src/controllers/entityController.js:69:45)
-    ...
-```
-
-The stack overflow occurred because `expandBlueprint()` recursively called itself when it detected that the component name matched a blueprint key, with no cycle detection.
+When spawning a knife entity or any entity with a leaf-only blueprint (e.g., `"knife": ["knife"]`), the server crashed with `RangeError: Maximum call stack size exceeded` in `EntityController.expandBlueprint`.
 
 ## Root Cause
 
-The `expandBlueprint()` method treated all component names that matched a blueprint key as needing further expansion. For leaf-only blueprints like:
-
-```json
-"knife": ["knife"]
-```
-
-The method would:
-1. Process `"knife"` (the item in the array)
-2. Detect `this.blueprints["knife"]` exists
-3. Recursively call `expandBlueprint("knife")`
-4. Repeat indefinitely → stack overflow
+The `expandBlueprint()` method treated any component name that matched a blueprint key as needing further expansion, with no cycle detection. For a leaf-only blueprint (one whose only entry is a component of the same name, e.g. `"knife": ["knife"]`), the expansion recursed into itself indefinitely until the stack overflowed.
 
 ## Fix
 
-Added a `visited: Set<string>` parameter to `expandBlueprint()` to track already-visited blueprint names and prevent infinite recursion:
-
-```javascript
-expandBlueprint(blueprintName, visited = new Set()) {
-    if (visited.has(blueprintName)) {
-        // Prevent infinite recursion for leaf-only blueprints (e.g., knife)
-        return [];
-    }
-    visited.add(blueprintName);
-    // ... rest of method passes visited to recursive calls
-}
-```
+`expandBlueprint()` now tracks already-visited blueprint names and stops recursing when it reaches a name it has seen before, so self-referencing (leaf-only) blueprints terminate instead of overflowing the stack.
 
 ## Prevention
 

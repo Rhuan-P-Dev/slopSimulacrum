@@ -11,16 +11,12 @@
 - Cache grows unbounded with no eviction policy
 
 ## Root Cause
-1. **TTL Never Checked**: Line 124 set `this._cacheTtlMs = 5000`, but no code reads the timestamp (line 217: `timestamp: Date.now()`) to invalidate stale entries. The cache effectively never expires.
-2. **Cache Never Read**: `_synergyCache.get()` was never called — cache was write-only. No `getCachedSynergy()` method existed.
-3. **No Size Limit**: No maximum entry count, allowing unbounded memory growth.
+1. **TTL Never Checked**: each cache entry's timestamp was written, but nothing ever read it to invalidate stale entries — the TTL existed only in name, so the cache effectively never expired.
+2. **Cache Never Read**: the cache had no read path (write-only; no `getCachedSynergy()` method existed), so cached results were never actually returned.
+3. **No Size Limit**: no maximum entry count, allowing unbounded memory growth.
 
 ## Fix
-1. Added `getCachedSynergy(actionName)` method that checks `Date.now() - entry.timestamp > this._cacheTtlMs`
-2. Added `clearCache()` public method
-3. Added `_cacheSet(actionName, result)` private method with TTL and size eviction (`SYNERGY_CACHE_MAX_SIZE = 100`)
-4. Imported `SYNERGY_CACHE_TTL_MS` and `SYNERGY_CACHE_MAX_SIZE` from `Constants.js`
-5. Replaced hardcoded `this._cacheTtlMs = 5000` with constant
+The cache now has a proper read path: entries are returned only while fresh (TTL checked at read time), a maximum size with eviction bounds memory growth, and TTL/size are named constants in `Constants.js` instead of hardcoded values. A public `clearCache()` provides explicit invalidation when world state changes.
 
 ## Prevention
 - Always validate cache TTL in both read and write paths

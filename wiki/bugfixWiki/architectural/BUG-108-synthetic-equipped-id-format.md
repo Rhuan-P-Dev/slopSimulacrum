@@ -15,44 +15,15 @@ The typed ID system was partially adopted (BUG-106, BUG-107), but equipped item 
 
 ## Fix
 
-### Server-side (ComponentCapabilityController)
-- Added `import { generateEquippedId } from '../../utils/idGenerator.js'`
-- Added `_eqId: \`eq-\${generateEquippedId()}\`` to ALL equipped item capability entries
-- Added `_entityId` field to ALL capability entries
-- Removed synthetic `equipped-${itemId}-${itemType}` format
-
-### Server-side (WorldStateController)
-- Added `import IdResolver from '../utils/IdResolver.js'`
-- Added `getEquippedItem(entityId, eqId)` — lookup by typed eqId
-- Added `getEquippedItemByItemId(entityId, itemId)` — lookup by itemId
-- Added `getEquippedItemForComponent(entityId, componentId)` — lookup by component
-- Added `_validateEquippedId(eqId)` — validates `eq-` prefix
-
-### Server-side (WorldStateBroadcastService)
-- Added `_transformForBroadcast(state)` — ensures all IDs are typed before broadcast
-
-### Client-side (App.js)
-- Added `import { IdResolver } from './utils/IdResolver.js'`
-- Replaced `componentId.startsWith('equipped-')` → `IdResolver.isEquippedId(componentId)`
-- Removed legacy parsing in `_handleEquippedItemClick`: componentId is now directly `eq-${uuid}`
-- Uses `this.worldState.getEquippedItem(entityId, eqId)` to look up itemId and itemType
-
-### Client-side (NavActionsPanel.js)
-- Added `import { IdResolver } from './utils/IdResolver.js'`
-- Replaced `componentId.startsWith('equipped-')` → `IdResolver.isEquippedId(componentId)`
-
-### Client-side (InventoryManager.js)
-- Changed `_equippedItems` keying from `eq.itemId` to `eq.id` (typed eqId)
-- Added `_isEquippedByItemId(itemId)` and `_findEquippedByItemId(itemId)` helper methods
-
-### Client-side (WorldStateManager.js)
-- Added `getEquippedItem(entityId, eqId)` — lookup equipped item by typed eqId
+Migrated equipped item IDs from the synthetic `equipped-${itemId}-${itemType}` format to typed `eq-${uuid}` IDs, so equipped items resolve through the same `IdResolver` path as every other ID type. Capability entries and state broadcasts now carry typed equipped IDs, and client code determines ID type through the resolver instead of manual string-prefix parsing.
 
 ### Browser-compatible IdResolver
-- Created `public/utils/IdResolver.js` — pure JavaScript, no Node.js dependencies
+
+A browser-compatible copy of the resolver was created because client code cannot depend on Node.js modules — the same parsing logic therefore runs on both sides without divergence.
 
 ### Legacy Compatibility
-- **Removed entirely** — no backward compatibility for raw UUIDs or `equipped-` prefix
+
+**Removed entirely** — no backward compatibility for raw UUIDs or the `equipped-` prefix, because supporting both formats would perpetuate the dual-format ambiguity this bug documents.
 
 ## Prevention
 

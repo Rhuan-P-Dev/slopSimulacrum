@@ -27,129 +27,21 @@ Three root causes:
 
 ## Fix
 
-### 1. App.js — onSelectionChange() now updates NavActionsPanel
+### 1. App.js — `onSelectionChange()` now updates NavActionsPanel
 
-```javascript
-// BEFORE: onSelectionChange() — only updated UIManager panel
-onSelectionChange() {
-    this.updateActionList();
-    // NavActionsPanel never updated!
-    ...
-}
+Selection changes now refresh the NavActionsPanel in addition to the legacy action list, so the primary UI immediately reflects highlights and cross-action graying.
 
-// AFTER: onSelectionChange() — updates BOTH panels
-onSelectionChange() {
-    this.updateActionList();
-    this._updateNavActionsPanelIfOpen();  // ← NEW: re-renders NavActionsPanel with fresh data
-    ...
-}
-```
+### 2. NavActionsPanel.js — grayed components are now clickable
 
-### 2. NavActionsPanel.js — Added `onGrayedComponentClick` parameter and handler
+The panel accepts an `onGrayedComponentClick` callback: clicking a component grayed out (locked to another action) triggers conflict resolution — releasing it from the other action — instead of being silently ignored.
 
-```javascript
-// Added private properties
-this._onGrayedComponentClick = null;
-this._crossActionSelections = null;
+### 3. SelectionController.js — stale cross-action entries are cleaned up
 
-// Updated _attachActionListeners() to detect and handle grayed components
-_attachActionListeners() {
-    const componentToActionMap = new Map();
-    if (this._crossActionSelections) {
-        for (const [actionName, compSet] of this._crossActionSelections) {
-            for (const compId of compSet) {
-                componentToActionMap.set(compId, actionName);
-            }
-        }
-    }
+When an action becomes active, any stale entry for that action in `crossActionSelections` is removed, so A→B→A switching no longer leaves components appearing locked to their own active action.
 
-    this._content.querySelectorAll('.nav-component-row').forEach((row) => {
-        row.onclick = () => {
-            const componentId = row.dataset.compId;
-            const grayedByAction = componentToActionMap.get(componentId);
+### 4. App.js + ConfigBarManager.js — callbacks wired through the manager
 
-            // If grayed (locked to another action), handle conflict resolution
-            if (grayedByAction && this._onGrayedComponentClick) {
-                this._onGrayedComponentClick(grayedByAction, componentId);
-                return;
-            }
-
-            // Normal toggle for non-grayed capable components
-            if (canExecute) {
-                this._onActionClick(actionName, entityId, componentId, componentIdentifier);
-            }
-        };
-    });
-}
-```
-
-### 3. SelectionController.js — Clean stale entries when switching actions
-
-```javascript
-// BEFORE: no stale entry cleanup
-if (this.activeActionName && this.activeActionName !== actionName) {
-    if (this.selectedComponentIds.size > 0) {
-        this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
-    }
-    this.selectedComponentIds.clear();
-    this.activeActionName = actionName;
-}
-
-// AFTER: stale entry cleanup added
-if (this.activeActionName && this.activeActionName !== actionName) {
-    if (this.selectedComponentIds.size > 0) {
-        this.crossActionSelections.set(this.activeActionName, new Set(this.selectedComponentIds));
-    }
-    this.selectedComponentIds.clear();
-    this.crossActionSelections.delete(actionName);  // ← NEW: clear stale entries
-    this.activeActionName = actionName;
-}
-```
-
-### 4. App.js — Wire grayed component callback through ConfigBarManager
-
-```javascript
-this.configBar = new ConfigBarManager({
-    onGetSelectionState: () => ({
-        activeActionName: this.selection.getActiveActionName(),
-        selectedComponentIds: this.selection.getSelectedComponentIds(),
-        crossActionSelections: this.selection.crossActionSelections
-    }),
-    onGrayedComponentCallback: (lockedActionName, componentId) => {
-        this.selection.removeGrayedComponent(lockedActionName, componentId);
-    },
-});
-```
-
-### 5. ConfigBarManager.js — Accept and propagate callbacks
-
-```javascript
-constructor(options) {
-    this._onGetSelectionState = options.onGetSelectionState || null;
-    this._onGrayedComponentCallback = options.onGrayedComponentCallback || null;
-}
-```
-
-## Data Flow After Fix
-
-```
-User clicks component for "dash" action
-  → SelectionController.toggleComponent() updates selection state
-  → app.onSelectionChange() called
-  → updateActionList() updates UIManager panel
-  → _updateNavActionsPanelIfOpen() updates NavActionsPanel ← KEY FIX
-  → NavActionsPanel shows:
-     - Selected component highlighted green in "dash" row
-     - Same component grayed out in all other action rows
-
-User clicks grayed component in NavActionsPanel
-  → _attachActionListeners detects grayed state via componentToActionMap
-  → calls _onGrayedComponentClick(lockedActionName, componentId)
-  → SelectionController.removeGrayedComponent(lockedActionName, componentId)
-  → Removes from crossActionSelections
-  → app.onSelectionChange() → NavActionsPanel re-renders
-  → Component is now available in its original action
-```
+`ConfigBarManager` now accepts a selection-state provider and a grayed-component callback, and `App.js` supplies them, so a click on a grayed component can actually reach `SelectionController` to clear the lock.
 
 ## Prevention
 

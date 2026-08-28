@@ -14,25 +14,11 @@ When browsing the action list:
 
 ## Root Cause
 
-The UI selection logic in `App.js` marked an action as selected whenever its component was selected, regardless of whether that action was currently active:
-
-```javascript
-// ❌ BEFORE (buggy - marks ALL matching actions as selected)
-function isActionSelected(actionName, componentId) {
-    return selectedComponentIds.includes(componentId);  // Wrong!
-}
-```
+The UI selection logic in `App.js` marked an action as selected whenever its component was selected, regardless of whether that action was currently active.
 
 ## Fix
 
-Changed the selection logic to only mark actions as selected when they are the currently active action:
-
-```javascript
-// ✅ AFTER (fixed - only active action is marked selected)
-function isActionSelected(actionName, componentId) {
-    return actionName === activeActionName && selectedComponentIds.includes(componentId);
-}
-```
+The selection check now additionally requires the action to be the currently active action. Rationale: the selected state should represent the single active action, not merely that one of its components is selected — otherwise every action sharing that component would appear selected at once.
 
 ### Selection State Rules
 

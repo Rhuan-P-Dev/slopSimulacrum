@@ -22,50 +22,37 @@ Equipped items are independent action sources, NOT merged into component stats. 
 - Equipped items bring their own traits for action discovery
 - The capability system scans both entity components AND equipped items independently
 
-## Data Schema
+## Data Model
 
-Holding cost definitions are stored in `data/holdingCost.json`. Each entry defines an item type's holding cost as an array of stat requirements:
+Holding cost definitions are stored in `data/holdingCost.json`, one entry per equip-able item type. Each entry declares the stat requirements the hosting component must be able to bear. A single value per requirement serves double duty — it is both the minimum the host must have to equip the item and the magnitude of the debuff the host suffers while the item is equipped. Requiring the two to be the same number keeps the burden proportional to the requirement: an item that demands a stronger component penalizes that component harder.
 
-Each `holdingCost` entry specifies a `trait` category (e.g., "Physical", "Manipulation"), a `stat` name (e.g., "strength", "fine_controls"), and a `value` that serves as both the **minimum requirement** AND the **debuff magnitude**.
+### Constraints
 
-### Rules
-
-- **All** requirements must pass for equip to succeed
-- If the component lacks a required stat or its stat is below the required value → equip denied
-- On equip: each stat suffers a debuff of `-value`
-- On unequip: all debuffs are reversed
+- **All-or-nothing**: every requirement must be satisfiable for equip to succeed, so a host can never carry only part of an item's burden
+- **Reversible**: debuffs exist only while the item is equipped and are fully reversed on unequip, so carrying a burden is always temporary and tied to actual possession
 
 ## Item Traits and Action Discovery
 
-Equipped items have their own traits defined in `data/inventoryItems.json`. These traits are NOT merged into component stats. Instead, the capability controller scans equipped items independently during `scanAllCapabilities()`. When an item is equipped, `HoldingCostController.equipItem()` triggers `actionController.reEvaluateEntityCapabilities()`, which calls `ComponentCapabilityController._scanEquippedItemsForActions()`. The method converts item traits to a stats-like format, checks them against all action requirements, and adds capability entries with `_isEquippedItem: true` metadata.
+Equipped items keep their own traits (defined in `data/inventoryItems.json`) independent of component stats. The capability system evaluates equipped items as separate action sources, so an item's traits can unlock actions that the hosting component could never satisfy on its own.
 
-**Example**: The knife item has `Physical.sharpness: 50`. The `cut` action requires `Physical.sharpness >= 20`. Since the knife satisfies this, the `cut` action appears in the action panel with the knife listed as a capable source.
+**Example**: A knife carries a `Physical.sharpness` trait. That trait — not the host hand's stats — is what makes the `cut` action appear in the action panel with the knife listed as the capable source, even though the hand has no sharpness of its own.
 
 ### Effective Stats Resolution
 
-When evaluating action requirements for a component that hosts an equipped item, the capability controller uses the **equipped item's current stats** (not the host component's stats) if the item's traits satisfy the action requirements. This ensures:
+When an equipped item's traits satisfy an action's requirements, that action is evaluated against the item's own current stats rather than the host's, for two reasons:
 
-- A knife with `sharpness: 50` enables the `cut` action even if the host component has no `sharpness` trait
-- Sharpness drain from the `cut` action affects the knife's tracked stats, not the host component
-- Capability scoring reflects the **current** sharpness value (e.g., -949 after drain), not the base value (50)
+- The item must be able to enable actions the host component could never qualify for by itself
+- Wear and drain accumulate on the item, so its real-time stats — not its base values — determine whether the action stays available as the item degrades
 
-The effective stats resolution follows this priority:
-
-1. **Equipped item stats** — If the component hosts an equipped item whose traits satisfy the action requirements, those stats are used
-2. **Host component stats** — If the equipped item lacks relevant traits, fall back to the host component's stats
-3. **Host-only evaluation** — Actions evaluated without any equipped item use only host component stats (separate code path)
-
-This decoupling ensures that equipping a knife does not suppress the host component's existing capabilities (e.g., `punch` via `Physical.strength`).
+When an item contributes nothing to an action, the host component's own stats are evaluated on their own. This decoupling ensures that equipping a knife does not suppress the host component's existing capabilities (e.g., `punch` via `Physical.strength`).
 
 ## Mutating Item Stats
 
-When consequences modify item stats (e.g., `cut` drains sharpness via `-999`), the stat consequence handler routes the update to `EquippedItemStatsController.updateStatDelta()`. This is detected via `hasStats(targetId)` — if the target ID matches an equipped item, the routed method is used instead of modifying the host component.
-
-After the stat change, the equipped item stats controller fires a callback that triggers capability re-evaluation. The capability cache then rescans equipped items using **current** (drained) stats instead of base stats, ensuring the UI reflects the actual capability state.
+Stat changes produced by action consequences (e.g., sharpness drain from cutting) are applied to the equipped item's per-instance stats rather than to the host component, so each equipped item tracks its own wear independently. After such a change, capabilities are re-evaluated against the item's current (drained) stats so the UI reflects the item's actual capability state, not its factory values.
 
 ## Equip Flow
 
-When a client clicks "Equip" on an item with a holding cost, the server checks requirements against component stats. If all pass, debuffs are applied and the capability controller re-evaluates, making equipped item actions appear in the UI. If any fail, equip is denied with an error message.
+Equipping is gated on the item's requirements: a component may only equip an item it can physically bear. A successful equip applies the burden debuffs and re-evaluates capabilities, so item-derived actions appear in the UI in lockstep with equipment state; a failed check denies equip with an error instead.
 
 ## Drag-and-Drop Auto-Unequip
 
@@ -73,21 +60,15 @@ When an equipped item is dragged to another component via inventory drag-and-dro
 
 ## Hand Swap (Transfer)
 
-Moving an equipped item from one component to another involves unequipping from the old component, equipping on the new component with requirement checks, and rolling back if the new component fails requirements.
+Moving an equipped item to another component is treated as an unequip plus a fresh re-equip, never as a plain move: the old host's debuffs are lifted, the new host must pass requirement checks, and a failed check rolls the transfer back. This keeps debuffs bound to actual possession and prevents a component from continuing to carry a burden it no longer holds.
 
 ## Client Integration
 
-The inventory UI shows Equip/Unequip buttons on items with holding costs. The button style changes based on equip status (cyan for equip, orange for unequip).
+The client surfaces equipment state directly in the inventory UI and the action panel so players can see at a glance which items are equipped, which component bears their burden, and which capabilities those items unlock.
 
-The action panel (`NavActionsPanel`) shows equipped items with:
+## Capability Entry Metadata
 
-- 🔪 knife icon prefix
-- Orange left border
-- `data-equipped-type` attribute
-
-## Capability Entry Format
-
-Equipped item capability entries contain the entity ID, a resolved component ID, component type/metadata, capability score, and resolution flags (_isEquippedItem, _equippedItemId, _equippedItemType, _equippedComponentId).
+Capability entries derived from equipped items carry metadata identifying the source item and the component that hosts it, so the UI can distinguish item-derived capabilities from component-derived ones and trace any such capability back to the item that provides it.
 
 ## Related Files
 
@@ -95,7 +76,7 @@ Equipped item capability entries contain the entity ID, a resolved component ID,
 - `data/inventoryItems.json` — Item traits (source for action discovery and base stats)
 - `src/controllers/core/HoldingCostController.js` — Core controller (equip/unequip, passes equippedItemStats)
 - `src/controllers/core/EquippedItemStatsController.js` — Per-instance mutable stat storage
-- `src/controllers/capabilities/componentCapabilityController.js` — `_scanEquippedItemsForActions()` with effective stats
+- `src/controllers/capabilities/componentCapabilityController.js` — Equipped-item action scanning with effective stats resolution
 - `src/controllers/consequences/StatConsequenceHandler.js` — Routes stat modifications to equipped items
 - `src/routes/inventoryRoutes.js` — API endpoints
 - `public/js/InventoryManager.js` — Inventory UI

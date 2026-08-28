@@ -20,11 +20,7 @@ Requirement resolution involves complex logic for handling equipped items, host 
 
 When a component hosts an equipped item (e.g., a knife in a droid hand), the item's traits may satisfy action requirements that the host component cannot. A knife's `sharpness` enables the `cut` action even if the host component has no sharpness trait. Without equipped item trait resolution, equipped items would be invisible to the requirement system, and actions that depend on item-specific traits would never appear.
 
-The resolver handles three resolution scenarios:
-
-1. **Prefixed equipped IDs** — When the component ID explicitly references an equipped item, traits are resolved from the equipped item's definition
-2. **Host component with equipped item** — When a host component has an item equipped, the item's traits take precedence for requirement checks that the item can satisfy
-3. **Host-only evaluation** — When no item is equipped or the item lacks relevant traits, resolution falls back to the host component's stats
+Resolution answers one question: which stats should a requirement be checked against — the host component's own stats, the traits of an equipped item (which can satisfy requirements the host lacks), or a specific equipped item referenced by ID, so consequences can target that item's per-instance stats directly. When an equipped item can satisfy a requirement it takes precedence over the host; otherwise the host's stats apply.
 
 ### Why store the equipped item's itemId in fulfillingComponents?
 

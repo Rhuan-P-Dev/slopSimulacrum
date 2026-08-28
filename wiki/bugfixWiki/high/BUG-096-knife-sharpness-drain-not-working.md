@@ -19,19 +19,19 @@ The bug existed across four layers of the server's stat management and capabilit
 
 There was no per-instance stats store for equipped items. The knife's stats were static from `inventoryItems.json`, so any drain had nowhere to go.
 
-**Fixed**: Created `EquippedItemStatsController` with `initializeStats()`, `updateStatDelta()`, and `hasStats()` methods.
+**Fixed**: A dedicated per-instance stats store for equipped items was created so runtime stat changes have a place to live.
 
 ### Round 2: Host Component ID in fulfillingComponents
 
 When the frontend sent a host component ID, `RequirementResolver.checkComponentRequirements()` correctly resolved the knife's traits, but stored the host component ID instead of the knife's `itemId` in `fulfillingComponents`. The consequence handler then modified the wrong target.
 
-**Fixed**: Updated `_resolveEquippedItemForHostComponent()` to return both traits and `itemId`, and used the `itemId` as the resolving target.
+**Fixed**: The host-component resolution now returns the item's own id alongside its traits, so consequences are routed to the item instead of the host component.
 
 ### Round 3: Prefixed ID Missing itemId Resolution
 
 When the frontend sends an "equipped-" prefixed component ID, the method resolved traits correctly but never updated the resolving target ID to the actual `itemId`.
 
-**Fixed**: Replaced the traits-only method with one that returns both traits and `itemId`. Updated callers to use the returned `itemId` for consequence routing.
+**Fixed**: The prefixed-ID resolution path was corrected the same way — the resolving target is updated to the item's actual id before consequences are routed.
 
 ### Round 4: Capability Cache Never Re-evaluates After Sharpness Drain
 
@@ -42,11 +42,7 @@ Even though the sharpness drain was correctly applied to `EquippedItemStatsContr
 
 This caused the client to always show "cut: 1 capable" based on base sharpness (50), not current sharpness (-949).
 
-**Fixed**: Three-part fix:
-
-1. `EquippedItemStatsController`: Added `setStatChangeCallback()`, `_notifyStatChange()`, called from `updateStat()` and `updateStatDelta()`
-2. `WorldStateController`: Wired the callback to trigger `reEvaluateEntityCapabilities()` + broadcast
-3. `ComponentCapabilityController`: `_scanEquippedItemsForActions()` now reads from `equippedItemStats.getStats(itemId)` instead of `inventoryItems.json`
+**Fixed**: The stats store now notifies a registered callback whenever a stat changes, the world state wires that callback to re-evaluate the affected entity's capabilities and broadcast, and the capability scan reads current per-instance stats instead of the static item definitions.
 
 ## Prevention
 

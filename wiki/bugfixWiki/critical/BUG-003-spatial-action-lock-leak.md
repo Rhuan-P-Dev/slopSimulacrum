@@ -22,59 +22,11 @@ When executing a spatial action (e.g., `move`, `dash`) on an entity with multipl
 
 ## Root Cause
 
-The `executeAction()` method tracked component locks in a `componentsToRelease` array, released in the `finally` block. However, **spatial actions skipped the validation block entirely** where component locks were normally tracked:
-
-```javascript
-// ❌ BEFORE (buggy flow)
-executeAction() {
-    try {
-        // Validation block (lines 280-289) — tracks locks for NON-spatial actions
-        if (targetingType !== 'spatial') {
-            // Component locks tracked here
-            componentsToRelease.push(componentId);
-        }
-        // Spatial actions skip this block entirely → locks never tracked → locks never released!
-    } finally {
-        // Release tracked locks — but spatial actions had nothing to release
-        this.actionSelectController.releaseSelections(componentsToRelease);
-    }
-}
-```
+The `executeAction()` method tracked component locks in a `componentsToRelease` list, released in the `finally` block. However, **spatial actions skipped the validation block entirely** where component locks were normally tracked — so spatial locks were never tracked and consequently never released, leaving the component locked to the previous action forever.
 
 ## Fix
 
-Added explicit spatial component tracking after `_resolveSourceComponent()` resolves the component:
-
-```javascript
-// ✅ AFTER (fixed flow)
-executeAction() {
-    try {
-        // Resolve source component for spatial actions
-        if (targetingType === 'spatial') {
-            const resolvedSourceComponentId = this._resolveSourceComponent(...);
-            // Explicitly track spatial components for release
-            if (componentList) {
-                componentList.forEach(comp => componentsToRelease.push(comp));
-            } else {
-                componentsToRelease.push(resolvedSourceComponentId);
-            }
-        }
-        // ... rest of action execution
-    } finally {
-        // Now spatial components are tracked and released properly
-        this.actionSelectController.releaseSelections(componentsToRelease);
-    }
-}
-```
-
-### Component Lock Tracking Summary
-
-| Action Type | Lock Tracking Location | Details |
-|-------------|----------------------|---------|
-| **Non-spatial** | Validation block (lines 286-289) | Components tracked during `validateSelection()` |
-| **Spatial (multi-component)** | After `_resolveSourceComponent()` (lines 301-317) | Each component from `componentList` added |
-| **Spatial (single-component)** | After `_resolveSourceComponent()` (lines 301-317) | Resolved `resolvedSourceComponentId` added |
-| **Self-target** | Validation block | Components from `targetComponentId` tracked |
+Spatial actions now explicitly track their resolved components for release as soon as source resolution completes, so the shared release path covers every action type. Rationale: the "one component, one action" invariant requires that every action type leaves no locks behind, and the release path must be aware of spatial components in order to release them.
 
 ## Prevention
 

@@ -19,57 +19,14 @@ The original architecture only supported flat component hierarchies. Components 
 
 ## Fix
 
-Implemented a complete Internal Components system:
+Implemented a complete Internal Components system so components can contain other components internally:
 
-### 1. Data Definition (`data/internalComponents.json`)
-```json
-{
-  "durabilityRepairSphere": {
-    "volume": 2,
-    "repairInterval": 5,
-    "repairAmount": 1,
-    "traits": {
-      "Physical": { "mass": 5, "durability": 50 }
-    },
-    "excludedComponentTypes": ["humanoidDroidFinger"],
-    "autoInstallOnSpawn": true
-  }
-}
-```
-
-### 2. Server-Side Controller (`src/controllers/core/InternalComponentController.js`)
-- State Controller following self-instantiation pattern
-- Auto-installs spheres on eligible components at entity spawn
-- 5-second repair tick via `setInterval`
-- Volume-based capacity checking
-- Defensive copying via `structuredClone()`
-- Centralized Logger integration
-
-### 3. State Entity Integration (`src/controllers/core/stateEntityController.js`)
-- Added `internalComponents` field to entity data
-- Auto-installs spheres after blueprint expansion
-- Cleans up internal components on despawn
-
-### 4. WorldStateController Integration (`src/controllers/WorldStateController.js`)
-- DI integration of InternalComponentController
-- Added to `subControllers` map
-- Public API methods: `addInternalComponent()`, `getInternalComponents()`, `getInternalComponentsForEntity()`
-- Starts repair system after initialization
-
-### 5. REST API (`src/routes/internalComponentRoutes.js`)
-- `GET /api/internal-components/:entityId`
-- `POST /api/internal-components/:entityId/:hostComponentId/add`
-- `DELETE /api/internal-components/:entityId/:hostComponentId/:internalComponentId`
-
-### 6. CSS Styling (`public/css/internal-components.css`)
-- Pulsing animation matching repair interval
-- Hover glow effects
-- Connection line styling
-
-### 7. Auto-Installation on smallBallDroid
-8 durabilityRepairSpheres are auto-installed (all non-finger components):
-- centralBall, droidHead, droidArm (×2), droidRollingBall (×2), droidHand (×2)
-- 6 fingers are excluded via `excludedComponentTypes`
+- **Data-driven definitions** — internal component types are defined in `data/internalComponents.json` (volume, repair interval/amount, traits, excluded host types, auto-install flag) and loaded via the standard `DataLoader` path, so new internal components can be added as data rather than code.
+- **Dedicated state controller** — `InternalComponentController` owns internal-component runtime state, auto-installs spheres on eligible components at entity spawn, runs the periodic durability repair tick, enforces volume-based capacity checks, and returns defensive copies, following the State Controller self-instantiation pattern.
+- **Entity lifecycle integration** — entities expose an `internalComponents` field; spheres are installed after blueprint expansion and cleaned up on despawn, keeping entity state consistent and leak-free.
+- **Public API and REST exposure** — `WorldStateController` integrates the controller via dependency injection and exposes it through its public API, with dedicated REST routes for client access.
+- **Client visualization** — a dedicated CSS module renders the spheres with a pulse synced to the repair interval, so the repair effect is visible in the UI.
+- **Auto-installation on smallBallDroid** — every non-finger component is auto-installed with a sphere at spawn, giving the droid automatic durability repair; the 6 fingers are deliberately excluded via the data file's exclusion list.
 
 ## Prevention
 

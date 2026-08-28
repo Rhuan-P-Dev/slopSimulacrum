@@ -7,51 +7,15 @@
 
 ## Symptoms
 
-When clicking the 👍 Navigation & Actions button in the config bar, the browser console shows repeated 404 errors:
-
-```
-GET http://localhost:3000/api/world/actions/19ab90ff-8b9d-405a-83b4-1dddb92d75f8 404 (Not Found)
-```
-
-The NavActionsPanel still renders (with empty actions as fallback), but the action list is never populated from the server.
+When clicking the 👍 Navigation & Actions button in the config bar, the browser console shows repeated 404 errors on a path-based `/api/world/actions/<entityId>` URL. The NavActionsPanel still renders (with empty actions as fallback), but the action list is never populated from the server.
 
 ## Root Cause
 
-`ConfigBarManager._fetchActionsForPanel()` constructed an incorrect URL using a path-based pattern with an `/api/` prefix:
-
-```javascript
-// ❌ WRONG: No server route matches this pattern
-const response = await fetch(`/api/world/actions/${entityId}`);
-```
-
-The server has no route at `/api/world/actions/:entityId`. The correct endpoint is defined in `src/routes/actionRoutes.js`:
-
-```javascript
-router.get('/actions', (req, res) => {
-    const { entityId } = req.query;
-    // ...
-});
-```
-
-Additionally, the response format was not parsed correctly — the server returns `{ actions: {...} }`, but the code returned `response.json()` directly without extracting the `actions` property.
+`ConfigBarManager._fetchActionsForPanel()` constructed an incorrect URL: a path-based pattern with an `/api/` prefix for which the server has no route — the actual actions endpoint in `src/routes/actionRoutes.js` takes the entity ID as a query parameter. Additionally, the response format was not parsed correctly: the server returns an object wrapping the action list in an `actions` property, but the code used the whole JSON response directly.
 
 ## Fix
 
-**File:** `public/js/ConfigBarManager.js` — `_fetchActionsForPanel()` method
-
-```javascript
-// ✅ FIXED: Use query parameter pattern matching ActionManager
-const response = await fetch(`/actions?entityId=${entityId}`);
-if (!response.ok) return {};
-const data = await response.json();
-return data.actions || {};
-```
-
-### Changes Made
-| Line | Before | After |
-|------|--------|-------|
-| 123 | `` `/api/world/actions/${entityId}` `` | `` `/actions?entityId=${entityId}` `` |
-| 125 | `return await response.json();` | `const data = await response.json(); return data.actions || {};` |
+`_fetchActionsForPanel()` now targets the same actions endpoint the rest of the client uses (entity ID as a query parameter, no `/api/` prefix) and extracts the `actions` property from the response, so the NavActionsPanel is populated from the server.
 
 ## Prevention
 

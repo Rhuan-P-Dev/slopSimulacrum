@@ -2,27 +2,19 @@
 
 ## 1. Overview
 
-The consequence handler system follows the **Single Responsibility Principle** with a dispatcher routing consequence types to their dedicated handlers. The dispatcher validates the target, resolves the target ID, and dispatches to the appropriate handler module.
+The consequence handler system follows the **Single Responsibility Principle** with a dispatcher routing consequence types to their dedicated handlers. The dispatcher is the single place that turns a declared consequence into a concrete application — resolving targets and scope — so individual handlers never re-derive action context.
 
 ## 2. Module Structure
 
-A dispatcher module routes consequence types to dedicated handler modules: spatial, stat, damage, log, and event. Each handler is a separate file with a single responsibility.
+A dispatcher module routes consequence types to dedicated handler modules. Each handler is a separate file with a single responsibility, so adding or changing one consequence type never touches the others.
 
 ## 3. Target Resolution
 
-Every consequence in the action registry includes a target field indicating the scope of application. The dispatcher resolves this to a concrete target ID before dispatching:
-
-| Target Scope | Resolves To |
-|--------|-------------|
-| Self | Source component from the action's fulfilling components |
-| Target | Explicitly provided target component or entity ID |
-| Entity | The source entity ID |
+Consequences in the action registry declare their scope of application rather than carrying concrete target IDs, so designers can express intent like "apply to self" or "apply to the hit target" without knowing runtime identifiers. The dispatcher interprets these scopes into a concrete target before dispatch, keeping scope semantics in one place instead of scattering them across handlers.
 
 ## 4. Handler Interface Contract
 
-All handlers follow a common signature: they accept a target ID, a parameter object, and a context object, and return a result with success status, a message, and optional data.
-
-**Context object** provides the handler with requirement values, action parameters, fulfilling component mappings, and synergy results.
+All handlers share one contract so the dispatcher can route uniformly without knowing handler internals: a target, a parameter object, and a shared context that carries everything about the originating action — requirement values, action parameters, fulfilling component mappings, and synergy results. Handlers never reach back into the action pipeline, which keeps them self-contained and independently testable.
 
 ## Supported Consequence Types
 
@@ -36,27 +28,23 @@ All handlers follow a common signature: they accept a target ID, a parameter obj
 | `spatial` | `SpatialConsequenceHandler` | Delta movement and spatial translation |
 | `dropItem` | `DropItemHandler` | Item dropping on the world map |
 | `pickUpItem` | `PickUpItemHandler` | Item pickup from the world map |
-| `consumeItemAndDamage` | `ConsumeItemHandler` | T1 weapon ammo consumption — removes an item from the T1's internal inventory and deals damage equal to the consumed item's volume |
+| `consumeItemAndDamage` | `ConsumeItemHandler` | T1 weapon ammo consumption — consumes an item from the T1's internal inventory, with the consumed item's volume determining the damage magnitude |
 
 ### damageComponent Consequence Type
 
-The `damageComponent` consequence deals damage to a target component or equipped item using a trait-based damage value. Unlike `updateComponentStatDelta` which applies a fixed numeric delta, `damageComponent` computes damage from a trait stat (e.g., using `Physical.sharpness` as the damage magnitude).
+The `damageComponent` consequence deals trait-based damage to a target component or equipped item. Unlike `updateComponentStatDelta`, which applies a fixed numeric delta, damage magnitudes here are expressed as trait references (e.g., the attacker's `Physical.sharpness`) so they scale with the attacker's traits rather than using hardcoded numbers.
 
-The `value` parameter supports stat references like `:Physical.sharpness` and negated references like `-:Physical.sharpness`, enabling damage magnitudes that scale with the attacker's traits rather than using hardcoded numbers.
-
-When the target ID matches an equipped item (detected via `EquippedItemStatsController.hasStats()`), damage is applied to the item's per-instance stats instead of the host component. This ensures a knife's durability degrades from cutting, not the droid's hand.
+When the target is an equipped item, damage is applied to the item's per-instance stats instead of the host component — so a knife's durability degrades from cutting, not the droid's hand.
 
 ## Equipped Item Routing
 
-When `StatConsequenceHandler` processes a stat modification, it checks whether the target ID belongs to an equipped item via `this.equippedItemStats.hasStats(targetId)`. If true, the update is routed to `EquippedItemStatsController.updateStatDelta()` instead of modifying the host component's stats.
-
-This routing ensures:
+Stat consequences that target an equipped item are routed to the item's per-instance stats instead of the host component's stats. This routing ensures:
 
 - Sharpness drain from the `cut` action affects the knife's tracked stats, not the host component
 - Durability degradation from damage consequences targets the correct item instance
 - Multiple item instances maintain independent stat values across equip/unequip cycles
 
-After the stat change, `EquippedItemStatsController` fires a callback that triggers capability re-evaluation, ensuring the UI reflects the updated capability state.
+Stat changes on equipped items also trigger capability re-evaluation, so the UI reflects the updated capability state.
 
 ## Benefits
 

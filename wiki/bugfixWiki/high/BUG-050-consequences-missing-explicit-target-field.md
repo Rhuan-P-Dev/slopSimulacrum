@@ -7,13 +7,7 @@
 
 ## Symptoms
 
-Consequences and failureConsequences in `data/actions.json` had no explicit `target` field. Target resolution was implicit and handled differently by each handler:
-
-- `ConsequenceDispatcher._resolveTarget()` used consequence type to guess the target
-- `DamageConsequenceHandler` read `context.actionParams.targetComponentId` directly
-- `StatConsequenceHandler` used a 3-priority fallback chain
-- `SpatialConsequenceHandler` always used `entityId`
-- Handlers had inconsistent behavior for `self` vs `target` vs entity-wide operations
+Consequences and failureConsequences in `data/actions.json` had no explicit `target` field: each handler resolved its own target with ad-hoc logic (guessing from consequence type, reading action params directly, or using private fallback chains), so `self` vs `target` vs entity-wide operations behaved inconsistently from handler to handler.
 
 This led to:
 1. **Implicit behavior**: No clear documentation of who each consequence affects
@@ -32,53 +26,15 @@ The original consequence system was designed with implicit target resolution:
 
 ### 1. Added Mandatory `target` Field to All Consequences
 
-Every consequence and failureConsequence in `data/actions.json` now MUST include a `target` field:
-
-| Target | Meaning | Resolves To |
-|--------|---------|-------------|
-| `"self"` | The source component fulfilling the requirement | Source component ID from `fulfillingComponents` |
-| `"target"` | The explicitly targeted entity/component | `params.targetComponentId` or `params.targetEntityId` |
-| `"entity"` | The entire entity performing the action | `entityId` |
+Every consequence and failureConsequence in `data/actions.json` now MUST include a `target` field, making each consequence's affected party explicit and self-documenting instead of implicit. The field has three values: `"self"` (the source component fulfilling the requirement), `"target"` (the explicitly targeted entity/component), and `"entity"` (the entire entity performing the action).
 
 ### 2. Added `_resolveTargetForConsequence()` Method
 
-`ConsequenceDispatcher._resolveTargetForConsequence()` replaces the old `_resolveTarget()` method:
-
-```javascript
-_resolveTargetForConsequence(consequence, entityId, params, fulfillingComponents, action) {
-    // MANDATORY: target field must be specified
-    if (!consequence.target) {
-        Logger.error(`[ConsequenceDispatcher] Consequence type "${consequence.type}" in action "${actionName}" ` +
-            `is missing required 'target' field. Expected: 'self', 'target', or 'entity'.`);
-        return { success: false, error: 'Missing target field' };
-    }
-
-    switch (consequence.target) {
-        case 'self': {
-            const selfKey = Object.keys(fulfillingComponents).find(k => fulfillingComponents[k]);
-            return { success: true, targetId: fulfillingComponents[selfKey] || entityId };
-        }
-        case 'target':
-            return { success: true, targetId: params.targetComponentId || params.targetEntityId || entityId };
-        case 'entity':
-            return { success: true, targetId: entityId };
-        default:
-            Logger.error(`Unknown target type "${consequence.target}"...`);
-            return { success: false, error: `Unknown target type: ${consequence.target}` };
-    }
-}
-```
+`ConsequenceDispatcher._resolveTargetForConsequence()` replaces the old `_resolveTarget()`: target resolution now happens in exactly one place, and a missing or unknown `target` value is a hard error (logged, consequence skipped) rather than a silently guessed destination.
 
 ### 3. Updated All Consequence Handlers
 
-Each handler now receives a pre-resolved `targetId` and can interpret it based on the `consequenceTarget` in context:
-
-| Handler | `'self'` Behavior | `'target'` Behavior | `'entity'` Behavior |
-|---------|-------------------|---------------------|---------------------|
-| `damageComponent` | Damage source component | Damage target component | Damage ALL entity components |
-| `updateComponentStatDelta` | Update source component | Update target component | Update ALL entity components |
-| `deltaSpatial` | Move source entity | Move target entity | Move entity |
-| `log` | Log with source context | Log with target context | Log with entity context |
+Each handler now receives a pre-resolved target from the dispatcher instead of performing its own resolution, so all consequence types interpret `self`/`target`/`entity` identically and can no longer diverge.
 
 ### 4. Removed `componentBinding` from Actions
 
@@ -86,17 +42,7 @@ The `componentBinding` metadata was removed from `data/actions.json` as it was r
 
 ### 5. Updated `data/actions.json`
 
-All actions updated with explicit `target` fields:
-
-| Action | Consequence | New `target` |
-|--------|------------|----------|
-| `move` | `deltaSpatial` | `entity` |
-| `dash` | `deltaSpatial` | `entity` |
-| `dash` | `updateComponentStatDelta` (durability) | `self` |
-| `selfHeal` | `updateComponentStatDelta` (durability) | `self` |
-| `droid punch` | `damageComponent` | `target` |
-| `droid punch` | `log` | `self` |
-| All | `failureConsequences` | Per-action definition |
+All actions updated with explicit `target` fields.
 
 ## Prevention
 
