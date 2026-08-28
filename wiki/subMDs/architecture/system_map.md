@@ -9,7 +9,8 @@ WorldStateController (Root Injector)
 │   ├── TraitsController
 │   ├── stateEntityController
 │   ├── InternalComponentController
-│   └── EquippedItemStatsController
+│   ├── EquippedItemStatsController
+│   └── CraftingController
 ├── Logic Controllers (dependency-injected, coordinated by root)
 │   ├── ComponentController → State controllers
 │   ├── EntityController
@@ -42,6 +43,7 @@ WorldStateController (Root Injector)
 | **EquippedItemStatsController** | Mutable Stats Store | Per-instance mutable stat tracking for equipped items (sharpness, durability degradation) |
 | **RangeValidator** | Range Validation | Spatial range checks for proximity-based actions with failure consequences |
 | **HintController** | Hint Engine | Deterministic hint registry — register rules by priority, resolve hints per entity, degrade gracefully on missing data |
+| **CraftingController** | Recipe Registry | Data-driven crafting recipes (`data/crafting.json`) — pure "do these items satisfy this recipe" checks; no item/world state, no `getAll()` (stays out of the broadcast aggregation) |
 
 ## 3. Key Operational Flows
 
@@ -67,6 +69,9 @@ Purpose: track per-instance degradation of equipped items (e.g. sharpness, durab
 capabilities depending on *current* equipped stats are re-evaluated automatically whenever such
 a stat changes, and the updated state reaches the client.
 
+### Crafting
+Resolve recipe → verify item possession on the component → pre-check capacity before any mutation → consume inputs → produce outputs on the same component → broadcast to all clients
+
 ## 4. Client-Side Architecture
 
 ```
@@ -83,5 +88,6 @@ App (Orchestrator)
 ├── NavActionsPanel
 ├── WorldMapView
 ├── HintManager (new)
+├── CraftingPanel (new)
 └── ConfigBarManager
 ```

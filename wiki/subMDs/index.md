@@ -104,6 +104,7 @@ Game mechanics, visualizations, and feature systems.
 | [T1 Weapon System](systems/t1_weapon_system.md) | Container weapon concept — resource scaling damage, dual-volume items, spawn observer auto-assignment |
 | [Hint System](systems/hint_system.md) | Deterministic hint registry — reachability-move suggestion for unreachable entities, extensible rule engine |
 | [Instinct System](systems/instinct_system.md) | Runtime-generated behavior primitives for the LLM agent — one instinct call per behavior instead of per-action micromanagement; names and action lists derived live from the action registry and capabilities so the model's vocabulary stays stable and data stays clean |
+| [Crafting System](systems/crafting_system.md) | Data-driven recipes, UI-panel crafting on a component's inventory — no world entity, no range, no turn consumed |
 
 ---
 

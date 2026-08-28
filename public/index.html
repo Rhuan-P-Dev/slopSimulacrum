@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="css/feedback.css">
     <link rel="stylesheet" href="css/internal-components.css">
     <link rel="stylesheet" href="css/inventory.css">
+    <link rel="stylesheet" href="css/crafting.css">
     <link rel="stylesheet" href="css/floating-windows.css">
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
@@ -43,6 +44,7 @@
         </div>
         <div class="config-bar-inventory">
             <button id="btn-inventory" class="config-btn" title="Inventory">🎒</button>
+            <button id="btn-crafting" class="config-btn" title="Crafting">🔨</button>
         </div>
     </div>
 
@@ -89,6 +91,17 @@
         </div>
         <div id="inventory-content" class="inventory-root">
             <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Crafting -->
+    <div id="crafting-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🔨 Crafting</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="crafting-content" class="crafting-root">
+            <!-- Populated by CraftingPanel -->
         </div>
     </div>
 

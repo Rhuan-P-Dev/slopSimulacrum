@@ -94,6 +94,7 @@ Additional reference documentation for specific systems and components, organize
 - [World Map Pick-Up System](subMDs/systems/world_map_pickup.md) — Dropped items pick-up flow
 - [Item Drop & Pickup System](subMDs/systems/item_drop_pickup.md) — Item drop range calculation and pickup
 - [Unique ID System](subMDs/systems/unique_id_system.md) — Self-describing typed IDs (ent-, comp-, item-, eq-) for unambiguous client-server resolution
+- [Crafting System](subMDs/systems/crafting_system.md) — Data-driven recipes, UI-panel crafting on a component's inventory, no turn cost
 
 ### 🐛 Bug Tracking
 - [Bugfix Wiki](bugfixWiki/README.md) — Centralized bug database with severity classifications and resolution tracking

@@ -27,6 +27,7 @@ import { ComponentViewer } from './ComponentViewer.js';
 import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
+import { CraftingPanel } from './CraftingPanel.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -82,6 +83,7 @@ export class ClientApp {
         // had no other callers. Room node clicks are now no-ops.
         this.worldMap = new WorldMapView({});
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
+        this.crafting = new CraftingPanel({ worldStateManager: this.worldState });
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -622,6 +624,7 @@ export class ClientApp {
             this.navActions.init();
             this.worldMap.init();
             this.inventory.init();
+            this.crafting.init();
             this.dropSelector.init();
             this.pickUpOverlay.init();
 
@@ -640,6 +643,9 @@ export class ClientApp {
             );
             this.overlayManager.register('world-map', this.worldMap, 'btn-world-map', '3');
             this.overlayManager.register('inventory', this.inventory, 'btn-inventory', '4');
+            // Crafting tab (no numeric shortcut — only '1'–'4' are wired in
+            // OverlayManager; same treatment as room-chat/events).
+            this.overlayManager.register('crafting', this.crafting, 'btn-crafting', null);
             // Feature D: room chat panel (button in the config bar, no number
             // shortcut — only 1-4 are wired in OverlayManager).
             this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
@@ -673,6 +679,11 @@ export class ClientApp {
             this.roomChat.setFocusedRoom(droid?.location || null);
             // Refresh events panel if open (stays fresh on every world-state-update).
             if (this.events?.isVisible()) this.events.refresh();
+
+            // Refresh the crafting panel if open — the world-state-update
+            // broadcast is the authoritative inventory update after a craft
+            // (crafting design spec §2.3).
+            this.crafting.refreshIfOpen();
 
             // Update the visual world view
             this.ui.updateWorldView(

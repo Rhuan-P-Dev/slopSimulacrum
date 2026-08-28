@@ -35,6 +35,7 @@ graph TD
     RNGV[RangeValidator]
     NAC[NpcAIController]
     MC[MaterialController]
+    CFT[CraftingController]
 
     SVR --> LLMC
     SVR --> WSC
@@ -92,6 +93,8 @@ graph TD
     WSC --> MC
     CC --> MC
     INV --> MC
+
+    WSC --> CFT
     ```
 
 ## 🤖 AI Controllers
@@ -109,8 +112,9 @@ graph TD
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
-| `data/rooms.json` | Room definitions |
-| `data/internalComponents.json` | Internal component type definitions |
-| `data/inventoryItems.json` | Item type definitions — includes the T1 container weapon with dual-volume support |
-| `data/materials.json` | Material definitions for composition-driven trait derivation |
-| `data/propertyTraitMapping.json` | Property-to-trait mapping table |
+| `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
+| `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
+| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits, externalVolume) — includes T1 container weapon with dual-volume support |
+| `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
+| `data/propertyTraitMapping.json` | Property-to-trait mapping table (formulas: densityVolume, weighted sources) |
+| `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
