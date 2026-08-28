@@ -32,10 +32,11 @@
  * The pure pool/satisfaction/liveness/resolution logic is extracted as
  * named exports (addToPendingPool, removeFromPendingPool, clearPendingPool,
  * getPoolItemIds, getLiveItemIds, resolveCraftingComponent, prunePool,
- * prunePoolToComponent, computeRecipeSatisfaction, selectCraftItemIds) and
- * unit-tested without any DOM (test/unit/CraftingPanel.test.js); the class
- * below owns the DOM wiring. Standing rule: every server-fetched map is
- * defensive — guard group values with Array.isArray before iteration.
+ * prunePoolToComponent, pooledIdsKey, computeRecipeSatisfaction,
+ * selectCraftItemIds) and unit-tested without any DOM
+ * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
+ * Standing rule: every server-fetched map is defensive — guard group
+ * values with Array.isArray before iteration.
  *
  * Logging: ClientLogger only (BUG-123 — no console.* on the client).
  *
@@ -267,6 +268,25 @@ export function prunePoolToComponent(pool, itemsByComponent, componentId) {
 }
 
 /**
+ * Deterministic string key of a recipe's pooled item IDs, sorted (pure).
+ * Used by the auto-craft re-arm guard (_onDrop): a previously failed
+ * recipe is re-armed only when its pooled ID set changed since the last
+ * POST, so a persistently failing recipe does not receive a fresh POST on
+ * every unrelated drop.
+ * @param {Object} recipe - A recipe: { id, ... }.
+ * @param {Object} pool - The pending pool.
+ * @returns {string} Sorted pooled IDs joined by '\u0000' ('' when none).
+ */
+export function pooledIdsKey(recipe, pool) {
+    const byType = (pool || {})[recipe?.id] || {};
+    const ids = [];
+    for (const itemIds of Object.values(byType)) {
+        if (Array.isArray(itemIds)) ids.push(...itemIds);
+    }
+    return [...ids].sort().join('\u0000');
+}
+
+/**
  * Computes per-input satisfaction of a recipe from the pending pool (pure).
  *
  * `have` is the RAW pool count for the input's type (it may exceed
@@ -377,6 +397,8 @@ export class CraftingPanel {
         this._craftingRecipeIds = new Set();
         /** @private {Set<string>} Recipes whose last auto-craft failed (re-armed on new drops) */
         this._lastCraftFailed = new Set();
+        /** @private {Object<string, Array<string>>} Last POSTed pooled-ID set per recipe (re-arm guard) */
+        this._lastPostedSets = {};
 
         // Bound handlers — stable references across re-renders.
         this._onDragStart = this._onDragStart.bind(this);
@@ -455,6 +477,7 @@ export class CraftingPanel {
         this._draggingItemId = null;
         this._currentComponentId = null;
         this._lastCraftFailed.clear();
+        this._lastPostedSets = {};
     }
 
     /**
@@ -895,8 +918,14 @@ export class CraftingPanel {
         if (nextPool === this._pool) return; // duplicate drop — no-op
 
         this._pool = nextPool;
-        // A fresh drop re-arms a previously failed recipe for auto-craft.
-        this._lastCraftFailed.delete(recipe.id);
+        // Re-arm a previously failed recipe for auto-craft ONLY when its
+        // pooled ID set changed since the last POST: a persistently
+        // failing recipe must not receive a fresh POST on every
+        // unrelated drop, and prune-induced pool changes (liveness and
+        // component binding) never re-arm — only real drops do.
+        if (pooledIdsKey(recipe, nextPool) !== (this._lastPostedSets[recipe.id] ?? []).join('\u0000')) {
+            this._lastCraftFailed.delete(recipe.id);
+        }
         this._updateCardState(recipe.id, true);
     }
 
@@ -974,6 +1003,9 @@ export class CraftingPanel {
 
         const itemIds = selectCraftItemIds(recipe, this._pool);
         if (!itemIds) return;
+        // Record the exact set being POSTed (re-arm guard in _onDrop
+        // compares against this).
+        this._lastPostedSets[recipeId] = [...itemIds].sort();
 
         const entityId = this._currentEntityId;
         const componentId = this._currentComponentId;

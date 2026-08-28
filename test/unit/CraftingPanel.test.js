@@ -3,7 +3,8 @@
  * (crafting design spec §2.5/§4.7, architect decision 6):
  * pending-pool add/dedupe/remove/clear/prune, live-item flattening
  * (getLiveItemIds), strip-component resolution (resolveCraftingComponent),
- * and per-recipe requirement satisfaction computation.
+ * pooled-set keys (pooledIdsKey), and per-recipe requirement satisfaction
+ * computation.
  *
  * Per the client-testing convention (pattern: test/unit/RoomChatController.client.test.js),
  * these tests exercise ONLY the extracted pure functions — no raw DOM is
@@ -26,6 +27,7 @@ import {
     resolveCraftingComponent,
     prunePool,
     prunePoolToComponent,
+    pooledIdsKey,
     computeRecipeSatisfaction,
     selectCraftItemIds
 } from '../../public/js/CraftingPanel.js';
@@ -391,6 +393,34 @@ describe('prunePoolToComponent', () => {
         // signal that a craft must never fire).
         expect(selectCraftItemIds(KNIFE_TO_T1, next)).toBeNull();
         expect(computeRecipeSatisfaction(KNIFE_TO_T1, next).satisfied).toBe(false);
+    });
+});
+
+describe('pooledIdsKey', () => {
+    it('same pooled set → same key (order-insensitive)', () => {
+        const poolA = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+        const poolB = { knife_to_t1: { knife: ['item-2', 'item-1'] } };
+
+        expect(pooledIdsKey(KNIFE_TO_T1, poolA)).toBe(pooledIdsKey(KNIFE_TO_T1, poolB));
+    });
+
+    it('different set → different key', () => {
+        const poolA = { knife_to_t1: { knife: ['item-1'] } };
+        const poolB = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+
+        expect(pooledIdsKey(KNIFE_TO_T1, poolA)).not.toBe(pooledIdsKey(KNIFE_TO_T1, poolB));
+    });
+
+    it('empty pool → stable empty key', () => {
+        expect(pooledIdsKey(KNIFE_TO_T1, {})).toBe('');
+        expect(pooledIdsKey(KNIFE_TO_T1, undefined)).toBe('');
+        expect(pooledIdsKey(KNIFE_TO_T1, { other: { a: ['item-1'] } })).toBe('');
+    });
+
+    it("spans all of the recipe's types", () => {
+        const pool = { dual: { a: ['item-1'], b: ['item-2', 'item-3'] } };
+
+        expect(pooledIdsKey(DUAL_RECIPE, pool)).toBe('item-1\u0000item-2\u0000item-3');
     });
 });
 
