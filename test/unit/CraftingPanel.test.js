@@ -1,40 +1,48 @@
 /**
  * Unit tests for the pure logic extracted from public/js/CraftingPanel.js
- * (crafting design spec §2.5/§4.7, architect decision 6):
- * pending-pool add/dedupe/remove/clear/prune, live-item flattening
- * (getLiveItemIds), strip-component resolution (resolveCraftingComponent),
+ * (crafting design spec §2.5/§4.7, docs/crafting_design_spec.md):
+ * per-component item grouping (groupItemsByComponent), readable component
+ * name resolution (formatTypeName, resolveComponentLabel), the pending pool
+ * with per-item hosts (addToPendingPool / removeFromPendingPool /
+ * clearPendingPool / getPoolItemIds), broadcast pruning incl. host changes
+ * (prunePool over the fresh items map), live-item flattening
+ * (getLiveItemIds), the shared-host auto-craft rule (getCraftableHost),
  * pooled-set keys (pooledIdsKey), HTML escaping (escapeHtml), and
- * per-recipe requirement satisfaction computation.
+ * per-recipe satisfaction / exact-ID selection (computeRecipeSatisfaction,
+ * selectCraftItemIds).
  *
- * Per the client-testing convention (pattern: test/unit/RoomChatController.client.test.js),
- * these tests exercise ONLY the extracted pure functions — no raw DOM is
- * tested; the panel class (DOM/event wiring) stays out of scope here.
+ * Per the client-testing convention (pattern:
+ * test/unit/RoomChatController.client.test.js), these tests exercise ONLY
+ * the extracted pure functions — no raw DOM is tested; the panel class
+ * (DOM/event wiring) stays out of scope here.
  *
  * Standing rule: every server-fetched map is defensive — guard group
  * values with Array.isArray before iteration.
  *
- * The pool's invariants are owned by the two pure pruners (liveness:
- * prunePool; component membership: prunePoolToComponent); any future pool
- * feature must extend them, not mutate the pool ad-hoc.
+ * The pool's invariants are owned by the pure pruner (prunePool: liveness
+ * AND host-change reconciliation against the fresh items map); any future
+ * pool feature must extend it, not mutate the pool ad-hoc.
  */
-import { describe, it, expect } from 'vitest';
 import {
+    groupItemsByComponent,
+    formatTypeName,
+    resolveComponentLabel,
     addToPendingPool,
     removeFromPendingPool,
     clearPendingPool,
     getPoolItemIds,
     getLiveItemIds,
-    resolveCraftingComponent,
     prunePool,
-    prunePoolToComponent,
     pooledIdsKey,
     escapeHtml,
     computeRecipeSatisfaction,
-    selectCraftItemIds
+    selectCraftItemIds,
+    getCraftableHost
 } from '../../public/js/CraftingPanel.js';
 
-// ---- Fixtures ----------------------------------------------------------------
+// --- Fixtures ------------------------------------------------------------------
 
+/** A simple two-knife → one-t1 recipe (mirrors a real data/crafting.json entry) */
 const KNIFE_TO_T1 = {
     id: 'knife_to_t1',
     name: 'T1 Assembly',
@@ -43,8 +51,9 @@ const KNIFE_TO_T1 = {
     outputs: [{ type: 't1', quantity: 1 }]
 };
 
+/** A recipe with two DIFFERENT input types */
 const DUAL_RECIPE = {
-    id: 'dual',
+    id: 'dual_recipe',
     name: 'Dual',
     description: '',
     inputs: [
@@ -54,434 +63,482 @@ const DUAL_RECIPE = {
     outputs: [{ type: 'c', quantity: 1 }]
 };
 
+/** A recipe whose inputs list repeats the same type in two entries */
 const DUP_TYPE_RECIPE = {
-    id: 'dup',
+    id: 'dup_recipe',
     name: 'Dup',
     description: '',
     inputs: [
         { type: 'a', quantity: 1 },
         { type: 'a', quantity: 1 }
     ],
-    outputs: [{ type: 'c', quantity: 1 }]
+    outputs: [{ type: 'a', quantity: 2 }]
 };
 
-describe('addToPendingPool', () => {
-    it('adds an item to the target recipe/type and returns a new object', () => {
-        const pool = {};
-        const next = addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-1');
+/**
+ * Pending-pool entry factory: every pooled entry records the item instance
+ * AND the component that hosted it when it was dropped.
+ */
+const entry = (id, host) => ({ id, host });
 
+/** Entity-component groups (comp-… keys) plus the two excluded group kinds */
+const ITEMS_BY_COMPONENT = {
+    'comp-a': [
+        { id: 'item-1', type: 'knife' },
+        { id: 'item-2', type: 'knife' }
+    ],
+    'comp-b': [
+        { id: 'item-3', type: 't1' }
+    ],
+    'item-container': [
+        { id: 'nested-1', type: 'knife' }   // nested in a container item — excluded
+    ],
+    '__unassigned__': [
+        { id: 'loose-1', type: 'knife' }    // no host — excluded
+    ]
+};
+
+const ENTITY_COMP_IDS = ['comp-a', 'comp-b', 'comp-c'];
+
+// --- groupItemsByComponent -------------------------------------------------------
+
+describe('groupItemsByComponent', () => {
+    it('returns one group per NON-EMPTY entity component, in entity order', () => {
+        const groups = groupItemsByComponent(ITEMS_BY_COMPONENT, ENTITY_COMP_IDS);
+        expect(groups).toEqual([
+            { componentId: 'comp-a', items: [
+                { id: 'item-1', type: 'knife' },
+                { id: 'item-2', type: 'knife' }
+            ] },
+            { componentId: 'comp-b', items: [{ id: 'item-3', type: 't1' }] }
+        ]);
+    });
+
+    it('follows the entity component order, not the items-map insertion order', () => {
+        const items = {
+            'comp-a': [{ id: 'i-a' }],
+            'comp-b': [{ id: 'i-b' }]
+        };
+        const groups = groupItemsByComponent(items, ['comp-b', 'comp-a']);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-b', 'comp-a']);
+    });
+
+    it('excludes container-item groups and __unassigned__ (they are not entity components)', () => {
+        const groups = groupItemsByComponent(ITEMS_BY_COMPONENT, ENTITY_COMP_IDS);
+        const keys = groups.map((g) => g.componentId);
+        expect(keys).not.toContain('item-container');
+        expect(keys).not.toContain('__unassigned__');
+    });
+
+    it('skips entity components that have an empty or missing group', () => {
+        const items = {
+            'comp-a': [],
+            'comp-b': [{ id: 'i-b' }]
+        };
+        const groups = groupItemsByComponent(items, ['comp-a', 'comp-b', 'comp-c']);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-b']);
+    });
+
+    it('excludes a group whose entries are all malformed (defensive)', () => {
+        const items = {
+            'comp-a': [null, {}, { id: 42 }],
+            'comp-b': [{ id: 'i-b' }]
+        };
+        const groups = groupItemsByComponent(items, ['comp-a', 'comp-b']);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-b']);
+    });
+
+    it('filters malformed entries out of a partially-valid group (keeps order)', () => {
+        const items = { 'comp-a': [null, { id: 'i-1' }, {}, { id: 'i-2' }] };
+        const groups = groupItemsByComponent(items, ['comp-a']);
+        expect(groups).toEqual([{ componentId: 'comp-a', items: [{ id: 'i-1' }, { id: 'i-2' }] }]);
+    });
+
+    it('skips non-array group values (defensive against a malformed map)', () => {
+        const items = { 'comp-a': 'not-an-array', 'comp-b': [{ id: 'i-b' }] };
+        const groups = groupItemsByComponent(items, ['comp-a', 'comp-b']);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-b']);
+    });
+
+    it('skips non-string / empty entity component ids (defensive)', () => {
+        const items = { 'comp-a': [{ id: 'i-a' }] };
+        const groups = groupItemsByComponent(items, [null, '', 'comp-a']);
+        expect(groups.map((g) => g.componentId)).toEqual(['comp-a']);
+    });
+
+    it('returns [] for null/undefined maps or an empty/null entity component list', () => {
+        expect(groupItemsByComponent(undefined, ['comp-a'])).toEqual([]);
+        expect(groupItemsByComponent(null, ['comp-a'])).toEqual([]);
+        expect(groupItemsByComponent({ 'comp-a': [{ id: 'i' }] }, [])).toEqual([]);
+        expect(groupItemsByComponent({ 'comp-a': [{ id: 'i' }] }, null)).toEqual([]);
+    });
+});
+
+// --- formatTypeName / resolveComponentLabel ---------------------------------------
+
+describe('formatTypeName', () => {
+    it('splits camelCase boundaries ("droidHead" → "Droid Head")', () => {
+        expect(formatTypeName('droidHead')).toBe('Droid Head');
+    });
+
+    it('splits snake_case and kebab-case separators', () => {
+        expect(formatTypeName('cutting_arm')).toBe('Cutting Arm');
+        expect(formatTypeName('droid-hand')).toBe('Droid Hand');
+    });
+
+    it('title-cases simple ids ("t1" → "T1", "knife" → "Knife")', () => {
+        expect(formatTypeName('t1')).toBe('T1');
+        expect(formatTypeName('knife')).toBe('Knife');
+    });
+
+    it('coerces non-string values and tolerates empty input', () => {
+        expect(formatTypeName(42)).toBe('42');
+        expect(formatTypeName('')).toBe('');
+    });
+});
+
+describe('resolveComponentLabel', () => {
+    it('prefers the type on the entity\'s own component reference', () => {
+        const droidComponents = [{ id: 'comp-a', type: 'droidHead' }, { id: 'comp-b', type: 'droidArm' }];
+        expect(resolveComponentLabel('comp-b', droidComponents, {})).toBe('Droid Arm');
+    });
+
+    it('falls back to the component stats instance type when the reference has none', () => {
+        const droidComponents = ['comp-a', { id: 'comp-b' }];
+        const instances = { 'comp-b': { id: 'comp-b', type: 'droidArm' } };
+        expect(resolveComponentLabel('comp-b', droidComponents, instances)).toBe('Droid Arm');
+    });
+
+    it('uses the instance entityComponentType as the last typed source', () => {
+        const instances = { 'comp-a': { entityComponentType: 'droidHead' } };
+        expect(resolveComponentLabel('comp-a', [], instances)).toBe('Droid Head');
+    });
+
+    it('a known reference type wins over a stale instance type', () => {
+        const droidComponents = [{ id: 'comp-a', type: 'droidHead' }];
+        const instances = { 'comp-a': { type: 'merchantCore' } };
+        expect(resolveComponentLabel('comp-a', droidComponents, instances)).toBe('Droid Head');
+    });
+
+    it('NEVER returns a raw comp- ID: unknown sources fall back to "Unknown"', () => {
+        expect(resolveComponentLabel('comp-5a46c5f2', [], {})).toBe('Unknown');
+        expect(resolveComponentLabel('comp-5a46c5f2', null, null)).toBe('Unknown');
+        expect(resolveComponentLabel('comp-x', [{ id: 'comp-x' }], {})).toBe('Unknown');
+    });
+
+    it('ignores an instance type that is itself the sentinel "unknown"', () => {
+        const instances = { 'comp-a': { type: 'unknown' } };
+        expect(resolveComponentLabel('comp-a', [], instances)).toBe('Unknown');
+    });
+});
+
+// --- Pool ops (per-item host) ------------------------------------------------------
+
+describe('addToPendingPool', () => {
+    it('adds a hosted entry to the target recipe/type and returns a new object', () => {
+        const pool = {};
+        const next = addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-1', 'comp-a');
         expect(next).not.toBe(pool);
-        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
+        expect(next).toEqual({ knife_to_t1: { knife: [entry('item-1', 'comp-a')] } });
     });
 
     it('does not mutate the original pool (immutability)', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        const next = addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-2');
-
-        expect(pool).toEqual({ knife_to_t1: { knife: ['item-1'] } });
-        expect(next).toEqual({ knife_to_t1: { knife: ['item-1', 'item-2'] } });
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        const next = addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-2', 'comp-b');
+        expect(pool).toEqual({ knife_to_t1: { knife: [entry('item-1', 'comp-a')] } });
+        expect(next).toEqual({ knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } });
     });
 
     it('dedupes by item ID: adding the same item twice is a no-op (same reference)', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        const next = addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-1');
-
-        expect(next).toBe(pool);
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-1', 'comp-a')).toBe(pool);
     });
 
-    it('dedupes by item ID across recipes: an item pooled in one recipe cannot be re-dropped into another', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        const next = addToPendingPool(pool, 'other_recipe', 'knife', 'item-1');
-
+    it('dedupes by item ID across recipes (one physical instance → one proposal)', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        const next = addToPendingPool(pool, 'other_recipe', 'knife', 'item-1', 'comp-b');
         expect(next).toBe(pool);
-        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
     });
 
     it('keeps existing entries when adding to a recipe that already has other types', () => {
-        const pool = { dual: { a: ['item-1'] } };
-        const next = addToPendingPool(pool, 'dual', 'b', 'item-2');
-
-        expect(next).toEqual({ dual: { a: ['item-1'], b: ['item-2'] } });
+        const pool = { dual: { a: [entry('item-1', 'comp-a')] } };
+        const next = addToPendingPool(pool, 'dual', 'b', 'item-2', 'comp-b');
+        expect(next).toEqual({ dual: { a: [entry('item-1', 'comp-a')], b: [entry('item-2', 'comp-b')] } });
     });
 
-    it('is a no-op (same reference) for empty/invalid arguments', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-
-        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', '')).toBe(pool);
-        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', null)).toBe(pool);
-        expect(addToPendingPool(pool, '', 'knife', 'item-2')).toBe(pool);
-        expect(addToPendingPool(pool, null, 'knife', 'item-2')).toBe(pool);
-        expect(addToPendingPool(pool, 'knife_to_t1', '', 'item-2')).toBe(pool);
+    it('is a no-op (same reference) for empty/invalid arguments (incl. missing host)', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', '', 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', null, 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', undefined, 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, '', 'knife', 'item-2', 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, null, 'knife', 'item-2', 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', '', 'item-2', 'comp-a')).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-2', '')).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-2', null)).toBe(pool);
+        expect(addToPendingPool(pool, 'knife_to_t1', 'knife', 'item-2')).toBe(pool);
     });
 });
 
 describe('removeFromPendingPool', () => {
-    it('removes the recipe entry and preserves other recipes', () => {
-        const pool = {
-            knife_to_t1: { knife: ['item-1', 'item-2'] },
-            other: { a: ['item-3'] }
-        };
-        const next = removeFromPendingPool(pool, 'knife_to_t1');
-
-        expect(next).toEqual({ other: { a: ['item-3'] } });
+    it('removes the recipe and keeps the others', () => {
+        const pool = { r1: { a: [entry('i1', 'comp-a')] }, r2: { b: [entry('i2', 'comp-b')] } };
+        const next = removeFromPendingPool(pool, 'r1');
         expect(next).not.toBe(pool);
+        expect(next).toEqual({ r2: { b: [entry('i2', 'comp-b')] } });
     });
 
-    it('is a no-op (same reference) when the recipe has no entries', () => {
-        const pool = { other: { a: ['item-3'] } };
-        expect(removeFromPendingPool(pool, 'knife_to_t1')).toBe(pool);
+    it('does not mutate the original pool', () => {
+        const pool = { r1: { a: [entry('i1', 'comp-a')] } };
+        removeFromPendingPool(pool, 'r1');
+        expect(pool).toEqual({ r1: { a: [entry('i1', 'comp-a')] } });
     });
 
-    it('is a no-op (same reference) for an empty recipeId', () => {
-        const pool = { other: { a: ['item-3'] } };
-        expect(removeFromPendingPool(pool, '')).toBe(pool);
+    it('is a no-op (same reference) when the recipe has no pooled entries', () => {
+        const pool = { r1: { a: [entry('i1', 'comp-a')] } };
+        expect(removeFromPendingPool(pool, 'r99')).toBe(pool);
     });
 });
 
 describe('clearPendingPool', () => {
-    it('returns a fresh empty pool', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
-        expect(clearPendingPool(pool)).toEqual({});
-        expect(clearPendingPool(pool)).not.toBe(pool);
+    it('returns a fresh empty pool and does not touch the original', () => {
+        const pool = { r1: { a: [entry('i1', 'comp-a')] } };
+        const next = clearPendingPool(pool);
+        expect(next).toEqual({});
+        expect(next).not.toBe(pool);
+        expect(pool).toEqual({ r1: { a: [entry('i1', 'comp-a')] } });
     });
 });
 
 describe('getPoolItemIds', () => {
-    it('flattens all item IDs in insertion order', () => {
+    it('flattens all pooled item ids across recipes/types (entry objects)', () => {
         const pool = {
-            knife_to_t1: { knife: ['item-1', 'item-2'] },
-            dual: { a: ['item-3'], b: ['item-4'] }
+            r1: { a: [entry('i1', 'comp-a')], b: [entry('i2', 'comp-b')] },
+            r2: { a: [entry('i3', 'comp-c')] }
         };
-        expect(getPoolItemIds(pool)).toEqual(['item-1', 'item-2', 'item-3', 'item-4']);
+        expect(getPoolItemIds(pool)).toEqual(['i1', 'i2', 'i3']);
     });
 
-    it('returns [] for an empty pool', () => {
+    it('returns [] for an empty/absent pool', () => {
         expect(getPoolItemIds({})).toEqual([]);
+        expect(getPoolItemIds(null)).toEqual([]);
         expect(getPoolItemIds(undefined)).toEqual([]);
     });
 });
 
+// --- Pruning (liveness + host change) ----------------------------------------------
+
 describe('prunePool', () => {
-    it('drops pooled items that are no longer live and keeps the rest', () => {
-        const pool = {
-            knife_to_t1: { knife: ['item-1', 'item-2'] },
-            dual: { a: ['item-3'] }
-        };
-        const next = prunePool(pool, new Set(['item-1', 'item-3']));
-
-        expect(next).toEqual({
-            knife_to_t1: { knife: ['item-1'] },
-            dual: { a: ['item-3'] }
-        });
-        expect(next).not.toBe(pool);
-    });
-
-    it('removes types/recipes that become empty after pruning', () => {
-        const pool = {
-            knife_to_t1: { knife: ['item-1'] },
-            dual: { a: ['item-2'] }
-        };
-        const next = prunePool(pool, new Set(['item-2']));
-
-        expect(next).toEqual({ dual: { a: ['item-2'] } });
-    });
-
-    it('returns the same reference when nothing changed', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        expect(prunePool(pool, new Set(['item-1']))).toBe(pool);
-    });
-
-    it('treats an empty live set as "everything stale"', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        expect(prunePool(pool, new Set())).toEqual({});
-    });
-});
-
-describe('getLiveItemIds', () => {
-    it('flattens the server items map ({componentId: [item, ...]}) into live item IDs', () => {
-        // The exact regression input: group keys can be host component IDs,
-        // container item IDs (nested items), or '__unassigned__'.
-        const itemsByComponent = {
-            'comp-a': [{ id: 'item-1' }, { id: 'item-2' }],
-            'item-container': [{ id: 'item-3' }],
-            '__unassigned__': [{ id: 'item-4' }]
-        };
-        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1', 'item-2', 'item-3', 'item-4']);
-    });
-
-    it('returns [] for an empty map', () => {
-        expect(getLiveItemIds({})).toEqual([]);
-    });
-
-    it('returns [] for null/undefined', () => {
-        expect(getLiveItemIds(undefined)).toEqual([]);
-        expect(getLiveItemIds(null)).toEqual([]);
-    });
-
-    it('skips non-array group values (defensive against malformed shapes)', () => {
-        const itemsByComponent = {
-            'comp-a': [{ id: 'item-1' }],
-            broken: { id: 'item-should-not-appear' },
-            'comp-b': 'not-an-array'
-        };
-        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1']);
-    });
-
-    it('skips entries without a string id', () => {
-        const itemsByComponent = {
-            'comp-a': [null, {}, { id: 42 }, { id: 'item-1' }]
-        };
-        expect(getLiveItemIds(itemsByComponent)).toEqual(['item-1']);
-    });
-});
-
-describe('prunePool × getLiveItemIds composition', () => {
-    it('keeps pooled items present in the items map and drops the absent ones', () => {
-        // item-2 was consumed elsewhere; the map no longer lists it.
-        const items = {
-            'comp-a': [{ id: 'item-1', type: 'knife' }]
-        };
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
-
-        const next = prunePool(pool, getLiveItemIds(items));
-        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
-        expect(next).not.toBe(pool);
-    });
-
-    it('survives nested (container-grouped) items and __unassigned__ groups', () => {
-        const items = {
-            'comp-a': [{ id: 'item-1', type: 'knife' }],
-            'item-container': [{ id: 'item-2', type: 'knife' }],
-            '__unassigned__': [{ id: 'item-3', type: 'knife' }]
-        };
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2', 'item-3'] } };
-
-        expect(prunePool(pool, getLiveItemIds(items))).toBe(pool);
-    });
-
-    it('returns the same pool reference when nothing changed', () => {
-        const items = { 'comp-a': [{ id: 'item-1' }] };
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-
-        expect(prunePool(pool, getLiveItemIds(items))).toBe(pool);
-    });
-});
-
-describe('resolveCraftingComponent', () => {
-    it('branch 1: the selected component wins even when another component holds a recipe-input type earlier', () => {
-        const result = resolveCraftingComponent({
-            selectedId: 'comp-b',
-            entityComponentIds: ['comp-a', 'comp-b'],
-            itemsByComponent: { 'comp-a': [{ id: 'i1', type: 'knife' }] },
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-b');
-    });
-
-    it('M4 regression: never returns an items-map group key (container item ID)', () => {
-        // The items map groups a nested item under a CONTAINER ITEM ID that
-        // is not an entity component; only comp-head/comp-arm are. The
-        // container group sorts first in object order — it must not win.
-        const itemsByComponent = {
-            'item-container': [{ id: 'x', type: 'knife' }],
-            'comp-arm': [{ id: 'y', type: 't1' }],
-            'comp-head': [{ id: 'z', type: 'knife' }]
-        };
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-head', 'comp-arm'],
-            itemsByComponent,
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-head');
-    });
-
-    it('never returns the __unassigned__ group (falls through to branch 4)', () => {
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-a'],
-            itemsByComponent: { '__unassigned__': [{ id: 'x', type: 'knife' }] },
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-a');
-    });
-
-    it('dead-end config: a selected container-item ID falls through to a real component', () => {
-        const itemsByComponent = {
-            'item-container': [{ id: 'x', type: 'knife' }],
-            'comp-head': [{ id: 'z', type: 'knife' }]
-        };
-        const result = resolveCraftingComponent({
-            selectedId: 'item-container',
-            entityComponentIds: ['comp-head', 'comp-arm'],
-            itemsByComponent,
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-head');
-    });
-
-    it('no items anywhere → the first entity component', () => {
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-head', 'comp-arm'],
-            itemsByComponent: {},
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-head');
-    });
-
-    it('empty entityComponentIds → null (even with a selected/related group)', () => {
-        const result = resolveCraftingComponent({
-            selectedId: 'comp-x',
-            entityComponentIds: [],
-            itemsByComponent: { 'comp-x': [{ id: 'i', type: 'knife' }] },
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBeNull();
-    });
-
-    it('regression: branch 2 picks the component holding the MOST recipe-input items, not merely the first in order', () => {
-        // A first-match scan let the component holding a single knife (earlier
-        // in order) shadow a later component holding the complete craftable
-        // set, so the strip offered one card and the recipe could never be
-        // satisfied from it.
-        const itemsByComponent = {
-            'comp-a': [{ id: 'i1', type: 'knife' }],
-            'comp-b': [
-                { id: 'i2', type: 'knife' },
-                { id: 'i3', type: 'knife' },
-                { id: 'i4', type: 't1' }
-            ]
-        };
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-a', 'comp-b'],
-            itemsByComponent,
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-b');
-    });
-
-    it('branch 2: keeps first-in-order when recipe-input counts tie (stable)', () => {
-        const itemsByComponent = {
-            'comp-a': [{ id: 'i1', type: 'knife' }],
-            'comp-b': [{ id: 'i2', type: 'knife' }]
-        };
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-a', 'comp-b'],
-            itemsByComponent,
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-a');
-    });
-
-    it('regression: branch 3 (no recipe input reachable) picks the component with the most items, not the first that holds one', () => {
-        // The reproduced live state: after the player's top-level knives were
-        // all consumed into crafts, the first-match scan fell to the first
-        // item-bearing component — a lone container card (one "Drag source"
-        // entry) — instead of the component holding the richest inventory.
-        const itemsByComponent = {
-            'comp-a': [{ id: 'i1', type: 'metalBox' }],
-            'comp-b': [
-                { id: 'i2', type: 't1' },
-                { id: 'i3', type: 't1' },
-                { id: 'i4', type: 't1' }
-            ]
-        };
-        const result = resolveCraftingComponent({
-            selectedId: null,
-            entityComponentIds: ['comp-a', 'comp-b'],
-            itemsByComponent,
-            recipeInputTypes: ['knife']
-        });
-        expect(result).toBe('comp-b');
-    });
-});
-
-describe('prunePoolToComponent', () => {
     const items = {
         'comp-a': [{ id: 'item-1', type: 'knife' }],
         'comp-b': [{ id: 'item-2', type: 'knife' }]
     };
 
-    it('drops entries not hosted on the given component (new reference)', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
-        const next = prunePoolToComponent(pool, items, 'comp-a');
-
-        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
-        expect(next).not.toBe(pool);
-    });
-
-    it('removes types and recipes that become empty', () => {
+    it('drops pooled items that are no longer live and keeps the rest', () => {
         const pool = {
-            knife_to_t1: { knife: ['item-2'] },
-            other: { b: ['item-2'] }
+            knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-gone', 'comp-a')] },
+            dual: { a: [entry('item-2', 'comp-b')] }
         };
-        expect(prunePoolToComponent(pool, items, 'comp-a')).toEqual({});
+        const next = prunePool(pool, items);
+        expect(next).not.toBe(pool);
+        expect(next).toEqual({
+            knife_to_t1: { knife: [entry('item-1', 'comp-a')] },
+            dual: { a: [entry('item-2', 'comp-b')] }
+        });
     });
 
-    it('drops a pooled ID that is no longer in the items map at all', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-gone'] } };
-        expect(prunePoolToComponent(pool, items, 'comp-a'))
-            .toEqual({ knife_to_t1: { knife: ['item-1'] } });
+    it('drops an entry whose item MOVED to a different component (host changed)', () => {
+        const fresh = {
+            'comp-a': [],
+            'comp-b': [{ id: 'item-1', type: 'knife' }]
+        };
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(prunePool(pool, fresh)).toEqual({});
+    });
+
+    it('keeps entries whose recorded host still matches (incl. nested and __unassigned__ hosts)', () => {
+        const fresh = {
+            'comp-a': [{ id: 'item-1', type: 'knife' }],
+            'item-container': [{ id: 'item-2', type: 'knife' }],
+            '__unassigned__': [{ id: 'item-3', type: 'knife' }]
+        };
+        const pool = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'item-container'),
+                    entry('item-3', '__unassigned__')
+                ]
+            }
+        };
+        expect(prunePool(pool, fresh)).toBe(pool);
     });
 
     it('returns the same reference when nothing changed', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        expect(prunePoolToComponent(pool, items, 'comp-a')).toBe(pool);
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(prunePool(pool, items)).toBe(pool);
     });
 
-    it('clears everything when the component is null', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
-        expect(prunePoolToComponent(pool, items, null)).toEqual({});
+    it('treats a null map as "everything stale"', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(prunePool(pool, null)).toEqual({});
     });
 
-    it('H3 scenario: cross-component pooled knives collapse to the strip component before the POST', () => {
-        const itemsMap = {
-            droidHead: [{ id: 'kA', type: 'knife' }],
-            droidArm: [{ id: 'kB', type: 'knife' }]
+    it('removes types/recipes that become empty after pruning', () => {
+        const pool = {
+            knife_to_t1: { knife: [entry('item-1', 'comp-a')] },
+            dual: { a: [entry('item-1', 'comp-a')] }
         };
-        const pool = { knife_to_t1: { knife: ['kA', 'kB'] } };
+        expect(prunePool(pool, {})).toEqual({});
+    });
 
-        const next = prunePoolToComponent(pool, itemsMap, 'droidArm');
-        expect(next).toEqual({ knife_to_t1: { knife: ['kB'] } });
-
-        // 1-of-2 → unsatisfied → no auto-craft → the 400 loop is
-        // structurally impossible (selectCraftItemIds returns null, the
-        // signal that a craft must never fire).
-        expect(selectCraftItemIds(KNIFE_TO_T1, next)).toBeNull();
-        expect(computeRecipeSatisfaction(KNIFE_TO_T1, next).satisfied).toBe(false);
+    it('prunes with the fresh map supplying BOTH facts (liveness and host) in one pass', () => {
+        // item-2 moved comp-a → comp-b; item-3 vanished; item-1 still on comp-a.
+        const fresh = {
+            'comp-a': [{ id: 'item-1', type: 'knife' }],
+            'comp-b': [{ id: 'item-2', type: 'knife' }]
+        };
+        const pool = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'comp-a'),
+                    entry('item-3', 'comp-a')
+                ]
+            }
+        };
+        expect(prunePool(pool, fresh)).toEqual({
+            knife_to_t1: { knife: [entry('item-1', 'comp-a')] }
+        });
     });
 });
+
+// --- getLiveItemIds ------------------------------------------------------------------
+
+describe('getLiveItemIds', () => {
+    it('flattens all item ids across groups', () => {
+        expect(getLiveItemIds(ITEMS_BY_COMPONENT)).toEqual([
+            'item-1', 'item-2', 'item-3', 'nested-1', 'loose-1'
+        ]);
+    });
+
+    it('returns [] for empty/null/undefined maps', () => {
+        expect(getLiveItemIds({})).toEqual([]);
+        expect(getLiveItemIds(null)).toEqual([]);
+        expect(getLiveItemIds(undefined)).toEqual([]);
+    });
+
+    it('skips non-array group values (defensive)', () => {
+        expect(getLiveItemIds({ 'comp-a': 'oops', 'comp-b': [{ id: 'item-9' }] }))
+            .toEqual(['item-9']);
+    });
+
+    it('skips non-object / id-less entries', () => {
+        expect(getLiveItemIds({ 'comp-a': [null, { type: 'knife' }, { id: 'item-7' }] }))
+            .toEqual(['item-7']);
+    });
+
+    it('keeps duplicates if an item is listed under multiple groups', () => {
+        expect(getLiveItemIds({ 'comp-a': [{ id: 'dup' }], 'comp-b': [{ id: 'dup' }] }))
+            .toEqual(['dup', 'dup']);
+    });
+});
+
+// --- getCraftableHost (same-host auto-craft rule) --------------------------------------
+
+describe('getCraftableHost', () => {
+    it('returns the single shared host when the recipe is satisfied and all inputs share it', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-a')] } };
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
+    });
+
+    it('returns null when the inputs are satisfied but SPLIT across hosts (must not auto-fire)', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBeNull();
+    });
+
+    it('returns null when the pool cannot satisfy the recipe (short or empty)', () => {
+        const sameHost = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(getCraftableHost(KNIFE_TO_T1, sameHost)).toBeNull();
+        expect(getCraftableHost(KNIFE_TO_T1, {})).toBeNull();
+    });
+
+    it('resolves a shared host across multiple input types', () => {
+        const pool = {
+            dual_recipe: {
+                a: [entry('item-a1', 'comp-x')],
+                b: [entry('item-b1', 'comp-x'), entry('item-b2', 'comp-x')]
+            }
+        };
+        expect(getCraftableHost(DUAL_RECIPE, pool)).toBe('comp-x');
+    });
+
+    it('counts extra pooled items of the same type toward the host check (overfill)', () => {
+        // 3 knives on comp-a for a 2-knife recipe → all share the host → may fire
+        // (selectCraftItemIds takes exactly two).
+        const pool = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'comp-a'),
+                    entry('item-3', 'comp-a')
+                ]
+            }
+        };
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
+
+        // The same overfill split across hosts must NOT fire.
+        const split = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'comp-a'),
+                    entry('item-3', 'comp-b')
+                ]
+            }
+        };
+        expect(getCraftableHost(KNIFE_TO_T1, split)).toBeNull();
+    });
+
+    it('returns null when a pooled entry carries no usable host, even if satisfied', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), { id: 'item-2', host: '' }] } };
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBeNull();
+    });
+
+    it('returns null for a malformed/absent recipe', () => {
+        expect(getCraftableHost(null, {})).toBeNull();
+        expect(getCraftableHost({ id: 'x', inputs: [] }, {})).toBeNull();
+    });
+});
+
+// --- pooledIdsKey (re-arm guard) ---------------------------------------------------------
 
 describe('pooledIdsKey', () => {
     it('same pooled set → same key (order-insensitive)', () => {
-        const poolA = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
-        const poolB = { knife_to_t1: { knife: ['item-2', 'item-1'] } };
-
+        const poolA = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
+        const poolB = { knife_to_t1: { knife: [entry('item-2', 'comp-b'), entry('item-1', 'comp-a')] } };
         expect(pooledIdsKey(KNIFE_TO_T1, poolA)).toBe(pooledIdsKey(KNIFE_TO_T1, poolB));
     });
 
-    it('different set → different key', () => {
-        const poolA = { knife_to_t1: { knife: ['item-1'] } };
-        const poolB = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
-
+    it('different sets → different keys', () => {
+        const poolA = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        const poolB = { knife_to_t1: { knife: [entry('item-2', 'comp-a')] } };
         expect(pooledIdsKey(KNIFE_TO_T1, poolA)).not.toBe(pooledIdsKey(KNIFE_TO_T1, poolB));
     });
 
-    it('empty pool → stable empty key', () => {
-        expect(pooledIdsKey(KNIFE_TO_T1, {})).toBe('');
-        expect(pooledIdsKey(KNIFE_TO_T1, undefined)).toBe('');
-        expect(pooledIdsKey(KNIFE_TO_T1, { other: { a: ['item-1'] } })).toBe('');
+    it('a host change alone does NOT change the key (the re-arm guard is ID-set based)', () => {
+        const poolA = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        const poolB = { knife_to_t1: { knife: [entry('item-1', 'comp-b')] } };
+        expect(pooledIdsKey(KNIFE_TO_T1, poolA)).toBe(pooledIdsKey(KNIFE_TO_T1, poolB));
     });
 
-    it("spans all of the recipe's types", () => {
-        const pool = { dual: { a: ['item-1'], b: ['item-2', 'item-3'] } };
-
-        expect(pooledIdsKey(DUAL_RECIPE, pool)).toBe('item-1\u0000item-2\u0000item-3');
+    it('empty pool → empty string key', () => {
+        expect(pooledIdsKey(KNIFE_TO_T1, {})).toBe('');
+        expect(pooledIdsKey(KNIFE_TO_T1, null)).toBe('');
     });
 });
+
+// --- escapeHtml ---------------------------------------------------------------------------
 
 describe('escapeHtml', () => {
     it('escapes the five HTML metacharacters', () => {
@@ -490,6 +547,14 @@ describe('escapeHtml', () => {
         // \u0026 === '&' at runtime, so the assertion checks the exact
         // entity form.
         expect(escapeHtml('a"b<c>&d\'e')).toBe('a\u0026quot;b\u0026lt;c\u0026gt;\u0026amp;d\u0026#39;e');
+    });
+
+    it('escapes backticks and equals as well', () => {
+        expect(escapeHtml('`x=y`')).toBe('\u0026#96;x\u0026#61;y\u0026#96;');
+    });
+
+    it('does not double-escape already-escaped input', () => {
+        expect(escapeHtml('\u0026amp;')).toBe('\u0026amp;amp;');
     });
 
     it('coerces non-string values via String()', () => {
@@ -501,111 +566,99 @@ describe('escapeHtml', () => {
     });
 });
 
-describe('computeRecipeSatisfaction', () => {
-    it('empty pool: knife recipe is unsatisfied with the knife entry missing', () => {
-        const { satisfied, entries, missing } = computeRecipeSatisfaction(KNIFE_TO_T1, {});
+// --- computeRecipeSatisfaction (pinned semantics) --------------------------------------------
 
-        expect(satisfied).toBe(false);
-        expect(entries).toEqual([{ type: 'knife', have: 0, need: 2, isMet: false }]);
-        expect(missing).toHaveLength(1);
-        expect(missing[0].type).toBe('knife');
+describe('computeRecipeSatisfaction', () => {
+    it('satisfied when the pool holds the exact required count', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
+        const { satisfied, entries, missing } = computeRecipeSatisfaction(KNIFE_TO_T1, pool);
+        expect(satisfied).toBe(true);
+        expect(entries).toEqual([{ type: 'knife', have: 2, need: 2, isMet: true }]);
+        expect(missing).toEqual([]);
     });
 
-    it('partially filled pool: not satisfied, correct have/need counts', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
+    it('unsatisfied when an input type is short (exact multiset, not total count)', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
         const { satisfied, entries, missing } = computeRecipeSatisfaction(KNIFE_TO_T1, pool);
-
         expect(satisfied).toBe(false);
         expect(entries[0]).toEqual({ type: 'knife', have: 1, need: 2, isMet: false });
         expect(missing).toEqual(entries);
     });
 
-    it('exact fill: satisfied, no missing entries', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+    it('item types that are not recipe inputs are ignored (never count toward satisfaction)', () => {
+        const pool = { knife_to_t1: { t1: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
         const { satisfied, missing } = computeRecipeSatisfaction(KNIFE_TO_T1, pool);
-
-        expect(satisfied).toBe(true);
-        expect(missing).toEqual([]);
-    });
-
-    it('overfilled pool still counts as satisfied (have may exceed need)', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2', 'item-3'] } };
-        const { satisfied, entries } = computeRecipeSatisfaction(KNIFE_TO_T1, pool);
-
-        expect(satisfied).toBe(true);
-        expect(entries[0].have).toBe(3);
-        expect(entries[0].isMet).toBe(true);
-    });
-
-    it('a recipe with multiple input types requires ALL of them', () => {
-        // Only 'a' present — 'b' still missing
-        const pool1 = { dual: { a: ['item-1'] } };
-        expect(computeRecipeSatisfaction(DUAL_RECIPE, pool1).satisfied).toBe(false);
-
-        // Both present at quantity
-        const pool2 = { dual: { a: ['item-1'], b: ['item-2', 'item-3'] } };
-        const result = computeRecipeSatisfaction(DUAL_RECIPE, pool2);
-        expect(result.satisfied).toBe(true);
-        expect(result.missing).toEqual([]);
-    });
-
-    it('ignores item types that are not recipe inputs (they never count)', () => {
-        const pool = { knife_to_t1: { t1: ['item-1'] } };
-        const { satisfied, entries } = computeRecipeSatisfaction(KNIFE_TO_T1, pool);
-
         expect(satisfied).toBe(false);
-        expect(entries[0].have).toBe(0);
+        expect(missing).toHaveLength(1);
     });
 
-    it('treats a malformed/absent recipe as never satisfied (never auto-crafts)', () => {
-        expect(computeRecipeSatisfaction(null, {}).satisfied).toBe(false);
-        expect(computeRecipeSatisfaction(undefined, {}).satisfied).toBe(false);
-        expect(computeRecipeSatisfaction({ id: 'x', inputs: [] }, {}).satisfied).toBe(false);
+    it('a recipe with no inputs is NEVER satisfied (defensive)', () => {
+        const { satisfied } = computeRecipeSatisfaction({ id: 'r', inputs: [] }, {});
+        expect(satisfied).toBe(false);
+    });
+
+    it('an input with quantity <= 0 is NEVER met (mirrors the server rule)', () => {
+        const { satisfied } = computeRecipeSatisfaction(
+            { id: 'r', inputs: [{ type: 'a', quantity: 0 }] },
+            { r: { a: [entry('i', 'comp-a')] } }
+        );
+        expect(satisfied).toBe(false);
+    });
+
+    it('repeated input entries of the same type each demand their own quantity', () => {
+        const pool = {
+            dup_recipe: {
+                a: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')]
+            }
+        };
+        const { satisfied, entries } = computeRecipeSatisfaction(DUP_TYPE_RECIPE, pool);
+        expect(satisfied).toBe(true);
+        expect(entries.map((e) => e.need)).toEqual([1, 1]);
+        expect(entries.every((e) => e.isMet)).toBe(true);
+    });
+
+    it('a null recipe is unsatisfied (defensive)', () => {
+        const { satisfied } = computeRecipeSatisfaction(null, {});
+        expect(satisfied).toBe(false);
     });
 });
 
+// --- selectCraftItemIds (exact multiset, drop order) ---------------------------------------------
+
 describe('selectCraftItemIds', () => {
-    it('returns the pooled item IDs in drop order for a satisfied recipe', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+    it('returns the exact required item IDs in drop order', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
         expect(selectCraftItemIds(KNIFE_TO_T1, pool)).toEqual(['item-1', 'item-2']);
     });
 
-    it('takes exactly the required amount when the pool has extras (first-in-drop-order)', () => {
-        const pool = { knife_to_t1: { knife: ['item-1', 'item-2', 'item-3', 'item-4'] } };
-        expect(selectCraftItemIds(KNIFE_TO_T1, pool)).toEqual(['item-1', 'item-2']);
-    });
-
-    it('returns null when the pool cannot satisfy the recipe', () => {
-        const pool = { knife_to_t1: { knife: ['item-1'] } };
+    it('returns null when the pool is short (never sends extra, never pads)', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
         expect(selectCraftItemIds(KNIFE_TO_T1, pool)).toBeNull();
-        expect(selectCraftItemIds(KNIFE_TO_T1, {})).toBeNull();
     });
 
-    it('concatenates multiple input types in recipe input order', () => {
-        const pool = {
-            dual: {
-                a: ['item-a1'],
-                b: ['item-b1', 'item-b2']
-            }
-        };
-        expect(selectCraftItemIds(DUAL_RECIPE, pool)).toEqual(['item-a1', 'item-b1', 'item-b2']);
+    it('returns null for a recipe with no inputs (defensive)', () => {
+        expect(selectCraftItemIds({ id: 'r', inputs: [] }, {})).toBeNull();
     });
 
-    it('sums quantities when a type appears in multiple input entries', () => {
-        const pool = {
-            dup: {
-                a: ['item-a1', 'item-a2']
-            }
-        };
-        expect(selectCraftItemIds(DUP_TYPE_RECIPE, pool)).toEqual(['item-a1', 'item-a2']);
-
-        // Only one of the two required 'a' items → unsatisfiable
-        const partial = { dup: { a: ['item-a1'] } };
-        expect(selectCraftItemIds(DUP_TYPE_RECIPE, partial)).toBeNull();
-    });
-
-    it('returns null for a malformed/absent recipe', () => {
+    it('returns null for a null recipe (defensive)', () => {
         expect(selectCraftItemIds(null, {})).toBeNull();
-        expect(selectCraftItemIds({ id: 'x', inputs: [] }, {})).toBeNull();
+    });
+
+    it('takes exactly the required amount when over-filled (first-in-drop-order)', () => {
+        const pool = {
+            knife_to_t1: {
+                knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-a'), entry('item-3', 'comp-b')]
+            }
+        };
+        expect(selectCraftItemIds(KNIFE_TO_T1, pool)).toEqual(['item-1', 'item-2']);
+    });
+
+    it('handles repeated input entries of the same type against the shared per-type pool', () => {
+        const pool = {
+            dup_recipe: {
+                a: [entry('item-1', 'comp-a'), entry('item-2', 'comp-a')]
+            }
+        };
+        expect(selectCraftItemIds(DUP_TYPE_RECIPE, pool)).toEqual(['item-1', 'item-2']);
     });
 });

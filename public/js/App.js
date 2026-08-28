@@ -82,13 +82,7 @@ export class ClientApp {
         // had no other callers. Room node clicks are now no-ops.
         this.worldMap = new WorldMapView({});
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
-        this.crafting = new CraftingPanel({
-            worldStateManager: this.worldState,
-            getSelectedComponentId: () => {
-                const ids = this.selection.getSelectedComponentIdsArray();
-                return ids.length ? ids[0] : null;
-            }
-        });
+        this.crafting = new CraftingPanel({ worldStateManager: this.worldState });
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();

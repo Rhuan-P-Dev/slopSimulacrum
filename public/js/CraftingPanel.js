@@ -5,11 +5,13 @@
  * no range/spatial validation, no turn consumed.
  *
  * Two zones:
- *   1. Available-items strip — item cards of the currently selected
- *      component (drag sources). The component resolves as: first ID from
- *      SelectionController (injected resolver), else the first component
- *      holding an item that matches any recipe input, else the first
- *      component holding any item.
+ *   1. Available-items strip — one section per entity component that holds
+ *      at least one top-level item (groupItemsByComponent over the GET
+ *      /inventory/:entityId map). Sections are ordered by the entity's
+ *      component order, each headed by the component's readable name (never
+ *      a raw comp- ID) plus an item count, and holding that component's
+ *      item cards. Container-keyed (nested) groups and __unassigned__ have
+ *      no section — nested items must be moved out in the inventory UI first.
  *   2. Recipe cards (CSS grid) — one card per recipe from
  *      GET /crafting/recipes; item display names/volumes resolve client-side
  *      from GET /inventory/registry (single source of truth).
@@ -19,26 +21,34 @@
  *   - dragover on a recipe card: always preventDefault; green --valid when
  *     the dragged item's type matches an UNSATISFIED input of that recipe,
  *     dimmed --invalid otherwise
- *   - drop appends the item to the client-local pending pool (deduped by
- *     item ID — an item is tracked exactly once, in exactly one recipe)
- *   - when all inputs of a card reach quantity the card gets --satisfied
- *     and the craft auto-executes (POST /crafting/:entityId/craft)
+ *   - drop appends the item — together with the component that hosts it —
+ *     to the client-local pending pool (deduped by item ID: one physical
+ *     instance is proposed to at most one recipe)
+ *   - when all inputs of a card are satisfied AND every pooled input is
+ *     hosted on the same component, the craft auto-executes (POST
+ *     /crafting/:entityId/craft naming that shared component); a satisfied
+ *     pool split across hosts shows a "same component" hint and never POSTs
+ *   - dragend/dragleave clear transient highlight classes (same hygiene as
+ *     InventoryManager)
  *
  * The POST 200 body is used ONLY for an immediate "Crafted ✓" flash. The
  * authoritative inventory update arrives via the world-state-update
  * broadcast → refreshWorldAndActions() → refreshIfOpen(), so this panel
  * never applies manual inventory edits from the response.
  *
- * The pure pool/satisfaction/liveness/resolution logic is extracted as
- * named exports (addToPendingPool, removeFromPendingPool, clearPendingPool,
- * getPoolItemIds, getLiveItemIds, resolveCraftingComponent, prunePool,
- * prunePoolToComponent, pooledIdsKey, escapeHtml,
- * computeRecipeSatisfaction, selectCraftItemIds) and unit-tested without
- * any DOM (test/unit/CraftingPanel.test.js); the class below owns the DOM
- * wiring. Standing rule: every server-fetched map is defensive — guard
- * group values with Array.isArray before iteration. Every server-sourced
- * value is interpolated only through _escapeHtml; lookups by attribute use
- * dataset comparison, never selector interpolation.
+ * The pure grouping/naming/pool/satisfaction/host logic is extracted as
+ * named exports (groupItemsByComponent, formatTypeName,
+ * resolveComponentLabel, addToPendingPool, removeFromPendingPool,
+ * clearPendingPool, getPoolItemIds, getLiveItemIds, prunePool,
+ * pooledIdsKey, escapeHtml, computeRecipeSatisfaction, selectCraftItemIds,
+ * getCraftableHost) and unit-tested without any DOM
+ * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
+ * Standing rule: every server-fetched map is defensive — guard group values
+ * with Array.isArray before iteration. Every server-sourced value is
+ * interpolated only through _escapeHtml; lookups by attribute use dataset
+ * comparison, never selector interpolation. No raw comp- ID is ever
+ * rendered as a user-facing label (resolveComponentLabel falls back to
+ * "Unknown" instead).
  *
  * Logging: ClientLogger only (BUG-123 — no console.* on the client).
  *
@@ -46,32 +56,127 @@
  */
 import ClientLogger from '/utils/ClientLogger.js';
 
-/**
- * MIME type for dragged crafting items (custom, per the crafting design
- * spec — distinct from InventoryManager's 'text/plain' item moves).
- */
+/** dataTransfer MIME for dragging a crafting item card */
 const CRAFTING_ITEM_MIME = 'application/x-crafting-item';
 
 /**
- * Adds an item to a recipe's pending pool (pure, immutable).
+ * Groups a fresh GET /inventory/:entityId map into the per-component strip
+ * sections (pure): one `{componentId, items}` per NON-EMPTY entity component,
+ * ordered by the entity's component order (the `entityComponentIds`
+ * argument), never by items-map insertion order.
  *
- * De-duplication rule: an item ID appears at most ONCE across the whole
- * pool (it can physically only be consumed by one craft), so adding an
- * ID that already exists anywhere returns the pool unchanged. Callers are
- * expected to only pass item types that are valid inputs of the target
- * recipe (the panel enforces that before calling).
+ * The items map is keyed by the item's host: entity-component IDs (comp-…),
+ * container item IDs (nested items), or `__unassigned__`. Only groups whose
+ * key is one of the entity's own component IDs are returned — container-
+ * keyed (nested) and unhosted items stay OUT of the crafting strip: their
+ * host is not a component a craft request can name, so they must be moved
+ * out in the inventory UI first.
  *
- * @param {Object} pool - Pending pool: { [recipeId]: { [itemType]: [itemId, ...] } }.
- * @param {string} recipeId - Recipe the item was dropped onto.
- * @param {string} itemType - The item's type ID (a recipe input type).
- * @param {string} itemId - The item instance's typed ID (item-uuid).
- * @returns {Object} A new pool object with the item added, or the same
- *   pool reference when the add is a no-op (empty args or duplicate ID).
+ * @param {Object|null} itemsByComponent - GET /inventory/:entityId map
+ *   `{ [hostId]: [item, ...] }`.
+ * @param {string[]} entityComponentIds - The entity's component IDs in
+ *   entity order (stable strip order).
+ * @returns {Array<{componentId: string, items: Array<Object>}>} One entry per
+ *   non-empty entity-component group; items are filtered to well-formed
+ *   entries (object with a string `id`), in their original order.
  */
-export function addToPendingPool(pool, recipeId, itemType, itemId) {
-    if (!recipeId || !itemType || typeof itemId !== 'string' || itemId.length === 0) {
+export function groupItemsByComponent(itemsByComponent, entityComponentIds) {
+    const groups = [];
+    if (!Array.isArray(entityComponentIds)) return groups;
+    const map = itemsByComponent ?? {};
+    for (const componentId of entityComponentIds) {
+        if (typeof componentId !== 'string' || componentId.length === 0) continue;
+        const items = map[componentId];
+        if (!Array.isArray(items)) continue;
+        const valid = items.filter((it) => it && typeof it.id === 'string');
+        if (valid.length > 0) {
+            groups.push({ componentId, items: valid });
+        }
+    }
+    return groups;
+}
+
+/**
+ * Formats an identifier as a readable, human-friendly label (pure):
+ * `snake_case`, `kebab-case` and camelCase boundaries are split into words
+ * and each word is title-cased — the readable-name convention shared with
+ * the inventory panel, extended so camelCase component types (`droidHead`
+ * → "Droid Head") and simple ids (`t1` → "T1") both read naturally.
+ *
+ * @param {string} value - Raw type/identifier value (may be non-string;
+ *   coerced).
+ * @returns {string} Formatted label.
+ */
+export function formatTypeName(value) {
+    return String(value)
+        .replace(/[_-]+/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .filter(Boolean)
+        .map((word) => word[0].toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+/**
+ * Resolves the readable display name for a component (pure) — the group
+ * header label. The component's own reference on the droid (which may carry
+ * its `type` directly) wins, then the component stats store's `type` /
+ * `entityComponentType` (the inventory panel's convention). The result is
+ * NEVER a raw comp- ID: when no type can be resolved, "Unknown" is
+ * returned instead (a raw-ID strip label was the reported defect).
+ *
+ * @param {string} componentId - The component to name.
+ * @param {Array|null} entityComponents - The droid's `components` array
+ *   (entries may be ID strings or `{id, type}` objects).
+ * @param {Object|null} componentInstances - `state.components.instances` map.
+ * @returns {string} The formatted readable name, or "Unknown".
+ */
+export function resolveComponentLabel(componentId, entityComponents, componentInstances) {
+    let type = null;
+    if (Array.isArray(entityComponents)) {
+        const ref = entityComponents.find((c) =>
+            (typeof c === 'string' ? c : (c && c.id)) === componentId);
+        if (ref && typeof ref === 'object' && typeof ref.type === 'string' && ref.type) {
+            type = ref.type;
+        }
+    }
+    if (!type) {
+        const inst = componentInstances?.[componentId];
+        const candidate = inst?.type || inst?.entityComponentType;
+        if (typeof candidate === 'string' && candidate.length > 0
+            && candidate.toLowerCase() !== 'unknown') {
+            type = candidate;
+        }
+    }
+    return type ? formatTypeName(type) : 'Unknown';
+}
+
+/**
+ * Pools an item into a recipe's pending set, recording the component that
+ * hosts it (pure, immutable). Returns a NEW pool object with the entry
+ * appended, or the SAME reference when the add is a no-op:
+ *   - any empty/invalid argument (recipeId, itemType, a string itemId, a
+ *     string host) — mirrors the "empty args → no-op" rule, and
+ *   - the item ID is already pooled ANYWHERE (global dedupe): one physical
+ *     instance is proposed to at most one recipe, so adding it again — to
+ *     the same or a different recipe/type — is a no-op.
+ *
+ * @param {Object} pool - The pending pool `{ [recipeId]: { [itemType]: [{id, host}] } }`.
+ * @param {string} recipeId - Target recipe ID.
+ * @param {string} itemType - The item's type (must be one of the recipe's input types).
+ * @param {string} itemId - The item instance ID to pool.
+ * @param {string} host - The component that hosts the item (the group key it
+ *   was dropped from); recorded per item so the shared craft host can be
+ *   resolved later (getCraftableHost).
+ * @returns {Object} The new pool, or the same reference (no-op).
+ */
+export function addToPendingPool(pool, recipeId, itemType, itemId, host) {
+    if (!recipeId || !itemType ||
+        typeof itemId !== 'string' || itemId.length === 0 ||
+        typeof host !== 'string' || host.length === 0) {
         return pool;
     }
+    // Global dedupe: one physical instance is proposed to at most one recipe.
     if (getPoolItemIds(pool).includes(itemId)) {
         return pool;
     }
@@ -81,23 +186,23 @@ export function addToPendingPool(pool, recipeId, itemType, itemId) {
         ...pool,
         [recipeId]: {
             ...recipePool,
-            [itemType]: [...existing, itemId]
+            [itemType]: [...existing, { id: itemId, host }]
         }
     };
 }
 
 /**
- * Removes a recipe's entries from the pending pool (pure, immutable).
- * Used after a successful craft: that recipe's pooled items were consumed,
- * while other recipes' in-progress pools are preserved.
+ * Removes all pooled entries for a recipe (pure, immutable). Called after a
+ * successful craft: those items were consumed by the server. Returns a NEW
+ * pool, or the SAME reference when the recipe had no pooled entries
+ * (no-op).
  *
  * @param {Object} pool - The pending pool.
- * @param {string} recipeId - The recipe whose entries to remove.
- * @returns {Object} A new pool without that recipe, or the same reference
- *   when the recipe has no entries.
+ * @param {string} recipeId - The recipe to clear.
+ * @returns {Object} The new pool, or the same reference (no-op).
  */
 export function removeFromPendingPool(pool, recipeId) {
-    if (!recipeId || !(recipeId in (pool || {}))) {
+    if (!recipeId || !pool[recipeId]) {
         return pool;
     }
     const next = { ...pool };
@@ -106,25 +211,33 @@ export function removeFromPendingPool(pool, recipeId) {
 }
 
 /**
- * Clears the pending pool (pure).
- * @param {Object} _pool - The pending pool to clear.
- * @returns {Object} A fresh empty pool.
+ * Clears the entire pending pool (pure, immutable). Used when the panel is
+ * closed/hidden: pending drops are never POSTed, so discarding them is
+ * correct — the server inventory is untouched and will be re-fetched on the
+ * next open. Returns a fresh empty object.
+ *
+ * @param {Object} _pool - The pending pool (unused; kept for a stable
+ *   signature).
+ * @returns {Object} A new empty pool.
  */
 export function clearPendingPool(_pool) {
     return {};
 }
 
 /**
- * Returns all pooled item IDs in insertion order (pure).
+ * Flattens a pending pool to its pooled item IDs (pure). Used for the
+ * global-dedupe check in addToPendingPool.
+ *
  * @param {Object} pool - The pending pool.
- * @returns {string[]} Flat list of item IDs across all recipes/types.
+ * @returns {string[]} Pooled item IDs.
  */
 export function getPoolItemIds(pool) {
     const ids = [];
     for (const byType of Object.values(pool || {})) {
-        for (const itemIds of Object.values(byType || {})) {
-            for (const id of itemIds) {
-                ids.push(id);
+        for (const entries of Object.values(byType || {})) {
+            if (!Array.isArray(entries)) continue;
+            for (const e of entries) {
+                if (e && typeof e.id === 'string') ids.push(e.id);
             }
         }
     }
@@ -132,13 +245,15 @@ export function getPoolItemIds(pool) {
 }
 
 /**
- * Flattens the GET /inventory/:entityId items map into the list of live
- * item IDs. Written for the SERVER shape {componentId: [item, ...]}:
- * group keys are host component IDs but may also be container item IDs
- * (nested items, InventoryManager.getEntityItems) or '__unassigned__',
- * so only array-valued groups are walked and only string `id`s collected.
- * @param {Object|null} itemsByComponent
- * @returns {string[]}
+ * Flattens a fresh GET /inventory/:entityId map to its live item IDs
+ * (pure). Guarded: skips non-array group values (defensive against a
+ * malformed shape) and non-object / id-less entries; duplicates can
+ * theoretically appear if an item is listed under multiple groups, and the
+ * result preserves that.
+ *
+ * @param {Object|null} itemsByComponent - GET /inventory/:entityId map
+ *   `{ [hostId]: [item, ...] }`.
+ * @returns {string[]} Live item IDs.
  */
 export function getLiveItemIds(itemsByComponent) {
     const ids = [];
@@ -152,82 +267,26 @@ export function getLiveItemIds(itemsByComponent) {
 }
 
 /**
- * Resolves which component the strip shows. ONLY entity-component IDs may
- * be returned: items-map group keys can be container item IDs (nested
- * items) or '__unassigned__', which must never be POSTed (the route
- * rejects non-comp- IDs).
- *   1) the selected component, if it is an entity component;
- *   2) the entity component holding the MOST items of any recipe-input type
- *      (ties broken by component order) — the "useful default": the component
- *      most able to satisfy a recipe, so a component holding a single knife
- *      can never shadow a later one holding the whole craftable set;
- *   3) the entity component holding the most items (ties broken by component
- *      order) — used once no recipe input is reachable, so the strip shows
- *      the richest inventory instead of the first (often a lone container);
- *   4) the entity's first component; null if none.
- * @param {{selectedId: string|null, entityComponentIds: string[], itemsByComponent: Object|null, recipeInputTypes: string[]}} args
- * @returns {string|null}
- */
-export function resolveCraftingComponent({ selectedId, entityComponentIds, itemsByComponent, recipeInputTypes }) {
-    // 1) The selected component wins when it is an entity component
-    //    (never a raw items-map group key).
-    if (selectedId && entityComponentIds.includes(selectedId)) {
-        return selectedId;
-    }
-
-    // 2) and 3) walk the entity's components IN ORDER and rank each by how
-    //    useful it is, looking each key up in the items map — raw group keys
-    //    (container item IDs, '__unassigned__') can never leak into the
-    //    result, and ties keep the stable component order. Ranking by count
-    //    (not first-match) is what keeps the strip pointed at the component
-    //    that can actually feed the recipes: a first-match scan let a
-    //    component holding one knife (or a lone container, once every
-    //    knife is nested) shadow a later component holding the full set.
-    const groups = itemsByComponent ?? {};
-    const itemsOf = (compId) => {
-        const items = groups[compId];
-        return Array.isArray(items) ? items : [];
-    };
-    const bestBy = (scoreFn) => {
-        let best = null;
-        let bestScore = 0;
-        for (const compId of entityComponentIds) {
-            const score = scoreFn(itemsOf(compId));
-            if (score > bestScore) {
-                best = compId;
-                bestScore = score;
-            }
-        }
-        return best;
-    };
-    if (recipeInputTypes.length > 0) {
-        const relevant = new Set(recipeInputTypes);
-        const best = bestBy(items =>
-            items.reduce((n, item) => n + (item && relevant.has(item.type) ? 1 : 0), 0));
-        if (best) return best;
-    }
-    const best = bestBy(items => items.length);
-    if (best) return best;
-    return entityComponentIds[0] ?? null;
-}
-
-/**
- * Shared entry-splicing mechanics for the two pool pruners (private, pure):
- * filters each type's ID list through keepIdFn, drops types and recipes
- * that become empty, and returns the SAME pool reference when nothing
- * changed (callers rely on that for cheap no-op refreshes).
+ * Shared entry-splicing mechanics for pool pruning (private, pure):
+ * filters each type's entry list through keepEntryFn, drops types and
+ * recipes that become empty, and returns the SAME pool reference when
+ * nothing changed (callers rely on that for cheap no-op refreshes).
  * @param {Object} pool - The pending pool.
- * @param {(id: string) => boolean} keepIdFn - Whether an ID survives.
+ * @param {(entry: {id: string, host: string}) => boolean} keepEntryFn - Whether an entry survives.
  * @returns {Object} A new pruned pool, or the same reference when unchanged.
  */
-function _pruneEntries(pool, keepIdFn) {
+function _pruneEntries(pool, keepEntryFn) {
     const pruned = {};
     let changed = false;
     for (const [recipeId, byType] of Object.entries(pool || {})) {
         const recipeEntry = {};
-        for (const [type, itemIds] of Object.entries(byType || {})) {
-            const kept = itemIds.filter(keepIdFn);
-            if (kept.length !== itemIds.length) changed = true;
+        for (const [type, entries] of Object.entries(byType || {})) {
+            if (!Array.isArray(entries)) {
+                changed = true;
+                continue;
+            }
+            const kept = entries.filter(keepEntryFn);
+            if (kept.length !== entries.length) changed = true;
             if (kept.length > 0) recipeEntry[type] = kept;
         }
         if (Object.keys(recipeEntry).length > 0) {
@@ -240,38 +299,21 @@ function _pruneEntries(pool, keepIdFn) {
 }
 
 /**
- * Drops pooled items that no longer exist in the live inventory (pure).
- * Called on every broadcast refresh so the pool never references a
- * consumed/removed instance (e.g. after another client or an NPC mutated
- * the same component).
+ * Drops pool entries that are stale against the fresh GET /inventory map
+ * (pure). An entry survives only when its item is still present AND still
+ * hosted on the component recorded at drop time — the fresh map carries
+ * both facts (its group key is the item's current host). Called on every
+ * broadcast refresh so the pool never references a consumed/removed
+ * instance, and never claims a host the item has since moved away from
+ * (another client or an NPC may have moved the same component's inventory).
  *
  * @param {Object} pool - The pending pool.
- * @param {Iterable<string>} liveItemIds - Item IDs currently present in the
- *   entity's inventory (any component).
+ * @param {Object|null} itemsByComponent - Fresh GET /inventory/:entityId map.
  * @returns {Object} A new pool with stale entries removed, or the same
  *   reference when nothing changed.
  */
-export function prunePool(pool, liveItemIds) {
-    const live = new Set(liveItemIds);
-    return _pruneEntries(pool, (id) => live.has(id));
-}
-
-/**
- * Drops pool entries not hosted on the given component (pure). The pool is
- * bound to the strip component: a POST names exactly one component (server
- * contract, WorldStateController step 4), so entries from other components
- * can never be consumed together and would only produce guaranteed
- * INVALID_ITEM failures.
- * @param {Object} pool - The pending pool.
- * @param {Object|null} itemsByComponent - fresh GET /inventory map
- * @param {string|null} componentId - The strip component to bind to
- *   (null clears everything: with no resolvable component no valid POST
- *   is possible).
- * @returns {Object} (same reference when nothing changed)
- */
-export function prunePoolToComponent(pool, itemsByComponent, componentId) {
-    // An item's host is the items-map group key it appears under (array
-    // groups only, same guards as getLiveItemIds).
+export function prunePool(pool, itemsByComponent) {
+    const live = new Set(getLiveItemIds(itemsByComponent));
     const hostOf = new Map();
     for (const [groupKey, items] of Object.entries(itemsByComponent ?? {})) {
         if (!Array.isArray(items)) continue;
@@ -279,59 +321,70 @@ export function prunePoolToComponent(pool, itemsByComponent, componentId) {
             if (item && typeof item.id === 'string') hostOf.set(item.id, groupKey);
         }
     }
-    if (componentId === null) {
-        return _pruneEntries(pool, () => false);
-    }
-    return _pruneEntries(pool, (id) => hostOf.get(id) === componentId);
+    return _pruneEntries(pool, (e) => live.has(e.id) && hostOf.get(e.id) === e.host);
 }
 
 /**
- * Deterministic string key of a recipe's pooled item IDs, sorted (pure).
- * Used by the auto-craft re-arm guard (_onDrop): a previously failed
- * recipe is re-armed only when its pooled ID set changed since the last
- * POST, so a persistently failing recipe does not receive a fresh POST on
- * every unrelated drop.
- * @param {Object} recipe - A recipe: { id, ... }.
+ * Order-insensitive fingerprint of a recipe's pooled item IDs (pure) — the
+ * re-arm guard key: it tells _assignItemToRecipe whether a drop CHANGED the
+ * set that a previously-failing (400) POST used, versus an unrelated
+ * prune-induced change that must not re-arm the same request.
+ * @param {Object} recipe - The recipe.
  * @param {Object} pool - The pending pool.
- * @returns {string} Sorted pooled IDs joined by '\u0000' ('' when none).
+ * @returns {string} Sorted, NUL-joined item IDs; `''` when nothing is pooled.
  */
 export function pooledIdsKey(recipe, pool) {
     const byType = (pool || {})[recipe?.id] || {};
     const ids = [];
-    for (const itemIds of Object.values(byType)) {
-        if (Array.isArray(itemIds)) ids.push(...itemIds);
+    for (const entries of Object.values(byType)) {
+        if (Array.isArray(entries)) {
+            for (const e of entries) {
+                if (e && typeof e.id === 'string') ids.push(e.id);
+            }
+        }
     }
     return [...ids].sort().join('\u0000');
 }
 
 /**
- * Escapes a value for safe interpolation into HTML (pure): the five
- * metacharacters &, <, >, ", ' are mapped to entities in a single pass.
- * The entity values are written with \u0026 escapes (repo pattern, see
- * the old chained implementation) so the source survives tooling that
- * HTML-decodes raw entities.
- * @param {*} value - The value to escape (coerced with String()).
- * @returns {string}
+ * HTML-escapes a value for safe interpolation into markup (pure): the five
+ * HTML-significant characters. Every server-sourced value that is
+ * interpolated into HTML must pass through this (project standard).
+ * @param {string|number} value - The value to escape.
+ * @returns {string} The escaped string.
  */
 export function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, ch => ({'&':'\u0026amp;','<':'\u0026lt;','>':'\u0026gt;','"':'\u0026quot;',"'":'\u0026#39;'}[ch]));
+    // Replacements are built by concatenation so the source text never
+    // contains a raw entity (tooling that HTML-decodes file content would
+    // otherwise corrupt the replacement strings).
+    return String(value)
+        .replace(/&/g, '&' + 'amp;')
+        .replace(/</g, '&' + 'lt;')
+        .replace(/>/g, '&' + 'gt;')
+        .replace(/"/g, '&' + 'quot;')
+        .replace(/'/g, '&' + '#39;')
+        .replace(/`/g, '&' + '#96;')
+        .replace(/=/g, '&' + '#61;');
 }
 
 /**
- * Computes per-input satisfaction of a recipe from the pending pool (pure).
+ * Pure per-recipe satisfaction check against a pending pool.
  *
- * `have` is the RAW pool count for the input's type (it may exceed
- * `need`; display code caps it, and selectCraftItemIds picks exactly the
- * required amount so the POST always matches the recipe multiset).
+ * A recipe has `inputs: [{ type, quantity }]` (server-validated to be
+ * unique per type). An input is met when the pool holds at least `quantity`
+ * entries of that type (the display code caps the counter at the required
+ * amount, and selectCraftItemIds picks exactly the required amount).
  *
- * @param {Object} recipe - A recipe: { id, name, description, inputs: [{type, quantity}], outputs }.
- * @param {Object} pool - The pending pool.
- * @returns {{
- *   satisfied: boolean,
- *   entries: Array<{ type: string, have: number, need: number, isMet: boolean }>,
- *   missing: Array<{ type: string, have: number, need: number, isMet: boolean }>
- * }} `satisfied` is true only when every input entry reaches its quantity;
- *   a recipe with no (valid) inputs is never satisfied (never auto-crafts).
+ * Pinned semantics: a recipe with no inputs (server validation would
+ * reject one; defensive here) is NEVER satisfied; an input with
+ * `quantity <= 0` is NEVER met (a quantity of 0/undefined is treated as
+ * "not required" only at validation time — the satisfaction model requires
+ * a positive quantity, mirroring the server's "quantity must be positive"
+ * rule, so a recipe can never be satisfied by zero items).
+ *
+ * @param {Object} recipe - The recipe with `inputs: [{ type, quantity }]`.
+ * @param {Object} pool - The pending pool `{ [recipeId]: { [itemType]: [{id, host}] } }`.
+ * @returns {{satisfied: boolean, entries: Array<{type: string, have: number, need: number, isMet: boolean}>, missing: Array<{type: string, have: number, need: number, isMet: boolean}>}}
  */
 export function computeRecipeSatisfaction(recipe, pool) {
     const inputs = Array.isArray(recipe?.inputs) ? recipe.inputs : [];
@@ -341,28 +394,33 @@ export function computeRecipeSatisfaction(recipe, pool) {
     const recipePool = (pool || {})[recipe.id] || {};
     const entries = [];
     for (const input of inputs) {
-        const need = Number.isInteger(input.quantity) && input.quantity > 0 ? input.quantity : 0;
+        const need = Number.isInteger(input.quantity) && input.quantity > 0
+            ? input.quantity : 0;
         const have = (recipePool[input.type] || []).length;
         const isMet = need > 0 && have >= need;
         entries.push({ type: input.type, have, need, isMet });
     }
-    const satisfied = entries.every(e => e.isMet);
-    return { satisfied, entries, missing: entries.filter(e => !e.isMet) };
+    const satisfied = entries.every((e) => e.isMet);
+    return { satisfied, entries, missing: entries.filter((e) => !e.isMet) };
 }
 
 /**
- * Selects the exact item IDs to POST for a recipe (pure).
+ * Selects the exact item IDs to POST for a recipe, in drop order (pure).
+ * Returns an array of item IDs that satisfies the recipe's EXACT multiset
+ * (one entry per required unit of each input type), or null when the pool
+ * cannot satisfy it — mirroring the server's exact-multiset rule
+ * (over/under-supply is rejected, so we never send extra).
  *
- * Returns one item per recipe-input unit in a deterministic order (recipe
- * input order; within a type, drop order). When a type appears in multiple
- * input entries, quantities are summed and the combined amount is taken
- * from the pool. Returns null when the pool cannot satisfy the recipe —
- * callers must never fire a craft in that case.
+ * The chosen set is the first `quantity` entries of each type in drop
+ * order — the same set the UI would show as satisfied — which keeps the
+ * POST deterministic for a given pool state.
  *
- * @param {Object} recipe - The recipe to craft.
- * @param {Object} pool - The pending pool.
- * @returns {string[]|null} Exact multiset of item IDs matching the recipe
- *   inputs, or null when unsatisfied.
+ * Pinned semantics: a recipe with no inputs (server validation would
+ * reject one; defensive here) returns null (never a valid craft).
+ *
+ * @param {Object} recipe - The recipe with `inputs: [{ type, quantity }]`.
+ * @param {Object} pool - The pending pool `{ [recipeId]: { [itemType]: [{id, host}] } }`.
+ * @returns {string[]|null} Exact item IDs in drop order, or null when unsatisfied.
  */
 export function selectCraftItemIds(recipe, pool) {
     const inputs = Array.isArray(recipe?.inputs) ? recipe.inputs : [];
@@ -373,17 +431,19 @@ export function selectCraftItemIds(recipe, pool) {
     const takenByType = {};
     const itemIds = [];
     for (const input of inputs) {
-        const available = recipePool[input.type] || [];
+        const entries = recipePool[input.type] || [];
         // The entry's quantity is its own demand; usedSoFar only offsets the
         // index into the shared per-type pool (matters when a type appears in
         // multiple input entries — total demand is the sum of the entries).
         const usedSoFar = takenByType[input.type] || 0;
-        const need = Number.isInteger(input.quantity) && input.quantity > 0 ? input.quantity : 0;
-        if (usedSoFar + need > available.length) {
+        const need = Number.isInteger(input.quantity) && input.quantity > 0
+            ? input.quantity : 0;
+        if (usedSoFar + need > entries.length) {
             return null;
         }
         for (let i = 0; i < need; i++) {
-            itemIds.push(available[usedSoFar + i]);
+            const entry = entries[usedSoFar + i];
+            itemIds.push(entry && entry.id);
         }
         takenByType[input.type] = usedSoFar + need;
     }
@@ -391,29 +451,52 @@ export function selectCraftItemIds(recipe, pool) {
 }
 
 /**
- * Crafting panel overlay (design spec §2.5): an available-items strip bound
- * to the resolved component, a recipe-card grid with pooled input slots,
- * and auto-craft on satisfaction (drag & drop, or keyboard).
+ * Resolves the single component a satisfied recipe's craft can be POSTed to
+ * (pure) — the shared-host auto-craft rule.
  *
- * ARIA contract (keyboard access): item cards are buttons
- * (role=button, tabindex=0; aria-pressed reflects the picked state;
- * Enter/Space picks the item, a second press or Escape cancels); recipe
- * cards are groups (role=group, tabindex=0; Enter/Space assigns the
- * picked item to that recipe and clears the pick; aria-label reports
- * "n/m inputs"); each card's status line is aria-live=polite so craft
- * results are announced to screen readers.
+ * Returns the one host when the pool can satisfy the recipe (exact
+ * multiset, per selectCraftItemIds) AND every pooled entry of that recipe
+ * is hosted on the same component; otherwise null. The POST contract names
+ * exactly one component (the server rejects cross-host inputs), so a pool
+ * split across hosts must never fire — the panel shows a "same component"
+ * hint and keeps the pool instead.
+ *
+ * @param {Object} recipe - The recipe to craft.
+ * @param {Object} pool - The pending pool.
+ * @returns {string|null} The shared host component ID, or null when the
+ *   recipe is unsatisfied, its inputs are split across hosts, or a pooled
+ *   entry carries no usable host.
  */
+export function getCraftableHost(recipe, pool) {
+    if (!selectCraftItemIds(recipe, pool)) {
+        return null; // unsatisfied (or malformed) — never a candidate
+    }
+    const recipePool = (pool || {})[recipe.id] || {};
+    let host = null;
+    for (const entries of Object.values(recipePool)) {
+        if (!Array.isArray(entries)) return null;
+        for (const e of entries) {
+            const h = e && typeof e.host === 'string' ? e.host : '';
+            if (h.length === 0) return null; // hostless entry can never be POSTed
+            if (host === null) {
+                host = h;
+            } else if (host !== h) {
+                return null; // inputs split across components
+            }
+        }
+    }
+    return host;
+}
+
 export class CraftingPanel {
     /**
      * @param {Object} deps
      * @param {import('./WorldStateManager.js').WorldStateManager} deps.worldStateManager
-     *   Source of the active droid, its components, and the current world state.
-     * @param {() => (string|null)} deps.getSelectedComponentId - SelectionController-based
-     *   resolver: returns the first selected component ID (comp-uuid) or null.
+     *   Source of the active droid, its components (strip order + names),
+     *   and the current world state.
      */
     constructor(deps) {
         this._worldStateManager = deps.worldStateManager;
-        this._getSelectedComponentId = deps.getSelectedComponentId || (() => null);
 
         /** @private {HTMLElement|null} */
         this._overlay = null;
@@ -426,115 +509,93 @@ export class CraftingPanel {
         this._recipes = [];
         /** @private {Object<string, Object>} Item type definitions from GET /inventory/registry */
         this._itemRegistry = {};
-        /** @private {Object<string, Array<Object>>} Top-level items per component for the current entity */
+        /** @private {Object<string, Array<Object>>} Items per group key for the current entity (fresh GET /inventory map) */
         this._items = {};
         /** @private {string|null} Entity the panel is currently showing */
         this._currentEntityId = null;
-        /** @private {string|null} Component the available-items strip is showing */
-        this._currentComponentId = null;
+        /** @private {Array<{componentId: string, items: Array<Object>}>} Non-empty entity-component strip groups */
+        this._groups = [];
 
-        /** @private {Object} Pending pool: { [recipeId]: { [itemType]: [itemIds] } } */
+        /** @private {Object} Pending pool: { [recipeId]: { [itemType]: [{id, host}] } } */
         this._pool = {};
-        /** @private {string|null} Item ID currently being dragged */
-        this._draggingItemId = null;
-        /** @private {Set<string>} Recipes with a craft POST in flight */
+        /** @private {Set<string>} Recipe IDs with an in-flight POST */
         this._craftingRecipeIds = new Set();
-        /** @private {Set<string>} Recipes whose last auto-craft failed (re-armed on new drops) */
+        /** @private {Map<string, string[]>} Last POSTed sorted ID set per recipe (re-arm guard) */
+        this._lastPostedSets = new Map();
+        /** @private {Set<string>} Recipes that received a 400/500 (re-arm guard) */
         this._lastCraftFailed = new Set();
-        /** @private {Object<string, Array<string>>} Last POSTed pooled-ID set per recipe (re-arm guard) */
-        this._lastPostedSets = {};
-        /** @private {string|null} Item ID picked via keyboard (Enter/Space on an item card) */
-        this._pickedItemId = null;
-
-        // Bound handlers — stable references across re-renders.
-        this._onDragStart = this._onDragStart.bind(this);
-        this._onDragEnd = this._onDragEnd.bind(this);
-        this._onDragOver = this._onDragOver.bind(this);
-        this._onDragLeave = this._onDragLeave.bind(this);
-        this._onDrop = this._onDrop.bind(this);
-        this._onItemKeydown = this._onItemKeydown.bind(this);
-        this._onRecipeKeydown = this._onRecipeKeydown.bind(this);
+        /** @private {string|null} Item card currently being dragged */
+        this._draggingItemId = null;
+        /** @private {HTMLElement|null} Item card currently "picked" via keyboard */
+        this._pickedCard = null;
     }
 
     /**
-     * Overlay element (OverlayManager contract — used by _updateZIndex and
-     * the header-drag initializer).
-     * @returns {HTMLElement|null}
-     */
-    get overlay() {
-        return this._overlay;
-    }
-
-    /**
-     * Gets DOM references and wires the close button.
-     * Missing panel degrades cleanly (no-op), matching the other panels.
+     * Binds the panel to its overlay markup (idempotent).
+     * @public
      */
     init() {
+        if (this._initialized) return;
         this._overlay = document.getElementById('crafting-overlay');
         this._content = document.getElementById('crafting-content');
-
         if (!this._overlay || !this._content) {
-            ClientLogger.warn('CraftingPanel', ' Overlay or content element not found.');
+            ClientLogger.error('CraftingPanel', ' Overlay or content element not found. Cannot init.');
             return;
         }
 
-        const closeBtn = this._overlay.querySelector('.overlay-close-btn');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => this.hide());
-        }
+        const closeBtn = this._overlay.querySelector('.crafting-close');
+        if (closeBtn) closeBtn.addEventListener('click', () => this.hide());
 
         this._initialized = true;
-        ClientLogger.info('CraftingPanel', ' Initialized.');
+        this._overlay.style.display = 'none';
     }
 
     /**
-     * Shows the panel and (re)loads recipes, the item registry, and the
-     * active entity's items, then renders both zones.
-     * @param {*} _data - Unused; the panel fetches its own data
-     *   (registered without a showData fetcher, like InventoryManager).
+     * Shows the overlay and (re)loads everything for the active droid.
+     * (Registered without a showData fetcher, like InventoryManager.)
+     * @public
      */
-    show(_data) {
-        if (!this._overlay || !this._content) return;
-
-        const droid = this._worldStateManager.getActiveDroid();
-        const entityId = droid?.id || this._worldStateManager.getMyEntityId();
-
-        if (!entityId) {
-            this._content.innerHTML = this._renderEmptyState(
-                '🔨',
-                'No entity available. Wait for connection.'
-            );
-            this._overlay.style.display = 'block';
-            return;
+    show() {
+        if (!this._initialized) {
+            this.init();
         }
+        if (!this._overlay) return;
 
-        this._currentEntityId = entityId;
+        // Track which entity this panel instance is showing, so broadcast
+        // refreshes only re-render for the same entity (never stale for a
+        // different one).
+        this._currentEntityId = this._worldStateManager?.getMyEntityId() ?? null;
+
+        if (this._overlay.style.display === 'block') return;
+
         this._overlay.style.display = 'block';
-        this._loadAll(entityId);
-        ClientLogger.info('CraftingPanel', ` Opening crafting panel for entity ${entityId}.`);
+
+        this._loadAll();
     }
 
     /**
-     * Hides the panel and resets transient state (the pending pool is
-     * client-local and never outlives the open panel).
+     * Hides the overlay and discards the (never-POSTed) pending pool.
+     * @public
      */
     hide() {
         if (!this._overlay) return;
         this._overlay.style.display = 'none';
+        // Pending drops were never POSTed; discarding is correct (the
+        // server inventory is untouched and will be re-fetched next open).
         this._pool = clearPendingPool(this._pool);
-        this._draggingItemId = null;
-        this._currentComponentId = null;
+        this._craftingRecipeIds.clear();
+        this._lastPostedSets.clear();
         this._lastCraftFailed.clear();
-        this._lastPostedSets = {};
-        this._pickedItemId = null;
+        this._draggingItemId = null;
         this._clearPickedCard();
     }
 
     /**
-     * Toggles the panel.
+     * Toggles the overlay.
+     * @public
      */
     toggle() {
-        if (this._overlay && this._overlay.style.display === 'block') {
+        if (this._overlay?.style.display === 'block') {
             this.hide();
         } else {
             this.show();
@@ -542,379 +603,380 @@ export class CraftingPanel {
     }
 
     /**
-     * Re-renders when the panel is open. Called by App.refreshWorldAndActions()
-     * after each world-state-update broadcast (the authoritative inventory
-     * update path after a craft).
-     *
-     * Skipped while a craft POST is in flight or a drag is in progress —
-     * tearing down the DOM in either case would break the request or the
-     * native drag session; the next broadcast refreshes normally.
+     * Re-loads and re-renders when the panel is currently open. Wired into
+     * App.refreshWorldAndActions() so every world-state-update broadcast
+     * keeps the panel's inventory/cards in sync with the server
+     * (authoritative inventory sync; the craft POST response is NOT used).
+     * @public
      */
-    async refreshIfOpen() {
-        if (!this._overlay || this._overlay.style.display !== 'block') return;
-        if (this._craftingRecipeIds.size > 0) return;
-        if (this._draggingItemId) return;
-        if (!this._currentEntityId) return;
-
-        try {
-            await this._loadEntityItems(this._currentEntityId);
-            this._prunePoolToLiveItems();
-            if (this._overlay.style.display !== 'block') return; // closed meanwhile
-            this._render();
-        } catch (error) {
-            ClientLogger.warn('CraftingPanel', ' Refresh after world-state-update failed:', error.message);
+    refreshIfOpen() {
+        if (this._initialized && this._overlay?.style.display === 'block') {
+            this._currentEntityId = this._worldStateManager?.getMyEntityId() ?? null;
+            if (this._currentEntityId) {
+                this._loadAll();
+            }
         }
+    }
+
+    /** @public {HTMLElement} The overlay element (OverlayManager contract). */
+    get overlay() {
+        return this._overlay;
     }
 
     // ==================== Data loading ====================
 
     /**
-     * Loads recipes, item registry, and entity items in parallel, then
-     * prunes the pool and renders. The whole body is guarded: a failed
-     * load or render must not strand the overlay blank — every
-     * world-state-update retries via refreshIfOpen().
-     * @param {string} entityId - The entity to load items for.
+     * Loads recipes + registry + entity items in parallel, then prunes the
+     * pool and renders both zones.
      * @private
      */
-    async _loadAll(entityId) {
-        try {
-            await Promise.all([
-                this._loadRecipes(),
-                this._loadItemRegistry(),
-                this._loadEntityItems(entityId)
-            ]);
-            this._prunePoolToLiveItems();
-            if (this._overlay.style.display !== 'block') return; // closed meanwhile
-            this._render();
-        } catch (error) {
-            ClientLogger.warn('CraftingPanel', `Load/render failed, will retry on next update: ${error.message}`);
-        }
+    async _loadAll() {
+        if (!this._currentEntityId) return;
+        const [recipes, registry] = await Promise.all([
+            this._loadRecipes(),
+            this._loadItemRegistry()
+        ]);
+        const items = await this._loadEntityItems(this._currentEntityId);
+
+        // Only proceed if the panel is still open for the same entity —
+        // a rapid hide/open or entity switch would otherwise render stale
+        // data (async race).
+        if (!this._initialized || this._overlay?.style.display !== 'block') return;
+        if (this._currentEntityId !== this._worldStateManager?.getMyEntityId()) return;
+
+        this._recipes = recipes;
+        this._itemRegistry = registry || {};
+        this._items = items || {};
+
+        // Reconcile the pool against the fresh inventory before rendering:
+        // drop entries whose item vanished OR moved (see prunePool).
+        this._prunePoolToLiveItems();
+
+        this._render();
     }
 
     /**
-     * Loads recipe definitions from the server.
-     * @returns {Promise<void>}
+     * GET /crafting/recipes. Returns the recipes array (or [] on failure).
      * @private
      */
     async _loadRecipes() {
         try {
             const response = await fetch('/crafting/recipes');
             if (!response.ok) {
-                ClientLogger.warn('CraftingPanel', ` Failed to load recipes. HTTP ${response.status} ${response.statusText}`);
-                this._recipes = [];
-                return;
+                throw new Error(`Failed to fetch recipes (HTTP ${response.status})`);
             }
             const data = await response.json();
-            this._recipes = Array.isArray(data.recipes) ? data.recipes : [];
-            ClientLogger.info('CraftingPanel', ` Loaded ${this._recipes.length} recipe(s).`);
+            // Guarded: the server returns a plain array, but stay defensive
+            // about the shape (no array methods on a malformed body).
+            return Array.isArray(data) ? data : [];
         } catch (error) {
-            ClientLogger.error('CraftingPanel', ' Error loading recipes:', error);
-            this._recipes = [];
+            ClientLogger.error('CraftingPanel', ' Failed to load crafting recipes:', error);
+            return [];
         }
     }
 
     /**
-     * Loads the item type registry (display names/volumes) — the same
-     * endpoint InventoryManager uses; item data stays single-sourced.
-     * @returns {Promise<void>}
+     * GET /inventory/registry. Returns the item definitions map (or {} on
+     * failure). Display names/volumes are client-side only (design spec
+     * decision: not stored per item, not in the crafting schema).
      * @private
      */
     async _loadItemRegistry() {
         try {
             const response = await fetch('/inventory/registry');
             if (!response.ok) {
-                ClientLogger.warn('CraftingPanel', ` Failed to load item registry. HTTP ${response.status} ${response.statusText}`);
-                this._itemRegistry = {};
-                return;
+                throw new Error(`Failed to fetch item registry (HTTP ${response.status})`);
             }
             const data = await response.json();
-            this._itemRegistry = data.registry || {};
+            return (data && typeof data === 'object') ? data : {};
         } catch (error) {
-            ClientLogger.error('CraftingPanel', ' Error loading item registry:', error);
-            this._itemRegistry = {};
+            ClientLogger.error('CraftingPanel', ' Failed to load item registry:', error);
+            return {};
         }
     }
 
     /**
-     * Loads top-level items for the entity, grouped by component
-     * (same endpoint/shape as InventoryManager._loadEntityItems).
-     * @param {string} entityId - The entity ID.
-     * @returns {Promise<void>}
+     * GET /inventory/:entityId. Returns the items-by-component map
+     * ({ [componentId]: [item, ...] }) or {} on failure.
+     * @param {string} entityId - The entity whose inventory to load.
+     * @returns {Promise<Object>}
      * @private
      */
     async _loadEntityItems(entityId) {
         try {
             const response = await fetch(`/inventory/${entityId}`);
             if (!response.ok) {
-                ClientLogger.warn('CraftingPanel', ` Failed to load items for entity ${entityId}. HTTP ${response.status} ${response.statusText}`);
-                this._items = {};
-                return;
+                throw new Error(`Failed to fetch inventory (HTTP ${response.status})`);
             }
             const data = await response.json();
-            this._items = data.items || {};
+            return (data && typeof data === 'object') ? data : {};
         } catch (error) {
-            ClientLogger.error('CraftingPanel', ` Error loading items for entity ${entityId}:`, error);
-            this._items = {};
+            ClientLogger.error('CraftingPanel', ` Failed to load inventory for ${entityId}:`, error);
+            return {};
         }
     }
 
     // ==================== Component resolution ====================
 
     /**
-     * Resolves which component the available-items strip shows — thin
-     * wiring over the pure resolveCraftingComponent:
-     *   1. The selected component ID (SelectionController) if it belongs to
-     *      the active entity — crafting follows the selection model used by
-     *      every other panel;
-     *   2. Else the entity component holding the most recipe-input items
-     *      (ties broken by component order) — the useful default;
-     *   3. Else the entity component holding the most items (ties broken by
-     *      component order);
-     *   4. Else the entity's first component (so the strip can show a
-     *      meaningful empty state); null if there is none.
-     *
-     * ONLY entity-component IDs can be returned: items-map group keys may
-     * be container item IDs (nested items) or '__unassigned__', and those
-     * must never be POSTed as the crafting component.
-     * @returns {string|null}
+     * The active droid's component IDs in entity order — the stable strip
+     * order. The entity's components may be ID strings or {id, type}
+     * objects depending on the broadcast shape; only typed comp- IDs
+     * survive.
+     * @returns {string[]}
      * @private
      */
-    _resolveCraftingComponent() {
+    _entityComponentIds() {
         const droid = this._worldStateManager?.getActiveDroid?.();
-        return resolveCraftingComponent({
-            selectedId: this._getSelectedComponentId?.() ?? null,
-            entityComponentIds: droid
-                ? (Array.isArray(droid.components)
-                    ? droid.components.map((c) => (typeof c === 'string' ? c : c?.id ?? ''))
-                    : []).filter(Boolean)
-                : [],
-            itemsByComponent: this._items,
-            recipeInputTypes: this._recipes.flatMap((r) =>
-                (Array.isArray(r?.inputs) ? r.inputs.map((i) => i?.type) : [])).filter(Boolean),
-        });
+        if (!droid || !Array.isArray(droid.components)) return [];
+        return droid.components
+            .map((c) => (typeof c === 'string' ? c : (c && typeof c.id === 'string' ? c.id : '')))
+            .filter(Boolean);
     }
 
     /**
-     * Finds an item instance by ID across all components of the current
-     * entity (the strip only shows the resolved component, but resolving
-     * across all makes drag validation robust to refresh timing).
+     * Finds an item instance by ID across all groups of the current entity,
+     * reporting the group key (the item's current host) it was found under.
+     * The strip only shows entity-component groups, but resolving across
+     * all groups makes drag validation robust to refresh timing.
      * @param {string} itemId - Item instance ID.
-     * @returns {Object|null}
+     * @returns {{item: Object, host: string}|null} The item and its host, or null.
      * @private
      */
     _findItem(itemId) {
-        for (const items of Object.values(this._items)) {
+        for (const [groupKey, items] of Object.entries(this._items ?? {})) {
+            if (!Array.isArray(items)) continue;
             for (const item of items) {
-                if (item.id === itemId) return item;
+                if (item && item.id === itemId) {
+                    return { item, host: groupKey };
+                }
             }
         }
         return null;
     }
 
     /**
-     * Drops pooled items that no longer exist in the live inventory: the
-     * live set is getLiveItemIds(this._items) — the flattened GET /inventory
-     * items map (see its JSDoc for the shape rationale).
+     * Reconciles the pool against the fresh inventory map: entries whose
+     * item vanished or whose host changed are dropped (see prunePool).
      * @private
      */
     _prunePoolToLiveItems() {
-        this._pool = prunePool(this._pool, getLiveItemIds(this._items));
+        this._pool = prunePool(this._pool, this._items);
     }
 
     // ==================== Rendering ====================
 
     /**
-     * Renders both zones (available-items strip + recipe cards) into
+     * Renders both zones (per-component item groups + recipe cards) into
      * #crafting-content and re-attaches the DnD listeners.
      * @private
      */
     _render() {
         if (!this._content) return;
-
-        const next = this._resolveCraftingComponent();
-        if (next !== this._currentComponentId) {
-            this._currentComponentId = next;
-            // The strip moved: staged drops hosted on other components can
-            // never join a valid single-component POST — drop them.
-            this._pool = prunePoolToComponent(this._pool, this._items, next);
-        }
-        let html = this._renderAvailableItems();
+        this._groups = groupItemsByComponent(this._items, this._entityComponentIds());
+        let html = this._renderComponentGroups();
         html += this._renderRecipeCards();
         this._content.innerHTML = html;
         this._attachDragAndDropListeners();
     }
 
     /**
-     * Renders the available-items strip for the resolved component.
+     * Renders the available-items strip: one bordered section per
+     * non-empty entity component — a header with the component's readable
+     * name (+ a small item count) and that component's item cards. Nested
+     * (container-hosted) and unhosted items have no section by
+     * construction of groupItemsByComponent. All groups empty → the
+     * existing empty-state hint.
      * @returns {string} HTML.
      * @private
      */
-    _renderAvailableItems() {
-        const componentId = this._currentComponentId;
-        const items = componentId ? (this._items[componentId] || []) : [];
-
-        const stripHeader = componentId
-            ? `<span class="crafting-strip-title">Drag source:</span>
-                <span class="crafting-strip-component" title="${this._escapeHtml(componentId)}">${this._escapeHtml(this._componentLabel(componentId))}</span>`
-            : '<span class="crafting-strip-hint">No component found on this entity.</span>';
-
-        let cards = '';
-        for (const item of items) {
-            cards += this._renderItemCard(item);
-        }
-        if (items.length === 0) {
-            cards = '<div class="crafting-strip-hint">No items to drag. Craft recipes appear below.</div>';
+    _renderComponentGroups() {
+        if (this._groups.length === 0) {
+            return `
+                <div class="crafting-groups">
+                    <div class="crafting-strip-hint">No items to drag. Craft recipes appear below.</div>
+                </div>`;
         }
 
-        return `
-            <div class="crafting-strip">
-                <div class="crafting-strip-header">${stripHeader}</div>
-                <div class="crafting-strip-items">${cards}</div>
-            </div>`;
+        let sections = '';
+        for (const { componentId, items } of this._groups) {
+            const name = this._componentLabel(componentId);
+            let cards = '';
+            for (const item of items) {
+                cards += this._renderItemCard(item);
+            }
+            sections += `
+                <div class="crafting-group" data-comp-id="${this._escapeHtml(componentId)}"
+                     role="group" aria-label="${this._escapeHtml(`Items on ${name}`)}">
+                    <div class="crafting-group-header">
+                        <span class="crafting-group-name">${this._escapeHtml(name)}</span>
+                        <span class="crafting-group-count">${items.length} item${items.length === 1 ? '' : 's'}</span>
+                    </div>
+                    <div class="crafting-group-items">${cards}</div>
+                </div>`;
+        }
+        return `<div class="crafting-groups">${sections}</div>`;
     }
 
     /**
-     * Renders a single draggable item card (name + footprint badge).
-     * @param {Object} item - Item instance { id, type, name, volume, externalVolume }.
+     * Renders a single draggable item card (name + volume badge). Reuses
+     * the inventory item-card look via the crafting- class family.
+     * @param {Object} item - The item instance.
      * @returns {string} HTML.
      * @private
      */
     _renderItemCard(item) {
-        const name = item.name || this._itemRegistry[item.type]?.name || item.type;
-        // Footprint on the host component (same rule as InventoryManager).
-        const displayVolume = item.externalVolume ?? item.hostVolume ?? (item.volume || 0);
+        const name = this._escapeHtml(item.name || this._itemRegistry[item.type]?.name || item.type);
+        const volume = item.externalVolume ?? item.hostVolume ?? item.volume ?? 0;
+        const isPicked = this._pickedCard && this._pickedCard.dataset.itemId === item.id;
+        const base = this._pickedCard ? 'crafting-item-card crafting-item-card--picked' : 'crafting-item-card';
         return `
-            <div class="crafting-item-card" draggable="true" tabindex="0" role="button"
-                 data-item-id="${this._escapeHtml(item.id)}" data-item-type="${this._escapeHtml(item.type)}"
-                 aria-label="${this._escapeHtml(`${name} (${displayVolume} volume) — Enter to pick up`)}"
-                 aria-pressed="false">
-                <span class="crafting-item-name">${this._escapeHtml(name)}</span>
-                <span class="crafting-item-volume">${displayVolume}v</span>
+            <div class="${base}" data-item-id="${this._escapeHtml(item.id)}" data-item-type="${this._escapeHtml(item.type)}"
+                 aria-label="${this._escapeHtml(`Item ${name}. Press Enter to pick, then choose a recipe.`)}"
+                 aria-pressed="${isPicked ? 'true' : 'false'}"
+                 tabindex="0" role="button"
+                 draggable="true">
+                <div class="crafting-item-name">${name}</div>
+                <div class="crafting-item-volume">Vol: ${volume}</div>
             </div>`;
     }
 
     /**
-     * Renders the recipe-card grid.
+     * Renders all recipe cards. Each card shows its inputs as drop slots
+     * (with live pool counts) and its outputs as badges.
      * @returns {string} HTML.
      * @private
      */
     _renderRecipeCards() {
         if (this._recipes.length === 0) {
-            return `<div class="crafting-recipes">
+            return `
                 <div class="crafting-empty">
                     <span class="crafting-empty-icon">🔨</span>
                     <em>No crafting recipes available.</em>
-                </div>
-            </div>`;
+                </div>`;
         }
-
-        let cards = '';
+        let html = '<div class="crafting-recipes">';
         for (const recipe of this._recipes) {
-            cards += this._renderRecipeCard(recipe);
+            html += this._renderRecipeCard(recipe);
         }
-        return `<div class="crafting-recipes">${cards}</div>`;
+        return html + '</div>';
     }
 
     /**
-     * Renders one recipe card (spec §2.5 DOM structure). Slot counts and
-     * the card's base state modifier are derived from the current pool so
-     * re-renders (e.g. after a craft) stay consistent.
-     * @param {Object} recipe - A recipe definition.
+     * Renders a single recipe card with its input slots and outputs.
+     * @param {Object} recipe - The recipe object.
      * @returns {string} HTML.
      * @private
      */
     _renderRecipeCard(recipe) {
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
-        const baseState = satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle';
-        const metCount = entries.filter(e => e.isMet).length;
+        const host = getCraftableHost(recipe, this._pool);
+        const splitHost = satisfied && !host;
+        // Satisfied but split across hosts: the craft is blocked and the
+        // hint line explains why (a cross-host POST would only 400).
+        const baseState = splitHost
+            ? 'crafting-card--split-host'
+            : (satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle');
+        const metCount = entries.filter((e) => e.isMet).length;
 
         let slots = '';
         for (const entry of entries) {
-            const name = this._typeName(entry.type);
+            const have = Math.min(entry.have, entry.need);
+            const dropClass = entry.isMet ? '' : ' crafting-slot--drop';
             slots += `
-                <div class="crafting-slot" data-type="${this._escapeHtml(entry.type)}">
-                    <span class="crafting-slot-label">${this._escapeHtml(name)} ×${entry.need} —
-                        <span class="crafting-slot-count">${Math.min(entry.have, entry.need)}/${entry.need}</span>
-                    </span>
-                    <div class="crafting-slot-drop"></div>
+                <div class="crafting-slot${dropClass}" data-type="${this._escapeHtml(entry.type)}">
+                    <div class="crafting-slot-label">${this._escapeHtml(this._typeName(entry.type))}</div>
+                    <div class="crafting-slot-count">${have}/${entry.need}</div>
+                    <div class="crafting-slot-hint">Drop here</div>
                 </div>`;
         }
 
         let outputs = '';
         for (const output of (recipe.outputs || [])) {
-            outputs += `<span class="crafting-output-chip">${this._escapeHtml(this._typeName(output.type))} ×${output.quantity}</span>`;
+            outputs += `<span class="crafting-output-chip">${this._escapeHtml(this._typeName(output.type))} × ${output.quantity}</span>`;
         }
 
+        const hint = splitHost ? 'Inputs must be on the same component.' : '';
         return `
             <div class="crafting-recipe-card ${baseState}" data-recipe-id="${this._escapeHtml(recipe.id)}"
                  tabindex="0" role="group"
-                 aria-label="${this._escapeHtml(`${recipe.name} — ${metCount}/${entries.length} inputs`)}">
+                 aria-label="${this._escapeHtml(`${recipe.name} — ${metCount}/${entries.length} inputs${splitHost ? ' — inputs must be on the same component' : ''}`)}">
                 <div class="crafting-card-header">
                     <h4 class="crafting-card-name">${this._escapeHtml(recipe.name)}</h4>
                     <p class="crafting-card-desc">${this._escapeHtml(recipe.description || '')}</p>
                 </div>
                 <div class="crafting-slots">${slots}</div>
                 <div class="crafting-outputs">${outputs}</div>
+                <div class="crafting-host-hint" role="status"${hint ? '' : ' hidden'}>${this._escapeHtml(hint)}</div>
                 <div class="crafting-status" aria-live="polite"></div>
             </div>`;
     }
 
+    // ==================== Drag & Drop ====================
+
     /**
-     * Re-attaches DnD listeners after an innerHTML re-render (the old
-     * elements — and their listeners — are gone).
+     * Attaches drag/drop listeners to the rendered cards/slots.
      * @private
      */
     _attachDragAndDropListeners() {
-        if (!this._content) return;
-
-        for (const card of this._content.querySelectorAll('.crafting-item-card')) {
+        // Item cards: dragstart
+        const itemCards = this._content.querySelectorAll('.crafting-item-card');
+        itemCards.forEach((card) => {
             card.addEventListener('dragstart', (e) => this._onDragStart(e, card));
             card.addEventListener('dragend', (e) => this._onDragEnd(e, card));
-            card.addEventListener('keydown', (e) => this._onItemKeydown(e, card));
-        }
+            // Keyboard: pick / confirm (see _onItemCardKeydown)
+            card.addEventListener('keydown', (e) => this._onItemCardKeydown(e, card));
+        });
 
-        for (const card of this._content.querySelectorAll('.crafting-recipe-card')) {
+        // Recipe cards: drop targets
+        const recipeCards = this._content.querySelectorAll('.crafting-recipe-card');
+        recipeCards.forEach((card) => {
             card.addEventListener('dragover', (e) => this._onDragOver(e, card));
             card.addEventListener('dragleave', (e) => this._onDragLeave(e, card));
             card.addEventListener('drop', (e) => this._onDrop(e, card));
-            card.addEventListener('keydown', (e) => this._onRecipeKeydown(e, card));
+            // Keyboard: assign the picked item to this recipe (Enter/Space)
+            card.addEventListener('keydown', (e) => this._onRecipeCardKeydown(e, card));
+        });
+    }
+
+    /**
+     * dragstart on an item card: set the item ID on dataTransfer and mark
+     * the card as dragging.
+     * @param {DragEvent} e
+     * @param {HTMLElement} card
+     * @private
+     */
+    _onDragStart(e, card) {
+        const itemId = card.dataset.itemId;
+        if (!itemId) {
+            e.preventDefault();
+            return;
         }
-    }
-
-    // ==================== Drag & drop (native HTML5) ====================
-
-    /**
-     * Drag start on an item card: publishes the item's typed ID on the
-     * dataTransfer under the crafting MIME type and tracks the drag.
-     * @param {DragEvent} e
-     * @param {HTMLElement} itemCard
-     * @private
-     */
-    _onDragStart(e, itemCard) {
-        const itemId = itemCard.dataset.itemId;
-        if (!itemId) return;
+        // dataTransfer is read-only during dragover; the ID is also kept on
+        // the instance so _onDragOver can validate against the current
+        // inventory (a stale/dragged-from-elsewhere ID is rejected).
         this._draggingItemId = itemId;
-        e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData(CRAFTING_ITEM_MIME, itemId);
-        itemCard.classList.add('crafting-item-card--dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        card.classList.add('crafting-item-card--dragging');
     }
 
     /**
-     * Drag end: clears drag tracking and any highlight state.
+     * dragend: clear the dragging flag and the transient card highlights.
      * @param {DragEvent} e
-     * @param {HTMLElement} itemCard
+     * @param {HTMLElement} card
      * @private
      */
-    _onDragEnd(e, itemCard) {
+    _onDragEnd(e, card) {
+        card.classList.remove('crafting-item-card--dragging');
         this._draggingItemId = null;
-        itemCard.classList.remove('crafting-item-card--dragging');
         this._clearCardHighlights();
     }
 
     /**
-     * Drag over a recipe card: always preventDefault (to allow the drop),
-     * then color the card — --valid when the dragged item's type matches an
-     * unsatisfied input of this recipe, --invalid otherwise.
+     * dragover on a recipe card: always preventDefault (required to allow a
+     * drop), then green-highlight when the dragged item type is one of the
+     * card's UNSATISFIED inputs (a useful drop), dimmed otherwise.
      * @param {DragEvent} e
      * @param {HTMLElement} card
      * @private
@@ -925,66 +987,32 @@ export class CraftingPanel {
 
         const itemId = this._draggingItemId;
         if (!itemId) return;
-        const item = this._findItem(itemId);
-        const recipe = this._recipes.find(r => r.id === card.dataset.recipeId);
+        // Validate against the CURRENT inventory (not just the ID being
+        // dragged): a stale item that no longer exists is rejected.
+        const item = this._findItem(itemId)?.item;
+        const recipe = this._recipes.find((r) => r.id === card.dataset.recipeId);
         if (!item || !recipe) return;
 
         const { missing } = computeRecipeSatisfaction(recipe, this._pool);
-        const matchesUnsatisfied = missing.some(m => m.type === item.type);
+        const matchesUnsatisfied = missing.some((m) => m.type === item.type);
 
         card.classList.toggle('crafting-card--valid', matchesUnsatisfied);
         card.classList.toggle('crafting-card--invalid', !matchesUnsatisfied);
     }
 
     /**
-     * Drag leave a recipe card: clears the highlight (ignored when moving
-     * between the card's own child elements).
+     * dragleave: remove transient highlights.
      * @param {DragEvent} e
      * @param {HTMLElement} card
      * @private
      */
     _onDragLeave(e, card) {
-        if (e.relatedTarget && card.contains(e.relatedTarget)) return;
         card.classList.remove('crafting-card--valid', 'crafting-card--invalid');
     }
 
     /**
-     * Assigns an item to a recipe's pending pool — the shared body of the
-     * drag-drop and keyboard paths: validates the item exists and is an
-     * input type of the recipe, pools it (deduped by item ID), applies the
-     * re-arm guard, and re-derives the card state, which auto-fires the
-     * craft when all inputs are satisfied. Invalid and duplicate
-     * assignments are no-ops.
-     * @param {string} itemId - The item instance ID to assign.
-     * @param {string} recipeId - The target recipe ID.
-     * @private
-     */
-    _assignItemToRecipe(itemId, recipeId) {
-        const item = this._findItem(itemId);
-        const recipe = this._recipes.find(r => r.id === recipeId);
-        if (!item || !recipe) return;
-
-        const isInputType = (recipe.inputs || []).some(input => input.type === item.type);
-        if (!isInputType) return;
-
-        const nextPool = addToPendingPool(this._pool, recipe.id, item.type, itemId);
-        if (nextPool === this._pool) return; // duplicate — no-op
-
-        this._pool = nextPool;
-        // Re-arm a previously failed recipe for auto-craft ONLY when its
-        // pooled ID set changed since the last POST: a persistently
-        // failing recipe must not receive a fresh POST on every
-        // unrelated drop, and prune-induced pool changes (liveness and
-        // component binding) never re-arm — only real drops do.
-        if (pooledIdsKey(recipe, nextPool) !== (this._lastPostedSets[recipe.id] ?? []).join('\u0000')) {
-            this._lastCraftFailed.delete(recipe.id);
-        }
-        this._updateCardState(recipe.id, true);
-    }
-
-    /**
-     * Drop on a recipe card: validates the dropped ID and delegates to
-     * _assignItemToRecipe (drag path behavior is unchanged).
+     * drop on a recipe card: pool the dragged item (with its host) into the
+     * recipe and re-derive card state (auto-craft if now satisfied).
      * @param {DragEvent} e
      * @param {HTMLElement} card
      * @private
@@ -992,141 +1020,184 @@ export class CraftingPanel {
     _onDrop(e, card) {
         e.preventDefault();
         card.classList.remove('crafting-card--valid', 'crafting-card--invalid');
-
-        const itemId = e.dataTransfer.getData(CRAFTING_ITEM_MIME) || this._draggingItemId;
         this._draggingItemId = null;
-        if (!itemId) return;
 
-        this._assignItemToRecipe(itemId, card.dataset.recipeId);
+        const itemId = e.dataTransfer.getData(CRAFTING_ITEM_MIME);
+        if (!itemId) return;
+        const recipeId = card.dataset.recipeId;
+        if (!recipeId) return;
+
+        this._assignItemToRecipe(itemId, recipeId);
     }
 
     // ==================== Keyboard access (ARIA) ====================
 
     /**
-     * Keyboard pick-up on an item card (role=button): Enter/Space picks
-     * the item (a second press cancels); Escape cancels an active pick.
+     * Item card keydown: Enter/Space "picks" the card (toggle). A picked
+     * card is highlighted and announces itself; pressing again unpicks it.
      * @param {KeyboardEvent} e
      * @param {HTMLElement} card
      * @private
      */
-    _onItemKeydown(e, card) {
-        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Escape') return;
-        e.preventDefault();
-        const itemId = card.dataset.itemId;
-
-        if (e.key === 'Escape') {
-            if (this._pickedItemId === itemId) {
-                this._pickedItemId = null;
-                this._setPickedState(card, false);
-            }
-            return;
-        }
-        if (this._pickedItemId === itemId) {
-            // Second press on the same item cancels the pick.
-            this._pickedItemId = null;
-            this._setPickedState(card, false);
-            return;
-        }
-        // Pick this item: clear any previously picked card first.
-        this._clearPickedCard();
-        this._pickedItemId = itemId;
-        this._setPickedState(card, true);
+    _onItemCardKeydown(e, card) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault(); // stop Space from scrolling the overlay
+        this._setPickedCard(card, this._pickedCard !== card);
     }
 
     /**
-     * Keyboard assignment on a recipe card (role=group): Enter/Space
-     * assigns the currently picked item to this recipe, then clears the
-     * pick.
+     * Recipe card keydown: Enter/Space assigns the currently picked item to
+     * this recipe (the keyboard equivalent of dropping), then unpicks the
+     * source card. With no item picked this is a no-op (no error spam).
      * @param {KeyboardEvent} e
      * @param {HTMLElement} card
      * @private
      */
-    _onRecipeKeydown(e, card) {
+    _onRecipeCardKeydown(e, card) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         e.preventDefault();
-        if (!this._pickedItemId) return;
-        this._assignItemToRecipe(this._pickedItemId, card.dataset.recipeId);
-        this._pickedItemId = null;
+        if (!this._pickedCard) return;
+        const itemId = this._pickedCard.dataset.itemId;
+        const recipeId = card.dataset.recipeId;
+        if (!itemId || !recipeId) return;
+        this._assignItemToRecipe(itemId, recipeId);
         this._clearPickedCard();
     }
 
     /**
-     * Sets or clears the picked visual state on an item card
-     * (highlight class + aria-pressed).
-     * @param {HTMLElement} card
-     * @param {boolean} picked
+     * Sets or clears the keyboard "picked" item card (visual + aria-pressed).
+     * @param {HTMLElement|null} card - The card to pick, or null to clear.
+     * @param {boolean} picked - Whether the card is picked (true) or cleared (false).
      * @private
      */
-    _setPickedState(card, picked) {
-        card.classList.toggle('crafting-picked', picked);
-        card.setAttribute('aria-pressed', picked ? 'true' : 'false');
+    _setPickedCard(card, picked) {
+        if (picked && card) {
+            this._pickedCard = card;
+            card.classList.add('crafting-item-card--picked');
+            card.setAttribute('aria-pressed', 'true');
+        } else {
+            this._clearPickedCard();
+        }
     }
 
     /**
-     * Clears the picked highlight from any item card currently showing it.
+     * Clears the keyboard "picked" state from whatever card is currently
+     * picked (visual + aria-pressed).
      * @private
      */
     _clearPickedCard() {
-        if (!this._content) return;
-        const picked = Array.from(this._content.querySelectorAll('.crafting-item-card'))
-            .find(c => c.classList.contains('crafting-picked'));
-        if (picked) this._setPickedState(picked, false);
+        if (!this._pickedCard) return;
+        this._pickedCard.classList.remove('crafting-item-card--picked');
+        this._pickedCard.setAttribute('aria-pressed', 'false');
+        this._pickedCard = null;
     }
 
     /**
-     * Clears all --valid/--invalid highlight classes on recipe cards.
+     * Removes all transient recipe-card highlight classes (valid/invalid).
      * @private
      */
     _clearCardHighlights() {
-        if (!this._content) return;
-        for (const card of this._content.querySelectorAll('.crafting-recipe-card')) {
-            card.classList.remove('crafting-card--valid', 'crafting-card--invalid');
+        const cards = this._content?.querySelectorAll('.crafting-recipe-card');
+        if (cards) {
+            cards.forEach((c) => c.classList.remove('crafting-card--valid', 'crafting-card--invalid'));
         }
     }
 
-    // ==================== Card state + crafting ====================
+    // ==================== Assignment / auto-craft ====================
 
     /**
-     * Re-derives a recipe card's slot counts and base state from the pool.
-     * When autoCraft is true and the recipe just became fully satisfied
-     * (fresh drop), the craft fires immediately.
+     * Assigns an item to a recipe's pending pool — the shared body of the
+     * drag-drop and keyboard paths: validates the item exists and is an
+     * input type of the recipe, pools it together with the component that
+     * hosts it (deduped by item ID), applies the re-arm guard, and
+     * re-derives the card state, which auto-fires the craft when all
+     * inputs are satisfied AND share one host. Invalid and duplicate
+     * assignments are no-ops.
+     * @param {string} itemId - The item instance ID to assign.
+     * @param {string} recipeId - The target recipe ID.
+     * @private
+     */
+    _assignItemToRecipe(itemId, recipeId) {
+        const found = this._findItem(itemId);
+        const item = found?.item;
+        const recipe = this._recipes.find((r) => r.id === recipeId);
+        if (!item || !recipe) return;
+
+        const isInputType = (recipe.inputs || []).some((input) => input.type === item.type);
+        if (!isInputType) return;
+
+        const nextPool = addToPendingPool(this._pool, recipe.id, item.type, itemId, found.host);
+        if (nextPool === this._pool) return; // duplicate — no-op
+
+        this._pool = nextPool;
+        // Re-arm a previously failed recipe for auto-craft ONLY when its
+        // pooled ID set changed since the last POST: a persistently
+        // failing recipe must not receive a fresh POST on every
+        // unrelated drop, and prune-induced pool changes (liveness and
+        // host changes) never re-arm — only real drops do.
+        if (pooledIdsKey(recipe, nextPool) !== (this._lastPostedSets[recipe.id] ?? []).join('\u0000')) {
+            this._lastCraftFailed.delete(recipe.id);
+        }
+        this._updateCardState(recipe.id, true);
+    }
+
+    /**
+     * Re-derives a recipe card's slot counts, base state, and the
+     * split-host hint from the pool. When autoCraft is true and the recipe
+     * just became craftable — satisfied AND every pooled input hosted on
+     * one shared host (a satisfied-but-split pool never fires) — the craft
+     * fires immediately.
      *
      * @param {string} recipeId - The recipe whose card to update.
-     * @param {boolean} autoCraft - Whether a satisfied card should fire the craft.
+     * @param {boolean} autoCraft - Whether a craftable card should fire the craft.
      * @private
      */
     _updateCardState(recipeId, autoCraft) {
         if (!this._content) return;
         const card = this._findRecipeCard(recipeId);
-        const recipe = this._recipes.find(r => r.id === recipeId);
+        const recipe = this._recipes.find((r) => r.id === recipeId);
         if (!card || !recipe) return;
 
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
+        const host = getCraftableHost(recipe, this._pool);
+        const splitHost = satisfied && !host;
 
         for (const entry of entries) {
             const slot = Array.from(card.querySelectorAll('.crafting-slot'))
-                .find(s => s.dataset.type === entry.type);
+                .find((s) => s.dataset.type === entry.type);
             const count = slot?.querySelector('.crafting-slot-count');
             if (count) {
                 count.textContent = `${Math.min(entry.have, entry.need)}/${entry.need}`;
             }
         }
 
-        card.classList.remove('crafting-card--valid', 'crafting-card--invalid');
-        if (satisfied) {
-            card.classList.add('crafting-card--satisfied');
-            card.classList.remove('crafting-card--idle');
-        } else {
-            card.classList.add('crafting-card--idle');
-            card.classList.remove('crafting-card--satisfied');
+        card.classList.remove('crafting-card--valid', 'crafting-card--invalid', 'crafting-card--satisfied', 'crafting-card--split-host');
+        card.classList.add(splitHost ? 'crafting-card--split-host'
+            : (satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle'));
+
+        // The split-host hint lives on its own line (separate from the
+        // transient .crafting-status) so a "Crafted ✓" flash or an error
+        // message is never clobbered by state re-derivation.
+        const hint = card.querySelector('.crafting-host-hint');
+        if (hint) {
+            if (splitHost) {
+                hint.textContent = 'Inputs must be on the same component.';
+                hint.removeAttribute('hidden');
+            } else {
+                hint.textContent = '';
+                hint.setAttribute('hidden', '');
+            }
         }
 
-        // Keep the group's ARIA label in sync with the pool (n/m inputs).
+        // Keep the group's ARIA label in sync with the pool (n/m inputs);
+        // the split-host condition is part of the accessible name.
         // setAttribute stores the raw string — no HTML escaping needed.
-        const metCount = entries.filter(en => en.isMet).length;
-        card.setAttribute('aria-label', `${recipe.name} — ${metCount}/${entries.length} inputs`);
+        const metCount = entries.filter((en) => en.isMet).length;
+        card.setAttribute('aria-label',
+            `${recipe.name} — ${metCount}/${entries.length} inputs` +
+            (splitHost ? ' — inputs must be on the same component' : ''));
 
-        if (autoCraft && satisfied && !this._lastCraftFailed.has(recipeId)) {
+        if (autoCraft && host && !this._lastCraftFailed.has(recipeId)) {
             this._craft(recipeId);
         }
     }
@@ -1134,8 +1205,9 @@ export class CraftingPanel {
     /**
      * Executes the craft for a satisfied recipe:
      * POST /crafting/:entityId/craft with the pooled itemIds (in drop order,
-     * exactly the recipe multiset) resolved to the strip's component and its
-     * parent entity.
+     * exactly the recipe multiset) named to the single component that hosts
+     * ALL of them (the POST contract names one component; the server
+     * rejects cross-host inputs).
      *
      *   200  → "Crafted ✓" flash; the crafted recipe's pool entries are
      *          removed (its items were consumed) and the authoritative
@@ -1147,23 +1219,29 @@ export class CraftingPanel {
      * @private
      */
     async _craft(recipeId) {
-        const recipe = this._recipes.find(r => r.id === recipeId);
+        const recipe = this._recipes.find((r) => r.id === recipeId);
         if (!recipe) return;
         if (this._craftingRecipeIds.has(recipeId)) return;
 
         const itemIds = selectCraftItemIds(recipe, this._pool);
-        if (!itemIds) return;
-        // Record the exact set being POSTed (re-arm guard in _onDrop
-        // compares against this).
-        this._lastPostedSets[recipeId] = [...itemIds].sort();
+        if (!itemIds) return; // unsatisfied — must never fire
+        // The shared host is the POST's componentId: present only when every
+        // pooled input of the recipe lives on one component. A satisfied
+        // pool split across hosts never POSTs (a cross-host request is a
+        // guaranteed 400, and a failed craft must never lose items).
+        const componentId = getCraftableHost(recipe, this._pool);
+        if (!componentId) return;
 
         const entityId = this._currentEntityId;
-        const componentId = this._currentComponentId;
-        if (!entityId || !componentId) {
-            this._setStatus(recipeId, 'No component available for crafting.', 'error');
+        if (!entityId) {
+            this._setStatus(recipeId, 'No entity available for crafting.', 'error');
             this._lastCraftFailed.add(recipeId);
             return;
         }
+
+        // Record the exact set being POSTed (re-arm guard in
+        // _assignItemToRecipe compares against this).
+        this._lastPostedSets[recipeId] = [...itemIds].sort();
 
         this._craftingRecipeIds.add(recipeId);
         this._setStatus(recipeId, 'Crafting…', 'info');
@@ -1180,7 +1258,8 @@ export class CraftingPanel {
                 this._lastCraftFailed.delete(recipeId);
                 // Only this recipe's entries are consumed; other recipes'
                 // in-progress pools survive. Stale entries (items consumed
-                // elsewhere) are pruned on the next broadcast refresh.
+                // or moved elsewhere) are pruned on the next broadcast
+                // refresh.
                 this._pool = removeFromPendingPool(this._pool, recipeId);
                 this._setStatus(recipeId, 'Crafted ✓', 'crafted');
                 this._updateCardState(recipeId, false);
@@ -1201,95 +1280,72 @@ export class CraftingPanel {
         }
     }
 
+    // ==================== Status / helpers ====================
+
     /**
-     * Sets a recipe card's status line (idle | crafting… | crafted ✓ | error).
-     * @param {string} recipeId - The recipe whose card to update.
-     * @param {string} text - Status text.
-     * @param {('info'|'error'|'crafted')} kind - Visual variant.
+     * Shows a transient status message on a recipe card.
+     * @param {string} recipeId
+     * @param {string} message
+     * @param {'info'|'error'|'crafted'} kind
      * @private
      */
-    _setStatus(recipeId, text, kind) {
-        if (!this._content) return;
+    _setStatus(recipeId, message, kind) {
         const card = this._findRecipeCard(recipeId);
-        const status = card?.querySelector('.crafting-status');
+        if (!card) return;
+        const status = card.querySelector('.crafting-status');
         if (!status) return;
-
-        status.classList.remove('crafting-status--info', 'crafting-status--error', 'crafting-status--crafted');
-        if (kind === 'error') status.classList.add('crafting-status--error');
-        else if (kind === 'crafted') status.classList.add('crafting-status--crafted');
-        else if (kind === 'info') status.classList.add('crafting-status--info');
-        status.textContent = text;
+        status.textContent = message;
+        status.className = `crafting-status crafting-status--${kind}`;
     }
 
-    // ==================== Small helpers ====================
-
     /**
-     * Renders a generic centered empty state.
-     * @param {string} icon - Emoji icon.
-     * @param {string} message - Text.
+     * Renders the empty state (no entity / no items).
      * @returns {string} HTML.
      * @private
      */
-    _renderEmptyState(icon, message) {
+    _renderEmptyState() {
         return `
             <div class="crafting-empty">
-                <span class="crafting-empty-icon">${icon}</span>
-                <em>${this._escapeHtml(message)}</em>
+                <span class="crafting-empty-icon">🔨</span>
+                <em>No items to drag. Craft recipes appear below.</em>
             </div>`;
     }
 
     /**
-     * Human label for a component: its type (title-cased) when known,
-     * else the raw ID.
-     * @param {string} componentId - Component ID.
-     * @returns {string}
-     * @private
-     */
-    _componentLabel(componentId) {
-        const state = this._worldStateManager.getState();
-        const compData = state?.components?.instances?.[componentId];
-        const type = compData?.type || compData?.entityComponentType;
-        return type ? this._formatTypeName(type) : componentId;
-    }
-
-    /**
-     * Display name for an item type (registry first, then the raw type).
-     * @param {string} type - Item type ID.
-     * @returns {string}
-     * @private
-     */
-    _typeName(type) {
-        return this._itemRegistry[type]?.name || this._formatTypeName(type);
-    }
-
-    /**
-     * Title-cases a type/identifier string ("t1" → "T1", "cutting_arm" → "Cutting Arm").
-     * @param {string} value - The raw value.
-     * @returns {string}
-     * @private
-     */
-    _formatTypeName(value) {
-        return String(value)
-            .replace(/[_-]+/g, ' ')
-            .split(' ')
-            .filter(Boolean)
-            .map(w => w[0].toUpperCase() + w.slice(1))
-            .join(' ');
-    }
-
-    /**
-     * Finds a recipe card by its recipe ID. Dataset comparison (never
-     * selector interpolation): dataset returns browser-decoded values, so
-     * escaped attributes round-trip to the exact server string the
-     * comparison expects.
-     * @param {string} recipeId - The recipe whose card to find.
+     * Finds a recipe card element by recipe ID.
+     * @param {string} recipeId
      * @returns {HTMLElement|null}
      * @private
      */
     _findRecipeCard(recipeId) {
         if (!this._content) return null;
-        return Array.from(this._content.querySelectorAll('.crafting-recipe-card'))
-            .find(c => c.dataset.recipeId === recipeId) || null;
+        return this._content.querySelector(`.crafting-recipe-card[data-recipe-id]`);
+    }
+
+    /**
+     * Human label for a component: the readable formatted type resolved
+     * from the droid's component references and the component stats store,
+     * else "Unknown" — NEVER a raw comp- ID (the raw-ID strip label was
+     * the reported defect).
+     * @param {string} componentId - Component ID.
+     * @returns {string}
+     * @private
+     */
+    _componentLabel(componentId) {
+        const wsm = this._worldStateManager;
+        const droid = wsm?.getActiveDroid?.();
+        const instances = wsm?.getState()?.components?.instances ?? {};
+        return resolveComponentLabel(componentId, droid?.components ?? [], instances);
+    }
+
+    /**
+     * Display name for an item type (registry first, then the formatted type).
+     * @param {string} type - Item type ID.
+     * @returns {string}
+     * @private
+     */
+    _typeName(type) {
+        return this._itemRegistry[type]?.name || formatTypeName(type);
     }
 
     /**
