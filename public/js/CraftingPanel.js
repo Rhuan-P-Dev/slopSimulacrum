@@ -374,6 +374,19 @@ export function selectCraftItemIds(recipe, pool) {
     return itemIds;
 }
 
+/**
+ * Crafting panel overlay (design spec §2.5): an available-items strip bound
+ * to the resolved component, a recipe-card grid with pooled input slots,
+ * and auto-craft on satisfaction (drag & drop, or keyboard).
+ *
+ * ARIA contract (keyboard access): item cards are buttons
+ * (role=button, tabindex=0; aria-pressed reflects the picked state;
+ * Enter/Space picks the item, a second press or Escape cancels); recipe
+ * cards are groups (role=group, tabindex=0; Enter/Space assigns the
+ * picked item to that recipe and clears the pick; aria-label reports
+ * "n/m inputs"); each card's status line is aria-live=polite so craft
+ * results are announced to screen readers.
+ */
 export class CraftingPanel {
     /**
      * @param {Object} deps
@@ -414,6 +427,8 @@ export class CraftingPanel {
         this._lastCraftFailed = new Set();
         /** @private {Object<string, Array<string>>} Last POSTed pooled-ID set per recipe (re-arm guard) */
         this._lastPostedSets = {};
+        /** @private {string|null} Item ID picked via keyboard (Enter/Space on an item card) */
+        this._pickedItemId = null;
 
         // Bound handlers — stable references across re-renders.
         this._onDragStart = this._onDragStart.bind(this);
@@ -421,6 +436,8 @@ export class CraftingPanel {
         this._onDragOver = this._onDragOver.bind(this);
         this._onDragLeave = this._onDragLeave.bind(this);
         this._onDrop = this._onDrop.bind(this);
+        this._onItemKeydown = this._onItemKeydown.bind(this);
+        this._onRecipeKeydown = this._onRecipeKeydown.bind(this);
     }
 
     /**
@@ -493,6 +510,8 @@ export class CraftingPanel {
         this._currentComponentId = null;
         this._lastCraftFailed.clear();
         this._lastPostedSets = {};
+        this._pickedItemId = null;
+        this._clearPickedCard();
     }
 
     /**
@@ -748,8 +767,10 @@ export class CraftingPanel {
         // Footprint on the host component (same rule as InventoryManager).
         const displayVolume = item.externalVolume ?? item.hostVolume ?? (item.volume || 0);
         return `
-            <div class="crafting-item-card" draggable="true"
-                 data-item-id="${this._escapeHtml(item.id)}" data-item-type="${this._escapeHtml(item.type)}">
+            <div class="crafting-item-card" draggable="true" tabindex="0" role="button"
+                 data-item-id="${this._escapeHtml(item.id)}" data-item-type="${this._escapeHtml(item.type)}"
+                 aria-label="${this._escapeHtml(`${name} (${displayVolume} volume) — Enter to pick up`)}"
+                 aria-pressed="false">
                 <span class="crafting-item-name">${this._escapeHtml(name)}</span>
                 <span class="crafting-item-volume">${displayVolume}v</span>
             </div>`;
@@ -788,6 +809,7 @@ export class CraftingPanel {
     _renderRecipeCard(recipe) {
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
         const baseState = satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle';
+        const metCount = entries.filter(e => e.isMet).length;
 
         let slots = '';
         for (const entry of entries) {
@@ -807,14 +829,16 @@ export class CraftingPanel {
         }
 
         return `
-            <div class="crafting-recipe-card ${baseState}" data-recipe-id="${this._escapeHtml(recipe.id)}">
+            <div class="crafting-recipe-card ${baseState}" data-recipe-id="${this._escapeHtml(recipe.id)}"
+                 tabindex="0" role="group"
+                 aria-label="${this._escapeHtml(`${recipe.name} — ${metCount}/${entries.length} inputs`)}">
                 <div class="crafting-card-header">
                     <h4 class="crafting-card-name">${this._escapeHtml(recipe.name)}</h4>
                     <p class="crafting-card-desc">${this._escapeHtml(recipe.description || '')}</p>
                 </div>
                 <div class="crafting-slots">${slots}</div>
                 <div class="crafting-outputs">${outputs}</div>
-                <div class="crafting-status"></div>
+                <div class="crafting-status" aria-live="polite"></div>
             </div>`;
     }
 
@@ -829,12 +853,14 @@ export class CraftingPanel {
         for (const card of this._content.querySelectorAll('.crafting-item-card')) {
             card.addEventListener('dragstart', (e) => this._onDragStart(e, card));
             card.addEventListener('dragend', (e) => this._onDragEnd(e, card));
+            card.addEventListener('keydown', (e) => this._onItemKeydown(e, card));
         }
 
         for (const card of this._content.querySelectorAll('.crafting-recipe-card')) {
             card.addEventListener('dragover', (e) => this._onDragOver(e, card));
             card.addEventListener('dragleave', (e) => this._onDragLeave(e, card));
             card.addEventListener('drop', (e) => this._onDrop(e, card));
+            card.addEventListener('keydown', (e) => this._onRecipeKeydown(e, card));
         }
     }
 
@@ -906,10 +932,42 @@ export class CraftingPanel {
     }
 
     /**
-     * Drop on a recipe card: adds the item to that recipe's pending pool
-     * (deduped by item ID; drops of a type that isn't an input of this
-     * recipe — i.e. invalid drops — are no-ops) and re-derives the card
-     * state, which auto-fires the craft when all inputs are satisfied.
+     * Assigns an item to a recipe's pending pool — the shared body of the
+     * drag-drop and keyboard paths: validates the item exists and is an
+     * input type of the recipe, pools it (deduped by item ID), applies the
+     * re-arm guard, and re-derives the card state, which auto-fires the
+     * craft when all inputs are satisfied. Invalid and duplicate
+     * assignments are no-ops.
+     * @param {string} itemId - The item instance ID to assign.
+     * @param {string} recipeId - The target recipe ID.
+     * @private
+     */
+    _assignItemToRecipe(itemId, recipeId) {
+        const item = this._findItem(itemId);
+        const recipe = this._recipes.find(r => r.id === recipeId);
+        if (!item || !recipe) return;
+
+        const isInputType = (recipe.inputs || []).some(input => input.type === item.type);
+        if (!isInputType) return;
+
+        const nextPool = addToPendingPool(this._pool, recipe.id, item.type, itemId);
+        if (nextPool === this._pool) return; // duplicate — no-op
+
+        this._pool = nextPool;
+        // Re-arm a previously failed recipe for auto-craft ONLY when its
+        // pooled ID set changed since the last POST: a persistently
+        // failing recipe must not receive a fresh POST on every
+        // unrelated drop, and prune-induced pool changes (liveness and
+        // component binding) never re-arm — only real drops do.
+        if (pooledIdsKey(recipe, nextPool) !== (this._lastPostedSets[recipe.id] ?? []).join('\u0000')) {
+            this._lastCraftFailed.delete(recipe.id);
+        }
+        this._updateCardState(recipe.id, true);
+    }
+
+    /**
+     * Drop on a recipe card: validates the dropped ID and delegates to
+     * _assignItemToRecipe (drag path behavior is unchanged).
      * @param {DragEvent} e
      * @param {HTMLElement} card
      * @private
@@ -922,26 +980,80 @@ export class CraftingPanel {
         this._draggingItemId = null;
         if (!itemId) return;
 
-        const item = this._findItem(itemId);
-        const recipe = this._recipes.find(r => r.id === card.dataset.recipeId);
-        if (!item || !recipe) return;
+        this._assignItemToRecipe(itemId, card.dataset.recipeId);
+    }
 
-        const isInputType = (recipe.inputs || []).some(input => input.type === item.type);
-        if (!isInputType) return;
+    // ==================== Keyboard access (ARIA) ====================
 
-        const nextPool = addToPendingPool(this._pool, recipe.id, item.type, itemId);
-        if (nextPool === this._pool) return; // duplicate drop — no-op
+    /**
+     * Keyboard pick-up on an item card (role=button): Enter/Space picks
+     * the item (a second press cancels); Escape cancels an active pick.
+     * @param {KeyboardEvent} e
+     * @param {HTMLElement} card
+     * @private
+     */
+    _onItemKeydown(e, card) {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Escape') return;
+        e.preventDefault();
+        const itemId = card.dataset.itemId;
 
-        this._pool = nextPool;
-        // Re-arm a previously failed recipe for auto-craft ONLY when its
-        // pooled ID set changed since the last POST: a persistently
-        // failing recipe must not receive a fresh POST on every
-        // unrelated drop, and prune-induced pool changes (liveness and
-        // component binding) never re-arm — only real drops do.
-        if (pooledIdsKey(recipe, nextPool) !== (this._lastPostedSets[recipe.id] ?? []).join('\u0000')) {
-            this._lastCraftFailed.delete(recipe.id);
+        if (e.key === 'Escape') {
+            if (this._pickedItemId === itemId) {
+                this._pickedItemId = null;
+                this._setPickedState(card, false);
+            }
+            return;
         }
-        this._updateCardState(recipe.id, true);
+        if (this._pickedItemId === itemId) {
+            // Second press on the same item cancels the pick.
+            this._pickedItemId = null;
+            this._setPickedState(card, false);
+            return;
+        }
+        // Pick this item: clear any previously picked card first.
+        this._clearPickedCard();
+        this._pickedItemId = itemId;
+        this._setPickedState(card, true);
+    }
+
+    /**
+     * Keyboard assignment on a recipe card (role=group): Enter/Space
+     * assigns the currently picked item to this recipe, then clears the
+     * pick.
+     * @param {KeyboardEvent} e
+     * @param {HTMLElement} card
+     * @private
+     */
+    _onRecipeKeydown(e, card) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        if (!this._pickedItemId) return;
+        this._assignItemToRecipe(this._pickedItemId, card.dataset.recipeId);
+        this._pickedItemId = null;
+        this._clearPickedCard();
+    }
+
+    /**
+     * Sets or clears the picked visual state on an item card
+     * (highlight class + aria-pressed).
+     * @param {HTMLElement} card
+     * @param {boolean} picked
+     * @private
+     */
+    _setPickedState(card, picked) {
+        card.classList.toggle('crafting-picked', picked);
+        card.setAttribute('aria-pressed', picked ? 'true' : 'false');
+    }
+
+    /**
+     * Clears the picked highlight from any item card currently showing it.
+     * @private
+     */
+    _clearPickedCard() {
+        if (!this._content) return;
+        const picked = Array.from(this._content.querySelectorAll('.crafting-item-card'))
+            .find(c => c.classList.contains('crafting-picked'));
+        if (picked) this._setPickedState(picked, false);
     }
 
     /**
@@ -991,6 +1103,11 @@ export class CraftingPanel {
             card.classList.add('crafting-card--idle');
             card.classList.remove('crafting-card--satisfied');
         }
+
+        // Keep the group's ARIA label in sync with the pool (n/m inputs).
+        // setAttribute stores the raw string — no HTML escaping needed.
+        const metCount = entries.filter(en => en.isMet).length;
+        card.setAttribute('aria-label', `${recipe.name} — ${metCount}/${entries.length} inputs`);
 
         if (autoCraft && satisfied && !this._lastCraftFailed.has(recipeId)) {
             this._craft(recipeId);
