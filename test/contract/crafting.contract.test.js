@@ -30,6 +30,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import DataLoader from '../../src/utils/DataLoader.js';
 import CraftingController from '../../src/controllers/crafting/CraftingController.js';
+import Logger from '../../src/utils/Logger.js';
 
 /**
  * Builds a fresh world (tick system NOT started) with a spied broadcast
@@ -359,6 +360,32 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         expect(itemsOfType(componentItems(wsc, entityId, droidHead.id), 't1')).toHaveLength(0);
 
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
+    });
+
+    it('unwired craftingController degrades with a warning (not a silent empty registry)', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc } = world;
+        const { entityId, droidHead } = spawnDroid(world);
+
+        // Same seam as the recipe-swap tests above: craftingController is an
+        // injected dependency; null models the unwired composition state.
+        const warnSpy = vi.spyOn(Logger, 'warn');
+        wsc.craftingController = null;
+
+        // The recipe listing degrades to an empty registry WITH a warning.
+        expect(wsc.getCraftingRecipes()).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockClear();
+
+        const [knifeA, knifeB] = addItems(wsc, entityId, droidHead.id, ['knife', 'knife']);
+        warnSpy.mockClear();
+
+        // And every craft fails RECIPE_NOT_FOUND (warned, once) — never a
+        // silent success or a silent no-op.
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA, knifeB]);
+        expect(result.code).toBe('RECIPE_NOT_FOUND');
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        warnSpy.mockRestore();
     });
 });
 

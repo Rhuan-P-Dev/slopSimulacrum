@@ -1521,16 +1521,23 @@ class WorldStateController {
      * Every item mutation goes through InventoryManager (single source of
      * truth); this method only orchestrates. Never throws — every failure
      * returns a `code` the route maps to a status:
-     *   1. resolve recipe            → RECIPE_NOT_FOUND
-     *   2. resolve entity            → ENTITY_NOT_FOUND
-     *   3. component on the entity   → COMPONENT_NOT_FOUND
-     *   4. resolve each requested item (must exist, be typed `item-*`, be
-     *      hosted on `componentId`, and not appear twice in `itemIds`)
-     *                                    → INVALID_ITEM
-     *   5. item multiset exactly matches the recipe inputs → INPUTS_MISMATCH
-     *   6. volume pre-check (before any mutation)          → INSUFFICIENT_VOLUME
-     *   7. remove each input item (in order)
-     *   8. add each output item on the same component
+     *   1. resolve recipe (_resolveCraftTarget)
+     *                                           → RECIPE_NOT_FOUND
+     *   2. resolve entity (_resolveCraftTarget)
+     *                                           → ENTITY_NOT_FOUND
+     *   3. component on the entity (_resolveCraftTarget)
+     *                                           → COMPONENT_NOT_FOUND
+     *   4. resolve each requested item (_validateCraftInputs: must exist,
+     *      be typed `item-*`, be hosted on `componentId`, not appear twice
+     *      in `itemIds`, and hold no nested items)
+     *                                           → INVALID_ITEM
+     *   5. item multiset exactly matches the recipe inputs
+     *      (CraftingController.checkExactInputs)
+     *                                           → INPUTS_MISMATCH
+     *   6. volume pre-check (_precheckCraftVolume, before any mutation)
+     *                                           → INSUFFICIENT_VOLUME
+     *   7. remove each input item (_consumeCraftInputs, in order)
+     *   8. add each output item (_produceCraftOutputs) on the same component
      *   9. broadcast (null-guarded, mirrors addItemToEntity)
      *  10. return { success, recipeId, consumed, produced }
      *
@@ -1541,17 +1548,91 @@ class WorldStateController {
      * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}
      */
     craftItems(entityId, recipeId, componentId, itemIds) {
-        // 1. Resolve the recipe (defensive copy; null when unknown).
-        const recipe = this.craftingController ? this.craftingController.getRecipe(recipeId) : null;
+        // DELIBERATELY SYNCHRONOUS: no await anywhere in this chain (steps
+        // 1–10, including the helpers). Concurrent identical POSTs serialize
+        // safely because each craft is a synchronous transaction; do NOT
+        // introduce an await without re-evaluating that invariant.
+
+        // 1–3. Resolve recipe, entity, and component.
+        const target = this._resolveCraftTarget(entityId, recipeId, componentId);
+        if (!target.ok) {
+            return { success: false, code: target.code, message: target.message };
+        }
+        const { recipe, entity } = target;
+
+        // 4. Validate every requested item instance.
+        const validated = this._validateCraftInputs(recipe, entity, componentId, itemIds);
+        if (!validated.ok) {
+            return { success: false, code: validated.code, message: validated.message };
+        }
+
+        // 5. The multiset of item types must exactly match the recipe inputs.
+        //    The controller is non-null here because the recipe was resolved
+        //    from it in step 1.
+        const { satisfied, missing } = this.craftingController.checkExactInputs(validated.items, recipe);
+        if (!satisfied) {
+            // missing[0] is the first differing type (same order as the old
+            // inline check) — the message text is unchanged.
+            const first = missing[0];
+            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${first.type}: have ${first.have}, need ${first.need}.` };
+        }
+
+        // 6. Volume pre-check BEFORE any mutation (item-loss guard).
+        const volume = this._precheckCraftVolume(recipe, entity, componentId, validated.items);
+        if (!volume.ok) {
+            return { success: false, code: 'INSUFFICIENT_VOLUME', message: volume.message };
+        }
+
+        // 7. Consume the inputs (in the given order).
+        const consumed = this._consumeCraftInputs(entity, itemIds);
+        if (!consumed.ok) {
+            return { success: false, code: 'CRAFT_FAILED', message: consumed.message };
+        }
+
+        // 8. Produce the outputs on the SAME component.
+        const produced = this._produceCraftOutputs(recipe, entity, componentId);
+        if (!produced.ok) {
+            return { success: false, code: 'CRAFT_FAILED', message: produced.message };
+        }
+
+        // 9. Broadcast on success (null-guarded, exactly like addItemToEntity).
+        if (this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        // 10.
+        return { success: true, recipeId, consumed: [...itemIds], produced: produced.produced };
+    }
+
+    /**
+     * Craft steps 1–3: resolve the recipe (from the injected
+     * CraftingController), the entity, and the component on that entity.
+     * @param {string} entityId
+     * @param {string} recipeId
+     * @param {string} componentId
+     * @returns {{ok: true, recipe: Object, entity: Object, componentId: string} | {ok: false, code: string, message: string}}
+     * @private
+     */
+    _resolveCraftTarget(entityId, recipeId, componentId) {
+        // 1. Resolve the recipe (defensive copy; null when unknown). An
+        //    unwired controller is a composition-root miswiring, not a
+        //    normal runtime state — warn per call so it is never silent
+        //    (same warn style as the not-found paths above).
+        let recipe = null;
+        if (this.craftingController) {
+            recipe = this.craftingController.getRecipe(recipeId);
+        } else {
+            Logger.warn('[WorldStateController] craftingController is not wired (null); recipe lookups will fail — check the composition root (WorldComposition.js:158).');
+        }
         if (!recipe) {
-            return { success: false, code: 'RECIPE_NOT_FOUND', message: `Recipe "${recipeId}" not found.` };
+            return { ok: false, code: 'RECIPE_NOT_FOUND', message: `Recipe "${recipeId}" not found.` };
         }
 
         // 2. Resolve the entity (live reference — InventoryManager mutates it).
         const entity = this.stateEntityController.getEntity(entityId);
         if (!entity) {
             Logger.warn(`[WorldStateController] Entity "${entityId}" not found for crafting.`);
-            return { success: false, code: 'ENTITY_NOT_FOUND', message: `Entity "${entityId}" not found.` };
+            return { ok: false, code: 'ENTITY_NOT_FOUND', message: `Entity "${entityId}" not found.` };
         }
 
         // 3. The component must belong to this entity.
@@ -1559,40 +1640,57 @@ class WorldStateController {
             ? entity.components.find(c => c.id === componentId)
             : null;
         if (!component) {
-            return { success: false, code: 'COMPONENT_NOT_FOUND', message: `Component "${componentId}" not found on entity "${entityId}".` };
+            return { ok: false, code: 'COMPONENT_NOT_FOUND', message: `Component "${componentId}" not found on entity "${entityId}".` };
         }
 
-        // 4. Reject a duplicated ID BEFORE the per-item resolution loop: a
-        //    repeated ID cannot be consumed twice — the multiset check below
-        //    would count it once per occurrence, so a "satisfied" craft would
-        //    still remove only one instance while the caller believes both
-        //    were consumed. That is the item-loss class
-        //    wiki/subMDs/systems/crafting_system.md §7 exists to prevent.
-        //    Server-side by design: the route intentionally does not dedupe
-        //    itemIds (the explicit list stays the auditable request).
+        return { ok: true, recipe, entity, componentId };
+    }
+
+    /**
+     * Craft step 4: validate every requested item instance. Early rejects,
+     * in order: duplicate ID → existence → recipe-input type → host
+     * component → nested contents.
+     * @param {Object} recipe - The recipe (deep copy from CraftingController).
+     * @param {Object} entity - The live entity.
+     * @param {string} componentId
+     * @param {string[]} itemIds
+     * @returns {{ok: true, items: Array<Object>} | {ok: false, code: 'INVALID_ITEM', message: string}}
+     * @private
+     */
+    _validateCraftInputs(recipe, entity, componentId, itemIds) {
+        const entityId = entity.id;
+
+        // Reject a duplicated ID BEFORE the per-item resolution loop: a
+        // repeated ID cannot be consumed twice — the multiset check below
+        // would count it once per occurrence, so a "satisfied" craft would
+        // still remove only one instance while the caller believes both
+        // were consumed. That is the item-loss class
+        // wiki/subMDs/systems/crafting_system.md §7 exists to prevent.
+        // Server-side by design: the route intentionally does not dedupe
+        // itemIds (the explicit list stays the auditable request).
         const seenItemIds = new Set();
         for (const itemId of itemIds) {
             if (seenItemIds.has(itemId)) {
-                return { success: false, code: 'INVALID_ITEM', message: `Item ID "${itemId}" is listed more than once in itemIds; each item instance can only be consumed once.` };
+                return { ok: false, code: 'INVALID_ITEM', message: `Item ID "${itemId}" is listed more than once in itemIds; each item instance can only be consumed once.` };
             }
             seenItemIds.add(itemId);
         }
 
-        // 4. (per item) Each requested item must exist, be a recipe input
-        //    type, and be hosted on the crafting component (nested container
-        //    items are excluded naturally: their hostComponentId is a
-        //    container item ID).
+        // (per item) Each requested item must exist, be a recipe input
+        // type, and be hosted on the crafting component (nested container
+        // items are excluded naturally: their hostComponentId is a
+        // container item ID).
         const items = [];
         for (const itemId of itemIds) {
             const item = this.inventoryManager.getItem(entity, itemId);
             if (!item) {
-                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" not found on entity "${entityId}".` };
+                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" not found on entity "${entityId}".` };
             }
             if (!this._isRecipeInputType(recipe, item.type)) {
-                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" (type "${item.type}") is not an input of recipe "${recipeId}".` };
+                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" (type "${item.type}") is not an input of recipe "${recipe.id}".` };
             }
             if (item.hostComponentId !== componentId) {
-                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
+                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
             }
             // A recipe input is consumed as a whole unit: removeItem cascades
             // to all descendants, so crafting an item that currently contains
@@ -1601,38 +1699,36 @@ class WorldStateController {
             // Containers with contents are rejected (the player must empty
             // them first). Public API only: collectNestedItems.
             if (this.inventoryManager.collectNestedItems(entity, itemId).length > 0) {
-                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" contains nested items; empty it before crafting.` };
+                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" contains nested items; empty it before crafting.` };
             }
             items.push(item);
         }
 
-        // 5. The multiset of item types must exactly match the recipe inputs.
-        //    The controller is non-null here because the recipe was resolved
-        //    from it in step 1.
-        const { satisfied, missing } = this.craftingController.checkExactInputs(items, recipe);
-        if (!satisfied) {
-            // missing[0] is the first differing type (same order as the old
-            // inline check) — the message text is unchanged.
-            const first = missing[0];
-            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${first.type}: have ${first.have}, need ${first.need}.` };
-        }
+        return { ok: true, items };
+    }
 
-        // 6. Volume pre-check BEFORE consuming anything (item-loss guard).
-        //    The two sides measure different things, deliberately:
-        //    - `freed` is INSTANCE-based (item.hostVolume ?? item.volume, the
-        //      same unit InventoryManager.getComponentVolume sums): an item
-        //      keeps the footprint it was created with — data re-tuning never
-        //      retro-changes persisted items (cf.
-        //      InventoryManager.resyncItemTraits) — so only the stored
-        //      footprints are what removal will actually free.
-        //    - `needed` is DEFINITION-based via hostVolumeOf: NEW outputs
-        //      pick up the current definition footprint in
-        //      InventoryManager.addItem.
-        //    Computing `freed` from the current definition would let a
-        //    re-tuned definition overstate the space a craft frees, admitting
-        //    a consume that cannot actually fit — the no-item-loss guarantee
-        //    (crafting_system.md §7) must hold under definition drift, so
-        //    only `freed` is instance-based.
+    /**
+     * Craft step 6: volume pre-check BEFORE any mutation (item-loss guard).
+     * The two sides measure different things, deliberately: `freed` is
+     * INSTANCE-based (item.hostVolume ?? item.volume, the same unit
+     * InventoryManager.getComponentVolume sums) because an item keeps the
+     * footprint it was created with — data re-tuning never retro-changes
+     * persisted items (cf. InventoryManager.resyncItemTraits) — so only the
+     * stored footprints are what removal will actually free; `needed` is
+     * DEFINITION-based via hostVolumeOf because NEW outputs pick up the
+     * current definition footprint in InventoryManager.addItem. Computing
+     * `freed` from the current definition would let a re-tuned definition
+     * overstate the space a craft frees, admitting a consume that cannot
+     * actually fit — the no-item-loss guarantee (crafting_system.md §7)
+     * must hold under definition drift, so only `freed` is instance-based.
+     * @param {Object} recipe - The recipe (deep copy from CraftingController).
+     * @param {Object} entity - The live entity.
+     * @param {string} componentId
+     * @param {Array<Object>} items - The resolved input instances (step 4).
+     * @returns {{ok: true} | {ok: false, message: string}}
+     * @private
+     */
+    _precheckCraftVolume(recipe, entity, componentId, items) {
         const itemDefs = this.inventoryManager.getItemDefinitions();
         const hostVolumeOf = (type) => {
             const def = itemDefs[type] || {};
@@ -1642,23 +1738,44 @@ class WorldStateController {
         const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
         const free = this.inventoryManager.getAvailableVolume(entity, componentId);
         if (free + freed < needed) {
-            return { success: false, code: 'INSUFFICIENT_VOLUME', message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
+            return { ok: false, message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
         }
+        return { ok: true };
+    }
 
-        // 7. Consume the inputs (in the given order). A failure here cannot be
-        //    a volume issue (validated above); treat any other failure as a
-        //    hard error and stop BEFORE producing anything.
+    /**
+     * Craft step 7: remove each input item (in the given order). A failure
+     * here cannot be a volume issue (validated in step 6); any other
+     * failure is a hard error and stops BEFORE producing anything.
+     * @param {Object} entity - The live entity.
+     * @param {string[]} itemIds
+     * @returns {{ok: true} | {ok: false, message: string}}
+     * @private
+     */
+    _consumeCraftInputs(entity, itemIds) {
         for (const itemId of itemIds) {
             const removed = this.inventoryManager.removeItem(entity, itemId);
             if (!removed.success) {
-                Logger.error(`[WorldStateController] Unexpected removal failure while crafting "${recipeId}": ${removed.message}`);
-                return { success: false, code: 'CRAFT_FAILED', message: removed.message };
+                Logger.error(`[WorldStateController] Unexpected removal failure while crafting: ${removed.message}`);
+                return { ok: false, message: removed.message };
             }
         }
+        return { ok: true };
+    }
 
-        // 8. Produce the outputs on the SAME component. Cannot fail on
-        //    volume: step 6 proved the final footprint fits, and prefixes of
-        //    a fitting total always fit.
+    /**
+     * Craft step 8: add each output item on the SAME component. Cannot fail
+     * on volume: step 6 proved the final footprint fits, and prefixes of a
+     * fitting total always fit. Output footprints come from the CURRENT
+     * definitions (InventoryManager.addItem), not from persisted instances
+     * — the outputs are brand-new items.
+     * @param {Object} recipe - The recipe (deep copy from CraftingController).
+     * @param {Object} entity - The live entity.
+     * @param {string} componentId
+     * @returns {{ok: true, produced: Array<Object>} | {ok: false, message: string}}
+     * @private
+     */
+    _produceCraftOutputs(recipe, entity, componentId) {
         const produced = [];
         for (const output of recipe.outputs) {
             for (let i = 0; i < output.quantity; i++) {
@@ -1666,20 +1783,13 @@ class WorldStateController {
                     componentController: this.componentController
                 });
                 if (!added.success) {
-                    Logger.error(`[WorldStateController] Unexpected addition failure while crafting "${recipeId}": ${added.message}`);
-                    return { success: false, code: 'CRAFT_FAILED', message: added.message };
+                    Logger.error(`[WorldStateController] Unexpected addition failure while crafting "${recipe.id}": ${added.message}`);
+                    return { ok: false, message: added.message };
                 }
                 produced.push(added.item);
             }
         }
-
-        // 9. Broadcast on success (null-guarded, exactly like addItemToEntity).
-        if (this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        // 10.
-        return { success: true, recipeId, consumed: [...itemIds], produced };
+        return { ok: true, produced };
     }
 
     /**
@@ -1691,6 +1801,7 @@ class WorldStateController {
      */
     getCraftingRecipes() {
         if (!this.craftingController) {
+            Logger.warn('[WorldStateController] craftingController is not wired (null); recipe lookups will fail — check the composition root (WorldComposition.js:158).');
             return [];
         }
         return this.craftingController.getRecipes();
