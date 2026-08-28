@@ -246,6 +246,12 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         // testItem2 (4) plus the knife (1) we will try to consume: free = 3.
         const [, knifeA] = addItems(wsc, entityId, droidArmRight.id, ['testItem2', 'knife']);
 
+        // Test seam (intentional): the facade declares craftingController as a
+        // null-tolerant injected dependency (src/controllers/WorldStateController.js:106)
+        // and the composition root wires the identical dependency
+        // (src/composition/WorldComposition.js:158). Reassigning the field here uses
+        // that same seam. No setter is added to the public surface — it is pinned
+        // by test/contract/worldStateController.contract.test.js:139.
         // The data-file recipe (knife_to_t1) always frees ≥ what it needs, so
         // it can never demonstrate the volume guard. Inject an alternate
         // CraftingController (the same dependency the composition root wires)

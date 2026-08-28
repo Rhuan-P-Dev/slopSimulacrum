@@ -108,6 +108,7 @@ class WorldStateController {
         // the facade without it). Deliberately NOT in the subControllers map
         // below: it has no getAll() and must stay out of the getAll()/
         // broadcast aggregation (static recipe data).
+        // See test/contract/crafting.contract.test.js for the seam usage.
         /** @private {import('./crafting/CraftingController.js')|null} */
         this.craftingController = deps.craftingController ?? null;
 
