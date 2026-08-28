@@ -3,8 +3,8 @@
  * (crafting design spec §2.5/§4.7, architect decision 6):
  * pending-pool add/dedupe/remove/clear/prune, live-item flattening
  * (getLiveItemIds), strip-component resolution (resolveCraftingComponent),
- * pooled-set keys (pooledIdsKey), and per-recipe requirement satisfaction
- * computation.
+ * pooled-set keys (pooledIdsKey), HTML escaping (escapeHtml), and
+ * per-recipe requirement satisfaction computation.
  *
  * Per the client-testing convention (pattern: test/unit/RoomChatController.client.test.js),
  * these tests exercise ONLY the extracted pure functions — no raw DOM is
@@ -28,6 +28,7 @@ import {
     prunePool,
     prunePoolToComponent,
     pooledIdsKey,
+    escapeHtml,
     computeRecipeSatisfaction,
     selectCraftItemIds
 } from '../../public/js/CraftingPanel.js';
@@ -421,6 +422,24 @@ describe('pooledIdsKey', () => {
         const pool = { dual: { a: ['item-1'], b: ['item-2', 'item-3'] } };
 
         expect(pooledIdsKey(DUAL_RECIPE, pool)).toBe('item-1\u0000item-2\u0000item-3');
+    });
+});
+
+describe('escapeHtml', () => {
+    it('escapes the five HTML metacharacters', () => {
+        // The expected string is written with \u0026 escapes (repo
+        // pattern): the tooling HTML-decodes raw entities on write, but
+        // \u0026 === '&' at runtime, so the assertion checks the exact
+        // entity form.
+        expect(escapeHtml('a"b<c>&d\'e')).toBe('a\u0026quot;b\u0026lt;c\u0026gt;\u0026amp;d\u0026#39;e');
+    });
+
+    it('coerces non-string values via String()', () => {
+        expect(escapeHtml(42)).toBe('42');
+    });
+
+    it('null → "null"', () => {
+        expect(escapeHtml(null)).toBe('null');
     });
 });
 

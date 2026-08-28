@@ -32,11 +32,13 @@
  * The pure pool/satisfaction/liveness/resolution logic is extracted as
  * named exports (addToPendingPool, removeFromPendingPool, clearPendingPool,
  * getPoolItemIds, getLiveItemIds, resolveCraftingComponent, prunePool,
- * prunePoolToComponent, pooledIdsKey, computeRecipeSatisfaction,
- * selectCraftItemIds) and unit-tested without any DOM
- * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
- * Standing rule: every server-fetched map is defensive — guard group
- * values with Array.isArray before iteration.
+ * prunePoolToComponent, pooledIdsKey, escapeHtml,
+ * computeRecipeSatisfaction, selectCraftItemIds) and unit-tested without
+ * any DOM (test/unit/CraftingPanel.test.js); the class below owns the DOM
+ * wiring. Standing rule: every server-fetched map is defensive — guard
+ * group values with Array.isArray before iteration. Every server-sourced
+ * value is interpolated only through _escapeHtml; lookups by attribute use
+ * dataset comparison, never selector interpolation.
  *
  * Logging: ClientLogger only (BUG-123 — no console.* on the client).
  *
@@ -284,6 +286,19 @@ export function pooledIdsKey(recipe, pool) {
         if (Array.isArray(itemIds)) ids.push(...itemIds);
     }
     return [...ids].sort().join('\u0000');
+}
+
+/**
+ * Escapes a value for safe interpolation into HTML (pure): the five
+ * metacharacters &, <, >, ", ' are mapped to entities in a single pass.
+ * The entity values are written with \u0026 escapes (repo pattern, see
+ * the old chained implementation) so the source survives tooling that
+ * HTML-decodes raw entities.
+ * @param {*} value - The value to escape (coerced with String()).
+ * @returns {string}
+ */
+export function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, ch => ({'&':'\u0026amp;','<':'\u0026lt;','>':'\u0026gt;','"':'\u0026quot;',"'":'\u0026#39;'}[ch]));
 }
 
 /**
@@ -704,7 +719,7 @@ export class CraftingPanel {
 
         const stripHeader = componentId
             ? `<span class="crafting-strip-title">Drag source:</span>
-               <span class="crafting-strip-component" title="${componentId}">${this._escapeHtml(this._componentLabel(componentId))}</span>`
+                <span class="crafting-strip-component" title="${this._escapeHtml(componentId)}">${this._escapeHtml(this._componentLabel(componentId))}</span>`
             : '<span class="crafting-strip-hint">No component found on this entity.</span>';
 
         let cards = '';
@@ -734,7 +749,7 @@ export class CraftingPanel {
         const displayVolume = item.externalVolume ?? item.hostVolume ?? (item.volume || 0);
         return `
             <div class="crafting-item-card" draggable="true"
-                 data-item-id="${item.id}" data-item-type="${item.type}">
+                 data-item-id="${this._escapeHtml(item.id)}" data-item-type="${this._escapeHtml(item.type)}">
                 <span class="crafting-item-name">${this._escapeHtml(name)}</span>
                 <span class="crafting-item-volume">${displayVolume}v</span>
             </div>`;
@@ -778,7 +793,7 @@ export class CraftingPanel {
         for (const entry of entries) {
             const name = this._typeName(entry.type);
             slots += `
-                <div class="crafting-slot" data-type="${entry.type}">
+                <div class="crafting-slot" data-type="${this._escapeHtml(entry.type)}">
                     <span class="crafting-slot-label">${this._escapeHtml(name)} ×${entry.need} —
                         <span class="crafting-slot-count">${Math.min(entry.have, entry.need)}/${entry.need}</span>
                     </span>
@@ -792,7 +807,7 @@ export class CraftingPanel {
         }
 
         return `
-            <div class="crafting-recipe-card ${baseState}" data-recipe-id="${recipe.id}">
+            <div class="crafting-recipe-card ${baseState}" data-recipe-id="${this._escapeHtml(recipe.id)}">
                 <div class="crafting-card-header">
                     <h4 class="crafting-card-name">${this._escapeHtml(recipe.name)}</h4>
                     <p class="crafting-card-desc">${this._escapeHtml(recipe.description || '')}</p>
@@ -953,14 +968,15 @@ export class CraftingPanel {
      */
     _updateCardState(recipeId, autoCraft) {
         if (!this._content) return;
-        const card = this._content.querySelector(`.crafting-recipe-card[data-recipe-id="${recipeId}"]`);
+        const card = this._findRecipeCard(recipeId);
         const recipe = this._recipes.find(r => r.id === recipeId);
         if (!card || !recipe) return;
 
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
 
         for (const entry of entries) {
-            const slot = card.querySelector(`.crafting-slot[data-type="${entry.type}"]`);
+            const slot = Array.from(card.querySelectorAll('.crafting-slot'))
+                .find(s => s.dataset.type === entry.type);
             const count = slot?.querySelector('.crafting-slot-count');
             if (count) {
                 count.textContent = `${Math.min(entry.have, entry.need)}/${entry.need}`;
@@ -1060,7 +1076,7 @@ export class CraftingPanel {
      */
     _setStatus(recipeId, text, kind) {
         if (!this._content) return;
-        const card = this._content.querySelector(`.crafting-recipe-card[data-recipe-id="${recipeId}"]`);
+        const card = this._findRecipeCard(recipeId);
         const status = card?.querySelector('.crafting-status');
         if (!status) return;
 
@@ -1128,18 +1144,29 @@ export class CraftingPanel {
     }
 
     /**
-     * Escapes a string for safe interpolation into HTML.
+     * Finds a recipe card by its recipe ID. Dataset comparison (never
+     * selector interpolation): dataset returns browser-decoded values, so
+     * escaped attributes round-trip to the exact server string the
+     * comparison expects.
+     * @param {string} recipeId - The recipe whose card to find.
+     * @returns {HTMLElement|null}
+     * @private
+     */
+    _findRecipeCard(recipeId) {
+        if (!this._content) return null;
+        return Array.from(this._content.querySelectorAll('.crafting-recipe-card'))
+            .find(c => c.dataset.recipeId === recipeId) || null;
+    }
+
+    /**
+     * Escapes a string for safe interpolation into HTML (delegates to the
+     * pure escapeHtml export).
      * @param {string} value - The value to escape.
      * @returns {string}
      * @private
      */
     _escapeHtml(value) {
-        return String(value)
-            .replace(/&/g, '\u0026amp;')
-            .replace(/</g, '\u0026lt;')
-            .replace(/>/g, '\u0026gt;')
-            .replace(/"/g, '\u0026quot;')
-            .replace(/'/g, '\u0026#39;');
+        return escapeHtml(value);
     }
 }
 
