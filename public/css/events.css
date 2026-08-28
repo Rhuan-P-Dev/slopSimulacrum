@@ -9,4 +9,5 @@
 .event-log-row { line-height: 1.35; overflow-wrap: break-word; color: var(--text-main); }
 .event-log-time { color: var(--text-dim); margin-right: 6px; }
 .event-log-row-warn { color: var(--neon-orange); }
+.event-log-context { display: block; margin: 2px 0 2px 0; color: var(--text-dim); font-size: 0.85em; line-height: 1.3; overflow-wrap: break-word; }
 .event-log-empty { color: var(--text-dim); font-style: italic; }
