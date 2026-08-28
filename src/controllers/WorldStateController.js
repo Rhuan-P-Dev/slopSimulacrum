@@ -1604,16 +1604,27 @@ class WorldStateController {
         }
 
         // 6. Volume pre-check BEFORE consuming anything (item-loss guard).
-        //    Host footprint = externalVolume ?? volume (same rule as
-        //    InventoryManager.addItem); the item index stores the same value
-        //    as `hostVolume`, so freed/needed mirror what steps 7–8 actually
-        //    free/consume.
+        //    The two sides measure different things, deliberately:
+        //    - `freed` is INSTANCE-based (item.hostVolume ?? item.volume, the
+        //      same unit InventoryManager.getComponentVolume sums): an item
+        //      keeps the footprint it was created with — data re-tuning never
+        //      retro-changes persisted items (cf.
+        //      InventoryManager.resyncItemTraits) — so only the stored
+        //      footprints are what removal will actually free.
+        //    - `needed` is DEFINITION-based via hostVolumeOf: NEW outputs
+        //      pick up the current definition footprint in
+        //      InventoryManager.addItem.
+        //    Computing `freed` from the current definition would let a
+        //    re-tuned definition overstate the space a craft frees, admitting
+        //    a consume that cannot actually fit — the no-item-loss guarantee
+        //    (crafting_system.md §7) must hold under definition drift, so
+        //    only `freed` is instance-based.
         const itemDefs = this.inventoryManager.getItemDefinitions();
         const hostVolumeOf = (type) => {
             const def = itemDefs[type] || {};
             return def.externalVolume ?? def.volume ?? 0;
         };
-        const freed = items.reduce((sum, item) => sum + hostVolumeOf(item.type), 0);
+        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
         const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
         const free = this.inventoryManager.getAvailableVolume(entity, componentId);
         if (free + freed < needed) {

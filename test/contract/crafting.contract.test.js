@@ -279,6 +279,56 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
 
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
     });
+
+    it('volume drift (re-tuned definition) → INSUFFICIENT_VOLUME before consumption (no item loss)', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc, broadcast } = world;
+        const { entityId, droidHead } = spawnDroid(world);
+
+        // droidHead (volume 8) filled to 1 free: testItem2 (4) + 3 knives (1 each).
+        const [t2, kA, kB, kC] = addItems(wsc, entityId, droidHead.id, ['testItem2', 'knife', 'knife', 'knife']);
+
+        // Model a re-tuned knife definition (volume 1 → 2) AFTER the knives
+        // were created. getItemDefinitions is read only by the craft
+        // pre-check, so the spy models definition drift precisely; the
+        // persisted knife instances keep their original footprint of 1.
+        const realRegistry = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        const driftSpy = vi.spyOn(wsc.inventoryManager, 'getItemDefinitions')
+            .mockReturnValue(structuredClone({ ...realRegistry, knife: { ...realRegistry.knife, volume: 2 } }));
+
+        // Alternate recipe: 2 knives → 1 testItem2 (output footprint 4).
+        wsc.craftingController = new CraftingController(
+            {
+                knife_to_box: {
+                    id: 'knife_to_box',
+                    name: 'K2B',
+                    inputs: [{ type: 'knife', quantity: 2 }],
+                    outputs: [{ type: 'testItem2', quantity: 1 }],
+                },
+            },
+            realRegistry
+        );
+
+        const broadcastCallsBefore = broadcast.mock.calls.length;
+        const result = wsc.craftItems(entityId, 'knife_to_box', droidHead.id, [kA, kB]);
+        driftSpy.mockRestore();
+
+        // Instance-based freed: 2 × 1 = 2 ("gains 2"). The definition-based
+        // old code would compute 2 × 2 = 4, pass the pre-check, consume both
+        // knives, and then fail to fit the 4-volume output — destroying the
+        // inputs (item loss).
+        expect(result.success).toBe(false);
+        expect(result.code).toBe('INSUFFICIENT_VOLUME');
+        expect(result.message).toContain('has 1 free, gains 2, needs 4');
+
+        // NO item loss: all three knives and the original testItem2 intact.
+        const headItems = componentItems(wsc, entityId, droidHead.id);
+        expect(itemsOfType(headItems, 'knife').map((i) => i.id).sort()).toEqual([kA, kB, kC].sort());
+        expect(itemsOfType(headItems, 'testItem2').map((i) => i.id)).toEqual([t2]);
+        expect(itemsOfType(headItems, 'toolCrate')).toHaveLength(0);
+
+        expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
+    });
 });
 
 describe('crafting contract — data-driven registry & no-turn decision', () => {
