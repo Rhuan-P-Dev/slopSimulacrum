@@ -29,13 +29,13 @@
  * broadcast → refreshWorldAndActions() → refreshIfOpen(), so this panel
  * never applies manual inventory edits from the response.
  *
- * The pure pool/satisfaction/liveness logic is extracted as named exports
- * (addToPendingPool, removeFromPendingPool, clearPendingPool,
- * getPoolItemIds, getLiveItemIds, prunePool, computeRecipeSatisfaction,
- * selectCraftItemIds) and unit-tested without any DOM
- * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
- * Standing rule: every server-fetched map is defensive — guard group
- * values with Array.isArray before iteration.
+ * The pure pool/satisfaction/liveness/resolution logic is extracted as
+ * named exports (addToPendingPool, removeFromPendingPool, clearPendingPool,
+ * getPoolItemIds, getLiveItemIds, resolveCraftingComponent, prunePool,
+ * prunePoolToComponent, computeRecipeSatisfaction, selectCraftItemIds) and
+ * unit-tested without any DOM (test/unit/CraftingPanel.test.js); the class
+ * below owns the DOM wiring. Standing rule: every server-fetched map is
+ * defensive — guard group values with Array.isArray before iteration.
  *
  * Logging: ClientLogger only (BUG-123 — no console.* on the client).
  *
@@ -193,6 +193,34 @@ export function resolveCraftingComponent({ selectedId, entityComponentIds, items
 }
 
 /**
+ * Shared entry-splicing mechanics for the two pool pruners (private, pure):
+ * filters each type's ID list through keepIdFn, drops types and recipes
+ * that become empty, and returns the SAME pool reference when nothing
+ * changed (callers rely on that for cheap no-op refreshes).
+ * @param {Object} pool - The pending pool.
+ * @param {(id: string) => boolean} keepIdFn - Whether an ID survives.
+ * @returns {Object} A new pruned pool, or the same reference when unchanged.
+ */
+function _pruneEntries(pool, keepIdFn) {
+    const pruned = {};
+    let changed = false;
+    for (const [recipeId, byType] of Object.entries(pool || {})) {
+        const recipeEntry = {};
+        for (const [type, itemIds] of Object.entries(byType || {})) {
+            const kept = itemIds.filter(keepIdFn);
+            if (kept.length !== itemIds.length) changed = true;
+            if (kept.length > 0) recipeEntry[type] = kept;
+        }
+        if (Object.keys(recipeEntry).length > 0) {
+            pruned[recipeId] = recipeEntry;
+        } else if (pool[recipeId]) {
+            changed = true;
+        }
+    }
+    return changed ? pruned : pool;
+}
+
+/**
  * Drops pooled items that no longer exist in the live inventory (pure).
  * Called on every broadcast refresh so the pool never references a
  * consumed/removed instance (e.g. after another client or an NPC mutated
@@ -206,22 +234,36 @@ export function resolveCraftingComponent({ selectedId, entityComponentIds, items
  */
 export function prunePool(pool, liveItemIds) {
     const live = new Set(liveItemIds);
-    const pruned = {};
-    let changed = false;
-    for (const [recipeId, byType] of Object.entries(pool || {})) {
-        const recipeEntry = {};
-        for (const [type, itemIds] of Object.entries(byType || {})) {
-            const kept = itemIds.filter(id => live.has(id));
-            if (kept.length !== itemIds.length) changed = true;
-            if (kept.length > 0) recipeEntry[type] = kept;
-        }
-        if (Object.keys(recipeEntry).length > 0) {
-            pruned[recipeId] = recipeEntry;
-        } else if (pool[recipeId]) {
-            changed = true;
+    return _pruneEntries(pool, (id) => live.has(id));
+}
+
+/**
+ * Drops pool entries not hosted on the given component (pure). The pool is
+ * bound to the strip component: a POST names exactly one component (server
+ * contract, WorldStateController step 4), so entries from other components
+ * can never be consumed together and would only produce guaranteed
+ * INVALID_ITEM failures.
+ * @param {Object} pool - The pending pool.
+ * @param {Object|null} itemsByComponent - fresh GET /inventory map
+ * @param {string|null} componentId - The strip component to bind to
+ *   (null clears everything: with no resolvable component no valid POST
+ *   is possible).
+ * @returns {Object} (same reference when nothing changed)
+ */
+export function prunePoolToComponent(pool, itemsByComponent, componentId) {
+    // An item's host is the items-map group key it appears under (array
+    // groups only, same guards as getLiveItemIds).
+    const hostOf = new Map();
+    for (const [groupKey, items] of Object.entries(itemsByComponent ?? {})) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+            if (item && typeof item.id === 'string') hostOf.set(item.id, groupKey);
         }
     }
-    return changed ? pruned : pool;
+    if (componentId === null) {
+        return _pruneEntries(pool, () => false);
+    }
+    return _pruneEntries(pool, (id) => hostOf.get(id) === componentId);
 }
 
 /**
@@ -615,7 +657,13 @@ export class CraftingPanel {
     _render() {
         if (!this._content) return;
 
-        this._currentComponentId = this._resolveCraftingComponent();
+        const next = this._resolveCraftingComponent();
+        if (next !== this._currentComponentId) {
+            this._currentComponentId = next;
+            // The strip moved: staged drops hosted on other components can
+            // never join a valid single-component POST — drop them.
+            this._pool = prunePoolToComponent(this._pool, this._items, next);
+        }
         let html = this._renderAvailableItems();
         html += this._renderRecipeCards();
         this._content.innerHTML = html;

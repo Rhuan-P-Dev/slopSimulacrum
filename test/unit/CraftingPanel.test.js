@@ -11,6 +11,10 @@
  *
  * Standing rule: every server-fetched map is defensive — guard group
  * values with Array.isArray before iteration.
+ *
+ * The pool's invariants are owned by the two pure pruners (liveness:
+ * prunePool; component membership: prunePoolToComponent); any future pool
+ * feature must extend them, not mutate the pool ad-hoc.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -21,6 +25,7 @@ import {
     getLiveItemIds,
     resolveCraftingComponent,
     prunePool,
+    prunePoolToComponent,
     computeRecipeSatisfaction,
     selectCraftItemIds
 } from '../../public/js/CraftingPanel.js';
@@ -330,6 +335,62 @@ describe('resolveCraftingComponent', () => {
             recipeInputTypes: ['knife']
         });
         expect(result).toBeNull();
+    });
+});
+
+describe('prunePoolToComponent', () => {
+    const items = {
+        'comp-a': [{ id: 'item-1', type: 'knife' }],
+        'comp-b': [{ id: 'item-2', type: 'knife' }]
+    };
+
+    it('drops entries not hosted on the given component (new reference)', () => {
+        const pool = { knife_to_t1: { knife: ['item-1', 'item-2'] } };
+        const next = prunePoolToComponent(pool, items, 'comp-a');
+
+        expect(next).toEqual({ knife_to_t1: { knife: ['item-1'] } });
+        expect(next).not.toBe(pool);
+    });
+
+    it('removes types and recipes that become empty', () => {
+        const pool = {
+            knife_to_t1: { knife: ['item-2'] },
+            other: { b: ['item-2'] }
+        };
+        expect(prunePoolToComponent(pool, items, 'comp-a')).toEqual({});
+    });
+
+    it('drops a pooled ID that is no longer in the items map at all', () => {
+        const pool = { knife_to_t1: { knife: ['item-1', 'item-gone'] } };
+        expect(prunePoolToComponent(pool, items, 'comp-a'))
+            .toEqual({ knife_to_t1: { knife: ['item-1'] } });
+    });
+
+    it('returns the same reference when nothing changed', () => {
+        const pool = { knife_to_t1: { knife: ['item-1'] } };
+        expect(prunePoolToComponent(pool, items, 'comp-a')).toBe(pool);
+    });
+
+    it('clears everything when the component is null', () => {
+        const pool = { knife_to_t1: { knife: ['item-1'] } };
+        expect(prunePoolToComponent(pool, items, null)).toEqual({});
+    });
+
+    it('H3 scenario: cross-component pooled knives collapse to the strip component before the POST', () => {
+        const itemsMap = {
+            droidHead: [{ id: 'kA', type: 'knife' }],
+            droidArm: [{ id: 'kB', type: 'knife' }]
+        };
+        const pool = { knife_to_t1: { knife: ['kA', 'kB'] } };
+
+        const next = prunePoolToComponent(pool, itemsMap, 'droidArm');
+        expect(next).toEqual({ knife_to_t1: { knife: ['kB'] } });
+
+        // 1-of-2 → unsatisfied → no auto-craft → the 400 loop is
+        // structurally impossible (selectCraftItemIds returns null, the
+        // signal that a craft must never fire).
+        expect(selectCraftItemIds(KNIFE_TO_T1, next)).toBeNull();
+        expect(computeRecipeSatisfaction(KNIFE_TO_T1, next).satisfied).toBe(false);
     });
 });
 
