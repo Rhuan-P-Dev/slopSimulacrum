@@ -57,6 +57,7 @@ class WorldStateController {
      * @param {import('../controllers/ai/InstinctController.js')} [deps.instinctController]
      * @param {import('./triggers/TriggerController.js')} [deps.triggerController]
      * @param {import('./materials/MaterialController.js')} [deps.materialController]
+     * @param {import('./crafting/CraftingController.js')} [deps.craftingController]
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -102,6 +103,13 @@ class WorldStateController {
         this.instinctController = deps.instinctController ?? null;
         /** @private {import('./materials/MaterialController.js')|null} */
         this.materialController = deps.materialController ?? null;
+        // CraftingController: recipe registry (data/crafting.json). State
+        // controller; null-tolerant like materialController (tests may build
+        // the facade without it). Deliberately NOT in the subControllers map
+        // below: it has no getAll() and must stay out of the getAll()/
+        // broadcast aggregation (static recipe data).
+        /** @private {import('./crafting/CraftingController.js')|null} */
+        this.craftingController = deps.craftingController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -1496,6 +1504,193 @@ class WorldStateController {
         }
 
         return result;
+    }
+
+    /**
+     * Crafts a recipe: consumes the given item instances from a component and
+     * produces the recipe's outputs on the SAME component. Pure UI-panel
+     * feature: no world effect, no range, no room requirement, no turn
+     * (crafting is deliberately NOT a registry action — it executes
+     * synchronously outside the round system, like the other inventory ops).
+     *
+     * Volume is pre-checked BEFORE consumption (free + freed ≥ needed) so a
+     * full component can never destroy inputs; with that guarantee and
+     * single-threaded execution the consume→add sequence is atomic in effect
+     * (item-loss prevention — the data-corruption class of BUG-008).
+     *
+     * Every item mutation goes through InventoryManager (single source of
+     * truth); this method only orchestrates. Never throws — every failure
+     * returns a `code` the route maps to a status:
+     *   1. resolve recipe            → RECIPE_NOT_FOUND
+     *   2. resolve entity            → ENTITY_NOT_FOUND
+     *   3. component on the entity   → COMPONENT_NOT_FOUND
+     *   4. each item exists, is a recipe input type, and is hosted on the
+     *      component                 → INVALID_ITEM
+     *   5. item multiset exactly matches the recipe inputs → INPUTS_MISMATCH
+     *   6. volume pre-check (before any mutation)          → INSUFFICIENT_VOLUME
+     *   7. remove each input item (in order)
+     *   8. add each output item on the same component
+     *   9. broadcast (null-guarded, mirrors addItemToEntity)
+     *  10. return { success, recipeId, consumed, produced }
+     *
+     * @param {string} entityId - Typed entity ID (ent-<uuid>).
+     * @param {string} recipeId - Recipe ID from data/crafting.json.
+     * @param {string} componentId - Typed component ID (comp-<uuid>) hosting the inputs AND receiving the outputs.
+     * @param {string[]} itemIds - Exact item instance IDs (item-<uuid>) to consume; must exactly satisfy the recipe inputs.
+     * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}
+     */
+    craftItems(entityId, recipeId, componentId, itemIds) {
+        // 1. Resolve the recipe (defensive copy; null when unknown).
+        const recipe = this.craftingController ? this.craftingController.getRecipe(recipeId) : null;
+        if (!recipe) {
+            return { success: false, code: 'RECIPE_NOT_FOUND', message: `Recipe "${recipeId}" not found.` };
+        }
+
+        // 2. Resolve the entity (live reference — InventoryManager mutates it).
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) {
+            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for crafting.`);
+            return { success: false, code: 'ENTITY_NOT_FOUND', message: `Entity "${entityId}" not found.` };
+        }
+
+        // 3. The component must belong to this entity.
+        const component = Array.isArray(entity.components)
+            ? entity.components.find(c => c.id === componentId)
+            : null;
+        if (!component) {
+            return { success: false, code: 'COMPONENT_NOT_FOUND', message: `Component "${componentId}" not found on entity "${entityId}".` };
+        }
+
+        // 4. Each requested item must exist, be a recipe input type, and be
+        //    hosted on the crafting component (nested container items are
+        //    excluded naturally: their hostComponentId is a container item ID).
+        const items = [];
+        for (const itemId of itemIds) {
+            const item = this.inventoryManager.getItem(entity, itemId);
+            if (!item) {
+                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" not found on entity "${entityId}".` };
+            }
+            if (!this._isRecipeInputType(recipe, item.type)) {
+                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" (type "${item.type}") is not an input of recipe "${recipeId}".` };
+            }
+            if (item.hostComponentId !== componentId) {
+                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
+            }
+            items.push(item);
+        }
+
+        // 5. The multiset of item types must exactly match the recipe inputs.
+        const mismatch = this._checkInputMultiset(recipe, items);
+        if (mismatch !== null) {
+            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${mismatch}.` };
+        }
+
+        // 6. Volume pre-check BEFORE consuming anything (item-loss guard).
+        //    Host footprint = externalVolume ?? volume (same rule as
+        //    InventoryManager.addItem); the item index stores the same value
+        //    as `hostVolume`, so freed/needed mirror what steps 7–8 actually
+        //    free/consume.
+        const itemDefs = this.inventoryManager.getItemDefinitions();
+        const hostVolumeOf = (type) => {
+            const def = itemDefs[type] || {};
+            return def.externalVolume ?? def.volume ?? 0;
+        };
+        const freed = items.reduce((sum, item) => sum + hostVolumeOf(item.type), 0);
+        const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
+        const free = this.inventoryManager.getAvailableVolume(entity, componentId);
+        if (free + freed < needed) {
+            return { success: false, code: 'INSUFFICIENT_VOLUME', message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
+        }
+
+        // 7. Consume the inputs (in the given order). A failure here cannot be
+        //    a volume issue (validated above); treat any other failure as a
+        //    hard error and stop BEFORE producing anything.
+        for (const itemId of itemIds) {
+            const removed = this.inventoryManager.removeItem(entity, itemId);
+            if (!removed.success) {
+                Logger.error(`[WorldStateController] Unexpected removal failure while crafting "${recipeId}": ${removed.message}`);
+                return { success: false, code: 'CRAFT_FAILED', message: removed.message };
+            }
+        }
+
+        // 8. Produce the outputs on the SAME component. Cannot fail on
+        //    volume: step 6 proved the final footprint fits, and prefixes of
+        //    a fitting total always fit.
+        const produced = [];
+        for (const output of recipe.outputs) {
+            for (let i = 0; i < output.quantity; i++) {
+                const added = this.inventoryManager.addItem(entity, output.type, componentId, {
+                    componentController: this.componentController
+                });
+                if (!added.success) {
+                    Logger.error(`[WorldStateController] Unexpected addition failure while crafting "${recipeId}": ${added.message}`);
+                    return { success: false, code: 'CRAFT_FAILED', message: added.message };
+                }
+                produced.push(added.item);
+            }
+        }
+
+        // 9. Broadcast on success (null-guarded, exactly like addItemToEntity).
+        if (this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        // 10.
+        return { success: true, recipeId, consumed: [...itemIds], produced };
+    }
+
+    /**
+     * Returns all crafting recipe definitions for the client (the crafting
+     * panel renders one card per recipe). Thin passthrough to the injected
+     * CraftingController — routes must never reach into sub-controllers
+     * (Public API Only, project rule §2).
+     * @returns {Array<Object>} Defensive deep copies of every recipe (array form).
+     */
+    getCraftingRecipes() {
+        if (!this.craftingController) {
+            return [];
+        }
+        return this.craftingController.getRecipes();
+    }
+
+    /**
+     * Checks whether an item type is one of the recipe's input types.
+     * @param {Object} recipe - The recipe (deep copy from CraftingController).
+     * @param {string} itemType - The item's type ID.
+     * @returns {boolean}
+     * @private
+     */
+    _isRecipeInputType(recipe, itemType) {
+        return recipe.inputs.some(input => input.type === itemType);
+    }
+
+    /**
+     * Compares the multiset of item types against the recipe's input
+     * multiset (counts must be exactly equal, per type).
+     * @param {Object} recipe - The recipe (deep copy from CraftingController).
+     * @param {Array<Object>} items - Resolved item instances to consume.
+     * @returns {string|null} null when the multisets match exactly, otherwise
+     *   a human-readable description of the first differing type.
+     * @private
+     */
+    _checkInputMultiset(recipe, items) {
+        const counts = {};
+        for (const item of items) {
+            counts[item.type] = (counts[item.type] || 0) + 1;
+        }
+        const required = {};
+        for (const input of recipe.inputs) {
+            required[input.type] = (required[input.type] || 0) + input.quantity;
+        }
+        const allTypes = new Set([...Object.keys(counts), ...Object.keys(required)]);
+        for (const type of allTypes) {
+            const have = counts[type] || 0;
+            const need = required[type] || 0;
+            if (have !== need) {
+                return `${type}: have ${have}, need ${need}`;
+            }
+        }
+        return null;
     }
 
     // =========================================================================
