@@ -149,6 +149,50 @@ export function getLiveItemIds(itemsByComponent) {
 }
 
 /**
+ * Resolves which component the strip shows. ONLY entity-component IDs may
+ * be returned: items-map group keys can be container item IDs (nested
+ * items) or '__unassigned__', which must never be POSTed (the route
+ * rejects non-comp- IDs).
+ *   1) the selected component, if it is an entity component;
+ *   2) the first entity component holding an item of any recipe-input type;
+ *   3) the first entity component holding any item;
+ *   4) the entity's first component; null if none.
+ * @param {{selectedId: string|null, entityComponentIds: string[], itemsByComponent: Object|null, recipeInputTypes: string[]}} args
+ * @returns {string|null}
+ */
+export function resolveCraftingComponent({ selectedId, entityComponentIds, itemsByComponent, recipeInputTypes }) {
+    // 1) The selected component wins when it is an entity component
+    //    (never a raw items-map group key).
+    if (selectedId && entityComponentIds.includes(selectedId)) {
+        return selectedId;
+    }
+
+    // 2) and 3) iterate the entity's components IN ORDER and look each key
+    //    up in the items map — raw group keys (container item IDs,
+    //    '__unassigned__') can never leak into the result, and the stable
+    //    component order is preserved.
+    const groups = itemsByComponent ?? {};
+    const itemsOf = (compId) => {
+        const items = groups[compId];
+        return Array.isArray(items) ? items : [];
+    };
+    if (recipeInputTypes.length > 0) {
+        const relevant = new Set(recipeInputTypes);
+        for (const compId of entityComponentIds) {
+            if (itemsOf(compId).some(item => item && relevant.has(item.type))) {
+                return compId;
+            }
+        }
+    }
+    for (const compId of entityComponentIds) {
+        if (itemsOf(compId).length > 0) {
+            return compId;
+        }
+    }
+    return entityComponentIds[0] ?? null;
+}
+
+/**
  * Drops pooled items that no longer exist in the live inventory (pure).
  * Called on every broadcast refresh so the pool never references a
  * consumed/removed instance (e.g. after another client or an NPC mutated
@@ -502,70 +546,36 @@ export class CraftingPanel {
     // ==================== Component resolution ====================
 
     /**
-     * Resolves which component the available-items strip shows:
-     *   1. The first selected component ID (SelectionController) if it
-     *      belongs to the active entity — crafting follows the selection
-     *      model used by every other panel;
-     *   2. Else the first component holding an item of a type that appears
-     *      in any recipe input (the useful default);
-     *   3. Else the first component holding any item;
+     * Resolves which component the available-items strip shows — thin
+     * wiring over the pure resolveCraftingComponent:
+     *   1. The selected component ID (SelectionController) if it belongs to
+     *      the active entity — crafting follows the selection model used by
+     *      every other panel;
+     *   2. Else the first entity component holding an item of a type that
+     *      appears in any recipe input (the useful default);
+     *   3. Else the first entity component holding any item;
      *   4. Else the entity's first component (so the strip can show a
-     *      meaningful empty state).
+     *      meaningful empty state); null if there is none.
+     *
+     * ONLY entity-component IDs can be returned: items-map group keys may
+     * be container item IDs (nested items) or '__unassigned__', and those
+     * must never be POSTed as the crafting component.
      * @returns {string|null}
      * @private
      */
     _resolveCraftingComponent() {
-        const droid = this._worldStateManager.getActiveDroid();
-
-        const selectedId = this._getSelectedComponentId();
-        if (selectedId && this._isEntityComponent(selectedId)) {
-            return selectedId;
-        }
-
-        const relevantTypes = new Set();
-        for (const recipe of this._recipes) {
-            for (const input of (recipe.inputs || [])) {
-                relevantTypes.add(input.type);
-            }
-        }
-
-        for (const [compId, items] of Object.entries(this._items)) {
-            if (items.some(item => relevantTypes.has(item.type))) {
-                return compId;
-            }
-        }
-        for (const [compId, items] of Object.entries(this._items)) {
-            if (items.length > 0) {
-                return compId;
-            }
-        }
-        return this._firstEntityComponentId(droid);
-    }
-
-    /**
-     * Checks whether a component ID belongs to the active entity.
-     * @param {string} componentId - Component ID to check.
-     * @returns {boolean}
-     * @private
-     */
-    _isEntityComponent(componentId) {
-        const droid = this._worldStateManager.getActiveDroid();
-        const comps = droid?.components;
-        if (!Array.isArray(comps)) return false;
-        return comps.some(c => (typeof c === 'string' ? c : c?.id) === componentId);
-    }
-
-    /**
-     * Returns the entity's first component ID (string or object refs).
-     * @param {Object|null} droid - The entity.
-     * @returns {string|null}
-     * @private
-     */
-    _firstEntityComponentId(droid) {
-        const comps = droid?.components;
-        if (!Array.isArray(comps) || comps.length === 0) return null;
-        const first = comps[0];
-        return typeof first === 'string' ? first : first?.id || null;
+        const droid = this._worldStateManager?.getActiveDroid?.();
+        return resolveCraftingComponent({
+            selectedId: this._getSelectedComponentId?.() ?? null,
+            entityComponentIds: droid
+                ? (Array.isArray(droid.components)
+                    ? droid.components.map((c) => (typeof c === 'string' ? c : c?.id ?? ''))
+                    : []).filter(Boolean)
+                : [],
+            itemsByComponent: this._items,
+            recipeInputTypes: this._recipes.flatMap((r) =>
+                (Array.isArray(r?.inputs) ? r.inputs.map((i) => i?.type) : [])).filter(Boolean),
+        });
     }
 
     /**

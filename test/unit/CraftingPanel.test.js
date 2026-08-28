@@ -2,7 +2,8 @@
  * Unit tests for the pure logic extracted from public/js/CraftingPanel.js
  * (crafting design spec §2.5/§4.7, architect decision 6):
  * pending-pool add/dedupe/remove/clear/prune, live-item flattening
- * (getLiveItemIds), and per-recipe requirement satisfaction computation.
+ * (getLiveItemIds), strip-component resolution (resolveCraftingComponent),
+ * and per-recipe requirement satisfaction computation.
  *
  * Per the client-testing convention (pattern: test/unit/RoomChatController.client.test.js),
  * these tests exercise ONLY the extracted pure functions — no raw DOM is
@@ -18,6 +19,7 @@ import {
     clearPendingPool,
     getPoolItemIds,
     getLiveItemIds,
+    resolveCraftingComponent,
     prunePool,
     computeRecipeSatisfaction,
     selectCraftItemIds
@@ -254,6 +256,80 @@ describe('prunePool × getLiveItemIds composition', () => {
         const pool = { knife_to_t1: { knife: ['item-1'] } };
 
         expect(prunePool(pool, getLiveItemIds(items))).toBe(pool);
+    });
+});
+
+describe('resolveCraftingComponent', () => {
+    it('branch 1: the selected component wins even when another component holds a recipe-input type earlier', () => {
+        const result = resolveCraftingComponent({
+            selectedId: 'comp-b',
+            entityComponentIds: ['comp-a', 'comp-b'],
+            itemsByComponent: { 'comp-a': [{ id: 'i1', type: 'knife' }] },
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-b');
+    });
+
+    it('M4 regression: never returns an items-map group key (container item ID)', () => {
+        // The items map groups a nested item under a CONTAINER ITEM ID that
+        // is not an entity component; only comp-head/comp-arm are. The
+        // container group sorts first in object order — it must not win.
+        const itemsByComponent = {
+            'item-container': [{ id: 'x', type: 'knife' }],
+            'comp-arm': [{ id: 'y', type: 't1' }],
+            'comp-head': [{ id: 'z', type: 'knife' }]
+        };
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-head', 'comp-arm'],
+            itemsByComponent,
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-head');
+    });
+
+    it('never returns the __unassigned__ group (falls through to branch 4)', () => {
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-a'],
+            itemsByComponent: { '__unassigned__': [{ id: 'x', type: 'knife' }] },
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-a');
+    });
+
+    it('dead-end config: a selected container-item ID falls through to a real component', () => {
+        const itemsByComponent = {
+            'item-container': [{ id: 'x', type: 'knife' }],
+            'comp-head': [{ id: 'z', type: 'knife' }]
+        };
+        const result = resolveCraftingComponent({
+            selectedId: 'item-container',
+            entityComponentIds: ['comp-head', 'comp-arm'],
+            itemsByComponent,
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-head');
+    });
+
+    it('no items anywhere → the first entity component', () => {
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-head', 'comp-arm'],
+            itemsByComponent: {},
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-head');
+    });
+
+    it('empty entityComponentIds → null (even with a selected/related group)', () => {
+        const result = resolveCraftingComponent({
+            selectedId: 'comp-x',
+            entityComponentIds: [],
+            itemsByComponent: { 'comp-x': [{ id: 'i', type: 'knife' }] },
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBeNull();
     });
 });
 
