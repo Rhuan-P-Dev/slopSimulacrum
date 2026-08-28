@@ -185,6 +185,30 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
     });
 
+    it('duplicated itemIds → INVALID_ITEM; zero mutation; zero broadcasts', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc, broadcast } = world;
+        const { entityId, droidHead } = spawnDroid(world);
+
+        const [knifeA, knifeB] = addItems(wsc, entityId, droidHead.id, ['knife', 'knife']);
+        const broadcastCallsBefore = broadcast.mock.calls.length;
+
+        // The same instance listed twice: one instance can only be consumed
+        // once, so the request must be rejected before any per-item work.
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA, knifeA]);
+
+        expect(result.success).toBe(false);
+        expect(result.code).toBe('INVALID_ITEM');
+        expect(result.message).toContain(knifeA);
+
+        // Zero mutation: both knives still on droidHead, unchanged IDs.
+        const headItems = componentItems(wsc, entityId, droidHead.id);
+        expect(itemsOfType(headItems, 'knife').map((i) => i.id).sort()).toEqual([knifeA, knifeB].sort());
+        expect(itemsOfType(headItems, 't1')).toHaveLength(0);
+
+        expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
+    });
+
     it('unknown recipe → RECIPE_NOT_FOUND; unknown entity → ENTITY_NOT_FOUND; component not on entity → COMPONENT_NOT_FOUND; 0 broadcasts', () => {
         const world = buildWorld();
         const { worldStateController: wsc, broadcast } = world;

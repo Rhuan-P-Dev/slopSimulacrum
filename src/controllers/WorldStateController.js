@@ -1524,8 +1524,9 @@ class WorldStateController {
      *   1. resolve recipe            → RECIPE_NOT_FOUND
      *   2. resolve entity            → ENTITY_NOT_FOUND
      *   3. component on the entity   → COMPONENT_NOT_FOUND
-     *   4. each item exists, is a recipe input type, and is hosted on the
-     *      component                 → INVALID_ITEM
+     *   4. resolve each requested item (must exist, be typed `item-*`, be
+     *      hosted on `componentId`, and not appear twice in `itemIds`)
+     *                                    → INVALID_ITEM
      *   5. item multiset exactly matches the recipe inputs → INPUTS_MISMATCH
      *   6. volume pre-check (before any mutation)          → INSUFFICIENT_VOLUME
      *   7. remove each input item (in order)
@@ -1561,9 +1562,26 @@ class WorldStateController {
             return { success: false, code: 'COMPONENT_NOT_FOUND', message: `Component "${componentId}" not found on entity "${entityId}".` };
         }
 
-        // 4. Each requested item must exist, be a recipe input type, and be
-        //    hosted on the crafting component (nested container items are
-        //    excluded naturally: their hostComponentId is a container item ID).
+        // 4. Reject a duplicated ID BEFORE the per-item resolution loop: a
+        //    repeated ID cannot be consumed twice — the multiset check below
+        //    would count it once per occurrence, so a "satisfied" craft would
+        //    still remove only one instance while the caller believes both
+        //    were consumed. That is the item-loss class
+        //    wiki/subMDs/systems/crafting_system.md §7 exists to prevent.
+        //    Server-side by design: the route intentionally does not dedupe
+        //    itemIds (the explicit list stays the auditable request).
+        const seenItemIds = new Set();
+        for (const itemId of itemIds) {
+            if (seenItemIds.has(itemId)) {
+                return { success: false, code: 'INVALID_ITEM', message: `Item ID "${itemId}" is listed more than once in itemIds; each item instance can only be consumed once.` };
+            }
+            seenItemIds.add(itemId);
+        }
+
+        // 4. (per item) Each requested item must exist, be a recipe input
+        //    type, and be hosted on the crafting component (nested container
+        //    items are excluded naturally: their hostComponentId is a
+        //    container item ID).
         const items = [];
         for (const itemId of itemIds) {
             const item = this.inventoryManager.getItem(entity, itemId);
