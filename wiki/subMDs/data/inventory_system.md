@@ -118,6 +118,7 @@ The inventory system follows the established patterns:
 - **WorldStateController extension**: Inventory methods follow the public API wrapper pattern — they delegate to InventoryManager and trigger broadcasts on success. Component ID is required.
 - **InventoryRoutes**: Express router following the same pattern as existing route modules. Registered through the central routes index. Validates componentId in the add endpoint.
 - **InventoryManager (client)**: Module following the same constructor pattern as ComponentViewer and other client modules. Uses HTML5 native Drag and Drop API.
+- **Crafting System (consumer)**: The [crafting system](../systems/crafting_system.md) is a consumer of the inventory system — crafting consumes and produces items exclusively through this InventoryManager + facade pattern; it never bypasses it.
 
 ## Drop Selector Feature
 
@@ -351,3 +352,4 @@ See [Materials System — resyncItemTraits](materials.md) for the full fill-only
 - [EquippedItemStatsController](../controllers/equipped_item_stats_controller.md) — Per-instance mutable stat tracking
 - [Client Architecture](../frontend/client_architecture.md) — InventoryManager client module
 - [Item Positioning System](../systems/item_positioning.md) — Room-based dropped item visibility and pickup validation
+- [Crafting System](../systems/crafting_system.md) — consumes/produces items through the inventory system (never bypassed)

@@ -28,6 +28,7 @@ The monolithic stylesheet was split into modules for three reasons:
 | `utilities.css` | Micro-utilities (text colors, alignment) + shared cross-panel component styles (`.material-badge`) |
 | `feedback.css` | Error notifications, animations |
 | `internal-components.css` | Internal component rendering and viewer |
+| `crafting.css` | Crafting tab: recipe cards, input slots, drag-and-drop state modifiers, available-items strip |
 
 ## 4. Styling Philosophy
 
