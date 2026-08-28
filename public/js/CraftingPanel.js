@@ -157,8 +157,13 @@ export function getLiveItemIds(itemsByComponent) {
  * items) or '__unassigned__', which must never be POSTed (the route
  * rejects non-comp- IDs).
  *   1) the selected component, if it is an entity component;
- *   2) the first entity component holding an item of any recipe-input type;
- *   3) the first entity component holding any item;
+ *   2) the entity component holding the MOST items of any recipe-input type
+ *      (ties broken by component order) — the "useful default": the component
+ *      most able to satisfy a recipe, so a component holding a single knife
+ *      can never shadow a later one holding the whole craftable set;
+ *   3) the entity component holding the most items (ties broken by component
+ *      order) — used once no recipe input is reachable, so the strip shows
+ *      the richest inventory instead of the first (often a lone container);
  *   4) the entity's first component; null if none.
  * @param {{selectedId: string|null, entityComponentIds: string[], itemsByComponent: Object|null, recipeInputTypes: string[]}} args
  * @returns {string|null}
@@ -170,28 +175,39 @@ export function resolveCraftingComponent({ selectedId, entityComponentIds, items
         return selectedId;
     }
 
-    // 2) and 3) iterate the entity's components IN ORDER and look each key
-    //    up in the items map — raw group keys (container item IDs,
-    //    '__unassigned__') can never leak into the result, and the stable
-    //    component order is preserved.
+    // 2) and 3) walk the entity's components IN ORDER and rank each by how
+    //    useful it is, looking each key up in the items map — raw group keys
+    //    (container item IDs, '__unassigned__') can never leak into the
+    //    result, and ties keep the stable component order. Ranking by count
+    //    (not first-match) is what keeps the strip pointed at the component
+    //    that can actually feed the recipes: a first-match scan let a
+    //    component holding one knife (or a lone container, once every
+    //    knife is nested) shadow a later component holding the full set.
     const groups = itemsByComponent ?? {};
     const itemsOf = (compId) => {
         const items = groups[compId];
         return Array.isArray(items) ? items : [];
     };
-    if (recipeInputTypes.length > 0) {
-        const relevant = new Set(recipeInputTypes);
+    const bestBy = (scoreFn) => {
+        let best = null;
+        let bestScore = 0;
         for (const compId of entityComponentIds) {
-            if (itemsOf(compId).some(item => item && relevant.has(item.type))) {
-                return compId;
+            const score = scoreFn(itemsOf(compId));
+            if (score > bestScore) {
+                best = compId;
+                bestScore = score;
             }
         }
+        return best;
+    };
+    if (recipeInputTypes.length > 0) {
+        const relevant = new Set(recipeInputTypes);
+        const best = bestBy(items =>
+            items.reduce((n, item) => n + (item && relevant.has(item.type) ? 1 : 0), 0));
+        if (best) return best;
     }
-    for (const compId of entityComponentIds) {
-        if (itemsOf(compId).length > 0) {
-            return compId;
-        }
-    }
+    const best = bestBy(items => items.length);
+    if (best) return best;
     return entityComponentIds[0] ?? null;
 }
 
@@ -650,9 +666,10 @@ export class CraftingPanel {
      *   1. The selected component ID (SelectionController) if it belongs to
      *      the active entity — crafting follows the selection model used by
      *      every other panel;
-     *   2. Else the first entity component holding an item of a type that
-     *      appears in any recipe input (the useful default);
-     *   3. Else the first entity component holding any item;
+     *   2. Else the entity component holding the most recipe-input items
+     *      (ties broken by component order) — the useful default;
+     *   3. Else the entity component holding the most items (ties broken by
+     *      component order);
      *   4. Else the entity's first component (so the strip can show a
      *      meaningful empty state); null if there is none.
      *

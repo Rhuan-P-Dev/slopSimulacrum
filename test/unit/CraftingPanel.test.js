@@ -339,6 +339,64 @@ describe('resolveCraftingComponent', () => {
         });
         expect(result).toBeNull();
     });
+
+    it('regression: branch 2 picks the component holding the MOST recipe-input items, not merely the first in order', () => {
+        // A first-match scan let the component holding a single knife (earlier
+        // in order) shadow a later component holding the complete craftable
+        // set, so the strip offered one card and the recipe could never be
+        // satisfied from it.
+        const itemsByComponent = {
+            'comp-a': [{ id: 'i1', type: 'knife' }],
+            'comp-b': [
+                { id: 'i2', type: 'knife' },
+                { id: 'i3', type: 'knife' },
+                { id: 'i4', type: 't1' }
+            ]
+        };
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-a', 'comp-b'],
+            itemsByComponent,
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-b');
+    });
+
+    it('branch 2: keeps first-in-order when recipe-input counts tie (stable)', () => {
+        const itemsByComponent = {
+            'comp-a': [{ id: 'i1', type: 'knife' }],
+            'comp-b': [{ id: 'i2', type: 'knife' }]
+        };
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-a', 'comp-b'],
+            itemsByComponent,
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-a');
+    });
+
+    it('regression: branch 3 (no recipe input reachable) picks the component with the most items, not the first that holds one', () => {
+        // The reproduced live state: after the player's top-level knives were
+        // all consumed into crafts, the first-match scan fell to the first
+        // item-bearing component — a lone container card (one "Drag source"
+        // entry) — instead of the component holding the richest inventory.
+        const itemsByComponent = {
+            'comp-a': [{ id: 'i1', type: 'metalBox' }],
+            'comp-b': [
+                { id: 'i2', type: 't1' },
+                { id: 'i3', type: 't1' },
+                { id: 'i4', type: 't1' }
+            ]
+        };
+        const result = resolveCraftingComponent({
+            selectedId: null,
+            entityComponentIds: ['comp-a', 'comp-b'],
+            itemsByComponent,
+            recipeInputTypes: ['knife']
+        });
+        expect(result).toBe('comp-b');
+    });
 });
 
 describe('prunePoolToComponent', () => {
