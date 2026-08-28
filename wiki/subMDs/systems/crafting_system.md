@@ -54,7 +54,7 @@ Recipes live in `data/crafting.json` — a plain registry keyed by recipe ID, th
 
 Component capacity is a hard constraint on stored items (see [Inventory System](../data/inventory_system.md)). If the server consumed the inputs first and only then discovered the outputs would not fit, the player's inputs would be destroyed — an item-loss, data-corruption-class bug.
 
-The design therefore settles the capacity question **before** anything is consumed: the server confirms that the component's free capacity plus the space the consumed inputs will free can hold the outputs, and only then performs the mutation. Because the server carries this out in a single pass, the consume→add sequence cannot fail on capacity once it has started — a failed craft leaves the inventory exactly as it was, and a successful one leaves it in the only state the pre-check allowed.
+The design therefore settles the capacity question **before** anything is consumed: the server confirms that the component's free capacity plus the space the consumed inputs will free can hold the outputs, and only then performs the mutation. Because the server carries this out in a single pass, the consume→add sequence cannot fail on capacity once it has started — a failed craft leaves the inventory exactly as it was, and a successful one leaves it in the only state the pre-check allowed. Input items are consumed as atomic units: an item that currently contains nested items is rejected (`INVALID_ITEM`) rather than having its contents destroyed.
 
 ## 8. Why Outputs Return to the Same Component
 

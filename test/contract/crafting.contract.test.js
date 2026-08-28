@@ -329,6 +329,37 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
 
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
     });
+
+    it('input containing nested items → INVALID_ITEM; children intact; zero broadcasts', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc, broadcast } = world;
+        const { entityId, droidHead } = spawnDroid(world);
+
+        // `outer` is a knife that HOLDS a knife; `inner2` is a plain knife.
+        // (knife volume 1 = capacity 1, so one knife child fits.)
+        const [outer] = addItems(wsc, entityId, droidHead.id, ['knife']);
+        const nestedResult = wsc.addItemToContainer(entityId, outer, 'knife');
+        expect(nestedResult.success).toBe(true);
+        const childId = nestedResult.item.id;
+        const [inner2] = addItems(wsc, entityId, droidHead.id, ['knife']);
+        const broadcastCallsBefore = broadcast.mock.calls.length;
+
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [outer, inner2]);
+
+        expect(result.success).toBe(false);
+        expect(result.code).toBe('INVALID_ITEM');
+        expect(result.message).toContain('nested');
+
+        // The container, its child, and the second knife are all intact.
+        expect(wsc.getItem(entityId, outer)).not.toBeNull();
+        const containerItems = wsc.getContainerItems(entityId, outer);
+        expect(containerItems).toHaveLength(1);
+        expect(containerItems[0].id).toBe(childId);
+        expect(wsc.getItem(entityId, inner2)?.hostComponentId).toBe(droidHead.id);
+        expect(itemsOfType(componentItems(wsc, entityId, droidHead.id), 't1')).toHaveLength(0);
+
+        expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
+    });
 });
 
 describe('crafting contract — data-driven registry & no-turn decision', () => {

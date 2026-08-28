@@ -1594,6 +1594,15 @@ class WorldStateController {
             if (item.hostComponentId !== componentId) {
                 return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
             }
+            // A recipe input is consumed as a whole unit: removeItem cascades
+            // to all descendants, so crafting an item that currently contains
+            // nested items would silently destroy what it holds — the
+            // item-loss class crafting_system.md §7 exists to prevent.
+            // Containers with contents are rejected (the player must empty
+            // them first). Public API only: collectNestedItems.
+            if (this.inventoryManager.collectNestedItems(entity, itemId).length > 0) {
+                return { success: false, code: 'INVALID_ITEM', message: `Item "${itemId}" contains nested items; empty it before crafting.` };
+            }
             items.push(item);
         }
 
