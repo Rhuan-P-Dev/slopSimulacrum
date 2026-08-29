@@ -86,6 +86,23 @@ function typeOf(value) {
     return typeof value;
 }
 
+/**
+ * Mirrors the data-driven spawn gate in WorldStateController._spawnNpcs():
+ * an entry with an optional `envGate` names an environment variable that must
+ * equal "true" (case-insensitive, trimmed) for the entry to spawn. A missing
+ * or malformed envGate means "no gate" (the entry spawns). Malformed entries
+ * (not objects) never spawn.
+ * @param {Object} entry - A data/npcs.json registry entry (or anything).
+ * @returns {boolean} Whether the entry spawns under the CURRENT process.env.
+ */
+function entrySpawnableInCurrentEnv(entry) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    const gateVar = typeof entry.envGate === 'string' ? entry.envGate.trim() : '';
+    if (gateVar === '') return true; // no gate declared
+    const gateValue = process.env[gateVar];
+    return typeof gateValue === 'string' && gateValue.trim().toLowerCase() === 'true';
+}
+
 // =========================================================================
 // Test setup
 // =========================================================================
@@ -103,13 +120,25 @@ beforeAll(() => {
 
     // Load the NPC registry from data/npcs.json so we can compute expected counts
     // data-driven (matching how WorldStateController._spawnNpcs() loads it).
-    const npcRegistry = DataLoader.loadJsonSafe('data/npcs.json', {});
-    const npcEntryCount = npcRegistry && typeof npcRegistry === 'object' && !Array.isArray(npcRegistry)
-        ? Object.keys(npcRegistry).length
-        : 0;
+    const rawRegistry = DataLoader.loadJsonSafe('data/npcs.json', {});
+    const npcRegistry = rawRegistry && typeof rawRegistry === 'object' && !Array.isArray(rawRegistry)
+        ? rawRegistry
+        : {};
+    const npcEntries = Object.entries(npcRegistry);
+    const npcEntryCount = npcEntries.length;
+    // Gate-aware expectation: _spawnNpcs() skips an entry whose optional envGate
+    // names an env var that is not "true" (case-insensitive, trimmed) — e.g. the
+    // env-gated killer LLM drone is skipped unless KILLER_LLM_DRONE_ENABLED=true.
+    // The helper mirrors the production check, so the expected count matches
+    // whatever the ambient test environment actually spawns (default OFF or a
+    // gate-ON verification run).
+    const spawnableNpcCount = npcEntries
+        .filter(([, entry]) => entrySpawnableInCurrentEnv(entry))
+        .length;
 
-    // Store npcEntryCount for use in tests (1 test-spawned droid + N NPCs from data).
-    wsc._npcTestData = { npcEntryCount };
+    // Stored for use in tests (1 test-spawned droid + the gate-aware spawnable
+    // count + the raw registry for per-entry checks).
+    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, registry: npcRegistry };
 
     // Spawn a test droid (the default world has zero pre-spawned droids after
     // removing the client/vault guardian spawns). This gives the contract tests
@@ -266,8 +295,12 @@ describe('WorldStateController.getAll() shape', () => {
 
         expect(typeOf(state.entities)).toBe('object');
         const ids = Object.keys(state.entities);
-        // The beforeAll spawns exactly 1 smallBallDroid for testing + N NPCs from data/npcs.json.
-        const expectedNpcCount = wsc._npcTestData?.npcEntryCount ?? 0;
+        // The beforeAll spawns exactly 1 smallBallDroid for testing + the NPCs
+        // that the ambient environment allows to spawn: every entry in
+        // data/npcs.json except those whose envGate variable is not "true"
+        // (data-driven and gate-aware — e.g. the killer LLM drone is excluded
+        // by default and included in a gate-ON run).
+        const expectedNpcCount = wsc._npcTestData?.spawnableNpcCount ?? 0;
         expect(ids.length).toBe(1 + expectedNpcCount);
 
         for (const id of ids) {
@@ -277,24 +310,47 @@ describe('WorldStateController.getAll() shape', () => {
             // Exact per-entity key set (broadcast adds `equipped` later, not here).
             // Feature D: NPC entities (data/npcs.json) carry the extra spawn
             // fields (isNPC, name, npcConfig) — player droids keep the base
-            // shape. The world.json opt-out flag lives in the in-memory
-            // _npcSpawnFlags set and must NEVER appear on the entity record
-            // (audit: it used to leak into serialize() snapshots).
+            // shape. NPCs whose registry entry declares initialItems ALSO carry
+            // the `items` key (their loadout is placed on a component at
+            // spawn); NPCs without initialItems do not. The world.json opt-out
+            // flag lives in the in-memory _npcSpawnFlags set and must NEVER
+            // appear on the entity record (audit: it used to leak into
+            // serialize() snapshots).
             const isNpc = entity.isNPC === true;
+            const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
+            const npcHasInitialItems = Boolean(
+                npcRegistryEntry
+                && Array.isArray(npcRegistryEntry.initialItems)
+                && npcRegistryEntry.initialItems.length > 0
+            );
             expect(entity).not.toHaveProperty('_skipInitialSpawns');
             expect(keysOf(entity)).toEqual(isNpc
-                ? [
-                    'blueprint',
-                    'components',
-                    'id',
-                    'internalComponents',
-                    'isNPC',
-                    'location',
-                    'name',
-                    'npcConfig',
-                    'spatial',
-                    'status',
-                ]
+                ? (npcHasInitialItems
+                    ? [
+                        'blueprint',
+                        'components',
+                        'id',
+                        'internalComponents',
+                        'isNPC',
+                        'items',
+                        'location',
+                        'name',
+                        'npcConfig',
+                        'spatial',
+                        'status',
+                    ]
+                    : [
+                        'blueprint',
+                        'components',
+                        'id',
+                        'internalComponents',
+                        'isNPC',
+                        'location',
+                        'name',
+                        'npcConfig',
+                        'spatial',
+                        'status',
+                    ])
                 : [
                     'blueprint',
                     'components',
@@ -356,15 +412,26 @@ describe('WorldStateController.getAll() shape', () => {
     });
 
     // Additional data-driven NPC shape assertions (robust to content changes).
-    it('asserts NPC count matches data/npcs.json entry count and at least one NPC has ai.behavior', () => {
+    it('asserts the spawned NPC count matches the gate-aware data/npcs.json entries and spawned brains are preserved', () => {
         const state = wsc.getAll();
         const npcEntries = Object.values(state.entities).filter((e) => e.isNPC === true);
-        const expectedNpcCount = wsc._npcTestData?.npcEntryCount ?? 0;
+        // Gate-aware: only entries whose envGate (if any) is "true" in this
+        // environment are expected to have spawned.
+        const expectedNpcCount = wsc._npcTestData?.spawnableNpcCount ?? 0;
         expect(npcEntries.length).toBe(expectedNpcCount);
 
-        // Guard: if there are NPCs in the data, at least one spawned NPC must have a
-        // non-empty string ai.behavior (catches the whole block silently dropping).
-        if (expectedNpcCount > 0) {
+        // Guard: if a spawnable entry in the data declares a deterministic
+        // brain (ai.behavior), at least one spawned NPC must expose it (catches
+        // the whole block silently dropping). Entries without a brain (e.g. the
+        // env-gated LLM drone) legitimately carry npcConfig.ai === null.
+        const declaresBrain = (entry) =>
+            entrySpawnableInCurrentEnv(entry)
+            && entry.ai && typeof entry.ai.behavior === 'string' && entry.ai.behavior.length > 0;
+        const registry = wsc._npcTestData?.registry;
+        const registryEntries = registry && typeof registry === 'object' && !Array.isArray(registry)
+            ? Object.values(registry)
+            : [];
+        if (registryEntries.some(declaresBrain)) {
             const npcsWithBehavior = npcEntries.filter((e) =>
                 e.npcConfig?.ai?.behavior && typeof e.npcConfig.ai.behavior === 'string'
                     && e.npcConfig.ai.behavior.length > 0

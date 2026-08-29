@@ -27,6 +27,9 @@ import Logger from './Logger.js';
  */
 function authMiddleware(req, res, next) {
 	// Local development / single-user mode: no auth required.
+	// Strict, per-request check on purpose: unlike the relaxed spawn-time env
+	// gate (isEnvFlagOn in src/utils/Constants.js), the production auth gate
+	// must not be enabled by " true " / "TRUE" etc. Do not relax.
 	if (process.env.REQUIRE_AUTH !== 'true') {
 		return next();
 	}

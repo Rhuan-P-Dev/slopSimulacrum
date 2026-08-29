@@ -172,3 +172,29 @@ export const CONTEXT_MAX_DROPPED_ITEMS = 6;
  * @type {number}
  */
 export const CONTEXT_MAX_EXITS = 6;
+
+// =========================================================================
+// ENVIRONMENT FLAG CONSTANTS
+// =========================================================================
+
+/**
+ * The string value a boolean environment flag must equal (after trim and
+ * case-folding, where the reading site uses the relaxed comparison) to be
+ * considered ON.
+ * @type {string}
+ */
+export const ENV_FLAG_ON_VALUE = 'true';
+
+/**
+ * Interprets a raw environment variable value as a boolean flag using the
+ * RELAXED comparison used by spawn-time gates: trim, casefold, exact match.
+ *
+ * Intentionally distinct from authMiddleware's strict `=== 'true'` request-
+ * time check (src/utils/authMiddleware.js) — that strictness is a deliberate
+ * production-auth semantic and must NOT be "unified" with this helper.
+ * @param {*} value - The raw process.env value (any type).
+ * @returns {boolean} true only for string values equal to "true" after trim and case-folding.
+ */
+export function isEnvFlagOn(value) {
+    return typeof value === 'string' && value.trim().toLowerCase() === ENV_FLAG_ON_VALUE;
+}

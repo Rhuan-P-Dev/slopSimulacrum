@@ -4,5 +4,18 @@
     "room": "start_room",
     "personality": "A rogue combat droid that hunts anything that moves in its room.",
     "ai": { "behavior": "chase_attack" }
+  },
+  "killerLlmDrone": {
+    "displayName": "Killer LLM Drone",
+    "room": "start_room",
+    "personality": "A cold, relentless hunter. It does not hesitate, does not warn, and does not stop.",
+    "objective": "Attack all other entities: each round, strike the nearest entity you can reach; when nothing is in range, move toward the nearest one. Never help, never idle while a target is reachable.",
+    "maxWorldActionsPerRound": 2,
+    "maxChatMessagesPerRound": 0,
+    "envGate": "KILLER_LLM_DRONE_ENABLED",
+    "initialItems": [
+      { "item": "t1", "count": 1, "equip": true, "contents": [{ "item": "knife", "count": 10 }] },
+      { "item": "knife", "count": 1, "equip": true }
+    ]
   }
 }

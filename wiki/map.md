@@ -25,6 +25,7 @@ graph TD
     SC[SynergyController]
     ASC[ActionSelectController]
     LLMC[LLMController]
+    LLMA[LLMAgentController]
     SVR[Server]
     WGB[WorldGraphBuilder]
     ICE[InternalComponentController]
@@ -88,7 +89,8 @@ graph TD
 
     NAC -->|hasDeterministicBrain| WSC
     NAC -->|think() called by| SVR
-    LLMC -->|skips if hasDeterministicBrain| NAC
+    LLMA -->|runRound() called by| SVR
+    LLMA -->|skips if hasDeterministicBrain| NAC
 
     WSC --> MC
     CC --> MC
@@ -102,6 +104,7 @@ graph TD
 | Controller | Path | Description |
 |------------|------|-------------|
 | NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry, chase_attack |
+| LLMAgentController | src/controllers/networking/LLMAgentController.js | LLM-driven round loop for NPCs without an `ai.behavior` block — the server routes those rounds here; the env-gated `killerLlmDrone` is the first goal-bearing instance ([Killer LLM Drone](subMDs/architecture/killer_llm_drone.md)) |
 
 ## 📁 Data Files
 
@@ -109,7 +112,8 @@ graph TD
 |------|---------|
 | `data/actions.json` | Action definitions |
 | `data/components.json` | Component type definitions with trait templates |
-| `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
+| `data/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `killerLlmDrone` droid composition |
+| `data/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the first env-gated, goal-bearing LLM-routed NPC |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |

@@ -62,8 +62,8 @@ class LLMAgentController {
 
         /**
          * NPC registry (data/npcs.json, spec §7.1): key = blueprint name,
-         * value = { displayName, room, personality, initialItems?,
-         * maxWorldActionsPerRound?, maxChatMessagesPerRound? }.
+         * value = { displayName, room, personality, objective?,
+         * initialItems?, maxWorldActionsPerRound?, maxChatMessagesPerRound? }.
          *
          * Feature C ships BEFORE the file exists (Feature D creates it), so
          * the loader is tolerant: a missing/malformed registry simply means
@@ -549,12 +549,25 @@ class LLMAgentController {
     // =========================================================================
 
     /**
+     * Builds the per-NPC system prompt (spec §6.4 template). Entries with a
+     * non-empty objective gain an `Objective:` line and a strengthened
+     * advance-instead-of-stay-silent rule; entries without one render the
+     * historical template byte-identically.
      * @private
+     * @param {Object} npc - The NPC record: `npc.config` (the registry entry:
+     *   displayName, personality, objective?, maxWorldActionsPerRound?,
+     *   maxChatMessagesPerRound?) and `npc.entity` (the spawned entity, used
+     *   as the display-name fallback).
+     * @param {string} roomName - The display name of the NPC's current room,
+     *   rendered into the prompt's first line.
+     * @returns {string} The full system prompt text issued to the LLM for
+     *   this NPC's next round.
      */
     _buildSystemPrompt(npc, roomName) {
         const config = npc.config || {};
         const displayName = config.displayName || npc.entity.name || 'NPC';
         const personality = config.personality || 'You are a friendly droid. Keep replies short.';
+        const objective = typeof config.objective === 'string' ? config.objective.trim() : '';
         const maxActions = this._asPositiveInt(config.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
         const rawMaxChatPrompt = config.maxChatMessagesPerRound;
         const maxChat = (rawMaxChatPrompt === 0) ? 0 : this._asPositiveInt(rawMaxChatPrompt, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
@@ -567,14 +580,19 @@ class LLMAgentController {
             ? '- to talk: {"action":"speak","message":"..."}\n'
             : '';
 
+        const actionRule = objective
+            ? '- Only use actions listed under "executable now" in the context. If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target). Only stay silent when no action serves your objective.'
+            : '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.';
+
         return [
             `You are ${displayName}, an NPC droid in the room "${roomName}".`,
             `Personality: ${personality}`,
+            ...(objective ? [`Objective: ${objective}`] : []),
             '',
             'World rules:',
             '- You are the only actor: you never choose another entity\'s ID as the acting entity.',
             chatLine,
-            '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.',
+            actionRule,
             '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
@@ -1207,7 +1225,7 @@ class LLMAgentController {
                 Logger.warn(`[LLMAgent] npcs.json: entry "${blueprint}" lacks displayName/personality — skipped.`);
                 continue;
             }
-            registry[blueprint] = {
+            const registryEntry = {
                 displayName: entry.displayName,
                 room: typeof entry.room === 'string' ? entry.room : null,
                 personality: entry.personality,
@@ -1215,6 +1233,13 @@ class LLMAgentController {
                 maxWorldActionsPerRound: Number.isInteger(entry.maxWorldActionsPerRound) ? entry.maxWorldActionsPerRound : DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND,
                 maxChatMessagesPerRound: Number.isInteger(entry.maxChatMessagesPerRound) ? entry.maxChatMessagesPerRound : DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND
             };
+            // Preserve the optional objective only when present (non-empty
+            // string) so existing entries keep the exact registry shape they
+            // had before this feature (their prompts stay byte-identical).
+            if (typeof entry.objective === 'string' && entry.objective.trim() !== '') {
+                registryEntry.objective = entry.objective;
+            }
+            registry[blueprint] = registryEntry;
             count++;
         }
         if (count === 0) {
