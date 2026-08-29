@@ -82,35 +82,16 @@ export const DROP_BASE_RANGE = 3;
 export const DROP_RANGE_MULTIPLIER = 2;
 
 // =========================================================================
-// TURN SYSTEM CONSTANTS (Feature A — spec §5.1)
+// TURN SYSTEM CONSTANTS (Feature A + two-phase barrier turns, spec v2)
 //
-// The world runs on a deterministic round cadence: a PLANNING window during
-// which any entity may enqueue actions, a single NPC-AGENT tick where the
-// (future) LLM layer fires, and a SETTLE/resolution window where the queued
-// actions replay through the real ActionController.executeAction pipeline in
-// initiative order. These constants define the round geometry. They are tick-
-// based (not millisecond-based) so the loop is deterministic regardless of
-// the tick rate.
+// Rounds are EVENT-DRIVEN rendezvous (wiki/two_phase_turns_design.md v2), not
+// tick spans: round 0 starts lazily on the first tick, planning closes only
+// when every roster planner has signaled plan-complete (no deadline), and the
+// next round starts on the tick after resolution. The turn system therefore
+// owns no tick geometry — there are no round-cadence, planning-window, or
+// agent-tick constants. The only remaining turn constant is the per-entity
+// queue cap, which is orthogonal to timing.
 // =========================================================================
-
-/**
- * Number of ticks in one full round (6 s at 60 ticks/s).
- * @type {number}
- */
-export const TURN_ROUND_TICKS = 360;
-
-/**
- * Ticks in the planning window (local ticks [0, TURN_PLANNING_TICKS)).
- * Queue submissions are accepted during this window.
- * @type {number}
- */
-export const TURN_PLANNING_TICKS = 300;
-
-/**
- * Local tick at which NPC agent calls are fired each round.
- * @type {number}
- */
-export const TURN_NPC_AGENT_TICK = 20;
 
 /**
  * Maximum number of queued actions per entity per round.

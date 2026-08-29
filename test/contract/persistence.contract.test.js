@@ -12,7 +12,7 @@
  *      serialize() yields an identical "state" section. All dynamic IDs
  *      (ent-, comp-, item-, eq-) are preserved — no ID regeneration.
  *   4. restore() validates its payload:
- *        - schemaVersion !== 2 → { success: false, error.code: 'SCHEMA_VERSION_MISMATCH' }
+ *        - schemaVersion !== 3 → { success: false, error.code: 'SCHEMA_VERSION_MISMATCH' }
  *        - missing sections / malformed payload → { success: false, error.code: 'INVALID_PAYLOAD' }
  *   5. The snapshot reflects REAL simulation mutations (stats via actions,
  *      inventory/equipped via equip, spatial via move), i.e. restore()
@@ -137,7 +137,7 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         const snapshot = world.serialize();
 
         // Envelope
-        expect(snapshot.schemaVersion).toBe(2);
+        expect(snapshot.schemaVersion).toBe(3);
         // No tickSystem is running in tests → serializedAtTick is null
         // (it carries tickSystem.currentTick when a tick system is provided)
         expect(snapshot.serializedAtTick === null || typeof snapshot.serializedAtTick === 'number').toBe(true);
@@ -172,13 +172,22 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         // (empty at spawn — events are recorded as actions execute)
         expect(Array.isArray(state.events)).toBe(true);
 
-        // Feature A: the turn system bookkeeping section (schema v2, additive).
+        // Feature A: the turn system bookkeeping section (schema v3, additive).
+        // v3 adds the two-phase barrier: the roster snapshot, the signaled set
+        // and the close info (design spec §5).
         expect(state.turns).toEqual(expect.objectContaining({
             roundNumber: expect.any(Number),
             phase: expect.any(String),
             queues: expect.any(Object),
             resolvedRound: expect.any(Number),
-            lastRound: expect.any(Number)
+            lastRound: expect.any(Number),
+            barrier: expect.objectContaining({
+                roster: expect.any(Array),
+                signaled: expect.any(Array),
+                closed: expect.any(Boolean),
+                closedAtTick: null,
+                closeReason: null
+            })
         }));
 
         // Pure JSON-serializability: a JSON round-trip changes nothing
@@ -267,12 +276,14 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         const liveBefore = JSON.stringify(world.getAll());
 
         expect(world.restore(null)).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
-        // {} has no schemaVersion → treated as version mismatch (undefined !== 2)
+        // {} has no schemaVersion → treated as version mismatch (undefined !== 3)
         expect(world.restore({})).toMatchObject({ success: false, error: { code: 'SCHEMA_VERSION_MISMATCH' } });
-        // v1 snapshots are rejected: strict versioning (spec §4.5)
+        // v1 and v2 snapshots are rejected: strict versioning (spec §4.5 /
+        // design spec §5 — v3 is the only accepted schema)
         expect(world.restore({ schemaVersion: 1 })).toMatchObject({ success: false, error: { code: 'SCHEMA_VERSION_MISMATCH' } });
+        expect(world.restore({ schemaVersion: 2 })).toMatchObject({ success: false, error: { code: 'SCHEMA_VERSION_MISMATCH' } });
         // Version ok, but the "state" section is missing
-        expect(world.restore({ schemaVersion: 2 })).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
+        expect(world.restore({ schemaVersion: 3 })).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD' } });
 
         // A valid snapshot missing one required state section
         const broken = world.serialize();
@@ -281,5 +292,30 @@ describe('WorldStateController persistence (serialize/restore)', () => {
 
         // Live state untouched by all the failed restores
         expect(JSON.stringify(world.getAll())).toBe(liveBefore);
+    });
+
+    it('serialize() without a turn system controller falls back to the full schema-v3 default turns shape (barrier included)', () => {
+        const world = createWorld();
+        const original = world.turnSystemController;
+        try {
+            world.turnSystemController = null;
+            const snapshot = world.serialize();
+            expect(snapshot.state.turns).toEqual({
+                roundNumber: 0,
+                phase: 'planning',
+                queues: {},
+                resolvedRound: -1,
+                lastRound: -1,
+                barrier: {
+                    roster: [],
+                    signaled: [],
+                    closed: false,
+                    closedAtTick: null,
+                    closeReason: null
+                }
+            });
+        } finally {
+            world.turnSystemController = original;
+        }
     });
 });

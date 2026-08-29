@@ -104,7 +104,7 @@ graph TD
 | Controller | Path | Description |
 |------------|------|-------------|
 | NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry, chase_attack |
-| LLMAgentController | src/controllers/networking/LLMAgentController.js | LLM-driven round loop for NPCs without an `ai.behavior` block — the server routes those rounds here; the env-gated `killerLlmDrone` is the first goal-bearing instance ([Killer LLM Drone](subMDs/architecture/killer_llm_drone.md)) |
+| TurnSystemController | src/controllers/core/TurnSystemController.js | Event-driven rounds and planning-completeness barrier — the roster is a round-start snapshot, resolution is gated on every roster planner signaling ready (a removal counts as vacuously complete — no deadline), and the next round starts on the tick after resolution; owns the per-entity action queues |
 
 ## 📁 Data Files
 

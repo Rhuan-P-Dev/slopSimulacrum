@@ -25,7 +25,7 @@ A behavior is a registered strategy that receives the entity, the round, and the
 
 ## Dispatch Contract
 
-The dispatch path mirrors the LLM agent's dispatch contract, so deterministic decisions flow through the same action pipeline as LLM decisions. Decisions made during the planning phase are queued for the turn, and when the turn system is disabled they execute immediately. A decision that arrives after the action window has closed is discarded with a log rather than executed — NPC actions are subject to the same turn discipline as LLM actions.
+The dispatch path mirrors the LLM agent's dispatch contract, so deterministic decisions flow through the same action pipeline as LLM decisions. Decisions made during the planning phase are queued for the turn, and when the turn system is disabled they execute immediately. A decision that arrives after the planning window has closed — the planning-completeness barrier closed (all planners ready; there is no deadline tick) — is discarded with a log rather than executed — NPC actions are subject to the same turn discipline as LLM actions. The window re-opens when the next round starts on the next tick.
 
 ## Performance
 
@@ -34,7 +34,7 @@ The dispatch path mirrors the LLM agent's dispatch contract, so deterministic de
 
 ## Public API
 
-The entry point is invoked by the turn-system agent hook on a fixed tick; it accepts an optional pre-fetched entity so the dispatcher can avoid a duplicate state fetch. Behavior registration is the extension point for new deterministic behaviors.
+The entry point is invoked by the turn-system agent hook at round start (fire-and-forget — the agent is the slowest planner, so its plan begins the moment the round opens); it accepts an optional pre-fetched entity so the dispatcher can avoid a duplicate state fetch. Behavior registration is the extension point for new deterministic behaviors.
 
 The brain-vs-LLM routing predicate is a static helper extracted to a shared utility ([`src/utils/npcAiUtils.js`](../../src/utils/npcAiUtils.js)) so that every caller routes on the same implementation.
 

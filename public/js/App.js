@@ -58,7 +58,8 @@ export class ClientApp {
             worldState: () => this.worldState.getState(),
             getMyEntityId: () => this.worldState.getMyEntityId(),
             onModeChange: () => this.turns.update(),
-            onCancelQueued: (entityId, queueId) => this._cancelQueuedAction(entityId, queueId)
+            onCancelQueued: (entityId, queueId) => this._cancelQueuedAction(entityId, queueId),
+            onReady: (entityId) => this._signalPlanReady(entityId)
         });
         this.actions = new ActionManager(this.ui, this.errorController, () => this.turns.shouldQueueForRound());
         // 2b. Hint system (v1: reachability-move hint only).
@@ -259,6 +260,34 @@ export class ClientApp {
             ClientLogger.error('App', `Failed to cancel queued action ${queueId}:`, error);
             this.errorController.handleError({
                 code: 'TURN_QUEUE_CANCEL_FAILED',
+                message: error.message
+            });
+        }
+    }
+
+    /**
+     * Signals plan-complete for the player entity (two-phase barrier).
+     * Calls POST /turns/ready/:entityId, then refreshes so the HUD barrier
+     * status and action list reflect the signal. Failures surface via the
+     * error controller; the UI never breaks.
+     * @param {string} entityId - Typed entity ID (ent-...).
+     * @private
+     */
+    async _signalPlanReady(entityId) {
+        try {
+            const response = await fetch(`${AppConfig.ENDPOINTS.TURNS_READY}/${entityId}`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!response.ok || !data?.success) {
+                throw new Error(data?.error || `Ready signal failed (HTTP ${response.status})`);
+            }
+            ClientLogger.info('App', `Plan-complete signaled for ${entityId}`);
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            ClientLogger.error('App', `Failed to signal plan-complete for ${entityId}:`, error);
+            this.errorController.handleError({
+                code: 'TURN_READY_FAILED',
                 message: error.message
             });
         }

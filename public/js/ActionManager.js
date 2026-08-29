@@ -282,19 +282,28 @@ export class ActionManager {
      */
     async executeDropItem(actionName, entityId, itemId, itemType, targetX, targetY) {
         try {
+            const payload = {
+                actionName,
+                entityId,
+                params: {
+                    itemId,
+                    itemType,
+                    targetX,
+                    targetY
+                }
+            };
+            // Capture the queueing decision ONCE: it drives both the request
+            // body (queueForRound) and the log line below, so the two can
+            // never disagree.
+            const queued = this._shouldQueueForRound();
+            // Two-phase barrier fence (spec §3): this raw fetch honors the
+            // SAME queueForRound gate as _sendActionRequest — drops made
+            // during planning queue for the round instead of executing
+            // immediately.
             const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    actionName,
-                    entityId,
-                    params: {
-                        itemId,
-                        itemType,
-                        targetX,
-                        targetY
-                    }
-                })
+                body: JSON.stringify(queued ? { ...payload, queueForRound: true } : payload)
             });
 
             if (!response.ok) {
@@ -303,7 +312,8 @@ export class ActionManager {
             }
 
             const data = await response.json();
-            ClientLogger.info('ActionManager', `Item dropped at (${targetX}, ${targetY})`, data);
+            // A queued drop has NOT executed yet — the log must say so.
+            ClientLogger.info('ActionManager', queued ? `Drop queued for round at (${targetX}, ${targetY})` : `Item dropped at (${targetX}, ${targetY})`, data);
             return data;
         } catch (error) {
             this.errorController.handleError({
@@ -460,10 +470,17 @@ export class ActionManager {
                 }
             };
 
+            // Capture the queueing decision ONCE: it drives both the request
+            // body (queueForRound) and the log line below, so the two can
+            // never disagree.
+            const queued = this._shouldQueueForRound();
+            // Two-phase barrier fence (spec §3): same queueForRound gate as
+            // _sendActionRequest — multi-component actions made during
+            // planning queue for the round instead of executing immediately.
             const response = await fetch(AppConfig.ENDPOINTS.EXECUTE_ACTION, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(queued ? { ...payload, queueForRound: true } : payload)
             });
 
             if (!response.ok) {
@@ -472,7 +489,8 @@ export class ActionManager {
             }
 
             const data = await response.json();
-            ClientLogger.info('ActionManager', 'Multi-component action executed:', data);
+            // A queued action has NOT executed yet — the log must say so.
+            ClientLogger.info('ActionManager', queued ? 'Multi-component action queued for round:' : 'Multi-component action executed:', data);
             return data;
         } catch (error) {
             this.errorController.handleError({

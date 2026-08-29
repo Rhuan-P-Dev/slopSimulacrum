@@ -59,3 +59,7 @@ If the ideal opposite-door position in the destination room cannot be resolved (
 ### Why Legacy Connection Data Keeps Working
 
 Existing room data that describes a connection as just a target (no position) remains valid without a migration, and now benefits from automatic position calculation. When a traversal request does not name the source door, the entity simply spawns at the destination room's center, preserving the long-standing default behavior.
+
+## 4. Relationship to Turn-Based Play (Deliberately Out-of-Turn)
+
+Immediately-executed movement (used when the client is in immediate mode) is intentionally **not** gated by the turn system's planning barrier. This is a deliberate product decision, not an oversight: the barrier paces *planned* round actions, and forcing real-time movement through the planning queue would break the responsiveness the room-traversal UX depends on. Movement chosen as a turn action is fully supported and takes the same initiative-ordered resolution path as any other queued action.

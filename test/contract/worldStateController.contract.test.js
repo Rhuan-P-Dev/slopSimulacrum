@@ -269,18 +269,18 @@ describe('WorldStateController.getAll() shape', () => {
         expect(typeOf(state.turns)).toBe('object');
         expect(keysOf(state.turns)).toEqual([
             'actorOrder',
+            'barrier',
             'currentTick',
             'phase',
-            'planningDeadlineTick',
             'queues',
             'roundNumber',
         ]);
         expect(typeOf(state.turns.roundNumber)).toBe('number');
         expect(['planning', 'resolution']).toContain(state.turns.phase);
         expect(typeOf(state.turns.currentTick)).toBe('number');
-        expect(typeOf(state.turns.planningDeadlineTick)).toBe('number');
         expect(typeOf(state.turns.actorOrder)).toBe('array');
         expect(typeOf(state.turns.queues)).toBe('object');
+        expect(typeOf(state.turns.barrier)).toBe('object');
         for (const actor of state.turns.actorOrder) {
             expect(keysOf(actor)).toEqual(['entityId', 'initiative', 'name', 'queuedCount']);
             expect(typeOf(actor.entityId)).toBe('string');

@@ -90,3 +90,9 @@ See [consequence_handler_architecture.md](./consequence_handler_architecture.md)
 
 Consequence parameters can reference an entity's stats instead of fixed numbers, so that
 effect magnitudes scale with the entity's characteristics and are tuned through data.
+
+---
+
+## 8. Interaction with Turn-Based Queuing
+
+The action pipeline is also the resolution target for actions queued during a turn's planning window: queued entries replay through this exact pipeline (range, requirements, synergy, consequences) in initiative order at resolution. The planning window closes only on all-ready — every round-start roster planner has signaled plan-complete (a removal counts as vacuously complete; there is no deadline) — so a queue rejection for a closed window lasts until the next round starts on the next tick. Resolution semantics (replay order, full validation at replay time, failures discarded with a log rather than aborting the round) are deliberately unchanged by the barrier: the turn system owns timing and ordering only, never validation or consequences.

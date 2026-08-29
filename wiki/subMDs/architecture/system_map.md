@@ -44,6 +44,7 @@ WorldStateController (Root Injector)
 | **RangeValidator** | Range Validation | Spatial range checks for proximity-based actions with failure consequences |
 | **HintController** | Hint Engine | Deterministic hint registry — register rules by priority, resolve hints per entity, degrade gracefully on missing data |
 | **CraftingController** | Recipe Registry | Data-driven crafting recipes (`data/crafting.json`) — pure "do these items satisfy this recipe" checks; no item/world state, no `getAll()` (stays out of the broadcast aggregation) |
+| **TurnSystemController** | Event-Driven Rounds & Barrier | Owns the round: the planning-completeness barrier (round-start roster, ready signals, the all-ready close decision — there is no deadline) and the per-entity action queues; resolution is gated on barrier close. Rounds are event-driven (roster snapshot at round start, next round on the tick after resolution), so the system no longer owns tick cadence |
 
 ## 3. Key Operational Flows
 

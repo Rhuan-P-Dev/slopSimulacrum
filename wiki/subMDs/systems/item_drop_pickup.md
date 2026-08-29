@@ -53,3 +53,7 @@ The green and red colors for the range indicator align with existing range-indic
 - [App](public/js/App.js)
 - [EventDispatcher](public/js/EventDispatcher.js)
 - [inventoryRoutes](src/routes/inventoryRoutes.js)
+
+## Turn-Based Play (Deliberate Boundary)
+
+Two deliberate boundaries with the turn system's planning barrier: in turn mode, the **drop** flow is routed through the turn queue (the client-side queue gate covers the drop path, so no action path silently bypasses the barrier), while **immediate pickup** remains an out-of-turn utility path by design — inventory manipulation is not round gameplay, and forcing it through the planning barrier would add latency with no fairness benefit.

@@ -24,3 +24,7 @@ Error handling is **layered**: validation errors are caught early at the API bou
 | Validation | Malformed structure | Reject input, request correction |
 | Network | Connection failure | Classify as recoverable or terminal |
 | Application | Business rule violation | Log, propagate to caller |
+
+## 4. Turn Signals & Barrier State on the Wire
+
+Players have no tick-driven agent, so the planning barrier can only know the human side is finished through an explicit **ready endpoint** (per entity id); there is no deadline, so a player who never signals delays the round indefinitely (by design — the wait is made visible through the barrier state instead of being hidden behind a timer). The round state carries an additive **barrier** section (roster/ready/close information) in both the full-state turns block and the dedicated round-update event, and the planning-phase full-state broadcast is change-gated (it fires only when the barrier view actually changes). Additive, not replaced: existing clients that ignore the new section keep working, and the barrier display is informational only (who is still planning, when planning closed, and why).

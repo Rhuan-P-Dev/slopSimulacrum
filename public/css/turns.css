@@ -51,23 +51,6 @@
     background: rgba(255, 85, 85, 0.08);
 }
 
-/* Round progress bar (fills over 360 ticks) */
-.turn-hud-progress {
-    width: 90px;
-    height: 6px;
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid var(--config-bar-border);
-    border-radius: 3px;
-    overflow: hidden;
-}
-
-.turn-hud-progress-fill {
-    height: 100%;
-    width: 0%;
-    background: var(--neon-green);
-    transition: width 0.2s linear;
-}
-
 /* Initiative order (compact, tooltips carry the full list) */
 .turn-hud-initiative {
     color: var(--text-dim);
@@ -107,6 +90,45 @@
 
 .turn-queue-cancel:hover {
     color: #ff5555;
+}
+
+/* Barrier status line (two-phase: ready count + pending planners, close info) */
+.turn-hud-barrier {
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.turn-hud-barrier.turn-barrier-closed {
+    color: var(--neon-green);
+    font-weight: bold;
+}
+
+/* Ready (plan-complete) control */
+.turn-hud-ready {
+    display: flex;
+    align-items: center;
+}
+
+.turn-ready-btn {
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--neon-green);
+    background: rgba(0, 255, 128, 0.08);
+    color: var(--neon-green);
+    cursor: pointer;
+    font-size: 0.95em;
+    white-space: nowrap;
+}
+
+.turn-ready-btn:hover {
+    background: rgba(0, 255, 128, 0.18);
+}
+
+.turn-ready-btn.turn-ready-locked {
+    border-color: var(--config-bar-border);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text-dim);
+    cursor: default;
 }
 
 /* Mode toggle (🕒 Turn | ⚡ Immediate) */
