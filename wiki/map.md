@@ -101,7 +101,7 @@ graph TD
 
 | Controller | Path | Description |
 |------------|------|-------------|
-| NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry, chase_attack |
+| NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry — `chase_attack` (nearest-entity pursuit/attack) and `craft_loop` (Crafter Drone: forage a dropped knife, forge it into a T1 container weapon, drop it on the ground) |
 
 ## 📁 Data Files
 
@@ -110,6 +110,7 @@ graph TD
 | `data/actions.json` | Action definitions |
 | `data/components.json` | Component type definitions with trait templates |
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) |
+| `data/npcs.json` | NPC registry: blueprint → spawn room, display name, personality, and AI brain config (behavior + range overrides); stamped `isNPC` at boot by WorldStateController |
 | `data/traits.json` | Global trait molds |
 | `data/synergy.json` | Synergy configurations |
 | `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |

@@ -9,8 +9,10 @@ The `NpcAIController` provides a deterministic, stateless alternative to LLM-bas
 - **Stateless**: reads world state via public APIs; never mutates state directly.
 - **Public API only**: always communicates with the WorldStateController facade through its public surface; never accesses sub-controllers directly.
 - **Data-driven**: behaviors are registered as named strategies; the brain contains no hardcoded branches.
-- **Fail-safe**: failures in behavior strategies are contained so they can never break the turn-system loop.
+- **Fail-safe**: failures in behavior strategies are contained so they can never break the turn-system loop. Structured results from immediate operations invoked on the tick path (pickup, craft) are always checked; rejections log at WARN with the handler's reason.
 - **Single responsibility**: one decision = one action per round, with dispatch centralized in a single place.
+- **Stage-method groups**: new behaviors are registered as stage-method groups from day one (one method per spec stage), so a single method never grows past the refactoring trigger in [code_quality_and_best_practices.md](../../code_quality_and_best_practices.md) §5.2.
+- **Helper/behavior ownership**: pure spatial helpers own coordinate guards and distance; range/pickup policy stays in the behavior — helpers never silently grow caller-specific parameters. Any helper JSDoc parameter must be exercised by at least one production caller or a test, else it is dead and gets deleted.
 
 ## Behavior Registration
 
@@ -19,6 +21,7 @@ A behavior is a registered strategy that receives the entity, the round, and the
 | Name | Description |
 |------|-------------|
 | `chase_attack` | Pursues the closest entity in the same room; attacks when within `attackRange`. The attack targets a component that can receive damage; if the preferred component is destroyed, the AI deterministically selects an alternative viable component so the action stays effective. When no viable component exists, the attack is skipped. |
+| `craft_loop` | The Crafter Drone's forage loop: finds its target item (the first input of its recipe — currently `knife`) dropped in its own room, forges it into the recipe's output via a zero-cost craft call, and leaves the finished item on the ground at its own position; moves toward the nearest in-room item while out of reach. Deterministic and stateless; own-room only (no door traversal); fixed action names (`move`/`dropItem`) with no ai-configurable overrides, by design (spec: [crafter_drone_spec.md](../../crafter_drone_spec.md)). |
 
 ## Dispatch Contract
 

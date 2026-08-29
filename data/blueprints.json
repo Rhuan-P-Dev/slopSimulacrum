@@ -20,5 +20,12 @@
     ["merchantArm", "right"],
     ["merchantRollingBall", "left"],
     ["merchantRollingBall", "right"]
+  ],
+  "crafterDrone": ["crafterCore"],
+  "crafterCore": [
+    ["crafterArm", "left"],
+    ["crafterArm", "right"],
+    ["crafterRollingBall", "left"],
+    ["crafterRollingBall", "right"]
   ]
 }

@@ -7,13 +7,23 @@
  * Behaviors are registered via `registerBehavior(name, strategyFn)`.
  * The strategy receives `{ entity, round, ai, facade }` and returns `{ actionName, params }` or null.
  *
- * First behavior: `chase_attack` (chase and attack the nearest entity in the same room).
+ * Built-in behaviors:
+ *   - `chase_attack`: chase and attack the nearest entity in the same room.
+ *   - `craft_loop`: Crafter Drone — forage a dropped item, forge it into the
+ *     recipe output, and drop it on the ground (wiki/crafter_drone_spec.md).
  *
  * @module NpcAIController
  */
 
 import Logger from '../../utils/Logger.js';
-import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
+import {
+    hasDeterministicBrain,
+    findNearestDroppedItem,
+    PICK_RANGE,
+    RECIPE_ID,
+    TARGET_ITEM_TYPE,
+    CRAFT_OUTPUT_TYPE
+} from '../../utils/npcAiUtils.js';
 import { resolveRange } from '../../../shared/RangeResolver.js';
 
 /**
@@ -33,6 +43,34 @@ const BROKEN_DURABILITY_THRESHOLD = 1;
  * @constant
  */
 const DURABILITY_STAT_KEY = 'Physical.durability';
+
+/**
+ * Fixed action names used by craft_loop. The spec pins these (no
+ * moveAction/attackAction overrides for this behavior), so they are module
+ * constants rather than ai-configurable values.
+ * @constant
+ */
+const CRAFT_MOVE_ACTION = 'move';
+
+/**
+ * Fixed action name used by craft_loop: the delivery drop of the forged
+ * output item at the drone's own position. The spec pins these (no
+ * moveAction/attackAction overrides for this behavior), so they are module
+ * constants rather than ai-configurable values.
+ * @constant
+ */
+const CRAFT_DROP_ACTION = 'dropItem';
+
+/**
+ * The drone's own core component type — the pickup target for craft_loop
+ * (foraged items land on the 12-volume core, keeping the 6-volume arms free).
+ * Keep in sync with data/blueprints.json / data/components.json.
+ * Spec §4.3 mandates this hardcode; a data-driven resolution would add a
+ * fragile volume heuristic, so the sync risk is pinned by contract test 1's
+ * blueprint assertions.
+ * @constant
+ */
+const CRAFT_CORE_COMPONENT_TYPE = 'crafterCore';
 
 /**
  * Calculates Euclidean distance between two spatial points.
@@ -55,8 +93,9 @@ class NpcAIController {
         this._turnSystem = turnSystemController;
         this._behaviors = new Map();
 
-        // Pre-registers the first behavior.
+        // Pre-registers the built-in behaviors.
         this.registerBehavior('chase_attack', this._chaseAttackBehavior.bind(this));
+        this.registerBehavior('craft_loop', this._craftLoopBehavior.bind(this));
     }
 
     /**
@@ -335,7 +374,7 @@ class NpcAIController {
      * @param {number} ctx.round
      * @param {Object} ctx.ai
      * @param {Object} ctx.facade
-     * @param {Object} [ctx.allEntities] — optional; fallback to facade.stateEntityController?.getAll()
+     * @param {Object} [ctx.allEntities] — optional; fallback to facade.getEntities()
      * @returns {{ actionName: string, params: Object }|null}
      */
     _chaseAttackBehavior({ entity, round, ai, facade, allEntities }) {
@@ -401,6 +440,251 @@ class NpcAIController {
             params: { targetX: target.spatial.x, targetY: target.spatial.y }
         };
     }
+
+    /**
+     * `craft_loop` behavior (Crafter Drone): forage → forge → drop.
+     *
+     * Deterministic and stateless — re-derives the drone's situation every round
+     * and emits at most ONE turn action:
+     *
+     *   Stage A — holds a foraged item (found via facade.getEntityItems on any
+     *            component): craft immediately via the facade (crafting is
+     *            intentionally NOT a registry action — no turn cost). On success,
+     *            the NEW output item is detected as the set-difference of output
+     *            item ids before/after the craft, and a single dropItem action
+     *            targeting the drone's own position is returned. On craft
+     *            failure → idle (retry next round).
+     *   Stage B — no item held: scan dropped items for the target item type in
+     *            the drone's OWN room only. None → idle.
+     *   Stage C — nearest in-room item (Euclidean distance, id tie-break):
+     *            distance ≤ PICK_RANGE → immediate zero-cost pickup on the core
+     *            component (returns idle); beyond PICK_RANGE → a move action
+     *            toward the item, repeated each round until in range (no
+     *            pathfinding — identical pattern to chase_attack).
+     *
+     * After the drop, the loop returns to Stage B on the next round. No RNG.
+     *
+     * @param {Object} ctx
+     * @param {Object} ctx.entity
+     * @param {number} ctx.round
+     * @param {Object} [ctx.ai] — accepted for signature symmetry; craft_loop has
+     *   no ai-configurable overrides (fixed action names, spec §3.1).
+     * @param {Object} ctx.facade — world state facade (public API only)
+     * @returns {{ actionName: string, params: Object }|null} single turn action or null (idle)
+     */
+    _craftLoopBehavior({ entity, round, facade }) {
+        // Guards: known room + finite spatial (mirrors chase_attack).
+        if (!entity || !entity.location || !entity.spatial) {
+            return null;
+        }
+        if (!Number.isFinite(entity.spatial.x) || !Number.isFinite(entity.spatial.y)) {
+            Logger.warn(`[NpcAI] ${entity.name || entity.id} has non-finite spatial — skipping.`);
+            return null;
+        }
+
+        const targetItemType = this._resolveCraftInputType(facade);
+
+        // Stage A is TERMINAL: if the drone holds a foraged item, this round is
+        // spent crafting it (or idling on craft failure) — it never falls
+        // through to the forage scan. (Preserved from the original single method:
+        // a craft-failure round must not also pick up another knife.)
+        const heldItems = this._flattenEntityItems(facade.getEntityItems?.(entity.id));
+        const heldTarget = heldItems.find(item => item && item.type === targetItemType);
+        if (heldTarget && heldTarget.hostComponentId) {
+            return this._craftLoopCraftStage({ entity, round, facade, targetItemType, heldItems, heldTarget });
+        }
+
+        // Stages B + C — no item held: forage in the drone's own room.
+        return this._craftLoopForageStage({ entity, round, facade, targetItemType });
+    }
+
+    /**
+     * Stage A — the drone holds a foraged item: craft it (zero-cost, immediate)
+     * and, on success, return the single turn action that drops the freshly
+     * produced output item at the drone's own position. Returns null (idle) when
+     * the craft fails or the new output cannot be detected — the drone
+     * re-derives next round.
+     *
+     * @param {Object} ctx
+     * @param {Object} ctx.entity
+     * @param {number} ctx.round
+     * @param {Object} ctx.facade — world state facade (public API only)
+     * @param {string} ctx.targetItemType — resolved recipe input type
+     * @param {Object[]} ctx.heldItems — flattened items held before the craft
+     * @param {Object} ctx.heldTarget — the held target item (has a hostComponentId)
+     * @returns {{ actionName: string, params: Object }|null}
+     * @private
+     */
+    _craftLoopCraftStage({ entity, round, facade, targetItemType, heldItems, heldTarget }) {
+        const outputIdsBefore = new Set(
+            heldItems
+                .filter(item => item && item.type === CRAFT_OUTPUT_TYPE)
+                .map(item => item.id)
+        );
+
+        const craftResult = facade.craftItems
+            ? facade.craftItems(entity.id, RECIPE_ID, heldTarget.hostComponentId, [heldTarget.id])
+            : null;
+
+        if (craftResult && craftResult.success) {
+            const outputIdsAfter = this._flattenEntityItems(facade.getEntityItems?.(entity.id))
+                .filter(item => item && item.type === CRAFT_OUTPUT_TYPE)
+                .map(item => item.id);
+            // The new item is the set-difference (the recipe consumes exactly
+            // the held input); fall back to any present output id defensively.
+            const newItemId = outputIdsAfter.find(id => !outputIdsBefore.has(id)) ?? outputIdsAfter[0];
+            if (newItemId) {
+                Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} crafted ${RECIPE_ID} — dropping ${CRAFT_OUTPUT_TYPE} ${newItemId}.`);
+                return {
+                    actionName: CRAFT_DROP_ACTION,
+                    params: {
+                        itemId: newItemId,
+                        itemType: CRAFT_OUTPUT_TYPE,
+                        targetX: entity.spatial.x,
+                        targetY: entity.spatial.y
+                    }
+                };
+            }
+            Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} crafted ${RECIPE_ID} but the new ${CRAFT_OUTPUT_TYPE} could not be detected — idle this round.`);
+            return null;
+        }
+
+        // Structured failure (e.g. nested-item guard) → idle; retry next round.
+        Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} craft ${RECIPE_ID} failed (${craftResult?.code || 'unknown'}) — idle this round.`);
+        return null;
+    }
+
+    /**
+     * Stages B + C — the drone holds no target item: scan the world's dropped
+     * items for the target item type (the helper owns the room and finite-
+     * coordinate guards), then act on the nearest in-room item — within
+     * PICK_RANGE: immediate zero-cost pickup on the core component (idle this
+     * round); beyond: a move action toward the item, repeated each round until
+     * in range (no pathfinding — identical pattern to chase_attack). Returns
+     * null (idle) when no candidate item exists.
+     *
+     * @param {Object} ctx
+     * @param {Object} ctx.entity
+     * @param {number} ctx.round
+     * @param {Object} ctx.facade — world state facade (public API only)
+     * @param {string} ctx.targetItemType — resolved recipe input type
+     * @returns {{ actionName: string, params: Object }|null}
+     * @private
+     */
+    _craftLoopForageStage({ entity, round, facade, targetItemType }) {
+        // Stage B — target items dropped anywhere; the helper owns the
+        // room/finite-coordinate guards, so this filter keeps only the craft
+        // policy (item type).
+        const droppedItems = facade.getDroppedItems ? Object.values(facade.getDroppedItems() || {}) : [];
+        const candidates = droppedItems.filter(item => item && item.itemType === targetItemType);
+        if (candidates.length === 0) {
+            return null; // idle — no target items in the world at all
+        }
+
+        // Stage C — nearest in-room item (Euclidean, id tie-break); the helper
+        // reports the distance so the range rule is applied exactly once, here
+        // (mirrors chase_attack's in-behavior range decision).
+        const nearest = findNearestDroppedItem(candidates, entity.location, entity.spatial.x, entity.spatial.y);
+        if (!nearest) {
+            // Reachable now: target items exist, but none in this room with
+            // finite coordinates — idle.
+            return null;
+        }
+
+        const { item: targetItem, distance } = nearest;
+        if (distance <= PICK_RANGE) {
+            this._craftLoopAttemptPickup(entity, round, facade, targetItem, distance, targetItemType);
+            return null; // the pickup is free — nothing to queue this round
+        }
+
+        // Out of range → move toward the item (repeats each round; no pathfinding).
+        return {
+            actionName: CRAFT_MOVE_ACTION,
+            params: { targetX: targetItem.x, targetY: targetItem.y }
+        };
+    }
+
+    /**
+     * Immediate zero-cost pickup of an in-range dropped item on the drone's core
+     * component (kept out of the 6-volume arms so the forged container fits,
+     * spec §1). The handler re-validates at call time; on rejection the drone
+     * re-derives next round (stateless) — but the rejection must be visible in
+     * the log (code_quality_and_best_practices.md §3.1). See M2.
+     *
+     * @param {Object} entity
+     * @param {number} round
+     * @param {Object} facade — world state facade (public API only)
+     * @param {Object} item — the dropped item entry (in range, in the drone's room)
+     * @param {number} distance — pre-computed distance to the item
+     * @param {string} targetItemType
+     * @private
+     */
+    _craftLoopAttemptPickup(entity, round, facade, item, distance, targetItemType) {
+        const core = (Array.isArray(entity.components) ? entity.components : [])
+            .find(comp => comp && comp.type === CRAFT_CORE_COMPONENT_TYPE);
+        if (!core) {
+            Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} has no ${CRAFT_CORE_COMPONENT_TYPE} component — cannot pick up ${item.id}.`);
+            return;
+        }
+
+        const pickResult = facade.executePickUpItem?.(entity.id, item.id, core.id);
+        if (pickResult && pickResult.success) {
+            Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} picked up dropped ${targetItemType} ${item.id} (dist: ${distance.toFixed(1)} ≤ ${PICK_RANGE}).`);
+        } else {
+            // Visible graceful degradation: the handler rejected the pickup
+            // (stale target, out-of-range, capacity, nested children, or the
+            // dispatcher is missing). The drone is stateless and re-derives next
+            // round — but the rejection is logged (with the handler's reason)
+            // instead of a false success.
+            Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} pickup of ${item.id} rejected (${pickResult?.message || pickResult?.code || 'unknown'}) — re-derives next round.`);
+        }
+    }
+
+    /**
+     * Resolves the item type that craft_loop forages: prefers the first input
+     * type of RECIPE_ID from the live recipe registry (the recipe is the single
+     * source of truth), falling back to TARGET_ITEM_TYPE when the registry is
+     * unavailable or the recipe is absent.
+     *
+     * @param {Object} facade — world state facade (public API only)
+     * @returns {string} the target item type
+     * @private
+     */
+    _resolveCraftInputType(facade) {
+        const recipes = facade.getCraftingRecipes ? facade.getCraftingRecipes() : null;
+        const recipe = Array.isArray(recipes) ? recipes.find(r => r && r.id === RECIPE_ID) : null;
+        const inputType = recipe?.inputs?.[0]?.type;
+        if (typeof inputType === 'string' && inputType.length > 0) {
+            return inputType;
+        }
+        return TARGET_ITEM_TYPE;
+    }
+
+    /**
+     * Flattens the `{ [hostComponentId]: [item, ...] }` map returned by
+     * `facade.getEntityItems()` into a single array of item objects, skipping
+     * malformed entries.
+     *
+     * @param {Object|null|undefined} itemsByComponent
+     * @returns {Object[]}
+     * @private
+     */
+    _flattenEntityItems(itemsByComponent) {
+        if (!itemsByComponent || typeof itemsByComponent !== 'object') {
+            return [];
+        }
+        const items = [];
+        for (const list of Object.values(itemsByComponent)) {
+            if (!Array.isArray(list)) continue;
+            for (const item of list) {
+                if (item && typeof item === 'object') {
+                    items.push(item);
+                }
+            }
+        }
+        return items;
+    }
+
     /**
      * Selects the best component of a target for attack decisions.
      *

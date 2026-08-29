@@ -69,5 +69,24 @@
       "Movement": { "move": 10 },
       "Spatial": { "x": 0, "y": 20 }
     }
+  },
+  "crafterCore": {
+    "traits": {
+      "Physical": { "mass": 20, "durability": 100, "volume": 12 },
+      "Spatial": { "x": 0, "y": 0 }
+    }
+  },
+  "crafterArm": {
+    "traits": {
+      "Physical": { "durability": 50, "strength": 10, "volume": 6 },
+      "Spatial": { "x": 18, "y": 10 }
+    }
+  },
+  "crafterRollingBall": {
+    "traits": {
+      "Physical": { "durability": 80, "volume": 10 },
+      "Movement": { "move": 10 },
+      "Spatial": { "x": 0, "y": 20 }
+    }
   }
 }

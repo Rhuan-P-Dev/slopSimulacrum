@@ -402,15 +402,24 @@ describe('crafting contract — data-driven registry & no-turn decision', () => 
 
         const recipes = wsc.getCraftingRecipes();
         expect(Array.isArray(recipes)).toBe(true);
-        expect(recipes).toHaveLength(1);
-        expect(recipes[0].id).toBe('knife_to_t1');
-        expect(recipes[0].name).toBe('T1 Assembly');
-        expect(recipes[0].inputs).toEqual([{ type: 'knife', quantity: 2 }]);
-        expect(recipes[0].outputs).toEqual([{ type: 't1', quantity: 1 }]);
+        // Two recipes now: the original 2-knife recipe + the drone's
+        // single-knife recipe (data/crafting.json).
+        expect(recipes).toHaveLength(2);
+
+        const existing = recipes.find(r => r.id === 'knife_to_t1');
+        expect(existing).toBeDefined();
+        expect(existing.name).toBe('T1 Assembly');
+        expect(existing.inputs).toEqual([{ type: 'knife', quantity: 2 }]);
+        expect(existing.outputs).toEqual([{ type: 't1', quantity: 1 }]);
+
+        const single = recipes.find(r => r.id === 'single_knife_to_t1');
+        expect(single).toBeDefined();
+        expect(single.inputs).toEqual([{ type: 'knife', quantity: 1 }]);
+        expect(single.outputs).toEqual([{ type: 't1', quantity: 1 }]);
 
         // Defensive copy: mutating the result must not affect the controller.
-        recipes[0].name = 'TAMPERED';
-        expect(wsc.getCraftingRecipes()[0].name).toBe('T1 Assembly');
+        existing.name = 'TAMPERED';
+        expect(wsc.getCraftingRecipes().find(r => r.id === 'knife_to_t1').name).toBe('T1 Assembly');
     });
 
     it("queueAction('knife_to_t1') → ACTION_NOT_FOUND (crafting does not consume a turn)", () => {

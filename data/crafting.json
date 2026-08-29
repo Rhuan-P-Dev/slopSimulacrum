@@ -1,4 +1,15 @@
 {
+  "single_knife_to_t1": {
+    "id": "single_knife_to_t1",
+    "name": "T1 Field Assembly",
+    "description": "Forge a single knife into a T1 container weapon.",
+    "inputs": [
+      { "type": "knife", "quantity": 1 }
+    ],
+    "outputs": [
+      { "type": "t1", "quantity": 1 }
+    ]
+  },
   "knife_to_t1": {
     "id": "knife_to_t1",
     "name": "T1 Assembly",
