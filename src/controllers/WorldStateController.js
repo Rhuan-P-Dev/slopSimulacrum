@@ -1,5 +1,6 @@
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import { isEnvFlagOn } from '../utils/Constants.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
 import { buildReverseIndex } from '../utils/ComponentDependents.js';
@@ -290,20 +291,47 @@ class WorldStateController {
      *
      * Registry shape (key = blueprint name; the same registry LLMAgentController
      * validates in its constructor):
-     *   { [blueprint]: { displayName, room, personality, initialItems?,
-     *                    maxWorldActionsPerRound?, maxChatMessagesPerRound? } }
+     *   { [blueprint]: { displayName, room, personality, objective?,
+     *                    initialItems? ({ item, count, equip?,
+     *                                     contents? ({ item, count })[] }),
+     *                    maxWorldActionsPerRound?, maxChatMessagesPerRound?,
+     *                    envGate? } }
      *
-     * Per entry:
-     *   - the entity is spawned with extra = { isNPC: true, name: displayName,
-     *     npcConfig: {…} }; the persisted isNPC field is what makes the
-     *     world.json spawn observer bypass the NPC (the declarative spawns
-     *     target player-droid component types and would spam warn-logs on an
-     *     NPC). No separate opt-out flag is stored — nothing to leak into
-     *     serialize() snapshots or broadcasts;
-     *   - the entity is positioned at the room center;
-     *   - each initialItems entry { item, count } is placed on a merchantArm
-     *     (fallback: first arm-like component, then any component) via the
-     *     existing addItemToEntity() API.
+     * Per entry (each concern delegated to a single-purpose helper):
+     *   - `_checkNpcSpawnGate(entry, blueprint)` — the data-driven spawn
+     *     gate: the optional envGate names an env var that must be ON per
+     *     isEnvFlagOn (string equal to "true" after trim and case-folding;
+     *     unset/other values are OFF) for the entry to spawn. The gate is
+     *     read once at bootstrap (spawn time, not a runtime toggle). A
+     *     missing/malformed envGate means "no gate" (the entry spawns
+     *     normally, as before); a gated-out entry is skipped with an info
+     *     log;
+     *   - `_normalizeNpcAiConfig(entry)` — validates the optional ai block
+     *     at boot (behavior/attackRange/attackAction/moveAction), warning
+     *     per invalid field and falling back to the registry defaults;
+     *   - `_buildNpcConfig(entry, normalizedAi)` — assembles the persisted
+     *     npcConfig: personality, the per-round action/chat caps, and the
+     *     normalized ai block; the optional objective is persisted
+     *     alongside personality only when present (non-empty), so existing
+     *     entries keep their exact stored shape;
+     *   - `_applyInitialItems(entityId, entry)` — places each initialItems
+     *     entry on a merchantArm (fallback: first arm-like component, then
+     *     any component) via the existing addItemToEntity() API, nests any
+     *     declared contents into the just-added instance via the public
+     *     addItemToContainer() API, and equips equip: true items on a
+     *     holding-capable component via the public equipItem() API; a
+     *     failed add/equip/nest is a warning only (the item stays held and
+     *     the entity keeps its unequipped baseline — spawn never fails).
+     *
+     * The outer loop (per entry, inside a try/catch): malformed-entry warn
+     * → gate check → displayName/personality check → room logical→UID
+     * resolution → npcConfig build → spawnEntity with extra = { isNPC: true,
+     * name: displayName, npcConfig: {…} } → room-center positioning →
+     * _applyInitialItems. The persisted isNPC field is what makes the
+     * world.json spawn observer bypass the NPC (the declarative spawns
+     * target player-droid component types and would spam warn-logs on an
+     * NPC); no separate opt-out flag is stored — nothing to leak into
+     * serialize() snapshots or broadcasts.
      *
      * Tolerant of a missing/malformed registry — a boot-time warning only,
      * never a crash (the same tolerance as LLMAgentController._loadNpcRegistry).
@@ -315,7 +343,6 @@ class WorldStateController {
             return; // no NPC registry configured — not an error
         }
 
-        const roomsData = DataLoader.loadJsonSafe('data/rooms.json', {});
         let count = 0;
         for (const [blueprint, entry] of Object.entries(raw)) {
             try {
@@ -323,6 +350,7 @@ class WorldStateController {
                     Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" is malformed — skipped.`);
                     continue;
                 }
+                if (!this._checkNpcSpawnGate(entry, blueprint)) continue;
                 if (typeof entry.displayName !== 'string' || typeof entry.personality !== 'string') {
                     Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" lacks displayName/personality — skipped.`);
                     continue;
@@ -335,57 +363,14 @@ class WorldStateController {
                 }
                 const room = Object.values(this.roomsController.rooms || {}).find(r => r.id === roomUid) || null;
 
-                // M1 + M4: Validate ai.behavior and ai.attackRange at boot.
-                const rawAi = entry.ai;
-                let normalizedAi = null;
+                const normalizedAi = this._normalizeNpcAiConfig(entry);
 
-                if (rawAi && typeof rawAi === 'object') {
-                    const hasValidBehavior = typeof rawAi.behavior === 'string' && rawAi.behavior !== '';
-
-                    let hasValidAttackRange = true;
-                    if (rawAi.attackRange !== undefined && rawAi.attackRange !== null) {
-                        if (typeof rawAi.attackRange === 'number') {
-                            hasValidAttackRange = isFinite(rawAi.attackRange) && rawAi.attackRange > 0;
-                            if (!hasValidAttackRange) {
-                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${rawAi.attackRange} is invalid (must be finite and > 0) — ignoring config value, will use registry fallback.`);
-                            }
-                        } else {
-                            Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${JSON.stringify(rawAi.attackRange)} is present but has type ${typeof rawAi.attackRange}, expected number — ignoring config value, will use registry fallback.`);
-                            hasValidAttackRange = false;
-                        }
-                    }
-
-                    if (hasValidBehavior && hasValidAttackRange) {
-                        normalizedAi = { behavior: rawAi.behavior };
-                        if (rawAi.attackAction !== undefined && rawAi.attackAction !== null) {
-                            if (typeof rawAi.attackAction === 'string' && rawAi.attackAction !== '') {
-                                normalizedAi.attackAction = rawAi.attackAction;
-                            } else {
-                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackAction=${JSON.stringify(rawAi.attackAction)} is present but has type ${typeof rawAi.attackAction}, expected non-empty string — ignoring config value.`);
-                            }
-                        }
-                        if (rawAi.moveAction !== undefined && rawAi.moveAction !== null) {
-                            if (typeof rawAi.moveAction === 'string' && rawAi.moveAction !== '') {
-                                normalizedAi.moveAction = rawAi.moveAction;
-                            } else {
-                                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.moveAction=${JSON.stringify(rawAi.moveAction)} is present but has type ${typeof rawAi.moveAction}, expected non-empty string — ignoring config value.`);
-                            }
-                        }
-                        if (hasValidAttackRange) normalizedAi.attackRange = rawAi.attackRange;
-                    } else if (!hasValidBehavior) {
-                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.behavior is missing or empty — AI disabled for this entity.`);
-                    }
-                }
+                const npcConfig = this._buildNpcConfig(entry, normalizedAi);
 
                 const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
                     isNPC: true,
                     name: entry.displayName,
-                    npcConfig: {
-                        personality: entry.personality,
-                        maxWorldActionsPerRound: entry.maxWorldActionsPerRound,
-                        maxChatMessagesPerRound: entry.maxChatMessagesPerRound,
-                        ai: normalizedAi
-                    }
+                    npcConfig
                 });
                 if (!entityId) {
                     Logger.warn(`[WorldStateController] NPC spawn failed for blueprint "${blueprint}".`);
@@ -398,25 +383,7 @@ class WorldStateController {
                 }
 
                 // Apply initialItems (e.g. Bolt's wares) to an arm component.
-                const entity = this.stateEntityController.getEntity(entityId);
-                const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
-                for (const { item, count: n } of items) {
-                    const times = Math.max(0, Number(n) || 0);
-                    const hostComponent = entity?.components?.find(c => c.type === 'merchantArm')
-                        || entity?.components?.find(c => /arm|hand/i.test(c.type || ''))
-                        || entity?.components?.[0]
-                        || null;
-                    if (!hostComponent) {
-                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}" has no component to hold item "${item}".`);
-                        continue;
-                    }
-                    for (let i = 0; i < times; i++) {
-                        const result = this.addItemToEntity(entityId, item, hostComponent.id);
-                        if (!result.success) {
-                            Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} failed on ${hostComponent.type}: ${result.message}`);
-                        }
-                    }
-                }
+                this._applyInitialItems(entityId, entry);
 
                 count++;
                 Logger.info(`[WorldStateController] NPC spawned: "${entry.displayName}" (${blueprint}) in room "${roomLogicalId}" as ${entityId}.`);
@@ -427,6 +394,218 @@ class WorldStateController {
         if (count > 0) {
             Logger.info(`[WorldStateController] ${count} NPC(s) spawned from data/npcs.json.`);
         }
+    }
+
+    /**
+     * Data-driven spawn gate for a single registry entry: the optional
+     * `envGate` names an environment variable that must be ON (per
+     * isEnvFlagOn: a string equal to "true" after trim and case-folding) for
+     * the entry to spawn. Unset/empty/malformed envGate means "no gate"
+     * (spawn normally); any other value skips the entry with an info log.
+     * The variable is read once at bootstrap (spawn time), not a runtime
+     * toggle — restarting the server applies changes to it.
+     * @private
+     * @param {Object} entry - The registry entry being checked (known to be
+     *   an object at this point).
+     * @param {string} blueprint - The registry key; used as the display-name
+     *   fallback in the skip log when the entry's displayName is not a string.
+     * @returns {boolean} true = spawn the entry, false = skip it.
+     */
+    _checkNpcSpawnGate(entry, blueprint) {
+        const gateVar = typeof entry.envGate === 'string' ? entry.envGate.trim() : '';
+        if (gateVar === '') return true;
+        if (isEnvFlagOn(process.env[gateVar])) return true;
+        Logger.info(`[WorldStateController] npcs.json: "${typeof entry.displayName === 'string' ? entry.displayName : blueprint}" is gated by ${gateVar} (not "true") — skipped.`);
+        return false;
+    }
+
+    /**
+     * M1 + M4: Validates the optional ai block at boot (behavior,
+     * attackRange, attackAction, moveAction), warning per invalid field and
+     * ignoring the offending value (the registry defaults apply downstream).
+     * @private
+     * @param {Object} entry - The registry entry (used for the displayName in
+     *   the warn logs and for entry.ai).
+     * @returns {Object|null} The normalized `{ behavior[, attackAction,
+     *   moveAction, attackRange] }`, or null when the entry has no usable
+     *   ai block (an LLM-routed NPC).
+     */
+    _normalizeNpcAiConfig(entry) {
+        const rawAi = entry.ai;
+        let normalizedAi = null;
+
+        if (rawAi && typeof rawAi === 'object') {
+            const hasValidBehavior = typeof rawAi.behavior === 'string' && rawAi.behavior !== '';
+
+            let hasValidAttackRange = true;
+            if (rawAi.attackRange !== undefined && rawAi.attackRange !== null) {
+                if (typeof rawAi.attackRange === 'number') {
+                    hasValidAttackRange = isFinite(rawAi.attackRange) && rawAi.attackRange > 0;
+                    if (!hasValidAttackRange) {
+                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${rawAi.attackRange} is invalid (must be finite and > 0) — ignoring config value, will use registry fallback.`);
+                    }
+                } else {
+                    Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${JSON.stringify(rawAi.attackRange)} is present but has type ${typeof rawAi.attackRange}, expected number — ignoring config value, will use registry fallback.`);
+                    hasValidAttackRange = false;
+                }
+            }
+
+            if (hasValidBehavior && hasValidAttackRange) {
+                normalizedAi = { behavior: rawAi.behavior };
+                if (rawAi.attackAction !== undefined && rawAi.attackAction !== null) {
+                    if (typeof rawAi.attackAction === 'string' && rawAi.attackAction !== '') {
+                        normalizedAi.attackAction = rawAi.attackAction;
+                    } else {
+                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackAction=${JSON.stringify(rawAi.attackAction)} is present but has type ${typeof rawAi.attackAction}, expected non-empty string — ignoring config value.`);
+                    }
+                }
+                if (rawAi.moveAction !== undefined && rawAi.moveAction !== null) {
+                    if (typeof rawAi.moveAction === 'string' && rawAi.moveAction !== '') {
+                        normalizedAi.moveAction = rawAi.moveAction;
+                    } else {
+                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.moveAction=${JSON.stringify(rawAi.moveAction)} is present but has type ${typeof rawAi.moveAction}, expected non-empty string — ignoring config value.`);
+                    }
+                }
+                if (hasValidAttackRange) normalizedAi.attackRange = rawAi.attackRange;
+            } else if (!hasValidBehavior) {
+                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.behavior is missing or empty — AI disabled for this entity.`);
+            }
+        }
+
+        return normalizedAi;
+    }
+
+    /**
+     * Assembles the persisted npcConfig for a registry entry: personality,
+     * the per-round action/chat caps (undefined passes through — the agent
+     * applies its own defaults), and the normalized ai block. The optional
+     * objective is added only when present (non-empty string) so existing
+     * entries keep the exact npcConfig shape they stored before the
+     * objective feature.
+     *
+     * Note: the LLM prompt is rendered from the agent's in-memory registry
+     * (LLMAgentController._loadNpcRegistry re-reads data/npcs.json), NOT
+     * from this persisted npcConfig copy — that one exists for
+     * serialization and inspection only; the two stay in sync via the
+     * data file.
+     * @private
+     * @param {Object} entry - The registry entry (displayName and personality
+     *   known to be non-empty-able strings by the caller's checks).
+     * @param {Object|null} normalizedAi - Result of _normalizeNpcAiConfig(entry).
+     * @returns {Object} The npcConfig object stored on the spawned entity.
+     */
+    _buildNpcConfig(entry, normalizedAi) {
+        const npcConfig = {
+            personality: entry.personality,
+            maxWorldActionsPerRound: entry.maxWorldActionsPerRound,
+            maxChatMessagesPerRound: entry.maxChatMessagesPerRound,
+            ai: normalizedAi
+        };
+        if (typeof entry.objective === 'string' && entry.objective.trim() !== '') {
+            npcConfig.objective = entry.objective;
+        }
+        return npcConfig;
+    }
+
+    /**
+     * Applies the entry's initialItems to a just-spawned entity. Each
+     * `{ item, count, equip?, contents? }` is added `count` times via the
+     * existing addItemToEntity() API: unequipped entries go to a merchantArm
+     * (fallback: first arm-like component, then any component); equip: true
+     * entries go to a component that can meet the item's holding-cost
+     * requirements (see _resolveEquippableHostComponent). Any declared
+     * `contents` ({ item, count }[]) are nested into the just-added instance
+     * through the public addItemToContainer() facade (never InventoryManager
+     * directly). equip: true items are then equipped on the same host
+     * component. A failed add/equip/nest is a warning only — the item stays
+     * held (or absent) and the entity keeps its unequipped baseline; spawn
+     * never fails.
+     * @private
+     * @param {string} entityId - The just-spawned entity.
+     * @param {Object} entry - The registry entry (displayName is a string).
+     */
+    _applyInitialItems(entityId, entry) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
+        for (const { item, count: n, equip, contents } of items) {
+            const times = Math.max(0, Number(n) || 0);
+            // equip: true entries are placed on a component that can
+            // actually meet the item's holding-cost requirements, so
+            // the equip below can succeed (e.g. a droidHand with
+            // strength, not a bare droidArm). Unequipped entries keep
+            // the historical arm-first placement.
+            const hostComponent = equip === true
+                ? this._resolveEquippableHostComponent(entity, item)
+                : entity?.components?.find(c => c.type === 'merchantArm')
+                    || entity?.components?.find(c => /arm|hand/i.test(c.type || ''))
+                    || entity?.components?.[0]
+                    || null;
+            if (!hostComponent) {
+                Logger.warn(`[WorldStateController] NPC "${entry.displayName}" has no component to hold item "${item}".`);
+                continue;
+            }
+            for (let i = 0; i < times; i++) {
+                const result = this.addItemToEntity(entityId, item, hostComponent.id);
+                if (!result.success) {
+                    Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} failed on ${hostComponent.type}: ${result.message}`);
+                    continue;
+                }
+                // Nest the entry's declared contents into the just-added
+                // instance (public facade only; the instance's own
+                // internal volume bounds how many fit).
+                const declaredContents = Array.isArray(contents) ? contents : [];
+                for (const c of declaredContents) {
+                    const type = typeof c?.item === 'string' ? c.item.trim() : '';
+                    const nestTimes = Math.max(0, Number(c?.count) || 0);
+                    if (!type || !result?.item?.id || nestTimes === 0) continue;
+                    for (let j = 0; j < nestTimes; j++) {
+                        const nest = this.addItemToContainer(entityId, result.item.id, type);
+                        if (!nest?.success) Logger.warn(`[WorldStateController] NPC "${entry.displayName}" contents "${type}" #${j + 1} into "${item}" failed: ${nest?.message}`);
+                    }
+                }
+                if (equip === true && result.item?.id) {
+                    // Equip on the same host component the item was
+                    // added to (spec §3.3). A failed equip (volume,
+                    // insufficient stats) is a warning only: the item
+                    // stays held and the entity keeps its unequipped
+                    // baseline — spawn never fails.
+                    const equipResult = this.equipItem(entityId, result.item.id, item, hostComponent.id);
+                    if (!equipResult.success) {
+                        Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} added but equip failed on ${hostComponent.type}: ${equipResult.message}`);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves the host component for an initialItems entry flagged
+     * `equip: true`: the first component whose current stats satisfy the item
+     * type's holding-cost requirements (data/holdingCost.json), so the
+     * subsequent equipItem() call can actually succeed (e.g. a droidHand with
+     * strength, not a bare droidArm). Falls back to the standard
+     * arm/hand/first-component chain when no component qualifies — in that
+     * case the item is still added, the equip fails with a warning, and the
+     * entity keeps its unequipped baseline (spawn never fails).
+     * @private
+     * @param {Object} entity - The spawned entity.
+     * @param {string} itemType - The item type to be equipped.
+     * @returns {Object|null} The resolved component, or null if the entity has none.
+     */
+    _resolveEquippableHostComponent(entity, itemType) {
+        const components = entity?.components;
+        if (Array.isArray(components)) {
+            for (const component of components) {
+                const stats = this.componentController.getComponentStats(component.id);
+                if (stats && this.holdingCostController.canHoldItem(itemType, stats).success) {
+                    return component;
+                }
+            }
+        }
+        return components?.find(c => c.type === 'merchantArm')
+            || components?.find(c => /arm|hand/i.test(c.type || ''))
+            || components?.[0]
+            || null;
     }
 
     /**

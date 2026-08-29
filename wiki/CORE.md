@@ -55,6 +55,7 @@ Additional reference documentation for specific systems and components, organize
 - [Server Splitting Architecture](subMDs/architecture/server_splitting.md) — Multiplayer/server split
 - [Action System](subMDs/architecture/action_system.md) — Action pipeline architecture
 - [Attack System](subMDs/architecture/attack_system.md) — Generic component-targeted attack handler
+- [Killer LLM Drone](subMDs/architecture/killer_llm_drone.md) — Env-gated, goal-bearing LLM-routed NPC: why the drone is pure data on the shared, hardened LLM loop
 
 ### 🧩 Controllers
 - [Controller Patterns](subMDs/controllers/controller_patterns.md) — **Obligatory** design patterns

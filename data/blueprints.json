@@ -13,6 +13,7 @@
     ["humanoidDroidFinger", "middle"],
     ["humanoidDroidFinger", "right"]
   ],
+  "killerLlmDrone": ["centralBall"],
   "merchantDroid": ["merchantCore"],
   "merchantCore": [
     "merchantHead",

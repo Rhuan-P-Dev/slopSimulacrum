@@ -1,6 +1,6 @@
 # 📚 Wiki Sub-Documentation Index
 
-This is the master index for all sub-documentation in `wiki/subMDs/`. Files are organized into 6 categories for easy navigation.
+This is the master index for all sub-documentation in `wiki/subMDs/`. Files are organized into 7 categories for easy navigation.
 
 ---
 
@@ -25,6 +25,7 @@ System-level architecture documents describing the overall design, data flow, an
 | [Server Splitting Architecture](architecture/server_splitting.md) | Server-side splitting/multiplayer architecture |
 | [Action System](architecture/action_system.md) | Action registry-based pipeline architecture |
 | [Attack System](architecture/attack_system.md) | Generic component-targeted attack handler — unified execution for punch, cut, and future attack types |
+| [Killer LLM Drone](architecture/killer_llm_drone.md) | Env-gated, goal-bearing LLM-routed NPC — why the drone is pure data on the shared agent loop, why its gate is relaxed and bootstrap-only, why the objective is a prompt field, why silent rounds are the only degradation |
 
 ---
 
@@ -112,11 +113,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 38 |
-| Categories | 6 |
-| Architecture docs | 5 |
+| Total documents | 42 |
+| Categories | 7 |
+| Architecture docs | 6 |
 | Controller docs | 12 |
 | Data model docs | 6 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
-| Systems docs | 10 |
+| Systems docs | 12 |

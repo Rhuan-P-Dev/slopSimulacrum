@@ -43,3 +43,4 @@ The brain-vs-LLM routing predicate is a static helper extracted to a shared util
 - **Dispatcher** (`src/server.js`): entities with a deterministic brain are routed to this controller; all others go to the LLM agent.
 - **Boot validation** (`WorldStateController`): AI configuration (behavior and attack range) is validated once at spawn; present-but-mistyped values are logged with the NPC, field, offending value, and expected type, so bad data is fixed in the data files rather than failing at runtime.
 - **LLM guard** (`LLMAgentController`): skips entities with deterministic brains, so both decision systems never drive the same entity.
+- **LLM agent counterpart**: NPCs *without* an `ai.behavior` block never use this controller — the server routes their rounds to the LLM agent instead; the env-gated, goal-bearing `killerLlmDrone` is documented in [Killer LLM Drone](../architecture/killer_llm_drone.md).
