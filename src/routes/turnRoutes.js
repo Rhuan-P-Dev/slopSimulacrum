@@ -8,6 +8,7 @@
  *   GET    /turns/state                 → { turns: <getRoundState()> }
  *   GET    /turns/queue/:entityId       → { entityId, phase, queue: [...] }
  *   DELETE /turns/queue/:entityId/:queueId → { success, removed }
+ *   POST   /turns/ready/:entityId       → { success, alreadySignaled, closed, barrier }
  *
  * Rule-level outcomes (unknown entity, missing queue entry, ...) follow the
  * project's "rule failure = 200 { success:false }" contract; only malformed
@@ -97,6 +98,32 @@ export function register(router, { worldStateController }) {
 			res.json(result);
 		} catch (error) {
 			Logger.error('/turns/queue DELETE endpoint error', { error: error.message });
+			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+		}
+	});
+
+	/**
+	 * POST /turns/ready/:entityId
+	 * Signals plan-complete for one entity (two-phase barrier). Rule-level
+	 * outcomes (unknown entity, out-of-round, turns disabled, ...) follow the
+	 * 200 { success:false, code, error } contract; only a malformed ID is 400.
+	 */
+	router.post('/turns/ready/:entityId', (req, res) => {
+		try {
+			const { entityId } = req.params;
+			if (!IdResolver.isEntityId(entityId)) {
+				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "ent-<uuid>".` });
+			}
+
+			const turns = getTurns();
+			if (!turns) {
+				return res.status(503).json({ error: 'Turn system is not available.' });
+			}
+
+			const result = turns.signalPlanComplete(entityId, 'player');
+			res.json(result);
+		} catch (error) {
+			Logger.error('/turns/ready endpoint error', { error: error.message });
 			res.status(500).json({ error: 'Internal Server Error', details: error.message });
 		}
 	});

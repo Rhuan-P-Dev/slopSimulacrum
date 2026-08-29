@@ -5,6 +5,7 @@ import IdResolver from '../utils/IdResolver.js';
 import { buildReverseIndex } from '../utils/ComponentDependents.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
 import { writeDroppedItem } from '../controllers/consequences/DropItemHandler.js';
+import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -685,9 +686,11 @@ class WorldStateController {
      */
     static get PERSISTENCE_SCHEMA_VERSION() {
         // v2 (Feature B): snapshot gains the "events" section (world event
-        // ring buffer). v1 snapshots are rejected by restore() — the strict
-        // versioning contract is documented in the persistence tests.
-        return 2;
+        // ring buffer). v3 (two-phase barrier turns): the "turns" section
+        // gains the "barrier" sub-state (roster, signaled, close info) plus
+        // the stored phase. v1/v2 snapshots are rejected by restore() — the
+        // strict versioning contract is documented in the persistence tests.
+        return 3;
     }
 
     /**
@@ -728,7 +731,7 @@ class WorldStateController {
      *   { schemaVersion: number, serializedAtTick: number|null,
      *     serializedAt: number, state: { entities, components, inventory,
      *     equipped, preEquipStats, equippedItemStats, internalComponents,
-     *     rooms, droppedItems, selections, events } }
+     *     rooms, droppedItems, selections, events, turns, roomChat } }
      */
     serialize() {
         const snapshot = {
@@ -769,10 +772,12 @@ class WorldStateController {
                 selections: [...this.actionSelectController._selectionRegistry.entries()],
                 // World event ring buffer (Feature B, schema v2)
                 events: this.worldEventLogController.serialize(),
-                // Turn system bookkeeping (Feature A, schema v2 — additive, no
-                // version bump: v2 is not yet "released" in production).
-                // { roundNumber, phase, queues, resolvedRound, lastRound }
-                turns: this.turnSystemController?.serialize() ?? { roundNumber: 0, phase: 'planning', queues: {}, resolvedRound: -1, lastRound: -1 },
+                // Turn system bookkeeping (Feature A, schema v3).
+                // { roundNumber, phase, queues, resolvedRound, lastRound, barrier }
+                // Fallback when no turn system is injected: DEFAULT_TURNS_SNAPSHOT
+                // — the single shared definition (also used by _reset()), so the
+                // fallback can never drift from the real serialize() shape.
+                turns: this.turnSystemController?.serialize() ?? DEFAULT_TURNS_SNAPSHOT,
                 // Room chat store (Feature D backend, schema v2 — additive).
                 // { [roomId]: [ { id, roomId, speakerName, speakerEntityId, text, tick, ts } ] }
                 roomChat: this.roomChatController?.serialize() ?? {}
@@ -862,10 +867,13 @@ class WorldStateController {
                 };
             }
         }
-        // NOTE: "turns" (Feature A) is OPTIONAL in the required list — early v2
-        // snapshots predate it and are still accepted (the turn bookkeeping
-        // simply resumes idle; the next onTick() re-derives phase from the
-        // tick clock). Schema version stays 2: v2 is not yet released.
+        // NOTE: "turns" (Feature A) and "roomChat" (Feature D) are intentionally
+        // OMITTED from the required list above — a well-formed v3 snapshot may
+        // lack either section (the turn bookkeeping simply resumes idle; the
+        // phase is stored state, so an absent section means round 0 starts
+        // lazily on the next onTick(); chat is ephemeral memory). Versioning
+        // is strict at schema v3: the schemaVersion check above rejects every
+        // other version outright.
 
         try {
             // 1. Canonical internal-component store FIRST — the entity

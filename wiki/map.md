@@ -102,6 +102,7 @@ graph TD
 | Controller | Path | Description |
 |------------|------|-------------|
 | NpcAIController | src/controllers/ai/NpcAIController.js | Stateless AI brain, behavior registry, chase_attack |
+| TurnSystemController | src/controllers/core/TurnSystemController.js | Event-driven rounds and planning-completeness barrier — the roster is a round-start snapshot, resolution is gated on every roster planner signaling ready (a removal counts as vacuously complete — no deadline), and the next round starts on the tick after resolution; owns the per-entity action queues |
 
 ## 📁 Data Files
 

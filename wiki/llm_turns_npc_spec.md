@@ -20,7 +20,7 @@ We want **droids that think**. Four capabilities are needed, in dependency order
 
 ### 1.1 Chosen semantics for turns (decided by product owner — binding)
 
-> **Simultaneous planning + initiative by stats.** All participants (players and NPCs) may plan/queue actions at the *same time* within a per-round planning window. When the window closes, queued actions execute in initiative order, where each entity's **stats** decide who acts first.
+> **Simultaneous planning + initiative by stats.** All participants (players and NPCs) may plan/queue actions at the *same time* within a per-round planning window. The window has **no end time** — the round closes the moment **every** roster planner has signaled plan-complete (a per-player ready gate; a player who never signals delays the round indefinitely, by design) — and the queued actions execute in initiative order, where each entity's **stats** decide who acts first. There is no deadline, and the ⚡ Immediate path stays available as the escape hatch.
 
 Everything in Feature A follows from this sentence.
 
@@ -113,9 +113,11 @@ The event log is state, so it must persist. The persistence schema is **bumped o
 
 ### 5.1 Round structure
 
-A round is a fixed span of ticks, split into a **planning window** and a short **settle window**. The NPC agent call fires partway through planning; a per-entity queue cap bounds how much one entity can plan per round. The phase is **derived from the tick clock, never stored blindly**, so a restore mid-round resumes consistently.
+A round is a **rendezvous**, not a tick span: the round number is stored state (incremented when a round starts), and nothing is derived from the tick clock. The roster is a snapshot of the entities present at round start; the NPC agent call fires at **round start** (the agent is the slowest planner); a per-entity queue cap bounds how much one entity can plan per round. The phase is **stored**, because close is event-driven (all-ready) and can no longer be derived from the tick clock — which is also what makes a restore mid-round resume consistently.
 
-**Why the durations:** an NPC's LLM call (bounded, §6.5) plus planning slack must fit inside the window; the planning window is the tight fit, and the short settle window keeps the UI responsive. All round constants live in the shared constants file.
+**Why the planning window has no deadline (the barrier):** the window closes as soon as every member of the round-start **roster** has signaled planning complete (a planner removed during planning counts as vacuously complete). There is **no deadline tick** — a player who never signals delays the round indefinitely (binding product decision) — which is why the barrier exposes a ready count and the pending planner IDs (so clients can *see* who is still planning) and why every NPC agent outcome must settle: a rejected or throwing agent signals "did nothing", because no timer would ever catch the hang. Consequence: the phase is **stored** (the public `planning`/`resolution` vocabulary is unchanged — a third public phase would break every existing consumer) and the round state carries an additive **barrier** sub-state (roster, ready set, close tick and reason).
+
+**Why the next round waits one tick:** close and resolution complete in the same call, but the resolution phase stays observable for at least one tick, so the `PLANNING_CLOSED` rejection window is real and testable, and clients see the close transition and the settled state before the next planning transition. The only remaining round constant is the per-entity queue cap (shared constants file).
 
 ### 5.2 Initiative (decided — with justification)
 
@@ -130,7 +132,7 @@ A new state controller owns the round and the per-entity queues. It reads entiti
 
 ### 5.4 Queuing gate
 
-The existing action-execution endpoint gains an optional **"queue for round"** flag. Absent, it behaves **exactly as today** (immediate execution) — that is the backward-compatibility guarantee for the current UI. Present, the action is queued (subject to entity/action/phase/cap validation) rather than executed. A small read/write surface exposes the round state and the player's queue. **Rule-level rejections** (closed window, full queue) follow the project's existing "rule failure = failed result, HTTP 200" contract; only *malformed* input is a 400. Queue-time validation is deliberately shallow — range may be true at queue time and false at resolution; that is the point of resolution-time validation.
+The existing action-execution endpoint gains an optional **"queue for round"** flag. Absent, it behaves **exactly as today** (immediate execution) — that is the backward-compatibility guarantee for the current UI. Present, the action is queued (subject to entity/action/phase/cap validation) rather than executed. A small read/write surface exposes the round state and the player's queue. **Rule-level rejections** (closed window, full queue) follow the project's existing "rule failure = failed result, HTTP 200" contract; only *malformed* input is a 400. Queue-time validation is deliberately shallow — range may be true at queue time and false at resolution; that is the point of resolution-time validation. Because the planning window closes only on all-ready (never on the clock), a "closed window" queue rejection lasts until the next round starts on the next tick; resolution-phase semantics (initiative-order replay, full validation at replay time, failures discarded with a log) are unchanged by the barrier.
 
 ### 5.5 Resolution (determinism contract)
 
@@ -142,23 +144,23 @@ Both, deliberately:
 1. **The round state inside the existing full-state broadcast** — free via the read-all aggregation; the client HUD always has fresh data with zero new handlers.
 2. **A new dedicated thin event** for the two transition moments (planning start, resolution start).
 
-*Why a dedicated event at all:* the phase flip must reach clients the same tick it happens, even when no action (hence no full-state broadcast) occurs; the countdown HUD derives from the planning deadline.
+*Why a dedicated event at all:* the phase flip must reach clients the same tick it happens, even when no action (hence no full-state broadcast) occurs; the planning-phase full-state broadcast is otherwise barrier-change-gated (at most once per tick, only when the ready count or the pending set changes), because with unlimited planning a quiet phase can last minutes.
 
 ### 5.7 NPC participation in the loop (hook contract — Feature C implements it)
 
 - An entity is an NPC when it is marked as such (Feature D marks it at spawn).
-- Each planning round, the turn system calls the injected agent **fire-and-forget** (errors logged, never thrown). The agent (async, seconds) may:
+- At **round start**, the turn system calls the injected agent **fire-and-forget** (errors logged, never thrown); the agent's promise settlement (resolve *or* reject) is what signals the NPC's plan-complete — with no deadline, an unsettled agent would hold the round forever. The agent (async, seconds) may:
   1. Queue an action — accepted while planning (up to the cap); if its LLM call returns *after* the window closed, the queue call is rejected and the NPC simply did nothing this round (graceful silence, logged).
   2. Send room chat (Feature D) — chat is real-time and **not** turn-gated.
 - No player permission is involved — the agent acts on the NPC's own entity id, which the agent layer injects (never sourced from the model; §6.5).
 
 ### 5.8 Persistence
 
-The round state (number, phase, queues, bookkeeping) persists and restores, so a restore mid-round resumes consistently (a restore during planning keeps the pending queues; during resolution the queue is already empty).
+The round state (number, phase, queues, bookkeeping) persists and restores, so a restore mid-round resumes consistently (a restore during planning keeps the pending queues; during resolution the queue is already empty). With the barrier, the persisted round state also carries the barrier sub-state (roster, ready set, close tick and reason) and the stored phase — persisting them is what lets a restore mid-planning resume the *same* round's barrier (same roster, same remaining planners) instead of silently re-planning the round. A mid-planning restore additionally **re-fires the agent** for every roster NPC that still exists and has not signaled — the in-flight promise was lost with the process, and with no deadline an un-signaled NPC would otherwise wait forever. The persistence schema is versioned (bumped for the barrier section, now v3) and old-version snapshots are rejected by the strict, tested version contract: saves are operator tooling, not user data.
 
 ### 5.9 Client: turn HUD + queue UX
 
-A new client controller owns the turn HUD (round, phase, countdown) in an existing empty config-bar slot, and the player's queue list (each entry cancellable). A small mode toggle (`Turn` / `Immediate`) keeps the legacy immediate path always available: `Turn` mode queues during planning and falls back to immediate with a hint otherwise; `Immediate` is always the legacy path. The whole surface **hides when the world has no turn state** (e.g., a test world with no tick loop), so nothing in the existing flow changes.
+A new client controller owns the turn HUD (round and phase — **no countdown**: planning is unlimited, so the HUD shows the barrier status instead: the ready count, who is still planning, and when/why planning closed) in an existing empty config-bar slot, and the player's queue list (each entry cancellable). A small mode toggle (`Turn` / `Immediate`) keeps the legacy immediate path always available: `Turn` mode queues during planning and falls back to immediate with a hint otherwise; `Immediate` is always the legacy path. The whole surface **hides when the world has no turn state** (e.g., a test world with no tick loop), so nothing in the existing flow changes.
 
 ### 5.10 Acceptance criteria — Feature A
 
@@ -169,11 +171,11 @@ Driven without starting the loop: create the world (tick not started), set the t
 - [ ] At the resolution tick: the phase flips to resolution, queued actions ran through the normal pipeline (asserted via a stat delta), the event buffer contains the actor/order lines, and the queue is empty.
 - [ ] An out-of-range queued action is **discarded with a failure log** at resolution, no exception, other entries still execute.
 - [ ] Queuing after the planning window closes is rejected.
-- [ ] With a stubbed agent: the agent is called exactly once per NPC at the planned tick; a late queue (after the window) is rejected, no crash, round completes.
+- [ ] With a stubbed agent: the agent is called exactly once per NPC at round start; a late settlement (after the round advanced) is dropped with a log, no crash, round completes.
 - [ ] The execution endpoint with the queue flag returns a queued result; without the flag, immediate (legacy regression).
 - [ ] The queue read/list/delete surface behaves (list an entry, delete it).
 - [ ] Serialize mid-planning (with a pending queue) → restore on a fresh instance → queues identical; round-trip contract test passes.
-- [ ] Client: the HUD shows round/phase/countdown; a queued action appears and can be cancelled; the phase flip is visible.
+- [ ] Client: the HUD shows round/phase and the barrier status (ready count, who is still planning — no countdown); a queued action appears and can be cancelled; the phase flip is visible.
 
 ---
 

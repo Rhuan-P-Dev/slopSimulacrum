@@ -71,6 +71,9 @@ export const AppConfig = {
         // "/:entityId" or "/:entityId/:queueId" to list or cancel entries.
         TURNS_STATE: '/turns/state',
         TURNS_QUEUE: '/turns/queue',
+        // Two-phase barrier (turns spec §2.4): PREFIX — append "/:entityId"
+        // to signal plan-complete for one entity (POST /turns/ready/:entityId).
+        TURNS_READY: '/turns/ready',
         // Feature D (spec §7.3/§7.4): per-room chat. Both are PREFIXES —
         // append "/:roomId" (send) or "/:roomId?limit=N" (history).
         ROOM_CHAT_SEND: '/rooms',

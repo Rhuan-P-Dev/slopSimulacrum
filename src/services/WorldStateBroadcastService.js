@@ -48,8 +48,9 @@ class WorldStateBroadcastService {
 		* moments (planning start, resolution start) so the phase flip reaches
 		* clients the same tick it happens — even when no action (hence no
 		* full-state broadcast) occurs. Payload is intentionally small:
-		* { roundNumber, phase, currentTick, planningDeadlineTick, actorOrder }
-		* (queues ride the full state, not this packet).
+		* { roundNumber, phase, currentTick, actorOrder, barrier }
+		* (queues ride the full state, not this packet; the barrier object lets
+		* clients render the ready status without a full-state round-trip).
 		* @param {Object} payload - The transition payload (see above).
 		*/
 	broadcastTurnUpdate(payload) {

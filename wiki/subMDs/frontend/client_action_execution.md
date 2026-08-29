@@ -45,3 +45,7 @@ All execution errors are routed through a centralized client error controller. T
 - **Consistent UX**: Players receive errors in a uniform format
 - **Error classification**: Different error types (selection, execution, movement, range, socket) can be handled differently by the UI
 - **Debugging**: A single error pathway makes it easier to trace failures
+
+## 6. Turn-Mode Action Gating
+
+When the client is in turn mode and the round is still in its planning window, every action execution path — including the drop and multi-component paths that originally bypassed the gate — is routed through the turn queue rather than executed immediately. The fence exists because any single bypassing path would let an action slip past the planning barrier and land before other planners finish, silently undermining the fairness the turn system promises; covering every execution path is what makes "turn mode" mean something. Deliberate exceptions are preserved: immediate-mode actions and out-of-turn utility paths (e.g., immediate pickup) are not gated, by design.

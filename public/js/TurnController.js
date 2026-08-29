@@ -31,8 +31,9 @@ export class TurnController {
      * @param {Function} [deps.getMyEntityId] - Returns the client's own entity ID (from WorldStateManager).
      * @param {Function} [deps.onModeChange] - Called with the new mode ('turn'|'immediate') when the toggle flips.
      * @param {Function} [deps.onCancelQueued] - Called with (entityId, queueId) when a queue entry is cancelled.
+     * @param {Function} [deps.onReady] - Called with (entityId) when the player signals plan-complete.
      */
-    constructor({ worldState, getMyEntityId = null, onModeChange = null, onCancelQueued = null } = {}) {
+    constructor({ worldState, getMyEntityId = null, onModeChange = null, onCancelQueued = null, onReady = null } = {}) {
         /** @private */
         this._worldState = worldState;
         /** @private */
@@ -41,6 +42,8 @@ export class TurnController {
         this._onModeChange = onModeChange;
         /** @private */
         this._onCancelQueued = onCancelQueued;
+        /** @private */
+        this._onReady = onReady;
         /** @private {'turn'|'immediate'} */
         this._mode = 'turn';
         /** @private {HTMLElement|null} */
@@ -60,6 +63,7 @@ export class TurnController {
         }
         this._root.innerHTML = this._buildHtml();
         this._bindModeToggle();
+        this._bindReadyButton();
     }
 
     /**
@@ -107,7 +111,7 @@ export class TurnController {
      * from the (possibly just-arrived) full state. The event payload itself is
      * logged for the console trail but NOT rendered directly — queues must
      * always come from the full state.
-     * @param {Object} payload - { roundNumber, phase, currentTick, planningDeadlineTick, actorOrder }
+     * @param {Object} payload - { roundNumber, phase, currentTick, actorOrder, barrier }
      */
     onTransition(payload) {
         if (!payload) return;
@@ -128,13 +132,34 @@ export class TurnController {
             <div class="turn-hud">
                 <span class="turn-hud-round" id="turn-hud-round"></span>
                 <span class="turn-hud-phase" id="turn-hud-phase"></span>
-                <div class="turn-hud-progress" title="Round progress"><div class="turn-hud-progress-fill" id="turn-hud-progress"></div></div>
                 <span class="turn-hud-initiative" id="turn-hud-initiative"></span>
+                <span class="turn-hud-barrier" id="turn-hud-barrier"></span>
                 <div class="turn-hud-queue" id="turn-hud-queue"></div>
+                <div class="turn-hud-ready">
+                    <!-- Default hidden: only _renderBarrier() opts it in, while planning is open. -->
+                    <button class="turn-ready-btn" id="turn-ready-btn" style="display: none;"></button>
+                </div>
                 <div class="turn-hud-mode">
                     <button class="turn-mode-btn" id="turn-mode-toggle" title="Toggle targeting mode"></button>
                 </div>
             </div>`;
+    }
+
+    /**
+     * Wires the ready (plan-complete) button. The click only fires the
+     * injected onReady callback — the HTTP call lives in App (same pattern as
+     * onCancelQueued → _cancelQueuedAction).
+     * @private
+     */
+    _bindReadyButton() {
+        const btn = this._root?.querySelector('#turn-ready-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            const myEntityId = this._myEntityId();
+            if (!myEntityId || !this._onReady) return;
+            ClientLogger.info('TurnController', `Signaling plan-complete for ${myEntityId}`);
+            this._onReady(myEntityId);
+        });
     }
 
     /**
@@ -172,13 +197,101 @@ export class TurnController {
     }
 
     /**
+     * Renders the two-phase barrier status line + the ready/lock-in button.
+     * The button state is derived PURELY from the server barrier (is my
+     * entity still pending? already signaled? planning closed?) — there is no
+     * local flag, so it resets itself every round when the server rebuilds
+     * the roster. An absent barrier (older server) hides both elements.
+     *
+     * Spec v2 status line: while planning — the ready count plus the NAMES
+     * of the pending planners (the wait is unbounded by design, so the HUD
+     * must make visible WHO the round is waiting on); when closed — the
+     * close info (reason as plain text + closedAtTick). A legacy 'deadline'
+     * reason from a v1-era save still displays sensibly because the reason
+     * renders as text, not as a branch.
+     * @private
+     */
+    _renderBarrier(turns) {
+        const statusEl = this._root?.querySelector('#turn-hud-barrier');
+        const btn = this._root?.querySelector('#turn-ready-btn');
+        if (!statusEl || !btn) return;
+        const barrier = turns.barrier;
+        if (!barrier || typeof barrier !== 'object') {
+            statusEl.textContent = '';
+            btn.style.display = 'none';
+            return;
+        }
+        const myEntityId = this._myEntityId();
+        const pending = Array.isArray(barrier.pendingEntityIds) ? barrier.pendingEntityIds : [];
+        const total = (barrier.readyCount ?? 0) + pending.length;
+        const iAmPending = !!myEntityId && pending.includes(myEntityId);
+        const isPlanning = turns.phase === 'planning';
+
+        // Pending planners resolved to names (state.entities, best-effort).
+        const names = this._entityNames();
+        const pendingNames = pending.map(id => names[id] || id);
+
+        statusEl.textContent = barrier.closed
+            ? `Planning closed (${barrier.closeReason ?? 'unknown'}) @ tick ${barrier.closedAtTick ?? '?'}`
+            : (pending.length > 0
+                ? `Ready ${barrier.readyCount ?? 0}/${total} — still planning: ${pendingNames.join(', ')}`
+                : `Ready ${barrier.readyCount ?? 0}/${total} — all planners have signaled`);
+        statusEl.classList.toggle('turn-barrier-closed', !!barrier.closed);
+
+        statusEl.title = barrier.closed
+            ? `Close reason: ${barrier.closeReason ?? 'unknown'} (tick ${barrier.closedAtTick ?? '?'})`
+            : 'Planning is unlimited — the round executes the moment every planner is ready';
+
+        if (!isPlanning) {
+            btn.style.display = 'none';
+            return;
+        }
+        btn.style.display = '';
+        if (iAmPending) {
+            btn.textContent = '✅ Lock in';
+            btn.classList.remove('turn-ready-locked');
+            btn.disabled = false;
+            btn.title = 'Signal plan-complete: your plans are locked in for this round';
+        } else if (myEntityId) {
+            btn.textContent = '🔒 Locked in';
+            btn.classList.add('turn-ready-locked');
+            btn.disabled = true;
+            btn.title = 'Your plans are locked in; waiting for the other planners';
+        } else {
+            // No local entity id → plan-complete cannot be claimed; show a
+            // neutral disabled state instead of a false "Locked in".
+            btn.textContent = 'Planning';
+            btn.classList.remove('turn-ready-locked');
+            btn.disabled = true;
+            btn.title = 'Local entity unknown — plan-complete signaling unavailable';
+        }
+    }
+
+    /**
+     * Best-effort { entityId: name } map for barrier tooltips.
+     * @private
+     */
+    _entityNames() {
+        try {
+            const entities = this._worldState()?.entities;
+            if (!entities || typeof entities !== 'object') return {};
+            const names = {};
+            for (const [id, entity] of Object.entries(entities)) {
+                names[id] = (entity && entity.name) || id;
+            }
+            return names;
+        } catch {
+            return {};
+        }
+    }
+
+    /**
      * Renders the dynamic HUD parts from a state.turns object.
      * @private
      */
     _render(turns) {
         const roundEl = this._root.querySelector('#turn-hud-round');
         const phaseEl = this._root.querySelector('#turn-hud-phase');
-        const progressEl = this._root.querySelector('#turn-hud-progress');
         const initiativeEl = this._root.querySelector('#turn-hud-initiative');
         const queueEl = this._root.querySelector('#turn-hud-queue');
         if (!roundEl) return;
@@ -190,12 +303,6 @@ export class TurnController {
         phaseEl.classList.toggle('turn-phase-planning', isPlanning);
         phaseEl.classList.toggle('turn-phase-resolution', !isPlanning);
 
-        // Progress: local tick within the 360-tick round.
-        const roundStart = (turns.roundNumber ?? 0) * 360;
-        const local = Math.max(0, (turns.currentTick ?? 0) - roundStart);
-        const pct = Math.min(100, Math.max(0, (local / 360) * 100));
-        if (progressEl) progressEl.style.width = `${pct.toFixed(1)}%`;
-
         // Initiative order (compact: #1 name(init) · #2 name(init) …).
         const order = Array.isArray(turns.actorOrder) ? turns.actorOrder : [];
         initiativeEl.textContent = order
@@ -205,6 +312,7 @@ export class TurnController {
         initiativeEl.title = order.map((a, i) => `#${i + 1} ${a.name} — initiative ${a.initiative}${a.queuedCount ? `, queued: ${a.queuedCount}` : ''}`).join('\n');
 
         this._renderQueue(queueEl, turns);
+        this._renderBarrier(turns);
     }
 
     /**
