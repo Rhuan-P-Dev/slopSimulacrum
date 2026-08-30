@@ -1338,11 +1338,24 @@ class TurnSystemController {
     // --- tick bookkeeping ---------------------------------------------------
 
     /**
+     * Reads the tick clock for bookkeeping (round state, queue and watchdog
+     * timestamps). The v2 machine is event-driven, so the tick only
+     * observes — but a corrupt clock (e.g. NaN from a stale test driver)
+     * must never masquerade as a valid tick: non-finite values are
+     * rejected with a warn (raw value included) and the existing fallback
+     * (0) is returned. A missing clock (manual-drive worlds) stays the
+     * silent 0 of before.
      * @private
      * @returns {number}
      */
     _currentTick() {
-        return typeof this.tickSystem?.currentTick === 'number' ? this.tickSystem.currentTick : 0;
+        const raw = this.tickSystem?.currentTick;
+        if (typeof raw === 'number') {
+            if (Number.isFinite(raw)) return raw;
+            Logger.warn(`[TurnSystem] non-finite tick clock (raw: ${String(raw)}) — using fallback 0`);
+            return 0;
+        }
+        return 0;
     }
 
     /**

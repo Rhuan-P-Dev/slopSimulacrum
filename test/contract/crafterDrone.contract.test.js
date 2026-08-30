@@ -2,17 +2,58 @@
  * Crafter Drone contract test — full real world (data files + composition
  * root), no network, no mocks.
  *
- * Boots the world via buildWorldState and drives the turn machine manually by
- * advancing the tick clock (same pattern as
+ * Boots the world via buildWorldState and drives the turn machine manually
+ * by advancing the tick clock (same pattern as
  * test/contract/TurnSystem.contract.test.js). The deterministic brain is
  * registered exactly as server.js does it (NpcAIController via setNpcAgent).
+ *
+ * WHY THIS FILE WAS REBASED ONTO THE v2 TURN MACHINE (event-driven rounds,
+ * wiki/llm_turns_npc_spec.md §5.1). This driver predated the v2 refactor:
+ * it drove each round with three onTick() calls spaced by fixed tick
+ * geometry (start → agent slot → resolution slot) derived from three
+ * constants in src/utils/Constants.js (TURN_ROUND_TICKS,
+ * TURN_NPC_AGENT_TICK, TURN_PLANNING_TICKS). The v2 refactor
+ * (d15fcb6/9460fc2) deleted that geometry — and those constants — when it
+ * moved rounds to event-driven semantics, but this file kept importing
+ * them: the imports became undefined, the driver's round base became NaN,
+ * and it poisoned the tick clock (tick.currentTick = NaN), so every round
+ * "fired at tick NaN". The rebase removes the dead imports and drives by
+ * v2 semantics instead:
+ *   - ONE onTick() call per round (the round starts lazily on the first
+ *     onTick and again on every subsequent tick);
+ *   - the roster NPCs' agent callbacks fire at ROUND START, inside that
+ *     same call;
+ *   - the planning window closes when every roster planner has signaled
+ *     plan-complete (event-driven — there is no deadline and no separate
+ *     agent/resolution tick slot);
+ *   - close AND resolution complete inside the same onTick() call; the
+ *     next round starts on the next tick;
+ *   - the tick clock is observability only (state.turns.currentTick,
+ *     queue/watchdog timestamps) — nothing is derived from it, so the
+ *     driver merely advances it by one per round;
+ *   - a small settle window after each call lets the fire-and-forget
+ *     agent promises settle (synchronous brain callback here); if a truly
+ *     async agent (e.g. LLM) is ever wired in, replace that sleep with the
+ *     agent's promise.
+ * The v2 analogue of the old "inspect the queue between the agent tick and
+ * resolution" is a SYNCHRONOUS inspection right after the onTick() call:
+ * the agents have already queued, while the close/resolution settles in
+ * the settle window that follows.
+ *
+ * MEASURED TIMELINE (real world; data-driven pickUpItem range 50 from
+ * data/actions.json — the same source the handler validates; 10 px/round
+ * from the components data, pinned by test 1): knife dropped 120 from the
+ * drone at (270, 100) → rounds 0–6: seven approach moves (120 → 50);
+ * round 7: immediate pickup at exactly 50 ≤ 50 (zero cost); round 8:
+ * craft + drop → the T1 is first observable after 9 onTick calls. The
+ * test budget is 10.
  *
  * Covers the spec §5 contract checklist:
  *   1. Drone boots in start_room with the correct flags (isNPC, craft_loop,
  *      displayName) and the room-center position; component set matches the
  *      blueprint with the stats from data/components.json.
- *   2. Full end-to-end cycle over ≥3 tick rounds: dropped knife → approach →
- *      knife in inventory → T1 crafted → NEW dropped t1 on the ground at the
+ *   2. Full end-to-end cycle: dropped knife → approach → pick at the
+ *      range boundary → T1 crafted → NEW dropped t1 on the ground at the
  *      drone's position with ownerId === drone.id.
  *   3. Three rounds with no knife → spatial unchanged, no items, no drops.
  *   4. Data contract: `single_knife_to_t1` exists in the real
@@ -30,12 +71,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import NpcAIController from '../../src/controllers/ai/NpcAIController.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
-import {
-    MAX_TICKS_PER_SECOND,
-    TURN_NPC_AGENT_TICK,
-    TURN_PLANNING_TICKS,
-    TURN_ROUND_TICKS
-} from '../../src/utils/Constants.js';
+import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
 describe('Crafter Drone contract (real world, data-driven)', () => {
 
@@ -86,8 +122,15 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
 
     /**
      * Registers the deterministic brain exactly as server.js does, and
-     * drives ONE full turn round (start → agent → resolution) by advancing
-     * the tick clock manually.
+     * returns a driver that advances the world by ONE full turn round per
+     * call — v2 event-driven semantics (see the header): one onTick() per
+     * round (round start → agent fire at round start → all-ready close →
+     * resolution, all inside that call), a one-tick advance for
+     * observability, then a small settle window for the fire-and-forget
+     * agent promises (synchronous brain callback here; if a truly async
+     * agent (e.g. LLM) is ever wired in, replace the sleep with the
+     * agent's promise).
+     * @returns {() => Promise<void>} one round per call
      */
     function registerBrainAndDrive() {
         const brain = new NpcAIController({
@@ -103,19 +146,9 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         });
 
         return async () => {
-            // Drive the NEXT clean round (a multiple of the round length) so
-            // each onTick lands on a distinct tick: start → agent → resolution.
-            const base = (Math.floor(tick.currentTick / TURN_ROUND_TICKS) + 1) * TURN_ROUND_TICKS;
-            tick.currentTick = base;                            // round start
-            turns.onTick();
-            tick.currentTick = base + TURN_NPC_AGENT_TICK;      // agent slot
-            turns.onTick();
-            // Settle margin for the fire-and-forget agent slot (synchronous
-            // brain callback here); if a truly async agent (e.g. LLM) is ever
-            // wired in, replace this sleep with the agent's promise.
-            await new Promise(res => setTimeout(res, 25));
-            tick.currentTick = base + TURN_PLANNING_TICKS;      // resolution
-            turns.onTick();
+            tick.currentTick += 1;   // v2: the tick clock is observability only
+            turns.onTick();          // round start → agent fire → close + resolution
+            await new Promise(res => setTimeout(res, 25)); // settle window
         };
     }
 
@@ -167,13 +200,14 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         });
     });
 
-    it('2. full cycle over ≥3 rounds: approach → pick → craft → T1 dropped at the drone, owned by it', async () => {
+    it('2. full cycle: dropped knife → approach → pick → craft → T1 dropped at the drone, owned by it', async () => {
         // Deterministic world: remove the chase attacker (it would otherwise
         // fight the drone and disturb the forage loop).
         world.despawnEntity(rogue.id);
 
-        // The knife is dropped 120 away (beyond PICK_RANGE) to force the
-        // approach phase first.
+        // The knife is dropped 120 away — beyond the data-driven pickUpItem
+        // range (50, data/actions.json: the same source the handler
+        // validates) — to force the approach phase first.
         dropKnifeAt(270, 100);
         const knife = Object.values(world.getDroppedItems()).find(i => i.itemType === 'knife');
         expect(knife).toBeDefined();
@@ -182,9 +216,11 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         const driveRound = registerBrainAndDrive();
 
         // Drive rounds until the forged T1 appears on the ground
-        // (budget of 8; expected ≤ 6: 2× move + pick + craft/drop).
+        // (budget of 10; measured 9 — see the header timeline: seven
+        // approach moves 120→50, pickup at exactly 50 in round 7, craft +
+        // drop in round 8).
         let t1 = null;
-        for (let i = 0; i < 8 && !t1; i++) {
+        for (let i = 0; i < 10 && !t1; i++) {
             await driveRound();
             t1 = Object.values(world.getDroppedItems()).find(i => i.itemType === 't1');
         }
@@ -198,12 +234,22 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         expect(t1.roomId).toBe(after.location);
         expect(t1.ownerId).toBe(drone.id);
 
+        // The drone stopped exactly at the pickup-range boundary: the knife
+        // was at x=270 and the resolved pickUpItem range is 50, so the last
+        // approach move (10 px/round, pinned by test 1) landed at 220 — the
+        // range contract (single source of truth, brain and handler) is the
+        // reason the cycle converged at all.
+        expect(after.spatial.x).toBeCloseTo(270 - 50, 5);
+        expect(after.spatial.y).toBe(100);
+
         // The foraged knife no longer exists anywhere; the drone is empty.
         expect(Object.values(world.getDroppedItems()).some(i => i.itemType === 'knife')).toBe(false);
         expect(Object.values(world.getEntityItems(drone.id)).flat()).toHaveLength(0);
 
-        // More than 3 tick rounds elapsed.
-        expect(Math.floor(tick.currentTick / TURN_ROUND_TICKS)).toBeGreaterThanOrEqual(4);
+        // v2 equivalent of "more than 3 rounds elapsed": the round counter
+        // is stored state (state.turns.roundNumber) — event-driven, never
+        // derived from the tick clock.
+        expect(turns.getRoundState().roundNumber).toBeGreaterThanOrEqual(4);
     });
 
     it('3. three rounds with no knife: spatial unchanged, no items, no drops', async () => {
@@ -264,6 +310,10 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
             y: center.y + (0 - center.y) / d0 * 120
         });
 
+        // One inline brain + agent slot (this test cannot reuse
+        // registerBrainAndDrive as-is: it must inspect the queue BETWEEN
+        // the agent firing and the settled resolution — v2 analogue of the
+        // old "between agent tick and resolution" window).
         const brain = new NpcAIController({
             worldStateController: world,
             turnSystemController: turns
@@ -276,15 +326,21 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
             return { acted: false };
         });
 
-        // Drive ONE round, inspecting the queue between agent tick and resolution.
-        const base = (Math.floor(tick.currentTick / TURN_ROUND_TICKS) + 1) * TURN_ROUND_TICKS;
-        tick.currentTick = base;                      // round start (queue cleared)
-        turns.onTick();
-        tick.currentTick = base + TURN_NPC_AGENT_TICK; // agent slot — brains fire
-        turns.onTick();
-        await new Promise(res => setTimeout(res, 25)); // same settle margin as the helper
+        // Capture the pre-round gap, drive ONE round (v2: the onTick call
+        // starts the round, fires both roster brains, and — once they
+        // settle — closes and resolves it all inside that same call; there
+        // is no separate resolution tick).
+        const before = world.getEntity(rogue.id).spatial;
+        const distBefore = Math.hypot(center.x - before.x, center.y - before.y);
+        expect(distBefore).toBeCloseTo(120, 5);
 
-        // The rogue queued a MOVE toward the drone's position (its nearest entity).
+        tick.currentTick += 1;
+        turns.onTick();
+
+        // Synchronously after the call (before the settle window): the
+        // agents have queued, the all-ready close has not settled yet.
+        // The rogue queued a MOVE toward the drone's position (its nearest
+        // entity).
         const queuedRogue = turns.getQueuedActions(rogue.id);
         expect(queuedRogue).toHaveLength(1);
         expect(queuedRogue[0].actionName).toBe('move');
@@ -295,15 +351,13 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         // react to the rogue.
         expect(turns.getQueuedActions(drone.id)).toHaveLength(0);
 
-        // Resolution applies the queued move: the rogue closes 20 units (120 → 100).
-        const before = world.getEntity(rogue.id).spatial;
-        const distBefore = Math.hypot(center.x - before.x, center.y - before.y);
-        tick.currentTick = base + TURN_PLANNING_TICKS; // resolution
-        turns.onTick();
+        // Settle the agent promises: close + resolution complete inside the
+        // window and apply the queued move — the rogue closes one 20-unit
+        // step (120 → 100).
+        await new Promise(res => setTimeout(res, 25));
 
         const after = world.getEntity(rogue.id).spatial;
         const distAfter = Math.hypot(center.x - after.x, center.y - after.y);
-        expect(distBefore).toBeCloseTo(120, 5);
         expect(distAfter).toBeLessThan(distBefore);
         expect(distAfter).toBeCloseTo(100, 5);
 
