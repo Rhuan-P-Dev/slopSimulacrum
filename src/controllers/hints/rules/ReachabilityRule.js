@@ -18,6 +18,14 @@ import { DROP_BASE_RANGE, DROP_RANGE_MULTIPLIER } from '../../../utils/Constants
 const CLAMP_EPSILON = 0.01;
 
 /**
+ * This rule's evaluation priority (lower is evaluated first). A single rule's
+ * priority is not a scale — extract a shared priority scale when a second
+ * rule with a different priority appears.
+ * @constant
+ */
+const PRIORITY_REACHABILITY = 10;
+
+/**
  * Clamp value to [min, max].
  * @param {number} val
  * @param {number} min
@@ -46,7 +54,7 @@ export class ReachabilityRule {
 
     /** Lower priority evaluated first. */
     get priority() {
-        return 10;
+        return PRIORITY_REACHABILITY;
     }
 
     /**
@@ -152,7 +160,7 @@ export class ReachabilityRule {
 
             hints.push({
                 id: 'reachability-move',
-                priority: 10,
+                priority: PRIORITY_REACHABILITY,
                 targetType: isEntity ? 'entity' : 'droppedItem',
                 targetId: cand.id,
                 targetName,

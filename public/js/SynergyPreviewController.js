@@ -1,5 +1,6 @@
 import { AppConfig } from './Config.js';
 import ClientLogger from '/utils/ClientLogger.js';
+import { TARGETING_TYPES, BINDING_ROLES } from '../../shared/ActionVocabulary.js';
 
 /**
  * SynergyPreviewController
@@ -102,7 +103,7 @@ class SynergyPreviewController {
         try {
             const componentPayload = componentIds.map(compId => ({
                 componentId: compId,
-                role: 'source'
+                role: BINDING_ROLES.SOURCE
             }));
 
             const preview = await this.actions.previewActionData(
@@ -149,13 +150,13 @@ class SynergyPreviewController {
      */
     async computeSynergyMultiplier(actionName, entityId, componentIds) {
         if (!componentIds || componentIds.length < 1) {
-            return 1.0;
+            return AppConfig.SYNERGY.BASE_MULTIPLIER;
         }
 
         try {
             const componentPayload = componentIds.map(compId => ({
                 componentId: compId,
-                role: 'source'
+                role: BINDING_ROLES.SOURCE
             }));
 
             const preview = await this.actions.previewActionData(
@@ -166,13 +167,13 @@ class SynergyPreviewController {
 
             if (preview && preview.synergyResult) {
                 const multiplier = parseFloat(preview.synergyResult.synergyMultiplier);
-                return isNaN(multiplier) ? 1.0 : multiplier;
+                return isNaN(multiplier) ? AppConfig.SYNERGY.BASE_MULTIPLIER : multiplier;
             }
         } catch (error) {
             ClientLogger.warn('SynergyPreviewController', ' computeSynergyMultiplier failed, using 1.0', error);
         }
 
-        return 1.0;
+        return AppConfig.SYNERGY.BASE_MULTIPLIER;
     }
 
     /**
@@ -197,7 +198,7 @@ class SynergyPreviewController {
      * @param {number} [synergyMultiplier=1.0] - Synergy multiplier (should be from live computation).
      * @returns {number|null} Effective range, or null if calculation is not possible.
      */
-    calculateRange(actionName, actionData, droid, state, synergyMultiplier = 1.0) {
+    calculateRange(actionName, actionData, droid, state, synergyMultiplier = AppConfig.SYNERGY.BASE_MULTIPLIER) {
         // Check if config has ACTIONS constants, fall back to string comparison
         const isMove = actionName === (this.config.ACTIONS?.MOVE || 'move');
         const isDash = actionName === (this.config.ACTIONS?.DASH || 'dash');
@@ -249,7 +250,7 @@ class SynergyPreviewController {
         // ─── Component-targeted actions: Return numeric range if defined ──
         // For component attacks, the range is usually a fixed value from data/actions.json
         // Expression-based ranges (e.g., ":Physical.strength*2+3") are resolved by ActionExecutor
-        if (actionData?.targetingType === 'component') {
+        if (actionData?.targetingType === TARGETING_TYPES.COMPONENT) {
             const explicitRange = SynergyPreviewController.getExplicitRange(actionName, { [actionName]: actionData });
             if (explicitRange !== null) {
                 return explicitRange;

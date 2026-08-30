@@ -18,6 +18,7 @@
 
 import Logger from '../utils/Logger.js';
 import IdResolver from '../utils/IdResolver.js';
+import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
 /**
  * Registers turn-related routes with the given Express router.
@@ -53,7 +54,7 @@ export function register(router, { worldStateController }) {
 		try {
 			const { entityId } = req.params;
 			if (!IdResolver.isEntityId(entityId)) {
-				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "ent-<uuid>".` });
+				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` });
 			}
 
 			const turns = getTurns();
@@ -82,10 +83,10 @@ export function register(router, { worldStateController }) {
 		try {
 			const { entityId, queueId } = req.params;
 			if (!IdResolver.isEntityId(entityId)) {
-				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "ent-<uuid>".` });
+				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` });
 			}
-			if (typeof queueId !== 'string' || !queueId.startsWith('q-')) {
-				return res.status(400).json({ error: `Invalid queueId "${queueId}". Expected typed ID format "q-<uuid>".` });
+			if (!isPrefixed(queueId, ID_PREFIXES.QUEUE)) {
+				return res.status(400).json({ error: `Invalid queueId "${queueId}". Expected typed ID format "${ID_PREFIXES.QUEUE}<uuid>".` });
 			}
 
 			const turns = getTurns();

@@ -43,6 +43,8 @@ import Logger from '../../utils/Logger.js';
 import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateQueueId } from '../../utils/idGenerator.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
+import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 import {
     TURN_ROUND_TICKS,
     TURN_PLANNING_TICKS,
@@ -215,7 +217,7 @@ class TurnSystemController {
     getRoundState() {
         const currentTick = this._currentTick();
         const { round, local } = this._deriveRound(currentTick);
-        const phase = local < this.config.planningTicks ? 'planning' : 'resolution';
+        const phase = local < this.config.planningTicks ? TURN_PHASES.PLANNING : TURN_PHASES.RESOLUTION;
 
         // actorOrder is cached at round start; live queue counts are overlaid
         // so the HUD reflects enqueues without recomputing initiative.
@@ -334,7 +336,7 @@ class TurnSystemController {
      * @returns {{ success: boolean, removed?: boolean, error?: string }}
      */
     cancelAction(entityId, queueId) {
-        if (!IdResolver.isEntityId(entityId) || typeof queueId !== 'string' || !queueId.startsWith('q-')) {
+        if (!IdResolver.isEntityId(entityId) || !isPrefixed(queueId, ID_PREFIXES.QUEUE)) {
             return { success: false, removed: false, error: 'Invalid entityId or queueId.' };
         }
         const entries = this._queues[entityId];
@@ -377,7 +379,7 @@ class TurnSystemController {
             : this._currentTick() - this._lastRound * this.config.roundTicks;
         return {
             roundNumber: round,
-            phase: local < this.config.planningTicks ? 'planning' : 'resolution',
+            phase: local < this.config.planningTicks ? TURN_PHASES.PLANNING : TURN_PHASES.RESOLUTION,
             queues: JSON.parse(JSON.stringify(this._queues)),
             resolvedRound: this._resolvedRound,
             lastRound: this._lastRound
@@ -440,7 +442,7 @@ class TurnSystemController {
 
         Logger.info(`[TurnSystem] Round ${round} started — phase PLANNING. Actor order: ${this._actorOrder.map(a => `${a.name}(init ${a.initiative})`).join(' → ') || '(none)'}`);
         this._recordEvent(`Round ${round} started — planning phase`, 'info');
-        this._broadcastTurnUpdate(round, 'planning');
+        this._broadcastTurnUpdate(round, TURN_PHASES.PLANNING);
     }
 
     /**
@@ -451,7 +453,7 @@ class TurnSystemController {
     _flipToResolution(round, currentTick) {
         Logger.info(`[TurnSystem] Round ${round} — PLANNING CLOSED (tick ${currentTick}). Resolving queued actions in initiative order.`);
         this._recordEvent(`Round ${round} — planning closed, resolution phase`, 'info');
-        this._broadcastTurnUpdate(round, 'resolution');
+        this._broadcastTurnUpdate(round, TURN_PHASES.RESOLUTION);
     }
 
     /**

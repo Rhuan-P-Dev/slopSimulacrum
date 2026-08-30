@@ -708,7 +708,7 @@ export class UIManager {
      * @param {string} message The error message to display.
      * @param {number} duration Duration in ms before the popup is removed from DOM.
      */
-    showErrorPopup(message, duration = 5000) {
+    showErrorPopup(message, duration = AppConfig.UI.POPUP_DURATION_MS) {
         const popup = document.createElement('div');
         popup.className = 'error-popup';
         popup.textContent = message;
@@ -725,7 +725,7 @@ export class UIManager {
      * @param {string} message The hint message to display.
      * @param {number} [duration=5000] Duration in ms before the popup is removed from DOM.
      */
-    showHintPopup(message, duration = 5000) {
+    showHintPopup(message, duration = AppConfig.UI.POPUP_DURATION_MS) {
         // Remove existing hint popup before showing new one (single visible hint semantics)
         const existing = document.querySelector('.hint-popup');
         if (existing) existing.remove();
@@ -747,7 +747,7 @@ export class UIManager {
      * @param {number} y - World-space Y (room-relative).
      * @param {number} [duration=5000] Display duration in ms.
      */
-    renderHintMarker(x, y, duration = 5000) {
+    renderHintMarker(x, y, duration = AppConfig.UI.POPUP_DURATION_MS) {
         // Clear previous marker timer to prevent race condition
         if (this._hintMarkerTimer) {
             clearTimeout(this._hintMarkerTimer);

@@ -9,6 +9,7 @@
  *
  * @module PickUpOverlayController
  */
+import { AppConfig } from './Config.js';
 
 export class PickUpOverlayController {
     /**
@@ -91,7 +92,9 @@ export class PickUpOverlayController {
             startY = e.clientY;
             initialLeft = this._overlay.offsetLeft;
             initialTop = this._overlay.offsetTop;
-            this._overlay.style.zIndex = 110;
+            // One step above the OverlayManager's active panel (derived, not a
+            // third constant, so the layering invariant cannot drift).
+            this._overlay.style.zIndex = AppConfig.UI.Z_INDEX_BASE + AppConfig.UI.Z_INDEX_STEP;
             this._overlay.style.transition = 'none';
         };
 

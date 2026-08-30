@@ -6,6 +6,8 @@
  * @implements {IEventDispatcher}
  */
 import ClientLogger from '/utils/ClientLogger.js';
+import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
+import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
 
 /**
  * @typedef {Object} IHandlers
@@ -60,7 +62,7 @@ class EventDispatcher {
      */
     setupSocketListeners() {
         const socketHandlers = {
-            incarnate: (data) => {
+            [SOCKET_EVENTS.INCARNATE]: (data) => {
                 ClientLogger.info('EventDispatcher', 'Incarnated as:', data.entityId);
                 if (this.handlers.setMyEntityId) {
                     this.handlers.setMyEntityId(data.entityId);
@@ -69,7 +71,7 @@ class EventDispatcher {
                     this.handlers.refreshWorldAndActions();
                 }
             },
-            'world-state-update': (data) => {
+            [SOCKET_EVENTS.WORLD_STATE_UPDATE]: (data) => {
                 ClientLogger.info('EventDispatcher', 'WORLD STATE UPDATE SIGNAL', data?.state ? '(with payload)' : '(no payload)');
                 // Sync world state. The previous _emit('stateChanged') was removed in
                 // Phase 4: WorldStateManager's internal event bus had no registered
@@ -182,9 +184,9 @@ class EventDispatcher {
             const targetX = svgP.x - this.config.VIEW.CENTER_X;
             const targetY = svgP.y - this.config.VIEW.CENTER_Y;
 
-            if (pending.targetingType === 'spatial') {
+            if (pending.targetingType === TARGETING_TYPES.SPATIAL) {
                 this._handleSpatialClick(pending, targetX, targetY);
-            } else if (pending.targetingType === 'component') {
+            } else if (pending.targetingType === TARGETING_TYPES.COMPONENT) {
                 this._handleComponentClick(pending, targetX, targetY);
             }
         };

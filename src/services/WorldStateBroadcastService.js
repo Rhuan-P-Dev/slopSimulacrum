@@ -2,6 +2,8 @@ import Logger from '../utils/Logger.js';
 import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 // TYPED ID MIGRATION: Import typed ID generators for items and equipped items
 import { generateItemId, generateEquippedId } from '../utils/idGenerator.js';
+import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
+import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
 /**
  * WorldStateBroadcastService handles broadcasting world state updates to connected clients.
@@ -35,7 +37,7 @@ class WorldStateBroadcastService {
 			const transformedState = this._transformForBroadcast(worldState);
 
 			const clientCount = this._io.engine.clientsCount;
-			this._io.emit('world-state-update', { state: transformedState });
+			this._io.emit(SOCKET_EVENTS.WORLD_STATE_UPDATE, { state: transformedState });
 			Logger.info('World state broadcasted', { clientCount, time: new Date().toLocaleTimeString() });
 		} catch (error) {
 			Logger.error('Failed to broadcast world state', { error: error.message });
@@ -54,7 +56,7 @@ class WorldStateBroadcastService {
 		*/
 	broadcastTurnUpdate(payload) {
 		try {
-			this._io.emit('turn-round-update', payload);
+			this._io.emit(SOCKET_EVENTS.TURN_ROUND_UPDATE, payload);
 			Logger.info('Turn round update broadcasted', { roundNumber: payload?.roundNumber, phase: payload?.phase, clientCount: this._io.engine.clientsCount });
 		} catch (error) {
 			Logger.error('Failed to broadcast turn round update', { error: error.message });
@@ -71,7 +73,7 @@ class WorldStateBroadcastService {
 	 */
 	broadcastRoomChatMessage(message) {
 		try {
-			this._io.emit('room-chat-message', message);
+			this._io.emit(SOCKET_EVENTS.ROOM_CHAT_MESSAGE, message);
 			Logger.info('Room chat message broadcasted', { roomId: message?.roomId, clientCount: this._io.engine.clientsCount });
 		} catch (error) {
 			Logger.error('Failed to broadcast room chat message', { error: error.message });
@@ -97,15 +99,15 @@ class WorldStateBroadcastService {
 				if (!entity) continue;
 
 				// Ensure entity ID is typed
-				if (entity.id && !entity.id.startsWith('ent-')) {
-					entity.id = `ent-${entity.id}`;
+				if (entity.id && !isPrefixed(entity.id, ID_PREFIXES.ENTITY)) {
+					entity.id = `${ID_PREFIXES.ENTITY}${entity.id}`;
 				}
 
 				// Transform components — IDs should already be typed (comp-uuid)
 				if (Array.isArray(entity.components)) {
 					for (const comp of entity.components) {
-						if (comp && comp.id && !comp.id.startsWith('comp-')) {
-							comp.id = `comp-${comp.id}`;
+						if (comp && comp.id && !isPrefixed(comp.id, ID_PREFIXES.COMPONENT)) {
+							comp.id = `${ID_PREFIXES.COMPONENT}${comp.id}`;
 						}
 					}
 				}
@@ -126,8 +128,8 @@ class WorldStateBroadcastService {
 				// Transform inventory items — ensure typed item IDs
 				if (Array.isArray(entity.items)) {
 					for (const item of entity.items) {
-						if (item && item.id && !item.id.startsWith('item-')) {
-							item.id = `item-${item.id}`;
+						if (item && item.id && !isPrefixed(item.id, ID_PREFIXES.ITEM)) {
+							item.id = `${ID_PREFIXES.ITEM}${item.id}`;
 						}
 					}
 				}
@@ -146,10 +148,10 @@ class WorldStateBroadcastService {
 					if (!item) continue;
 
 					// Ensure eqId is typed (eq-uuid)
-					if (item.eqId && !item.eqId.startsWith('eq-')) {
-						item.eqId = `eq-${item.eqId}`;
+					if (item.eqId && !isPrefixed(item.eqId, ID_PREFIXES.EQUIPPED)) {
+						item.eqId = `${ID_PREFIXES.EQUIPPED}${item.eqId}`;
 					}
-					if (eqId && !eqId.startsWith('eq-')) {
+					if (!isPrefixed(eqId, ID_PREFIXES.EQUIPPED)) {
 						// Move item to typed key
 						item.eqId = item.eqId || generateEquippedId();
 						equippedItems[eqId] = undefined; // Clear old key
@@ -157,8 +159,8 @@ class WorldStateBroadcastService {
 					}
 
 					// Ensure componentId is typed (comp-uuid)
-					if (item.componentId && !item.componentId.startsWith('comp-')) {
-						item.componentId = `comp-${item.componentId}`;
+					if (item.componentId && !isPrefixed(item.componentId, ID_PREFIXES.COMPONENT)) {
+						item.componentId = `${ID_PREFIXES.COMPONENT}${item.componentId}`;
 					}
 
 					// Attach to entity.equipped for client access

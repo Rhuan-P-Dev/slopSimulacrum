@@ -40,6 +40,8 @@ import MaterialRegistry from './MaterialRegistry.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
+import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
+import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
 
 export class ClientApp {
     constructor() {
@@ -508,7 +510,7 @@ export class ClientApp {
         // Feature A: dedicated turn transition event (phase/round flips).
         // The payload does NOT carry queues — just re-read the latest full state
         // (a full-state broadcast follows on the same tick for resolutions).
-        this.socket.on('turn-round-update', (payload) => {
+        this.socket.on(SOCKET_EVENTS.TURN_ROUND_UPDATE, (payload) => {
             try {
                 this.turns.onTransition(payload);
             } catch (err) {
@@ -518,7 +520,7 @@ export class ClientApp {
 
         // Feature D: GLOBAL room-chat broadcast (spec §7.3) — the payload
         // carries the roomId; the controller filters by focused room.
-        this.socket.on('room-chat-message', (message) => {
+        this.socket.on(SOCKET_EVENTS.ROOM_CHAT_MESSAGE, (message) => {
             try {
                 this.roomChat.onRoomChatMessage(message);
             } catch (err) {
@@ -543,7 +545,7 @@ export class ClientApp {
     async _restorePreviousAction() {
         const previousName = this.selection.getPreviousActionName();
         if (!previousName) {
-            this.ui.showErrorPopup('No previous action to restore', 3000);
+            this.ui.showErrorPopup('No previous action to restore', AppConfig.UI.POPUP_DURATION_SHORT_MS);
             return;
         }
 
@@ -557,7 +559,7 @@ export class ClientApp {
             // and show why the requirements are not met
             this._checkRestoredActionRequirements(previousName);
         } else {
-            this.ui.showErrorPopup('Cannot restore action — component no longer valid', 3000);
+            this.ui.showErrorPopup('Cannot restore action — component no longer valid', AppConfig.UI.POPUP_DURATION_SHORT_MS);
         }
     }
 
@@ -871,7 +873,7 @@ export class ClientApp {
                     const selectedIds = this.selection.getSelectedComponentIdsArray();
                     const synergyMultiplier = selectedIds.length > 0
                         ? await this.synergy.computeSynergyMultiplier(pending.actionName, entityId, selectedIds)
-                        : 1.0;
+                        : AppConfig.SYNERGY.BASE_MULTIPLIER;
 
                     // Resolve range using generic logic: synergy for MOVE/DASH, explicit for component attacks
                     let range = this.synergy.calculateRange(
@@ -879,7 +881,7 @@ export class ClientApp {
                     );
 
                     // For component-targeted actions, try explicit range if synergy calculation returned null
-                    if (range === null && actionData?.targetingType === 'component') {
+                    if (range === null && actionData?.targetingType === TARGETING_TYPES.COMPONENT) {
                         range = SynergyPreviewController.getExplicitRange(pending.actionName, this.availableActions);
                     }
 
@@ -969,7 +971,7 @@ export class ClientApp {
 
         // Component-targeted actions (like 'cut') should trigger the attack flow, not the drop flow.
         // The drop flow is handled exclusively by the Inventory drop button → DropSelector path.
-        if (actionData?.targetingType === 'component') {
+        if (actionData?.targetingType === TARGETING_TYPES.COMPONENT) {
             // Toggle component selection for attack — the existing targeting flow handles map click → executeComponentAttack
             this.selection.toggleComponent(actionName, entityId, eqId, componentIdentifier);
             // Ensure the action list reflects the selection (range indicator, etc.).

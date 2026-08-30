@@ -91,3 +91,5 @@ App (Orchestrator)
 ├── CraftingPanel (new)
 └── ConfigBarManager
 ```
+
+Both layers import the dependency-free vocabulary modules in `shared/` (typed-ID prefixes, stat names, action names, turn phases, Socket.IO event names, fallback defaults, range-expression resolution): `shared/` is the only import path available to both layers, so those wire and cross-layer contracts have exactly one definition — the client's historical per-file copies drifted (e.g. prefix lengths, durability constants), and a drifted value silently breaks ID routing, stat lookups, or event matching. `public/utils/MapGeometry.js` is the client-local counterpart for map-rendering geometry, shared only between the two map renderers (`WorldMapView`, `RoomConnectionRenderer`).

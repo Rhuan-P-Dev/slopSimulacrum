@@ -1,25 +1,12 @@
 import Logger from '../../utils/Logger.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
 
 /**
  * Default time-to-live (in milliseconds) for selections before they expire.
  * Selections older than this threshold are considered stale and automatically released.
  */
 const DEFAULT_SELECTION_TTL_MS = 30000;
-
-/**
- * Component action binding roles — mirrors the roles defined in ActionController.
- * Defines which body part participates in which action context.
- *
- * @readonly
- * @enum {string}
- */
-const BINDING_ROLES = {
-    SOURCE: 'source',
-    TARGET: 'target',
-    SPATIAL: 'spatial',
-    SELF_TARGET: 'self_target'
-};
 
 /**
  * Validates that a given role string is one of the recognized binding roles.

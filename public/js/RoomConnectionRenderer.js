@@ -8,6 +8,7 @@
  */
 import { AppConfig } from './Config.js';
 import { getRoomEdgePoint } from '/utils/geometry.js';
+import { CURVE_OFFSET, LABEL_OFFSET, ROOM_CONNECTION_DASH_ARRAY, ARROW_SIZE, estimateTextWidth } from '/utils/MapGeometry.js';
 
 export class RoomConnectionRenderer {
     /**
@@ -121,10 +122,8 @@ export class RoomConnectionRenderer {
         const perpX = -dy / length;
         const perpY = dx / length;
        
-        // Increased from 25 to 50 to reduce arrow overlap on bidirectional connections.
-        // Wider spacing gives bidirectional arrows more visual separation.
-        const CURVE_OFFSET = 50;
-       
+        // Curve offset is the shared MapGeometry constant (its JSDoc carries the
+        // "increased from 25 to 50 / arrow separation" rationale).
         // Control point: midpoint + perpendicular offset (no sign flip)
         const midX = (startX + endX) / 2;
         const midY = (startY + endY) / 2;
@@ -153,7 +152,7 @@ export class RoomConnectionRenderer {
         path.setAttribute('class', 'room-connection-line');
         path.setAttribute('stroke', 'var(--neon-green)');
         path.setAttribute('stroke-width', '2');
-        path.setAttribute('stroke-dasharray', '6,4');
+        path.setAttribute('stroke-dasharray', ROOM_CONNECTION_DASH_ARRAY);
         path.setAttribute('opacity', '0.6');
         path.setAttribute('data-target-room', targetRoom.id);
         path.setAttribute('data-entity-id', entityId || '');
@@ -168,8 +167,7 @@ export class RoomConnectionRenderer {
         // Label positioned at midpoint with perpendicular offset (opposite side of curve)
         // Since the curve is offset by +CURVE_OFFSET * perp, the label goes on the opposite side
         // to avoid visual overlap between the curve line and the text.
-        // Increased from 8 to 16 to reduce text label overlap with curves and other labels.
-        const LABEL_OFFSET = 16;
+        // Label offset is the shared MapGeometry constant (rationale there).
         const labelOffsetX = -LABEL_OFFSET * perpX;
         const labelOffsetY = -LABEL_OFFSET * perpY;
         const labelX = midX + labelOffsetX;
@@ -192,7 +190,8 @@ export class RoomConnectionRenderer {
         layer.appendChild(text);
 
         // Subtle background rect for text readability
-        const textWidth = labelText.length * 6.5;
+        // Label font-size is 11px (set above).
+        const textWidth = estimateTextWidth(labelText, 11);
         const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         bgRect.setAttribute('x', labelX - textWidth / 2 - 4);
         bgRect.setAttribute('y', labelY - 20);
@@ -329,7 +328,7 @@ export class RoomConnectionRenderer {
         line.setAttribute('class', 'room-connection-line');
         line.setAttribute('stroke', 'var(--neon-green)');
         line.setAttribute('stroke-width', '2');
-        line.setAttribute('stroke-dasharray', '6,4');
+        line.setAttribute('stroke-dasharray', ROOM_CONNECTION_DASH_ARRAY);
         line.setAttribute('opacity', '0.6');
         line.setAttribute('data-target-room', targetRoom.id);
         line.setAttribute('data-entity-id', entityId || '');
@@ -362,7 +361,8 @@ export class RoomConnectionRenderer {
         layer.appendChild(text);
 
         // Subtle background rect for text readability
-        const textWidth = labelText.length * 6.5;
+        // Label font-size is 11px (set above).
+        const textWidth = estimateTextWidth(labelText, 11);
         const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         bgRect.setAttribute('x', midX - textWidth / 2 - 4);
         bgRect.setAttribute('y', midY - 22);
@@ -448,7 +448,7 @@ export class RoomConnectionRenderer {
      * @private
      */
     static _drawArrowheadAtCurve(startX, startY, cpX, cpY, endX, endY, layer) {
-        const arrowSize = 8;
+        const arrowSize = ARROW_SIZE;
 
         // Tangent at the end of the curve (t=1): direction from control point to endpoint
         const tangentX = 2 * (endX - cpX);
@@ -486,7 +486,7 @@ export class RoomConnectionRenderer {
      * @private
      */
     static _drawArrowhead(startX, startY, endX, endY, layer) {
-        const arrowSize = 8;
+        const arrowSize = ARROW_SIZE;
         const angle = Math.atan2(endY - startY, endX - startX);
 
         const x1 = endX - arrowSize * Math.cos(angle - Math.PI / 6);

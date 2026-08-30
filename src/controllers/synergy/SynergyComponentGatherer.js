@@ -9,6 +9,8 @@
 
 import Logger from '../../utils/Logger.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
 
 class SynergyComponentGatherer {
     /**
@@ -198,10 +200,10 @@ class SynergyComponentGatherer {
             if (lockedComponentIds.has(resolvedSourceComponentId)) return [];
 
             if (roleFilter) {
-                if (roleFilter === 'source' || roleFilter === 'spatial') {
-                    if (!sourceStats.Movement || Object.keys(sourceStats.Movement).length === 0) return [];
-                } else if (roleFilter === 'self_target') {
-                    if (!sourceStats.Physical || Object.keys(sourceStats.Physical).length === 0) return [];
+                if (roleFilter === BINDING_ROLES.SOURCE || roleFilter === BINDING_ROLES.SPATIAL) {
+                    if (!sourceStats[TRAIT_GROUPS.MOVEMENT] || Object.keys(sourceStats[TRAIT_GROUPS.MOVEMENT]).length === 0) return [];
+                } else if (roleFilter === BINDING_ROLES.SELF_TARGET) {
+                    if (!sourceStats[TRAIT_GROUPS.PHYSICAL] || Object.keys(sourceStats[TRAIT_GROUPS.PHYSICAL]).length === 0) return [];
                 }
             }
 
@@ -229,11 +231,11 @@ class SynergyComponentGatherer {
                 if (lockedComponentIds.has(c.id)) return false;
                 const stats = this.worldStateController.componentController.getComponentStats(c.id);
                 if (!stats) return false;
-                if (roleFilter === 'source' || roleFilter === 'spatial') {
-                    return stats.Movement && Object.keys(stats.Movement).length > 0;
+                if (roleFilter === BINDING_ROLES.SOURCE || roleFilter === BINDING_ROLES.SPATIAL) {
+                    return stats[TRAIT_GROUPS.MOVEMENT] && Object.keys(stats[TRAIT_GROUPS.MOVEMENT]).length > 0;
                 }
-                if (roleFilter === 'self_target') {
-                    return stats.Physical && Object.keys(stats.Physical).length > 0;
+                if (roleFilter === BINDING_ROLES.SELF_TARGET) {
+                    return stats[TRAIT_GROUPS.PHYSICAL] && Object.keys(stats[TRAIT_GROUPS.PHYSICAL]).length > 0;
                 }
                 return true;
             })
@@ -254,12 +256,12 @@ class SynergyComponentGatherer {
      */
     _passesRoleFilter(stats, roleFilter) {
         switch (roleFilter) {
-            case 'source':
-            case 'spatial':
-                return (stats.Movement && Object.keys(stats.Movement).length > 0) ||
-                       (stats.Physical && Object.keys(stats.Physical).length > 0);
-            case 'self_target':
-                return stats.Physical && Object.keys(stats.Physical).length > 0;
+            case BINDING_ROLES.SOURCE:
+            case BINDING_ROLES.SPATIAL:
+                return (stats[TRAIT_GROUPS.MOVEMENT] && Object.keys(stats[TRAIT_GROUPS.MOVEMENT]).length > 0) ||
+                       (stats[TRAIT_GROUPS.PHYSICAL] && Object.keys(stats[TRAIT_GROUPS.PHYSICAL]).length > 0);
+            case BINDING_ROLES.SELF_TARGET:
+                return stats[TRAIT_GROUPS.PHYSICAL] && Object.keys(stats[TRAIT_GROUPS.PHYSICAL]).length > 0;
             default:
                 return true;
         }

@@ -21,6 +21,7 @@
 
 import Logger from '../utils/Logger.js';
 import IdResolver from '../utils/IdResolver.js';
+import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 import {
     WORLD_EVENTS_MAX_LIMIT,
     CONTEXT_MAX_ENTITIES,
@@ -117,7 +118,7 @@ export function register(router, { worldStateController }) {
             const entityId = req.query.entityId;
             if (entityId !== undefined && entityId !== '' && !IdResolver.isEntityId(entityId)) {
                 return res.status(400).json({
-                    error: `Invalid entityId: "${entityId}". Expected typed ID format "ent-<uuid>".`
+                    error: `Invalid entityId: "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".`
                 });
             }
 

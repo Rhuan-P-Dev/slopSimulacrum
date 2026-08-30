@@ -20,6 +20,18 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { NPC_BEHAVIOR_CHASE_ATTACK } from '../../utils/Constants.js';
+import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_USABLE_MIN, flatKey } from '../../../shared/StatVocabulary.js';
+import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
+
+/**
+ * Flat "trait.stat" key for Physical.durability — derived from the shared
+ * stat vocabulary so the `stats[<key>]` lookup key can never drift from
+ * data/traits.json (reproduces the `stats['Physical.durability']` format).
+ * @constant
+ */
+const DURABILITY_FLAT_KEY = flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.DURABILITY);
 
 // ─────────────────────────────────────────────
 // Code-level constants (per spec §2.3, §3)
@@ -50,10 +62,10 @@ const ROLE_PHRASES = {
  */
 const TEMPLATES = [
     {
-        key: 'chase_attack',
+        key: NPC_BEHAVIOR_CHASE_ATTACK,
         roles: [
-            { role: 'movement', candidates: ['move', 'dash'] },
-            { role: 'attack', candidates: ['droid punch', 'cut', 'shootT1'] }
+            { role: 'movement', candidates: [ACTION_NAMES.MOVE, ACTION_NAMES.DASH] },
+            { role: 'attack', candidates: [ACTION_NAMES.PUNCH, ACTION_NAMES.CUT, ACTION_NAMES.SHOOT_T1] }
         ]
     }
 ];
@@ -135,8 +147,8 @@ function pickTargetComponent(entity) {
         const compData = entity._components?.[compId];
         const stats = compData?.stats ?? comp.stats;
         if (stats) {
-            const dur = stats['Physical.durability'] ?? 0;
-            if (dur >= 1) {
+            const dur = stats[DURABILITY_FLAT_KEY] ?? 0;
+            if (dur >= DURABILITY_USABLE_MIN) {
                 return compId;
             }
         }
@@ -149,8 +161,8 @@ function pickTargetComponent(entity) {
         const stats = compData?.stats ?? comp.stats;
         // Still require durability >= 1, or no durability stat at all (assumed usable)
         if (stats) {
-            const dur = stats['Physical.durability'];
-            if (dur === undefined || dur >= 1) {
+            const dur = stats[DURABILITY_FLAT_KEY];
+            if (dur === undefined || dur >= DURABILITY_USABLE_MIN) {
                 return compId;
             }
         } else {
@@ -455,7 +467,7 @@ class InstinctController {
      * @returns {boolean}
      */
     _isValidEntityId(id) {
-        return typeof id === 'string' && id.startsWith('ent-');
+        return isPrefixed(id, ID_PREFIXES.ENTITY);
     }
 
     /**

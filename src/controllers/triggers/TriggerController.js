@@ -14,21 +14,8 @@
  */
 
 import Logger from '../../utils/Logger.js';
-
-/**
- * Break threshold — spec §3.1: crossing is oldValue > 0 && newValue <= 0.
- * Threshold = 0 ensures FRACTIONAL values (e.g. 0.5) DO NOT trigger break;
- * only the strict crossing from positive → zero or negative triggers.
- * @constant
- */
-const BROKEN_DURABILITY_THRESHOLD = 0;
-
-/**
- * Name of the stat that triggers the event.
- * @constant
- */
-const STAT_TRAIT = 'Physical';
-const STAT_NAME = 'durability';
+import { DURABILITY_BROKEN_AT } from '../../../shared/StatVocabulary.js';
+import { SOCKET_EVENTS } from '../../../shared/SocketProtocol.js';
 
 class TriggerController {
     constructor() {
@@ -123,7 +110,7 @@ class TriggerController {
      */
     onComponentBrokeCheck(componentId, entityId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
-        if (oldValue > BROKEN_DURABILITY_THRESHOLD && newValue <= BROKEN_DURABILITY_THRESHOLD) {
+        if (oldValue > DURABILITY_BROKEN_AT && newValue <= DURABILITY_BROKEN_AT) {
             const payload = this._buildPayload(componentId, entityId, oldValue, newValue, extra);
             
             // Registra no event log (§3.2)
@@ -137,7 +124,7 @@ class TriggerController {
                 });
             }
 
-            this.emit('component:broke', payload);
+            this.emit(SOCKET_EVENTS.COMPONENT_BROKE, payload);
         }
     }
 
@@ -158,7 +145,7 @@ class TriggerController {
         })();
 
         return {
-            event: 'component:broke',
+            event: SOCKET_EVENTS.COMPONENT_BROKE,
             entityId,
             roomId,
             position,
@@ -183,7 +170,7 @@ class TriggerController {
      */
     onEquippedItemBrokeCheck(eqId, entityId, hostComponentId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
-        if (oldValue > BROKEN_DURABILITY_THRESHOLD && newValue <= BROKEN_DURABILITY_THRESHOLD) {
+        if (oldValue > DURABILITY_BROKEN_AT && newValue <= DURABILITY_BROKEN_AT) {
             // Use nullish coalescing (??) so defined falsy values (e.g. roomId: '') survive.
             const roomId = extra.roomId ?? (() => {
                 Logger.warn(`[TriggerController] Missing roomId anchor for equipped-item "${eqId}" on entity "${entityId}"`, { eqId, entityId, oldValue, newValue });
@@ -195,7 +182,7 @@ class TriggerController {
             })();
 
             const payload = {
-                event: 'component:broke',
+                event: SOCKET_EVENTS.COMPONENT_BROKE,
                 entityId,
                 roomId,
                 position,
@@ -222,7 +209,7 @@ class TriggerController {
                 });
             }
 
-            this.emit('component:broke', payload);
+            this.emit(SOCKET_EVENTS.COMPONENT_BROKE, payload);
         }
     }
 }

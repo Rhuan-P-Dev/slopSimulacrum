@@ -26,6 +26,7 @@
 
 import Logger from '../utils/Logger.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
+import { ROOM_CHAT_HISTORY_LIMIT } from '../utils/Constants.js';
 
 /** Maps a controller failure code to an HTTP status (spec §7.3). */
 const CODE_TO_STATUS = {
@@ -85,7 +86,7 @@ export function register(router, { worldStateController }) {
 	router.get('/rooms/:roomId/chat', (req, res) => {
 		const { roomId } = req.params;
 		const limitParam = Number.parseInt(req.query.limit, 10);
-		const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, 50) : 50;
+		const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, ROOM_CHAT_HISTORY_LIMIT) : ROOM_CHAT_HISTORY_LIMIT;
 
 		try {
 			// Spec §7.3: GET always 200 — unknown rooms simply have no history

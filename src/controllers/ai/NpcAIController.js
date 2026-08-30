@@ -15,18 +15,10 @@
 import Logger from '../../utils/Logger.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 import { resolveRange } from '../../../shared/RangeResolver.js';
-
-/**
- * Fallback for attack range when resolution is not possible.
- * @constant
- */
-const DEFAULT_ATTACK_RANGE_FALLBACK = 100;
-
-/**
- * Threshold below which a durability value is considered "broken" (unusable).
- * @constant
- */
-const BROKEN_DURABILITY_THRESHOLD = 1;
+import { NPC_DEFAULT_ATTACK_RANGE, NPC_BEHAVIOR_CHASE_ATTACK } from '../../utils/Constants.js';
+import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
+import { TURN_PHASES } from '../../../shared/TurnPhases.js';
+import { DURABILITY_USABLE_MIN } from '../../../shared/StatVocabulary.js';
 
 /**
  * Key for the components' durability stat (also consumed by the damage pipeline).
@@ -56,7 +48,7 @@ class NpcAIController {
         this._behaviors = new Map();
 
         // Pre-registers the first behavior.
-        this.registerBehavior('chase_attack', this._chaseAttackBehavior.bind(this));
+        this.registerBehavior(NPC_BEHAVIOR_CHASE_ATTACK, this._chaseAttackBehavior.bind(this));
     }
 
     /**
@@ -165,7 +157,7 @@ class NpcAIController {
                 }
             }
 
-            if (roundState.phase !== 'planning') {
+            if (roundState.phase !== TURN_PHASES.PLANNING) {
                 Logger.warn(`[NpcAI] Window closed for ${entityId}: ${actionName} discarded (phase=${roundState.phase}).`);
                 return { acted: false, reason: 'window_closed' };
             }
@@ -233,11 +225,11 @@ class NpcAIController {
         if (typeof rawRange === 'string' && rawRange.startsWith(':')) {
             // Resolve placeholders via entity stats.
             const statMap = this._buildStatMap(entity);
-            return resolveRange(rawRange, statMap, DEFAULT_ATTACK_RANGE_FALLBACK);
+            return resolveRange(rawRange, statMap, NPC_DEFAULT_ATTACK_RANGE);
         }
         // If it's a string number or other format, try parsing.
         const parsed = Number(rawRange);
-        return isFinite(parsed) ? parsed : DEFAULT_ATTACK_RANGE_FALLBACK;
+        return isFinite(parsed) ? parsed : NPC_DEFAULT_ATTACK_RANGE;
     }
 
     /**
@@ -319,7 +311,7 @@ class NpcAIController {
     _filterUsableComponents(components) {
         return components.filter(comp => {
             const dur = this._readDurability(comp);
-            return (dur === undefined) || (dur >= BROKEN_DURABILITY_THRESHOLD);
+            return (dur === undefined) || (dur >= DURABILITY_USABLE_MIN);
         });
     }
 
@@ -378,8 +370,8 @@ class NpcAIController {
             return null;
         }
 
-        const attackAction = typeof ai.attackAction === 'string' ? ai.attackAction : 'droid punch';
-        const moveAction = typeof ai.moveAction === 'string' ? ai.moveAction : 'move';
+        const attackAction = typeof ai.attackAction === 'string' ? ai.attackAction : ACTION_NAMES.PUNCH;
+        const moveAction = typeof ai.moveAction === 'string' ? ai.moveAction : ACTION_NAMES.MOVE;
         const attackRange = (typeof ai.attackRange === 'number')
             ? ai.attackRange
             : this._resolveActionRange(facade, attackAction, entity);
@@ -436,7 +428,7 @@ class NpcAIController {
         }
 
         const durability = this._readDurability(selected);
-        if (durability !== undefined && durability < BROKEN_DURABILITY_THRESHOLD) {
+        if (durability !== undefined && durability < DURABILITY_USABLE_MIN) {
             const candidates = this._filterUsableComponents(validComponents);
 
             if (candidates.length > 0) {

@@ -8,6 +8,8 @@
 
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
+import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_BROKEN_AT } from '../../shared/StatVocabulary.js';
 
 /**
  * @typedef {Object} SelectionState
@@ -226,7 +228,7 @@ class SelectionController {
         }
 
         // For self_target actions: execute immediately with selected component
-        if (this.selectedComponentIds.size === 1 && targetingType === 'self_target') {
+        if (this.selectedComponentIds.size === 1 && targetingType === TARGETING_TYPES.SELF_TARGET) {
             const compId = Array.from(this.selectedComponentIds)[0];
             ClientLogger.debug('SelectionController', '→ self_target action, executing immediately');
             await this.app.executor.executeSelfTarget(actionName, entityId, compId, componentIdentifier);
@@ -340,8 +342,8 @@ class SelectionController {
             return false;
         }
 
-        const durability = componentStats.Physical?.durability;
-        return durability !== undefined && durability > 0;
+        const durability = componentStats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
+        return durability !== undefined && durability > DURABILITY_BROKEN_AT;
     }
 
     /**
@@ -397,7 +399,7 @@ class SelectionController {
         this.ui.clearSynergyPreview();
 
         // For self_target actions, execute immediately instead of setting pending
-        if (state.targetingType === 'self_target' && state.entityId && state.componentId) {
+        if (state.targetingType === TARGETING_TYPES.SELF_TARGET && state.entityId && state.componentId) {
             const compId = state.componentId || Array.from(this.selectedComponentIds)[0];
             await this.app.executor.executeSelfTarget(
                 state.actionName, state.entityId, compId, state.componentIdentifier

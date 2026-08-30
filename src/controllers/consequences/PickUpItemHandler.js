@@ -11,6 +11,10 @@
 
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
+import { PICK_UP_RANGE_FALLBACK } from '../../utils/Constants.js';
+import { resolveRange } from '../../../shared/RangeResolver.js';
+import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
+import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 
 /**
  * Handles the "pickUpItem" consequence type for dropped items.
@@ -93,7 +97,27 @@ function handlePickUpItem(deps, params, context) {
     const itemX = droppedItem.x || 0;
     const itemY = droppedItem.y || 0;
     const distance = Math.sqrt(Math.pow(itemX - droidX, 2) + Math.pow(itemY - droidY, 2));
-    const maxRange = 100; // Matches dropItem range in actions.json
+
+    // WHY: the pickup range is data-driven — it resolves against the
+    // pickUpItem action definition in actions.json (currently 50). The old
+    // hardcoded 100 was a copy of dropItem's range and let entities pick up
+    // items far beyond what the action definition allows. The shared
+    // RangeResolver is the single source of truth (mirrors RangeValidator /
+    // ReachabilityRule): numeric ranges pass through, string expressions are
+    // resolved against the entity's stat map, and PICK_UP_RANGE_FALLBACK only
+    // fires when the action definition or its range field is missing.
+    const actionRegistry = worldStateController.getActionRegistry?.() || {};
+    const pickUpAction = actionRegistry[ACTION_NAMES.PICK_UP_ITEM];
+    const rangeExpression = pickUpAction?.range;
+    let maxRange = PICK_UP_RANGE_FALLBACK;
+    if (typeof rangeExpression === 'number') {
+        maxRange = rangeExpression;
+    } else if (typeof rangeExpression === 'string' && rangeExpression.trim() !== '') {
+        const requirementValues = worldStateController.actionController?.requirementResolver
+            ? worldStateController.actionController.requirementResolver.resolveEntityRequirementValues(entityId)
+            : {};
+        maxRange = resolveRange(rangeExpression, requirementValues, PICK_UP_RANGE_FALLBACK);
+    }
 
     if (distance > maxRange) {
         Logger.warn(`[PickUpItemHandler] Item "${droppedItemId}" is out of range. Distance: ${distance.toFixed(2)}, Max Range: ${maxRange}`);
@@ -108,7 +132,9 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Item type "${droppedItem.itemType}" not found in registry.` };
     }
 
-    const itemVolume = itemDef.volume || 1;
+    // ?? (not ||): a literal volume of 0 is valid data; 0 is the shared
+    // fallback (DEFAULT_ITEM_VOLUME) for a *missing* volume field only.
+    const itemVolume = itemDef.volume ?? DEFAULT_ITEM_VOLUME;
     const itemName = itemDef.name || droppedItem.itemType;
     const itemDescription = itemDef.description || '';
 

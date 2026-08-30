@@ -12,6 +12,8 @@
 import Logger from '../../utils/Logger.js';
 import { componentSatisfiesRequirements } from '../../utils/RequirementChecker.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { BINDING_ROLES, TARGETING_TYPES } from '../../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
 
 class ComponentResolver {
     /**
@@ -53,7 +55,7 @@ class ComponentResolver {
 
                 // Accept typed component IDs (comp-...), equipped item IDs (eq-...), and legacy raw UUIDs
                 if (IdResolver.isCompId(compId) || IdResolver.isEquippedId(compId) || IdResolver.isLegacyCompId(compId)) {
-                    const entry = typeof comp === 'object' ? comp : { componentId: compId, role: 'source' };
+                    const entry = typeof comp === 'object' ? comp : { componentId: compId, role: BINDING_ROLES.SOURCE };
                     validComponentIds.push(entry);
                 } else {
                     invalidIds.push(compId);
@@ -74,7 +76,7 @@ class ComponentResolver {
 
         if (params?.attackerComponentId || params?.targetComponentId) {
             const sourceComponentId = params.attackerComponentId || params.targetComponentId;
-            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || 'source' };
+            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || BINDING_ROLES.SOURCE };
             return {
                 componentList: [entry],
                 sourceComponentId
@@ -84,7 +86,7 @@ class ComponentResolver {
         // Handle singular componentId (used by LLM agent tool calls)
         if (params?.componentId) {
             const sourceComponentId = params.componentId;
-            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || 'source' };
+            const entry = { componentId: sourceComponentId, role: params.selectedBindingRole || BINDING_ROLES.SOURCE };
             return {
                 componentList: [entry],
                 sourceComponentId
@@ -145,14 +147,14 @@ class ComponentResolver {
         }
 
         // Priority 3: Spatial actions — auto-find component matching spatialRole
-        if (action.targetingType === 'spatial' && binding?.spatialRole) {
-            const spatialComponent = this._findComponentByRole(entity, binding, 'spatial');
+        if (action.targetingType === TARGETING_TYPES.SPATIAL && binding?.spatialRole) {
+            const spatialComponent = this._findComponentByRole(entity, binding, BINDING_ROLES.SPATIAL);
             if (spatialComponent) return spatialComponent.id;
         }
 
         // Priority 4: Self-targeting actions — find component matching selfTargetRole
-        if ((action.targetingType === 'none' || action.targetingType === 'self_target') && binding?.selfTargetRole) {
-            const selfComponent = this._findComponentByRole(entity, binding, 'self_target', action);
+        if ((action.targetingType === TARGETING_TYPES.NONE || action.targetingType === TARGETING_TYPES.SELF_TARGET) && binding?.selfTargetRole) {
+            const selfComponent = this._findComponentByRole(entity, binding, BINDING_ROLES.SELF_TARGET, action);
             if (selfComponent) return selfComponent.id;
         }
 
@@ -180,17 +182,17 @@ class ComponentResolver {
             const componentStats = this.worldStateController.componentController.getComponentStats(component.id);
             if (!componentStats) continue;
 
-            if (role === 'spatial' && binding?.spatialRole) {
-                if (componentStats.Movement && Object.keys(componentStats.Movement).length > 0) {
+            if (role === BINDING_ROLES.SPATIAL && binding?.spatialRole) {
+                if (componentStats[TRAIT_GROUPS.MOVEMENT] && Object.keys(componentStats[TRAIT_GROUPS.MOVEMENT]).length > 0) {
                     return component;
                 }
             }
 
-            if (role === 'self_target' && binding?.selfTargetRole) {
+            if (role === BINDING_ROLES.SELF_TARGET && binding?.selfTargetRole) {
                 if (action && this._componentSatisfiesActionRequirements(componentStats, action)) {
                     return component;
                 }
-                if (!action && componentStats.Physical && Object.keys(componentStats.Physical).length > 0) {
+                if (!action && componentStats[TRAIT_GROUPS.PHYSICAL] && Object.keys(componentStats[TRAIT_GROUPS.PHYSICAL]).length > 0) {
                     return component;
                 }
             }
@@ -234,7 +236,7 @@ class ComponentResolver {
         const sourceComponentStats = this.worldStateController.componentController.getComponentStats(sourceComponentId);
 
         // Validate source role: the component must have the traits required by the action
-        if (binding.roles?.includes('source') || binding.spatialRole || binding.sourceRole) {
+        if (binding.roles?.includes(BINDING_ROLES.SOURCE) || binding.spatialRole || binding.sourceRole) {
             if (!this._componentSatisfiesActionRequirements(sourceComponentStats, action)) {
                 return {
                     valid: false,
@@ -245,7 +247,7 @@ class ComponentResolver {
         }
 
         // Skip role validation for spatial and 'none' targetingType (client/server resolution differs)
-        if (params?.selectedBindingRole && action.targetingType !== 'spatial' && action.targetingType !== 'none') {
+        if (params?.selectedBindingRole && action.targetingType !== TARGETING_TYPES.SPATIAL && action.targetingType !== TARGETING_TYPES.NONE) {
             const resolvedRole = this._resolveComponentRole(action, sourceComponent);
             if (resolvedRole && params.selectedBindingRole !== resolvedRole) {
                 return {

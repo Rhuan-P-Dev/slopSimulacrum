@@ -1,5 +1,13 @@
 import Logger from '../../utils/Logger.js';
 import { LLMError } from '../../utils/CustomErrors.js';
+import {
+    LLM_DEFAULT_ENDPOINT,
+    LLM_DEFAULT_MODEL,
+    LLM_DEFAULT_TEMPERATURE,
+    LLM_DEFAULT_MAX_TOKENS,
+    LLM_DEFAULT_TIMEOUT_MS,
+    LLM_LOG_TRUNCATION_CHARS
+} from '../../utils/Constants.js';
 
 /**
  * LLMController handles all communication with the Large Language Model backend.
@@ -60,7 +68,7 @@ class LLMController {
      * DEFAULT_MODEL, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, REQUEST_TIMEOUT_MS).
      */
     static get LLM_ENDPOINT() {
-        return process.env.LLM_ENDPOINT || 'http://127.0.0.1:20003/v1/chat/completions';
+        return process.env.LLM_ENDPOINT || LLM_DEFAULT_ENDPOINT;
     }
 
     static get LLM_API_KEY() {
@@ -68,20 +76,20 @@ class LLMController {
     }
 
     static get DEFAULT_MODEL() {
-        return process.env.LLM_MODEL || 'gpt-3.5-turbo';
+        return process.env.LLM_MODEL || LLM_DEFAULT_MODEL;
     }
 
     static get DEFAULT_TEMPERATURE() {
-        return 0.7;
+        return LLM_DEFAULT_TEMPERATURE;
     }
 
     static get DEFAULT_MAX_TOKENS() {
-        return 2048;
+        return LLM_DEFAULT_MAX_TOKENS;
     }
 
     static get REQUEST_TIMEOUT_MS() {
         const raw = Number(process.env.LLM_TIMEOUT_MS);
-        return Number.isFinite(raw) && raw > 0 ? raw : 30000;
+        return Number.isFinite(raw) && raw > 0 ? raw : LLM_DEFAULT_TIMEOUT_MS;
     }
 
     /**
@@ -258,7 +266,7 @@ class LLMController {
                 let detail = '';
                 try {
                     const bodyText = await response.text();
-                    detail = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
+                    detail = bodyText.length > LLM_LOG_TRUNCATION_CHARS ? `${bodyText.slice(0, LLM_LOG_TRUNCATION_CHARS)}...` : bodyText;
                 } catch {
                     // Non-text or already-consumed error body: ignore.
                 }

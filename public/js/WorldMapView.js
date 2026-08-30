@@ -23,6 +23,7 @@
  */
 import { AppConfig } from './Config.js';
 import { getRoomEdgePoint } from '/utils/geometry.js';
+import { CURVE_OFFSET, LABEL_OFFSET, WORLD_MAP_DASH_ARRAY, estimateTextWidth } from '/utils/MapGeometry.js';
 
 export class WorldMapView {
     /**
@@ -234,10 +235,8 @@ export class WorldMapView {
         const isForward = isBidirectional && pairData.forward.fromId === room.id;
         const isBackward = isBidirectional && pairData.backward.fromId === room.id;
 
-        // Curve offset constant for bidirectional connections.
-        // Increased from 30 to 50 to align with RoomConnectionRenderer and reduce arrow overlap.
-        const CURVE_OFFSET = 50;
-
+        // Curve offset constant for bidirectional connections (shared geometry —
+        // see MapGeometry for the "increased from 30" rationale).
         if (isBidirectional) {
             // Calculate perpendicular offset for Bézier curve
             const dx = endX - startX;
@@ -261,7 +260,7 @@ export class WorldMapView {
             path.setAttribute('d', `M ${startX} ${startY} Q ${cpX} ${cpY} ${endX} ${endY}`);
             path.setAttribute('stroke', 'var(--neon-green)');
             path.setAttribute('stroke-width', '2');
-            path.setAttribute('stroke-dasharray', '8,4');
+            path.setAttribute('stroke-dasharray', WORLD_MAP_DASH_ARRAY);
             path.setAttribute('opacity', '0.5');
             path.setAttribute('marker-end', 'url(#world-map-arrow)');
             path.setAttribute('class', 'world-map-connection-line');
@@ -291,9 +290,7 @@ export class WorldMapView {
             // Draw label offset along perpendicular direction for bidirectional connections
             const midX = (startX + endX) / 2;
             const midY = (startY + endY) / 2;
-            // Increased from 8 to 16 to reduce text label overlap with curves and other labels.
-            const LABEL_OFFSET = 16;
-
+            // Label offset is the shared MapGeometry constant (rationale there).
             const labelText = `${conn.door.replace(/_/g, ' ')}`;
             const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             // Offset label perpendicular to curve direction (no sign flip needed)
@@ -307,7 +304,9 @@ export class WorldMapView {
             group.appendChild(text);
 
             // Subtle background rect for text readability (mirrors RoomConnectionRenderer pattern)
-            const textWidth = labelText.length * 6;
+            // Label font-size is 10px (set above); estimateTextWidth reproduces
+            // the historical 6px/char width at this size exactly.
+            const textWidth = estimateTextWidth(labelText, 10);
             const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             bgRect.setAttribute('x', midX + perpX * LABEL_OFFSET - textWidth / 2 - 4);
             bgRect.setAttribute('y', midY + perpY * LABEL_OFFSET - 20);
@@ -327,7 +326,7 @@ export class WorldMapView {
             line.setAttribute('y2', endY);
             line.setAttribute('stroke', 'var(--neon-green)');
             line.setAttribute('stroke-width', '2');
-            line.setAttribute('stroke-dasharray', '8,4');
+            line.setAttribute('stroke-dasharray', WORLD_MAP_DASH_ARRAY);
             line.setAttribute('opacity', '0.5');
             line.setAttribute('marker-end', 'url(#world-map-arrow)');
             line.setAttribute('class', 'world-map-connection-line');
