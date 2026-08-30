@@ -8,12 +8,13 @@
  *
  * Covers the spec §4 decision-flow checklist:
  *   1. idle — nothing held, no knife dropped in the room (no calls at all)
- *   2. move — nearest in-room knife beyond PICK_RANGE → move queued, source 'npc'
+ *   2. move — nearest in-room knife beyond the resolved pickup range → move
+ *      queued, source 'npc'
  *   3. cross-room knife is ignored (own room only)
- *   4. pick-up at distance ≤ PICK_RANGE — including boundary 100 — via
- *      executePickUpItem on the CORE component; nothing queued (idle);
- *      4e — pickup rejected by the handler → visible rejection + clean idle
- *      (spec §4.4 edge)
+ *   4. pick-up at distance ≤ resolved pickup range — including the exact
+ *      boundary — via executePickUpItem on the CORE component; nothing queued
+ *      (idle); 4e — pickup rejected by the handler → fallback to the approach
+ *      phase (move queued, rejection logged) (spec §4.4 edge)
  *   5. craft + drop — set-difference detection with a PRE-EXISTING T1 present
  *      (the new T1 id is dropped, not the old one)
  *   6. craft failure → idle (retry next round)
@@ -22,9 +23,9 @@
  *   9. no turn system → immediate executeAction fallback
  *  10. multi-round convergence simulation (move… → pick → craft + drop)
  *
- * Simulation constants (e.g. the convergence step size) derive from the same
- * data files the system under test loads — a data change must change this
- * simulation, not be silently ignored by it.
+ * Simulation constants (the convergence step size and the resolved pickup
+ * range) derive from the same data files the system under test loads — a
+ * data change must change this simulation, not be silently ignored by it.
  *
  * @module test/unit/NpcAIController.craftLoop
  */
@@ -33,7 +34,6 @@ import { describe, it, expect, vi } from 'vitest';
 import NpcAIController from '../../src/controllers/ai/NpcAIController.js';
 import DataLoader from '../../src/utils/DataLoader.js';
 import Logger from '../../src/utils/Logger.js';
-import { PICK_RANGE } from '../../src/utils/npcAiUtils.js';
 
 // =========================================================================
 // Fixtures
@@ -52,12 +52,19 @@ const RECIPE = {
     outputs: [{ type: 't1', quantity: 1 }]
 };
 
-// Derived from the real component data (same source the stats controller
-// loads) — no hardcoded movement: a data change must change this simulation,
-// not be silently ignored by it.
+// Derived from the real data files the system under test loads — no
+// hardcoded movement or pickup range: a data change must change this
+// simulation, not be silently ignored by it.
 const components = DataLoader.loadJsonSafe('data/components.json', {});
 const stepSize = components.crafterRollingBall?.traits?.Movement?.move;
 if (typeof stepSize !== 'number') throw new Error('crafterRollingBall.Movement.move missing in data/components.json');
+
+// The pickup range the brain resolves each round: the same data-driven
+// pickUpItem definition the PickUpItemHandler validates against (the
+// single source of truth — the brain/handler contract under test here).
+const actions = DataLoader.loadJsonSafe('data/actions.json', {});
+const pickRange = actions.pickUpItem?.range;
+if (typeof pickRange !== 'number') throw new Error('pickUpItem.range missing in data/actions.json');
 
 function makeDrone(overrides = {}) {
     return {
@@ -122,6 +129,10 @@ function buildCraftLoopWorld(opts = {}) {
     const facade = {
         getEntity: (id) => (id === drone.id ? drone : null),
         getEntities: () => ({}),
+        // Mirrors the real facade's public API (WorldStateController.
+        // getActionRegistry): the brain resolves the pickup range through
+        // the live action registry — the same source as the handler.
+        getActionRegistry: () => actions,
         getEntityItems: (id) => {
             if (id !== drone.id) return {};
             const map = {};
@@ -218,11 +229,11 @@ describe('NpcAIController.craft_loop — Stage B (no knife held)', () => {
         expect(calls.executePickUpItem).toHaveLength(0);
     });
 
-    it('2. move — nearest in-room knife beyond PICK_RANGE → move queued with source "npc"', () => {
+    it('2. move — nearest in-room knife beyond the resolved pickup range → move queued with source "npc"', () => {
         const { brain, calls } = buildCraftLoopWorld({
             held: [],
             dropped: [
-                { id: 'kn-far', itemType: 'knife', roomId: ROOM_A, x: 150, y: 0 } // dist 150 > 100
+                { id: 'kn-far', itemType: 'knife', roomId: ROOM_A, x: 150, y: 0 } // dist 150 > 50 (the resolved pickUpItem range)
             ]
         });
 
@@ -275,11 +286,11 @@ describe('NpcAIController.craft_loop — Stage B (no knife held)', () => {
         expect(calls.craftItems).toHaveLength(0);
     });
 
-    it('4b. pick-up exactly AT the PICK_RANGE boundary (dist 100) → still picks up (≤)', () => {
+    it('4b. pick-up exactly AT the resolved pickup-range boundary (dist 50) → still picks up (≤)', () => {
         const { brain, calls } = buildCraftLoopWorld({
             held: [],
             dropped: [
-                { id: 'kn-edge', itemType: 'knife', roomId: ROOM_A, x: 100, y: 0 }
+                { id: 'kn-edge', itemType: 'knife', roomId: ROOM_A, x: 50, y: 0 }
             ]
         });
 
@@ -321,27 +332,39 @@ describe('NpcAIController.craft_loop — Stage B (no knife held)', () => {
         expect(calls.executePickUpItem).toHaveLength(0);
     });
 
-    it('4e. pickup rejected by the handler → clean idle (no throw, no queue, no retry this round)', () => {
+    it('4e. pickup rejected by the handler → fallback to the approach phase (move queued; rejection logged)', () => {
         const warnSpy = vi.spyOn(Logger, 'warn');
         const { brain, calls } = buildCraftLoopWorld({
             held: [],
             dropped: [
                 { id: 'kn-rej', itemType: 'knife', roomId: ROOM_A, x: 30, y: 0 }
             ],
-            // Mirrors the real handler's rejection shape ({ success, message }).
+            // Simulates a brain/handler range desync: the brain considered the
+            // item in range, but the handler rejects the pickup (the real
+            // rejection shape is { success, message }).
             executePickUpItem: () => ({ success: false, message: 'Item is out of range.' })
         });
 
         try {
             const result = brain.think(DRONE_ID, 1);
 
-            expect(result).toEqual({ acted: false, reason: 'idle' });
+            // Graceful degradation: instead of re-deriving the same pickup
+            // decision every round, the drone falls back to the approach
+            // phase — the following rounds close the distance and the pickup
+            // is retried, so the goal still completes under a desync.
+            expect(result.acted).toBe(true);
             expect(calls.executePickUpItem).toHaveLength(1);
-            expect(calls.queueAction).toHaveLength(0);
+            expect(calls.queueAction).toHaveLength(1);
+            expect(calls.queueAction[0]).toEqual({
+                entityId: DRONE_ID,
+                actionName: 'move',
+                params: { targetX: 30, targetY: 0 },
+                source: 'npc'
+            });
             expect(calls.executeAction).toHaveLength(0);
             expect(calls.craftItems).toHaveLength(0);
-            // M2: the rejection is visible in the log (with the item id),
-            // never a false success.
+            // The rejection is visible in the log (with the item id and the
+            // handler's reason), never a false success.
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('kn-rej'));
         } finally {
             warnSpy.mockRestore();
@@ -524,6 +547,9 @@ describe('NpcAIController.craft_loop — multi-round convergence simulation', ()
         const facade = {
             getEntity: (id) => (id === drone.id ? drone : null),
             getEntities: () => ({}),
+            // The brain resolves the pickup range through the live action
+            // registry — the same data-driven source as the handler.
+            getActionRegistry: () => actions,
             getEntityItems: (id) => {
                 if (id !== drone.id) return {};
                 const map = {};
@@ -605,10 +631,10 @@ describe('NpcAIController.craft_loop — multi-round convergence simulation', ()
             turnSystemController: turnSystem
         });
 
-        // Drive up to 10 rounds; the loop converges (drops the t1) once the
+        // Drive up to 20 rounds; the loop converges (drops the t1) once the
         // forged item is on the ground.
         const history = [];
-        for (let round = 1; round <= 10; round++) {
+        for (let round = 1; round <= 20; round++) {
             const appliedBefore = applied.length;
             const result = brain.think(DRONE_ID, round);
             history.push({
@@ -627,23 +653,24 @@ describe('NpcAIController.craft_loop — multi-round convergence simulation', ()
         return { drone, held, dropped, history, applied };
     }
 
-    it('10. convergence: move… → pick (≤ range) → craft + drop the T1 at the drone\'s position', () => {
+    it('10. convergence: move… → pick (≤ resolved range) → craft + drop the T1 at the drone\'s position', () => {
         const { drone, held, dropped, history, applied } = runConvergence();
 
         // Convergence within the budget: at least 3 rounds (moves + pick +
-        // craft/drop) and at most the 10-round budget.
+        // craft/drop) and at most the 20-round budget.
         expect(history.length).toBeGreaterThanOrEqual(3);
-        expect(history.length).toBeLessThanOrEqual(10);
+        expect(history.length).toBeLessThanOrEqual(20);
 
-        // Approach phase: the knife is 150 away and the drone moves `stepSize`
-        // units/round until it reaches the PICK_RANGE boundary →
-        // ceil((150 - PICK_RANGE) / stepSize) move rounds, then the pick-up
+        // Approach phase: the knife is 150 away and the drone moves
+        // `stepSize` units/round until it reaches the resolved pickup-range
+        // boundary (the data-driven pickUpItem range, 50) →
+        // ceil((150 - pickRange) / stepSize) move rounds, then the pick-up
         // happens (zero-cost: no turn action applied that round).
         const moveRounds = history.filter(h => h.actions.includes('move'));
-        const approachDistance = 150 - PICK_RANGE;
+        const approachDistance = 150 - pickRange;
         expect(moveRounds.length).toBe(Math.ceil(approachDistance / stepSize));
         const pickRound = history.findIndex(h => h.held.some(id => id.startsWith('knife-')));
-        expect(pickRound).toBe(5);
+        expect(pickRound).toBe(10);
         expect(history[pickRound].actions).toHaveLength(0);
 
         // After the knife is held, no more moves: the craft is zero-cost and

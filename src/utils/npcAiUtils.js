@@ -5,13 +5,53 @@
  * @module npcAiUtils
  */
 
+import { resolveRange } from '../../shared/RangeResolver.js';
+import { ACTION_NAMES } from '../../shared/ActionVocabulary.js';
+import { PICK_UP_RANGE_FALLBACK } from './Constants.js';
+
 /**
- * Maximum distance (world-space units) at which the craft_loop behavior picks
- * up a dropped item. Keep in sync with PickUpItemHandler.maxRange and the
- * dropItem action range in data/actions.json (both 100).
- * @constant {number}
+ * Resolves the pickup range (world-space units) used by the craft_loop
+ * behavior's Stage C "in range → pick up" decision.
+ *
+ * WHY (single source of truth — see the "Shared Modules" contract in
+ * wiki/map.md): the pickup range has exactly one definition — the
+ * `pickUpItem` action in data/actions.json, resolved through the shared
+ * RangeResolver with the shared PICK_UP_RANGE_FALLBACK for missing data.
+ * This function follows the exact same resolution path as
+ * PickUpItemHandler (registry lookup → resolver → fallback), so the brain's
+ * in-range decision and the handler's validation derive from the same value
+ * by construction and can no longer drift. The previous hardcoded
+ * `PICK_RANGE = 100` was precisely that drift: after the handler became
+ * data-driven (50), the brain kept issuing pickups the handler rejected.
+ *
+ * Only the facade's public API is used (no internal state of other
+ * controllers): `getActionRegistry()` and — for string expressions — the
+ * injected requirement resolver, the same access shape the handler uses.
+ *
+ * @param {Object} facade — world state facade (the injected
+ *   WorldStateController public API)
+ * @param {Object} entity — the acting entity (its id feeds the requirement
+ *   values when the range is a string expression)
+ * @returns {number} the resolved pickup range in world-space units
  */
-export const PICK_RANGE = 100;
+export function resolvePickUpRange(facade, entity) {
+    const actionRegistry = (facade && typeof facade.getActionRegistry === 'function')
+        ? (facade.getActionRegistry() || {})
+        : {};
+    const pickUpAction = actionRegistry[ACTION_NAMES.PICK_UP_ITEM];
+    const rangeExpression = pickUpAction?.range;
+
+    let maxRange = PICK_UP_RANGE_FALLBACK;
+    if (typeof rangeExpression === 'number') {
+        maxRange = rangeExpression;
+    } else if (typeof rangeExpression === 'string' && rangeExpression.trim() !== '') {
+        const requirementValues = (facade && facade.actionController?.requirementResolver)
+            ? facade.actionController.requirementResolver.resolveEntityRequirementValues(entity?.id)
+            : {};
+        maxRange = resolveRange(rangeExpression, requirementValues, PICK_UP_RANGE_FALLBACK);
+    }
+    return maxRange;
+}
 
 /**
  * Recipe id the craft_loop behavior uses to convert one foraged item into an
@@ -56,9 +96,11 @@ export function hasDeterministicBrain(entity) {
  *
  * Single owner of the spatial guards: entries without a matching `roomId`,
  * or with non-finite coordinates, are skipped. The pickup-range rule
- * (PICK_RANGE) is deliberately NOT part of this helper — it is owned by the
- * calling behavior (craft_loop), mirroring how chase_attack applies its own
- * attack range after selecting its nearest target.
+ * (resolvePickUpRange — the same data-driven pickUpItem range the
+ * PickUpItemHandler validates against) is deliberately NOT part of this
+ * helper — it is owned by the calling behavior (craft_loop), mirroring how
+ * chase_attack applies its own attack range after selecting its nearest
+ * target.
  *
  * Returns `{ item, distance }` for the nearest qualifying entry, or null
  * when no candidate exists (empty input, no items in the room, or no

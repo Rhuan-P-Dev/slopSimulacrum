@@ -19,7 +19,7 @@ import Logger from '../../utils/Logger.js';
 import {
     hasDeterministicBrain,
     findNearestDroppedItem,
-    PICK_RANGE,
+    resolvePickUpRange,
     RECIPE_ID,
     TARGET_ITEM_TYPE,
     CRAFT_OUTPUT_TYPE
@@ -451,10 +451,16 @@ class NpcAIController {
      *   Stage B — no item held: scan dropped items for the target item type in
      *            the drone's OWN room only. None → idle.
      *   Stage C — nearest in-room item (Euclidean distance, id tie-break):
-     *            distance ≤ PICK_RANGE → immediate zero-cost pickup on the core
-     *            component (returns idle); beyond PICK_RANGE → a move action
-     *            toward the item, repeated each round until in range (no
-     *            pathfinding — identical pattern to chase_attack).
+     *            distance ≤ the resolved pickup range (each round, from the
+     *            data-driven pickUpItem action definition — the same source
+     *            the PickUpItemHandler validates against) → immediate
+     *            zero-cost pickup on the core component (returns idle);
+     *            beyond → a move action toward the item, repeated each round
+     *            until in range (no pathfinding — identical pattern to
+     *            chase_attack). If the in-range pickup is rejected by the
+     *            handler (e.g. a range desync), the drone falls back to the
+     *            approach phase instead of re-deriving the pickup forever
+     *            (graceful degradation — the goal still completes).
      *
      * After the drop, the loop returns to Stage B on the next round. No RNG.
      *
@@ -551,11 +557,15 @@ class NpcAIController {
     /**
      * Stages B + C — the drone holds no target item: scan the world's dropped
      * items for the target item type (the helper owns the room and finite-
-     * coordinate guards), then act on the nearest in-room item — within
-     * PICK_RANGE: immediate zero-cost pickup on the core component (idle this
-     * round); beyond: a move action toward the item, repeated each round until
-     * in range (no pathfinding — identical pattern to chase_attack). Returns
-     * null (idle) when no candidate item exists.
+     * coordinate guards), then act on the nearest in-room item — within the
+     * resolved pickup range (the data-driven pickUpItem range, the same
+     * source as the PickUpItemHandler): immediate zero-cost pickup on the
+     * core component (idle this round); beyond: a move action toward the
+     * item, repeated each round until in range (no pathfinding — identical
+     * pattern to chase_attack). If the in-range pickup is rejected by the
+     * handler, the stage falls back to the approach phase (a move) instead
+     * of re-deriving the same pickup decision every round. Returns null
+     * (idle) when no candidate item exists.
      *
      * @param {Object} ctx
      * @param {Object} ctx.entity
@@ -586,12 +596,26 @@ class NpcAIController {
         }
 
         const { item: targetItem, distance } = nearest;
-        if (distance <= PICK_RANGE) {
-            this._craftLoopAttemptPickup(entity, round, facade, targetItem, distance, targetItemType);
-            return null; // the pickup is free — nothing to queue this round
+        // The brain's range decision resolves from the same data-driven
+        // pickUpItem definition the handler validates against — the two
+        // cannot drift (single source of truth, see resolvePickUpRange).
+        const pickRange = resolvePickUpRange(facade, entity);
+        if (distance <= pickRange) {
+            const pickedUp = this._craftLoopAttemptPickup(entity, round, facade, targetItem, distance, pickRange, targetItemType);
+            if (pickedUp) {
+                return null; // the pickup is free — nothing to queue this round
+            }
+            // Graceful degradation: the handler rejected the in-range pickup
+            // (range desync, stale target, capacity, ...). Instead of
+            // re-deriving the same pickup decision every round, the drone
+            // falls back to the approach phase — it keeps converging on the
+            // item and retries the pickup as it closes, so the goal still
+            // completes even under a desync.
+            Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} pickup of ${targetItem.id} rejected — falling back to the approach phase (dist: ${distance.toFixed(1)}, pick range: ${pickRange}).`);
         }
 
-        // Out of range → move toward the item (repeats each round; no pathfinding).
+        // Out of range (or the in-range pickup was rejected) → move toward
+        // the item (repeats each round; no pathfinding).
         return {
             actionName: CRAFT_MOVE_ACTION,
             params: { targetX: targetItem.x, targetY: targetItem.y }
@@ -601,37 +625,43 @@ class NpcAIController {
     /**
      * Immediate zero-cost pickup of an in-range dropped item on the drone's core
      * component (kept out of the 6-volume arms so the forged container fits,
-     * spec §1). The handler re-validates at call time; on rejection the drone
-     * re-derives next round (stateless) — but the rejection must be visible in
-     * the log (code_quality_and_best_practices.md §3.1). See M2.
+     * spec §1). The handler re-validates at call time; on rejection the
+     * rejection must be visible in the log
+     * (code_quality_and_best_practices.md §3.1) and the caller falls back to
+     * the approach phase instead of re-deriving the same pickup decision
+     * forever. See M2.
      *
      * @param {Object} entity
      * @param {number} round
      * @param {Object} facade — world state facade (public API only)
      * @param {Object} item — the dropped item entry (in range, in the drone's room)
      * @param {number} distance — pre-computed distance to the item
+     * @param {number} pickRange — the resolved pickup range (for logging)
      * @param {string} targetItemType
+     * @returns {boolean} true when the pickup was committed, false when the
+     *   handler rejected it (or the dispatcher is missing)
      * @private
      */
-    _craftLoopAttemptPickup(entity, round, facade, item, distance, targetItemType) {
+    _craftLoopAttemptPickup(entity, round, facade, item, distance, pickRange, targetItemType) {
         const core = (Array.isArray(entity.components) ? entity.components : [])
             .find(comp => comp && comp.type === CRAFT_CORE_COMPONENT_TYPE);
         if (!core) {
             Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} has no ${CRAFT_CORE_COMPONENT_TYPE} component — cannot pick up ${item.id}.`);
-            return;
+            return false;
         }
 
         const pickResult = facade.executePickUpItem?.(entity.id, item.id, core.id);
         if (pickResult && pickResult.success) {
-            Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} picked up dropped ${targetItemType} ${item.id} (dist: ${distance.toFixed(1)} ≤ ${PICK_RANGE}).`);
-        } else {
-            // Visible graceful degradation: the handler rejected the pickup
-            // (stale target, out-of-range, capacity, nested children, or the
-            // dispatcher is missing). The drone is stateless and re-derives next
-            // round — but the rejection is logged (with the handler's reason)
-            // instead of a false success.
-            Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} pickup of ${item.id} rejected (${pickResult?.message || pickResult?.code || 'unknown'}) — re-derives next round.`);
+            Logger.debug(`[NpcAI] Round ${round}: ${entity.name || entity.id} picked up dropped ${targetItemType} ${item.id} (dist: ${distance.toFixed(1)} ≤ ${pickRange}).`);
+            return true;
         }
+        // Visible graceful degradation: the handler rejected the pickup
+        // (stale target, out-of-range, capacity, nested children, or the
+        // dispatcher is missing). The caller falls back to the approach
+        // phase — but the rejection is logged (with the handler's reason)
+        // instead of a false success.
+        Logger.warn(`[NpcAI] Round ${round}: ${entity.name || entity.id} pickup of ${item.id} rejected (${pickResult?.message || pickResult?.code || 'unknown'}).`);
+        return false;
     }
 
     /**

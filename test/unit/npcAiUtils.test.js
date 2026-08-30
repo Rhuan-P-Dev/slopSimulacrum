@@ -1,6 +1,8 @@
 /**
- * npcAiUtils unit tests — edge cases for `hasDeterministicBrain` and the
- * craft_loop configuration constants / `findNearestDroppedItem` helper.
+ * npcAiUtils unit tests — edge cases for `hasDeterministicBrain`, the
+ * craft_loop configuration constants, the data-driven `resolvePickUpRange`
+ * (the brain/handler single source of truth for the pickup range), and the
+ * `findNearestDroppedItem` helper.
  *
  * Mirrors the existing M3 edge-case set from test/unit/NpcAIController.test.js
  * so the predicate behaves identically when called directly from the util.
@@ -10,10 +12,11 @@
 
 import { describe, it, expect } from 'vitest';
 import DataLoader from '../../src/utils/DataLoader.js';
+import { PICK_UP_RANGE_FALLBACK } from '../../src/utils/Constants.js';
 import {
     hasDeterministicBrain,
     findNearestDroppedItem,
-    PICK_RANGE,
+    resolvePickUpRange,
     RECIPE_ID,
     TARGET_ITEM_TYPE,
     CRAFT_OUTPUT_TYPE
@@ -70,16 +73,60 @@ describe('hasDeterministicBrain (npcAiUtils)', () => {
 });
 
 describe('craft_loop configuration constants (npcAiUtils)', () => {
-    it('exposes the pickup range, recipe id, and item types used by the behavior', () => {
-        // Keep-in-sync contract (PICK_RANGE JSDoc / spec R9): PICK_RANGE must
-        // equal the dropItem range in the shared data file — the value
-        // PickUpItemHandler.maxRange mirrors. Asserting against the data
-        // source (not a literal) makes drift fail here, not in the wild.
-        const actions = DataLoader.loadJsonSafe('data/actions.json', {});
-        expect(PICK_RANGE).toBe(actions.dropItem?.range);
+    it('exposes the recipe id and item types used by the behavior', () => {
         expect(RECIPE_ID).toBe('single_knife_to_t1');
         expect(TARGET_ITEM_TYPE).toBe('knife');
         expect(CRAFT_OUTPUT_TYPE).toBe('t1');
+    });
+});
+
+describe('resolvePickUpRange (npcAiUtils) — single source of truth shared with the handler', () => {
+    // The pickup range has exactly one definition: the pickUpItem action in
+    // data/actions.json, resolved through the shared RangeResolver with the
+    // shared PICK_UP_RANGE_FALLBACK for missing data. The brain and the
+    // PickUpItemHandler both resolve through this path, so any drift fails
+    // here, not in the wild.
+    const actions = DataLoader.loadJsonSafe('data/actions.json', {});
+    const ENTITY = { id: 'ent-rng-0001' };
+
+    it('resolves the pickUpItem range from the live action registry (numeric pass-through)', () => {
+        const facade = { getActionRegistry: () => actions };
+        const resolved = resolvePickUpRange(facade, ENTITY);
+        // Same value the PickUpItemHandler validates against.
+        expect(resolved).toBe(actions.pickUpItem.range);
+        // Data file and shared fallback are in sync today.
+        expect(resolved).toBe(PICK_UP_RANGE_FALLBACK);
+    });
+
+    it('falls back to PICK_UP_RANGE_FALLBACK when the registry is unavailable or lacks the action/range', () => {
+        expect(resolvePickUpRange(null, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
+        expect(resolvePickUpRange({}, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
+        expect(resolvePickUpRange({ getActionRegistry: () => ({}) }, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
+        expect(resolvePickUpRange({ getActionRegistry: () => ({ pickUpItem: {} }) }, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
+        expect(resolvePickUpRange({ getActionRegistry: () => ({ pickUpItem: { range: '' } }) }, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
+    });
+
+    it('resolves string expressions through the injected requirement resolver (same path as the handler)', () => {
+        const facade = {
+            getActionRegistry: () => ({ pickUpItem: { range: ':Physical.strength*2+3' } }),
+            actionController: {
+                requirementResolver: {
+                    resolveEntityRequirementValues: (id) =>
+                        (id === ENTITY.id ? { 'Physical.strength': 10 } : {})
+                }
+            }
+        };
+        expect(resolvePickUpRange(facade, ENTITY)).toBe(23); // 10*2+3
+    });
+
+    it('falls back to PICK_UP_RANGE_FALLBACK when a string expression is unresolvable', () => {
+        const facade = {
+            getActionRegistry: () => ({ pickUpItem: { range: ':Unknown.stat' } }),
+            actionController: {
+                requirementResolver: { resolveEntityRequirementValues: () => ({}) }
+            }
+        };
+        expect(resolvePickUpRange(facade, ENTITY)).toBe(PICK_UP_RANGE_FALLBACK);
     });
 });
 
