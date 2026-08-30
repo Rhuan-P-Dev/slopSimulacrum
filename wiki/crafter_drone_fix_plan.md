@@ -4,6 +4,10 @@
 **Status:** Analysis complete — every recommendation below is grounded in the actual current code (line numbers verified; corrections to the checker's line references are marked inline).
 **Contract:** The Code subtask implements this plan verbatim. The scope guard at the end is binding.
 
+**Post-plan update — pickup-range contract (root-cause C, supersedes the range-related content below):** the follow-up this plan left open (L5/M2: "pin `PickUpItemHandler.maxRange` against `data/actions.json` mechanically") has since been resolved, and the body's range-related statements are superseded. `PICK_RANGE = 100` no longer exists in `src/utils/npcAiUtils.js`: the brain now resolves the pickup range each round from the `pickUpItem` action in `data/actions.json` through the shared `RangeResolver` (shared `PICK_UP_RANGE_FALLBACK`) — the exact same path the `PickUpItemHandler` uses — so the brain's in-range decision and the handler's validation cannot drift (the L5 cross-assertion now lives in `test/unit/npcAiUtils.test.js` as coverage of `resolvePickUpRange` against the data file). And when an in-range pickup is rejected by the handler, `craft_loop` falls back to the approach phase (logged at WARN) instead of re-deriving the same pickup decision every round, so the drone still completes its goal under a desync. This note is the authoritative current contract; the plan body below is the historical record of the earlier batch.
+
+**Post-plan update — v2 turn-machine rebase of the contract test (root-cause B, supersedes the turn-driving content below):** the turn machine has since moved to the event-driven v2 (see `wiki/llm_turns_npc_spec.md` §5.1): the roster NPCs' agent callbacks fire at round start, the planning window closes when every roster planner signals (no deadline), close and resolution complete inside the same tick call, and the next round starts on the next tick. The three round-geometry constants the v1 driver relied on (`TURN_ROUND_TICKS`, `TURN_NPC_AGENT_TICK`, `TURN_PLANNING_TICKS`) were removed from `src/utils/Constants.js` by that v2 refactor (`d15fcb6`/`9460fc2`) — but the contract test kept importing them, the imports became `undefined`, and the driver's NaN round base poisoned the tick clock (`tick.currentTick = NaN`). WHY the fix took two parts: (1) `test/contract/crafterDrone.contract.test.js` was rebased to drive **one `onTick()` per round** plus a small settle window — the queue is inspected synchronously between the agent firing and the settled close/resolution (the v2 analogue of the old "between agent tick and resolution"), and the measured convergence at the data-driven pickup range 50 (10 px/round) is 7 approach moves → pickup at exactly 50 → craft + drop, i.e. the T1 appears after 9 rounds; (2) `TurnSystemController._currentTick()` now **rejects non-finite clock values** (warn with the raw value, existing fallback) so a corrupt clock can never masquerade as a tick again. The M5 text below records the v1 era as history; only its rogue-fact content (registry spawn at room center, 20-unit per-move step) remains current.
+
 Verified sources (current state, all line numbers checked before writing this plan):
 [`src/controllers/ai/NpcAIController.js`](../../src/controllers/ai/NpcAIController.js) (691 lines),
 [`src/utils/npcAiUtils.js`](../../src/utils/npcAiUtils.js) (95 lines),
@@ -345,9 +349,9 @@ Documented exceptions (leave, with a one-line comment each — the checker's own
 
 **Root cause.** Spec §7.2.5 ([`crafter_drone_spec.md:304`](crafter_drone_spec.md:304)) requires "the existing `smallBallDroid` (chase_attack) … still spawns and (if cheap) still pursues"; instead both existing contract tests *despawn* the rogue first (lines 165, 203) and nothing ever drives it. The drone feature changed boot-time world population (+1 NPC in `start_room`, spec R7) — exactly the condition that could silently regress the rogue's boot/pursuit, and code_quality §5.1 (regression protection) has no test for it.
 
-**Ground truth for the test** (verified): the rogue boots via `_spawnNpcs` from [`data/npcs.json:10-15`](../../data/npcs.json) — blueprint `smallBallDroid`, displayName "Rogue Droid", `ai.behavior: 'chase_attack'`, **no** `attackRange` override → the brain resolves the `droid punch` registry range (100, [`data/actions.json`](../../data/actions.json) component-targeting entry) or the `DEFAULT_ATTACK_RANGE_FALLBACK = 100` ([`NpcAIController.js:30`](../../src/controllers/ai/NpcAIController.js:30)). It spawns at the room center — the **same point** as the drone (both at `room.x + width/2, room.y + height/2` = 150,100 in the 300×200 `start_room`), so the test must displace it first. Turn machinery: [`TurnSystemController`](../../src/controllers/core/TurnSystemController.js) `onTick` (243) → `_roundStart` (252, local tick 0: clears queues, computes initiative) → `_fireAgentTick` (258, local tick `TURN_NPC_AGENT_TICK = 20`: fire-and-forget agent callback per NPC) → resolution at local tick `TURN_PLANNING_TICKS = 300`; `getQueuedActions(entityId)` (361) exposes the queue for inspection; `_isRunning()` (230) is true for `new UniversalTickSystem(30)` because `currentTick` is numeric. The rogue's per-`move` step is 20 (`droidRollingBall.traits.Movement.move = 20`, [`data/components.json:42`](../../data/components.json:42)).
+**Ground truth for the test** (verified): the rogue boots via `_spawnNpcs` from [`data/npcs.json:10-15`](../../data/npcs.json) — blueprint `smallBallDroid`, displayName "Rogue Droid", `ai.behavior: 'chase_attack'`, **no** `attackRange` override → the brain resolves the `droid punch` registry range (100, [`data/actions.json`](../../data/actions.json) component-targeting entry) or the `DEFAULT_ATTACK_RANGE_FALLBACK = 100` ([`NpcAIController.js:30`](../../src/controllers/ai/NpcAIController.js:30)). It spawns at the room center — the **same point** as the drone (both at `room.x + width/2, room.y + height/2` = 150,100 in the 300×200 `start_room`), so the test must displace it first. Turn machinery (v2 — the original v1 description, based on three tick-geometry constants later removed from `src/utils/Constants.js`, is superseded; see the post-plan update in the header): event-driven rounds — the roster's agent callbacks fire at round start, the planning window closes when every roster planner signals (no deadline), and close + resolution complete inside the same tick call; `getQueuedActions(entityId)` exposes the in-flight queue for inspection between the agent firing and the settled resolution. The rogue's per-`move` step is 20 (`droidRollingBall.traits.Movement.move = 20`, [`data/components.json:42`](../../data/components.json:42)).
 
-**Specific fix.** Add test 5 to `test/contract/crafterDrone.contract.test.js` (after test 4, line 236). It drives ONE round manually — the exact three `onTick` calls of the existing `registerBrainAndDrive` helper (lines 103–111) — but stops between the agent tick and resolution to inspect the queue (which is why it cannot reuse the helper as-is):
+**Specific fix.** Add test 5 to `test/contract/crafterDrone.contract.test.js` (after test 4, line 236). It drives ONE round manually and inspects the queue between the agent firing and the resolution — in v2 that window is synchronous (the tick call fires the agents; the close/resolution settles right after it) — which is why it cannot reuse `registerBrainAndDrive` as-is:
 
 ```js
 it('5. regression guard (spec §7.2.5): the rogue droid still spawns with chase_attack and still pursues over a driven round', async () => {
@@ -383,12 +387,11 @@ it('5. regression guard (spec §7.2.5): the rogue droid still spawns with chase_
         return { acted: false };
     });
 
-    // Drive ONE round, inspecting the queue between agent tick and resolution.
-    const base = (Math.floor(tick.currentTick / TURN_ROUND_TICKS) + 1) * TURN_ROUND_TICKS;
-    tick.currentTick = base;                      // round start (queue cleared)
-    turns.onTick();
-    tick.currentTick = base + TURN_NPC_AGENT_TICK; // agent slot — brains fire
-    turns.onTick();
+    // Drive ONE round, inspecting the queue between agent fire and resolution.
+    // (v1 geometry — three onTick calls per round based on the TURN_*
+    //  constants — was removed by the v2 refactor and is superseded by the
+    //  post-plan update in the header: one onTick per round, then the settle
+    //  window; the queue is inspected synchronously after that call.)
     await new Promise(res => setTimeout(res, 25)); // same settle margin as the helper
 
     // The rogue queued a MOVE toward the drone's position (its nearest entity).
@@ -402,11 +405,11 @@ it('5. regression guard (spec §7.2.5): the rogue droid still spawns with chase_
     // react to the rogue.
     expect(turns.getQueuedActions(drone.id)).toHaveLength(0);
 
-    // Resolution applies the queued move: the rogue closes 20 units (120 → 100).
+    // The queued move is applied by the resolution that settled in the
+    // window: the rogue closes 20 units (120 → 100). (v1 had a separate
+    // resolution tick — the v2 machine does not; see the header.)
     const before = world.getEntity(rogue.id).spatial;
     const distBefore = Math.hypot(center.x - before.x, center.y - before.y);
-    tick.currentTick = base + TURN_PLANNING_TICKS; // resolution
-    turns.onTick();
 
     const after = world.getEntity(rogue.id).spatial;
     const distAfter = Math.hypot(center.x - after.x, center.y - after.y);
@@ -539,7 +542,7 @@ const stepSize = components.crafterRollingBall?.traits?.Movement?.move;
 if (typeof stepSize !== 'number') throw new Error('crafterRollingBall.Movement.move missing in data/components.json');
 ```
 (line 594) make the consequence formulaic: `const approachDistance = 150 - PICK_RANGE;` … `expect(moveRounds.length).toBe(Math.ceil(approachDistance / stepSize));` (currently 50/10 = 5 — identical).
-**Fix (setTimeout) — recommendation: no change in this batch.** The sleep is pure settle margin for the fire-and-forget agent slot ([`TurnSystemController._fireAgentTick`](../../src/controllers/core/TurnSystemController.js:258)); the brain callback used in these tests is synchronous, so the margin is harmless, and the whole suite (45 files) runs on the same pattern. If a genuinely async agent (e.g. LLM) is ever wired into these contract tests, replace the sleep with capturing the promise returned by the agent callback in the test's own `setNpcAgent` wrapper. Add a one-line comment at line 108 noting that constraint (comment-only).
+**Fix (setTimeout) — recommendation: no change in this batch.** The sleep is pure settle margin for the fire-and-forget agent slot (v2: the agent fires at round start in [`TurnSystemController._fireNpcAgents`](../../src/controllers/core/TurnSystemController.js:677); the v1 `_fireAgentTick` slot no longer exists); the brain callback used in these tests is synchronous, so the margin is harmless, and the whole suite runs on the same pattern. If a genuinely async agent (e.g. LLM) is ever wired into these contract tests, replace the sleep with capturing the promise returned by the agent callback in the test's own `setNpcAgent` wrapper. Add a one-line comment noting that constraint (comment-only).
 **Risk.** The derived `stepSize` must stay equal to what the real turn pipeline applies per `move` (it does: one `Movement.move` stat value is resolved per action; both `crafterRollingBall` entries are 10, and the existing green suite with stepSize 10 proves the resolution). Suite count unchanged. **Prevention:** "simulation constants derive from the same data files the system under test loads" — note it in the test file header.
 
 ### L7 — `data/crafting.json` formatting inconsistency (OPTIONAL)

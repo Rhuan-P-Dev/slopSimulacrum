@@ -45,7 +45,7 @@ These are the existing capabilities the design deliberately reuses instead of bu
 
 - **A single programmatic action executor already exists.** It runs range, requirements, synergy, and consequences and needs no prior selection state. The turn system reuses this exact path — **there is no second executor**.
 - **A single broadcast choke point** already fans out full-state updates; any sub-controller that exposes a read-all method automatically appears in every full-state payload.
-- **A deterministic tick loop** already runs jobs at a fixed cadence and persists the current tick, so round timing can be derived from it.
+- **A deterministic tick loop** already runs jobs at a fixed cadence and persists the current tick. The turn machine only *observes* that clock for bookkeeping — rounds are event-driven and nothing about round structure is derived from it (§5.1). A corrupt clock value (e.g. NaN) must never masquerade as a tick, so the clock is read defensively at the single read point (non-finite values are rejected with a warn and a fallback), which keeps a stale external caller from poisoning the round state.
 - **The event ring buffer is the only new *state* Feature B introduces.** Everything else in the LLM-facing layer is pure composition of injected state.
 - **State lives in sub-controllers.** So each new state owner is a sub-controller that can opt into (or deliberately out of) the full-state aggregation.
 
