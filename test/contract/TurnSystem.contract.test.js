@@ -36,6 +36,14 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 /**
  * Builds a fresh world wired to a (non-started) tick system. Returns the
  * facade, the tick system, the turn system controller, and spawns a test droid.
+ *
+ * The roster is kept DETERMINISTIC against data/npcs.json: all data-driven
+ * NPCs are despawned before the first tick EXCEPT one, so the round-start
+ * roster is always [one data-driven NPC, test droid] = 2 planners — the
+ * invariant the barrier assertions below rely on (readyCount, the signaled
+ * set in the serialize/restore round-trip). Without this pin, npcs.json
+ * growth (the crafterDrone merge 7b54605) silently added planners and broke
+ * those assertions.
  * @returns {{ world: import('../../src/controllers/WorldStateController.js'), tick: UniversalTickSystem, turns: import('../../src/controllers/core/TurnSystemController.js'), entityId: string }}
  */
 function buildWorld() {
@@ -44,6 +52,9 @@ function buildWorld() {
     // Spawn a test droid entity (default world has no pre-spawned droids).
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    // Keep a single data-driven NPC (first in registry order); despawn the rest.
+    const npcs = Object.values(world.stateEntityController.entities).filter(e => e.isNPC === true);
+    for (let i = 1; i < npcs.length; i++) world.despawnEntity(npcs[i].id);
     return { world, tick, turns: subControllers.turnSystemController, entityId };
 }
 

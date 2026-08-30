@@ -4,10 +4,13 @@
  * Driven WITHOUT real timers (same contract as TurnSystem.contract.test.js):
  * build the world, set tickSystem.currentTick = N, call turnSystem.onTick().
  *
- * World note: the default world spawns ONE data-driven NPC ("Rogue Droid"
- * from data/npcs.json) in addition to the test droid, so a plain buildWorld()
- * roster has 2 planners. `buildSoloWorld()` despawns the NPC before the
- * first tick so the roster is exactly the test droid (single-entity world).
+ * World note: buildWorld() pins the roster to exactly ONE data-driven NPC
+ * from data/npcs.json (all extras are despawned before the first tick) in
+ * addition to the test droid, so a plain buildWorld() roster always has
+ * 2 planners — deterministic against npcs.json growth (the crafterDrone
+ * merge 7b54605 broke this invariant and drifted this suite).
+ * `buildSoloWorld()` despawns that remaining NPC before the first tick so
+ * the roster is exactly the test droid (single-entity world).
  *
  * v2 note: planning has NO deadline — the barrier closes only when every
  * roster planner has signaled plan-complete (a removal counts as vacuously
@@ -76,13 +79,22 @@ import Logger from '../../src/utils/Logger.js';
 /**
  * Builds a fresh world wired to a (non-started) tick system, spawns the test
  * droid, and returns the facade + tick system + turn system + droid id.
- * The roster at round start is [data-driven NPC, test droid].
+ *
+ * The roster is kept DETERMINISTIC against data/npcs.json: all data-driven
+ * NPCs are despawned before the first tick EXCEPT one, so the round-start
+ * roster is always [one data-driven NPC, test droid] = 2 planners — the
+ * invariant every test in this file was written against. Without this pin,
+ * npcs.json growth (the crafterDrone merge 7b54605) silently added planners
+ * and broke the all-ready barrier / single-NPC agent assertions.
  */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    // Keep a single data-driven NPC (first in registry order); despawn the rest.
+    const npcs = Object.values(world.stateEntityController.entities).filter(e => e.isNPC === true);
+    for (let i = 1; i < npcs.length; i++) world.despawnEntity(npcs[i].id);
     return { world, tick, turns: subControllers.turnSystemController, entityId };
 }
 
