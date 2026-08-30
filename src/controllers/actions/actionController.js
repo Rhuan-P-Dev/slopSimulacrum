@@ -7,21 +7,7 @@ import ComponentResolver from './ComponentResolver.js';
 import RequirementResolver from './RequirementResolver.js';
 import ConsequenceDispatcher from '../consequences/ConsequenceDispatcher.js';
 import IdResolver from '../../utils/IdResolver.js';
-
-/**
- * Component action binding roles — defines which body part participates in which action.
- * Enforces the "one body part, one action" rule: if you use your right leg to jump,
- * you cannot use it to attack simultaneously.
- *
- * @readonly
- * @enum {string}
- */
-const BINDING_ROLES = {
-    SOURCE: 'source',           // Component providing the action's power/stats (e.g., droidHand for punch)
-    TARGET: 'target',           // Component being affected (e.g., enemy's droidArm taking damage)
-    SPATIAL: 'spatial',         // Component driving movement (e.g., droidRollingBall for move/dash)
-    SELF_TARGET: 'self_target'  // Component self-affecting (e.g., centralBall for selfHeal)
-};
+import { BINDING_ROLES, TARGETING_TYPES, TARGET_ANCHORS } from '../../../shared/ActionVocabulary.js';
 
 /**
  * Error code registry for structured error handling.
@@ -290,7 +276,7 @@ class ActionController {
 
             // ─── Build Component List (delegated to ComponentResolver) ────────
             const { componentList, sourceComponentId } = this.componentResolver.buildComponentList(params);
-            const isSpatial = action.targetingType === 'spatial';
+            const isSpatial = action.targetingType === TARGETING_TYPES.SPATIAL;
 
             // ─── Component Selection Validation ───────────────────────────────
             if (this.actionSelectController && sourceComponentId && !isSpatial) {
@@ -321,7 +307,7 @@ class ActionController {
             if (params?.attackerComponentId) {
                 attackerComponentIds = [params.attackerComponentId];
             } else if (params?.componentIds && Array.isArray(params.componentIds)) {
-                attackerComponentIds = params.componentIds.filter(c => c.role === 'source').map(c => c.componentId);
+                attackerComponentIds = params.componentIds.filter(c => c.role === BINDING_ROLES.SOURCE).map(c => c.componentId);
             } else if (params?.componentId) {
                 // Singular componentId from LLM agent tool calls
                 attackerComponentIds = [params.componentId];
@@ -483,7 +469,7 @@ class ActionController {
 
             // Data-driven: ANY component-targeted action supports multi-attacker synergy
             let consequenceResult;
-            if (action.targetingType === 'component' && attackerComponentIds.length > 1 && params.targetComponentId) {
+            if (action.targetingType === TARGETING_TYPES.COMPONENT && attackerComponentIds.length > 1 && params.targetComponentId) {
                 consequenceResult = this.consequenceDispatcher.executeMultiAttacker(
                     actionName, entityId, attackerComponentIds, params, synergyResult
                 );
@@ -660,7 +646,7 @@ class ActionController {
         const segments = typeof damageSource === 'string' && damageSource !== ''
             ? damageSource.split('.').filter(Boolean)
             : [];
-        if (segments.length === 0 || segments[0] !== 'equippedItem') {
+        if (segments.length === 0 || segments[0] !== TARGET_ANCHORS.EQUIPPED_ITEM) {
             Logger.warn(`[ActionController] Unsupported damageSource anchor "${damageSource}" (expected "equippedItem...").`);
             return null;
         }

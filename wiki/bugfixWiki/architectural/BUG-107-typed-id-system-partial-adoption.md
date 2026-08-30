@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ⚠️ Known
-- **Fixed In**: `pending`
+- **Fixed In**: `pending` — partially advanced: the typed-ID prefix family now has a single shared definition in `shared/IdPrefixes.js` imported by both layers (client per-file prefix/slice drift resolved); other Prevention items still open
 - **Related Files**: `src/controllers/capabilities/componentCapabilityController.js`, `src/controllers/WorldStateController.js`, `src/routes/*.js`, `src/services/WorldStateBroadcastService.js`, `public/js/*.js`
 
 ## Symptoms

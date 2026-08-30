@@ -1,4 +1,5 @@
 import Logger from './Logger.js';
+import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
 /**
  * IdResolver — Utility for parsing, validating, and resolving typed IDs.
@@ -15,11 +16,13 @@ import Logger from './Logger.js';
  * @module IdResolver
  */
 
+// Rebuilt from the shared typed-ID family (single source of truth); the
+// short keys are preserved so the public export shape stays identical.
 const ID_TYPE_PREFIXES = {
-    ent: 'ent-',
-    comp: 'comp-',
-    item: 'item-',
-    eq: 'eq-'
+    ent: ID_PREFIXES.ENTITY,
+    comp: ID_PREFIXES.COMPONENT,
+    item: ID_PREFIXES.ITEM,
+    eq: ID_PREFIXES.EQUIPPED
 };
 
 /**
@@ -55,7 +58,7 @@ export function parseId(id) {
  * @returns {boolean}
  */
 export function isEntityId(id) {
-    return typeof id === 'string' && id.startsWith('ent-');
+    return isPrefixed(id, ID_PREFIXES.ENTITY);
 }
 
 /**
@@ -64,7 +67,7 @@ export function isEntityId(id) {
  * @returns {boolean}
  */
 export function isCompId(id) {
-    return typeof id === 'string' && id.startsWith('comp-');
+    return isPrefixed(id, ID_PREFIXES.COMPONENT);
 }
 
 /**
@@ -73,7 +76,7 @@ export function isCompId(id) {
  * @returns {boolean}
  */
 export function isItemId(id) {
-    return typeof id === 'string' && id.startsWith('item-');
+    return isPrefixed(id, ID_PREFIXES.ITEM);
 }
 
 /**
@@ -82,7 +85,7 @@ export function isItemId(id) {
  * @returns {boolean}
  */
 export function isEquippedId(id) {
-    return typeof id === 'string' && id.startsWith('eq-');
+    return isPrefixed(id, ID_PREFIXES.EQUIPPED);
 }
 
 /**
@@ -101,7 +104,7 @@ export function isTypedId(id) {
  * @returns {{ type: 'comp', component: Object } | null}
  */
 export function resolveComponent(entity, typedId) {
-    if (typeof typedId !== 'string' || !typedId.startsWith('comp-')) {
+    if (!isPrefixed(typedId, ID_PREFIXES.COMPONENT)) {
         return null;
     }
 
@@ -125,7 +128,7 @@ export function resolveComponent(entity, typedId) {
  * @returns {{ type: 'item', item: Object } | null}
  */
 export function resolveItem(entity, typedId) {
-    if (typeof typedId !== 'string' || !typedId.startsWith('item-')) {
+    if (!isPrefixed(typedId, ID_PREFIXES.ITEM)) {
         return null;
     }
 
@@ -150,7 +153,7 @@ export function resolveItem(entity, typedId) {
  * @returns {{ type: 'eq', equippedItem: Object } | null}
  */
 export function resolveEquippedItem(entity, typedId, equippedItems) {
-    if (typeof typedId !== 'string' || !typedId.startsWith('eq-')) {
+    if (!isPrefixed(typedId, ID_PREFIXES.EQUIPPED)) {
         return null;
     }
 
@@ -231,8 +234,8 @@ export function validateComponentIds(ids) {
 
     const invalid = [];
     for (const id of ids) {
-        if (typeof id === 'string' && id.startsWith('comp-')) continue;
-        if (typeof id === 'object' && id !== null && typeof id.componentId === 'string' && id.componentId.startsWith('comp-')) continue;
+        if (isPrefixed(id, ID_PREFIXES.COMPONENT)) continue;
+        if (typeof id === 'object' && id !== null && isPrefixed(id.componentId, ID_PREFIXES.COMPONENT)) continue;
         if (typeof id === 'string') invalid.push(id);
         else if (typeof id === 'object') invalid.push(id.componentId || id);
     }

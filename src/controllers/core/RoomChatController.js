@@ -18,13 +18,14 @@
 
 import Logger from '../../utils/Logger.js';
 import { generateChatId } from '../../utils/idGenerator.js';
+import { ROOM_CHAT_HISTORY_LIMIT, CHAT_MESSAGE_MAX_LENGTH } from '../../utils/Constants.js';
 
 class RoomChatController {
     /**
-     * @param {number} [capacityPerRoom=50] - Hard cap on retained messages per room.
-     * @param {number} [maxMessageChars=200] - Hard cap on one message's text.
+     * @param {number} [capacityPerRoom=ROOM_CHAT_HISTORY_LIMIT] - Hard cap on retained messages per room.
+     * @param {number} [maxMessageChars=CHAT_MESSAGE_MAX_LENGTH] - Hard cap on one message's text.
      */
-    constructor(capacityPerRoom = 50, maxMessageChars = 200) {
+    constructor(capacityPerRoom = ROOM_CHAT_HISTORY_LIMIT, maxMessageChars = CHAT_MESSAGE_MAX_LENGTH) {
         /** @private {number} */
         this._capacityPerRoom = capacityPerRoom;
         /** @private {number} */
@@ -125,10 +126,10 @@ class RoomChatController {
     /**
      * Returns a room's messages, oldest → newest, as defensive copies.
      * @param {string} roomId - Room UID.
-     * @param {number} [limit=50] - Maximum number of messages (last `limit`).
+     * @param {number} [limit=ROOM_CHAT_HISTORY_LIMIT] - Maximum number of messages (last `limit`).
      * @returns {Array}
      */
-    getMessages(roomId, limit = 50) {
+    getMessages(roomId, limit = ROOM_CHAT_HISTORY_LIMIT) {
         const ring = this._rooms[roomId];
         if (!ring || ring.length === 0) return [];
         const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : this._capacityPerRoom;

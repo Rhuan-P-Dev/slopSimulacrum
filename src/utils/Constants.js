@@ -81,6 +81,14 @@ export const DROP_BASE_RANGE = 3;
  */
 export const DROP_RANGE_MULTIPLIER = 2;
 
+/**
+ * Fallback pick-up range (world units) for the pickUpItem action.
+ * Range is data-driven from actions.json pickUpItem (50); fallback mirrors
+ * that value for missing-data safety.
+ * @type {number}
+ */
+export const PICK_UP_RANGE_FALLBACK = 50;
+
 // =========================================================================
 // TURN SYSTEM CONSTANTS (Feature A + two-phase barrier turns, spec v2)
 //
@@ -121,6 +129,15 @@ export const MAX_TICKS_PER_SECOND = 30;
  * @type {number}
  */
 export const WORLD_EVENTS_MAX_LIMIT = 50;
+
+/**
+ * Default number of recent events returned by getRecent() consumers
+ * (world-event log, LLM context, world-state aggregation). Smaller than
+ * WORLD_EVENTS_MAX_LIMIT: most consumers only need a short recent tail,
+ * while the full 50-entry ring stays the storage/endpoint cap.
+ * @type {number}
+ */
+export const WORLD_EVENTS_RECENT_LIMIT = 20;
 
 // =========================================================================
 // SPATIAL CONTEXT CAPS (spec "better text & vision")
@@ -179,3 +196,197 @@ export const ENV_FLAG_ON_VALUE = 'true';
 export function isEnvFlagOn(value) {
     return typeof value === 'string' && value.trim().toLowerCase() === ENV_FLAG_ON_VALUE;
 }
+// CHAT CONSTANTS
+// =========================================================================
+
+/**
+ * Maximum length (characters) of a single room-chat message. Messages
+ * longer than this are rejected, and the LLM context layer truncates
+ * chat excerpts to this width so one message cannot blow the budget.
+ * @type {number}
+ */
+export const CHAT_MESSAGE_MAX_LENGTH = 200;
+
+/**
+ * Per-room chat history ring-buffer capacity (RoomChatController).
+ * @type {number}
+ */
+export const ROOM_CHAT_HISTORY_LIMIT = 50;
+
+// =========================================================================
+// LLM CONSTANTS
+// =========================================================================
+
+/**
+ * Default OpenAI-compatible chat-completions endpoint used when
+ * LLM_ENDPOINT is not set via environment (local dev proxy).
+ * @type {string}
+ */
+export const LLM_DEFAULT_ENDPOINT = 'http://127.0.0.1:20003/v1/chat/completions';
+
+/**
+ * Default model name requested from the LLM endpoint.
+ * @type {string}
+ */
+export const LLM_DEFAULT_MODEL = 'gpt-3.5-turbo';
+
+/**
+ * Default sampling temperature for general LLM calls (agent-loop uses its
+ * own lower temperature — see LLMAgentController).
+ * @type {number}
+ */
+export const LLM_DEFAULT_TEMPERATURE = 0.7;
+
+/**
+ * Default maximum completion tokens per LLM call.
+ * @type {number}
+ */
+export const LLM_DEFAULT_MAX_TOKENS = 2048;
+
+/**
+ * Default request timeout (ms) for LLM HTTP calls.
+ * @type {number}
+ */
+export const LLM_DEFAULT_TIMEOUT_MS = 30000;
+
+/**
+ * Length (characters) after which LLM request/response payloads are
+ * truncated in log output — keeps logs readable without losing the start
+ * of long payloads.
+ * @type {number}
+ */
+export const LLM_LOG_TRUNCATION_CHARS = 500;
+
+// =========================================================================
+// LLM CONTEXT CONSTANTS (LlmContextController token budget)
+// =========================================================================
+
+/**
+ * Total character budget for the composed LLM context narrative.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_CHARS = 5000;
+
+/**
+ * Max entities from OTHER rooms included in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_OTHER_ROOM_ENTITIES = 2;
+
+/**
+ * Max recent world events included in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_EVENTS = 20;
+
+/**
+ * Max chat messages scanned from room history when composing the LLM
+ * context (the excerpted portion is further capped by
+ * LLM_CONTEXT_MAX_CHAT_IN_CONTEXT).
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_CHAT = 10;
+
+/**
+ * Max instinct entries included in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_INSTINCTS = 5;
+
+/**
+ * Max candidate actions listed in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_ACTIONS = 2;
+
+/**
+ * Max per-entity stats shown per nearby entity in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_NEARBY_STATS = 2;
+
+/**
+ * Max hint entries included in the LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_HINTS = 3;
+
+/**
+ * Max chat messages actually excerpted into the composed LLM context
+ * (the narrative portion of the chat section).
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_CHAT_IN_CONTEXT = 5;
+
+/**
+ * Max instinct entries actually rendered into the composed LLM context
+ * (the narrative portion of the instinct section).
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT = 3;
+
+/**
+ * Max agent feedback entries rendered into the composed LLM context.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_FEEDBACK = 5;
+
+// =========================================================================
+// AGENT CONSTANTS
+// =========================================================================
+
+/**
+ * Per-agent action-outcome feedback ring-buffer capacity
+ * (LlmAgentFeedbackController). Bounds the agent's short-term memory of
+ * "what did I do" entries.
+ * @type {number}
+ */
+export const AGENT_FEEDBACK_CAPACITY = 5;
+
+// =========================================================================
+// NPC CONSTANTS
+// =========================================================================
+
+/**
+ * Default attack range (world units) for NPC combat behaviors.
+ * Currently the ONLY value: data/npcs.json has no attackRange field;
+ * data-driven per-NPC ranges are deferred (see wiki npc_ai_controller).
+ * @type {number}
+ */
+export const NPC_DEFAULT_ATTACK_RANGE = 100;
+
+/**
+ * Behavior key registered by NpcAIController for the chase-then-attack
+ * combat strategy (matches data/npcs.json behavior names).
+ * @type {string}
+ */
+export const NPC_BEHAVIOR_CHASE_ATTACK = 'chase_attack';
+
+// =========================================================================
+// INTERNAL COMPONENT CONSTANTS
+// =========================================================================
+
+/**
+ * Base tick interval (in ticks) at which internal components advance.
+ * @type {number}
+ */
+export const IC_BASE_TICK_INTERVAL = 5;
+
+/**
+ * Fallback host volume used when an internal component's host component
+ * has no resolvable volume stat.
+ * @type {number}
+ */
+export const DEFAULT_HOST_VOLUME_FALLBACK = 10;
+
+// =========================================================================
+// SERVER CONSTANTS
+// =========================================================================
+
+/**
+ * Timeout (ms) after which a graceful shutdown is forced (server.js
+ * shutdown handler). Bounds the shutdown path so a stuck controller
+ * cannot hold the process open.
+ * @type {number}
+ */
+export const FORCED_SHUTDOWN_TIMEOUT_MS = 10000;

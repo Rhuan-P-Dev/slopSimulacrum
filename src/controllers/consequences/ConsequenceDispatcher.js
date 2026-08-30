@@ -17,6 +17,7 @@ import Logger from '../../utils/Logger.js';
 import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
 import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
 
 class ConsequenceDispatcher {
     /**
@@ -456,7 +457,7 @@ class ConsequenceDispatcher {
                 }
                 // If client sent componentIds array, use the first source component.
                 if (params?.componentIds && Array.isArray(params.componentIds) && params.componentIds.length > 0) {
-                    const firstSource = params.componentIds.find(c => c.role === 'source');
+                    const firstSource = params.componentIds.find(c => c.role === BINDING_ROLES.SOURCE);
                     if (firstSource) {
                         return { success: true, targetId: firstSource.componentId };
                     }

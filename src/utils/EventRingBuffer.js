@@ -5,15 +5,22 @@
  * hence a plain util class rather than a controller. Entries are stored by
  * reference; readers receive defensive copies (snapshot on read).
  *
+ * Generic in shape, but its only current consumer is the world-event log:
+ * the defaults intentionally track the world-event constants
+ * (WORLD_EVENTS_MAX_LIMIT / WORLD_EVENTS_RECENT_LIMIT) so callers need no
+ * arguments in that consumer's context.
+ *
  * @module EventRingBuffer
  */
 
+import { WORLD_EVENTS_MAX_LIMIT, WORLD_EVENTS_RECENT_LIMIT } from './Constants.js';
+
 export class EventRingBuffer {
     /**
-     * @param {number} [capacity=50] - Hard cap on stored entries. Oldest
-     *   entries are evicted once the capacity is exceeded.
+     * @param {number} [capacity=WORLD_EVENTS_MAX_LIMIT] - Hard cap on stored
+     *   entries. Oldest entries are evicted once the capacity is exceeded.
      */
-    constructor(capacity = 50) {
+    constructor(capacity = WORLD_EVENTS_MAX_LIMIT) {
         if (!Number.isInteger(capacity) || capacity <= 0) {
             throw new TypeError(`EventRingBuffer: capacity must be a positive integer, got ${capacity}`);
         }
@@ -48,10 +55,10 @@ export class EventRingBuffer {
 
     /**
      * Returns the last `limit` entries, oldest → newest, as defensive copies.
-     * @param {number} [limit=20] - Maximum number of entries.
+     * @param {number} [limit=WORLD_EVENTS_RECENT_LIMIT] - Maximum number of entries.
      * @returns {Array}
      */
-    getRecent(limit = 20) {
+    getRecent(limit = WORLD_EVENTS_RECENT_LIMIT) {
         if (!Number.isInteger(limit) || limit < 0) {
             throw new TypeError('EventRingBuffer.getRecent: limit must be a non-negative integer');
         }

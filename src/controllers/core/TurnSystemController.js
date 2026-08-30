@@ -59,6 +59,7 @@ import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateQueueId } from '../../utils/idGenerator.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { TURN_MAX_QUEUED_PER_ROUND } from '../../utils/Constants.js';
+import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
 
 /**
  * Purely OBSERVATIONAL threshold for the agent-settlement watchdog (M2): a
@@ -394,7 +395,7 @@ class TurnSystemController {
      * @returns {{ success: boolean, removed?: boolean, error?: string }}
      */
     cancelAction(entityId, queueId) {
-        if (!IdResolver.isEntityId(entityId) || typeof queueId !== 'string' || !queueId.startsWith('q-')) {
+        if (!IdResolver.isEntityId(entityId) || !isPrefixed(queueId, ID_PREFIXES.QUEUE)) {
             return { success: false, removed: false, error: 'Invalid entityId or queueId.' };
         }
         const entries = this._queues[entityId];

@@ -1,6 +1,8 @@
 import Logger from '../../utils/Logger.js';
 import { ACTION_SCORING, CLOSE_TO_THRESHOLD_FACTOR } from '../../utils/ActionScoring.js';
 import { generateEquippedId } from '../../utils/idGenerator.js';
+import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
 
 /**
  * ComponentCapabilityController manages the capability cache that maps each action
@@ -320,7 +322,7 @@ class ComponentCapabilityController {
                     current: requirementCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
                     required: req.minValue
                 })),
-                _resolvedRole: 'source',
+                _resolvedRole: BINDING_ROLES.SOURCE,
                 _isEquippedItem: true,
                 _eqId: equipped?.eqId || null, // TYPED ID MIGRATION: Explicit _eqId field for equipped items
                 _equippedItemId: equipped?.itemId || componentId,
@@ -1064,7 +1066,7 @@ class ComponentCapabilityController {
                             current: reqCheck.requirementValues[`${req.trait}.${req.stat}`] ?? 0,
                             required: req.minValue
                         })),
-                        _resolvedRole: 'source',
+                        _resolvedRole: BINDING_ROLES.SOURCE,
                         _isEquippedItem: true,
                         _eqId: eqId, // TYPED ID MIGRATION: Explicit _eqId field for equipped items
                         _equippedItemId: equipped.itemId,
@@ -1256,43 +1258,43 @@ class ComponentCapabilityController {
         const binding = actionData?.componentBinding;
         if (!binding) {
             // No binding defined — default to 'source' for backward compatibility
-            return 'source';
+            return BINDING_ROLES.SOURCE;
         }
 
         const componentType = component?.type;
         const componentStats = this.worldStateController?.componentController?.getComponentStats(component?.id);
 
         // Check source role: matches sourceRole components
-        if (binding.sourceRole && binding.roles?.includes('source')) {
+        if (binding.sourceRole && binding.roles?.includes(BINDING_ROLES.SOURCE)) {
             // Source components typically have the traits required by the action
-            if (this._componentMatchesRoleTraits(componentStats, actionData, 'source')) {
-                return 'source';
+            if (this._componentMatchesRoleTraits(componentStats, actionData, BINDING_ROLES.SOURCE)) {
+                return BINDING_ROLES.SOURCE;
             }
         }
 
         // Check target role: matches target components (on enemies)
-        if (binding.targetRole && binding.roles?.includes('target')) {
-            if (this._componentMatchesRoleTraits(componentStats, actionData, 'target')) {
-                return 'target';
+        if (binding.targetRole && binding.roles?.includes(BINDING_ROLES.TARGET)) {
+            if (this._componentMatchesRoleTraits(componentStats, actionData, BINDING_ROLES.TARGET)) {
+                return BINDING_ROLES.TARGET;
             }
         }
 
         // Check spatial role: components with Movement traits
-        if (binding.spatialRole && binding.roles?.includes('spatial')) {
-            if (componentStats?.Movement && Object.keys(componentStats.Movement).length > 0) {
-                return 'spatial';
+        if (binding.spatialRole && binding.roles?.includes(BINDING_ROLES.SPATIAL)) {
+            if (componentStats?.[TRAIT_GROUPS.MOVEMENT] && Object.keys(componentStats[TRAIT_GROUPS.MOVEMENT]).length > 0) {
+                return BINDING_ROLES.SPATIAL;
             }
         }
 
         // Check self_target role: components that can self-affect
-        if (binding.selfTargetRole && binding.roles?.includes('self_target')) {
-            if (this._componentMatchesRoleTraits(componentStats, actionData, 'self_target')) {
-                return 'self_target';
+        if (binding.selfTargetRole && binding.roles?.includes(BINDING_ROLES.SELF_TARGET)) {
+            if (this._componentMatchesRoleTraits(componentStats, actionData, BINDING_ROLES.SELF_TARGET)) {
+                return BINDING_ROLES.SELF_TARGET;
             }
         }
 
         // Fallback: if the component satisfies the action's requirements, it's a source
-        return this._componentSatisfiesRequirements(componentStats, actionData.requirements) ? 'source' : null;
+        return this._componentSatisfiesRequirements(componentStats, actionData.requirements) ? BINDING_ROLES.SOURCE : null;
     }
 
     /**

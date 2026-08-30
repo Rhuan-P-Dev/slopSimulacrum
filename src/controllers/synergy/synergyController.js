@@ -18,6 +18,9 @@ import SynergyConfigManager from './SynergyConfigManager.js';
 import SynergyComponentGatherer from './SynergyComponentGatherer.js';
 import SynergyCalculator from './SynergyCalculator.js';
 import SynergyCacheManager from './SynergyCacheManager.js';
+import { DEFAULT_SYNERGY_BASE_MULTIPLIER } from '../../utils/Constants.js';
+import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
+import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
 
 class SynergyController {
     /**
@@ -83,11 +86,11 @@ class SynergyController {
         const config = this.configManager.getConfig(actionName);
 
         if (!config.enabled) {
-            return this.calculator.createResult(actionName, 1.0, false, null, []);
+            return this.calculator.createResult(actionName, DEFAULT_SYNERGY_BASE_MULTIPLIER, false, null, []);
         }
 
         const contributingComponents = [];
-        let totalMultiplier = 1.0;
+        let totalMultiplier = DEFAULT_SYNERGY_BASE_MULTIPLIER;
 
         const sourceComponentId = context?.sourceComponentId;
         const providedComponentIds = context.providedComponentIds;
@@ -188,14 +191,14 @@ class SynergyController {
     // =========================================================================
 
     _evaluateProvidedComponents(actionName, entityId, providedComponentIds, config, contributingComponents) {
-        let totalMultiplier = 1.0;
+        let totalMultiplier = DEFAULT_SYNERGY_BASE_MULTIPLIER;
         for (const groupDef of config.componentGroups) {
             const members = this._filterProvidedForGroup(actionName, entityId, providedComponentIds, groupDef);
             if (members.length < groupDef.minCount) continue;
             const multiplier = this.calculator.computeMultiplier(
                 members.length,
                 groupDef.scaling || 'linear',
-                groupDef.baseMultiplier ?? 1.0,
+                groupDef.baseMultiplier ?? DEFAULT_SYNERGY_BASE_MULTIPLIER,
                 groupDef.perUnitBonus ?? 0
             );
             totalMultiplier *= multiplier;
@@ -288,19 +291,19 @@ class SynergyController {
 
     _matchesRoleFilter(stats, roleFilter) {
         switch (roleFilter) {
-            case 'source': case 'spatial':
-                return (stats.Movement && Object.keys(stats.Movement).length > 0) ||
-                       (stats.Physical && Object.keys(stats.Physical).length > 0);
-            case 'self_target':
-                return stats.Physical && Object.keys(stats.Physical).length > 0;
+            case BINDING_ROLES.SOURCE: case BINDING_ROLES.SPATIAL:
+                return (stats[TRAIT_GROUPS.MOVEMENT] && Object.keys(stats[TRAIT_GROUPS.MOVEMENT]).length > 0) ||
+                       (stats[TRAIT_GROUPS.PHYSICAL] && Object.keys(stats[TRAIT_GROUPS.PHYSICAL]).length > 0);
+            case BINDING_ROLES.SELF_TARGET:
+                return stats[TRAIT_GROUPS.PHYSICAL] && Object.keys(stats[TRAIT_GROUPS.PHYSICAL]).length > 0;
             default: return true;
         }
     }
 
     _evaluateComponentGroups(actionName, entityId, groups, contributingComponents, sourceComponentId, allowedComponentIds) {
-        let totalMultiplier = 1.0;
+        let totalMultiplier = DEFAULT_SYNERGY_BASE_MULTIPLIER;
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
-        if (!entity) return 1.0;
+        if (!entity) return DEFAULT_SYNERGY_BASE_MULTIPLIER;
 
         for (const groupDef of groups) {
             const members = this._gatherGroupMembers(actionName, entityId, groupDef, sourceComponentId, allowedComponentIds);
@@ -308,7 +311,7 @@ class SynergyController {
 
             const multiplier = this.calculator.computeMultiplier(
                 members.length, groupDef.scaling || 'linear',
-                groupDef.baseMultiplier ?? 1.0, groupDef.perUnitBonus ?? 0
+                groupDef.baseMultiplier ?? DEFAULT_SYNERGY_BASE_MULTIPLIER, groupDef.perUnitBonus ?? 0
             );
             totalMultiplier *= multiplier;
 

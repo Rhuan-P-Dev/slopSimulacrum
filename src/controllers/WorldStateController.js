@@ -7,6 +7,9 @@ import { buildReverseIndex } from '../utils/ComponentDependents.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
 import { writeDroppedItem } from '../controllers/consequences/DropItemHandler.js';
 import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
+import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
+import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
+import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_BROKEN_AT } from '../../shared/StatVocabulary.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -170,7 +173,7 @@ class WorldStateController {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
             
             // §3.2: delegate to TriggerController for crossing detection
-            if (this.triggerController && traitId === 'Physical' && statName === 'durability') {
+            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.DURABILITY) {
                 // Find which entity owns this component via public API
                 let owningEntity = null;
                 owningEntity = this.stateEntityController.findEntityByComponent(componentId);
@@ -233,7 +236,7 @@ class WorldStateController {
         // when traitId==='Physical' && statName==='durability' (P8 path).
         this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
             // P8 delegate: delegate to TriggerController BEFORE the broadcast
-            if (this.triggerController && traitId === 'Physical' && statName === 'durability') {
+            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.DURABILITY) {
                 const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
                 for (const [entityId, items] of Object.entries(allEquipped)) {
                     if (items[eqId]) {
@@ -1410,10 +1413,10 @@ class WorldStateController {
 
     /**
      * Returns the last world events (Feature B, spec §4.1).
-     * @param {number} [limit=20] - Maximum number of events (oldest → newest).
+     * @param {number} [limit=WORLD_EVENTS_RECENT_LIMIT] - Maximum number of events (oldest → newest).
      * @returns {Array} Event entries { tick, action, targetId, message, level, ts }.
      */
-    getRecentEvents(limit = 20) {
+    getRecentEvents(limit = WORLD_EVENTS_RECENT_LIMIT) {
         return this.worldEventLogController.getRecent(limit);
     }
 
@@ -1436,10 +1439,10 @@ class WorldStateController {
     /**
      * Returns a room's chat history, oldest → newest (spec §7.3).
      * @param {string} roomId - Room UID.
-     * @param {number} [limit=50] - Maximum number of messages.
+     * @param {number} [limit=ROOM_CHAT_HISTORY_LIMIT] - Maximum number of messages.
      * @returns {Array}
      */
-    getRoomChatMessages(roomId, limit = 50) {
+    getRoomChatMessages(roomId, limit = ROOM_CHAT_HISTORY_LIMIT) {
         return this.roomChatController ? this.roomChatController.getMessages(roomId, limit) : [];
     }
 
@@ -1450,7 +1453,7 @@ class WorldStateController {
      * @param {number} [limit=5] - Maximum number of records.
      * @returns {Array} Action-outcome entries (oldest→newest), empty if none.
      */
-    getAgentActionFeedback(entityId, limit = 5) {
+    getAgentActionFeedback(entityId, limit = AGENT_FEEDBACK_CAPACITY) {
         return this.llmAgentFeedbackController
             ? this.llmAgentFeedbackController.getRecent(entityId, limit)
             : [];
@@ -1920,9 +1923,9 @@ class WorldStateController {
         const itemDefs = this.inventoryManager.getItemDefinitions();
         const hostVolumeOf = (type) => {
             const def = itemDefs[type] || {};
-            return def.externalVolume ?? def.volume ?? 0;
+            return def.externalVolume ?? def.volume ?? DEFAULT_ITEM_VOLUME;
         };
-        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
+        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? DEFAULT_ITEM_VOLUME), 0);
         const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
         const free = this.inventoryManager.getAvailableVolume(entity, componentId);
         if (free + freed < needed) {
@@ -2611,7 +2614,7 @@ class WorldStateController {
      * @param {number} radius - Search radius.
      * @returns {Array<{id: string, itemType: string, itemId: string, x: number, y: number, ownerId: string, distance: number}>}
      */
-    findDroppedItemsNear(x, y, radius = 5) {
+    findDroppedItemsNear(x, y, radius = DEFAULT_TRIGGER_RADIUS) {
         const droppedItems = this.getDroppedItems();
         const nearby = [];
 
@@ -2830,15 +2833,15 @@ class WorldStateController {
 
             // Check if it still has durability stats
             const stats = this.statsController.getStats(curId);
-            if (!stats || !stats.Physical || stats.Physical.durability === undefined) {
+            if (!stats || !stats[TRAIT_GROUPS.PHYSICAL] || stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.DURABILITY] === undefined) {
                 Logger.warn(`[removeBrokenComponent] Dependent ${curId} has no durability stat — skipping.`);
                 continue;
             }
 
-            const dur = stats.Physical.durability;
+            const dur = stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.DURABILITY];
             Logger.info(`[removeBrokenComponent] Component ${curId} has durability ${dur}`);
 
-            if (dur <= 0) {
+            if (dur <= DURABILITY_BROKEN_AT) {
                 // §3.6: defensive — direct removal WITHOUT event (already broken)
                 Logger.warn(`[removeBrokenComponent] Dependent ${curId} already broken (dur=${dur}) — direct removal without event.`);
                 this._forceDirectRemoval(curId, entity);
@@ -2847,7 +2850,7 @@ class WorldStateController {
 
             // Force break: write 0 to existing mutator → re-enters the funnel
             Logger.info(`[removeBrokenComponent] Forcing break of dependent ${curId} (dur=${dur} → 0).`);
-            this.componentController.updateComponentStat(curId, 'Physical', 'durability', 0);
+            this.componentController.updateComponentStat(curId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.DURABILITY, DURABILITY_BROKEN_AT);
             
             // Add this dependent's children to queue to continue cascade
             const children = reverseIndex.get(curId) || [];

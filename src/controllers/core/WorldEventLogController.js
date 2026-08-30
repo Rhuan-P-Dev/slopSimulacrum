@@ -15,12 +15,13 @@
  */
 
 import EventRingBuffer from '../../utils/EventRingBuffer.js';
+import { WORLD_EVENTS_MAX_LIMIT, WORLD_EVENTS_RECENT_LIMIT } from '../../utils/Constants.js';
 
 class WorldEventLogController {
     /**
-     * @param {number} [capacity=50] - Maximum number of retained events.
+     * @param {number} [capacity=WORLD_EVENTS_MAX_LIMIT] - Maximum number of retained events.
      */
-    constructor(capacity = 50) {
+    constructor(capacity = WORLD_EVENTS_MAX_LIMIT) {
         /** @private {EventRingBuffer} */
         this._buffer = new EventRingBuffer(capacity);
     }
@@ -55,10 +56,10 @@ class WorldEventLogController {
 
     /**
      * Returns the last `limit` events, oldest → newest, as defensive copies.
-     * @param {number} [limit=20]
+     * @param {number} [limit=WORLD_EVENTS_RECENT_LIMIT]
      * @returns {Array}
      */
-    getRecent(limit = 20) {
+    getRecent(limit = WORLD_EVENTS_RECENT_LIMIT) {
         return this._buffer.getRecent(limit);
     }
 

@@ -13,21 +13,16 @@
  * 
  * @module IdResolver
  */
-class IdResolver {
-    /**
-     * Prefix length for typed IDs (e.g., "ent-" = 4 characters).
-     * @private
-     * @readonly
-     */
-    static PREFIX_LENGTH = 4;
+import { ID_PREFIXES, ID_PREFIX_LENGTHS, isPrefixed } from '../../shared/IdPrefixes.js';
 
+class IdResolver {
     /**
      * Checks if an ID is a typed entity ID (ent-*).
      * @param {string} id - The ID to check.
      * @returns {boolean}
      */
     static isEntityId(id) {
-        return typeof id === 'string' && id.startsWith('ent-');
+        return isPrefixed(id, ID_PREFIXES.ENTITY);
     }
 
     /**
@@ -36,7 +31,7 @@ class IdResolver {
      * @returns {boolean}
      */
     static isCompId(id) {
-        return typeof id === 'string' && id.startsWith('comp-');
+        return isPrefixed(id, ID_PREFIXES.COMPONENT);
     }
 
     /**
@@ -45,7 +40,7 @@ class IdResolver {
      * @returns {boolean}
      */
     static isItemId(id) {
-        return typeof id === 'string' && id.startsWith('item-');
+        return isPrefixed(id, ID_PREFIXES.ITEM);
     }
 
     /**
@@ -54,7 +49,7 @@ class IdResolver {
      * @returns {boolean}
      */
     static isEquippedId(id) {
-        return typeof id === 'string' && id.startsWith('eq-');
+        return isPrefixed(id, ID_PREFIXES.EQUIPPED);
     }
 
     /**
@@ -76,17 +71,17 @@ class IdResolver {
             return null;
         }
 
-        if (id.startsWith('ent-')) {
-            return { type: 'ent', uid: id.slice(4) };
+        if (isPrefixed(id, ID_PREFIXES.ENTITY)) {
+            return { type: 'ent', uid: id.slice(ID_PREFIX_LENGTHS.ENTITY) };
         }
-        if (id.startsWith('comp-')) {
-            return { type: 'comp', uid: id.slice(5) };
+        if (isPrefixed(id, ID_PREFIXES.COMPONENT)) {
+            return { type: 'comp', uid: id.slice(ID_PREFIX_LENGTHS.COMPONENT) };
         }
-        if (id.startsWith('item-')) {
-            return { type: 'item', uid: id.slice(5) };
+        if (isPrefixed(id, ID_PREFIXES.ITEM)) {
+            return { type: 'item', uid: id.slice(ID_PREFIX_LENGTHS.ITEM) };
         }
-        if (id.startsWith('eq-')) {
-            return { type: 'eq', uid: id.slice(3) };
+        if (isPrefixed(id, ID_PREFIXES.EQUIPPED)) {
+            return { type: 'eq', uid: id.slice(ID_PREFIX_LENGTHS.EQUIPPED) };
         }
 
         return null;
@@ -99,7 +94,7 @@ class IdResolver {
      * @returns {string} Typed ID.
      */
     static wrapId(type, uid) {
-        const prefixes = { ent: 'ent-', comp: 'comp-', item: 'item-', eq: 'eq-' };
+        const prefixes = { ent: ID_PREFIXES.ENTITY, comp: ID_PREFIXES.COMPONENT, item: ID_PREFIXES.ITEM, eq: ID_PREFIXES.EQUIPPED };
         const prefix = prefixes[type];
         if (!prefix) {
             throw new TypeError(`Unknown ID type: "${type}". Must be one of: ent, comp, item, eq.`);
@@ -119,8 +114,8 @@ class IdResolver {
 
         const invalid = [];
         for (const id of ids) {
-            if (typeof id === 'string' && id.startsWith('comp-')) continue;
-            if (typeof id === 'object' && id !== null && typeof id.componentId === 'string' && id.componentId.startsWith('comp-')) continue;
+            if (isPrefixed(id, ID_PREFIXES.COMPONENT)) continue;
+            if (typeof id === 'object' && id !== null && isPrefixed(id.componentId, ID_PREFIXES.COMPONENT)) continue;
             if (typeof id === 'string') invalid.push(id);
             else if (typeof id === 'object') invalid.push(id.componentId || id);
         }

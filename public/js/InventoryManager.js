@@ -1,5 +1,8 @@
 import ClientLogger from '/utils/ClientLogger.js';
 import MaterialRegistry from './MaterialRegistry.js';
+import { AppConfig } from './Config.js';
+import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
+import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 
 /**
  * InventoryManager - Client-side inventory management module.
@@ -415,13 +418,13 @@ export class InventoryManager {
     _calculateVolumeInfo(componentId, maxVolume, items) {
         // Use externalVolume for host component space (item footprint on the component)
         // Fall back to hostVolume, then to volume (internal capacity) for backwards compatibility
-        const used = items.reduce((sum, item) => sum + (item.externalVolume ?? item.hostVolume ?? (item.volume || 0)), 0);
+        const used = items.reduce((sum, item) => sum + (item.externalVolume ?? item.hostVolume ?? DEFAULT_ITEM_VOLUME), 0);
         const percentage = maxVolume > 0 ? (used / maxVolume) * 100 : 0;
 
         let barClass = 'low';
-        if (percentage >= 100) barClass = 'full';
-        else if (percentage >= 75) barClass = 'high';
-        else if (percentage >= 40) barClass = 'medium';
+        if (percentage >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.FULL) barClass = 'full';
+        else if (percentage >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.HIGH) barClass = 'high';
+        else if (percentage >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.MEDIUM) barClass = 'medium';
 
         return { used, max: maxVolume, percentage, barClass };
     }
@@ -477,10 +480,10 @@ export class InventoryManager {
         for (const item of items) {
             const itemDef = this._itemRegistry ? this._itemRegistry[item.type] : null;
             // Use externalVolume for display on host component (footprint), volume for internal capacity
-            const displayVolume = item.externalVolume ?? item.hostVolume ?? (item.volume || 0);
+            const displayVolume = item.externalVolume ?? item.hostVolume ?? DEFAULT_ITEM_VOLUME;
             const internalCapacity = item.volume || (itemDef ? itemDef.volume : 0);
-            // An item is a container if it has internal capacity >= 5 or has children
-            const isContainer = internalCapacity >= 5 || (item.children && item.children.length > 0);
+            // An item is a container if it has internal capacity >= CONTAINER_MIN_CAPACITY or has children
+            const isContainer = internalCapacity >= AppConfig.INVENTORY.CONTAINER_MIN_CAPACITY || (item.children && item.children.length > 0);
             const hasChildren = item.children && item.children.length > 0;
             const percentageStr = displayVolume > 0 ? '100' : '0';
             const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
@@ -521,7 +524,9 @@ export class InventoryManager {
                 const isExpanded = this._containerExpanded[item.id] !== false;
                 const chevron = isExpanded ? '▼' : '▶';
                 const usedPercent = capacity > 0 ? Math.round((childrenVolume / capacity) * 100) : 0;
-                const barClass = usedPercent >= 100 ? 'full' : usedPercent >= 75 ? 'high' : usedPercent >= 40 ? 'medium' : 'low';
+                const barClass = usedPercent >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.FULL ? 'full'
+                    : usedPercent >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.HIGH ? 'high'
+                    : usedPercent >= AppConfig.INVENTORY.VOLUME_BAR_THRESHOLDS.MEDIUM ? 'medium' : 'low';
 
                 containerHtml = `
                     <div class="inventory-container-slot" data-item-id="${item.id}" data-container-capacity="${capacity}">
@@ -1085,7 +1090,7 @@ export class InventoryManager {
                 if (found) {
                     item = found;
                     // Use externalVolume for host component space
-                    itemVolume = found.externalVolume ?? found.hostVolume ?? (found.volume || 0);
+                    itemVolume = found.externalVolume ?? found.hostVolume ?? DEFAULT_ITEM_VOLUME;
                     break;
                 }
             }
@@ -1100,7 +1105,7 @@ export class InventoryManager {
         const maxVolume = parseInt(slot.dataset.compVolume) || 0;
         const itemsInTarget = this._currentItems[targetCompId] || [];
         // Use externalVolume for host component space
-        const usedVolume = itemsInTarget.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? (i.volume || 0)), 0);
+        const usedVolume = itemsInTarget.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? DEFAULT_ITEM_VOLUME), 0);
 
         return (usedVolume + itemVolume) <= maxVolume;
     }
@@ -1396,7 +1401,7 @@ export class InventoryManager {
      */
     _getChildrenFromTree(parentId) {
         // For component ID: get from _currentItems[parentId]
-        if (parentId.startsWith('comp-')) {
+        if (isPrefixed(parentId, ID_PREFIXES.COMPONENT)) {
             return this._currentItems[parentId] || [];
         }
         // For item ID: find the item in the tree and get its children
@@ -1438,7 +1443,7 @@ export class InventoryManager {
 
         // Get current children volume for this container (children use their own externalVolume for internal space)
         const currentChildren = this._getChildrenFromTree(containerItemId);
-        const usedVolume = currentChildren.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? (i.volume || 0)), 0);
+        const usedVolume = currentChildren.reduce((sum, i) => sum + (i.externalVolume ?? i.hostVolume ?? DEFAULT_ITEM_VOLUME), 0);
 
         return (usedVolume + draggedVolume) <= containerVolume;
     }

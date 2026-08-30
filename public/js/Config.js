@@ -2,6 +2,9 @@
  * Application Configuration
  * Centralized constants to avoid magic numbers and ensure consistency across the client.
  */
+import { ACTION_NAMES } from '../../shared/ActionVocabulary.js';
+import { DEFAULT_PLAYER_BLUEPRINT } from '../../shared/Defaults.js';
+
 export const AppConfig = {
     VIEW: {
         WIDTH: 800,
@@ -9,11 +12,13 @@ export const AppConfig = {
         CENTER_X: 800 / 2,
         CENTER_Y: 500 / 2,
     },
+    // Action names derived from the shared vocabulary (data/actions.json keys);
+    // values are byte-identical to the former literals.
     ACTIONS: {
-        MOVE: 'move',
-        DASH: 'dash',
-        DROP_ITEM: 'dropItem',
-        PICK_UP_ITEM: 'pickUpItem',
+        MOVE: ACTION_NAMES.MOVE,
+        DASH: ACTION_NAMES.DASH,
+        DROP_ITEM: ACTION_NAMES.DROP_ITEM,
+        PICK_UP_ITEM: ACTION_NAMES.PICK_UP_ITEM,
     },
     COLORS: {
         ENTITY_ACTIVE: "#fff",
@@ -85,11 +90,13 @@ export const AppConfig = {
     },
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH
-    // mirrors the server-side RoomChatController cap for pre-validation.
+    // mirrors the server constant CHAT_MESSAGE_MAX_LENGTH
+    // (src/utils/Constants.js) for pre-validation.
     PLAYER_NAME: 'Player',
     CHAT_MAX_LENGTH: 200,
     ROOM_CHAT: {
-        // History depth for GET /rooms/:id/chat (the server ring is 50/room).
+        // History depth for GET /rooms/:id/chat; mirrors the server constant
+        // ROOM_CHAT_HISTORY_LIMIT (src/utils/Constants.js).
         HISTORY_LIMIT: 50,
     },
     EVENTS: {
@@ -102,6 +109,44 @@ export const AppConfig = {
         CONTEXT_MAX_ENTITIES: 8,
     },
     DEFAULTS: {
-        DROID_BLUEPRINT: 'smallBallDroid',
+        // Derived from the shared default (identical value); the server is the
+        // single source of truth for the spawn blueprint.
+        DROID_BLUEPRINT: DEFAULT_PLAYER_BLUEPRINT,
+    },
+    // Mirrors the server constants TURN_ROUND_TICKS / TURN_PLANNING_TICKS
+    // (src/utils/Constants.js). The single source of truth is the server; the
+    // client only mirrors these values for HUD math (round progress bar).
+    TURN: {
+        ROUND_TICKS: 360,
+        PLANNING_TICKS: 300,
+    },
+    // Mirrors the server constant DEFAULT_SYNERGY_BASE_MULTIPLIER
+    // (src/utils/Constants.js): the no-synergy baseline multiplier.
+    SYNERGY: {
+        BASE_MULTIPLIER: 1.0,
+    },
+    // UI layering and timing.
+    UI: {
+        // Base z-index for overlay panels (OverlayManager._baseZIndex).
+        Z_INDEX_BASE: 100,
+        // Stacking step: layers that must sit one step above the manager's
+        // active panel (dragging panels, the drop/pick-up selectors) add this.
+        Z_INDEX_STEP: 10,
+        // Default popup lifetime in ms (UIManager error/hint popups, hint markers).
+        POPUP_DURATION_MS: 5000,
+        // Short-lived error popups (e.g. action-restore failures in App.js).
+        POPUP_DURATION_SHORT_MS: 3000,
+    },
+    // Inventory (client-side volume/capacity display rules).
+    INVENTORY: {
+        // An item with internal capacity at or above this is treated as a
+        // container in the inventory overlay.
+        CONTAINER_MIN_CAPACITY: 5,
+        // Volume-bar color thresholds (percent of capacity used).
+        VOLUME_BAR_THRESHOLDS: {
+            FULL: 100,
+            HIGH: 75,
+            MEDIUM: 40,
+        },
     }
 };

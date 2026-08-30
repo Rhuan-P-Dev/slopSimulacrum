@@ -8,6 +8,7 @@ import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateUID } from '../../utils/idGenerator.js';
+import { IC_BASE_TICK_INTERVAL, DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
 
 class InternalComponentController {
     /**
@@ -46,7 +47,7 @@ class InternalComponentController {
         this.tickSystem.register(new TickJob(
             'internal-components',
             () => this._processTick(),
-            5, // Interval: 5 tick
+            IC_BASE_TICK_INTERVAL, // interval in ticks
             0  // Order: 0 (Highest Priority)
         ));
 
@@ -168,7 +169,7 @@ class InternalComponentController {
                     hostVolume = componentVolumeProvider(component.type);
                 } else {
                     // Fallback: use default assumption
-                    hostVolume = 10;
+                    hostVolume = DEFAULT_HOST_VOLUME_FALLBACK;
                 }
 
                 if (hostVolume < volume) {

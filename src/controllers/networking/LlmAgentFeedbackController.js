@@ -15,12 +15,13 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { AGENT_FEEDBACK_CAPACITY } from '../../utils/Constants.js';
 
 class LlmAgentFeedbackController {
     /**
-     * @param {number} [capacityPerAgent = 5] - Maximum number of retained outcomes PER entity.
+     * @param {number} [capacityPerAgent = AGENT_FEEDBACK_CAPACITY] - Maximum number of retained outcomes PER entity.
      */
-    constructor(capacityPerAgent = 5) {
+    constructor(capacityPerAgent = AGENT_FEEDBACK_CAPACITY) {
         if (!Number.isInteger(capacityPerAgent) || capacityPerAgent <= 0) {
             throw new TypeError(
                 `LlmAgentFeedbackController: capacityPerAgent must be a positive integer, got ${capacityPerAgent}`
@@ -72,10 +73,10 @@ class LlmAgentFeedbackController {
     /**
      * Returns this entity's recent outcomes (oldest → newest), as defensive copies.
      * @param {string} entityId
-     * @param {number} [limit = 5] - Maximum number of entries.
+     * @param {number} [limit = AGENT_FEEDBACK_CAPACITY] - Maximum number of entries.
      * @returns {Array}
      */
-    getRecent(entityId, limit = 5) {
+    getRecent(entityId, limit = AGENT_FEEDBACK_CAPACITY) {
         if (typeof entityId !== 'string' || entityId.length === 0) {
             throw new TypeError('LlmAgentFeedbackController.getRecent: entityId must be a non-empty string');
         }

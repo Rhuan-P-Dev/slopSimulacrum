@@ -1,4 +1,6 @@
 import Logger from '../../utils/Logger.js';
+import { DEFAULT_PLAYER_BLUEPRINT } from '../../../shared/Defaults.js';
+import { SOCKET_EVENTS } from '../../../shared/SocketProtocol.js';
 
 /**
  * SocketLifecycleController manages WebSocket connection lifecycle events.
@@ -59,11 +61,11 @@ class SocketLifecycleController {
 				return;
 			}
 
-			const entityId = this._worldStateController.spawnEntity('smallBallDroid', startRoomId);
+			const entityId = this._worldStateController.spawnEntity(DEFAULT_PLAYER_BLUEPRINT, startRoomId);
 			this._socketToEntityMap.set(socket.id, entityId);
-
+	
 			Logger.info('Player incarnated', { socketId: socket.id, entityId, roomId: startRoomId });
-			socket.emit('incarnate', { entityId });
+			socket.emit(SOCKET_EVENTS.INCARNATE, { entityId });
 		} catch (error) {
 			Logger.error('Failed to incarnate player', { socketId: socket.id, error: error.message });
 			socket.emit('error', { message: 'Failed to incarnate player entity.' });

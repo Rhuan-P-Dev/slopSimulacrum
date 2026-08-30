@@ -25,21 +25,33 @@
 import {
     CONTEXT_MAX_ENTITIES,
     CONTEXT_MAX_DROPPED_ITEMS,
-    CONTEXT_MAX_EXITS
+    CONTEXT_MAX_EXITS,
+    CHAT_MESSAGE_MAX_LENGTH,
+    AGENT_FEEDBACK_CAPACITY,
+    LLM_CONTEXT_MAX_CHARS,
+    LLM_CONTEXT_OTHER_ROOM_ENTITIES,
+    LLM_CONTEXT_MAX_EVENTS,
+    LLM_CONTEXT_MAX_CHAT,
+    LLM_CONTEXT_MAX_INSTINCTS,
+    LLM_CONTEXT_MAX_NEARBY_STATS,
+    LLM_CONTEXT_MAX_HINTS,
+    LLM_CONTEXT_MAX_CHAT_IN_CONTEXT,
+    LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT
 } from '../../utils/Constants.js';
+import { TRAIT_GROUPS, STAT_NAMES, flatKey } from '../../../shared/StatVocabulary.js';
 import { resolveRoomExits } from '../../utils/ContextResolution.js';
 
 class LlmContextController {
     static BUDGET = {
-        maxChars: 5000,          // hard cap on the rendered text (~1.3k–1.5k tokens); raised from 4000 to preserve the enriched spatial detail (room size/positions/exits)
+        maxChars: LLM_CONTEXT_MAX_CHARS,          // hard cap on the rendered text (~1.3k–1.5k tokens); raised from 4000 to preserve the enriched spatial detail (room size/positions/exits)
         maxEntities: CONTEXT_MAX_ENTITIES,       // same-room entities listed (single-sourced in Constants.js)
-        otherRoomEntities: 2,    // entities from other rooms (room-named)
+        otherRoomEntities: LLM_CONTEXT_OTHER_ROOM_ENTITIES,    // entities from other rooms (room-named)
         maxDroppedItems: CONTEXT_MAX_DROPPED_ITEMS, // current-room dropped items listed (positions) (single-sourced in Constants.js)
         maxExits: CONTEXT_MAX_EXITS,             // current-room exits listed (safety cap) (single-sourced in Constants.js)
-        maxEvents: 20,
-        maxChat: 10,
-        maxInstincts: 5,         // displayed instincts (display cap)
-        perMessageChars: 200     // per chat/event line truncation
+        maxEvents: LLM_CONTEXT_MAX_EVENTS,
+        maxChat: LLM_CONTEXT_MAX_CHAT,
+        maxInstincts: LLM_CONTEXT_MAX_INSTINCTS,         // displayed instincts (display cap)
+        perMessageChars: CHAT_MESSAGE_MAX_LENGTH     // per chat/event line truncation (shared with the room-chat message cap)
     };
 
     /**
@@ -131,8 +143,8 @@ class LlmContextController {
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
-            if (text.length > stats.budgetChars && chat.length > 5) {
-                chat = chat.slice(0, 5);
+            if (text.length > stats.budgetChars && chat.length > LLM_CONTEXT_MAX_CHAT_IN_CONTEXT) {
+                chat = chat.slice(0, LLM_CONTEXT_MAX_CHAT_IN_CONTEXT);
                 text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.chat = true;
             }
@@ -145,8 +157,8 @@ class LlmContextController {
             }
 
             // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
-            if (instinctSection.length > 3) {
-                instinctSection = instinctSection.slice(0, 3);
+            if (instinctSection.length > LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT) {
+                instinctSection = instinctSection.slice(0, LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT);
                 text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.instincts = true;
             }
@@ -169,7 +181,7 @@ class LlmContextController {
             ],
             droppedItems,
             actions: actionData,
-            hints: hintsData.slice(0, 3),
+            hints: hintsData.slice(0, LLM_CONTEXT_MAX_HINTS),
             recentEvents: events,
             roomChat: chat,
             lastActionsResults: feedback,
@@ -197,9 +209,9 @@ class LlmContextController {
         const durability = components
             .map(comp => {
                 const stats = facade.getComponentStats(comp.id);
-                const cur = stats?.Physical?.durability;
+                const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
                 const def = this._componentDef(comp.type);
-                const max = def?.traits?.Physical?.durability ?? cur;
+                const max = def?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY] ?? cur;
                 if (typeof cur !== 'number' || typeof max !== 'number' || max <= 0) return null;
                 return { component: comp.type, current: cur, max, ratio: cur / max };
             })
@@ -218,8 +230,8 @@ class LlmContextController {
             return typeof v === 'number';
         });
         const statsLines = {
-            'Physical.strength': has('Physical', 'strength') ? sum('Physical', 'strength') : null,
-            'Physical.sharpness': has('Physical', 'sharpness') ? sum('Physical', 'sharpness') : null,
+            [flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)]: has(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH) ? sum(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH) : null,
+            [flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)]: has(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS) ? sum(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS) : null,
             'Movement.move': has('Movement', 'move') ? sum('Movement', 'move') : null,
             'Mind.think_level': has('Mind', 'think_level') ? sum('Mind', 'think_level') : null
         };
@@ -336,7 +348,7 @@ class LlmContextController {
                 ? Math.round(Math.hypot((other.spatial?.x || 0) - (self.spatial?.x || 0), (other.spatial?.y || 0) - (self.spatial?.y || 0)))
                 : null;
             const durability = this._firstDurability(other);
-            const stats = this._topStats(other, 2);
+            const stats = this._topStats(other, LLM_CONTEXT_MAX_NEARBY_STATS);
             const entry = {
                 id: other.id,
                 name: other.name || 'Droid',
@@ -405,7 +417,7 @@ class LlmContextController {
             if (!facade.hintController || !facade.hintController.getHints) return [];
             const result = facade.hintController.getHints(entityId);
             if (!result || !Array.isArray(result.hints)) return [];
-            return result.hints.slice(0, 3);
+            return result.hints.slice(0, LLM_CONTEXT_MAX_HINTS);
         } catch {
             // Missing hintController or getHints() throwing → degrade gracefully.
             return [];
@@ -461,7 +473,7 @@ class LlmContextController {
         const facade = this.worldStateController;
         if (!facade.llmAgentFeedbackController?.getRecent) return [];
         try {
-            const outcomes = facade.llmAgentFeedbackController.getRecent(entityId, 5) || [];
+            const outcomes = facade.llmAgentFeedbackController.getRecent(entityId, AGENT_FEEDBACK_CAPACITY) || [];
             return outcomes;
         } catch {
             return [];
@@ -501,8 +513,8 @@ class LlmContextController {
             ? `Durability: ${self.durability.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
             : 'Durability: (none)');
         const statParts = [
-            self.stats['Physical.strength'] !== null && `strength=${self.stats['Physical.strength']}`,
-            self.stats['Physical.sharpness'] !== null && `sharpness=${self.stats['Physical.sharpness']}`,
+            self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)] !== null && `strength=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)]}`,
+            self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)] !== null && `sharpness=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)]}`,
             self.stats['Movement.move'] !== null && `move=${self.stats['Movement.move']}`,
             self.stats['Mind.think_level'] !== null && `think=${self.stats['Mind.think_level']}`
         ].filter(Boolean);
@@ -524,7 +536,7 @@ class LlmContextController {
             nearby.forEach((e, i) => {
                 const stats = Object.entries(e.stats)
                     .map(([k, v]) => `${k.split('.')[1]}=${v}`)
-                    .slice(0, 2)
+                    .slice(0, LLM_CONTEXT_MAX_NEARBY_STATS)
                     .join(', ');
                 const dur = e.durability ? ` - durability ${e.durability.current}/${e.durability.max}` : '';
                 const where = e.roomName ? ` (in ${e.roomName})` : ` (${e.distance} away)`;
@@ -566,7 +578,7 @@ class LlmContextController {
 
         // === HINTS ===
         lines.push('=== HINTS ===');
-        const hintLines = hints.slice(0, 3).map(h => `- ${h.message || h}`);
+        const hintLines = hints.slice(0, LLM_CONTEXT_MAX_HINTS).map(h => `- ${h.message || h}`);
         lines.push(hintLines.length > 0 ? hintLines.join('\n') : '(none)');
         lines.push('');
 
@@ -623,8 +635,8 @@ class LlmContextController {
         const facade = this.worldStateController;
         for (const comp of entity.components || []) {
             const stats = facade.getComponentStats(comp.id);
-            const cur = stats?.Physical?.durability;
-            const max = this._componentDef(comp.type)?.traits?.Physical?.durability ?? cur;
+            const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
+            const max = this._componentDef(comp.type)?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY] ?? cur;
             if (typeof cur === 'number' && typeof max === 'number' && max > 0) {
                 return { component: comp.type, current: cur, max };
             }
@@ -649,7 +661,7 @@ class LlmContextController {
                 if (trait === 'Spatial') continue; // position is not a stat
                 for (const [stat, value] of Object.entries(values)) {
                     if (typeof value !== 'number') continue;
-                    if (stat === 'durability') continue;
+                    if (stat === STAT_NAMES.DURABILITY) continue;
                     const key = `${trait}.${stat}`;
                     totals[key] = (totals[key] || 0) + value;
                 }

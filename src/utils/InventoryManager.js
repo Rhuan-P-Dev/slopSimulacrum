@@ -7,6 +7,7 @@
 import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
+import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
 class InventoryManager {
     constructor(options = {}) {
@@ -500,7 +501,7 @@ class InventoryManager {
      */
     _getHostDefinition(entity, parentId) {
         // Check if parentId is a component ID
-        if (parentId.startsWith('comp-')) {
+        if (isPrefixed(parentId, ID_PREFIXES.COMPONENT)) {
             const maxVolume = this._getComponentMaxVolumeFromEntity(entity, parentId);
             return { maxVolume, isComponent: true, host: null };
         }

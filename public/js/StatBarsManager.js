@@ -10,18 +10,22 @@
  */
 import { AppConfig } from './Config.js';
 import ClientLogger from '/utils/ClientLogger.js';
+import { TRAIT_GROUPS } from '../../shared/StatVocabulary.js';
 
 /**
  * Default color mapping for trait types.
  * @readonly
  * @type {Record<string, string>}
  */
+// Keys derived from the shared trait vocabulary where one exists (Physical /
+// Movement / Manipulation); Mind and Spatial have no shared entry and stay
+// literal. Resolved key strings are byte-identical to the former literals.
 const TRAIT_DEFAULT_COLORS = Object.freeze({
-    Physical: '#22c55e',
+    [TRAIT_GROUPS.PHYSICAL]: '#22c55e',
     Mind: '#3b82f6',
     Spatial: '#6b7280',
-    Movement: '#f59e0b',
-    Manipulation: '#a855f7',
+    [TRAIT_GROUPS.MOVEMENT]: '#f59e0b',
+    [TRAIT_GROUPS.MANIPULATION]: '#a855f7',
 });
 
 /**

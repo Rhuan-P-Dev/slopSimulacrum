@@ -8,6 +8,7 @@
  */
 import Logger from '../utils/Logger.js';
 import IdResolver from '../utils/IdResolver.js';
+import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
 /**
  * Parses a non-negative integer query parameter, or null if absent/invalid.
@@ -46,7 +47,7 @@ export function register(router, { worldStateController }) {
             }
             if (!IdResolver.isEntityId(entityId)) {
                 return res.status(400).json({
-                    error: `Invalid entityId: "${entityId}". Expected typed ID format "ent-<uuid>".`
+                    error: `Invalid entityId: "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".`
                 });
             }
 

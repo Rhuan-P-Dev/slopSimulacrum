@@ -8,7 +8,7 @@ import WorldStateBroadcastService from './services/WorldStateBroadcastService.js
 import { registerRoutes } from './routes/index.js';
 import Logger from './utils/Logger.js';
 import { UniversalTickSystem } from './utils/UniversalTickSystem.js';
-import { MAX_TICKS_PER_SECOND } from './utils/Constants.js';
+import { MAX_TICKS_PER_SECOND, FORCED_SHUTDOWN_TIMEOUT_MS } from './utils/Constants.js';
 
 // 1. Bootstrap server (Express + HTTP + Socket.IO)
 const { app, server, io } = bootstrapServer();
@@ -138,11 +138,11 @@ function gracefulShutdown(signal) {
         process.exit(0);
     });
 
-    // Force exit after 10 seconds if server.close() still hangs (safety net)
+    // Force exit after FORCED_SHUTDOWN_TIMEOUT_MS if server.close() still hangs (safety net)
     setTimeout(() => {
         Logger.error('[Server] Forced shutdown after timeout.');
         process.exit(1);
-    }, 10000);
+    }, FORCED_SHUTDOWN_TIMEOUT_MS);
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));

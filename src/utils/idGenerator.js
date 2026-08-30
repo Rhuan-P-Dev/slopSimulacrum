@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
 /**
  * Generates a cryptographically strong unique identifier (UUID v4).
@@ -13,7 +14,7 @@ export function generateUID() {
  * @returns {string} Typed entity ID (e.g., "ent-550e8400-e29b-41d4-a716-446655440000").
  */
 export function generateEntityId() {
-    return `ent-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.ENTITY}${crypto.randomUUID()}`;
 }
 
 /**
@@ -21,7 +22,7 @@ export function generateEntityId() {
  * @returns {string} Typed component ID (e.g., "comp-6ba7b810-9dad-11d1-80b4-00c04fd430c8").
  */
 export function generateCompId() {
-    return `comp-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.COMPONENT}${crypto.randomUUID()}`;
 }
 
 /**
@@ -29,7 +30,7 @@ export function generateCompId() {
  * @returns {string} Typed item ID (e.g., "item-6ba7b811-9dad-11d1-80b4-00c04fd430c8").
  */
 export function generateItemId() {
-    return `item-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.ITEM}${crypto.randomUUID()}`;
 }
 
 /**
@@ -37,7 +38,7 @@ export function generateItemId() {
  * @returns {string} Typed equipped item ID (e.g., "eq-6ba7b812-9dad-11d1-80b4-00c04fd430c8").
  */
 export function generateEquippedId() {
-    return `eq-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.EQUIPPED}${crypto.randomUUID()}`;
 }
 
 /**
@@ -47,7 +48,7 @@ export function generateEquippedId() {
  * @returns {string} Typed queue entry ID (e.g., "q-6ba7b813-9dad-11d1-80b4-00c04fd430c8").
  */
 export function generateQueueId() {
-    return `q-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.QUEUE}${crypto.randomUUID()}`;
 }
 
 /**
@@ -57,7 +58,7 @@ export function generateQueueId() {
  * @returns {string} Typed chat message ID (e.g., "chat-6ba7b814-9dad-11d1-80b4-00c04fd430c8").
  */
 export function generateChatId() {
-    return `chat-${crypto.randomUUID()}`;
+    return `${ID_PREFIXES.CHAT}${crypto.randomUUID()}`;
 }
 
 export default generateUID;

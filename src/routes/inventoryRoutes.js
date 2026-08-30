@@ -6,6 +6,7 @@
  */
 import Logger from '../utils/Logger.js';
 import IdResolver from '../utils/IdResolver.js';
+import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
 // TYPED ID MIGRATION: Typed ID validation helper functions
 /**
@@ -14,7 +15,7 @@ import IdResolver from '../utils/IdResolver.js';
  */
 function validateEntityId(id, context) {
     if (!IdResolver.isEntityId(id)) {
-        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "ent-<uuid>".` };
+        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
     }
     return { valid: true };
 }
@@ -25,7 +26,7 @@ function validateEntityId(id, context) {
  */
 function validateCompId(id, context) {
     if (!IdResolver.isCompId(id)) {
-        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "comp-<uuid>".` };
+        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
     }
     return { valid: true };
 }
@@ -36,7 +37,7 @@ function validateCompId(id, context) {
  */
 function validateItemId(id, context) {
     if (!IdResolver.isItemId(id)) {
-        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "item-<uuid>".` };
+        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
     }
     return { valid: true };
 }

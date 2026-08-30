@@ -8,6 +8,7 @@
 
 import { isEntityId } from '../utils/IdResolver.js';
 import Logger from '../utils/Logger.js';
+import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
 /**
  * Register hint routes with the given router.
@@ -28,7 +29,7 @@ export function register(router, { worldStateController }) {
             return res.status(400).json({ error: 'Missing or empty entityId query parameter.' });
         }
         if (!isEntityId(entityId)) {
-            return res.status(400).json({ error: 'Malformed entityId — must start with "ent-".', code: 'INVALID_ENTITY_ID' });
+            return res.status(400).json({ error: `Malformed entityId — must start with "${ID_PREFIXES.ENTITY}".`, code: 'INVALID_ENTITY_ID' });
         }
 
         // Check entity existence.

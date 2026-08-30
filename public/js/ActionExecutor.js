@@ -1,5 +1,6 @@
 import { AppConfig } from './Config.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
+import { BINDING_ROLES } from '../../shared/ActionVocabulary.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
 /**
@@ -133,7 +134,7 @@ export class ActionExecutor {
         try {
             const components = componentIds.map(compId => ({
                 componentId: compId,
-                role: 'source'
+                role: BINDING_ROLES.SOURCE
             }));
 
             await this.actions.selectComponents(actionName, entityId, components);
@@ -254,7 +255,7 @@ export class ActionExecutor {
                         // Multi-attacker: use executeMultiComponentAttack with the action's own params
                         const components = attackerComponentIds.map(compId => ({
                             componentId: compId,
-                            role: 'source'
+                            role: BINDING_ROLES.SOURCE
                         }));
                         await this.actions.executeMultiComponentAttack(
                             pending.actionName,

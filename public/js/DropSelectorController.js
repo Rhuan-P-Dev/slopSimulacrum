@@ -1,4 +1,5 @@
 import ClientLogger from '/utils/ClientLogger.js';
+import { AppConfig } from './Config.js';
 /**
  * DropSelectorController — Floating window for selecting components to drop an item.
  *
@@ -121,7 +122,9 @@ export class DropSelectorController {
             startY = e.clientY;
             initialLeft = this._overlay.offsetLeft;
             initialTop = this._overlay.offsetTop;
-            this._overlay.style.zIndex = 110;
+            // One step above the OverlayManager's active panel (derived, not a
+            // third constant, so the layering invariant cannot drift).
+            this._overlay.style.zIndex = AppConfig.UI.Z_INDEX_BASE + AppConfig.UI.Z_INDEX_STEP;
             this._overlay.style.transition = 'none';
         };
 

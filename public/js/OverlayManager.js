@@ -10,6 +10,7 @@
  * @module OverlayManager
  */
 import ClientLogger from '/utils/ClientLogger.js';
+import { AppConfig } from './Config.js';
 
 export class OverlayManager {
     /**
@@ -27,7 +28,7 @@ export class OverlayManager {
         this._backdrop = null;
 
         /** @private {number} Base z-index for overlay panels */
-        this._baseZIndex = 100;
+        this._baseZIndex = AppConfig.UI.Z_INDEX_BASE;
 
         /** @private {Object<string, Object>} Cache for panel positions */
         this._panelPositions = {};
@@ -181,7 +182,7 @@ export class OverlayManager {
 
         const overlay = panel.controller.overlay;
         if (overlay) {
-            overlay.style.zIndex = this._baseZIndex + 10;
+            overlay.style.zIndex = this._baseZIndex + AppConfig.UI.Z_INDEX_STEP;
         }
 
         // Reset other panels
@@ -236,7 +237,7 @@ export class OverlayManager {
 
         // If already initialized, just ensure it's on top
         if (overlay._isDragInitialized) {
-            overlay.style.zIndex = this._baseZIndex + 10;
+            overlay.style.zIndex = this._baseZIndex + AppConfig.UI.Z_INDEX_STEP;
             return;
         }
 
@@ -250,7 +251,7 @@ export class OverlayManager {
             startY = e.clientY;
             initialLeft = overlay.offsetLeft;
             initialTop = overlay.offsetTop;
-            overlay.style.zIndex = this._baseZIndex + 10;
+            overlay.style.zIndex = this._baseZIndex + AppConfig.UI.Z_INDEX_STEP;
             overlay.style.transition = 'none';
         };
 

@@ -43,7 +43,13 @@
 
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
-import { WORLD_EVENTS_MAX_LIMIT } from '../utils/Constants.js';
+import {
+    WORLD_EVENTS_MAX_LIMIT,
+    AGENT_FEEDBACK_CAPACITY,
+    ROOM_CHAT_HISTORY_LIMIT,
+    CHAT_MESSAGE_MAX_LENGTH
+} from '../utils/Constants.js';
+import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
 
 // Bottom-level data stores
 import ComponentStatsController from '../controllers/core/componentStatsController.js';
@@ -164,11 +170,12 @@ export function buildWorldState(tickSystem = null) {
     const inventoryManager = new InventoryManager({ materialController });
     // Feature B: world event ring buffer (state owner; capacity WORLD_EVENTS_MAX_LIMIT per spec §4.1)
     const worldEventLogController = new WorldEventLogController(WORLD_EVENTS_MAX_LIMIT);
-    // Feature E: per-agent action-outcome feedback store (capacity 5 per agent).
-    const llmAgentFeedbackController = new LlmAgentFeedbackController(5);
-    // Feature D backend (spec §7.3): per-room chat rings (50/room, 200-char
-    // messages). No getAll() on purpose — the full-state broadcast stays lean.
-    const roomChatController = new RoomChatController(50, 200);
+    // Feature E: per-agent action-outcome feedback store (capacity AGENT_FEEDBACK_CAPACITY per agent).
+    const llmAgentFeedbackController = new LlmAgentFeedbackController(AGENT_FEEDBACK_CAPACITY);
+    // Feature D backend (spec §7.3): per-room chat rings (ROOM_CHAT_HISTORY_LIMIT/room,
+    // CHAT_MESSAGE_MAX_LENGTH-char messages). No getAll() on purpose — the
+    // full-state broadcast stays lean.
+    const roomChatController = new RoomChatController(ROOM_CHAT_HISTORY_LIMIT, CHAT_MESSAGE_MAX_LENGTH);
     // NOTE: EquippedItemStatsController no longer takes the facade (its reference was
     // dead code — it was stored but never read). It is a pure data store.
     const equippedItemStats = new EquippedItemStatsController();
@@ -286,8 +293,8 @@ export function buildWorldState(tickSystem = null) {
     // Register handlers in deterministic order.
     const brokenComponentRemovalHandler = new BrokenComponentRemovalHandler({ worldStateController });
     const knifeDropTriggerHandler = new KnifeDropTriggerHandler({ worldStateController });
-    triggerController.on('component:broke', (payload) => brokenComponentRemovalHandler.handle(payload));
-    triggerController.on('component:broke', (payload) => knifeDropTriggerHandler.handle(payload));
+    triggerController.on(SOCKET_EVENTS.COMPONENT_BROKE, (payload) => brokenComponentRemovalHandler.handle(payload));
+    triggerController.on(SOCKET_EVENTS.COMPONENT_BROKE, (payload) => knifeDropTriggerHandler.handle(payload));
     
     // Feature D backend: the room chat layer needs the facade for room
     // existence checks (sendMessage → ROOM_NOT_FOUND). No subControllers

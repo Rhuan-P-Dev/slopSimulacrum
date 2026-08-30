@@ -19,6 +19,8 @@
  *
  * @module TurnController
  */
+import { AppConfig } from './Config.js';
+import { TURN_PHASES } from '../../shared/TurnPhases.js';
 import ClientLogger from '/utils/ClientLogger.js';
 
 /**
@@ -87,7 +89,7 @@ export class TurnController {
         if (this._mode !== 'turn') return false;
         try {
             const turns = this._worldState()?.turns;
-            return !!turns && turns.phase === 'planning';
+            return !!turns && turns.phase === TURN_PHASES.PLANNING;
         } catch {
             return false;
         }
@@ -298,7 +300,7 @@ export class TurnController {
 
         roundEl.textContent = `Round ${turns.roundNumber ?? '?'}`;
 
-        const isPlanning = turns.phase === 'planning';
+        const isPlanning = turns.phase === TURN_PHASES.PLANNING;
         phaseEl.textContent = isPlanning ? '🕒 Planning' : '⚔️ Resolution';
         phaseEl.classList.toggle('turn-phase-planning', isPlanning);
         phaseEl.classList.toggle('turn-phase-resolution', !isPlanning);

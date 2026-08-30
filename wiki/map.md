@@ -122,3 +122,19 @@ graph TD
 | `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
 | `data/propertyTraitMapping.json` | Property-to-trait mapping table (formulas: densityVolume, weighted sources) |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
+
+## 🧩 Shared Modules
+
+The `shared/` directory is the **only import path available to both layers** — the browser cannot import from `src/`, and the Node server cannot import from `public/`. These dependency-free modules are therefore the single source of truth for the string/number vocabularies that form a **wire contract or cross-layer contract**: each value must have exactly one definition, because a hand-typed duplicate that drifts silently breaks ID routing, stat lookups, or event matching (drift this codebase has observed: the client's per-file `PREFIX_LENGTH` artifact, and same-name/different-value durability constants in different files). These modules name the vocabulary; the data-driven values themselves stay in `data/*.json` ([Data-Driven Design](code_quality_and_best_practices.md)).
+
+| File | Purpose |
+|------|---------|
+| `shared/IdPrefixes.js` | Typed-ID prefix family (`ent-`, `comp-`, `item-`, `eq-`, `q-`, `chat-`) with lengths and pure prefix helpers — the prefix is the type, so both layers route IDs unambiguously |
+| `shared/StatVocabulary.js` | Trait-group/stat names that must match `data/traits.json`, the `trait.stat` flat-key form, and the two distinct durability semantics (broken threshold vs. usable minimum) |
+| `shared/ActionVocabulary.js` | Action-system vocabulary: targeting types, component-binding roles, action names (keys of `data/actions.json`), target anchors |
+| `shared/TurnPhases.js` | Turn-phase wire values (`planning`/`resolution`) stored in `state.turns.phase` — part of the persisted world-state schema |
+| `shared/SocketProtocol.js` | Socket.IO event-name wire contract between server emitters and client listeners; a name renamed on one side alone fails silently in both directions |
+| `shared/Defaults.js` | Cross-layer safety fallbacks (default player blueprint, item-volume fallback) — the safe direction when data files are missing or malformed |
+| `shared/RangeResolver.js` | Range-expression resolver (numbers and `:trait.stat` expressions from `data/actions.json`) used by both layers so range semantics cannot drift |
+
+`public/utils/MapGeometry.js` is the client-side counterpart for map-rendering geometry: it is shared **only** between the two client map renderers (`WorldMapView`, `RoomConnectionRenderer`) and is deliberately **not** part of `shared/` — the server has no map rendering.

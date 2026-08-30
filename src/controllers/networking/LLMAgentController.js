@@ -30,6 +30,8 @@ import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
+import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/Constants.js';
+import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 
 /** Hard cap on the agent's conversation memory per NPC (rounds). */
 const TRANSCRIPT_ROUNDS = 2;
@@ -41,6 +43,20 @@ const DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND = 1;
 const LLM_ROUND_TIMEOUT_MS = 4500;
 /** Per-call token cap: tool-call rounds are short (spec §6.5). */
 const LLM_ROUND_MAX_TOKENS = 512;
+/**
+ * Agent-loop iteration budget: the initial call PLUS AT MOST ONE retry
+ * (spec §6.3 step 6 — "AT MOST ONE retry with the failure fed back as a
+ * tool-role result"), i.e. at most 2 chatFull calls per round.
+ * @constant
+ */
+const LLM_AGENT_MAX_ITERATIONS = 2;
+/**
+ * Sampling temperature for agent calls: deliberately lower than the general
+ * LLM default (0.7) — tool-call rounds must stay conservative and
+ * deterministic (spec §6.5).
+ * @constant
+ */
+const LLM_AGENT_TEMPERATURE = 0.3;
 
 class LLMAgentController {
     /**
@@ -212,7 +228,7 @@ class LLMAgentController {
                 system: this._buildSystemPrompt(npc, this._roomName(entity)),
                 tools: this._buildTools({ includeChat: maxChat > 0, instincts }),
                 tool_choice: 'required',
-                temperature: 0.3,
+                temperature: LLM_AGENT_TEMPERATURE,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
                 max_tokens: LLM_ROUND_MAX_TOKENS
             };
@@ -229,7 +245,7 @@ class LLMAgentController {
                     ? call.id
                     : `call-${npcEntityId}-${round}-${index}`;
 
-            for (let iteration = 1; iteration <= 2; iteration++) {
+            for (let iteration = 1; iteration <= LLM_AGENT_MAX_ITERATIONS; iteration++) {
                 result.iterations = iteration;
 
                 // 4. The LLM call — any LLMError = graceful silence (no retry).
@@ -297,7 +313,7 @@ class LLMAgentController {
                 for (const call of parsed.speaks) {
                     const callId = speakCallId(call, speakResults.length);
                     const text = call.args?.message;
-                    if (sentChats >= maxChat || typeof text !== 'string' || text.trim() === '' || text.length > 200) {
+                    if (sentChats >= maxChat || typeof text !== 'string' || text.trim() === '' || text.length > CHAT_MESSAGE_MAX_LENGTH) {
                         const reason = sentChats >= maxChat
                             ? `max chat messages per round reached (${maxChat})`
                             : 'invalid message text';
@@ -378,7 +394,7 @@ class LLMAgentController {
                     } else if (extracted && extracted.type === 'speak_in_room') {
                         Logger.info(`[LLMAgent] round ${round}: ${displayName} — json-fallback: speak_in_room from content`);
                         const text = extracted.args?.message;
-                        if (sentChats < maxChat && typeof text === 'string' && text.trim() !== '' && text.length <= 200) {
+                        if (sentChats < maxChat && typeof text === 'string' && text.trim() !== '' && text.length <= CHAT_MESSAGE_MAX_LENGTH) {
                             const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
                             if (sendResult.success) {
                                 sentChats += 1;
@@ -397,7 +413,7 @@ class LLMAgentController {
                         Logger.info(`[LLMAgent] round ${round}: ${displayName} — plain-text-as-chat from content`);
                         if (sentChats < maxChat) {
                             let text = content.trim();
-                            if (text.length > 200) text = text.slice(0, 200);
+                            if (text.length > CHAT_MESSAGE_MAX_LENGTH) text = text.slice(0, CHAT_MESSAGE_MAX_LENGTH);
                             const sendResult = this._dispatchSpeak(entity, displayName, text);
                             if (sendResult.success) {
                                 sentChats += 1;
@@ -420,7 +436,7 @@ class LLMAgentController {
 
                 // 6. Retry (at most one): feed the failure back as tool-role
                 //    results + a user nudge, then call chatFull again.
-                if (actionableFailure && iteration < 2) {
+                if (actionableFailure && iteration < LLM_AGENT_MAX_ITERATIONS) {
                     Logger.info(`[LLMAgent] round ${round}: ${displayName} — retrying after failure: ${actionableFailure.error}`);
                     const feedback = this._buildFeedbackMessages(messages, full.message, parsed, result);
                     messages.push(...feedback);
@@ -534,7 +550,7 @@ class LLMAgentController {
                     parameters: {
                         type: 'object',
                         properties: {
-                            message: { type: 'string', maxLength: 200, description: 'The line to say (max 200 characters).' }
+                            message: { type: 'string', maxLength: CHAT_MESSAGE_MAX_LENGTH, description: 'The line to say (max 200 characters).' }
                         },
                         required: ['message']
                     }
@@ -899,7 +915,7 @@ class LLMAgentController {
         const turns = this.turnSystemController;
         const phase = turns?.getRoundState?.()?.phase;
         const turnsActive = turns && phase !== undefined; // phase only exists when a tick clock runs
-        if (turnsActive && phase === 'planning') {
+        if (turnsActive && phase === TURN_PHASES.PLANNING) {
             const q = turns.queueAction(npcEntityId, actionName, clean, 'npc');
             if (q?.success) {
                 return { actionName, queued: true, queueId: q.queueId, success: true };
