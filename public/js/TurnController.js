@@ -229,15 +229,9 @@ export class TurnController {
         const iAmPending = !!myEntityId && pending.includes(myEntityId);
         const isPlanning = turns.phase === 'planning';
 
-        // Pending planners resolved to names (state.entities, best-effort).
-        const names = this._entityNames();
-        const pendingNames = pending.map(id => names[id] || id);
-
         statusEl.textContent = barrier.closed
             ? `Planning closed (${barrier.closeReason ?? 'unknown'}) @ tick ${barrier.closedAtTick ?? '?'}`
-            : (pending.length > 0
-                ? `Ready ${barrier.readyCount ?? 0}/${total} — still planning: ${pendingNames.join(', ')}`
-                : `Ready ${barrier.readyCount ?? 0}/${total} — all planners have signaled`);
+            : `Ready ${barrier.readyCount ?? 0}/${total}`;
         statusEl.classList.toggle('turn-barrier-closed', !!barrier.closed);
 
         statusEl.title = barrier.closed
