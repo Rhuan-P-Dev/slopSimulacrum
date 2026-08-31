@@ -29,6 +29,7 @@ graph TD
     SVR[Server]
     WGB[WorldGraphBuilder]
     ICE[InternalComponentController]
+    TSC[TurnSystemController]
     INV[InventoryManager]
     EISC[EquippedItemStatsController]
     HCC[HoldingCostController]
@@ -75,6 +76,7 @@ graph TD
 
     SEC -->|auto-installs| ICE
     ICE -->|repairs| CC
+    TSC -->|turn-start hook| ICE
 
     INV --> CC
     INV -.->|items array| SEC
