@@ -37,7 +37,7 @@ Use **public methods only** — never access another controller's private or int
 
 ### WorldStateController Public API
 
-The root controller exposes a public API covering entity lifecycle (spawn, despawn, move), room identity resolution, and world graph queries. It is the sole sanctioned interface for reading or mutating world state from outside the controller hierarchy, keeping the dependency graph explicit and the single source of truth intact.
+The root controller exposes a public API covering entity lifecycle (spawn, despawn, move), room identity resolution, and world graph queries. It is the sole sanctioned interface for reading or mutating world state from outside the controller hierarchy, keeping the dependency graph explicit and the single source of truth intact. Payload-bearing facade getters degrade to a total empty shape — never `null` — when their backing sub-controller is unwired, so clients can render empty states instead of error states on a wiring miss; the crafting and knowledge getters are the two current instances of the rule.
 
 ## 6. Controller Roles
 

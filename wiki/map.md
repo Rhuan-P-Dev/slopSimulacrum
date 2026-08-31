@@ -37,6 +37,7 @@ graph TD
     NAC[NpcAIController]
     MC[MaterialController]
     CFT[CraftingController]
+    KC[KnowledgeController]
 
     SVR --> LLMC
     SVR --> WSC
@@ -97,6 +98,7 @@ graph TD
     INV --> MC
 
     WSC --> CFT
+    WSC --> KC
     ```
 
 ## 🤖 AI Controllers

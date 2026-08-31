@@ -84,6 +84,7 @@ Additional reference documentation for specific systems and components, organize
 - [Client Action Execution](subMDs/frontend/client_action_execution.md) — Client action flow
 - [CSS Architecture](subMDs/frontend/css_architecture.md) — CSS module organization
 - [Overlay Manager](subMDs/frontend/overlay_manager.md) — Floating window coordination
+- [Knowledge Viewer](subMDs/frontend/knowledge_viewer.md) — Read-only reference codex tab (traits/stats, recipes, items): static, data-driven, fetched once — why it lives outside the world-state flow and how it degrades
 
 ### 🌐 Networking & Communication
 - [Communication & Error Handling](subMDs/networking/communication.md) — LLM integration + error codes

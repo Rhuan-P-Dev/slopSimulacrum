@@ -23,6 +23,7 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
 | Client Error Controller | Error resolution and formatting |
 | Turn Controller | Turn HUD (round/phase — no countdown: planning is unlimited), per-round queue list, ready/lock-in control, and barrier status (ready count, who is still planning; when and why planning closed) |
+| Knowledge Panel | Read-only reference codex overlay (trait/stat derivation chain, recipes, item types) — static registries fetched once per session; no world-state dependency, degrades to per-section empty states or an in-panel error card |
 
 **State-Derived HUD Rule**: Every state-derived HUD element must default hidden/off in the static markup and be opted in by its renderer once the first relevant server state arrives — never the reverse — so a stale or half-initialized UI state can never be visible before the server has spoken.
 
