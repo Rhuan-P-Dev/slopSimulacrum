@@ -119,7 +119,7 @@ class WorldStateBroadcastService {
 						if (Array.isArray(comps)) {
 							for (const ic of comps) {
 								if (ic && ic.type) {
-									ic.description = InternalComponentUtils.generateDescription(ic.type);
+									ic.description = InternalComponentUtils.generateDescription(this._worldStateController.internalComponentController.registry[ic.type]);
 								}
 							}
 						}

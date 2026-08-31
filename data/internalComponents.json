@@ -1,4 +1,32 @@
 {
+  "strengthCore": {
+    "volume": 1,
+    "turnDriven": true,
+    "turnEffects": [
+      {
+        "targetTrait": "Physical",
+        "targetStat": "durability",
+        "effect": "add",
+        "amount": -1,
+        "target": "host"
+      },
+      {
+        "targetTrait": "Physical",
+        "targetStat": "strength",
+        "effect": "set",
+        "amount": 50,
+        "target": "host"
+      }
+    ],
+    "traits": {
+      "Physical": { "mass": 2, "durability": 20 }
+    },
+    "excludedComponentTypes": [],
+    "autoInstallOnSpawn": false,
+    "targetBlueprintTypes": ["smallBallDroid"],
+    "hostComponentType": "droidHand",
+    "hostSlot": "left"
+  },
   "durabilityRepairSphere": {
     "volume": 2,
     "tickInterval": 5,

@@ -436,6 +436,7 @@ export class ComponentViewer {
         for (const ic of internalComps) {
             const description = ic.description || "Error";
             const typeLabel = this._formatInternalComponentType(ic.type);
+            const selfDurability = ic.instanceStats?.Physical?.durability;
 
             html += `
                 <div class="internal-component-detail-card">
@@ -444,6 +445,7 @@ export class ComponentViewer {
                         <span class="internal-component-host">Host: ${ic.hostComponentType || 'unknown'}</span>
                     </div>
                     <div class="internal-component-description">${description}</div>
+                    ${typeof selfDurability === 'number' ? `<div class="internal-component-meta">Durability: ${selfDurability}${ic.broken ? ' (broken)' : ''}</div>` : ''}
                     ${ic.id ? `<div class="internal-component-meta">ID: ${ic.id.substring(0, 12)}...</div>` : ''}
                     ${ic.installedAt ? `<div class="internal-component-meta">Installed: ${new Date(ic.installedAt).toLocaleString()}</div>` : ''}
                 </div>`;

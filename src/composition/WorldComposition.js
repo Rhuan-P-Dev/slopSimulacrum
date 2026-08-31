@@ -308,6 +308,10 @@ export function buildWorldState(tickSystem = null) {
     consequenceHandlers.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
+    // Turn-driven ICs: fire internal-component turn effects at ROUND START.
+    // Wired here (composition root) because the turn system and the IC
+    // controller are siblings - neither owns the other.
+    turnSystemController.setTurnStartHook(() => internalComponentController.processTurnEffects());
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);
     // InstinctController: reads world state for generation/expansion.

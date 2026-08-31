@@ -56,6 +56,9 @@ class InternalComponentController {
 
     /**
      * Validates the internal component registry structure.
+     * Structurally invalid entries (missing required fields, unknown effect
+     * vocabulary, wrong types) throw TypeError so corrupted data never enters
+     * the internal state; optional/soft conditions are surfaced via warn.
      * @param {Object} registry - The internal component registry to validate.
      * @private
      */
@@ -75,25 +78,47 @@ class InternalComponentController {
                 Logger.warn(`[InternalComponentController] Internal component "${type}" has invalid tickInterval`);
             }
 
+            // Validate turn-driven channel (parallel to the tick channel): when a
+            // type opts into turn-driven effects it MUST declare a structurally
+            // valid turnEffects array; the tick cadence fields are intentionally
+            // not required for these types.
+            if (definition.turnDriven === true) {
+                if (!Array.isArray(definition.turnEffects) || definition.turnEffects.length === 0) {
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" is turnDriven but has no turnEffects`);
+                }
+                this._validateTurnEffects(type, definition.turnEffects);
+                // hostComponentType / hostSlot are optional auto-install filters;
+                // validate their shape when present.
+                if (definition.hostComponentType !== undefined && typeof definition.hostComponentType !== 'string') {
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" hostComponentType must be a string`);
+                }
+                if (definition.hostSlot !== undefined && typeof definition.hostSlot !== 'string') {
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" hostSlot must be a string`);
+                }
+            } else if (!definition.turnEffects && (!definition.tickEffects || !Array.isArray(definition.tickEffects) || definition.tickEffects.length === 0)) {
+                // A type that declares neither channel is a passive no-op — surface it.
+                Logger.warn(`[InternalComponentController] Internal component "${type}" declares neither turnEffects nor tickEffects (passive no-op)`);
+            }
+
             // Validate tickEffects
             if (definition.tickEffects !== undefined) {
                 if (!Array.isArray(definition.tickEffects)) {
-                    Logger.warn(`[InternalComponentController] Internal component "${type}" tickEffects must be an array`);
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" tickEffects must be an array`);
                 } else {
                     for (const effect of definition.tickEffects) {
                         if (!effect.targetTrait) {
-                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing targetTrait`);
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing targetTrait`);
                         }
                         if (!effect.targetStat) {
-                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing targetStat`);
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing targetStat`);
                         }
                         if (!effect.effect) {
-                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing effect type`);
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing effect type`);
                         } else if (!['add', 'set', 'multiply'].includes(effect.effect)) {
-                            Logger.warn(`[InternalComponentController] Internal component "${type}" has invalid effect type: ${effect.effect}`);
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" has invalid tick effect type: ${effect.effect}`);
                         }
-                        if (effect.amount === undefined || effect.amount === null) {
-                            Logger.warn(`[InternalComponentController] Internal component "${type}" effect missing amount`);
+                        if (effect.amount === undefined || effect.amount === null || typeof effect.amount !== 'number') {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect amount must be a number`);
                         }
                     }
                 }
@@ -102,8 +127,39 @@ class InternalComponentController {
             // Validate targetBlueprintTypes (optional — if present, must be an array)
             if (definition.targetBlueprintTypes !== undefined) {
                 if (!Array.isArray(definition.targetBlueprintTypes)) {
-                    Logger.warn(`[InternalComponentController] Internal component "${type}" targetBlueprintTypes must be an array`);
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" targetBlueprintTypes must be an array`);
                 }
+            }
+        }
+    }
+
+    /**
+     * Validates each turn effect entry. Reuses the add/set/multiply effect
+     * vocabulary and adds the `target` field (self | host) that distinguishes
+     * whether the effect applies to the instance's own stat pool or to the
+     * host component's stat. Structurally invalid entries (missing
+     * targetTrait/targetStat, unknown effect, non-numeric amount, unknown
+     * target) throw TypeError so corrupted data never enters the state.
+     * @param {string} type - The internal component type (for log context).
+     * @param {Array} turnEffects - The turnEffects array to validate.
+     * @private
+     */
+    _validateTurnEffects(type, turnEffects) {
+        for (const effect of turnEffects) {
+            if (!effect.targetTrait) {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect missing targetTrait`);
+            }
+            if (!effect.targetStat) {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect missing targetStat`);
+            }
+            if (!effect.effect || !['add', 'set', 'multiply'].includes(effect.effect)) {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect has invalid effect type: ${effect.effect}`);
+            }
+            if (effect.amount === undefined || effect.amount === null || typeof effect.amount !== 'number') {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect amount must be a number`);
+            }
+            if (!['self', 'host'].includes(effect.target)) {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect target must be "self" or "host": ${effect.target}`);
             }
         }
     }
@@ -114,9 +170,19 @@ class InternalComponentController {
      * - excludedComponentTypes (skip certain host component types)
      * - targetBlueprintTypes (only install on matching entity blueprints)
      * - volume capacity (skip components with insufficient volume)
+     * - hostComponentType + hostSlot (constrain installation to a specific limb)
+     *
+     * `hostSlot` matches the host component's PARENT component's identifier, not
+     * the host's own identifier. The parent is resolved via the host's `dependsOn`
+     * field (which carries the parent instance id, set by the blueprint expander).
+     * This matters because a nested component's own identifier is remapped with a
+     * `default_` prefix (e.g. the left hand carries `default_left`, while its
+     * parent arm carries `left`), so matching the host's own identifier would
+     * never resolve. Matching the parent arm's identifier targets the limb the
+     * data file actually names.
      *
      * @param {string} entityId - The entity ID.
-     * @param {Array} components - Array of component objects with type, id, and optionally identifier.
+     * @param {Array} components - Array of component objects with type, id, identifier, and optionally dependsOn (parent instance ids).
      * @param {string|null} [entityType] - The blueprint type of the entity (e.g., 'smallBallDroid').
      * @param {Object} [componentVolumeProvider] - Function to get component volume: (componentType) => number
      * @returns {Object} Map of { [internalComponentType]: [installedInstances] }
@@ -144,6 +210,12 @@ class InternalComponentController {
             const excludedTypes = compDef.excludedComponentTypes || [];
             const volume = compDef.volume;
             const requiredTraits = compDef.requiredTraits || null;
+            // Host-constraint filters: restrict installation to a specific
+            // component type (hostComponentType) and, optionally, to the limb
+            // whose PARENT arm identifier matches (hostSlot). See the method
+            // JSDoc for why the parent arm (not the host itself) is matched.
+            const hostComponentType = compDef.hostComponentType || null;
+            const hostSlot = compDef.hostSlot || null;
             const installed = [];
 
             if (!this.internalComponents[entityId]) {
@@ -155,6 +227,22 @@ class InternalComponentController {
                 if (excludedTypes.includes(component.type)) {
                     Logger.info(`[InternalComponentController] Skipping ${component.type} — excluded from ${compType} auto-install`);
                     continue;
+                }
+
+                // Host-type filter: the component must be of the declared type.
+                if (hostComponentType && component.type !== hostComponentType) {
+                    continue;
+                }
+
+                // Host-slot filter: match the PARENT arm's identifier, resolved
+                // via the host's dependsOn field (see JSDoc above). The host's
+                // own identifier is remapped with a `default_` prefix by the
+                // blueprint expander, so it is deliberately NOT compared here.
+                if (hostSlot) {
+                    const parentIdentifier = this._resolveParentIdentifier(component, components);
+                    if (parentIdentifier !== hostSlot) {
+                        continue;
+                    }
                 }
 
                 // Check required traits on this component type
@@ -197,7 +285,16 @@ class InternalComponentController {
                     hostComponentId: component.id,
                     hostComponentType: component.type,
                     hostComponentIdentifier: component.identifier,
-                    installedAt: Date.now()
+                    installedAt: Date.now(),
+                    // The instance's own stat pool (deep copy of the type's traits),
+                    // used by `target: "self"` turn effects when a type has a
+                    // self-durability pool. The strengthCore type drains the HOST
+                    // hand's durability instead, so this pool is static for it.
+                    instanceStats: this._buildInstanceStats(compDef),
+                    // Broken flag: set true when the instance's self-durability pool
+                    // reaches 0 (via a self drain or adjustInstanceStat); the
+                    // instance stops applying effects once broken.
+                    broken: false
                 };
 
                 this.internalComponents[entityId][component.id].push(instance);
@@ -217,12 +314,34 @@ class InternalComponentController {
     }
 
     /**
+     * Resolves the parent component's identifier for a given component, using
+     * the component's `dependsOn` field (an array of parent instance ids).
+     * Returns null when the component has no parent or the parent is not in
+     * the provided component list (e.g. a manually-constructed component list
+     * without parent ids). The first dependsOn entry is used (components have
+     * at most one parent in the current blueprint model).
+     * @param {Object} component - The component whose parent identifier is needed.
+     * @param {Array} components - The full component list for the entity.
+     * @returns {string|null} The parent component's identifier, or null.
+     * @private
+     */
+    _resolveParentIdentifier(component, components) {
+        const dependsOn = component.dependsOn;
+        if (!Array.isArray(dependsOn) || dependsOn.length === 0) return null;
+        const parentId = dependsOn[0];
+        const parent = components.find(c => c.id === parentId);
+        return parent ? parent.identifier : null;
+    }
+
+    /**
      * Manually adds an internal component to a host component.
+     * Returns a defensive deep copy of the created instance so callers never
+     * hold a live reference into the controller's internal state.
      *
      * @param {string} entityId - The entity ID.
      * @param {string} hostComponentId - The host component ID.
      * @param {string} internalComponentType - The internal component type to add.
-     * @returns {Object|null} The created instance, or null if failed.
+     * @returns {Object|null} A deep copy of the created instance, or null if failed.
      */
     addInternalComponent(entityId, hostComponentId, internalComponentType) {
         if (!this.registry[internalComponentType]) {
@@ -238,19 +357,56 @@ class InternalComponentController {
             this.internalComponents[entityId][hostComponentId] = [];
         }
 
+        const compDef = this.registry[internalComponentType];
         const instanceId = generateUID();
         const instance = {
             id: instanceId,
             type: internalComponentType,
             hostComponentId: hostComponentId,
-            installedAt: Date.now()
+            installedAt: Date.now(),
+            // Same instance shape as auto-install: own stat pool + broken flag.
+            // The pool backs `target: "self"` effects; host-targeting types keep it static.
+            instanceStats: this._buildInstanceStats(compDef),
+            broken: false
         };
 
         this.internalComponents[entityId][hostComponentId].push(instance);
         Logger.info(`[InternalComponentController] Added ${internalComponentType} to ${hostComponentId} of entity ${entityId}`);
 
-        return instance;
+        return structuredClone(instance);
     }
+
+
+    /**
+     * Adjusts a stat on an internal component instance's OWN stat pool by a
+     * delta. This is the public facade for driving the instance's self-durability
+     * (or other self stats) without reaching into internalComponents internals.
+     * Returns a defensive deep copy of the updated instance, or null if the
+     * instance or stat is not found.
+     *
+     * @param {string} entityId - The entity ID.
+     * @param {string} hostComponentId - The host component ID.
+     * @param {string} instanceId - The internal component instance ID.
+     * @param {string} trait - The trait name (e.g. 'Physical').
+     * @param {string} stat - The stat name (e.g. 'durability').
+     * @param {number} delta - The delta to apply (negative to drain).
+     * @returns {Object|null} A deep copy of the updated instance, or null.
+     */
+    adjustInstanceStat(entityId, hostComponentId, instanceId, trait, stat, delta) {
+        const instances = this.internalComponents[entityId]?.[hostComponentId];
+        if (!instances) return null;
+        const instance = instances.find(ic => ic.id === instanceId);
+        if (!instance) return null;
+        const pool = instance.instanceStats;
+        if (!pool || !pool[trait] || typeof pool[trait][stat] !== 'number') return null;
+        pool[trait][stat] += delta;
+        if (pool[trait].durability !== undefined && pool[trait].durability <= 0) {
+            pool[trait].durability = 0;
+            instance.broken = true;
+        }
+        return structuredClone(instance);
+    }
+
 
     /**
      * Removes an internal component from a host component.
@@ -371,7 +527,10 @@ class InternalComponentController {
             for (const [hostComponentId, internalComponents] of Object.entries(hostComponents)) {
                 for (const internalComp of internalComponents) {
                     const compDef = this.registry[internalComp.type];
-                    if (!compDef || !compDef.tickEffects || !Array.isArray(compDef.tickEffects)) continue;
+                    // Turn-driven types are driven by the round-start hook, NOT the
+                    // tick channel — skip them here so they are never double-applied.
+                    if (!compDef || compDef.turnDriven) continue;
+                    if (!compDef.tickEffects || !Array.isArray(compDef.tickEffects)) continue;
 
                     // Check if this tick interval has arrived (Logical Second % Interval == 0)
                     if (currentLogicalSecond % compDef.tickInterval !== 0) continue;
@@ -399,6 +558,10 @@ class InternalComponentController {
     /**
      * Applies a single tick effect to a host component.
      * Supports "add", "set", and "multiply" effect types.
+     * `add` and `multiply` are applied atomically via the facade's
+     * updateComponentStatDelta / updateComponentStatRelative methods (the
+     * old value is read inside the facade, not here), so the read-then-write
+     * cannot race with a concurrent stat change.
      *
      * @param {Object} internalComp - The internal component instance.
      * @param {Object} compDef - The component type definition from registry.
@@ -415,34 +578,252 @@ class InternalComponentController {
         }
 
         const oldValue = stats[effect.targetTrait][effect.targetStat];
-        let delta = 0;
 
         switch (effect.effect) {
-            case 'add':
-                delta = effect.amount;
+            case 'add': {
+                const delta = effect.amount;
+                this.worldStateController.componentController.updateComponentStatDelta(
+                    hostComponentId, effect.targetTrait, effect.targetStat, delta
+                );
+                Logger.info(
+                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${oldValue + delta} (${delta >= 0 ? '+' : ''}${delta})`
+                );
                 break;
-            case 'set':
-                delta = effect.amount - oldValue;
+            }
+            case 'set': {
+                // Absolute set: overwrite to the declared value. updateComponentStat
+                // reads the old value inside the facade for the change notification.
+                this.worldStateController.componentController.updateComponentStat(
+                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
+                );
+                Logger.info(
+                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${effect.amount}`
+                );
                 break;
-            case 'multiply':
-                delta = oldValue * (effect.amount - 1);
+            }
+            case 'multiply': {
+                // Atomic relative op: the facade reads the old value and applies
+                // old * (factor - 1) in one call, so no read-then-write race.
+                this.worldStateController.componentController.updateComponentStatRelative(
+                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
+                );
+                Logger.info(
+                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat} by ${effect.amount}`
+                );
                 break;
+            }
             default:
                 Logger.warn(`[InternalComponentController] Unknown tick effect type: ${effect.effect}`);
                 return;
         }
+    }
 
-        const newValue = oldValue + delta;
+    // =========================================================================
+    // TURN-DRIVEN EFFECTS (round-start driven, parallel to the tick channel)
+    // =========================================================================
 
-        this.worldStateController.componentController.updateComponentStatDelta(
-            hostComponentId,
-            effect.targetTrait,
-            effect.targetStat,
-            delta
-        );
+    /**
+     * Builds a defensive copy of a type's traits to use as an instance's own
+     * stat pool. The pool is what `target: "self"` turn effects mutate
+     * (e.g. durability drain). Returns an empty object when the type declares
+     * no traits, so self-effects degrade to a no-op instead of throwing.
+     * @param {Object} compDef - The registry definition of the component type.
+     * @returns {Object} Deep copy of compDef.traits ({} if absent).
+     * @private
+     */
+    _buildInstanceStats(compDef) {
+        return compDef && compDef.traits ? structuredClone(compDef.traits) : {};
+    }
+
+    /**
+     * Processes turn-driven internal component effects. Invoked ONCE PER ROUND
+     * by the turn system via the turn-start hook (see TurnSystemController).
+     * For each installed instance whose type is turnDriven and not broken, the
+     * type's turnEffects are applied: `target: "self"` mutates the instance's
+     * own stat pool (and marks it broken when durability hits 0), while
+     * `target: "host"` mutates the host component's stat via the world-state
+     * facade's public stat API. The instance store is synced to the entity
+     * mirror so clients see the updated durability/broken state.
+     *
+     * Public API: called by the composition-root-wired turn-start hook, never
+     * by a sub-controller reaching into this controller's internals.
+     * @returns {void}
+     */
+    processTurnEffects() {
+        if (!this.worldStateController) return;
+
+        let applied = 0;
+        for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {
+            for (const [hostComponentId, internalComponents] of Object.entries(hostComponents)) {
+                for (const internalComp of internalComponents) {
+                    const compDef = this.registry[internalComp.type];
+                    // Only turnDriven types run on this channel (tick-driven
+                    // types are skipped, and they are excluded from _processTick).
+                    if (!compDef || !compDef.turnDriven || !Array.isArray(compDef.turnEffects)) continue;
+
+                    // A broken instance (its self-durability pool exhausted, or the
+                    // host hand's durability driven to 0 via the drain effect) stops
+                    // applying effects entirely — inert until re-installed/removed.
+                    if (internalComp.broken) continue;
+
+                    let instanceBrokeThisTurn = false;
+                    for (const effect of compDef.turnEffects) {
+                        try {
+                            const brokeNow = this._applyTurnEffect(internalComp, compDef, effect, hostComponentId);
+                            if (brokeNow) {
+                                instanceBrokeThisTurn = true;
+                                break; // stop applying further effects this turn
+                            }
+                            applied++;
+                        } catch (error) {
+                            Logger.error(`[InternalComponentController] Turn effect failed for ${hostComponentId} (${internalComp.type}): ${error.message}`);
+                        }
+                    }
+                    if (instanceBrokeThisTurn) {
+                        Logger.info(`[InternalComponentController] ${internalComp.type} on ${hostComponentId} broke (durability exhausted) — effects stop applying.`);
+                    }
+                }
+            }
+        }
+
+        if (applied > 0) {
+            this._syncToEntityStore();
+            Logger.info(`[InternalComponentController] Turn effects complete: ${applied} effects applied`);
+        }
+    }
+
+    /**
+     * Applies a single turn effect to either the instance's own stat pool
+     * (`target: "self"`) or the host component's stat (`target: "host"`).
+     *
+     * `set` is the "maintained" semantic: it overwrites the value rather than
+     * adding, so a maintained bonus does not stack across turns.
+     *
+     * A `host`-targeted durability drain that drives the host hand's durability
+     * to 0 breaks the instance: the component is destroyed with its host limb,
+     * so the caller stops applying further effects this turn.
+     *
+     * @param {Object} internalComp - The internal component instance.
+     * @param {Object} compDef - The component type definition from registry.
+     * @param {Object} effect - The turn effect definition (targetTrait, targetStat, effect, amount, target).
+     * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} true when this effect broke the instance (self durability pool reached 0, or a host durability drain drove the host hand to 0); the caller stops applying further effects.
+     * @private
+     */
+    _applyTurnEffect(internalComp, compDef, effect, hostComponentId) {
+        if (effect.target === 'self') {
+            return this._applySelfTurnEffect(internalComp, effect);
+        }
+        // target === 'host': apply to the host component's stat.
+        //
+        // NOTE on breakage: a host-targeted durability drain does NOT break the
+        // IC instance here. The host hand's own `component:broke` cascade
+        // (TriggerController → BrokenComponentRemovalHandler → removeBrokenComponent)
+        // already handles the IC cleanup when the hand's durability hits 0 —
+        // the facade's orchestrator removes the IC from the broken host
+        // (WorldStateController.removeBrokenComponent, §3.6.4). Breaking the
+        // IC instance here as well would double-handle the same condition and
+        // risk a race with the cascade. The IC's `broken` flag is therefore
+        // driven ONLY by its own self-durability pool (via a `self` drain or
+        // `adjustInstanceStat`), keeping a single owner for each break condition.
+        this._applyHostTurnEffect(internalComp, effect, hostComponentId);
+        return false;
+    }
+
+    /**
+     * Applies a turn effect to the instance's OWN stat pool. Mutates
+     * instanceStats in place (the controller owns this state). When the
+     * affected self-durability hits 0, the instance is marked broken and the
+     * method returns true so the caller halts further effects.
+     * @param {Object} internalComp - The internal component instance.
+     * @param {Object} effect - The turn effect (target: "self").
+     * @returns {boolean} true when the instance just broke.
+     * @private
+     */
+    _applySelfTurnEffect(internalComp, effect) {
+        const pool = internalComp.instanceStats;
+        if (!pool || !pool[effect.targetTrait] || typeof pool[effect.targetTrait][effect.targetStat] !== 'number') {
+            return false; // no such self stat — skip
+        }
+        const oldValue = pool[effect.targetTrait][effect.targetStat];
+        let newValue;
+        switch (effect.effect) {
+            case 'add':
+                newValue = oldValue + effect.amount;
+                break;
+            case 'set':
+                newValue = effect.amount;
+                break;
+            case 'multiply':
+                newValue = oldValue * effect.amount;
+                break;
+            default:
+                Logger.warn(`[InternalComponentController] Unknown turn effect type: ${effect.effect}`);
+                return false;
+        }
+        pool[effect.targetTrait][effect.targetStat] = newValue;
 
         Logger.info(
-            `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${newValue} (${delta >= 0 ? '+' : ''}${delta})`
+            `[InternalComponentController] Turn(self): ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${newValue}`
+        );
+
+        // Break check: only durability is "health" for an instance.
+        if (effect.targetStat === 'durability' && newValue <= 0) {
+            pool[effect.targetTrait].durability = 0; // clamp to 0 (no negatives)
+            internalComp.broken = true;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Applies a turn effect to the HOST component's stat via the facade's
+     * public stat API. All three effect types are applied atomically through
+     * facade methods that read the old value internally, so the read-then-write
+     * cannot race with a concurrent stat change:
+     * - `add` → updateComponentStatDelta
+     * - `set` → updateComponentStat (absolute overwrite, the maintained semantic)
+     * - `multiply` → updateComponentStatRelative (old * (factor - 1))
+     * The caller checks the resulting durability to decide whether the drain
+     * broke the instance (see `_applyTurnEffect`).
+     * @param {Object} internalComp - The internal component instance.
+     * @param {Object} effect - The turn effect (target: "host").
+     * @param {string} hostComponentId - The host component instance ID.
+     * @private
+     */
+    _applyHostTurnEffect(internalComp, effect, hostComponentId) {
+        const stats = this.worldStateController.getComponentStats(hostComponentId);
+        if (!stats || !stats[effect.targetTrait] || typeof stats[effect.targetTrait][effect.targetStat] !== 'number') {
+            return; // host lacks the stat — skip
+        }
+        const oldValue = stats[effect.targetTrait][effect.targetStat];
+
+        switch (effect.effect) {
+            case 'add':
+                this.worldStateController.componentController.updateComponentStatDelta(
+                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
+                );
+                break;
+            case 'set':
+                // Maintained: overwrite to the declared value (non-additive).
+                this.worldStateController.componentController.updateComponentStat(
+                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
+                );
+                break;
+            case 'multiply':
+                // Atomic relative op: the facade reads the old value and applies
+                // old * (factor - 1) in one call, so no read-then-write race.
+                this.worldStateController.componentController.updateComponentStatRelative(
+                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
+                );
+                break;
+            default:
+                Logger.warn(`[InternalComponentController] Unknown turn effect type: ${effect.effect}`);
+                return;
+        }
+
+        Logger.info(
+            `[InternalComponentController] Turn(host): ${internalComp.type} applied ${effect.effect} ${effect.targetStat} on ${hostComponentId}`
         );
     }
 
@@ -452,7 +833,7 @@ class InternalComponentController {
      *
      * @private
      */
-    _syncToEntityStore() {
+      _syncToEntityStore() {
         if (!this.worldStateController) return;
 
         for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {

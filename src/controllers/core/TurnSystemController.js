@@ -118,6 +118,8 @@ class TurnSystemController {
         this._broadcaster = null;
         /** @private {Function|null} (npcEntityId: string, round: number) => Promise<*> */
         this._npcAgent = null;
+        /** @private {Function|null} Turn-start hook (injected via setTurnStartHook). */
+        this._turnStartHook = null;
 
         // Round bookkeeping (persisted via serialize()/restore()).
         /** @private {number} Last round number whose start has been processed. -1 = no round started yet (round 0 starts lazily on the first tick). */
@@ -187,6 +189,19 @@ class TurnSystemController {
             throw new TypeError('TurnSystemController.setNpcAgent: agentFn must be a function or null');
         }
         this._npcAgent = agentFn;
+    }
+
+    /**
+     * Injects the turn-start hook (turn-driven internal components).
+     * Called at ROUND START after barrier reset and before NPC agents fire,
+     * so IC stat effects are visible to agent planning and initiative math.
+     * @param {Function|null} fn
+     */
+    setTurnStartHook(fn) {
+        if (fn !== null && typeof fn !== 'function') {
+            throw new TypeError('TurnSystemController.setTurnStartHook: fn must be a function or null');
+        }
+        this._turnStartHook = fn;
     }
 
     /**
@@ -566,6 +581,16 @@ class TurnSystemController {
     _roundStart() {
         const round = this._beginRoundBookkeeping();
         this._resetBarrierForNewRound();
+        // Turn-driven IC effects fire at ROUND START, before agents plan
+        // (spec: turn_driven_ic_strength_plan). Guarded: a hook failure
+        // must never break the round machine.
+        if (this._turnStartHook) {
+            try {
+                this._turnStartHook();
+            } catch (err) {
+                Logger.warn(`[TurnSystem] Round ${round}: turn-start hook failed: ` + (err && err.message ? err.message : err));
+            }
+        }
         // Agents fire at ROUND START (spec v2 §4): the agent is the slowest
         // planner (an LLM call takes seconds), so its plan starts the moment
         // the round opens. Synchronous outcomes (empty slot, sync throw)

@@ -32,6 +32,19 @@ Each component type declares its own cadence and effects in the data registry, a
 
 The effect system supports three operations: increment, assign, and scale. This covers the full range of stat modification intents without requiring custom effect logic per component type.
 
+### Turn-Driven Effects (round-start channel)
+
+Besides the tick channel, a type may opt into a **turn-driven** channel with `turnDriven: true`. Its `turnEffects` fire exactly ONCE PER ROUND, invoked by the turn system's round-start hook (wired in the composition root), rather than by the unified tick. This exists because some effects are only meaningful at round granularity: a "maintained" host stat (a `set` that overwrites rather than adds, so the bonus never stacks) or a self-durability spend of 1 per round. Driving those from the tick channel would double-apply them many times per round.
+
+Each `turnEffects` entry carries a `target` field:
+
+- `self` - mutate the instance's OWN stat pool (a defensive copy of the type's `traits` stored on the instance). When a `self` durability drain reaches 0, the instance is marked broken and STOPS applying effects until removed/re-installed.
+- `host` - mutate the host component's stat via the world-state facade's public stat API (`set` = absolute overwrite for the maintained semantic; `add`/`multiply` = computed delta).
+
+The tick channel and the turn channel are mutually exclusive: `_processTick` skips `turnDriven` types, and `processTurnEffects` skips non-turnDriven types, so an effect is never applied twice.
+
+**Fail-fast validation.** Structurally invalid registry entries — a missing `targetTrait`/`targetStat`, an unknown `effect` vocabulary value, a non-numeric `amount`, or an unknown `target` — throw `TypeError` at load time so corrupted data never enters the internal state. Only genuinely optional/soft conditions (e.g. a passive no-op type with neither channel, or a missing optional volume) are surfaced as warnings. This mirrors the project rule that state controllers validate loaded data before trusting it.
+
 ## 3. Auto-Installation Design
 
 Internal components auto-install on eligible host components during entity spawn. Auto-installation filters by:
@@ -41,6 +54,7 @@ Internal components auto-install on eligible host components during entity spawn
 - **Required traits**: Optional trait requirements restrict installation to host components that expose specific stats with minimum values
 - **Type exclusions**: Exclusions prevent installation on incompatible hosts
 - **Volume capacity**: The host must have sufficient free volume
+- **Host type / slot**: optional `hostComponentType` / `hostSlot` restrict installation to a specific limb. `hostSlot` matches the host's PARENT arm's identifier (resolved via `dependsOn[0]`), not the host's own identifier — because the blueprint expander remaps nested component identifiers with a `default_` prefix (the left hand carries `default_left`), so the data file names the limb by its arm slot instead.
 - **Uniqueness**: A host cannot receive duplicate instances of the same internal component type
 
 This filtering pipeline exists because auto-installation is a **declarative intent** — the registry says "this component should be on these hosts," and the controller resolves the actual installation at runtime.
@@ -68,6 +82,10 @@ Passively heals host durability over time. Represents a self-repair nanite clust
 ### `transcendentSpeedCore` (Minor Transcendence of the God of Speed)
 
 Increases `Movement.move` over time, auto-installs only on `smallBallDroid` entities. Demonstrates the generic tick system's extensibility.
+
+### `strengthCore`
+
+Turn-driven: each round it drains 1 from the HOST HAND's `Physical.durability` (`host`, `add -1`) and MAINTAINS the host hand's `Physical.strength` to 50 (`host`, a non-additive `set`). Auto-installs only on the `smallBallDroid` left `droidHand` (via `hostComponentType`/`hostSlot`). When the host hand's durability reaches 0 (driven by the per-turn drain), the instance breaks and stops applying effects. The IC's own `instanceStats` pool (the type's `traits`, e.g. `Physical.durability: 20`) is kept as a static trait for display/completeness but is NOT drained by this type — the per-turn drain targets the host hand, not the IC's own pool. Demonstrates the turn-driven channel.
 
 ## 6. Dependency Injection
 

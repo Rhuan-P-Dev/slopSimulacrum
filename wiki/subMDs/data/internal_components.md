@@ -20,6 +20,12 @@ Internal components modify **component-level** stats (e.g., `Physical.durability
 
 A unified tick system provides predictable, synchronized periodic effects across all internal components, avoiding race conditions from event-driven timing and simplifying reasoning about effect scheduling.
 
+### Why a turn-driven channel exists alongside the tick channel?
+
+Some effects are meaningful only at TURN granularity, not wall-clock ticks: a component that "maintains" a host stat to a fixed value each round, or one that drains the HOST HAND's durability once per round. Driving those from the tick channel would double-apply them (the tick fires many times per round) and would couple round-level game pacing to the wall-clock tick rate. The `turnDriven` flag opts a type into the ROUND-START channel instead: its `turnEffects` fire exactly once per round, via the turn-start hook, so a "maintained" bonus is naturally non-additive and a host-hand durability drain is exactly 1 per round. A type is either tick-driven or turn-driven, never both.
+
+The `strengthCore` type illustrates the host-targeting semantic: its per-turn drain hits the host hand's `Physical.durability` (the droid's left hand), not the IC's own pool. When that host-hand durability reaches 0, the instance breaks and stops applying effects — the component is destroyed with its host limb. The IC's own `instanceStats` pool (the type's `traits`) is retained as a static trait for display/completeness but is not drained by this type.
+
 ## Data Model
 
 Each entry in `data/internalComponents.json` describes one internal component type conceptually: what it does to a host (the traits it applies and the periodic effects it schedules) and where it may live (its volume cost and the eligibility filters that gate auto-installation).
@@ -33,6 +39,7 @@ A type auto-installs on a host only if it passes every eligibility gate:
 - **Required traits**: the host possesses the required traits at sufficient levels
 - **Type exclusions**: the host's component type is not excluded
 - **Volume capacity**: the host has enough free volume
+- **Host type / slot**: the host is the declared component type and (optionally) the declared slot
 - **Uniqueness**: the host does not already carry that type
 
 The checks are ordered from cheap to expensive so that ineligible hosts fail fast without the costlier capacity work.

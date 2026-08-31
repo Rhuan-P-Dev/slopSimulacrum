@@ -33,7 +33,7 @@ class ComponentController {
 
     /**
      * Unregisters a previously registered stat change listener.
-     * @param {Function} listener - The listener function to remove.
+     * @param {Function} listener - The function to remove.
      */
     unregisterStatChangeListener(listener) {
         const index = this._statChangeListeners.indexOf(listener);
@@ -64,7 +64,7 @@ class ComponentController {
     /**
      * Initializes stats for a new component instance using the Merge Process.
      * @param {string} componentType - The type of component (from registry).
-     * @param {string} instanceId - The unique ID for this specific instance.
+     * @param {string} instanceId - The unique ID for this specific component instance.
      * @param {Object} initialOverrides - Additional runtime overrides.
      * @returns {void}
      */
@@ -145,8 +145,32 @@ class ComponentController {
     }
 
     /**
-     * Retrieves the stats for a specific component.
+     * Updates a specific stat for a component instance by applying a
+     * multiplicative factor atomically. The old value is read and the new
+     * value (oldValue * factor) is computed inside this single facade method,
+     * so the read-then-write cannot race with a concurrent stat change.
+     * Expressing the multiplication as a relative delta keeps the change
+     * consistent with updateComponentStatDelta and the stat-change
+     * notification pipeline.
      * @param {string} instanceId - The unique ID of the component instance.
+     * @param {string} traitId - The trait category (e.g., "Physical").
+     * @param {string} statName - The stat to modify.
+     * @param {number} factor - The multiplicative factor (e.g., 1.5 for +50%).
+     * @returns {boolean}
+     */
+    updateComponentStatRelative(instanceId, traitId, statName, factor) {
+        const stats = this.statsController.getStats(instanceId);
+        if (stats && stats[traitId] && typeof stats[traitId][statName] === 'number' && typeof factor === 'number') {
+            const oldValue = stats[traitId][statName];
+            const delta = oldValue * (factor - 1);
+            return this.updateComponentStatDelta(instanceId, traitId, statName, delta);
+        }
+        return false;
+    }
+
+    /**
+     * Retrieves the stats for a specific component.
+     * @param {string} instanceId - The unique ID of the component.
      * @returns {Object|null}
      */
     getComponentStats(instanceId) {
