@@ -57,6 +57,7 @@ import TraitsController from '../controllers/traits/TraitsController.js';
 import InternalComponentController from '../controllers/core/InternalComponentController.js';
 import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
+import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
 
 // Logic controllers (depend on data stores)
 import ComponentController from '../controllers/core/componentController.js';
@@ -137,10 +138,12 @@ export function buildWorldState(tickSystem = null) {
     // --- Layer 0: data stores (no controller deps) ---
     const statsController = new ComponentStatsController();
     const traitsController = new TraitsController(traitsRegistry);
-    const materialController = new MaterialController(
-        DataLoader.loadJsonSafe('data/materials.json', {}),
-        DataLoader.loadJsonSafe('data/propertyTraitMapping.json', {})
-    );
+    // Hoisted to named consts so both the MaterialController and the
+    // KnowledgeController read the SAME loaded registries — one load, N readers
+    // (zero new file I/O; the controller itself never loads).
+    const materialsRegistry = DataLoader.loadJsonSafe('data/materials.json', {});
+    const propertyTraitMappingRegistry = DataLoader.loadJsonSafe('data/propertyTraitMapping.json', {});
+    const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry);
 
     // =========================================================================
     // 0.5: FAIL-FAST STARTUP VALIDATION — validate all compositions now,
@@ -156,15 +159,35 @@ export function buildWorldState(tickSystem = null) {
     }
 
     Logger.info(`[WorldComposition] Startup validation passed: ${Object.keys(componentRegistry).length} components, ${Object.keys(inventoryItemRegistry).length} inventory items`);
+    // Hoisted so the KnowledgeController below can reuse the SAME recipe
+    // registry (one load, N readers). CraftingController's behavior is
+    // unchanged: it receives the identical parsed object.
+    const craftingRegistry = DataLoader.loadJsonSafe('data/crafting.json', {});
     // CraftingController: state controller owning the recipe registry
     // (data/crafting.json). Receives the already-loaded item registry so every
     // recipe input/output type is cross-validated against inventoryItems.json
     // right here (fail-fast at boot, per §0.5 above). No controller deps —
     // no setWorldStateController() needed (it never reads world state).
     const craftingController = new CraftingController(
-        DataLoader.loadJsonSafe('data/crafting.json', {}),
+        craftingRegistry,
         inventoryItemRegistry
     );
+    // KnowledgeController: state controller owning the static "Knowledge" codex
+    // (knowledge_viewer_spec.md §4.2). Layer 0 data store — the same layer as the
+    // other state controllers it reads (traits / materials / property mapping /
+    // crafting / inventory items). Receives the already-loaded registries (zero
+    // new file I/O) and validates them at boot (fail-fast). No controller deps and
+    // no setWorldStateController() (it never reads live world state). Deliberately
+    // kept OUT of the broadcast subControllers map below: the static codex must
+    // stay out of the full-state aggregation (same rule as craftingController /
+    // roomChatController — shipping a codex in every update would bloat clients).
+    const knowledgeController = new KnowledgeController({
+        traits: traitsRegistry,
+        materials: materialsRegistry,
+        propertyTraitMapping: propertyTraitMappingRegistry,
+        recipes: craftingRegistry,
+        items: inventoryItemRegistry
+    });
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
     const inventoryManager = new InventoryManager({ materialController });
@@ -262,7 +285,11 @@ export function buildWorldState(tickSystem = null) {
         // CraftingController: recipe registry (data/crafting.json). The facade
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
-        craftingController
+        craftingController,
+        // KnowledgeController: static knowledge codex (knowledge_viewer_spec.md
+        // §4.2). Null-tolerant like craftingController — a test may hand-build
+        // the facade without it; the facade stores it and exposes getKnowledge().
+        knowledgeController
     });
 
     // =========================================================================
@@ -348,6 +375,11 @@ export function buildWorldState(tickSystem = null) {
             // by design (static recipe data; must stay out of the full-state
             // broadcast aggregation, same rule as roomChatController).
             craftingController,
+            // Inspection-only (not in broadcast) — the static knowledge codex has
+            // no getAll() by design; it must stay out of the full-state broadcast
+            // aggregation (same rule as craftingController / roomChatController).
+            // Surfaced here for tests/inspection only.
+            knowledgeController,
             // Inspection-only (not in broadcast) — per spec §2.1 exclusion rule.
             instincts: instinctController
         }

@@ -28,6 +28,7 @@ import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
 import { CraftingPanel } from './CraftingPanel.js';
+import { KnowledgePanel } from './KnowledgePanel.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -87,6 +88,9 @@ export class ClientApp {
         this.worldMap = new WorldMapView({});
         this.inventory = new InventoryManager(this.worldState, this.ui, this.statBars);
         this.crafting = new CraftingPanel({ worldStateManager: this.worldState });
+        // Knowledge viewer: read-only reference codex — no world-state
+        // dependencies (the payload is fetched once per session).
+        this.knowledge = new KnowledgePanel();
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -682,6 +686,9 @@ export class ClientApp {
             this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
             // Events tab (no keyboard shortcut).
             this.overlayManager.register('events', this.events, 'btn-events', null);
+            // Knowledge tab (no numeric shortcut — same treatment as
+            // crafting/room-chat/events; fetches its own session-cached payload).
+            this.overlayManager.register('knowledge', this.knowledge, 'btn-knowledge', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle

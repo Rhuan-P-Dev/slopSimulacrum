@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="css/internal-components.css">
     <link rel="stylesheet" href="css/inventory.css">
     <link rel="stylesheet" href="css/crafting.css">
+    <link rel="stylesheet" href="css/knowledge.css">
     <link rel="stylesheet" href="css/floating-windows.css">
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
@@ -45,6 +46,7 @@
         <div class="config-bar-inventory">
             <button id="btn-inventory" class="config-btn" title="Inventory">🎒</button>
             <button id="btn-crafting" class="config-btn" title="Crafting">🔨</button>
+            <button id="btn-knowledge" class="config-btn" title="Knowledge">📚</button>
         </div>
     </div>
 
@@ -102,6 +104,17 @@
         </div>
         <div id="crafting-content" class="crafting-root">
             <!-- Populated by CraftingPanel -->
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Knowledge -->
+    <div id="knowledge-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🧠 Knowledge</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="knowledge-content" class="knowledge-root">
+            <!-- Populated by KnowledgePanel -->
         </div>
     </div>
 

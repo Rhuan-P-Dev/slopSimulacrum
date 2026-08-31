@@ -87,6 +87,9 @@ export const AppConfig = {
         HINTS: '/hints',
         // World event log (spec: Events tab).
         WORLD_EVENTS: '/world-events',
+        // Knowledge codex (read-only reference; static at runtime — the
+        // KnowledgePanel fetches it once per session).
+        KNOWLEDGE: '/knowledge',
     },
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH

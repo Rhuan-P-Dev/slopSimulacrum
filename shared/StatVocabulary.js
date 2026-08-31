@@ -72,3 +72,14 @@ export const DURABILITY_BROKEN_AT = 0;
  * @type {number}
  */
 export const DURABILITY_USABLE_MIN = 1;
+
+/**
+ * Canonical mapping-key form for trait→stat derivation entries
+ * (knowledge_viewer_spec.md §2, risk R3): "<TraitGroup>.<stat>".
+ * Single definition shared by KnowledgeController._validateMappingEntries()
+ * and MaterialController._validateMappingRegistry() so the two boot
+ * validators can never disagree on key form.
+ * Deliberately accepts any letters (does NOT restrict to the canonical
+ * capitalized group names) — tightening that is a data-visible change.
+ */
+export const TRAIT_STAT_KEY_PATTERN = /^[A-Za-z]+\.[A-Za-z_]+$/;

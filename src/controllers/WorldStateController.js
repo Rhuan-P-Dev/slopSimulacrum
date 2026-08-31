@@ -10,6 +10,7 @@ import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_BROKEN_AT } from '../../shared/StatVocabulary.js';
+import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -63,6 +64,7 @@ class WorldStateController {
      * @param {import('./triggers/TriggerController.js')} [deps.triggerController]
      * @param {import('./materials/MaterialController.js')} [deps.materialController]
      * @param {import('./crafting/CraftingController.js')} [deps.craftingController]
+     * @param {import('./knowledge/KnowledgeController.js')} [deps.knowledgeController]
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -116,6 +118,13 @@ class WorldStateController {
         // See test/contract/crafting.contract.test.js for the seam usage.
         /** @private {import('./crafting/CraftingController.js')|null} */
         this.craftingController = deps.craftingController ?? null;
+        // KnowledgeController: static "Knowledge" codex (knowledge_viewer_spec.md
+        // §4.2). State controller; null-tolerant like craftingController (tests may
+        // build the facade without it). Deliberately NOT in the subControllers map
+        // below: it has no getAll() and must stay out of the getAll()/broadcast
+        // aggregation (static codex data — the route reads it via getKnowledge()).
+        /** @private {import('./knowledge/KnowledgeController.js')|null} */
+        this.knowledgeController = deps.knowledgeController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -2256,6 +2265,26 @@ class WorldStateController {
             }
         }
         return { materials, compositions };
+    }
+
+    /**
+     * Returns the full knowledge codex payload (knowledge_viewer_spec.md §3):
+     * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
+     * Static reference data — served via GET /knowledge (not embedded in the
+     * mutable world state or the broadcast; same static-vs-mutable separation as
+     * getMaterialRegistry). Thin passthrough to the injected KnowledgeController;
+     * the route must never reach into sub-controllers (Public API Only, §2).
+     * @returns {Object} A fresh deep copy of the codex payload, or the total
+     *   empty-shape payload (never null) when the controller is unwired —
+     *   spec §4.3: the client renders per-section empty states, not an error,
+     *   on a wiring miss.
+     */
+    getKnowledge() {
+        if (!this.knowledgeController) {
+            Logger.warn('[WorldStateController] knowledgeController is not wired (null); knowledge lookups will fail — check the composition root (WorldComposition.js).');
+            return emptyKnowledgePayload();
+        }
+        return this.knowledgeController.getKnowledge();
     }
 
     // =========================================================================

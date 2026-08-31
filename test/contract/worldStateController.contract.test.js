@@ -201,6 +201,10 @@ describe('WorldStateController public method surface', () => {
         'getItem',
         'getItemRegistry',
         'getItemStats',
+        // Added deliberately (knowledge_viewer_spec.md §4.2): the static knowledge
+        // codex passthrough. Not an accidental addition — the route reads it via
+        // the facade only (facade-only-dependency rule).
+        'getKnowledge',
         'getLockedComponents',
         'getMaterialRegistry',
         'getRecentEvents',

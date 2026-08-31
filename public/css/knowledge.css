@@ -1,0 +1,355 @@
+/* =============================================================================
+ * Knowledge Panel (knowledge_viewer_spec.md §5.7)
+ * Single-responsibility CSS module: owns ALL `knowledge-` selectors — the
+ * sub-tab bar, the three section renderers (trait-mold tables, the wide
+ * mapping rows, material cards, the pinned-vocabulary block, recipe cards,
+ * item cards), and the two whole-section states knowledge-empty /
+ * knowledge-error (with the Retry button).
+ * Uses only `:root` custom properties from styles.css plus neutral literals
+ * (precedent: crafting.css, inventory.css).
+ * No selector in this file may be duplicated in any other CSS module (BUG-105).
+ * ============================================================================= */
+
+/* ---- Root / scroll container ------------------------------------------------ */
+
+.knowledge-root {
+    height: 100%;
+    overflow-y: auto;
+    padding: 10px;
+    color: var(--text-main);
+    font-family: monospace;
+}
+
+/* ---- Sub-tab bar -------------------------------------------------------------
+ * Three tabs share one content area (spec §5.5). The active tab is the only
+ * one with the neon treatment; inactive tabs stay dim. */
+
+.knowledge-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.knowledge-tab {
+    flex: 1;
+    padding: 6px 8px;
+    background: var(--bg-black);
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: monospace;
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+.knowledge-tab:hover {
+    border-color: var(--neon-green);
+    color: var(--text-main);
+}
+
+.knowledge-tab--active {
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+    box-shadow: var(--glow);
+}
+
+.knowledge-tab:focus-visible {
+    outline: 2px solid var(--neon-green);
+    outline-offset: 2px;
+}
+
+/* ---- Section container ------------------------------------------------------- */
+
+.knowledge-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* One derivation-chain block (molds / mappings / materials / vocabulary). */
+.knowledge-block {
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: var(--bg-black);
+    padding: 8px;
+}
+
+.knowledge-block-title {
+    color: var(--neon-green);
+    font-weight: bold;
+    font-size: 0.95em;
+    margin-bottom: 8px;
+}
+
+/* ---- Tab 1: trait mold tables (spec §5.6.1) ---------------------------------- */
+
+.knowledge-mold-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 8px;
+    font-size: 0.85em;
+}
+
+.knowledge-mold-table caption {
+    text-align: left;
+    color: var(--text-main);
+    font-weight: bold;
+    padding: 4px 0;
+}
+
+.knowledge-mold-table td {
+    padding: 2px 8px;
+    border-bottom: 1px solid #222;
+}
+
+.knowledge-mold-stat {
+    color: var(--text-dim);
+}
+
+.knowledge-mold-value {
+    color: var(--text-main);
+}
+
+/* ---- Tab 1: mapping rows (spec §5.6.2 — widest content) -----------------------
+ * One row per "Group.stat" mapping: the flat key, then either the formula
+ * badge (with the inline densityVolume annotation) or the property source
+ * list. Rows wrap on narrow panels. */
+
+.knowledge-mapping-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px solid #222;
+    font-size: 0.85em;
+}
+
+.knowledge-mapping-key {
+    color: var(--text-main);
+    font-weight: bold;
+    min-width: 160px;
+}
+
+.knowledge-formula-badge {
+    background: var(--panel-bg);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    border-radius: 3px;
+    padding: 0 6px;
+}
+
+.knowledge-mapping-annotation {
+    color: var(--text-dim);
+    font-size: 0.9em;
+}
+
+/* Property chips: shared by the source list and the material property list. */
+.knowledge-source-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.knowledge-source-chip {
+    background: var(--panel-bg);
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+    color: var(--text-main);
+}
+
+/* ---- Tab 1: material cards (spec §5.6.3) -------------------------------------- */
+
+.knowledge-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+}
+
+.knowledge-material-card {
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: var(--panel-bg);
+    padding: 6px 8px;
+}
+
+/* ---- Tab 1: pinned vocabulary (spec §5.6.4) ----------------------------------- */
+
+.knowledge-vocab-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85em;
+}
+
+.knowledge-vocab-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.knowledge-vocab-label {
+    color: var(--text-dim);
+    min-width: 140px;
+}
+
+.knowledge-vocab-boundary {
+    color: var(--text-main);
+}
+
+.knowledge-vocab-sep {
+    color: var(--text-dim);
+}
+
+.knowledge-vocab-note {
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+/* Stat badges: shared by the vocabulary lists and the item trait badges. */
+.knowledge-stat-badge {
+    background: var(--bg-black);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+}
+
+/* ---- Tab 2: recipe cards (spec §5.6.5 — grid like the crafting panel) ---------- */
+
+.knowledge-recipe-card {
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: var(--panel-bg);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.knowledge-card-name {
+    color: var(--text-main);
+    font-weight: bold;
+}
+
+.knowledge-card-desc {
+    color: var(--text-dim);
+    font-size: 0.85em;
+}
+
+.knowledge-ref-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.knowledge-ref-item {
+    background: var(--bg-black);
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.8em;
+    color: var(--text-main);
+}
+
+.knowledge-arrow {
+    color: var(--neon-green);
+}
+
+/* ---- Tab 3: item cards (spec §5.6.6) ------------------------------------------- */
+
+.knowledge-item-card {
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: var(--panel-bg);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.knowledge-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--text-dim);
+    font-size: 0.85em;
+}
+
+.knowledge-item-volume {
+    color: var(--text-dim);
+}
+
+/* Static trait badges grouped by trait group (no hover-to-hide — §5.6.6). */
+.knowledge-trait-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.knowledge-trait-label {
+    color: var(--text-main);
+    font-weight: bold;
+    font-size: 0.85em;
+    margin-right: 4px;
+}
+
+/* Material composition list (rendered only when the item has one). */
+.knowledge-composition {
+    border-top: 1px solid #222;
+    padding-top: 4px;
+    font-size: 0.8em;
+    color: var(--text-dim);
+}
+
+.knowledge-composition-row {
+    padding: 1px 0;
+}
+
+/* ---- Whole-section states (spec §5.4) ------------------------------------------ */
+
+.knowledge-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.knowledge-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px;
+    border: 1px solid #ff5555;
+    border-radius: 6px;
+    background: var(--bg-black);
+}
+
+.knowledge-error-message {
+    color: #ff5555;
+}
+
+.knowledge-retry-btn {
+    padding: 4px 14px;
+    background: var(--bg-black);
+    border: 1px solid var(--neon-green);
+    color: var(--neon-green);
+    border-radius: 4px;
+    font-family: monospace;
+    cursor: pointer;
+}
+
+.knowledge-retry-btn:hover {
+    box-shadow: var(--glow);
+}
+
+.knowledge-retry-btn:focus-visible {
+    outline: 2px solid var(--neon-green);
+    outline-offset: 2px;
+}

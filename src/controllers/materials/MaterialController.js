@@ -11,6 +11,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { TRAIT_STAT_KEY_PATTERN } from '../../../shared/StatVocabulary.js';
 
 const FRACTION_SUM_TOLERANCE = 1e-9;
 const STAT_PRECISION = 100;
@@ -53,19 +54,21 @@ class MaterialController {
     }
 
     /**
-     * Validates the mapping registry: keys must match /^[A-Za-z]+\.[A-Za-z_]+$/;
-     * each entry must have either a `formula` string or a non-empty `sources` object.
+     * Validates the mapping registry: each key must match the shared
+     * TRAIT_STAT_KEY_PATTERN (shared/StatVocabulary.js — the same constant the
+     * KnowledgeController validator uses, so the two cannot disagree on key
+     * form; spec §2 risk R3); each entry must have either a `formula` string or
+     * a non-empty `sources` object ("at least one" — deliberately lax).
      * @param {Object} registry
      * @returns {Object}
      * @private
      */
     _validateMappingRegistry(registry) {
-        const keyRegex = /^[A-Za-z]+\.[A-Za-z_]+$/;
         if (typeof registry !== 'object' || registry === null || Array.isArray(registry)) {
             throw new TypeError('Mapping registry must be a plain object.');
         }
         for (const [key, entry] of Object.entries(registry)) {
-            if (!keyRegex.test(key)) {
+            if (!TRAIT_STAT_KEY_PATTERN.test(key)) {
                 throw new TypeError(`Mapping key "${key}" does not match pattern /^[A-Za-z]+\\.[A-Za-z_]+$/.`);
             }
             const hasFormula = typeof entry.formula === 'string' && entry.formula.length > 0;

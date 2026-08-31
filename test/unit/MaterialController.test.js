@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import MaterialController from '../../src/controllers/materials/MaterialController.js';
 import TraitsController from '../../src/controllers/traits/TraitsController.js';
+import { TRAIT_STAT_KEY_PATTERN } from '../../shared/StatVocabulary.js';
 
 let capturedInfo = [];
 vi.mock('../../src/utils/Logger.js', () => ({
@@ -532,5 +533,17 @@ describe('MaterialController', () => {
             // move is undefined — no default injected
             expect(finalStats.Movement.move).toBeUndefined();
         });
+    });
+});
+
+describe('shared mapping-key pattern (spec §2 R3)', () => {
+    it('classifies trait→stat key forms (the shared constant used by both boot validators)', () => {
+        expect(TRAIT_STAT_KEY_PATTERN.test('Physical.durability')).toBe(true);
+        expect(TRAIT_STAT_KEY_PATTERN.test('a.b')).toBe(true); // lowercase allowed
+        expect(TRAIT_STAT_KEY_PATTERN.test('A.b.c')).toBe(false); // two dots
+        expect(TRAIT_STAT_KEY_PATTERN.test('A')).toBe(false);
+        expect(TRAIT_STAT_KEY_PATTERN.test('A.')).toBe(false);
+        expect(TRAIT_STAT_KEY_PATTERN.test('.b')).toBe(false);
+        expect(TRAIT_STAT_KEY_PATTERN.test('A.B_C')).toBe(true); // underscore in stat
     });
 });
