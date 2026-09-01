@@ -26,7 +26,7 @@
     ]
   },
   "dash": {
-    "description": "Sprint: move twice as fast toward the target point, but wear your chassis down by 5 durability.",
+    "description": "Sprint: move twice as fast toward the target point, wearing your chassis down (a small loss of existence).",
     "targetingType": "spatial",
     "requirements": [
       {
@@ -36,8 +36,8 @@
       },
       {
         "trait": "Physical",
-        "stat": "durability",
-        "minValue": 30
+        "stat": "existence",
+        "minValue": 0.3
       }
     ],
     "consequences": [
@@ -49,7 +49,7 @@
       {
         "type": "updateComponentStatDelta",
         "target": "self",
-        "params": { "trait": "Physical", "stat": "durability", "value": -5 }
+        "params": { "trait": "Physical", "stat": "existence", "value": -0.05 }
       }
     ],
     "failureConsequences": [
@@ -62,7 +62,7 @@
     ]
   },
   "selfHeal": {
-    "description": "Run a self-repair cycle that restores 10 durability to your core.",
+    "description": "Run a self-repair cycle that restores a small amount of existence to your core.",
     "targetingType": "self_target",
     "requirements": [
       {
@@ -72,15 +72,15 @@
       },
       {
         "trait": "Physical",
-        "stat": "durability",
-        "minValue": 1
+        "stat": "existence",
+        "minValue": 0.01
       }
     ],
     "consequences": [
       {
         "type": "updateComponentStatDelta",
         "target": "self",
-        "params": { "trait": "Physical", "stat": "durability", "value": 10 }
+        "params": { "trait": "Physical", "stat": "existence", "value": 0.1 }
       }
     ],
     "failureConsequences": [
@@ -93,7 +93,7 @@
     ]
   },
   "droid punch": {
-    "description": "Throw a punch with your arm, dealing damage equal to your Physical.strength. Close-range melee attack.",
+    "description": "Throw a punch with your arm, dealing impact damage scaled by your Physical.strength. Close-range melee attack.",
     "targetingType": "component",
     "range": 100,
     "requirements": [
@@ -108,16 +108,15 @@
         "type": "damageComponent",
         "target": "target",
         "params": {
-          "trait": "Physical",
-          "stat": "durability",
-          "value": "-:Physical.strength"
+          "channel": "impact",
+          "value": ":Physical.strength"
         }
       },
       {
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "Droid performed a punch dealing :Physical.strength damage!"
+        "message": "Droid performed a punch dealing :Physical.strength impact damage!"
       }
     ],
     "failureConsequences": [
@@ -130,7 +129,7 @@
     ]
   },
   "cut": {
-    "description": "Slice the target with an equipped knife, dealing damage equal to the knife's sharpness. The knife loses 1 sharpness with every cut.",
+    "description": "Slice the target with an equipped knife, dealing cut damage scaled by the knife's sharpness. The knife loses 1 sharpness with every cut.",
     "targetingType": "component",
     "range": 50,
     "requirements": [
@@ -145,9 +144,8 @@
         "type": "damageComponent",
         "target": "target",
         "params": {
-          "trait": "Physical",
-          "stat": "durability",
-          "value": "-:Physical.sharpness"
+          "channel": "cut",
+          "value": ":Physical.sharpness"
         }
       },
       {
@@ -159,7 +157,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "The knife cuts, dealing :Physical.sharpness damage and losing -1 sharpness."
+        "message": "The knife cuts, dealing :Physical.sharpness cut damage and losing -1 sharpness."
       }
     ],
     "failureConsequences": [
@@ -249,14 +247,14 @@
     ]
   },
   "shootT1": {
-    "description": "Fire your T1 weapon. Consumes one stored projectile and deals damage equal to the projectile's volume.",
+    "description": "Fire your T1 weapon. Consumes one stored projectile and deals impact damage equal to the projectile's volume.",
     "targetingType": "component",
     "range": 100,
     "requirements": [
       {
         "trait": "Physical",
-        "stat": "durability",
-        "minValue": 1
+        "stat": "existence",
+        "minValue": 0.01
       }
     ],
     "consequences": [
@@ -264,8 +262,7 @@
         "type": "consumeItemAndDamage",
         "target": "target",
         "params": {
-          "trait": "Physical",
-          "stat": "durability",
+          "channel": "impact",
           "value": 0
         },
         "damageSource": "equippedItem.firstChild.volume"
@@ -274,7 +271,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "T1 fired, consuming item with volume :itemVolume, dealing :itemVolume damage!"
+        "message": "T1 fired, consuming item with volume :itemVolume, dealing :itemVolume impact damage!"
       }
     ],
     "failureConsequences": [
