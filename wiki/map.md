@@ -115,16 +115,17 @@ graph TD
 | File | Purpose |
 |------|---------|
 | `data/actions.json` | Action definitions |
-| `data/components.json` | Component type definitions with trait templates |
+| `data/components.json` | Component recipes: form, material composition, and pre-installed ICs — no stat values; stats are derived from matter, form, and organs |
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `killerLlmDrone` droid composition |
 | `data/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the first env-gated, goal-bearing LLM-routed NPC |
-| `data/traits.json` | Global trait molds |
-| `data/synergy.json` | Synergy configurations |
+| `data/traits.json` | No longer a source of global default stat values — the recipe model retires the global molds; trait/stat names live in the shared vocabulary, values are derived |
+| `data/synergy.json` | Synergy configurations — multipliers of action output from bound components cooperating; kept as-is in the new model, with only the punch cap's dead reference to the never-defined `Physical.stability` stat corrected |
 | `data/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
-| `data/internalComponents.json` | Internal component type definitions (volume, repair config, excluded types) |
-| `data/inventoryItems.json` | Item type definitions (name, description, volume, traits, externalVolume) — includes T1 container weapon with dual-volume support |
+| `data/internalComponents.json` | Organ type definitions — the function stats each IC grants (strength, move, fine_controls, think_level), its weight, and its over-time effects; the repair organ converts salvage back into existence |
+| `data/inventoryItems.json` | Item recipes: small components with their own form, material composition, and pre-installed ICs, never merged into the host on equip — includes T1 container weapon with dual-volume support |
+| `data/holdingCost.json` | Burden definitions — a single lever: total carried mass reduces the carrier's effective `move` and `fine_controls`, with a strength/mass gate on equip |
 | `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
-| `data/propertyTraitMapping.json` | Property-to-trait mapping table (formulas: densityVolume, weighted sources) |
+| `data/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
 
 ## 🧩 Shared Modules
