@@ -1236,6 +1236,28 @@ class WorldStateController {
         return this.componentController.getComponentStats(componentId);
     }
 
+    /**
+     * Returns a component's full flag set (derived flags like flammable/
+     * conductive — a pure function of the material composition — plus granted
+     * flags like corrosive set by organs on install), unioned and sorted.
+     * Flags are derived on read so they never desync from the composition.
+     * @param {string} componentId - The component ID.
+     * @returns {string[]} Sorted array of active flag names.
+     */
+    getComponentFlags(componentId) {
+        return this.componentController.getComponentFlags(componentId);
+    }
+
+    /**
+     * Returns a component's transient conditions (burning, wet, corroded) as a
+     * defensive copy. These are stored world state (they survive save/load).
+     * @param {string} componentId - The component ID.
+     * @returns {string[]} Copy of the active condition names.
+     */
+    getComponentConditions(componentId) {
+        return this.componentController.getComponentConditions(componentId);
+    }
+
     // =========================================================================
     // INTERNAL COMPONENT API (for internal components system)
     // =========================================================================
@@ -1932,11 +1954,33 @@ class WorldStateController {
         const itemDefs = this.inventoryManager.getItemDefinitions();
         const hostVolumeOf = (type) => {
             const def = itemDefs[type] || {};
-            return def.externalVolume ?? def.volume ?? DEFAULT_ITEM_VOLUME;
+            // recipe→derivation: the external footprint lives under form.externalVolume
+            // (legacy top-level externalVolume is a fallback); the full volume lives under
+            // form.volume. The footprint (what counts against a component's capacity) is the
+            // external footprint when declared, else the full volume.
+            const external = (typeof def.form?.externalVolume === 'number')
+                ? def.form.externalVolume
+                : (typeof def.externalVolume === 'number' ? def.externalVolume : undefined);
+            if (typeof external === 'number') return external;
+            return (typeof def.form?.volume === 'number')
+                ? def.form.volume
+                : (typeof def.volume === 'number' ? def.volume : DEFAULT_ITEM_VOLUME);
         };
-        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? DEFAULT_ITEM_VOLUME), 0);
+        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
         const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
-        const free = this.inventoryManager.getAvailableVolume(entity, componentId);
+        // Self-contained available-volume computation (does not rely on the InventoryManager
+        // capacity check, which is intentionally non-enforcing). maxVolume comes from the
+        // component definition's form.volume; usedVolume sums the items on the component.
+        const componentDefs = DataLoader.loadJsonSafe('data/components.json', {});
+        const comp = entity.components?.find(c => c.id === componentId);
+        const compDef = comp ? (componentDefs[comp.type] || {}) : {};
+        const maxVolume = (typeof compDef.form?.volume === 'number')
+            ? compDef.form.volume
+            : (typeof compDef.volume === 'number' ? compDef.volume : 0);
+        const usedVolume = (entity.items || [])
+            .filter(item => item.hostComponentId === componentId)
+            .reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
+        const free = Math.max(0, maxVolume - usedVolume);
         if (free + freed < needed) {
             return { ok: false, message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
         }

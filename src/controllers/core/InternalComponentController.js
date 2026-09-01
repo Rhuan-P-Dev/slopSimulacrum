@@ -8,7 +8,15 @@ import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateUID } from '../../utils/idGenerator.js';
-import { IC_BASE_TICK_INTERVAL, DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
+import { DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
+import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
+
+// Internal components fire their overTime effects on the unified tick system.
+// The job runs every tick (interval 1); each effect then checks its own
+// `intervalTicks` against the absolute tick counter, so an effect fires exactly
+// on the ticks that are multiples of its interval. Running the job every tick
+// lets effects with different intervals (e.g. 5 and 10) share a single channel.
+const IC_TICK_JOB_INTERVAL = 1;
 
 class InternalComponentController {
     /**
@@ -43,11 +51,13 @@ class InternalComponentController {
             return;
         }
 
-        // Register a job that runs every tick (Order 0 = Highest Priority)
+        // Register the overTime job. It runs every tick (interval 1); each
+        // effect checks its own intervalTicks against the absolute tick counter.
+        // Order 0 = highest priority so stat effects land before other jobs.
         this.tickSystem.register(new TickJob(
             'internal-components',
             () => this._processTick(),
-            IC_BASE_TICK_INTERVAL, // interval in ticks
+            IC_TICK_JOB_INTERVAL, // interval in ticks
             0  // Order: 0 (Highest Priority)
         ));
 
@@ -79,50 +89,55 @@ class InternalComponentController {
                 Logger.warn(`[InternalComponentController] Internal component "${type}" has invalid tickInterval`);
             }
 
-            // Validate turn-driven channel (parallel to the tick channel): when a
-            // type opts into turn-driven effects it MUST declare a structurally
-            // valid turnEffects array; the tick cadence fields are intentionally
-            // not required for these types.
-            if (definition.turnDriven === true) {
-                if (!Array.isArray(definition.turnEffects) || definition.turnEffects.length === 0) {
-                    throw new TypeError(`[InternalComponentController] Internal component "${type}" is turnDriven but has no turnEffects`);
+            // Validate the unified overTime channel: a structurally valid array
+            // of effect definitions (restoreExistence / emitChannelDamage), each
+            // with a positive intervalTicks cadence.
+            if (definition.overTime !== undefined) {
+                if (!Array.isArray(definition.overTime)) {
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime must be an array`);
                 }
-                this._validateTurnEffects(type, definition.turnEffects);
-                // hostComponentType / hostSlot are optional auto-install filters;
-                // validate their shape when present.
-                if (definition.hostComponentType !== undefined && typeof definition.hostComponentType !== 'string') {
-                    throw new TypeError(`[InternalComponentController] Internal component "${type}" hostComponentType must be a string`);
-                }
-                if (definition.hostSlot !== undefined && typeof definition.hostSlot !== 'string') {
-                    throw new TypeError(`[InternalComponentController] Internal component "${type}" hostSlot must be a string`);
-                }
-            } else if (!definition.turnEffects && (!definition.tickEffects || !Array.isArray(definition.tickEffects) || definition.tickEffects.length === 0)) {
-                // A type that declares neither channel is a passive no-op — surface it.
-                Logger.warn(`[InternalComponentController] Internal component "${type}" declares neither turnEffects nor tickEffects (passive no-op)`);
-            }
-
-            // Validate tickEffects
-            if (definition.tickEffects !== undefined) {
-                if (!Array.isArray(definition.tickEffects)) {
-                    throw new TypeError(`[InternalComponentController] Internal component "${type}" tickEffects must be an array`);
-                } else {
-                    for (const effect of definition.tickEffects) {
-                        if (!effect.targetTrait) {
-                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing targetTrait`);
+                for (const effect of definition.overTime) {
+                    if (!effect.type || !['restoreExistence', 'emitChannelDamage'].includes(effect.type)) {
+                        throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime has invalid type: ${effect.type}`);
+                    }
+                    if (typeof effect.intervalTicks !== 'number' || effect.intervalTicks <= 0) {
+                        throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime effect "${effect.type}" needs a positive intervalTicks`);
+                    }
+                    if (effect.type === 'restoreExistence' && (typeof effect.existenceGainPerInterval !== 'number' || effect.existenceGainPerInterval <= 0)) {
+                        throw new TypeError(`[InternalComponentController] Internal component "${type}" restoreExistence needs a positive existenceGainPerInterval`);
+                    }
+                    if (effect.type === 'emitChannelDamage') {
+                        if (!effect.channel || !Object.values(DAMAGE_CHANNELS).includes(effect.channel)) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" emitChannelDamage needs a valid channel: ${effect.channel}`);
                         }
-                        if (!effect.targetStat) {
-                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing targetStat`);
-                        }
-                        if (!effect.effect) {
-                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect missing effect type`);
-                        } else if (!['add', 'set', 'multiply'].includes(effect.effect)) {
-                            throw new TypeError(`[InternalComponentController] Internal component "${type}" has invalid tick effect type: ${effect.effect}`);
-                        }
-                        if (effect.amount === undefined || effect.amount === null || typeof effect.amount !== 'number') {
-                            throw new TypeError(`[InternalComponentController] Internal component "${type}" tick effect amount must be a number`);
+                        if (typeof effect.damagePerInterval !== 'number' || effect.damagePerInterval <= 0) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" emitChannelDamage needs a positive damagePerInterval`);
                         }
                     }
                 }
+            }
+
+            // Validate the organ's static grants (function stats) and grantsFlags.
+            if (definition.grants !== undefined) {
+                if (typeof definition.grants !== 'object' || Array.isArray(definition.grants)) {
+                    throw new TypeError(`[InternalComponentController] Internal component "${type}" grants must be an object`);
+                }
+                for (const [key, value] of Object.entries(definition.grants)) {
+                    if (typeof value !== 'number') {
+                        throw new TypeError(`[InternalComponentController] Internal component "${type}" grant "${key}" must be a number`);
+                    }
+                }
+            }
+            if (definition.grantsFlags !== undefined && !Array.isArray(definition.grantsFlags)) {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" grantsFlags must be an array`);
+            }
+
+            // hostComponentType / hostSlot are optional auto-install filters.
+            if (definition.hostComponentType !== undefined && typeof definition.hostComponentType !== 'string') {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" hostComponentType must be a string`);
+            }
+            if (definition.hostSlot !== undefined && typeof definition.hostSlot !== 'string') {
+                throw new TypeError(`[InternalComponentController] Internal component "${type}" hostSlot must be a string`);
             }
 
             // Validate targetBlueprintTypes (optional — if present, must be an array)
@@ -130,37 +145,6 @@ class InternalComponentController {
                 if (!Array.isArray(definition.targetBlueprintTypes)) {
                     throw new TypeError(`[InternalComponentController] Internal component "${type}" targetBlueprintTypes must be an array`);
                 }
-            }
-        }
-    }
-
-    /**
-     * Validates each turn effect entry. Reuses the add/set/multiply effect
-     * vocabulary and adds the `target` field (self | host) that distinguishes
-     * whether the effect applies to the instance's own stat pool or to the
-     * host component's stat. Structurally invalid entries (missing
-     * targetTrait/targetStat, unknown effect, non-numeric amount, unknown
-     * target) throw TypeError so corrupted data never enters the state.
-     * @param {string} type - The internal component type (for log context).
-     * @param {Array} turnEffects - The turnEffects array to validate.
-     * @private
-     */
-    _validateTurnEffects(type, turnEffects) {
-        for (const effect of turnEffects) {
-            if (!effect.targetTrait) {
-                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect missing targetTrait`);
-            }
-            if (!effect.targetStat) {
-                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect missing targetStat`);
-            }
-            if (!effect.effect || !['add', 'set', 'multiply'].includes(effect.effect)) {
-                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect has invalid effect type: ${effect.effect}`);
-            }
-            if (effect.amount === undefined || effect.amount === null || typeof effect.amount !== 'number') {
-                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect amount must be a number`);
-            }
-            if (!['self', 'host'].includes(effect.target)) {
-                throw new TypeError(`[InternalComponentController] Internal component "${type}" turnEffect target must be "self" or "host": ${effect.target}`);
             }
         }
     }
@@ -243,9 +227,23 @@ class InternalComponentController {
             }
 
             for (const component of components) {
-                // Per-component gate: a non-auto-install IC only lands on a
-                // component whose type declares it in `internalComponents`.
-                if (!compDef.autoInstallOnSpawn && !this._isDeclaredOnComponentType(component.type, compType)) {
+                const declared = this._isDeclaredOnComponentType(component.type, compType);
+
+                // Per-component gate + host filters. Two installation modes:
+                //  - Auto-install ICs (autoInstallOnSpawn): land only where the
+                //    IC's own hostComponentType / hostSlot constraints allow.
+                //  - Explicit ICs (declared in the component's `internalComponents`
+                //    recipe): land on exactly the component types that declare
+                //    them — the recipe is the source of truth, so the IC's
+                //    hostComponentType default does not veto an explicit
+                //    declaration (e.g. moveCore declared on a rolling ball).
+                if (compDef.autoInstallOnSpawn) {
+                    if (hostComponentType && component.type !== hostComponentType) continue;
+                    if (hostSlot) {
+                        const parentIdentifier = this._resolveParentIdentifier(component, components);
+                        if (parentIdentifier !== hostSlot) continue;
+                    }
+                } else if (!declared) {
                     continue;
                 }
 
@@ -253,22 +251,6 @@ class InternalComponentController {
                 if (excludedTypes.includes(component.type)) {
                     Logger.info(`[InternalComponentController] Skipping ${component.type} — excluded from ${compType} auto-install`);
                     continue;
-                }
-
-                // Host-type filter: the component must be of the declared type.
-                if (hostComponentType && component.type !== hostComponentType) {
-                    continue;
-                }
-
-                // Host-slot filter: match the PARENT arm's identifier, resolved
-                // via the host's dependsOn field (see JSDoc above). The host's
-                // own identifier is remapped with a `default_` prefix by the
-                // blueprint expander, so it is deliberately NOT compared here.
-                if (hostSlot) {
-                    const parentIdentifier = this._resolveParentIdentifier(component, components);
-                    if (parentIdentifier !== hostSlot) {
-                        continue;
-                    }
                 }
 
                 // Check required traits on this component type
@@ -435,16 +417,24 @@ class InternalComponentController {
     _applyGrants(hostComponentId, compDef) {
         if (!this.worldStateController) return;
         const grants = compDef.grants;
-        if (!grants || typeof grants !== 'object') return;
-        for (const [key, value] of Object.entries(grants)) {
-            if (typeof value !== 'number') continue;
-            const dot = key.indexOf('.');
-            if (dot === -1) continue;
-            const traitId = key.slice(0, dot);
-            const statName = key.slice(dot + 1);
-            this.worldStateController.componentController.updateComponentStat(
-                hostComponentId, traitId, statName, value
-            );
+        if (grants && typeof grants === 'object') {
+            for (const [key, value] of Object.entries(grants)) {
+                if (typeof value !== 'number') continue;
+                const dot = key.indexOf('.');
+                if (dot === -1) continue;
+                const traitId = key.slice(0, dot);
+                const statName = key.slice(dot + 1);
+                this.worldStateController.componentController.updateComponentStat(
+                    hostComponentId, traitId, statName, value
+                );
+            }
+        }
+        // Organ-granted flags (e.g. corrosiveGland → corrosive) are stored on the
+        // host component, distinct from stat-derived flags (flammable/conductive).
+        if (Array.isArray(compDef.grantsFlags)) {
+            for (const flag of compDef.grantsFlags) {
+                this.worldStateController.componentController.addGrantedFlag(hostComponentId, flag);
+            }
         }
     }
 
@@ -579,126 +569,238 @@ class InternalComponentController {
     }
 
     // =========================================================================
-    // UNIFIED TICK PROCESSING
+    // UNIFIED OVERTIME PROCESSING (single channel for all overTime effects)
     // =========================================================================
 
     /**
-     * Called every tick: processes all internal component effects
-     * based on their tickInterval from the registry definition.
+     * Called every tick by the unified tick system. This is the SINGLE channel
+     * for all internal-component overTime effects (the old turn-driven and
+     * tick-driven channels have been unified here). For each installed instance
+     * that is not broken and whose host is not broken, each `overTime` effect
+     * fires when the absolute tick counter is a positive multiple of the
+     * effect's `intervalTicks`. Supported effect types: `restoreExistence`
+     * (the organ repairs the host, closing the salvage→existence loop) and
+     * `emitChannelDamage` (the organ radiates a damage channel to components in
+     * range).
      *
      * @private
      */
     _processTick() {
-        // We use Date.now() to calculate "logical seconds" for tickInterval alignment
-        // This ensures that a component with tickInterval=2 fires every 2 logical seconds
-        // regardless of the tick rate (e.g., 60 ticks/sec).
-        const currentLogicalSecond = Math.floor(Date.now() / 1000);
+        const currentTick = this.tickSystem?.currentTick ?? 0;
         let totalEffects = 0;
+        let anyChanged = false;
 
         for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {
             for (const [hostComponentId, internalComponents] of Object.entries(hostComponents)) {
                 for (const internalComp of internalComponents) {
                     const compDef = this.registry[internalComp.type];
-                    // Turn-driven types are driven by the round-start hook, NOT the
-                    // tick channel — skip them here so they are never double-applied.
-                    if (!compDef || compDef.turnDriven) continue;
-                    if (!compDef.tickEffects || !Array.isArray(compDef.tickEffects)) continue;
+                    if (!compDef || !Array.isArray(compDef.overTime) || compDef.overTime.length === 0) continue;
+                    // A broken instance (or a broken host) stops all overTime effects.
+                    if (internalComp.broken || this._hostIsBroken(hostComponentId)) continue;
 
-                    // Check if this tick interval has arrived (Logical Second % Interval == 0)
-                    if (currentLogicalSecond % compDef.tickInterval !== 0) continue;
-
-                    // Apply each tick effect defined for this component type
-                    for (const effect of compDef.tickEffects) {
+                    for (const effect of compDef.overTime) {
+                        if (typeof effect.intervalTicks !== 'number' || effect.intervalTicks <= 0) continue;
+                        // Fire only on ticks that are positive multiples of the interval.
+                        if (currentTick <= 0 || currentTick % effect.intervalTicks !== 0) continue;
                         try {
-                            this._applyTickEffect(internalComp, compDef, effect, hostComponentId);
-                            totalEffects++;
+                            const changed = this._applyOverTimeEffect(entityId, internalComp, compDef, effect, hostComponentId);
+                            if (changed) {
+                                totalEffects++;
+                                anyChanged = true;
+                            }
                         } catch (error) {
-                            Logger.error(`[InternalComponentController] Tick effect failed for ${hostComponentId} (${internalComp.type}): ${error.message}`);
+                            Logger.error(`[InternalComponentController] overTime effect failed for ${hostComponentId} (${internalComp.type}): ${error.message}`);
                         }
                     }
                 }
             }
         }
 
-        if (totalEffects > 0) {
-            // Sync internal components back to entity store so client receives them in broadcast
+        if (anyChanged) {
+            // Sync internal components back to the entity store so clients see updates.
             this._syncToEntityStore();
-            Logger.info(`[InternalComponentController] Unified tick complete: ${totalEffects} effects applied`);
+            Logger.info(`[InternalComponentController] overTime complete: ${totalEffects} effects applied`);
         }
     }
 
     /**
-     * Applies a single tick effect to a host component.
-     * Supports "add", "set", and "multiply" effect types.
-     * `add` and `multiply` are applied atomically via the facade's
-     * updateComponentStatDelta / updateComponentStatRelative methods (the
-     * old value is read inside the facade, not here), so the read-then-write
-     * cannot race with a concurrent stat change.
+     * Applies a single overTime effect to the host component (or, for
+     * emitChannelDamage, to components in range). Dispatches on the effect's
+     * `type` field. Returns true when a world-state change was made (so the
+     * caller can decide whether to sync to the entity store).
      *
+     * @param {string} entityId - The host entity ID.
      * @param {Object} internalComp - The internal component instance.
-     * @param {Object} compDef - The component type definition from registry.
-     * @param {Object} effect - The effect definition (targetTrait, targetStat, effect, amount).
+     * @param {Object} compDef - The component type definition from the registry.
+     * @param {Object} effect - The overTime effect definition.
      * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} True when the effect changed world state.
      * @private
      */
-    _applyTickEffect(internalComp, compDef, effect, hostComponentId) {
-        if (!this.worldStateController) return;
+    _applyOverTimeEffect(entityId, internalComp, compDef, effect, hostComponentId) {
+        if (!this.worldStateController) return false;
 
-        const stats = this.worldStateController.getComponentStats(hostComponentId);
-        if (!stats || !stats[effect.targetTrait] || typeof stats[effect.targetTrait][effect.targetStat] !== 'number') {
-            return; // Stat doesn't exist or isn't a number — skip
-        }
-
-        const oldValue = stats[effect.targetTrait][effect.targetStat];
-
-        switch (effect.effect) {
-            case 'add': {
-                const delta = effect.amount;
-                this.worldStateController.componentController.updateComponentStatDelta(
-                    hostComponentId, effect.targetTrait, effect.targetStat, delta
-                );
-                Logger.info(
-                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${oldValue + delta} (${delta >= 0 ? '+' : ''}${delta})`
-                );
-                break;
-            }
-            case 'set': {
-                // Absolute set: overwrite to the declared value. updateComponentStat
-                // reads the old value inside the facade for the change notification.
-                this.worldStateController.componentController.updateComponentStat(
-                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
-                );
-                Logger.info(
-                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${effect.amount}`
-                );
-                break;
-            }
-            case 'multiply': {
-                // Atomic relative op: the facade reads the old value and applies
-                // old * (factor - 1) in one call, so no read-then-write race.
-                this.worldStateController.componentController.updateComponentStatRelative(
-                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
-                );
-                Logger.info(
-                    `[InternalComponentController] Tick: ${internalComp.type} applied ${effect.effect} ${effect.targetStat} by ${effect.amount}`
-                );
-                break;
-            }
+        switch (effect.type) {
+            case 'restoreExistence':
+                return this._applyRestoreExistence(effect, hostComponentId);
+            case 'emitChannelDamage':
+                return this._applyEmitChannelDamage(entityId, effect, hostComponentId);
             default:
-                Logger.warn(`[InternalComponentController] Unknown tick effect type: ${effect.effect}`);
-                return;
+                Logger.warn(`[InternalComponentController] Unknown overTime effect type: ${effect.type}`);
+                return false;
         }
     }
 
+    /**
+     * `restoreExistence`: the organ repairs the host component by restoring a
+     * fixed amount of existence every interval, closing the salvage→existence
+     * loop (salvage is the raw-matter item that the repair consumes; its
+     * consumption is a Phase-2 detail, the existence restoration is the core).
+     * The restoration is clamped by the facade's existence store (max 1).
+     *
+     * @param {Object} effect - The restoreExistence effect definition.
+     * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} True when existence was restored.
+     * @private
+     */
+    _applyRestoreExistence(effect, hostComponentId) {
+        if (!this.worldStateController) return false;
+        const gain = typeof effect.existenceGainPerInterval === 'number' ? effect.existenceGainPerInterval : 0;
+        if (gain <= 0) return false;
+        // Read current existence; skip when the host is already whole.
+        const stats = this.worldStateController.getComponentStats(hostComponentId);
+        const current = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? 0;
+        if (current >= 1) return false;
+        this.worldStateController.componentController.updateComponentStatDelta(
+            hostComponentId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, gain
+        );
+        Logger.info(`[InternalComponentController] overTime(restoreExistence): +${gain} existence on ${hostComponentId}`);
+        return true;
+    }
+
+    /**
+     * `emitChannelDamage`: the organ radiates a damage channel (e.g. corrosion)
+     * to other components within range of the host. Each target's existence is
+     * reduced by a channel-aware loss (damage divided by the target's resistance
+     * to that channel, on a 0–100 resistance scale) — the same model the
+     * DamageConsequenceHandler uses for action damage.
+     *
+     * @param {string} entityId - The host entity ID.
+     * @param {Object} effect - The emitChannelDamage effect definition.
+     * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} True when at least one target was damaged.
+     * @private
+     */
+    _applyEmitChannelDamage(entityId, effect, hostComponentId) {
+        if (!this.worldStateController) return false;
+        const damage = typeof effect.damagePerInterval === 'number' ? effect.damagePerInterval : 0;
+        if (damage <= 0) return false;
+
+        const hostEntity = this.worldStateController.stateEntityController.getEntity(entityId);
+        if (!hostEntity) return false;
+        const hostPos = hostEntity.spatial?.position;
+        if (!hostPos) return false;
+        const range = typeof effect.range === 'number' ? effect.range : 0;
+        const resistanceStat = this._channelResistanceStat(effect.channel);
+
+        let damaged = 0;
+        const allEntities = this.worldStateController.stateEntityController.getAll ? this.worldStateController.stateEntityController.getAll() : [];
+        for (const other of allEntities) {
+            if (!other || other.id === entityId) continue;
+            const otherPos = other.spatial?.position;
+            if (!otherPos) continue;
+            const dx = otherPos.x - hostPos.x;
+            const dy = otherPos.y - hostPos.y;
+            const dist = Math.hypot(dx, dy);
+            if (range > 0 && dist > range) continue;
+
+            // Apply the channel-aware loss to the other entity's first usable component.
+            const targetComp = this._firstComponentId(other);
+            if (!targetComp) continue;
+            const targetStats = this.worldStateController.getComponentStats(targetComp);
+            const resistance = targetStats?.[TRAIT_GROUPS.PHYSICAL]?.[resistanceStat] ?? 0;
+            const loss = this._computeChannelLoss(damage, resistance);
+            if (loss <= 0) continue;
+            this.worldStateController.componentController.updateComponentStatDelta(
+                targetComp, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, -loss
+            );
+            damaged++;
+        }
+
+        if (damaged > 0) {
+            Logger.info(`[InternalComponentController] overTime(emitChannelDamage): ${effect.channel} damaged ${damaged} target(s) near ${hostComponentId}`);
+        }
+        return damaged > 0;
+    }
+
+    /**
+     * Maps a damage channel name to the corresponding resistance stat name
+     * (e.g. "corrosion" → "corrosion_resistance") in the Physical trait group.
+     * @param {string} channel - A DAMAGE_CHANNELS name.
+     * @returns {string} The resistance stat name.
+     * @private
+     */
+    _channelResistanceStat(channel) {
+        return `${channel}_resistance`;
+    }
+
+    /**
+     * Computes the existence loss (a 0–1 fraction) from a raw damage amount and
+     * a channel resistance (0–100). Higher resistance absorbs more, so the loss
+     * shrinks. Mirrors the DamageConsequenceHandler channel model.
+     * @param {number} damage - The raw damage amount.
+     * @param {number} resistance - The target's resistance to the channel (0–100).
+     * @returns {number} The existence loss (≥ 0).
+     * @private
+     */
+    _computeChannelLoss(damage, resistance) {
+        return Math.max(0, damage) / (100 + Math.max(0, resistance));
+    }
+
+    /**
+     * Returns the first component instance ID of an entity, or null. Used to
+     * target a single component when a multi-component entity is a damage
+     * target (the basic set's damage model applies to one component).
+     * @param {Object} entity - The entity object.
+     * @returns {string|null}
+     * @private
+     */
+    _firstComponentId(entity) {
+        const comps = entity?.components;
+        if (Array.isArray(comps) && comps.length > 0) return comps[0].id;
+        if (comps && typeof comps === 'object') {
+            const keys = Object.keys(comps);
+            if (keys.length > 0) return keys[0];
+        }
+        return null;
+    }
+
+    /**
+     * A host is broken when its existence has dropped to the gone threshold.
+     * Broken hosts stop driving their organs' overTime effects (and the
+     * component:broke cascade removes the organs separately).
+     * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} True when the host's existence is at/below the gone threshold.
+     * @private
+     */
+    _hostIsBroken(hostComponentId) {
+        if (!this.worldStateController) return false;
+        const stats = this.worldStateController.getComponentStats(hostComponentId);
+        const existence = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
+        return typeof existence === 'number' && existence <= EXISTENCE_GONE_AT;
+    }
+
     // =========================================================================
-    // TURN-DRIVEN EFFECTS (round-start driven, parallel to the tick channel)
+    // INSTANCE STAT POOL (self-existence for organs that carry one)
     // =========================================================================
 
     /**
      * Builds a defensive copy of a type's traits to use as an instance's own
-     * stat pool. The pool is what `target: "self"` turn effects mutate
-     * (e.g. existence drain). Returns an empty object when the type declares
-     * no traits, so self-effects degrade to a no-op instead of throwing.
+     * stat pool. In the recipe model organs carry no stat traits of their own
+     * (their capabilities are static grants applied to the host), so this
+     * returns an empty object for the current registry; it is kept so an organ
+     * that declares a self-pool still gets one and `adjustInstanceStat`
+     * degrades to a no-op instead of throwing.
      * @param {Object} compDef - The registry definition of the component type.
      * @returns {Object} Deep copy of compDef.traits ({} if absent).
      * @private
@@ -708,195 +810,14 @@ class InternalComponentController {
     }
 
     /**
-     * Processes turn-driven internal component effects. Invoked ONCE PER ROUND
-     * by the turn system via the turn-start hook (see TurnSystemController).
-     * For each installed instance whose type is turnDriven and not broken, the
-     * type's turnEffects are applied: `target: "self"` mutates the instance's
-     * own stat pool (and marks it broken when existence hits 0), while
-     * `target: "host"` mutates the host component's stat via the world-state
-     * facade's public stat API. The instance store is synced to the entity
-     * mirror so clients see the updated existence/broken state.
-     *
-     * Public API: called by the composition-root-wired turn-start hook, never
-     * by a sub-controller reaching into this controller's internals.
+     * Legacy no-op retained so the composition-root turn-start hook (wired
+     * before the overTime unification) stays a safe call. All overTime effects
+     * now run on the unified tick channel (`_processTick`), so this method
+     * intentionally does nothing.
      * @returns {void}
      */
     processTurnEffects() {
-        if (!this.worldStateController) return;
-
-        let applied = 0;
-        for (const [entityId, hostComponents] of Object.entries(this.internalComponents)) {
-            for (const [hostComponentId, internalComponents] of Object.entries(hostComponents)) {
-                for (const internalComp of internalComponents) {
-                    const compDef = this.registry[internalComp.type];
-                    // Only turnDriven types run on this channel (tick-driven
-                    // types are skipped, and they are excluded from _processTick).
-                    if (!compDef || !compDef.turnDriven || !Array.isArray(compDef.turnEffects)) continue;
-
-                    // A broken instance (its self-existence pool exhausted, or the
-                    // host hand's existence driven to 0 via the drain effect) stops
-                    // applying effects entirely — inert until re-installed/removed.
-                    if (internalComp.broken) continue;
-
-                    let instanceBrokeThisTurn = false;
-                    for (const effect of compDef.turnEffects) {
-                        try {
-                            const brokeNow = this._applyTurnEffect(internalComp, compDef, effect, hostComponentId);
-                            if (brokeNow) {
-                                instanceBrokeThisTurn = true;
-                                break; // stop applying further effects this turn
-                            }
-                            applied++;
-                        } catch (error) {
-                            Logger.error(`[InternalComponentController] Turn effect failed for ${hostComponentId} (${internalComp.type}): ${error.message}`);
-                        }
-                    }
-                    if (instanceBrokeThisTurn) {
-                        Logger.info(`[InternalComponentController] ${internalComp.type} on ${hostComponentId} broke (existence exhausted) — effects stop applying.`);
-                    }
-                }
-            }
-        }
-
-        if (applied > 0) {
-            this._syncToEntityStore();
-            Logger.info(`[InternalComponentController] Turn effects complete: ${applied} effects applied`);
-        }
-    }
-
-    /**
-     * Applies a single turn effect to either the instance's own stat pool
-     * (`target: "self"`) or the host component's stat (`target: "host"`).
-     *
-     * `set` is the "maintained" semantic: it overwrites the value rather than
-     * adding, so a maintained bonus does not stack across turns.
-     *
-     * A `host`-targeted existence drain that drives the host hand's existence
-     * to 0 breaks the instance: the component is destroyed with its host limb,
-     * so the caller stops applying further effects this turn.
-     *
-     * @param {Object} internalComp - The internal component instance.
-     * @param {Object} compDef - The component type definition from registry.
-     * @param {Object} effect - The turn effect definition (targetTrait, targetStat, effect, amount, target).
-     * @param {string} hostComponentId - The host component instance ID.
-     * @returns {boolean} true when this effect broke the instance (self existence pool reached 0, or a host existence drain drove the host hand to 0); the caller stops applying further effects.
-     * @private
-     */
-    _applyTurnEffect(internalComp, compDef, effect, hostComponentId) {
-        if (effect.target === 'self') {
-            return this._applySelfTurnEffect(internalComp, effect);
-        }
-        // target === 'host': apply to the host component's stat.
-        //
-        // NOTE on breakage: a host-targeted existence drain does NOT break the
-        // IC instance here. The host hand's own `component:broke` cascade
-        // (TriggerController → BrokenComponentRemovalHandler → removeBrokenComponent)
-        // already handles the IC cleanup when the hand's existence hits 0 —
-        // the facade's orchestrator removes the IC from the broken host
-        // (WorldStateController.removeBrokenComponent, §3.6.4). Breaking the
-        // IC instance here as well would double-handle the same condition and
-        // risk a race with the cascade. The IC's `broken` flag is therefore
-        // driven ONLY by its own self-existence pool (via a `self` drain or
-        // `adjustInstanceStat`), keeping a single owner for each break condition.
-        this._applyHostTurnEffect(internalComp, effect, hostComponentId);
-        return false;
-    }
-
-    /**
-     * Applies a turn effect to the instance's OWN stat pool. Mutates
-     * instanceStats in place (the controller owns this state). When the
-     * affected self-existence hits 0, the instance is marked broken and the
-     * method returns true so the caller halts further effects.
-     * @param {Object} internalComp - The internal component instance.
-     * @param {Object} effect - The turn effect (target: "self").
-     * @returns {boolean} true when the instance just broke.
-     * @private
-     */
-    _applySelfTurnEffect(internalComp, effect) {
-        const pool = internalComp.instanceStats;
-        if (!pool || !pool[effect.targetTrait] || typeof pool[effect.targetTrait][effect.targetStat] !== 'number') {
-            return false; // no such self stat — skip
-        }
-        const oldValue = pool[effect.targetTrait][effect.targetStat];
-        let newValue;
-        switch (effect.effect) {
-            case 'add':
-                newValue = oldValue + effect.amount;
-                break;
-            case 'set':
-                newValue = effect.amount;
-                break;
-            case 'multiply':
-                newValue = oldValue * effect.amount;
-                break;
-            default:
-                Logger.warn(`[InternalComponentController] Unknown turn effect type: ${effect.effect}`);
-                return false;
-        }
-        pool[effect.targetTrait][effect.targetStat] = newValue;
-
-        Logger.info(
-            `[InternalComponentController] Turn(self): ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${newValue}`
-        );
-
-        // Break check: only existence is "health" for an instance.
-        if (effect.targetStat === 'existence' && newValue <= 0) {
-            pool[effect.targetTrait].existence = 0; // clamp to 0 (no negatives)
-            internalComp.broken = true;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Applies a turn effect to the HOST component's stat via the facade's
-     * public stat API. All three effect types are applied atomically through
-     * facade methods that read the old value internally, so the read-then-write
-     * cannot race with a concurrent stat change:
-     * - `add` → updateComponentStatDelta
-     * - `set` → updateComponentStat (absolute overwrite, the maintained semantic)
-     * - `multiply` → updateComponentStatRelative (old * (factor - 1))
-     * The caller checks the resulting existence to decide whether the drain
-     * broke the instance (see `_applyTurnEffect`).
-     * @param {Object} internalComp - The internal component instance.
-     * @param {Object} effect - The turn effect (target: "host").
-     * @param {string} hostComponentId - The host component instance ID.
-     * @private
-     */
-    _applyHostTurnEffect(internalComp, effect, hostComponentId) {
-        const stats = this.worldStateController.getComponentStats(hostComponentId);
-        if (!stats || !stats[effect.targetTrait] || typeof stats[effect.targetTrait][effect.targetStat] !== 'number') {
-            return; // host lacks the stat — skip
-        }
-        const oldValue = stats[effect.targetTrait][effect.targetStat];
-
-        switch (effect.effect) {
-            case 'add':
-                this.worldStateController.componentController.updateComponentStatDelta(
-                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
-                );
-                break;
-            case 'set':
-                // Maintained: overwrite to the declared value (non-additive).
-                this.worldStateController.componentController.updateComponentStat(
-                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
-                );
-                break;
-            case 'multiply':
-                // Atomic relative op: the facade reads the old value and applies
-                // old * (factor - 1) in one call, so no read-then-write race.
-                this.worldStateController.componentController.updateComponentStatRelative(
-                    hostComponentId, effect.targetTrait, effect.targetStat, effect.amount
-                );
-                break;
-            default:
-                Logger.warn(`[InternalComponentController] Unknown turn effect type: ${effect.effect}`);
-                return;
-        }
-
-        Logger.info(
-            `[InternalComponentController] Turn(host): ${internalComp.type} applied ${effect.effect} ${effect.targetStat} on ${hostComponentId}`
-        );
+        // no-op: overTime is driven by the unified tick channel (_processTick).
     }
 
     /**

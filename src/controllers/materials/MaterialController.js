@@ -299,7 +299,48 @@ class MaterialController {
         }
         derived.Physical.volume = volume;
 
+        // Derived named-trait flags (flammable, conductive) are a pure function of
+        // the blended material properties, so they never desync from the composition.
+        // Computed on each derive and stored as a list on the Physical group.
+        derived.Physical.derivedFlags = this._deriveFlagsFromBlended(blended);
+
         return derived;
+    }
+
+    /**
+     * Derives the active named-trait flags (flammable, conductive) from the
+     * blended material properties and the `flagThresholds` mapping table. A flag
+     * is active when its referenced material property's blended value meets or
+     * exceeds the declared threshold. This is a pure function of the composition,
+     * so it is stable for a component's lifetime (it never desyncs).
+     * @param {Object<string, number>} blended - Blended material property values.
+     * @returns {string[]} Sorted list of active flag names.
+     * @private
+     */
+    _deriveFlagsFromBlended(blended) {
+        const flags = [];
+        for (const [flagName, rule] of Object.entries(this.flagThresholds)) {
+            if (!rule || typeof rule.property !== 'string' || typeof rule.threshold !== 'number') continue;
+            const value = blended[rule.property];
+            if (typeof value === 'number' && value >= rule.threshold) {
+                flags.push(flagName);
+            }
+        }
+        return flags.sort();
+    }
+
+    /**
+     * Public on-read flag derivation for a material composition. Blends the
+     * composition's material properties and applies the `flagThresholds` table,
+     * returning the active named-trait flags. Used by the LLM context and client
+     * to surface a component's flags without a full stat derive.
+     * @param {Array<Object>} materials - Array of { material, fraction, role? }.
+     * @returns {string[]} Sorted list of active flag names.
+     */
+    deriveFlags(materials) {
+        if (!materials || !Array.isArray(materials) || materials.length === 0) return [];
+        const blended = this._blendProperties(materials);
+        return this._deriveFlagsFromBlended(blended);
     }
 }
 

@@ -102,8 +102,14 @@ class EquippedItemStatsController {
             return { success: false, message: `No item definition for type: ${itemType}` };
         }
 
-        // Build stats from item traits
-        const stats = this._buildStatsFromTraits(itemDef.traits);
+        // recipe→derivation: explicit item traits (if any) live under form.traits
+        // (the legacy top-level traits is a fallback). Either way, a newly equipped
+        // item starts at full existence (1.0 on the 0–1 scale) so the existence
+        // lifecycle (drain → break) has a valid baseline to track.
+        const stats = this._buildStatsFromTraits(itemDef.form?.traits ?? itemDef.traits);
+        if (typeof stats.Physical?.existence !== 'number') {
+            stats.Physical = { ...(stats.Physical || {}), existence: 1 };
+        }
 
         if (Object.keys(stats).length === 0) {
             Logger.info(`[EquippedItemStatsController] Item "${itemType}" has no traits to track. No stats initialized.`);

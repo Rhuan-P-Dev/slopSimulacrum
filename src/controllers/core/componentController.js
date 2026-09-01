@@ -182,6 +182,92 @@ class ComponentController {
     }
 
     /**
+     * Adds a granted flag to a component (from an organ's `grantsFlags`).
+     * Granted flags are STORED (not derived) because they come from the organ
+     * itself, not from a stat threshold. They live in the world state
+     * (`Physical.grantedFlags`) so they survive save/load.
+     * @param {string} instanceId - The component instance ID.
+     * @param {string} flagName - The flag name (e.g. "corrosive").
+     * @returns {boolean} True when the flag was added.
+     */
+    addGrantedFlag(instanceId, flagName) {
+        if (typeof flagName !== 'string' || flagName.length === 0) return false;
+        const stats = this.statsController.getStats(instanceId) || {};
+        const current = Array.isArray(stats.Physical?.grantedFlags) ? [...stats.Physical.grantedFlags] : [];
+        if (!current.includes(flagName)) current.push(flagName);
+        this.statsController.setStats(instanceId, { Physical: { grantedFlags: current } });
+        return true;
+    }
+
+    /**
+     * Adds a transient condition to a component (burning, wet, corroded).
+     * Conditions are stored in the world state (`Physical.conditions`) so they
+     * survive save/load and are visible to clients and the LLM context.
+     * @param {string} instanceId - The component instance ID.
+     * @param {string} conditionName - The condition name (e.g. "burning").
+     * @returns {boolean} True when the condition was added.
+     */
+    addCondition(instanceId, conditionName) {
+        if (typeof conditionName !== 'string' || conditionName.length === 0) return false;
+        const stats = this.statsController.getStats(instanceId) || {};
+        const current = Array.isArray(stats.Physical?.conditions) ? [...stats.Physical.conditions] : [];
+        if (!current.includes(conditionName)) current.push(conditionName);
+        this.statsController.setStats(instanceId, { Physical: { conditions: current } });
+        return true;
+    }
+
+    /**
+     * Removes a transient condition from a component.
+     * @param {string} instanceId - The component instance ID.
+     * @param {string} conditionName - The condition name to remove.
+     * @returns {boolean} True when a condition was removed.
+     */
+    removeCondition(instanceId, conditionName) {
+        const stats = this.statsController.getStats(instanceId);
+        if (!stats || !Array.isArray(stats.Physical?.conditions)) return false;
+        const before = stats.Physical.conditions.length;
+        const current = stats.Physical.conditions.filter(c => c !== conditionName);
+        this.statsController.setStats(instanceId, { Physical: { conditions: current } });
+        return current.length !== before;
+    }
+
+    /**
+     * Returns a component's transient conditions (burning, wet, corroded) as a
+     * defensive copy. These are stored world state.
+     * @param {string} instanceId - The component instance ID.
+     * @returns {string[]} Copy of the active condition names.
+     */
+    getComponentConditions(instanceId) {
+        const stats = this.statsController.getStats(instanceId);
+        return Array.isArray(stats?.Physical?.conditions) ? [...stats.Physical.conditions] : [];
+    }
+
+    /**
+     * Returns a component's full flag set. Two sources, unioned and sorted:
+     *   - Derived flags (flammable, conductive): a pure function of the material
+     *     composition, computed by the MaterialController at derive time (via the
+     *     propertyTraitMapping `flagThresholds`) and stored on `Physical.derivedFlags`.
+     *     Because they are derived from the fixed composition they never desync.
+     *   - Granted flags (e.g. corrosive): set by an organ on install and stored
+     *     on `Physical.grantedFlags`.
+     * @param {string} instanceId - The component instance ID.
+     * @returns {string[]} Sorted array of active flag names.
+     */
+    getComponentFlags(instanceId) {
+        const stats = this.statsController.getStats(instanceId) || {};
+        const flags = new Set();
+
+        if (Array.isArray(stats.Physical?.derivedFlags)) {
+            for (const flag of stats.Physical.derivedFlags) flags.add(flag);
+        }
+        if (Array.isArray(stats.Physical?.grantedFlags)) {
+            for (const flag of stats.Physical.grantedFlags) flags.add(flag);
+        }
+
+        return [...flags].sort();
+    }
+
+    /**
      * Retrieves the component definition (blueprint) from the registry.
      * @param {string} componentType - The component type name.
      * @returns {Object|null} The component blueprint or null if not found.

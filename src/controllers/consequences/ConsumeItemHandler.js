@@ -117,21 +117,22 @@ function handleConsumeItemAndDamage(deps, targetId, params, context) {
     // Store the consumed item's volume in context.actionParams for placeholder resolution
     context.actionParams.itemVolume = ammoVolume;
 
-    // Delegate damage application to DamageConsequenceHandler
-    const trait = params?.trait || 'Physical';
-    const stat = params?.stat || 'existence';
+    // Delegate channel damage to DamageConsequenceHandler. The raw damage is the
+    // consumed projectile's volume; the handler converts it to a channel-aware
+    // existence loss using the target's resistance to the channel.
+    const channel = params?.channel || 'impact';
     const damageResult = damageHandler?._handleDamageComponent(
         targetId,
-        { trait, stat, value: -ammoVolume },
+        { channel, value: ammoVolume },
         context
     );
 
     if (damageResult && !damageResult.success) {
-        Logger.warn(`[ConsumeItemHandler] Failed to apply ${ammoVolume} damage to target "${targetId}": ${damageResult.message}`);
+        Logger.warn(`[ConsumeItemHandler] Failed to apply ${channel} damage to target "${targetId}": ${damageResult.message}`);
     } else if (damageResult) {
-        Logger.info(`[ConsumeItemHandler] T1 fired, consuming ammo item "${ammoItem.type}" (volume: ${ammoVolume}), dealt ${ammoVolume} damage to "${targetId}".`);
+        Logger.info(`[ConsumeItemHandler] T1 fired, consuming ammo item "${ammoItem.type}" (volume: ${ammoVolume}), dealt ${channel} damage to "${targetId}".`);
     } else {
-        Logger.info(`[ConsumeItemHandler] T1 fired, consuming ammo item "${ammoItem.type}" (volume: ${ammoVolume}), dealing ${ammoVolume} damage.`);
+        Logger.info(`[ConsumeItemHandler] T1 fired, consuming ammo item "${ammoItem.type}" (volume: ${ammoVolume}), dealing ${channel} damage.`);
     }
 
     return {

@@ -261,13 +261,25 @@ class LlmContextController {
             }
         }
 
+        // Named-trait flags (flammable, conductive, corrosive) and transient
+        // conditions (burning, wet, corroded) per component. Flags are a derived
+        // union (composition-derived + organ-granted) so they never desync;
+        // conditions are world-state stored so they survive save/load.
+        const componentStates = components.map(comp => ({
+            id: comp.id,
+            type: comp.type,
+            flags: (facade.getComponentFlags?.(comp.id) ?? facade.componentController?.getComponentFlags?.(comp.id)) || [],
+            conditions: (facade.getComponentConditions?.(comp.id) ?? facade.componentController?.getComponentConditions?.(comp.id)) || []
+        }));
+
         return {
             name: entity.name || 'Droid',
             isNPC: Boolean(entity.isNPC),
             existence,
             stats: statsLines,
             equipped,
-            inventory
+            inventory,
+            componentStates
         };
     }
 
