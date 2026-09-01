@@ -70,7 +70,7 @@
     gap: 10px;
 }
 
-.durability-bar-bg {
+.existence-bar-bg {
     width: 80px;
     height: 6px;
     background: #222;
@@ -78,7 +78,7 @@
     position: relative;
 }
 
-.durability-bar-fill {
+.existence-bar-fill {
     height: 100%;
     background: var(--neon-green);
     box-shadow: 0 0 5px var(--neon-green);

@@ -22,16 +22,16 @@
 import Logger from '../../utils/Logger.js';
 import { NPC_BEHAVIOR_CHASE_ATTACK } from '../../utils/Constants.js';
 import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
-import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_USABLE_MIN, flatKey } from '../../../shared/StatVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT, flatKey } from '../../../shared/StatVocabulary.js';
 import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
 
 /**
- * Flat "trait.stat" key for Physical.durability — derived from the shared
+ * Flat "trait.stat" key for Physical.existence — derived from the shared
  * stat vocabulary so the `stats[<key>]` lookup key can never drift from
- * data/traits.json (reproduces the `stats['Physical.durability']` format).
+ * data/traits.json (reproduces the `stats['Physical.existence']` format).
  * @constant
  */
-const DURABILITY_FLAT_KEY = flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.DURABILITY);
+const EXISTENCE_FLAT_KEY = flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE);
 
 // ─────────────────────────────────────────────
 // Code-level constants (per spec §2.3, §3)
@@ -134,35 +134,35 @@ function isFiniteSpatial(spatial) {
 
 /**
  * Resolve the target component for an attack action.
- * Returns the first usable component with durability >= 1, or null.
+ * Returns the first usable component with existence >= 1, or null.
  * @param {Object} entity
  * @returns {string|null}
  */
 function pickTargetComponent(entity) {
     if (!entity || !Array.isArray(entity.components)) return null;
 
-    // First pass: find component with durability >= 1
+    // First pass: find component with existence >= 1
     for (const comp of entity.components) {
         const compId = comp.id;
         const compData = entity._components?.[compId];
         const stats = compData?.stats ?? comp.stats;
         if (stats) {
-            const dur = stats[DURABILITY_FLAT_KEY] ?? 0;
-            if (dur >= DURABILITY_USABLE_MIN) {
+            const dur = stats[EXISTENCE_FLAT_KEY] ?? 0;
+            if (dur > EXISTENCE_GONE_AT) {
                 return compId;
             }
         }
     }
 
-    // Second pass: first usable component with durability >= 1 (fallback for non-standard stats)
+    // Second pass: first usable component with existence >= 1 (fallback for non-standard stats)
     for (const comp of entity.components) {
         const compId = comp.id;
         const compData = entity._components?.[compId];
         const stats = compData?.stats ?? comp.stats;
-        // Still require durability >= 1, or no durability stat at all (assumed usable)
+        // Still require existence >= 1, or no existence stat at all (assumed usable)
         if (stats) {
-            const dur = stats[DURABILITY_FLAT_KEY];
-            if (dur === undefined || dur >= DURABILITY_USABLE_MIN) {
+            const dur = stats[EXISTENCE_FLAT_KEY];
+            if (dur === undefined || dur > EXISTENCE_GONE_AT) {
                 return compId;
             }
         } else {

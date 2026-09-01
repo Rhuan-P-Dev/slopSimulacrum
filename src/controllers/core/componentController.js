@@ -74,10 +74,14 @@ class ComponentController {
             throw new Error(`Component type ${componentType} is not registered in ComponentController.`);
         }
   
-        // Merge Process: Global Defaults ← Material-Derived ← Blueprint Overrides
-        // We incorporate initialOverrides into the blueprint traits for the merge
-        const mergeInput = { ...blueprint.traits };
-        
+        // Merge Process: Global Defaults ← Material-Derived ← Blueprint Overrides.
+        // In the recipe→derivation model a recipe declares NO stat values (`traits` is
+        // absent), so the merge input starts empty; matter-derived stats (existence,
+        // resistances, mass, sharpness, volume) are layered in below, and function
+        // stats (strength/move/fine_controls/think_level) are granted by the internal
+        // components (organs) a recipe installs — applied by the IC install path.
+        const mergeInput = { ...(blueprint.traits || {}) };
+
         // Handle initialOverrides if they are passed in the same trait format
         for (const [traitId, properties] of Object.entries(initialOverrides)) {
             mergeInput[traitId] = { ...(mergeInput[traitId] || {}), ...properties };
@@ -108,17 +112,17 @@ class ComponentController {
      * @returns {boolean}
      */
     updateComponentStat(instanceId, traitId, statName, value) {
-        // Read current stats to get the old value
+        // Read current stats to get the old value.
+        // A semantic SET may introduce a brand-new trait group (e.g. an organ
+        // granting Movement.move to a component that had no Movement stats yet —
+        // the removed traits.json molds no longer seed every group). setStats
+        // deep-merges and creates the group as needed, so no pre-existence is
+        // required; callers that must only touch existing stats gate upstream.
         const stats = this.statsController.getStats(instanceId);
-        if (stats && stats[traitId]) {
-            const oldValue = stats[traitId][statName];
-            // Apply the update via setStats with just the changed trait/stat
-            this.statsController.setStats(instanceId, { [traitId]: { [statName]: value } });
-            // Notify listeners of the stat change
-            this._notifyStatChangeListeners(instanceId, traitId, statName, value, oldValue);
-            return true;
-        }
-        return false;
+        const oldValue = (stats && stats[traitId]) ? stats[traitId][statName] : undefined;
+        this.statsController.setStats(instanceId, { [traitId]: { [statName]: value } });
+        this._notifyStatChangeListeners(instanceId, traitId, statName, value, oldValue);
+        return true;
     }
 
     /**

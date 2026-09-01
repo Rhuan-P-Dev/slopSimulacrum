@@ -195,7 +195,7 @@ class LlmContextController {
     // =========================================================================
 
     /**
-     * Self section data: name, durability (lowest-ratio components first, max 2),
+     * Self section data: name, existence (lowest-ratio components first, max 2),
      * key stats, equipped items, inventory grouped by host component.
      * @param {Object} entity
      * @returns {Object}
@@ -205,13 +205,13 @@ class LlmContextController {
         const facade = this.worldStateController;
         const components = entity.components || [];
 
-        // Durability: components with Physical.durability, lowest ratio first, max 2.
-        const durability = components
+        // Existence: components with Physical.existence, lowest ratio first, max 2.
+        const existence = components
             .map(comp => {
                 const stats = facade.getComponentStats(comp.id);
-                const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
+                const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
                 const def = this._componentDef(comp.type);
-                const max = def?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY] ?? cur;
+                const max = def?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? cur;
                 if (typeof cur !== 'number' || typeof max !== 'number' || max <= 0) return null;
                 return { component: comp.type, current: cur, max, ratio: cur / max };
             })
@@ -264,7 +264,7 @@ class LlmContextController {
         return {
             name: entity.name || 'Droid',
             isNPC: Boolean(entity.isNPC),
-            durability,
+            existence,
             stats: statsLines,
             equipped,
             inventory
@@ -347,13 +347,13 @@ class LlmContextController {
             const distance = inSameRoom
                 ? Math.round(Math.hypot((other.spatial?.x || 0) - (self.spatial?.x || 0), (other.spatial?.y || 0) - (self.spatial?.y || 0)))
                 : null;
-            const durability = this._firstDurability(other);
+            const existence = this._firstExistence(other);
             const stats = this._topStats(other, LLM_CONTEXT_MAX_NEARBY_STATS);
             const entry = {
                 id: other.id,
                 name: other.name || 'Droid',
                 distance,
-                durability,
+                existence,
                 stats
             };
             if (inSameRoom) {
@@ -509,9 +509,9 @@ class LlmContextController {
         } else {
             lines.push(`You are in: ${roomName || 'unknown'}`);
         }
-        lines.push(self.durability.length > 0
-            ? `Durability: ${self.durability.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
-            : 'Durability: (none)');
+        lines.push(self.existence.length > 0
+            ? `Existence: ${self.existence.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
+            : 'Existence: (none)');
         const statParts = [
             self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)] !== null && `strength=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)]}`,
             self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)] !== null && `sharpness=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)]}`,
@@ -538,7 +538,7 @@ class LlmContextController {
                     .map(([k, v]) => `${k.split('.')[1]}=${v}`)
                     .slice(0, LLM_CONTEXT_MAX_NEARBY_STATS)
                     .join(', ');
-                const dur = e.durability ? ` - durability ${e.durability.current}/${e.durability.max}` : '';
+                const dur = e.existence ? ` - existence ${e.existence.current}/${e.existence.max}` : '';
                 const where = e.roomName ? ` (in ${e.roomName})` : ` (${e.distance} away)`;
                 // Same-room entities carry their room-relative position so the
                 // LLM can gauge where each one stands; other-room entries do not.
@@ -626,17 +626,17 @@ class LlmContextController {
     }
 
     /**
-     * First durability-bearing component of an entity (current/max).
+     * First existence-bearing component of an entity (current/max).
      * @param {Object} entity
      * @returns {Object|null}
      * @private
      */
-    _firstDurability(entity) {
+    _firstExistence(entity) {
         const facade = this.worldStateController;
         for (const comp of entity.components || []) {
             const stats = facade.getComponentStats(comp.id);
-            const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
-            const max = this._componentDef(comp.type)?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY] ?? cur;
+            const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
+            const max = this._componentDef(comp.type)?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? cur;
             if (typeof cur === 'number' && typeof max === 'number' && max > 0) {
                 return { component: comp.type, current: cur, max };
             }
@@ -661,7 +661,7 @@ class LlmContextController {
                 if (trait === 'Spatial') continue; // position is not a stat
                 for (const [stat, value] of Object.entries(values)) {
                     if (typeof value !== 'number') continue;
-                    if (stat === STAT_NAMES.DURABILITY) continue;
+                    if (stat === STAT_NAMES.EXISTENCE) continue;
                     const key = `${trait}.${stat}`;
                     totals[key] = (totals[key] || 0) + value;
                 }

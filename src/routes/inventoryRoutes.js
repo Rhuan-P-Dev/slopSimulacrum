@@ -450,7 +450,7 @@ export default function register(router, { worldStateController }) {
      * GET /inventory/:entityId/item-stats/:itemId
      * Returns computed stats for a specific item instance, combining:
      * - Base traits from inventoryItems.json
-     * - Dynamic equipped item stats (sharpness drain, durability current)
+     * - Dynamic equipped item stats (sharpness drain, existence current)
      * - Holding cost debuffs (if equipped)
      */
     router.get('/inventory/:entityId/item-stats/:itemId', (req, res) => {

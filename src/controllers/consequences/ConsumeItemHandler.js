@@ -25,7 +25,7 @@ import IdResolver from '../../utils/IdResolver.js';
  * @param {string} targetId - The resolved target component/entity ID for damage
  * @param {Object} params - Consequence parameters
  * @param {string} params.trait - The trait name (e.g., "Physical")
- * @param {string} params.stat - The stat name (e.g., "durability")
+ * @param {string} params.stat - The stat name (e.g., "existence")
  * @param {string|number} params.value - The damage value (may be unresolved placeholder string)
  * @param {Object} context - Action execution context
  * @param {string} context.actionParams.entityId - The attacking entity ID
@@ -119,7 +119,7 @@ function handleConsumeItemAndDamage(deps, targetId, params, context) {
 
     // Delegate damage application to DamageConsequenceHandler
     const trait = params?.trait || 'Physical';
-    const stat = params?.stat || 'durability';
+    const stat = params?.stat || 'existence';
     const damageResult = damageHandler?._handleDamageComponent(
         targetId,
         { trait, stat, value: -ammoVolume },

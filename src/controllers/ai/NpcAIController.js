@@ -28,13 +28,13 @@ import { resolveRange } from '../../../shared/RangeResolver.js';
 import { NPC_DEFAULT_ATTACK_RANGE, NPC_BEHAVIOR_CHASE_ATTACK } from '../../utils/Constants.js';
 import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
-import { DURABILITY_USABLE_MIN } from '../../../shared/StatVocabulary.js';
+import { EXISTENCE_GONE_AT } from '../../../shared/StatVocabulary.js';
 
 /**
- * Key for the components' durability stat (also consumed by the damage pipeline).
+ * Key for the components' existence stat (also consumed by the damage pipeline).
  * @constant
  */
-const DURABILITY_STAT_KEY = 'Physical.durability';
+const EXISTENCE_STAT_KEY = 'Physical.existence';
 
 /**
  * Fixed action names used by craft_loop. The spec pins these (no
@@ -294,12 +294,12 @@ class NpcAIController {
     }
 
     /**
-     * Reads the durability stat of a component, accepting only finite numbers.
+     * Reads the existence stat of a component, accepting only finite numbers.
      * Non-numeric values (strings, booleans, NaN) are treated as missing.
      *
      * Read priority:
      *   1. Authoritative store (ComponentStatsController via facade.getComponentStats) —
-     *      the nested layer { Physical: { durability } } that the damage pipeline updates.
+     *      the nested layer { Physical: { existence } } that the damage pipeline updates.
      *      This is the only live source at runtime, since EntityController.createEntityFromBlueprint()
      *      never fills comp.stats on the entity copy (only { type, identifier, id }).
      *   2. Fallback: flat keys embedded in comp.stats — preserved for compatibility
@@ -309,10 +309,10 @@ class NpcAIController {
      * @returns {number|undefined}
      * @private
      */
-    _readDurability(comp) {
+    _readExistence(comp) {
         // 1. Authoritative nested store via the facade (ComponentStatsController).
         if (this._facade && typeof this._facade.getComponentStats === 'function' && comp && comp.id) {
-            const value = this._facade.getComponentStats(comp.id)?.Physical?.durability;
+            const value = this._facade.getComponentStats(comp.id)?.Physical?.existence;
             if (typeof value === 'number' && Number.isFinite(value)) {
                 return value;
             }
@@ -321,7 +321,7 @@ class NpcAIController {
         if (!comp || !comp.stats || typeof comp.stats !== 'object') {
             return undefined;
         }
-        const value = comp.stats[DURABILITY_STAT_KEY];
+        const value = comp.stats[EXISTENCE_STAT_KEY];
         if (typeof value === 'number' && Number.isFinite(value)) {
             return value;
         }
@@ -329,14 +329,14 @@ class NpcAIController {
     }
 
     /**
-     * Finds the first component with finite numeric durability.
+     * Finds the first component with finite numeric existence.
      * @param {Object[]} components
      * @returns {Object|null}
      * @private
      */
-    _findDurabilityComponent(components) {
+    _findExistenceComponent(components) {
         for (const comp of components) {
-            if (this._readDurability(comp) !== undefined) {
+            if (this._readExistence(comp) !== undefined) {
                 return comp;
             }
         }
@@ -344,15 +344,15 @@ class NpcAIController {
     }
 
     /**
-     * Filters components usable for damage: no durability stat OR durability >= threshold.
+     * Filters components usable for damage: no existence stat OR existence >= threshold.
      * @param {Object[]} components
      * @returns {Object[]}
      * @private
      */
     _filterUsableComponents(components) {
         return components.filter(comp => {
-            const dur = this._readDurability(comp);
-            return (dur === undefined) || (dur >= DURABILITY_USABLE_MIN);
+            const dur = this._readExistence(comp);
+            return (dur === undefined) || (dur > EXISTENCE_GONE_AT);
         });
     }
 
@@ -713,10 +713,10 @@ class NpcAIController {
      * Selects the best component of a target for attack decisions.
      *
      * Selection rule (deterministic):
-     * 1. Prefer the first component with finite numeric durability.
+     * 1. Prefer the first component with finite numeric existence.
      * 2. Fallback: first component in the list.
      * 3. No valid components → null (attack is ignored).
-     * 4. If the selected component is broken (durability < threshold),
+     * 4. If the selected component is broken (existence < threshold),
      *    deterministic reselection among usable candidates; if none
      *    exist, null (attack is ignored rather than wasted).
      *
@@ -738,17 +738,17 @@ class NpcAIController {
             return null;
         }
 
-        const selected = this._findDurabilityComponent(validComponents);
+        const selected = this._findExistenceComponent(validComponents);
         if (selected === null) {
             return validComponents[0];
         }
 
-        const durability = this._readDurability(selected);
-        if (durability !== undefined && durability < DURABILITY_USABLE_MIN) {
+        const existence = this._readExistence(selected);
+        if (existence !== undefined && existence <= EXISTENCE_GONE_AT) {
             const candidates = this._filterUsableComponents(validComponents);
 
             if (candidates.length > 0) {
-                Logger.debug(`[NpcAI] Target ${selected.id} broken (durability: ${durability}) — reselection among ${candidates.length} candidate(s).`);
+                Logger.debug(`[NpcAI] Target ${selected.id} broken (existence: ${existence}) — reselection among ${candidates.length} candidate(s).`);
                 return this._pickRandomComponent(candidates, entityId, round);
             }
 

@@ -30,8 +30,8 @@ export const AppConfig = {
             OUT_OF_RANGE: '#ff4444',
         },
         INTERNAL_COMPONENT: {
-            DURABILITY_REPAIR_SPHERE_FILL: '#00ccff',
-            DURABILITY_REPAIR_SPHERE_STROKE: '#0099cc',
+            REPAIR_SPHERE_FILL: '#00ccff',
+            REPAIR_SPHERE_STROKE: '#0099cc',
         },
     },
     MARKER_SIZES: {

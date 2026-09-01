@@ -3,7 +3,7 @@
  *
  * Consumer of existing stat notifications (ComponentController +
  * EquippedItemStatsController, delegated via the WorldStateController facade).
- * Detects crossing `old > 0 → new <= 0` in Physical.durability (threshold 0,
+ * Detects crossing `old > 0 → new <= 0` in Physical.existence (threshold 0,
  * spec §3.1) and emits `component:broke` with payload from §3.3.
  *
  * DI pattern: on/off for handler registration, emit for execution with
@@ -14,7 +14,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import { DURABILITY_BROKEN_AT } from '../../../shared/StatVocabulary.js';
+import { EXISTENCE_GONE_AT } from '../../../shared/StatVocabulary.js';
 import { SOCKET_EVENTS } from '../../../shared/SocketProtocol.js';
 
 class TriggerController {
@@ -99,18 +99,18 @@ class TriggerController {
     }
 
     /**
-     * Checks for durability crossing and emits `component:broke` if applicable.
+     * Checks for existence crossing and emits `component:broke` if applicable.
      * §3.1: old > 0 → new <= 0 only triggers.
      *
      * @param {string} componentId - ID of the component instance.
      * @param {string} entityId - Entity owning the component.
-     * @param {number} oldValue - Old durability value.
-     * @param {number} newValue - New durability value.
+     * @param {number} oldValue - Old existence value.
+     * @param {number} newValue - New existence value.
      * @param {Object} extra - Additional data (roomId, position, tick).
      */
     onComponentBrokeCheck(componentId, entityId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
-        if (oldValue > DURABILITY_BROKEN_AT && newValue <= DURABILITY_BROKEN_AT) {
+        if (oldValue > EXISTENCE_GONE_AT && newValue <= EXISTENCE_GONE_AT) {
             const payload = this._buildPayload(componentId, entityId, oldValue, newValue, extra);
             
             // Registra no event log (§3.2)
@@ -120,7 +120,7 @@ class TriggerController {
                     level: 'warn',
                     tick: extra.tick ?? 0,
                     targetId: componentId,
-                    message: `Component ${componentId} broke (durability ${oldValue} → ${newValue})`
+                    message: `Component ${componentId} broke (existence ${oldValue} → ${newValue})`
                 });
             }
 
@@ -170,7 +170,7 @@ class TriggerController {
      */
     onEquippedItemBrokeCheck(eqId, entityId, hostComponentId, oldValue, newValue, extra = {}) {
         // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
-        if (oldValue > DURABILITY_BROKEN_AT && newValue <= DURABILITY_BROKEN_AT) {
+        if (oldValue > EXISTENCE_GONE_AT && newValue <= EXISTENCE_GONE_AT) {
             // Use nullish coalescing (??) so defined falsy values (e.g. roomId: '') survive.
             const roomId = extra.roomId ?? (() => {
                 Logger.warn(`[TriggerController] Missing roomId anchor for equipped-item "${eqId}" on entity "${entityId}"`, { eqId, entityId, oldValue, newValue });
@@ -205,7 +205,7 @@ class TriggerController {
                     level: 'warn',
                     tick: extra.tick ?? 0,
                     targetId: eqId,
-                    message: `Equipped item ${eqId} broke (durability ${oldValue} → ${newValue})`
+                    message: `Equipped item ${eqId} broke (existence ${oldValue} → ${newValue})`
                 });
             }
 

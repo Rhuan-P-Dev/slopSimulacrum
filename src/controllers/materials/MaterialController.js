@@ -24,8 +24,18 @@ const STAT_PRECISION = 100;
 class MaterialController {
     constructor(materialsRegistry, mappingRegistry) {
         this.materialsRegistry = this._validateMaterialsRegistry(materialsRegistry || {});
-        this.mappingRegistry = this._validateMappingRegistry(mappingRegistry || {});
-        Logger.info(`[MaterialController] initialized with ${Object.keys(this.materialsRegistry).length} materials, ${Object.keys(this.mappingRegistry).length} mappings`);
+        // The mapping registry is the recipe-model wrapper { derivedStats, flagThresholds }
+        // (data/propertyTraitMapping.json). For backward compatibility a legacy flat
+        // { "Trait.stat": mapping } map is also accepted (treated as the derivedStats body).
+        const raw = mappingRegistry || {};
+        this.flagThresholds = (raw.flagThresholds && typeof raw.flagThresholds === 'object' && !Array.isArray(raw.flagThresholds))
+            ? raw.flagThresholds
+            : {};
+        this.mappingRegistry = (raw.derivedStats && typeof raw.derivedStats === 'object' && !Array.isArray(raw.derivedStats))
+            ? raw.derivedStats
+            : raw;
+        this.mappingRegistry = this._validateMappingRegistry(this.mappingRegistry);
+        Logger.info(`[MaterialController] initialized with ${Object.keys(this.materialsRegistry).length} materials, ${Object.keys(this.mappingRegistry).length} mappings, ${Object.keys(this.flagThresholds).length} flag thresholds`);
     }
 
     /**
@@ -84,8 +94,13 @@ class MaterialController {
      * Derives trait stats from a blueprint's material composition.
      * Returns an empty object {} when the blueprint has no materials field.
      *
+     * In the recipe→derivation model a blueprint declares no stat values: existence,
+     * the six channel resistances and sharpness derive from matter (the composition);
+     * mass and volume derive from matter × form. The volume is read from the recipe's
+     * `form.volume` (new model) with a fallback to a legacy top-level `volume`.
+     *
      * @param {Object} blueprint - A component/item blueprint (from components.json or inventoryItems.json).
-     * @returns {Object} Trait-shaped derived stats, e.g. { Physical: { mass: 4.92, flammability: 35 } }.
+     * @returns {Object} Trait-shaped derived stats, e.g. { Physical: { existence: 1, mass: 93.6, volume: 12, … } }.
      */
     derive(blueprint) {
         const materials = blueprint.materials;
@@ -101,8 +116,16 @@ class MaterialController {
         // Step 2: Blend properties across materials
         const blended = this._blendProperties(materials);
 
+        // Volume comes from the recipe's form (new model), not from matter.
+        let volume = 1;
+        if (blueprint.form && typeof blueprint.form.volume === 'number') {
+            volume = blueprint.form.volume;
+        } else if (typeof blueprint.volume === 'number') {
+            volume = blueprint.volume;
+        }
+
         // Step 3: Derive trait stats from the mapping table
-        return this._deriveTraits(blended, blueprint.volume || 1);
+        return this._deriveTraits(blended, volume);
     }
 
     /**
@@ -120,6 +143,16 @@ class MaterialController {
     /** @returns {Object<string,Object>} deep clone of the materials registry (project rules: public getters return deep copies) */
     getMaterialsRegistry() {
         return structuredClone(this.materialsRegistry);
+    }
+
+    /**
+     * Returns the derived-on-demand flag thresholds (data/propertyTraitMapping.json
+     * `flagThresholds`), mapping flag name → { property, threshold }. A component is
+     * flagged when its blended material property crosses the threshold (e.g. flammable).
+     * @returns {Object<string, {property: string, threshold: number}>}
+     */
+    getFlagThresholds() {
+        return structuredClone(this.flagThresholds);
     }
 
     /**
@@ -198,8 +231,20 @@ class MaterialController {
     /**
      * Derives trait stats from blended properties using the mapping table.
      *
+     * Supported mapping forms (data/propertyTraitMapping.json `derivedStats`):
+     *  - `formula: "densityVolume"` → mass = Σ(fraction × density) × volume.
+     *  - `formula: "matterRatio"` → existence (a 0–1 store). A freshly-spawned
+     *    component holds 100% of its matter, so the derived value is 1.0; runtime
+     *    damage later drains the instance value toward 0 (where it ceases to exist).
+     *  - `sources: { property: weight, … }` → weighted blend (sharpness + the six
+     *    channel resistances). An optional `inverted: true` flips the 0–100 scale
+     *    (a susceptibility source like heatConduction becomes a resistance).
+     *
+     * The recipe's `form.volume` is carried on `Physical.volume` so every component
+     * instance exposes its form volume as a stat (mass is matter × this volume).
+     *
      * @param {Object<string, number>} blended - Blended property values.
-     * @param {number} volume - The component's volume (for densityVolume formula).
+     * @param {number} volume - The component's volume (from the recipe's form).
      * @returns {Object} Trait-shaped derived stats.
      * @private
      */
@@ -207,22 +252,26 @@ class MaterialController {
         const derived = {};
 
         for (const [targetPath, mapping] of Object.entries(this.mappingRegistry)) {
-            const [traitId] = targetPath.split('.');
+            const [traitId, statName] = targetPath.split('.');
 
             if (!derived[traitId]) {
                 derived[traitId] = {};
             }
 
-            // Handle the densityVolume formula (mass)
+            // mass = Σ(fraction × density) × volume (blended.density is already Σ(fraction × density))
             if (mapping.formula === 'densityVolume') {
-                // mass = Σ(fraction × density) × volume
-                // We compute this from the blended density, which is already Σ(fraction × density)
                 const blendedDensity = blended.density || 0;
                 derived[traitId].mass = Math.round(blendedDensity * volume * STAT_PRECISION) / STAT_PRECISION;
                 continue;
             }
 
-            // Handle weighted source mappings (durability, flammability, etc.)
+            // existence = matter ratio (0–1). Fresh component → full matter → 1.0.
+            if (mapping.formula === 'matterRatio') {
+                derived[traitId].existence = 1.0;
+                continue;
+            }
+
+            // Weighted source mappings (sharpness + the six channel resistances).
             if (mapping.sources && Object.keys(mapping.sources).length > 0) {
                 let weightedSum = 0;
                 let weightTotal = 0;
@@ -233,13 +282,22 @@ class MaterialController {
                     weightTotal += weight;
                 }
 
-                // Normalize by total weight
+                // Normalize by total weight, then optionally invert (susceptibility → resistance).
                 if (weightTotal > 0) {
-                    const result = Math.round((weightedSum / weightTotal) * STAT_PRECISION) / STAT_PRECISION;
-                    derived[traitId][targetPath.split('.')[1]] = result;
+                    let result = Math.round((weightedSum / weightTotal) * STAT_PRECISION) / STAT_PRECISION;
+                    if (mapping.inverted) {
+                        result = Math.round((100 - result) * STAT_PRECISION) / STAT_PRECISION;
+                    }
+                    derived[traitId][statName] = result;
                 }
             }
         }
+
+        // Volume is a form attribute (not matter) but every component carries it as a stat.
+        if (!derived.Physical) {
+            derived.Physical = {};
+        }
+        derived.Physical.volume = volume;
 
         return derived;
     }

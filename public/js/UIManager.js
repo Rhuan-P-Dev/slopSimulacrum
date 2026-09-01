@@ -616,7 +616,7 @@ export class UIManager {
 
     /**
      * Applies synergy multiplier to a numeric value.
-     * For negative values (damage, durability loss), synergy increases magnitude.
+     * For negative values (damage, existence loss), synergy increases magnitude.
      * For positive values (healing, movement), synergy increases magnitude.
      *
      * @private
@@ -650,8 +650,8 @@ export class UIManager {
 
             entity.components.forEach(comp => {
                 const stats = state.components.instances[comp.id];
-                const durability = stats?.Physical?.durability ?? 0;
-                const durPercent = Math.min(Math.max((durability / 100) * 100, 0), 100);
+                const existence = stats?.Physical?.existence ?? 0;
+                const durPercent = Math.min(Math.max((existence / 100) * 100, 0), 100);
 
                 componentsHtml += `
                     <div class="component-select-item clickable" data-comp-id="${comp.id}">
@@ -660,10 +660,10 @@ export class UIManager {
                             <span class="comp-id">ID: ${comp.identifier}</span>
                         </div>
                         <div class="comp-stats-container">
-                            <div class="durability-bar-bg">
-                                <div class="durability-bar-fill" style="width: ${durPercent}%"></div>
+                            <div class="existence-bar-bg">
+                                <div class="existence-bar-fill" style="width: ${durPercent}%"></div>
                             </div>
-                            <span class="comp-dur-text">${durability} HP</span>
+                            <span class="comp-dur-text">${existence} HP</span>
                         </div>
                     </div>`;
             });

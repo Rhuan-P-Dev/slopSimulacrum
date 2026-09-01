@@ -140,8 +140,8 @@
     filter: url(#glow);
 }
 
-/* Durability Repair Sphere */
-.internal-component-durability-repair-sphere {
+/* Repair Sphere */
+.internal-component-existence-repair-sphere {
     fill: #00ccff;
     stroke: #0099cc;
     animation: internal-component-pulse 5s ease-in-out infinite;

@@ -32,8 +32,8 @@ import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
-    DURABILITY_BROKEN_AT,
-    DURABILITY_USABLE_MIN,
+    EXISTENCE_GONE_AT,
+    EXISTENCE_USABLE_MIN,
     TRAIT_STAT_KEY_PATTERN,
 } from '../../../shared/StatVocabulary.js';
 
@@ -60,7 +60,7 @@ export function emptyKnowledgePayload() {
             vocabulary: {
                 traitGroups: Object.values(TRAIT_GROUPS),
                 stats: Object.values(STAT_NAMES),
-                durability: { brokenAt: DURABILITY_BROKEN_AT, usableMin: DURABILITY_USABLE_MIN },
+                existence: { goneAt: EXISTENCE_GONE_AT, usableMin: EXISTENCE_USABLE_MIN },
             },
         },
         recipes: [],
@@ -102,7 +102,19 @@ class KnowledgeController {
     constructor({ traits, materials, propertyTraitMapping, recipes, items }) {
         this._traits = traits;
         this._materials = materials;
+        // Keep the raw value so the plain-object validator below can reject
+        // null/array (fail-fast §6); a valid object — including the {} loadJsonSafe
+        // fallback and the recipe-model wrapper — passes through.
         this._propertyTraitMapping = propertyTraitMapping;
+        // The mapping registry is the recipe-model wrapper { derivedStats, flagThresholds }
+        // (data/propertyTraitMapping.json). Normalize it to the flat "Group.stat" body
+        // that the validators and the mapping rows operate on; a legacy flat map
+        // (no derivedStats) passes through unchanged. Null-safe so a rejected
+        // (null/array) registry is validated before it can be dereferenced.
+        const _rawMapping = this._propertyTraitMapping;
+        this._mappingBody = (_rawMapping && _rawMapping.derivedStats && typeof _rawMapping.derivedStats === 'object' && !Array.isArray(_rawMapping.derivedStats))
+            ? _rawMapping.derivedStats
+            : (_rawMapping || {});
         this._recipes = recipes;
         this._items = items;
 
@@ -137,7 +149,7 @@ class KnowledgeController {
      *     groups: Object<string, Object<string, number>>,
      *     mappings: Array<{statKey: string, trait: string, stat: string, formula: string|null, sources: Array<{property: string, weight: number}>}>,
      *     materials: Array<{type: string, name: string, density: number, properties: Object<string, number>}>,
-     *     vocabulary: {traitGroups: string[], stats: string[], durability: {brokenAt: number, usableMin: number}}
+     *     vocabulary: {traitGroups: string[], stats: string[], existence: {goneAt: number, usableMin: number}}
      *   },
      *   recipes: Array<{id: string, name: string, description: string|null, inputs: Array<{type: string, quantity: number, name: string}>, outputs: Array<{type: string, quantity: number, name: string}>}>,
      *   items: Array<{type: string, name: string, description: string|null, volume: number, externalVolume: number|null, materials: Array<{material: string, fraction: number, role: string|null}>|null, traits: Object<string, Object<string, number>>}>
@@ -208,7 +220,7 @@ class KnowledgeController {
      * @private
      */
     _validateMappingEntries() {
-        for (const [key, entry] of Object.entries(this._propertyTraitMapping)) {
+        for (const [key, entry] of Object.entries(this._mappingBody)) {
             if (!TRAIT_STAT_KEY_PATTERN.test(key)) {
                 throw new TypeError(
                     `Mapping key "${key}" does not match the flat Group.stat pattern /^[A-Za-z]+\\.[A-Za-z_]+$/.`
@@ -219,9 +231,14 @@ class KnowledgeController {
             }
             const hasFormula = typeof entry.formula === 'string' && entry.formula.length > 0;
             const hasSources = entry.sources && typeof entry.sources === 'object' && !Array.isArray(entry.sources) && Object.keys(entry.sources).length > 0;
-            if (!hasFormula && !hasSources) {
+            // The recipe→derivation model adds non-property-derived entries:
+            // `existence` is a fixed 0-1 store (value) and `mass`/resistances are
+            // volume/property-derived (formula). Accept a numeric `value` as a
+            // third valid basis so those entries pass without a property source.
+            const hasValue = entry.value !== undefined && entry.value !== null;
+            if (!hasFormula && !hasSources && !hasValue) {
                 throw new TypeError(
-                    `Mapping entry for "${key}" must have a non-empty "formula" or a non-empty "sources" object.`
+                    `Mapping entry for "${key}" must have a non-empty "formula", a non-empty "sources" object, or a numeric "value".`
                 );
             }
         }
@@ -318,6 +335,7 @@ class KnowledgeController {
      */
     _validateItemEntries() {
         for (const [type, entry] of Object.entries(this._items)) {
+            if (type.startsWith('_')) continue; // metadata keys (_comment) are not item types
             if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
                 throw new TypeError(`Item "${type}" must be an object.`);
             }
@@ -362,7 +380,14 @@ class KnowledgeController {
      * @private
      */
     _buildGroups() {
-        return structuredClone(this._traits);
+        // data/traits.json may carry a top-level `_comment` metadata key; strip
+        // underscore-prefixed keys so the codex groups are clean.
+        const groups = {};
+        for (const [key, value] of Object.entries(this._traits)) {
+            if (key.startsWith('_')) continue;
+            groups[key] = structuredClone(value);
+        }
+        return groups;
     }
 
     /**
@@ -379,7 +404,7 @@ class KnowledgeController {
      */
     _buildMappings() {
         const rows = [];
-        for (const [statKey, entry] of Object.entries(this._propertyTraitMapping)) {
+        for (const [statKey, entry] of Object.entries(this._mappingBody)) {
             const [trait, stat] = statKey.split('.');
 
             // Normalization enforces the §3.2 wire contract (exactly one of
@@ -439,19 +464,20 @@ class KnowledgeController {
 
     /**
      * The cross-layer pinned vocabulary, sourced from the shared module (NOT a
-     * data file) — the one place both layers' names meet. The two durability
-     * boundaries are surfaced side by side so their deliberate gap is visible
-     * (knowledge_viewer_spec.md §3.2 Vocabulary / evidence #10).
-     * @returns {{traitGroups: string[], stats: string[], durability: {brokenAt: number, usableMin: number}}}
+     * data file) — the one place both layers' names meet. The existence store is
+     * a single 0–1 matter ratio: goneAt/usableMin are both 0 (there is no
+     * "broken-but-usable" gap, unlike the old two-boundary existence model).
+     * (knowledge_viewer_spec.md §3.2 Vocabulary).
+     * @returns {{traitGroups: string[], stats: string[], existence: {goneAt: number, usableMin: number}}}
      * @private
      */
     _buildVocabulary() {
         return {
             traitGroups: Object.values(TRAIT_GROUPS),
             stats: Object.values(STAT_NAMES),
-            durability: {
-                brokenAt: DURABILITY_BROKEN_AT,
-                usableMin: DURABILITY_USABLE_MIN,
+            existence: {
+                goneAt: EXISTENCE_GONE_AT,
+                usableMin: EXISTENCE_USABLE_MIN,
             },
         };
     }
@@ -515,6 +541,7 @@ class KnowledgeController {
     _buildItems() {
         const rows = [];
         for (const [type, entry] of Object.entries(this._items)) {
+            if (type.startsWith('_')) continue; // skip metadata keys (_comment)
             rows.push({
                 type,
                 name: entry.name,

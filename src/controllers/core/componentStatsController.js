@@ -26,7 +26,7 @@ class ComponentStatsController {
 
         // Deep trait-level merge: merge within each trait category to preserve
         // other stats in the same trait when only a subset is updated.
-        // e.g., updating Physical.durability must not erase Physical.mass, Physical.strength, etc.
+        // e.g., updating Physical.existence must not erase Physical.mass, Physical.strength, etc.
         for (const [traitId, traitStats] of Object.entries(incoming)) {
             if (!existing[traitId]) {
                 existing[traitId] = {};

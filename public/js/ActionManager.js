@@ -152,7 +152,7 @@ export class ActionManager {
      * Executes a movement action with specific target coordinates.
      * Includes the originally selected componentId so the server can
      * correctly resolve which component's stats to use for requirements
-     * and consequences (e.g., durability loss from dash).
+     * and consequences (e.g., existence loss from dash).
      * @param {string} actionName 
      * @param {string} entityId 
      * @param {number} targetX 

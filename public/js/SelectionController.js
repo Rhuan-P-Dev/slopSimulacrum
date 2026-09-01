@@ -9,7 +9,7 @@
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
-import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_BROKEN_AT } from '../../shared/StatVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 
 /**
  * @typedef {Object} SelectionState
@@ -307,10 +307,10 @@ class SelectionController {
 
     /**
      * Checks whether a component is still valid for action restoration.
-     * A component is valid if it exists in the world state and has positive durability.
+     * A component is valid if it exists in the world state and has positive existence.
      *
      * @param {string} componentId - The component ID to validate.
-     * @returns {boolean} True if the component exists and has durability > 0.
+     * @returns {boolean} True if the component exists and has existence > 0.
      * @private
      */
     _isComponentValid(componentId) {
@@ -332,7 +332,7 @@ class SelectionController {
             }
             const equippedItem = entity.equipped.find(eq => eq.eqId === componentId);
             // Item validity = still equipped (exists in entity.equipped array)
-            // Items are NOT components — they don't use durability as a lifecycle stat
+            // Items are NOT components — they don't use existence as a lifecycle stat
             return !!equippedItem;
         }
 
@@ -342,8 +342,8 @@ class SelectionController {
             return false;
         }
 
-        const durability = componentStats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.DURABILITY];
-        return durability !== undefined && durability > DURABILITY_BROKEN_AT;
+        const existence = componentStats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
+        return existence !== undefined && existence > EXISTENCE_GONE_AT;
     }
 
     /**
@@ -351,7 +351,7 @@ class SelectionController {
      * Recovers the action name, component selections, and triggers the targeting
      * flow if the previous action required spatial or component targeting.
      * Restoration will fail if the component referenced in the previous action
-     * no longer exists or has durability <= 0.
+     * no longer exists or has existence <= 0.
      *
      * @returns {Promise<boolean>} True if a previous action was restored, false if none exists or component is invalid.
      */

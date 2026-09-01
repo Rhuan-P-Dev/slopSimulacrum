@@ -11,7 +11,7 @@
  *
  * Equipped Item Routing:
  * - When targetId is an equipped item (eqId), damage is applied to EquippedItemStatsController
- *   so that item durability drain (e.g., from cut action) is tracked independently.
+ *   so that item existence drain (e.g., from cut action) is tracked independently.
  *
  * @module DamageConsequenceHandler
  */

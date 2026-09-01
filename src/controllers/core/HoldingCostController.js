@@ -54,11 +54,15 @@ class HoldingCostController {
          * Format: { [itemType]: HoldingCostDefinition }
          * @type {Object<string, HoldingCostDefinition>}
          */
-        this._holdingCostDefinitions = DataLoader.loadJsonSafe('data/holdingCost.json', {});
+        // The data file is a single mass-lever MODEL (not a per-item map): it
+        // gates equipping on a strength-to-mass ratio and burdens the function
+        // stats (move / fine_controls) by the carried item's mass.
+        this._model = DataLoader.loadJsonSafe('data/holdingCost.json', {});
+        this._itemMassCache = {};
 
-        Logger.info(`[HoldingCostController] Initialized with ${Object.keys(this._holdingCostDefinitions).length} item types`);
+        Logger.info(`[HoldingCostController] Initialized massBurden model (equipable: ${JSON.stringify(this._model.equipableItems || [])})`);
 
-        // Validate definitions
+        // Validate the model
         this._validateHoldingCostDefinitions();
 
         /**
@@ -84,6 +88,67 @@ class HoldingCostController {
         this.worldStateController = worldStateController;
     }
 
+    /**
+     * Resolves the total mass of an item type from its recipe (matter-derived).
+     * Mass is the sum of its material parts (density × volume per part). Cached
+     * per type. Returns 0 when it cannot be derived (unknown item / no
+     * material controller yet), which makes the equip gate trivially pass.
+     * @param {string} itemType
+     * @returns {number}
+     * @private
+     */
+    _getItemMass(itemType) {
+        if (this._itemMassCache[itemType] !== undefined) return this._itemMassCache[itemType];
+        let mass = 0;
+        try {
+            const wc = this.worldStateController;
+            const itemDef = wc?.inventoryManager?.getItemDefinitions?.()[itemType];
+            const mc = wc?.materialController;
+            if (itemDef && Array.isArray(itemDef.materials) && mc) {
+                const derived = mc.derive({ volume: itemDef.form?.volume ?? 1, materials: itemDef.materials });
+                // derive() returns the component stat shape { Physical: { mass, … } }
+                // (the matter group lives under Physical in this codebase).
+                mass = derived?.Physical?.mass ?? derived?.matter?.mass ?? 0;
+            }
+        } catch (e) {
+            Logger.warn(`[HoldingCostController] Could not derive mass for "${itemType}": ${e.message}`);
+        }
+        this._itemMassCache[itemType] = mass;
+        return mass;
+    }
+
+    /**
+     * Applies the carrying cost of an equipped item to its host component: the
+     * carried item's mass (above the free allowance) reduces the burdened
+     * function stats (move / fine_controls) via a linear reduction, floored at
+     * `carryingCost.floor` × the original value. Applied as a delta so the
+     * unequip restoration (inverse delta against the pre-equip snapshot) cleanly
+     * reverses it.
+     * @param {string} componentId - The host component instance ID.
+     * @param {string} itemType - The equipped item type (for its mass).
+     * @param {Object} componentStats - The host's stats (read for the floor).
+     * @private
+     */
+    _applyCarryingCost(componentId, itemType, componentStats) {
+        const model = this._model;
+        const cost = model.carryingCost;
+        const itemMass = this._getItemMass(itemType);
+        const excess = Math.max(0, itemMass - cost.freeMassAllowance);
+        if (excess <= 0) return;
+        const reduction = excess * cost.reductionPerUnitMass;
+        for (const burdened of model.burdenedStats) {
+            const current = componentStats[burdened.trait]?.[burdened.stat];
+            if (typeof current !== 'number') continue;
+            const floor = (typeof cost.floor === 'number') ? current * cost.floor : 0;
+            const newValue = Math.max(floor, current - reduction);
+            if (newValue !== current) {
+                this.worldStateController.componentController.updateComponentStatDelta(
+                    componentId, burdened.trait, burdened.stat, newValue - current
+                );
+            }
+        }
+    }
+
     // =========================================================================
     // PUBLIC API
     // =========================================================================
@@ -94,7 +159,7 @@ class HoldingCostController {
      * @returns {boolean} True if the item has a holding cost definition.
      */
     hasHoldingCost(itemType) {
-        return Boolean(this._holdingCostDefinitions[itemType]);
+        return Array.isArray(this._model.equipableItems) && this._model.equipableItems.includes(itemType);
     }
 
     /**
@@ -103,7 +168,7 @@ class HoldingCostController {
      * @returns {HoldingCostDefinition|null} The definition, or null if not found.
      */
     getHoldingCostDefinition(itemType) {
-        return this._holdingCostDefinitions[itemType] || null;
+        return this.hasHoldingCost(itemType) ? structuredClone(this._model) : null;
     }
 
     /**
@@ -115,7 +180,7 @@ class HoldingCostController {
      * @param {string} itemType - The item type identifier (e.g., "knife", "powerCell").
      * @param {Object} componentStats - The component's current stats object.
      *   Format: { [traitName]: { [statName]: value } }
-     *   Example: { Physical: { strength: 5, durability: 100 }, Manipulation: { fine_controls: 25 } }
+     *   Example: { Physical: { strength: 5, existence: 100 }, Manipulation: { fine_controls: 25 } }
      * @returns {{ success: boolean, requiredCosts: Array<{trait: string, stat: string, value: number}>, missingStats?: Array<{trait: string, stat: string, required: number, available: number}>, message: string }}
      *
      * @example
@@ -129,79 +194,42 @@ class HoldingCostController {
     canHoldItem(itemType, componentStats) {
         if (!itemType || typeof itemType !== 'string') {
             Logger.warn('[HoldingCostController] Invalid itemType for canHoldItem check.');
-            return {
-                success: false,
-                requiredCosts: [],
-                message: 'Invalid itemType.'
-            };
+            return { success: false, requiredCosts: [], message: 'Invalid itemType.' };
         }
 
         if (!componentStats || typeof componentStats !== 'object') {
             Logger.warn('[HoldingCostController] Invalid componentStats for canHoldItem check.');
-            return {
-                success: false,
-                requiredCosts: [],
-                message: 'Invalid componentStats.'
-            };
+            return { success: false, requiredCosts: [], message: 'Invalid componentStats.' };
         }
 
-        const definition = this._holdingCostDefinitions[itemType];
-        if (!definition || !Array.isArray(definition.holdingCost)) {
-            // No holding cost definition — any item can be held
-            Logger.info(`[HoldingCostController] No holding cost definition for "${itemType}" — item can be held.`);
-            return {
-                success: true,
-                requiredCosts: [],
-                message: 'No holding cost requirements.'
-            };
+        // Mass lever: an equipable item may be held only if the host's strength
+        // meets the strength-to-mass ratio for the item's derived mass. Items
+        // outside the equipable set have no gate and can always be held.
+        const model = this._model;
+        const equipable = Array.isArray(model.equipableItems) && model.equipableItems.includes(itemType);
+        if (!equipable) {
+            return { success: true, requiredCosts: [], message: 'No equip gate for this item.' };
         }
 
-        const requiredCosts = definition.holdingCost;
-        const missingStats = [];
+        const gate = model.equipGate;
+        const itemMass = this._getItemMass(itemType);
+        const requiredStrength = gate.requiredStrengthPerUnitMass * itemMass;
+        const available = componentStats.Physical?.strength ?? 0;
+        const requiredCosts = [{ trait: 'Physical', stat: 'strength', value: requiredStrength }];
 
-        // Check ALL holding cost requirements
-        for (const costEntry of requiredCosts) {
-            const traitData = componentStats[costEntry.trait];
-            if (!traitData || traitData[costEntry.stat] === undefined) {
-                missingStats.push({
-                    trait: costEntry.trait,
-                    stat: costEntry.stat,
-                    required: costEntry.value,
-                    available: 0
-                });
-                continue;
-            }
-
-            const available = traitData[costEntry.stat];
-            if (available < costEntry.value) {
-                missingStats.push({
-                    trait: costEntry.trait,
-                    stat: costEntry.stat,
-                    required: costEntry.value,
-                    available
-                });
-            }
-        }
-
-        if (missingStats.length > 0) {
-            const details = missingStats.map(
-                s => `${s.trait}.${s.stat}: ${s.available} < ${s.required}`
-            ).join(', ');
-            Logger.info(`[HoldingCostController] Component cannot hold "${itemType}": ${details}`);
+        if (available < requiredStrength) {
+            const details = `Physical.strength: ${available} < ${requiredStrength}`;
+            Logger.info(`[HoldingCostController] Component cannot hold "${itemType}": ${details} (item mass ${itemMass}).`);
             return {
                 success: false,
                 requiredCosts,
-                missingStats,
-                message: `Insufficient stats: ${details}`
+                missingStats: [{ trait: 'Physical', stat: 'strength', required: requiredStrength, available }],
+                message: `Insufficient strength to equip ${itemType}: ${details}.`
             };
         }
 
-        Logger.info(`[HoldingCostController] Component can hold "${itemType}" — all ${requiredCosts.length} requirements met.`);
-        return {
-            success: true,
-            requiredCosts,
-            message: `All ${requiredCosts.length} holding cost requirements met.`
-        };
+        Logger.info(`[HoldingCostController] Component can hold "${itemType}" — strength ${available} >= ${requiredStrength} (item mass ${itemMass}).`);
+        return { success: true, requiredCosts, message: `Strength ${available} >= ${requiredStrength} to equip ${itemType}.` };
     }
 
     /**
@@ -222,12 +250,6 @@ class HoldingCostController {
             return { success: false, message: 'Invalid itemId. Must be a non-empty string.' };
         }
 
-        const definition = this._holdingCostDefinitions[itemType];
-        if (!definition) {
-            Logger.warn(`[HoldingCostController] No holding cost definition for item type "${itemType}". Cannot equip.`);
-            return { success: false, message: `No holding cost definition for: ${itemType}` };
-        }
-
         // Get the component's current stats
         const componentStats = this.worldStateController.componentController.getComponentStats(componentId);
         if (!componentStats) {
@@ -235,40 +257,18 @@ class HoldingCostController {
             return { success: false, message: `Component not found: ${componentId}` };
         }
 
-        // Check all holding cost requirements
-        for (const costEntry of definition.holdingCost) {
-            const traitData = componentStats[costEntry.trait];
-            if (!traitData || traitData[costEntry.stat] === undefined) {
-                Logger.warn(`[HoldingCostController] Component "${componentId}" does not have required stat ${costEntry.trait}.${costEntry.stat} to equip ${itemType}.`);
-                return {
-                    success: false,
-                    error: 'INSUFFICIENT_STAT',
-                    message: `Component "${componentId}" does not have enough ${costEntry.trait}.${costEntry.stat} to equip ${itemType}.`
-                };
-            }
-
-            if (traitData[costEntry.stat] < costEntry.value) {
-                Logger.warn(`[HoldingCostController] Component "${componentId}" ${costEntry.trait}.${costEntry.stat} (${traitData[costEntry.stat]}) < required (${costEntry.value}) for equip ${itemType}.`);
-                return {
-                    success: false,
-                    error: 'INSUFFICIENT_STAT',
-                    message: `Component "${componentId}" ${costEntry.trait}.${costEntry.stat} (${traitData[costEntry.stat]}) < required (${costEntry.value}) to equip ${itemType}.`
-                };
-            }
+        // Mass-lever equip gate: equipable items require the host's strength to
+        // meet the strength-to-mass ratio for the item's derived mass.
+        const holdCheck = this.canHoldItem(itemType, componentStats);
+        if (!holdCheck.success) {
+            return { success: false, error: 'INSUFFICIENT_STAT', message: holdCheck.message };
         }
 
-        // Requirements passed — save original stats for undo
+        // Save original stats for undo (the carrying-cost burden is reversed on unequip)
         const originalStats = structuredClone(componentStats);
 
-        // Apply holdingCost debuffs (negative deltas) to host component
-        for (const costEntry of definition.holdingCost) {
-            this.worldStateController.componentController.updateComponentStatDelta(
-                componentId,
-                costEntry.trait,
-                costEntry.stat,
-                -costEntry.value
-            );
-        }
+        // Apply the carrying cost (the carried item's mass burdens function stats)
+        this._applyCarryingCost(componentId, itemType, componentStats);
 
         // Generate typed eqId for this equipped item
         const eqId = generateEquippedId();
@@ -279,7 +279,7 @@ class HoldingCostController {
         }
         this._equippedItems[entityId][eqId] = { eqId, itemId, itemType, componentId };
 
-        // Initialize in-memory stats for the equipped item (sharpness, durability, etc.)
+        // Initialize in-memory stats for the equipped item (sharpness, existence, etc.)
         this.equippedItemStats.initializeStats(eqId, itemId, itemType);
 
         if (!this._preEquipStats[entityId]) {
@@ -321,16 +321,8 @@ class HoldingCostController {
 
         const { itemType, componentId } = equippedItem;
 
-        // Use eqId for cleanup tracking
-        const definition = this._holdingCostDefinitions[itemType];
-        if (!definition) {
-            Logger.warn(`[HoldingCostController] No holding cost definition for item type "${itemType}" during unequip.`);
-            // Do NOT call _cleanupTracking here — debuffs can't be reversed without the definition,
-            // but we also shouldn't silently remove tracking. The player should be informed.
-            return { success: false, message: `No holding cost definition for: ${itemType}` };
-        }
-
-        // Restore original stats for this component
+        // Restore original stats for this component (the carrying-cost burden is
+        // reversed against the pre-equip snapshot; no per-item definition needed).
         const originalStats = this._preEquipStats[entityId]?.[eqId]?.[componentId];
         if (!originalStats) {
             Logger.warn(`[HoldingCostController] No original stats found for unequip of "${itemId}" on component "${componentId}".`);
@@ -472,7 +464,7 @@ class HoldingCostController {
      * @returns {Object<string, HoldingCostDefinition>} The holding cost definitions.
      */
     getHoldingCostRegistry() {
-        return this._holdingCostDefinitions;
+        return structuredClone(this._model);
     }
 
     /**
@@ -520,32 +512,26 @@ class HoldingCostController {
      * @private
      */
     _validateHoldingCostDefinitions() {
-        const definitions = this._holdingCostDefinitions;
-
-        if (typeof definitions !== 'object' || definitions === null || Array.isArray(definitions)) {
-            throw new TypeError('[HoldingCostController] holdingCost definitions must be an object.');
+        const model = this._model;
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) {
+            throw new TypeError('[HoldingCostController] holdingCost data must be an object (massBurden model).');
         }
-
-        for (const [itemType, definition] of Object.entries(definitions)) {
-            if (typeof definition.name !== 'string' || definition.name.trim() === '') {
-                throw new TypeError(`[HoldingCostController] Invalid definition for "${itemType}": name must be a non-empty string.`);
-            }
-
-            if (!Array.isArray(definition.holdingCost)) {
-                throw new TypeError(`[HoldingCostController] Invalid definition for "${itemType}": holdingCost must be an array.`);
-            }
-
-            for (const entry of definition.holdingCost) {
-                if (typeof entry.trait !== 'string' || entry.trait.trim() === '') {
-                    throw new TypeError(`[HoldingCostController] Invalid holdingCost entry in "${itemType}": trait must be a non-empty string.`);
-                }
-                if (typeof entry.stat !== 'string' || entry.stat.trim() === '') {
-                    throw new TypeError(`[HoldingCostController] Invalid holdingCost entry in "${itemType}": stat must be a non-empty string.`);
-                }
-                if (typeof entry.value !== 'number' || entry.value <= 0) {
-                    throw new TypeError(`[HoldingCostController] Invalid holdingCost entry in "${itemType}": value must be a positive number.`);
-                }
-            }
+        if (typeof model.model !== 'string' || model.model.trim() === '') {
+            throw new TypeError('[HoldingCostController] massBurden model: "model" must be a non-empty string.');
+        }
+        const gate = model.equipGate;
+        if (!gate || typeof gate.type !== 'string' || typeof gate.requiredStrengthPerUnitMass !== 'number' || gate.requiredStrengthPerUnitMass <= 0) {
+            throw new TypeError('[HoldingCostController] massBurden model: equipGate.type and equipGate.requiredStrengthPerUnitMass (positive number) are required.');
+        }
+        const cost = model.carryingCost;
+        if (!cost || typeof cost.freeMassAllowance !== 'number' || typeof cost.reductionPerUnitMass !== 'number') {
+            throw new TypeError('[HoldingCostController] massBurden model: carryingCost.freeMassAllowance and carryingCost.reductionPerUnitMass must be numbers.');
+        }
+        if (!Array.isArray(model.burdenedStats) || model.burdenedStats.length === 0) {
+            throw new TypeError('[HoldingCostController] massBurden model: burdenedStats must be a non-empty array.');
+        }
+        if (!Array.isArray(model.equipableItems)) {
+            throw new TypeError('[HoldingCostController] massBurden model: equipableItems must be an array.');
         }
     }
 

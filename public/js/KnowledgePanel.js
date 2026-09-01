@@ -38,8 +38,8 @@ import ClientLogger from '/utils/ClientLogger.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
-    DURABILITY_BROKEN_AT,
-    DURABILITY_USABLE_MIN,
+    EXISTENCE_GONE_AT,
+    EXISTENCE_USABLE_MIN,
 } from '../../shared/StatVocabulary.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 
@@ -115,9 +115,9 @@ const BLOCK_TITLES = {
 const VOCAB_LABELS = {
     PINNED_TRAIT_GROUPS: 'Pinned trait groups',
     PINNED_STATS: 'Pinned stats',
-    DURABILITY: 'Durability',
-    DURABILITY_BROKEN_AT: 'broken at',
-    DURABILITY_USABLE_MIN: 'usable minimum',
+    EXISTENCE: 'Existence',
+    EXISTENCE_GONE_AT: 'broken at',
+    EXISTENCE_USABLE_MIN: 'usable minimum',
     PINNED_SUBSET_NOTE: 'Pinned subset frozen by the shared module; not an exhaustive list of the data.',
 };
 
@@ -167,9 +167,9 @@ export const EMPTY_KNOWLEDGE = {
         vocabulary: {
             traitGroups: Object.values(TRAIT_GROUPS),
             stats: Object.values(STAT_NAMES),
-            durability: {
-                brokenAt: DURABILITY_BROKEN_AT,
-                usableMin: DURABILITY_USABLE_MIN,
+            existence: {
+                goneAt: EXISTENCE_GONE_AT,
+                usableMin: EXISTENCE_USABLE_MIN,
             },
         },
     },
@@ -357,34 +357,34 @@ function shapePropertyMap(raw) {
 
 /**
  * The cross-layer pinned vocabulary block (knowledge_viewer_spec.md §3.2
- * Vocabulary): `{ traitGroups: string[], stats: string[], durability: { brokenAt, usableMin } }`.
+ * Vocabulary): `{ traitGroups: string[], stats: string[], existence: { goneAt, usableMin } }`.
  * Falls back to the shared-module constants when any part is malformed —
  * the client never invents names the server did not send.
  * @param {*} raw - Raw `traitStats.vocabulary`.
- * @returns {{traitGroups: string[], stats: string[], durability: {brokenAt: number, usableMin: number}}}
+ * @returns {{traitGroups: string[], stats: string[], existence: {goneAt: number, usableMin: number}}}
  */
 export function shapeVocabulary(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return {
             traitGroups: [],
             stats: [],
-            durability: {
-                brokenAt: DURABILITY_BROKEN_AT,
-                usableMin: DURABILITY_USABLE_MIN,
+            existence: {
+                goneAt: EXISTENCE_GONE_AT,
+                usableMin: EXISTENCE_USABLE_MIN,
             },
         };
     }
-    const durability = raw.durability;
+    const existence = raw.existence;
     return {
         traitGroups: toNonEmptyStringArray(raw.traitGroups),
         stats: toNonEmptyStringArray(raw.stats),
-        durability: {
-            brokenAt: durability && typeof durability.brokenAt === 'number'
-                ? durability.brokenAt
-                : DURABILITY_BROKEN_AT,
-            usableMin: durability && typeof durability.usableMin === 'number'
-                ? durability.usableMin
-                : DURABILITY_USABLE_MIN,
+        existence: {
+            goneAt: existence && typeof existence.goneAt === 'number'
+                ? existence.goneAt
+                : EXISTENCE_GONE_AT,
+            usableMin: existence && typeof existence.usableMin === 'number'
+                ? existence.usableMin
+                : EXISTENCE_USABLE_MIN,
         },
     };
 }
@@ -865,8 +865,8 @@ export class KnowledgePanel {
 
     /**
      * §5.6.4: the pinned vocabulary — trait groups, stats, the two
-     * durability boundaries, and the pinned-subset note.
-     * @param {{traitGroups: string[], stats: string[], durability: Object}} vocabulary - Shaped vocabulary.
+     * existence boundaries, and the pinned-subset note.
+     * @param {{traitGroups: string[], stats: string[], existence: Object}} vocabulary - Shaped vocabulary.
      * @returns {string} HTML.
      * @private
      */
@@ -876,10 +876,10 @@ export class KnowledgePanel {
         const rows = [
             `<div class="knowledge-vocab-row"><span class="knowledge-vocab-label">${escapeHtml(VOCAB_LABELS.PINNED_TRAIT_GROUPS)}</span>${badges(vocabulary.traitGroups).join('')}</div>`,
             `<div class="knowledge-vocab-row"><span class="knowledge-vocab-label">${escapeHtml(VOCAB_LABELS.PINNED_STATS)}</span>${badges(vocabulary.stats).join('')}</div>`,
-            `<div class="knowledge-vocab-row"><span class="knowledge-vocab-label">${escapeHtml(VOCAB_LABELS.DURABILITY)}</span>` +
-                `<span class="knowledge-vocab-boundary">${escapeHtml(VOCAB_LABELS.DURABILITY_BROKEN_AT)} ${escapeHtml(vocabulary.durability.brokenAt)}</span>` +
+            `<div class="knowledge-vocab-row"><span class="knowledge-vocab-label">${escapeHtml(VOCAB_LABELS.EXISTENCE)}</span>` +
+                `<span class="knowledge-vocab-boundary">${escapeHtml(VOCAB_LABELS.EXISTENCE_GONE_AT)} ${escapeHtml(vocabulary.existence.goneAt)}</span>` +
                 `<span class="knowledge-vocab-sep">/</span>` +
-                `<span class="knowledge-vocab-boundary">${escapeHtml(VOCAB_LABELS.DURABILITY_USABLE_MIN)} ${escapeHtml(vocabulary.durability.usableMin)}</span></div>`,
+                `<span class="knowledge-vocab-boundary">${escapeHtml(VOCAB_LABELS.EXISTENCE_USABLE_MIN)} ${escapeHtml(vocabulary.existence.usableMin)}</span></div>`,
             `<div class="knowledge-vocab-note">${escapeHtml(VOCAB_LABELS.PINNED_SUBSET_NOTE)}</div>`,
         ];
         return `<div class="knowledge-block"><div class="knowledge-block-title">${escapeHtml(BLOCK_TITLES.VOCABULARY)}</div>` +

@@ -9,7 +9,7 @@ import { writeDroppedItem } from '../controllers/consequences/DropItemHandler.js
 import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
-import { TRAIT_GROUPS, STAT_NAMES, DURABILITY_BROKEN_AT } from '../../shared/StatVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 
 /**
@@ -182,7 +182,7 @@ class WorldStateController {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
             
             // §3.2: delegate to TriggerController for crossing detection
-            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.DURABILITY) {
+            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
                 // Find which entity owns this component via public API
                 let owningEntity = null;
                 owningEntity = this.stateEntityController.findEntityByComponent(componentId);
@@ -242,10 +242,10 @@ class WorldStateController {
         // drain from cut), the capability cache re-scans with CURRENT stats, not
         // stale base stats.
         // §3.2/§3.5: also delegate to TriggerController.onEquippedItemBrokeCheck
-        // when traitId==='Physical' && statName==='durability' (P8 path).
+        // when traitId==='Physical' && statName==='existence' (P8 path).
         this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
             // P8 delegate: delegate to TriggerController BEFORE the broadcast
-            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.DURABILITY) {
+            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
                 const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
                 for (const [entityId, items] of Object.entries(allEquipped)) {
                     if (items[eqId]) {
@@ -898,7 +898,7 @@ class WorldStateController {
      *   - equipped:  HoldingCostController._equippedItems + _preEquipStats
      *                (pre-equip stats keep unequip-undo bookkeeping intact)
      *   - equippedItemStats: EquippedItemStatsController._itemStats
-     *                        (mutable sharpness/durability per eqId)
+     *                        (mutable sharpness/existence per eqId)
      *   - internalComponents: InternalComponentController.internalComponents
      *                        (canonical store; entity.internalComponents mirrors it)
      *   - rooms:     dynamic room state (entities/objects lists) — the room
@@ -951,7 +951,7 @@ class WorldStateController {
                 // Equipped items + pre-equip stat bookkeeping (undo data)
                 equipped: structuredClone(this.holdingCostController._equippedItems),
                 preEquipStats: structuredClone(this.holdingCostController._preEquipStats),
-                // Mutable per-equipped-item stats (sharpness, durability, ...)
+                // Mutable per-equipped-item stats (sharpness, existence, ...)
                 equippedItemStats: this.equippedItemStats.getAll(),
                 // Canonical internal-component store
                 internalComponents: structuredClone(this.internalComponentController.internalComponents),
@@ -2533,7 +2533,7 @@ class WorldStateController {
     /**
      * Computes the full stats for a single item instance, combining:
      * - Base traits from inventoryItems.json (always shown)
-     * - Dynamic equipped item stats (sharpness, durability current — shown when equipped)
+     * - Dynamic equipped item stats (sharpness, existence current — shown when equipped)
      * - Holding cost requirements (shown when equipped, informational only)
      *
      * Note: Holding cost debuffs are applied to the COMPONENT's stats, not the item's.
@@ -2860,17 +2860,17 @@ class WorldStateController {
                 continue;
             }
 
-            // Check if it still has durability stats
+            // Check if it still has existence stats
             const stats = this.statsController.getStats(curId);
-            if (!stats || !stats[TRAIT_GROUPS.PHYSICAL] || stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.DURABILITY] === undefined) {
-                Logger.warn(`[removeBrokenComponent] Dependent ${curId} has no durability stat — skipping.`);
+            if (!stats || !stats[TRAIT_GROUPS.PHYSICAL] || stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.EXISTENCE] === undefined) {
+                Logger.warn(`[removeBrokenComponent] Dependent ${curId} has no existence stat — skipping.`);
                 continue;
             }
 
-            const dur = stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.DURABILITY];
-            Logger.info(`[removeBrokenComponent] Component ${curId} has durability ${dur}`);
+            const dur = stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.EXISTENCE];
+            Logger.info(`[removeBrokenComponent] Component ${curId} has existence ${dur}`);
 
-            if (dur <= DURABILITY_BROKEN_AT) {
+            if (dur <= EXISTENCE_GONE_AT) {
                 // §3.6: defensive — direct removal WITHOUT event (already broken)
                 Logger.warn(`[removeBrokenComponent] Dependent ${curId} already broken (dur=${dur}) — direct removal without event.`);
                 this._forceDirectRemoval(curId, entity);
@@ -2879,7 +2879,7 @@ class WorldStateController {
 
             // Force break: write 0 to existing mutator → re-enters the funnel
             Logger.info(`[removeBrokenComponent] Forcing break of dependent ${curId} (dur=${dur} → 0).`);
-            this.componentController.updateComponentStat(curId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.DURABILITY, DURABILITY_BROKEN_AT);
+            this.componentController.updateComponentStat(curId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, EXISTENCE_GONE_AT);
             
             // Add this dependent's children to queue to continue cascade
             const children = reverseIndex.get(curId) || [];

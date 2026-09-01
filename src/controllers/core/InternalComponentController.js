@@ -68,6 +68,7 @@ class InternalComponentController {
         }
 
         for (const [type, definition] of Object.entries(registry)) {
+            if (type.startsWith('_')) continue; // metadata keys (_comment) are not IC types
             // Validate volume
             if (!definition.volume || typeof definition.volume !== 'number') {
                 Logger.warn(`[InternalComponentController] Internal component "${type}" missing valid volume property`);
@@ -165,6 +166,21 @@ class InternalComponentController {
     }
 
     /**
+     * Checks whether an internal component type is declared on a component
+     * type's `internalComponents` list (the component's own data-driven organ
+     * list from data/components.json).
+     * @param {string} componentType - The component type (e.g., "droidHand").
+     * @param {string} icType - The internal component type (e.g., "strengthCore").
+     * @returns {boolean}
+     * @private
+     */
+    _isDeclaredOnComponentType(componentType, icType) {
+        const registry = this.worldStateController?.componentController?.componentRegistry;
+        const def = registry?.[componentType];
+        return Array.isArray(def?.internalComponents) && def.internalComponents.includes(icType);
+    }
+
+    /**
      * Auto-installs eligible internal components on a newly spawned entity.
      * Processes all registry entries with autoInstallOnSpawn: true, filtering by:
      * - excludedComponentTypes (skip certain host component types)
@@ -197,7 +213,11 @@ class InternalComponentController {
 
         // Process each registered internal component type
         for (const [compType, compDef] of Object.entries(this.registry)) {
-            if (!compDef.autoInstallOnSpawn) continue;
+            // An IC installs on spawn if it auto-installs OR is declared on at
+            // least one component type's `internalComponents` list (data-driven
+            // organs — see _isDeclaredOnComponentType).
+            const declaredAnywhere = components.some(c => this._isDeclaredOnComponentType(c.type, compType));
+            if (!compDef.autoInstallOnSpawn && !declaredAnywhere) continue;
 
             // Filter by targetBlueprintTypes
             if (compDef.targetBlueprintTypes && Array.isArray(compDef.targetBlueprintTypes)) {
@@ -223,6 +243,12 @@ class InternalComponentController {
             }
 
             for (const component of components) {
+                // Per-component gate: a non-auto-install IC only lands on a
+                // component whose type declares it in `internalComponents`.
+                if (!compDef.autoInstallOnSpawn && !this._isDeclaredOnComponentType(component.type, compType)) {
+                    continue;
+                }
+
                 // Skip excluded component types (e.g., fingers)
                 if (excludedTypes.includes(component.type)) {
                     Logger.info(`[InternalComponentController] Skipping ${component.type} — excluded from ${compType} auto-install`);
@@ -288,10 +314,10 @@ class InternalComponentController {
                     installedAt: Date.now(),
                     // The instance's own stat pool (deep copy of the type's traits),
                     // used by `target: "self"` turn effects when a type has a
-                    // self-durability pool. The strengthCore type drains the HOST
-                    // hand's durability instead, so this pool is static for it.
+                    // self-existence pool. The strengthCore type drains the HOST
+                    // hand's existence instead, so this pool is static for it.
                     instanceStats: this._buildInstanceStats(compDef),
-                    // Broken flag: set true when the instance's self-durability pool
+                    // Broken flag: set true when the instance's self-existence pool
                     // reaches 0 (via a self drain or adjustInstanceStat); the
                     // instance stops applying effects once broken.
                     broken: false
@@ -299,6 +325,10 @@ class InternalComponentController {
 
                 this.internalComponents[entityId][component.id].push(instance);
                 installed.push(instance);
+
+                // The organ's static grants become the host's function stats
+                // (set, non-additive) — the recipe-model source of capability.
+                this._applyGrants(component.id, compDef);
 
                 Logger.info(`[InternalComponentController] Auto-installed ${compType} in ${component.type} (${component.identifier}) of entity ${entityId}`);
             }
@@ -371,15 +401,57 @@ class InternalComponentController {
         };
 
         this.internalComponents[entityId][hostComponentId].push(instance);
+
+        // The organ's static grants become the host's function stats (set,
+        // non-additive) — applied here so a manually added organ is immediately
+        // effective, matching the auto-install path.
+        this._applyGrants(hostComponentId, compDef);
+
         Logger.info(`[InternalComponentController] Added ${internalComponentType} to ${hostComponentId} of entity ${entityId}`);
 
         return structuredClone(instance);
     }
 
+    /**
+     * Applies an organ type's static `grants` to the host component's function
+     * stats as an absolute SET (non-additive / "maintained"). In the recipe
+     * model a component's function stats (strength, move, fine_controls,
+     * think_level) come from the organs it carries — the removed traits.json
+     * molds no longer seed them, so a component is only capable because it
+     * carries an organ that grants the capability. A SET is idempotent:
+     * installing (or re-installing) the same organ keeps the host at the
+     * granted value instead of stacking it (the turnDrivenIC contract's
+     * "maintained at 50, never 100" invariant).
+     *
+     * Grants are keyed in the flat "Group.stat" wire form (e.g.
+     * "Physical.strength": 50) and split into the (trait, stat) pair the
+     * componentController setter expects. Only numeric grants are applied;
+     * `grantsFlags` (a Phase 3b concern) is intentionally ignored here.
+     *
+     * @param {string} hostComponentId - The host component instance ID.
+     * @param {Object} compDef - The organ type definition (its `grants` map).
+     * @private
+     */
+    _applyGrants(hostComponentId, compDef) {
+        if (!this.worldStateController) return;
+        const grants = compDef.grants;
+        if (!grants || typeof grants !== 'object') return;
+        for (const [key, value] of Object.entries(grants)) {
+            if (typeof value !== 'number') continue;
+            const dot = key.indexOf('.');
+            if (dot === -1) continue;
+            const traitId = key.slice(0, dot);
+            const statName = key.slice(dot + 1);
+            this.worldStateController.componentController.updateComponentStat(
+                hostComponentId, traitId, statName, value
+            );
+        }
+    }
+
 
     /**
      * Adjusts a stat on an internal component instance's OWN stat pool by a
-     * delta. This is the public facade for driving the instance's self-durability
+     * delta. This is the public facade for driving the instance's self-existence
      * (or other self stats) without reaching into internalComponents internals.
      * Returns a defensive deep copy of the updated instance, or null if the
      * instance or stat is not found.
@@ -388,7 +460,7 @@ class InternalComponentController {
      * @param {string} hostComponentId - The host component ID.
      * @param {string} instanceId - The internal component instance ID.
      * @param {string} trait - The trait name (e.g. 'Physical').
-     * @param {string} stat - The stat name (e.g. 'durability').
+     * @param {string} stat - The stat name (e.g. 'existence').
      * @param {number} delta - The delta to apply (negative to drain).
      * @returns {Object|null} A deep copy of the updated instance, or null.
      */
@@ -400,8 +472,8 @@ class InternalComponentController {
         const pool = instance.instanceStats;
         if (!pool || !pool[trait] || typeof pool[trait][stat] !== 'number') return null;
         pool[trait][stat] += delta;
-        if (pool[trait].durability !== undefined && pool[trait].durability <= 0) {
-            pool[trait].durability = 0;
+        if (pool[trait].existence !== undefined && pool[trait].existence <= 0) {
+            pool[trait].existence = 0;
             instance.broken = true;
         }
         return structuredClone(instance);
@@ -625,7 +697,7 @@ class InternalComponentController {
     /**
      * Builds a defensive copy of a type's traits to use as an instance's own
      * stat pool. The pool is what `target: "self"` turn effects mutate
-     * (e.g. durability drain). Returns an empty object when the type declares
+     * (e.g. existence drain). Returns an empty object when the type declares
      * no traits, so self-effects degrade to a no-op instead of throwing.
      * @param {Object} compDef - The registry definition of the component type.
      * @returns {Object} Deep copy of compDef.traits ({} if absent).
@@ -640,10 +712,10 @@ class InternalComponentController {
      * by the turn system via the turn-start hook (see TurnSystemController).
      * For each installed instance whose type is turnDriven and not broken, the
      * type's turnEffects are applied: `target: "self"` mutates the instance's
-     * own stat pool (and marks it broken when durability hits 0), while
+     * own stat pool (and marks it broken when existence hits 0), while
      * `target: "host"` mutates the host component's stat via the world-state
      * facade's public stat API. The instance store is synced to the entity
-     * mirror so clients see the updated durability/broken state.
+     * mirror so clients see the updated existence/broken state.
      *
      * Public API: called by the composition-root-wired turn-start hook, never
      * by a sub-controller reaching into this controller's internals.
@@ -661,8 +733,8 @@ class InternalComponentController {
                     // types are skipped, and they are excluded from _processTick).
                     if (!compDef || !compDef.turnDriven || !Array.isArray(compDef.turnEffects)) continue;
 
-                    // A broken instance (its self-durability pool exhausted, or the
-                    // host hand's durability driven to 0 via the drain effect) stops
+                    // A broken instance (its self-existence pool exhausted, or the
+                    // host hand's existence driven to 0 via the drain effect) stops
                     // applying effects entirely — inert until re-installed/removed.
                     if (internalComp.broken) continue;
 
@@ -680,7 +752,7 @@ class InternalComponentController {
                         }
                     }
                     if (instanceBrokeThisTurn) {
-                        Logger.info(`[InternalComponentController] ${internalComp.type} on ${hostComponentId} broke (durability exhausted) — effects stop applying.`);
+                        Logger.info(`[InternalComponentController] ${internalComp.type} on ${hostComponentId} broke (existence exhausted) — effects stop applying.`);
                     }
                 }
             }
@@ -699,7 +771,7 @@ class InternalComponentController {
      * `set` is the "maintained" semantic: it overwrites the value rather than
      * adding, so a maintained bonus does not stack across turns.
      *
-     * A `host`-targeted durability drain that drives the host hand's durability
+     * A `host`-targeted existence drain that drives the host hand's existence
      * to 0 breaks the instance: the component is destroyed with its host limb,
      * so the caller stops applying further effects this turn.
      *
@@ -707,7 +779,7 @@ class InternalComponentController {
      * @param {Object} compDef - The component type definition from registry.
      * @param {Object} effect - The turn effect definition (targetTrait, targetStat, effect, amount, target).
      * @param {string} hostComponentId - The host component instance ID.
-     * @returns {boolean} true when this effect broke the instance (self durability pool reached 0, or a host durability drain drove the host hand to 0); the caller stops applying further effects.
+     * @returns {boolean} true when this effect broke the instance (self existence pool reached 0, or a host existence drain drove the host hand to 0); the caller stops applying further effects.
      * @private
      */
     _applyTurnEffect(internalComp, compDef, effect, hostComponentId) {
@@ -716,15 +788,15 @@ class InternalComponentController {
         }
         // target === 'host': apply to the host component's stat.
         //
-        // NOTE on breakage: a host-targeted durability drain does NOT break the
+        // NOTE on breakage: a host-targeted existence drain does NOT break the
         // IC instance here. The host hand's own `component:broke` cascade
         // (TriggerController → BrokenComponentRemovalHandler → removeBrokenComponent)
-        // already handles the IC cleanup when the hand's durability hits 0 —
+        // already handles the IC cleanup when the hand's existence hits 0 —
         // the facade's orchestrator removes the IC from the broken host
         // (WorldStateController.removeBrokenComponent, §3.6.4). Breaking the
         // IC instance here as well would double-handle the same condition and
         // risk a race with the cascade. The IC's `broken` flag is therefore
-        // driven ONLY by its own self-durability pool (via a `self` drain or
+        // driven ONLY by its own self-existence pool (via a `self` drain or
         // `adjustInstanceStat`), keeping a single owner for each break condition.
         this._applyHostTurnEffect(internalComp, effect, hostComponentId);
         return false;
@@ -733,7 +805,7 @@ class InternalComponentController {
     /**
      * Applies a turn effect to the instance's OWN stat pool. Mutates
      * instanceStats in place (the controller owns this state). When the
-     * affected self-durability hits 0, the instance is marked broken and the
+     * affected self-existence hits 0, the instance is marked broken and the
      * method returns true so the caller halts further effects.
      * @param {Object} internalComp - The internal component instance.
      * @param {Object} effect - The turn effect (target: "self").
@@ -767,9 +839,9 @@ class InternalComponentController {
             `[InternalComponentController] Turn(self): ${internalComp.type} applied ${effect.effect} ${effect.targetStat}: ${oldValue} → ${newValue}`
         );
 
-        // Break check: only durability is "health" for an instance.
-        if (effect.targetStat === 'durability' && newValue <= 0) {
-            pool[effect.targetTrait].durability = 0; // clamp to 0 (no negatives)
+        // Break check: only existence is "health" for an instance.
+        if (effect.targetStat === 'existence' && newValue <= 0) {
+            pool[effect.targetTrait].existence = 0; // clamp to 0 (no negatives)
             internalComp.broken = true;
             return true;
         }
@@ -784,7 +856,7 @@ class InternalComponentController {
      * - `add` → updateComponentStatDelta
      * - `set` → updateComponentStat (absolute overwrite, the maintained semantic)
      * - `multiply` → updateComponentStatRelative (old * (factor - 1))
-     * The caller checks the resulting durability to decide whether the drain
+     * The caller checks the resulting existence to decide whether the drain
      * broke the instance (see `_applyTurnEffect`).
      * @param {Object} internalComp - The internal component instance.
      * @param {Object} effect - The turn effect (target: "host").

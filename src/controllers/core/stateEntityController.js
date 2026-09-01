@@ -9,7 +9,7 @@ import Logger from '../../utils/Logger.js';
  * When entities are spawned or despawned, this controller triggers capability cache
  * re-evaluation to keep the ActionController's cache in sync.
  *
- * Internal Components: Automatically installs internal components (e.g., durabilityRepairSpheres)
+ * Internal Components: Automatically installs internal components (e.g., repairSpheres)
  * on eligible components via the injected InternalComponentController.
  */
 class stateEntityController {
@@ -86,7 +86,7 @@ class stateEntityController {
             ...extra
         };
 
-        // Auto-install internal components (e.g., durabilityRepairSpheres, transcendentSpeedCores)
+        // Auto-install internal components (e.g., repairSpheres, moveCores)
         if (this.internalComponentController) {
             try {
                 this.internalComponentController.autoInstallOnEntitySpawn(entityId, entityData.components, entityData.blueprint || null);

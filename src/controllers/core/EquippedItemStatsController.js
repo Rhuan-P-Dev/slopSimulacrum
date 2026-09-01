@@ -1,10 +1,10 @@
 /**
  * EquippedItemStatsController manages per-instance mutable stats for equipped items.
  *
- * This controller tracks mutable stats (sharpness, durability, etc.) for equipped items
+ * This controller tracks mutable stats (sharpness, existence, etc.) for equipped items
  * independently from their host component's stats. When an item is equipped, its base
  * stats are loaded from inventoryItems.json and stored as a mutable copy that can be
- * modified independently (e.g., sharpness decreases with use, durability degrades).
+ * modified independently (e.g., sharpness decreases with use, existence degrades).
  *
  * Data-driven: base stats loaded from data/inventoryItems.json
  *
@@ -16,7 +16,7 @@ import Logger from '../../utils/Logger.js';
 /**
  * @typedef {Object} TraitStats
  * @property {number} [mass] - Mass of the item
- * @property {number} [durability] - Current durability
+ * @property {number} [existence] - Current existence
  * @property {number} [sharpness] - Current sharpness
  * @property {number} [quality] - Item quality rating
  * @property {number} [custom] - Custom trait values
