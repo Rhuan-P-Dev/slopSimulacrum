@@ -140,11 +140,11 @@ function makeEntityWithBrokenComponents(id = 'ent-broken-0001') {
         spatial: { x: 20, y: 0 },
         components: [
             { id: 'comp-broken-1', type: 'centralBall', stats: { 'Physical.existence': 0 } },
-            { id: 'comp-broken-2', type: 'droidHand', stats: { 'Physical.existence': 0.5 } }
+            { id: 'comp-broken-2', type: 'droidHand', stats: { 'Physical.existence': 0 } }
         ],
         _components: {
             'comp-broken-1': { stats: { 'Physical.existence': 0 } },
-            'comp-broken-2': { stats: { 'Physical.existence': 0.5 } }
+            'comp-broken-2': { stats: { 'Physical.existence': 0 } }
         }
     };
 }

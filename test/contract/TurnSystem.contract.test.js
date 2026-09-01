@@ -184,7 +184,7 @@ describe('TurnSystemController (Feature A)', () => {
 
         // selfHeal ran through the real pipeline: existence +10.
         const after = world.getComponentStats(head).Physical.existence;
-        expect(after).toBe(before + 10);
+        expect(after).toBe(before + 0.1);
 
         // worldEventLog surfaced the "who acted in what order" turn line.
         const events = world.getRecentEvents(10).filter(e => e.action === 'turn');
@@ -227,7 +227,7 @@ describe('TurnSystemController (Feature A)', () => {
 
         // The valid entry still executed (round did not abort).
         const after = world.getComponentStats(head).Physical.existence;
-        expect(after).toBe(before + 10);
+        expect(after).toBe(before + 0.1);
 
         // The punch was discarded with a failure log line (not executed).
         const events = world.getRecentEvents(12).filter(e => e.action === 'turn');
@@ -364,7 +364,7 @@ describe('TurnSystemController (Feature A)', () => {
         const sig2 = turns2.signalPlanComplete(entityId, 'player');
         expect(sig2.closed).toBe(true);
         expect(sig2.barrier.closeReason).toBe('all-ready');
-        expect(world2.getComponentStats(head).Physical.existence).toBe(before2 + 10);
+        expect(world2.getComponentStats(head).Physical.existence).toBe(before2 + 0.1);
     });
 
     it('TURNS_DISABLED when the tick system is absent (driven world with null tickSystem)', () => {

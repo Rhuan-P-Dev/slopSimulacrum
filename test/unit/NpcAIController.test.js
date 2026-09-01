@@ -811,7 +811,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             expect(turns.queued[0].params.targetComponentId).toBe('comp-valid');
         });
 
-        it('C11b. ALL components existence < 1 → attack skipped (think returns acted:false)', () => {
+        it('C11b. ALL components existence ≤ 0 (gone) → attack skipped (think returns acted:false)', () => {
             const targetEntity = {
                 id: 'ent-c11b',
                 name: 'AllBroken',
@@ -821,7 +821,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 spatial: { x: 30, y: 0 },
                 components: [
                     { id: 'comp-broken-a', type: 'centralBall', stats: { 'Physical.existence': 0 } },
-                    { id: 'comp-broken-b', type: 'droidArm', stats: { 'Physical.existence': 0.5 } }
+                    { id: 'comp-broken-b', type: 'droidArm', stats: { 'Physical.existence': 0 } }
                 ],
                 status: 'active',
                 internalComponents: {},
@@ -832,7 +832,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             const { controller } = makeController({ facade, turns });
 
             const result = controller.think(NPC_ID, 1);
-            // Behavior returns null when all components are broken → think returns acted:false.
+            // Behavior returns null when all components are gone (existence ≤ 0) → think returns acted:false.
             expect(result.acted).toBe(false);
             expect(turns.queued).toHaveLength(0);
         });

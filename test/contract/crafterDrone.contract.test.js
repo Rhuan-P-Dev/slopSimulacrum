@@ -188,15 +188,16 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         const core = drone.components.find(c => c.type === 'crafterCore');
         const arm = drone.components.find(c => c.type === 'crafterArm');
         const wheel = drone.components.find(c => c.type === 'crafterRollingBall');
+        // recipe→derivation: existence is on the 0–1 scale (new items start at 1),
+        // and mass is derived from the components' material densities (not hand-tuned).
         expect(world.getComponentStats(core.id).Physical).toMatchObject({
-            existence: 100, mass: 20, volume: 12
+            existence: 1, mass: 93.6, volume: 12
         });
         expect(world.getComponentStats(arm.id).Physical).toMatchObject({
-            existence: 50, strength: 10, volume: 6
+            existence: 1, mass: 33.84, volume: 6
         });
-        expect(world.getComponentStats(wheel.id)).toMatchObject({
-            Physical: { existence: 80, volume: 10 },
-            Movement: { move: 10 }
+        expect(world.getComponentStats(wheel.id).Physical).toMatchObject({
+            existence: 1, volume: 10
         });
     });
 

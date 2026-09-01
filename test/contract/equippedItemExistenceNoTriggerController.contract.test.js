@@ -152,7 +152,7 @@ describe('Equipped-item existence without triggerController (regression)', () =>
         expect(currentStats).toBeDefined();
     });
 
-    it('should NOT throw when existence crosses zero without triggerController', () => {
+    it('should NOT throw when existence (0–1) crosses zero without triggerController', () => {
         const deps = buildMinimalDeps();
         const { equippedItemStats, holdingCostController } = deps;
 
@@ -160,24 +160,24 @@ describe('Equipped-item existence without triggerController (regression)', () =>
         const controller = new WorldStateController(deps);
 
         const eqId = 'eq-test-2';
-        const itemId = 'item-knife-2';
-        const itemType = 'knife';
         const entityId = 'entity-test-2';
 
         holdingCostController._equippedItems[entityId] = {
-            [eqId]: { eqId, itemId, itemType, componentId: null }
+            [eqId]: { eqId, itemId: 'item-knife-2', itemType: 'knife', componentId: null }
         };
 
-        // Initialize stats for the equipped item
-        equippedItemStats.initializeStats(eqId, itemId, itemType);
+        // In the recipe→derivation model an item has no explicit existence trait,
+        // so seed the 0–1 existence pool directly (independent of the item recipe).
+        equippedItemStats._itemStats[eqId] = { Physical: { existence: 1 } };
 
-        // Set existence to 1, then drop below zero (crossing point)
+        // A delta that drives the 0–1 existence below zero must not throw.
         expect(() => {
             equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -5);
         }).not.toThrow();
 
         const currentStats = equippedItemStats.getStats(eqId);
-        // Default existence is 30; delta=-5 → 25
-        expect(currentStats.Physical.existence).toBe(25);
+        // 1 + (-5) = -4 (updateStatDelta does not clamp; the floor is enforced by
+        // the damage/trigger path, not here).
+        expect(currentStats.Physical.existence).toBe(-4);
     });
 });

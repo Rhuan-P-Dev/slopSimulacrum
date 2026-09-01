@@ -57,28 +57,38 @@ function createWorldWithDroid() {
     const entity = allEntities.find(e => e.isNPC !== true) || allEntities[0];
     expect(entity, 'a client droid must be spawned').toBeTruthy();
 
-    const component = entity.components[0];
+    // The dropItem action requires the host component to possess strength
+    // (data/actions.json requirement). Use a holding-capable droidHand (which
+    // carries a strengthCore and thus strength) as the host component.
+    const component =
+        entity.components.find(c => c.type === 'droidHand') ||
+        entity.components.find(c => c.type === 'droidArm') ||
+        entity.components[0];
     expect(component, 'the droid must have at least one component').toBeTruthy();
 
-    // Locate a knife item somewhere in the droid's inventory (data/world.json seeds
-    // a knife on a droidHand, plus a client-only knife). dropItem needs an itemId.
+    // Give the droid a knife to drop (the drop-range contract is item-type-
+    // agnostic; a knife is a standard held item). Use the public addItemToEntity
+    // API on the strength-bearing component, then locate it in the inventory.
+    const add = world.addItemToEntity(entity.id, 'knife', component.id);
+    expect(add.success, 'the droid must be able to hold a knife to drop it').toBe(true);
+
     const inventory = world.getEntityItems(entity.id);
-    let knife = null;
+    let droppable = null;
     for (const items of Object.values(inventory)) {
-        const found = (items || []).find(item => item.type === 'knife');
+        const found = (items || []).find(item => item && item.id);
         if (found) {
-            knife = found;
+            droppable = found;
             break;
         }
     }
-    expect(knife, 'a knife item must be available in the droid inventory to drop').toBeTruthy();
+    expect(droppable, 'a droppable item must be available in the droid inventory').toBeTruthy();
 
     return {
         world,
         entityId: entity.id,
         componentId: component.id,
-        itemId: knife.id,
-        itemType: knife.type
+        itemId: droppable.id,
+        itemType: droppable.type
     };
 }
 

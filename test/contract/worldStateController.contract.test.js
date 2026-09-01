@@ -183,6 +183,8 @@ describe('WorldStateController public method surface', () => {
         'getCachedCapabilities',
         'getCapabilitiesForEntity',
         'getComponent',
+        'getComponentConditions',
+        'getComponentFlags',
         'getComponentStats',
         'getContainerItems',
         'getCraftingRecipes',
@@ -506,7 +508,12 @@ describe('WorldStateController.getAll() shape', () => {
         expect(typeOf(state.components.instances)).toBe('object');
         expect(typeOf(state.components.globalTraits)).toBe('object');
 
-        // Each component instance is a trait → { stat: number } map.
+        // Each component instance is a trait → { stat: number } map. The B4
+        // feature adds a small set of non-numeric fields to the Physical group
+        // (derivedFlags / grantedFlags / conditions) — these are a distinct
+        // category (flags & transient conditions), not numeric stats, so they
+        // are excluded from the all-numeric check.
+        const nonNumericStatFields = new Set(['derivedFlags', 'grantedFlags', 'conditions']);
         const instanceIds = Object.keys(state.components.instances);
         expect(instanceIds.length).toBeGreaterThan(0);
         for (const compId of instanceIds) {
@@ -515,6 +522,7 @@ describe('WorldStateController.getAll() shape', () => {
             for (const traitId of Object.keys(stats)) {
                 expect(typeOf(stats[traitId])).toBe('object');
                 for (const statName of Object.keys(stats[traitId])) {
+                    if (nonNumericStatFields.has(statName)) continue;
                     expect(typeOf(stats[traitId][statName])).toBe('number');
                 }
             }

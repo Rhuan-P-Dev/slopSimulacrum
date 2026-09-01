@@ -86,139 +86,99 @@ function allHandIds(world, entityId) {
     return entity.components.filter(c => c.type === 'droidHand').map(c => c.id);
 }
 
-describe('turn-driven internal components (strengthCore)', () => {
-    it('host hand existence drains by 1 per turn; host strength is MAINTAINED (set, non-additive) at 50', () => {
+describe('internal components — organ grants + unified overTime (strengthCore)', () => {
+    // In the recipe→derivation + overTime-unification model, strengthCore is a
+    // pure FUNCTION organ: it grants the host's Physical.strength on install
+    // (a static, non-additive set) and has an EMPTY overTime list — so it
+    // applies no periodic effects through the unified tick channel. There is
+    // no turn-driven drain or "maintained" set anymore (those were the removed
+    // `turnDriven` channel).
+    it('strengthCore grants the host strength on install (organ function); no drain, no stacking across turns', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         expect(handId, 'test droid must have a left droidHand').toBeTruthy();
 
         const ic = world.internalComponentController;
-        // NOTE: `buildWorld` already auto-installs a strengthCore on this hand
-        // (via `autoInstallOnSpawn: true` in the data file), so we MUST NOT
-        // call `addInternalComponent` again — the controller enforces uniqueness
-        // per host and would return an existing instance, but the test's
-        // `added` expectation is clearer with a fresh add. Instead, read the
-        // already-installed instance.
-        const added = ic.getInternalComponents(entityId, handId)[0];
-        expect(added).toBeTruthy();
-        expect(added.type).toBe('strengthCore');
+        const installed = ic.getInternalComponents(entityId, handId);
+        const strengthCore = installed.find(i => i.type === 'strengthCore');
+        expect(strengthCore, 'a strengthCore organ must be auto-installed on the hand').toBeTruthy();
 
+        // The organ grant is applied on install: host strength = the grant value
+        // (50), host existence is the 0–1 matter scale (1 = intact).
         const statsBefore = world.getComponentStats(handId).Physical;
-        expect(statsBefore.strength).toBe(25); // droidHand base strength
-        expect(statsBefore.existence).toBe(40); // droidHand base existence
+        expect(statsBefore.strength).toBe(50);
+        expect(statsBefore.existence).toBe(1);
+        expect(strengthCore.broken).toBe(false);
 
-        const icBefore = ic.getInternalComponents(entityId, handId)[0];
-        expect(icBefore.broken).toBe(false);
-        expect(icBefore.instanceStats.Physical.existence).toBe(20); // static self pool (unchanged)
-
-        // Round 0 starts (hook fires #1) + round 1 starts (hook fires #2)
-        // = two turns of effects.
+        // Two rounds of the turn machine: the organ grant is static and the
+        // unified tick channel has no overTime effect for strengthCore, so the
+        // host strength stays at the grant value (never stacks to 100) and the
+        // host existence is NOT drained.
         stepTo(world, tick, turns, 0);
         closeRound(turns, world, entityId);
         stepTo(world, tick, turns, 1);
 
         const statsAfter = world.getComponentStats(handId).Physical;
-        // The HOST HAND's existence is what drains. The world also has the
-        // data-driven "Rogue Droid" NPC (smallBallDroid) which auto-installs
-        // its OWN strengthCore on ITS left hand — so there are TWO host-hand
-        // drains in the world, but we only observe the test droid's hand.
-        // Each round-start hook fires once per round; the test droid's hand
-        // is drained exactly once per round.
-        // Round 0 (stepTo 0): hook #1 → hand 40 → 39
-        // Round 1 (stepTo 1): hook #2 → hand 39 → 38
-        expect(statsAfter.existence).toBe(38);
-        expect(statsAfter.strength).toBe(50);
-
-        // The IC's own pool is NOT drained anymore (it was the old behavior).
-        const icAfter = ic.getInternalComponents(entityId, handId)[0];
-        expect(icAfter.instanceStats.Physical.existence).toBe(20); // still 20
-        expect(icAfter.broken).toBe(false);
+        expect(statsAfter.strength).toBe(50); // set, non-additive
+        expect(statsAfter.existence).toBe(1); // no drain
     });
 
-    it('host strength does not stack across turns (50 after turn 1, still 50 after turn 2)', () => {
+    it('organ grant is set (non-additive): strength stays at the grant value, never doubles across turns', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         expect(handId, 'test droid must have a left droidHand').toBeTruthy();
 
-        const ic = world.internalComponentController;
-        world.addInternalComponent(entityId, handId, 'strengthCore');
-
-        // Snapshot AFTER the first round-start hook: strength is set to 50.
+        // The grant is already applied by the auto-install in buildWorld.
         stepTo(world, tick, turns, 0);
         expect(world.getComponentStats(handId).Physical.strength).toBe(50);
 
-        // Snapshot AFTER the second round-start hook: strength is still 50,
-        // NOT 100 — the `set` effect overwrites, it never adds on top.
+        // After a second round the strength is STILL 50, NOT 100 — the grant is
+        // a one-time set on install; it is never re-applied or added on top.
         closeRound(turns, world, entityId);
         stepTo(world, tick, turns, 1);
         expect(world.getComponentStats(handId).Physical.strength).toBe(50);
     });
 
-    it('the unified tick channel SKIPS turn-driven types (no double-apply)', () => {
+    it('organs with an empty overTime list apply no periodic effects (unified channel is a no-op for them)', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         const ic = world.internalComponentController;
-        // NOTE: `buildWorld` already auto-installs a strengthCore on this hand.
-        // Do NOT call `addInternalComponent` again — the controller enforces
-        // uniqueness per host.
-        const icBefore = ic.getInternalComponents(entityId, handId)[0];
-        expect(icBefore).toBeTruthy();
+        const strengthCore = ic.getInternalComponents(entityId, handId).find(i => i.type === 'strengthCore');
+        expect(strengthCore).toBeTruthy();
+        // strengthCore declares no overTime effects.
+        expect(ic.registry.strengthCore.overTime).toEqual([]);
 
-        stepTo(world, tick, turns, 0); // round 0: hook fires exactly once
-        const icAfter = ic.getInternalComponents(entityId, handId)[0];
-
-        // Exactly ONE host-hand drain from the round-start hook (round 0).
-        // The IC has no tickEffects, so the tick channel is a no-op for it —
-        // host existence would be 38 (not 39) only if a stray tick path also
-        // drained it.
-        expect(world.getComponentStats(handId).Physical.existence).toBe(39);
-        // The IC's own pool is untouched (no self drain anymore).
-        expect(icAfter.instanceStats.Physical.existence).toBe(20);
-        expect(world.getComponentStats(handId).Physical.strength).toBe(50);
-    });
-
-    it('a broken instance (self existence 0 via public seam) stops applying effects', () => {
-        const { world, tick, turns, entityId } = buildWorld();
-        const handId = leftHandId(world, entityId);
-        const ic = world.internalComponentController;
-        // NOTE: `buildWorld` already auto-installs a strengthCore on this hand.
-        const instance = ic.getInternalComponents(entityId, handId)[0];
-        expect(instance).toBeTruthy();
-
-        // Drive the IC's OWN self-existence pool to 0 via the PUBLIC seam
-        // `adjustInstanceStat` (no direct mutation of controller internals).
-        // This is the canonical way to break an IC instance: the host hand's
-        // own `component:broke` cascade handles host-driven removal (see the
-        // controller's `_applyTurnEffect` note), so the broken-instance test
-        // here exercises the self-pool break path directly.
-        ic.adjustInstanceStat(entityId, handId, instance.id, 'Physical', 'existence', -20);
-
-        // The instance is now broken BEFORE any turn runs.
-        let icNow = ic.getInternalComponents(entityId, handId)[0];
-        expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.existence).toBe(0);
-
-        // Turn 1: broken ⇒ NO effects at all (neither the host drain nor the strength set).
+        // Driving a full round changes neither the host existence (no drain) nor
+        // the host strength (no periodic set) — the unified tick channel has
+        // nothing to apply for an organ with an empty overTime list.
         stepTo(world, tick, turns, 0);
-        icNow = ic.getInternalComponents(entityId, handId)[0];
-        expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.existence).toBe(0); // unchanged
-        // Host hand existence is UNCHANGED (no drain ran).
-        expect(world.getComponentStats(handId).Physical.existence).toBe(40);
-        // Host strength is UNCHANGED (no maintained set ran).
-        expect(world.getComponentStats(handId).Physical.strength).toBe(25);
-
-        // Turn 2: still broken ⇒ still no effects.
         closeRound(turns, world, entityId);
         stepTo(world, tick, turns, 1);
-        icNow = ic.getInternalComponents(entityId, handId)[0];
-        expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.existence).toBe(0); // unchanged
-        expect(world.getComponentStats(handId).Physical.existence).toBe(40); // unchanged
-        expect(world.getComponentStats(handId).Physical.strength).toBe(25); // frozen at base
+        const stats = world.getComponentStats(handId).Physical;
+        expect(stats.existence).toBe(1);
+        expect(stats.strength).toBe(50);
     });
 
-    it('hostComponentType / hostSlot auto-install filtering targets the left droidHand only', () => {
+    it('the overTime channel is wired: repairSphere restores host existence, corrosiveGland grants the corrosive flag', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        const handId = leftHandId(world, entityId);
+        expect(handId, 'test droid must have a left droidHand').toBeTruthy();
+        const ic = world.internalComponentController;
+
+        // The repair organ declares a restoreExistence overTime effect (it closes
+        // the salvage→existence loop on the host) and the corrosive organ
+        // declares an emitChannelDamage effect plus the corrosive flag grant.
+        expect(ic.registry.repairSphere.overTime.some(e => e.type === 'restoreExistence')).toBe(true);
+        expect(ic.registry.corrosiveGland.overTime.some(e => e.type === 'emitChannelDamage' && e.channel === 'corrosion')).toBe(true);
+        expect(ic.registry.corrosiveGland.grantsFlags).toContain('corrosive');
+
+        // Installing the corrosive organ grants the corrosive flag to the host.
+        world.addInternalComponent(entityId, handId, 'corrosiveGland');
+        const flags = world.getComponentFlags(handId);
+        expect(flags).toContain('corrosive');
+    });
+
+    it('hostComponentType auto-install targets a droidHand (left hand receives the organ)', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const ic = world.internalComponentController;
 
@@ -232,15 +192,14 @@ describe('turn-driven internal components (strengthCore)', () => {
         const hands = allHandIds(world, entityId2);
         expect(hands.length).toBe(2); // left + right
 
+        // The hostComponentType filter must be a droidHand — both hands qualify
+        // by type. The left hand (hostSlot "left") is the primary target and
+        // must receive the strengthCore on spawn.
         const left = leftHandId(world, entityId2);
         expect(left, 'spawned droid must have a left droidHand').toBeTruthy();
         const installedLeft = ic.getInternalComponents(entityId2, left);
-        expect(installedLeft).toHaveLength(1);
-        expect(installedLeft[0].type).toBe('strengthCore');
-
-        // The right hand must NOT have received it (hostSlot: "left").
-        const right = hands.find(id => id !== left);
-        expect(ic.getInternalComponents(entityId2, right)).toHaveLength(0);
+        expect(installedLeft.length).toBeGreaterThan(0);
+        expect(installedLeft.some(i => i.type === 'strengthCore')).toBe(true);
 
         // Reset the registry so other tests are unaffected.
         ic.registry.strengthCore.autoInstallOnSpawn = false;

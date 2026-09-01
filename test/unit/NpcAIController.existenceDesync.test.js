@@ -112,10 +112,11 @@ describe('NpcAIController existence desync (real controller chain)', () => {
         // damage path writes one.
         expect('stats' in comp0).toBe(false);
 
-        // The authoritative nested store has the full blueprint stats.
-        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(100);
+        // The authoritative nested store has the derived existence (a 0–1 matter
+        // store; a fresh component holds 1.0).
+        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(1);
 
-        // Apply the real damage call (e.g. two punches of 87.5 → -75).
+        // Apply the real damage call (a raw delta that drives the 0–1 store to <= 0).
         const ok = dealDamage(world, comp0.id, -175);
         expect(ok).toBe(true);
 
@@ -129,14 +130,14 @@ describe('NpcAIController existence desync (real controller chain)', () => {
         expect(compFound).toBeUndefined();
     });
 
-    it('REGRESSION (currently failing): brain must NOT attack a component whose authoritative existence < 1', () => {
+    it('REGRESSION: brain must NOT attack a component removed after its existence (0–1) breaks', () => {
         const { world } = buildWorld();
         const { npcId, victimId } = spawnAttackerAndVictim(world);
 
         const comp0 = world.stateEntityController.getEntity(victimId).components[0];
-        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(100);
+        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(1);
 
-        // Break the first component: 100 → -75 via the real damage path.
+        // Break the first component: 1 → below 0 via the real damage path.
         dealDamage(world, comp0.id, -175);
         
         // NEW SEMANTICS (trigger system): component removed from world after break.

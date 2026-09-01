@@ -538,16 +538,15 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         const equippedItems = world.holdingCostController._equippedItems[entityId];
         const eqId = Object.keys(equippedItems)[0];
         
-        // Verify the equipped item has existence=30 (default for knife from inventoryItems.json).
+        // Verify the equipped item has existence=1 (0–1 scale default for a new item).
         const stats = world.equippedItemStats.getStats(eqId);
         expect(stats).not.toBeNull();
-        expect(stats.Physical.existence).toBe(30);
+        expect(stats.Physical.existence).toBe(1);
         
         // Drive damage through the REAL P8 pipeline: equipped-item stat change → callback → triggerController.
         // This exercises the same path that src/controllers/WorldStateController.js:210-234 uses.
-        // existence: 30 → 29 (delta -1, no crossing since both > 0).
-        // Then: 30 → 0 (delta -30, crossing: 30 > 0 && 0 <= 0).
-        world.equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -30);
+        // existence: 1 → 0 (delta -1, crossing: 1 > 0 && 0 <= 0) → component:broke.
+        world.equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -1);
         
         // Event should have been logged via the real P8 pipeline (stat change → callback → emit).
         expect(countBrokeEvents(world)).toBe(1);

@@ -117,9 +117,20 @@ function stepTo(world, tick, turns, targetTick) {
     return turns.getRoundState();
 }
 
-/** Finds a droidHead component id on the given entity (selfHeal target). */
+/**
+ * Finds a move-capable component id on the given entity (selfHeal target).
+ * In the recipe→derivation model only organ-bearing components carry
+ * function stats: the droidHead has think only, while the droidRollingBall
+ * carries a moveCore (move). selfHeal requires `move >= 1`, so the target
+ * must be a move-capable component for the marker effect to apply.
+ */
 function aHeadComponentId(world, entityId) {
     const entity = world.stateEntityController.getEntity(entityId);
+    const moveComp = entity.components.find(c => {
+        const stats = world.getComponentStats(c.id);
+        return typeof stats?.Movement?.move === 'number' && stats.Movement.move > 0;
+    });
+    if (moveComp) return moveComp.id;
     const head = entity.components.find(c => c.type === 'droidHead');
     return head.id;
 }
@@ -167,7 +178,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
 
         // The queued action executed through the REAL pipeline.
         const after = world.getComponentStats(head).Physical.existence;
-        expect(after).toBe(before + 10);
+        expect(after).toBe(before + 0.1);
 
         // A turn-round-update with phase 'resolution' was emitted on the close tick.
         const resUpdate = updates.find(u => u.phase === 'resolution');
@@ -229,7 +240,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         expect(sig.closed).toBe(true);
         expect(sig.barrier.closeReason).toBe('all-ready');
         expect(turns.getRoundState().phase).toBe('resolution');
-        expect(world.getComponentStats(head).Physical.existence).toBe(before + 10);
+        expect(world.getComponentStats(head).Physical.existence).toBe(before + 0.1);
     });
 
     it('4. idempotent signaling — a second signal is a no-op; exactly one close + one resolution', () => {
@@ -257,7 +268,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
 
         // Exactly one resolution: the queued selfHeal ran exactly once
         // (+10, NOT +20), and exactly one resolution transition was emitted.
-        expect(world.getComponentStats(head).Physical.existence).toBe(before + 10);
+        expect(world.getComponentStats(head).Physical.existence).toBe(before + 0.1);
         expect(updates.filter(u => u.phase === 'resolution')).toHaveLength(1);
         expect(Object.keys(turns.getRoundState().queues)).toHaveLength(0);
     });
@@ -485,7 +496,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         const sig2 = turns2.signalPlanComplete(entityId, 'player');
         expect(sig2.closed).toBe(true);
         expect(sig2.barrier.closeReason).toBe('all-ready');
-        expect(world2.getComponentStats(head).Physical.existence).toBe(before + 10);
+        expect(world2.getComponentStats(head).Physical.existence).toBe(before + 0.1);
 
         // Post-resolution snapshot: restores as closed, no re-resolution,
         // and the queue gate stays closed.

@@ -54,10 +54,16 @@ const RECIPE = {
 
 // Derived from the real data files the system under test loads — no
 // hardcoded movement or pickup range: a data change must change this
-// simulation, not be silently ignored by it.
+// simulation, not be silently ignored by it. In the recipe→derivation model
+// the component carries no inline `traits.Movement.move`; the movement stat is
+// the grant of the `moveCore` organ the component declares, so the per-step
+// size is read from the organ's grant in data/internalComponents.json.
 const components = DataLoader.loadJsonSafe('data/components.json', {});
-const stepSize = components.crafterRollingBall?.traits?.Movement?.move;
-if (typeof stepSize !== 'number') throw new Error('crafterRollingBall.Movement.move missing in data/components.json');
+const internalComponents = DataLoader.loadJsonSafe('data/internalComponents.json', {});
+const stepSize = (components.crafterRollingBall?.internalComponents || [])
+    .map(organ => internalComponents[organ]?.grants?.['Movement.move'])
+    .find(v => typeof v === 'number');
+if (typeof stepSize !== 'number') throw new Error('crafterRollingBall Movement.move grant missing in data/internalComponents.json');
 
 // The pickup range the brain resolves each round: the same data-driven
 // pickUpItem definition the PickUpItemHandler validates against (the
@@ -669,8 +675,10 @@ describe('NpcAIController.craft_loop — multi-round convergence simulation', ()
         const moveRounds = history.filter(h => h.actions.includes('move'));
         const approachDistance = 150 - pickRange;
         expect(moveRounds.length).toBe(Math.ceil(approachDistance / stepSize));
+        // The pick-up happens on the round the drone reaches the range boundary:
+        // exactly after the move rounds (data-driven by stepSize + pickRange).
         const pickRound = history.findIndex(h => h.held.some(id => id.startsWith('knife-')));
-        expect(pickRound).toBe(10);
+        expect(pickRound).toBe(moveRounds.length);
         expect(history[pickRound].actions).toHaveLength(0);
 
         // After the knife is held, no more moves: the craft is zero-cost and

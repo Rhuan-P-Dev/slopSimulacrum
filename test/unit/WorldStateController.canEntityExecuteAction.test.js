@@ -39,8 +39,18 @@ beforeAll(() => {
     const state = wsController.getAll();
     const entities = state.entities || {};
 
-    // Find the smallBallDroid NPC (from data/npcs.json).
-    const npcEntry = Object.values(entities).find(e => e.isNPC === true);
+    // Find the smallBallDroid NPC ("Rogue Droid"). In the recipe→derivation model
+    // the only blueprint that receives organ function stats (move/strength/think)
+    // is the smallBallDroid — the other spawned NPCs (e.g. crafterDrone) have
+    // matter-only components and no function stats. We locate it by the presence
+    // of a move-capable component (a moveCore-granted rolling ball).
+    const npcEntry = Object.values(entities).find(e => {
+        if (!e.isNPC) return false;
+        return (e.components || []).some(c => {
+            const stats = wsController.getComponentStats(c.id);
+            return typeof stats?.Movement?.move === 'number' && stats.Movement.move > 0;
+        });
+    });
     if (npcEntry) {
         npcEntityId = npcEntry.id;
     }
