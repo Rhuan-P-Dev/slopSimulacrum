@@ -17,7 +17,7 @@ class TraitsController {
      * Adds or updates a property in a global trait.
      * This enables dynamic injection of new properties across all components.
      * @param {string} traitId - The ID of the trait (e.g., "Physical").
-     * @param {string} propertyKey - The key of the property (e.g., "temperature").
+     * @param {string} propertyKey - The key of the material property (e.g., "density").
      * @param {any} defaultValue - The value to set as the global default.
      * @returns {void}
      */
