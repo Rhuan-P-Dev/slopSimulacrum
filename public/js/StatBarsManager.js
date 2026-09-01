@@ -23,7 +23,6 @@ import { TRAIT_GROUPS } from '../../shared/StatVocabulary.js';
 const TRAIT_DEFAULT_COLORS = Object.freeze({
     [TRAIT_GROUPS.PHYSICAL]: '#22c55e',
     Mind: '#3b82f6',
-    Spatial: '#6b7280',
     [TRAIT_GROUPS.MOVEMENT]: '#f59e0b',
     [TRAIT_GROUPS.MANIPULATION]: '#a855f7',
 });

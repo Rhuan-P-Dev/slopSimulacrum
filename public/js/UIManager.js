@@ -391,11 +391,14 @@ export class UIManager {
         const entityY = AppConfig.VIEW.CENTER_Y + (droid.spatial?.y || 0);
 
         droid.components.forEach(comp => {
-            const stats = state.components.instances[comp.id];
-            if (!stats || !stats.Spatial) return;
+            // The retired `Spatial` stat group is gone: a component's position
+            // offset now lives in its recipe `form.position` (or the instance
+            // state), not in the derived stat store.
+            const pos = comp.form?.position;
+            if (!pos) return;
 
-            const compX = entityX + stats.Spatial.x;
-            const compY = entityY + stats.Spatial.y;
+            const compX = entityX + (pos.x || 0);
+            const compY = entityY + (pos.y || 0);
 
             const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
             line.setAttribute("x1", entityX);
