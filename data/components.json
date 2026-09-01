@@ -1,92 +1,93 @@
 {
+  "_comment": "Component recipes, not stat sheets. Each recipe declares exactly three things: FORM (size/volume + positioning offsets), a COMPOSITION of distinct materials (fractions sum to 1.0), and the INTERNAL COMPONENTS (organs) that are pre-installed. It declares NO stat values: existence, the six channel resistances, mass, and sharpness derive from matter; volume from form; strength/move/fine_controls/think_level from the organs a recipe installs. A recipe with matter but no organs is inert. Material and IC references point at data/materials.json and data/internalComponents.json.",
   "centralBall": {
+    "name": "Central Ball",
+    "form": { "volume": 10, "position": { "x": 0, "y": 0 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
+  },
+  "droidHead": {
+    "name": "Droid Head",
+    "form": { "volume": 8, "position": { "x": 0, "y": -20 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": ["thinkCore"]
+  },
+  "droidArm": {
+    "name": "Droid Arm",
+    "form": { "volume": 8, "position": { "x": 20, "y": 10 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
+  },
+  "droidHand": {
+    "name": "Droid Hand",
+    "form": { "volume": 6, "position": { "x": 30, "y": 0 } },
     "materials": [
-      { "material": "iron", "fraction": 1.0 }
+      { "material": "iron", "fraction": 0.7 },
+      { "material": "wood", "fraction": 0.3 }
     ],
-    "traits": {
-      "Physical": { "mass": 20, "durability": 100, "volume": 10 },
-      "Spatial": { "x": 0, "y": 0 }
-    }
+    "internalComponents": ["strengthCore", "precisionCore"]
   },
-  "droidHead": { 
-    "traits": { 
-      "Physical": { "durability": 80, "volume": 8 },
-      "Mind": { "think_level": 5},
-      "Spatial": { "x": 0, "y": -20 }
-    } 
+  "humanoidDroidFinger": {
+    "name": "Droid Finger",
+    "form": { "volume": 4, "position": { "x": 40, "y": 0 } },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
   },
-  "droidArm": { 
-    "traits": { 
-      "Physical": { "durability": 50, "volume": 8 },
-      "Spatial": { "x": 20, "y": 10 }
-    } 
-  },
-  "droidHand": { 
-    "traits": { 
-      "Physical": { "durability": 40, "strength": 25, "volume": 6 },
-      "Spatial": { "x": 30, "y": 0 },
-      "Manipulation": { "fine_controls": 50 }
-    } 
-  },
-  "humanoidDroidFinger": { 
-    "traits": { 
-      "Physical": { "durability": 30, "volume": 4 },
-      "Spatial": { "x": 40, "y": 0 },
-      "Manipulation": { "fine_controls": 30 }
-    } 
-  },
-  "droidRollingBall": { 
-    "traits": { 
-      "Physical": { "durability": 120, "volume": 12 },
-      "Spatial": { "x": 0, "y": 20 },
-      "Movement": { "move": 20 }
-    } 
+  "droidRollingBall": {
+    "name": "Droid Rolling Ball",
+    "form": { "volume": 12, "position": { "x": 0, "y": 20 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": ["moveCore"]
   },
   "merchantCore": {
-    "traits": {
-      "Physical": { "mass": 30, "durability": 80, "volume": 12 },
-      "Spatial": { "x": 0, "y": 0 }
-    }
+    "name": "Merchant Core",
+    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "merchantHead": {
-    "traits": {
-      "Physical": { "durability": 40, "volume": 6 },
-      "Mind": { "think_level": 8 },
-      "Manipulation": { "fine_controls": 20 },
-      "Spatial": { "x": 0, "y": -15 }
-    }
+    "name": "Merchant Head",
+    "form": { "volume": 6, "position": { "x": 0, "y": -15 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.6 },
+      { "material": "wood", "fraction": 0.4 }
+    ],
+    "internalComponents": ["thinkCore", "precisionCore"]
   },
   "merchantArm": {
-    "traits": {
-      "Physical": { "durability": 40, "volume": 8, "strength": 12 },
-      "Manipulation": { "fine_controls": 15 },
-      "Spatial": { "x": 18, "y": 10 }
-    }
+    "name": "Merchant Arm",
+    "form": { "volume": 8, "position": { "x": 18, "y": 10 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.8 },
+      { "material": "wood", "fraction": 0.2 }
+    ],
+    "internalComponents": ["strengthCore", "precisionCore"]
   },
   "merchantRollingBall": {
-    "traits": {
-      "Physical": { "durability": 60, "volume": 10 },
-      "Movement": { "move": 10 },
-      "Spatial": { "x": 0, "y": 20 }
-    }
+    "name": "Merchant Rolling Ball",
+    "form": { "volume": 10, "position": { "x": 0, "y": 20 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": ["moveCore"]
   },
   "crafterCore": {
-    "traits": {
-      "Physical": { "mass": 20, "durability": 100, "volume": 12 },
-      "Spatial": { "x": 0, "y": 0 }
-    }
+    "name": "Crafter Core",
+    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "crafterArm": {
-    "traits": {
-      "Physical": { "durability": 50, "strength": 10, "volume": 6 },
-      "Spatial": { "x": 18, "y": 10 }
-    }
+    "name": "Crafter Arm",
+    "form": { "volume": 6, "position": { "x": 18, "y": 10 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.7 },
+      { "material": "wood", "fraction": 0.3 }
+    ],
+    "internalComponents": ["strengthCore"]
   },
   "crafterRollingBall": {
-    "traits": {
-      "Physical": { "durability": 80, "volume": 10 },
-      "Movement": { "move": 10 },
-      "Spatial": { "x": 0, "y": 20 }
-    }
+    "name": "Crafter Rolling Ball",
+    "form": { "volume": 10, "position": { "x": 0, "y": 20 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": ["moveCore"]
   }
 }

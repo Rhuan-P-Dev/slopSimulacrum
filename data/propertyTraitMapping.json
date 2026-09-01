@@ -1,17 +1,47 @@
 {
-  "Physical.mass": {
-    "formula": "densityVolume"
-  },
-  "Physical.durability": {
-    "sources": {
-      "wearResistance": 0.5,
-      "impactResistance": 0.3,
-      "cutResistance": 0.2
+  "derivedStats": {
+    "Physical.existence": {
+      "formula": "matterRatio"
+    },
+    "Physical.cut_resistance": {
+      "channel": "cut",
+      "sources": { "cutResistance": 1.0 },
+      "inverted": false
+    },
+    "Physical.impact_resistance": {
+      "channel": "impact",
+      "sources": { "impactResistance": 1.0 },
+      "inverted": false
+    },
+    "Physical.wear_resistance": {
+      "channel": "wear",
+      "sources": { "wearResistance": 1.0 },
+      "inverted": false
+    },
+    "Physical.heat_resistance": {
+      "channel": "heat",
+      "sources": { "heatConduction": 1.0 },
+      "inverted": true
+    },
+    "Physical.electricity_resistance": {
+      "channel": "electricity",
+      "sources": { "electricalConduction": 1.0 },
+      "inverted": true
+    },
+    "Physical.corrosion_resistance": {
+      "channel": "corrosion",
+      "sources": { "moistureRetention": 1.0 },
+      "inverted": true
+    },
+    "Physical.mass": {
+      "formula": "densityVolume"
+    },
+    "Physical.sharpness": {
+      "sources": { "wearResistance": 0.5, "cutResistance": 0.5 }
     }
   },
-  "Physical.flammability": {
-    "sources": {
-      "flammability": 1.0
-    }
+  "flagThresholds": {
+    "flammable": { "property": "flammability", "threshold": 60 },
+    "conductive": { "property": "electricalConduction", "threshold": 60 }
   }
 }

@@ -1,93 +1,79 @@
 {
+  "_comment": "Inventory item recipes. An item is a SMALL COMPONENT: its own matter (composition), its own form (footprint/volume), and its own pre-installed organs — it is never merged into the host on equip, so using a knife degrades the knife, not the hand. Its stats derive from its own recipe exactly as a component's do: existence, the six channel resistances, mass, and (for the knife) a depletable sharpness from the edge material. A knife carries no organ because sharpness is a matter-derived edge quality, not a function stat.",
   "powerCell": {
     "name": "Power Cell",
     "description": "Compact power source for droid systems.",
-    "volume": 2,
-    "traits": {
-      "Physical": { "mass": 1, "durability": 50 }
-    }
+    "form": { "volume": 2 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "dataCrystal": {
     "name": "Data Crystal",
     "description": "High-density data storage unit.",
-    "volume": 1,
-    "traits": {
-      "Physical": { "mass": 0.5, "durability": 30 }
-    }
+    "form": { "volume": 1 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "toolKit": {
     "name": "Toolkit",
     "description": "Basic repair toolkit.",
-    "volume": 5,
-    "traits": {
-      "Physical": { "mass": 3, "durability": 80 }
-    }
+    "form": { "volume": 5 },
+    "materials": [
+      { "material": "iron", "fraction": 0.5 },
+      { "material": "wood", "fraction": 0.5 }
+    ],
+    "internalComponents": []
   },
   "fuelCell": {
     "name": "Fuel Cell",
     "description": "Droid fuel cell.",
-    "volume": 3,
-    "traits": {
-      "Physical": { "mass": 2, "durability": 40 }
-    }
+    "form": { "volume": 3 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "testItem": {
     "name": "Test Item",
     "description": "Test item to verify inventory system functionality. Has volume=2.",
-    "volume": 2,
-    "traits": {
-      "Physical": { "mass": 0.5, "durability": 10 }
-    }
+    "form": { "volume": 2 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "testItem2": {
     "name": "Test Item 2",
-    "description": "Second test item to verify inventory system functionality. has volume=4.",
-    "volume": 4,
-    "traits": {
-      "Physical": { "mass": 0.5, "durability": 10 }
-    }
+    "description": "Second test item to verify inventory system functionality. Has volume=4.",
+    "form": { "volume": 4 },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "knife": {
     "name": "Knife",
-    "description": "A sharp blade capable of cutting.",
-    "volume": 1,
+    "description": "A sharp blade capable of cutting. Its sharpness is a depletable quality of the iron edge — it thins as the blade's edge matter is consumed by the cut channel.",
+    "form": { "volume": 1 },
     "materials": [
       { "material": "iron", "fraction": 0.6, "role": "blade" },
       { "material": "wood", "fraction": 0.4, "role": "handle" }
     ],
-    "traits": {
-      "Physical": { "durability": 30, "sharpness": 50 }
-    }
+    "internalComponents": []
   },
   "metalBox": {
     "name": "Metal Box",
     "description": "A sturdy container for storing small items.",
-    "volume": 10,
-    "materials": [
-      { "material": "iron", "fraction": 1.0 }
-    ],
-    "traits": {
-      "Physical": { "mass": 2, "durability": 100 }
-    }
+    "form": { "volume": 10 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "toolCrate": {
     "name": "Tool Crate",
     "description": "A large wooden crate for organizing tools.",
-    "volume": 30,
-    "materials": [
-      { "material": "wood", "fraction": 1.0 }
-    ],
-    "traits": {
-      "Physical": { "mass": 5, "durability": 60 }
-    }
+    "form": { "volume": 30 },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
   },
   "t1": {
     "name": "T1",
-    "description": "A container weapon that fires stored items. Has 1 unit external volume and 10 units internal capacity. Damage is based on the volume of the consumed projectile.",
-    "volume": 10,
-    "externalVolume": 1,
-    "traits": {
-      "Physical": { "durability": 60 }
-    }
+    "description": "A container weapon that fires stored items. 1 unit external footprint, 10 units internal capacity; damage is based on the volume of the consumed projectile.",
+    "form": { "volume": 10, "externalVolume": 1 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   }
 }

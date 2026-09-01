@@ -1,70 +1,83 @@
 {
+  "_comment": "Organ type definitions. An internal component (IC) is an atomic organ that gives a host component its FUNCTION stats (strength, move, fine_controls, think_level) — a component with matter but no organs is inert. 'grants' is the organ's static contribution to the host's function stats, keyed by the group.stat wire form. 'weight' is the organ's own mass (the physical cost of ambition). 'overTime' declares periodic effects on a unified tick system; the repair organ closes the world's salvage->existence loop, and the corrosive organ both marks its host and degrades neighbors. ICs do not carry their own material composition in the basic set.",
   "strengthCore": {
+    "name": "Strength Core",
+    "description": "A dense force organ: grants the host strength — the force behind impact damage and the mass it can bear. Function stat, so a component carrying it can act; without it the same matter is inert.",
     "volume": 1,
-    "turnDriven": true,
-    "turnEffects": [
-      {
-        "targetTrait": "Physical",
-        "targetStat": "durability",
-        "effect": "add",
-        "amount": -1,
-        "target": "host"
-      },
-      {
-        "targetTrait": "Physical",
-        "targetStat": "strength",
-        "effect": "set",
-        "amount": 50,
-        "target": "host"
-      }
-    ],
-    "traits": {
-      "Physical": { "mass": 2, "durability": 20 }
-    },
+    "weight": 2,
+    "grants": { "Physical.strength": 50 },
+    "overTime": [],
     "excludedComponentTypes": [],
     "autoInstallOnSpawn": false,
     "targetBlueprintTypes": ["smallBallDroid"],
     "hostComponentType": "droidHand",
     "hostSlot": "left"
   },
-  "durabilityRepairSphere": {
+  "moveCore": {
+    "name": "Locomotion Core",
+    "description": "A drive organ: grants the host move — how fast it travels and its initiative order. Function stat, so a component carrying it can move; without it the same matter is inert.",
+    "volume": 1,
+    "weight": 3,
+    "grants": { "Movement.move": 20 },
+    "overTime": [],
+    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "autoInstallOnSpawn": false,
+    "targetBlueprintTypes": ["smallBallDroid"]
+  },
+  "precisionCore": {
+    "name": "Precision Servo",
+    "description": "A fine-motor organ: grants the host fine_controls — precision for fine handling and crafting quality. A component is precise because it carries this organ, not because of where it sits on the entity.",
+    "volume": 1,
+    "weight": 1,
+    "grants": { "Manipulation.fine_controls": 50 },
+    "overTime": [],
+    "excludedComponentTypes": [],
+    "autoInstallOnSpawn": false
+  },
+  "thinkCore": {
+    "name": "Cognition Core",
+    "description": "A cognition organ: grants the host think_level — how much the NPC's AI can hold. Function stat, so a component carrying it can think; without it the entity has no deterministic brain.",
+    "volume": 1,
+    "weight": 2,
+    "grants": { "Mind.think_level": 10 },
+    "overTime": [],
+    "excludedComponentTypes": [],
+    "autoInstallOnSpawn": false
+  },
+  "repairSphere": {
+    "name": "Repair Sphere",
+    "description": "Closes the world's salvage loop: over time it reconstitutes the host's existence from salvage — the matter a component shed as it was damaged — restoring the matter store (existence) rather than an opaque health bar.",
     "volume": 2,
-    "tickInterval": 5,
-    "tickEffects": [
+    "weight": 5,
+    "grants": {},
+    "overTime": [
       {
-        "targetTrait": "Physical",
-        "targetStat": "durability",
-        "effect": "add",
-        "amount": 1
+        "type": "restoreExistence",
+        "intervalTicks": 5,
+        "existenceGainPerInterval": 0.02,
+        "salvageConsumedPerInterval": 1
       }
     ],
-    "traits": {
-      "Physical": { "mass": 5, "durability": 50 }
-    },
     "excludedComponentTypes": ["humanoidDroidFinger"],
     "autoInstallOnSpawn": false
   },
-  "transcendentSpeedCore": {
+  "corrosiveGland": {
+    "name": "Corrosive Gland",
+    "description": "Leaks corrosive matter: grants the host the corrosive flag and, over time, degrades nearby components through the corrosion channel — an interaction that exists only because the organ marks its host corrosive.",
     "volume": 1,
-    "tickInterval": 10,
-    "tickEffects": [
+    "weight": 3,
+    "grants": {},
+    "grantsFlags": ["corrosive"],
+    "overTime": [
       {
-        "targetTrait": "Movement",
-        "targetStat": "move",
-        "effect": "add",
-        "amount": 1
+        "type": "emitChannelDamage",
+        "channel": "corrosion",
+        "intervalTicks": 10,
+        "damagePerInterval": 1,
+        "range": 50
       }
     ],
-    "traits": {
-      "Physical": { "mass": 3, "durability": 30 }
-    },
-    "excludedComponentTypes": ["humanoidDroidFinger"],
-    "autoInstallOnSpawn": false,
-    "targetBlueprintTypes": ["smallBallDroid"],
-    "requiredTraits": {
-      "Movement": {
-        "move": { "minValue": 1 }
-      }
-    }
+    "excludedComponentTypes": [],
+    "autoInstallOnSpawn": false
   }
 }

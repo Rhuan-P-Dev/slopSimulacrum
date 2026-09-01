@@ -1,17 +1,21 @@
 {
-  "knife": {
-    "name": "Knife",
-    "holdingCost": [
-      { "trait": "Physical", "stat": "strength", "value": 3 },
-      { "trait": "Physical", "stat": "durability", "value": 2 },
-      { "trait": "Manipulation", "stat": "fine_controls", "value": 10 }
-    ]
+  "_comment": "The single burden lever, replacing the old per-item hand-tuned debuff list. An equipped item is a small component that is never merged into the host; the only thing carrying costs is its MASS, which is derived from the item's own composition (not stored or hand-tuned here). While equipped, the item's mass joins the carrier's total carried mass, which reduces the carrier's effective move and fine_controls. Equipping is gated on the host being able to bear the item's mass (a strength x mass check) — all-or-nothing, checked once at equip, never as a continuous debuff.",
+  "model": "massBurden",
+  "burdenedStats": [
+    { "stat": "move", "trait": "Movement" },
+    { "stat": "fine_controls", "trait": "Manipulation" }
+  ],
+  "carryingCost": {
+    "type": "linearReduction",
+    "freeMassAllowance": 10,
+    "reductionPerUnitMass": 0.03,
+    "floor": 0.25
   },
-  "t1": {
-    "name": "T1",
-    "holdingCost": [
-      { "trait": "Physical", "stat": "strength", "value": 3 },
-      { "trait": "Physical", "stat": "durability", "value": 5 }
-    ]
-  }
+  "equipGate": {
+    "type": "strengthToMassRatio",
+    "requiredStrengthPerUnitMass": 1.5,
+    "allOrNothing": true,
+    "description": "The host's strength must be at least requiredStrengthPerUnitMass x the item's mass, or equip is denied — a component cannot bear part of a burden it cannot bear at all."
+  },
+  "equipableItems": ["knife", "t1"]
 }

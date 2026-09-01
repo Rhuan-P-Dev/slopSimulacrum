@@ -62,7 +62,7 @@
     "enabled": true,
     "scaling": "diminishingReturns",
     "caps": {
-      "damage": { "max": 1.1, "req": "Physical.stability" }
+      "damage": { "max": 1.1, "req": "Physical.strength" }
     },
     "componentGroups": [
       {

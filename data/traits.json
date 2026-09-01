@@ -1,22 +1,50 @@
 {
-  "Physical": {
-    "durability": 100,
-    "mass": 10,
-    "volume": 1,
-    "temperature": 20,
-    "strength": 10,
-    "sharpness": 10,
-    "flammability": 0
+  "_comment": "Named-trait registry for the recipe->derivation model. Traits here GATE and MARK a component (which damage channels and interactions apply); they never add or multiply a stat value, so a stat keeps exactly one source (matter, form, or function). Derived flags mark a component when a material property crosses a threshold declared in propertyTraitMapping.json; corrosive is granted by an organ. Conditions are transient, stored per instance in world state, and drain matter over time.",
+  "flags": {
+    "flammable": {
+      "type": "flag",
+      "source": "derived",
+      "derivedFromProperty": "flammability",
+      "gatesChannels": ["heat"],
+      "enablesConditions": ["burning"],
+      "description": "Derived on read when the composition's blended flammability crosses the propertyTraitMapping threshold; the component can catch fire and be consumed by the heat channel."
+    },
+    "conductive": {
+      "type": "flag",
+      "source": "derived",
+      "derivedFromProperty": "electricalConduction",
+      "gatesChannels": ["electricity"],
+      "description": "Derived on read when the composition's blended electrical conduction crosses the propertyTraitMapping threshold; the component channels the electricity damage."
+    },
+    "corrosive": {
+      "type": "flag",
+      "source": "organ",
+      "grantedByIcType": "corrosiveGland",
+      "emitsChannel": "corrosion",
+      "description": "Granted by a specific internal component (organ); the component leaks corrosive matter that degrades other components through the corrosion channel."
+    }
   },
-  "Mind": {
-    "think_level": 10
-  },
-  "Spatial": {
-    "x": 0,
-    "y": 0
-  },
-  "Movement": {},
-  "Manipulation": {
-    "fine_controls": 10
+  "conditions": {
+    "burning": {
+      "type": "condition",
+      "requiresFlag": "flammable",
+      "drainsChannel": "heat",
+      "drainsMatterOverTime": true,
+      "matterLostPerTick": 0.01,
+      "description": "Transient: while burning, the component loses matter to the heat channel each tick until it ceases to exist."
+    },
+    "wet": {
+      "type": "condition",
+      "modulatesChannels": ["heat", "electricity"],
+      "drainsMatterOverTime": false,
+      "description": "Transient: the component holds moisture, changing how the heat and electricity channels interact with it (a wet conductor shorts; wet wood insulates less)."
+    },
+    "corroded": {
+      "type": "condition",
+      "drainsChannel": "corrosion",
+      "drainsMatterOverTime": true,
+      "matterLostPerTick": 0.005,
+      "description": "Transient: the component loses matter to the corrosion channel each tick with no attacker at all."
+    }
   }
 }
