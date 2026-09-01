@@ -7,7 +7,7 @@
  *
  * NOTE: This test uses a narrow unit approach — it directly invokes `_cleanupAfterRemoval`
  * with minimum real objects wired, rather than exercising the full public broken-component
- * flow (which would require building a full durability-breaking cascade).
+ * flow (which would require building a full existence-breaking cascade).
  *
  * @module test/unit/WorldStateController.cleanupAfterRemoval
  */
@@ -67,7 +67,7 @@ describe('B3#9 — _cleanupAfterRemoval internal component resync', () => {
         const hostComponentId = centralBall.id;
 
         // 3. Manually add an internal component to the host component
-        addInternalComponentToWorld(world, entityId, hostComponentId, 'durabilityRepairSphere');
+        addInternalComponentToWorld(world, entityId, hostComponentId, 'repairSphere');
 
         // 4. Sync entity's internalComponents so it matches the authoritative state
         syncInternalComponents(world, entityId);
@@ -117,8 +117,8 @@ describe('B3#9 — _cleanupAfterRemoval internal component resync', () => {
         const hostComponentId = centralBall.id;
 
         // Add two internal components to the same host
-        addInternalComponentToWorld(world, entityId, hostComponentId, 'durabilityRepairSphere');
-        addInternalComponentToWorld(world, entityId, hostComponentId, 'transcendentSpeedCore');
+        addInternalComponentToWorld(world, entityId, hostComponentId, 'repairSphere');
+        addInternalComponentToWorld(world, entityId, hostComponentId, 'moveCore');
 
         syncInternalComponents(world, entityId);
 

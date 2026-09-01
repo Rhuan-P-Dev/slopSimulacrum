@@ -126,7 +126,7 @@ describe('RangeValidator - Range Expression Resolution', () => {
 
     const mockComponentStats = {
         'comp-1': {
-            Physical: { strength: 25, mass: 20, durability: 100 },
+            Physical: { strength: 25, mass: 20, existence: 100 },
             Spatial: { x: 0, y: 0 }
         },
         'comp-2': {
@@ -159,7 +159,7 @@ describe('RangeValidator - Range Expression Resolution', () => {
 
             expect(result).toHaveProperty('Physical.strength', 25);
             expect(result).toHaveProperty('Physical.mass', 20);
-            expect(result).toHaveProperty('Physical.durability', 100);
+            expect(result).toHaveProperty('Physical.existence', 100);
             expect(result).toHaveProperty('Mind.think_level', 5);
             expect(result).toHaveProperty('Movement.move', 20);
         });
@@ -286,7 +286,7 @@ describe('RangeValidator - checkSpatialRange (spatial drop enforcement)', () => 
 
     const mockComponentStats = {
         'comp-1': {
-            Physical: { strength: 25, mass: 20, durability: 100 }
+            Physical: { strength: 25, mass: 20, existence: 100 }
         }
     };
 
@@ -414,7 +414,7 @@ describe('RangeValidator - checkSpatialRange (spatial drop enforcement)', () => 
     
         const mockComponentStats = {
             'comp-1': {
-                Physical: { strength: 25, mass: 20, durability: 100 }
+                Physical: { strength: 25, mass: 20, existence: 100 }
             }
         };
     

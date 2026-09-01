@@ -1,13 +1,13 @@
 /**
- * WorldStateController — equipped-item durability without triggerController (regression).
+ * WorldStateController — equipped-item existence without triggerController (regression).
  *
- * Regression for the missing null-guard on the equipped-item (P8) durability path.
+ * Regression for the missing null-guard on the equipped-item (P8) existence path.
  * Prior to the fix, any world/facade that did NOT inject a `triggerController` would
- * crash on the first equipped-item durability stat change with:
+ * crash on the first equipped-item existence stat change with:
  *   `TypeError: Cannot read properties of undefined (reading 'onEquippedItemBrokeCheck')`
  *
  * This test constructs `WorldStateController` directly (omitting `triggerController`)
- * and fires an equipped-item durability stat change via `equippedItemStats.setStat()`.
+ * and fires an equipped-item existence stat change via `equippedItemStats.setStat()`.
  * It asserts that no exception is thrown and state remains consistent.
  *
  * @module test/contract/equippedItemDurabilityNoTriggerController.contract
@@ -115,8 +115,8 @@ function buildMinimalDeps() {
 // Tests
 // =========================================================================
 
-describe('Equipped-item durability without triggerController (regression)', () => {
-    it('should NOT throw when equipped-item durability stat changes without triggerController', () => {
+describe('Equipped-item existence without triggerController (regression)', () => {
+    it('should NOT throw when equipped-item existence stat changes without triggerController', () => {
         const deps = buildMinimalDeps();
         const { equippedItemStats, holdingCostController } = deps;
 
@@ -141,10 +141,10 @@ describe('Equipped-item durability without triggerController (regression)', () =
         // Initialize stats for the equipped item
         equippedItemStats.initializeStats(eqId, itemId, itemType);
 
-        // This is the critical assertion: changing durability should NOT throw
+        // This is the critical assertion: changing existence should NOT throw
         // even when triggerController is undefined/null
         expect(() => {
-            equippedItemStats.updateStatDelta(eqId, 'Physical', 'durability', -1);
+            equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -1);
         }).not.toThrow();
 
         // State should be consistent after the change
@@ -152,7 +152,7 @@ describe('Equipped-item durability without triggerController (regression)', () =
         expect(currentStats).toBeDefined();
     });
 
-    it('should NOT throw when durability crosses zero without triggerController', () => {
+    it('should NOT throw when existence crosses zero without triggerController', () => {
         const deps = buildMinimalDeps();
         const { equippedItemStats, holdingCostController } = deps;
 
@@ -171,13 +171,13 @@ describe('Equipped-item durability without triggerController (regression)', () =
         // Initialize stats for the equipped item
         equippedItemStats.initializeStats(eqId, itemId, itemType);
 
-        // Set durability to 1, then drop below zero (crossing point)
+        // Set existence to 1, then drop below zero (crossing point)
         expect(() => {
-            equippedItemStats.updateStatDelta(eqId, 'Physical', 'durability', -5);
+            equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -5);
         }).not.toThrow();
 
         const currentStats = equippedItemStats.getStats(eqId);
-        // Default durability is 30; delta=-5 → 25
-        expect(currentStats.Physical.durability).toBe(25);
+        // Default existence is 30; delta=-5 → 25
+        expect(currentStats.Physical.existence).toBe(25);
     });
 });

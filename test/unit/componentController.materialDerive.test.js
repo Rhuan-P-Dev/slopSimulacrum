@@ -21,7 +21,7 @@ vi.mock('../../src/utils/Logger.js', () => ({
 const componentRegistry = {
     simpleComponent: {
         traits: {
-            Physical: { durability: 100, mass: 10 }
+            Physical: { existence: 100, mass: 10 }
         }
     },
     materialComponent: {
@@ -29,7 +29,7 @@ const componentRegistry = {
             { material: 'iron', fraction: 1.0 }
         ],
         traits: {
-            Physical: { durability: 50, mass: 5 }
+            Physical: { existence: 50, mass: 5 }
         }
     }
 };
@@ -54,7 +54,7 @@ const materialsRegistry = {
 // Mapping registry
 const mappingRegistry = {
     'Physical.mass': { formula: 'densityVolume' },
-    'Physical.durability': {
+    'Physical.existence': {
         sources: { wearResistance: 0.5, impactResistance: 0.3, cutResistance: 0.2 }
     }
 };
@@ -80,7 +80,7 @@ describe('ComponentController material derivation fail-safe', () => {
 
             const statsController = new ComponentStatsController();
             const traitsController = new TraitsController({
-                Physical: { durability: 100, mass: 10, volume: 1, temperature: 20 }
+                Physical: { existence: 100, mass: 10, volume: 1, temperature: 20 }
             });
 
             const controller = new ComponentController(
@@ -95,9 +95,9 @@ describe('ComponentController material derivation fail-safe', () => {
                 controller.initializeComponent('materialComponent', 'comp-1');
             }).not.toThrow();
 
-            // Stats should come from blueprint (durability=50, mass=5), not derived
+            // Stats should come from blueprint (existence=50, mass=5), not derived
             const stats = controller.getComponentStats('comp-1');
-            expect(stats.Physical.durability).toBe(50);
+            expect(stats.Physical.existence).toBe(50);
             expect(stats.Physical.mass).toBe(5);
 
             // Warn should have been logged
@@ -110,7 +110,7 @@ describe('ComponentController material derivation fail-safe', () => {
         it('succeeds when materialController is null', () => {
             const statsController = new ComponentStatsController();
             const traitsController = new TraitsController({
-                Physical: { durability: 100, mass: 10, volume: 1, temperature: 20 }
+                Physical: { existence: 100, mass: 10, volume: 1, temperature: 20 }
             });
 
             const controller = new ComponentController(
@@ -125,7 +125,7 @@ describe('ComponentController material derivation fail-safe', () => {
             }).not.toThrow();
 
             const stats = controller.getComponentStats('comp-2');
-            expect(stats.Physical.durability).toBe(50);
+            expect(stats.Physical.existence).toBe(50);
         });
 
         it('derives normally when materialController.derive succeeds', () => {
@@ -140,7 +140,7 @@ describe('ComponentController material derivation fail-safe', () => {
 
             const statsController = new ComponentStatsController();
             const traitsController = new TraitsController({
-                Physical: { durability: 100, mass: 10, volume: 1, temperature: 20 }
+                Physical: { existence: 100, mass: 10, volume: 1, temperature: 20 }
             });
 
             const controller = new ComponentController(
@@ -173,7 +173,7 @@ describe('ComponentController material derivation fail-safe', () => {
 
             const statsController = new ComponentStatsController();
             const traitsController = new TraitsController({
-                Physical: { durability: 100, mass: 10, volume: 1, temperature: 20 }
+                Physical: { existence: 100, mass: 10, volume: 1, temperature: 20 }
             });
 
             const controller = new ComponentController(
@@ -189,7 +189,7 @@ describe('ComponentController material derivation fail-safe', () => {
             }).not.toThrow();
 
             const stats = controller.getComponentStats('comp-4');
-            expect(stats.Physical.durability).toBe(100);
+            expect(stats.Physical.existence).toBe(100);
             expect(stats.Physical.mass).toBe(10);
 
             // No warn should have been logged (derive not called)

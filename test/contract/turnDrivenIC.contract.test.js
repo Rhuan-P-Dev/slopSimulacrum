@@ -12,12 +12,12 @@
  * round start fires the turn-start hook exactly once.
  *
  * Covers:
- *   - the HOST HAND's Physical.durability drains by 1 per turn (the IC's own
+ *   - the HOST HAND's Physical.existence drains by 1 per turn (the IC's own
  *     instanceStats pool stays static at 20 — it no longer self-drains);
  *   - host strength is MAINTAINED (set, non-additive) at 50 across turns
  *     (snapshot after each round-start hook: 50, then still 50, never 100);
  *   - the unified tick channel SKIPS turn-driven types (no double-apply);
- *   - a broken instance (host hand durability 0) stops applying effects;
+ *   - a broken instance (host hand existence 0) stops applying effects;
  *   - hostComponentType / hostSlot auto-install filtering (left droidHand only);
  *   - processTurnEffects is a no-op with zero installed instances (wiring
  *     safety — it must never throw in a world without any ICs).
@@ -87,7 +87,7 @@ function allHandIds(world, entityId) {
 }
 
 describe('turn-driven internal components (strengthCore)', () => {
-    it('host hand durability drains by 1 per turn; host strength is MAINTAINED (set, non-additive) at 50', () => {
+    it('host hand existence drains by 1 per turn; host strength is MAINTAINED (set, non-additive) at 50', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         expect(handId, 'test droid must have a left droidHand').toBeTruthy();
@@ -105,11 +105,11 @@ describe('turn-driven internal components (strengthCore)', () => {
 
         const statsBefore = world.getComponentStats(handId).Physical;
         expect(statsBefore.strength).toBe(25); // droidHand base strength
-        expect(statsBefore.durability).toBe(40); // droidHand base durability
+        expect(statsBefore.existence).toBe(40); // droidHand base existence
 
         const icBefore = ic.getInternalComponents(entityId, handId)[0];
         expect(icBefore.broken).toBe(false);
-        expect(icBefore.instanceStats.Physical.durability).toBe(20); // static self pool (unchanged)
+        expect(icBefore.instanceStats.Physical.existence).toBe(20); // static self pool (unchanged)
 
         // Round 0 starts (hook fires #1) + round 1 starts (hook fires #2)
         // = two turns of effects.
@@ -118,7 +118,7 @@ describe('turn-driven internal components (strengthCore)', () => {
         stepTo(world, tick, turns, 1);
 
         const statsAfter = world.getComponentStats(handId).Physical;
-        // The HOST HAND's durability is what drains. The world also has the
+        // The HOST HAND's existence is what drains. The world also has the
         // data-driven "Rogue Droid" NPC (smallBallDroid) which auto-installs
         // its OWN strengthCore on ITS left hand — so there are TWO host-hand
         // drains in the world, but we only observe the test droid's hand.
@@ -126,12 +126,12 @@ describe('turn-driven internal components (strengthCore)', () => {
         // is drained exactly once per round.
         // Round 0 (stepTo 0): hook #1 → hand 40 → 39
         // Round 1 (stepTo 1): hook #2 → hand 39 → 38
-        expect(statsAfter.durability).toBe(38);
+        expect(statsAfter.existence).toBe(38);
         expect(statsAfter.strength).toBe(50);
 
         // The IC's own pool is NOT drained anymore (it was the old behavior).
         const icAfter = ic.getInternalComponents(entityId, handId)[0];
-        expect(icAfter.instanceStats.Physical.durability).toBe(20); // still 20
+        expect(icAfter.instanceStats.Physical.existence).toBe(20); // still 20
         expect(icAfter.broken).toBe(false);
     });
 
@@ -169,15 +169,15 @@ describe('turn-driven internal components (strengthCore)', () => {
 
         // Exactly ONE host-hand drain from the round-start hook (round 0).
         // The IC has no tickEffects, so the tick channel is a no-op for it —
-        // host durability would be 38 (not 39) only if a stray tick path also
+        // host existence would be 38 (not 39) only if a stray tick path also
         // drained it.
-        expect(world.getComponentStats(handId).Physical.durability).toBe(39);
+        expect(world.getComponentStats(handId).Physical.existence).toBe(39);
         // The IC's own pool is untouched (no self drain anymore).
-        expect(icAfter.instanceStats.Physical.durability).toBe(20);
+        expect(icAfter.instanceStats.Physical.existence).toBe(20);
         expect(world.getComponentStats(handId).Physical.strength).toBe(50);
     });
 
-    it('a broken instance (self durability 0 via public seam) stops applying effects', () => {
+    it('a broken instance (self existence 0 via public seam) stops applying effects', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         const ic = world.internalComponentController;
@@ -185,26 +185,26 @@ describe('turn-driven internal components (strengthCore)', () => {
         const instance = ic.getInternalComponents(entityId, handId)[0];
         expect(instance).toBeTruthy();
 
-        // Drive the IC's OWN self-durability pool to 0 via the PUBLIC seam
+        // Drive the IC's OWN self-existence pool to 0 via the PUBLIC seam
         // `adjustInstanceStat` (no direct mutation of controller internals).
         // This is the canonical way to break an IC instance: the host hand's
         // own `component:broke` cascade handles host-driven removal (see the
         // controller's `_applyTurnEffect` note), so the broken-instance test
         // here exercises the self-pool break path directly.
-        ic.adjustInstanceStat(entityId, handId, instance.id, 'Physical', 'durability', -20);
+        ic.adjustInstanceStat(entityId, handId, instance.id, 'Physical', 'existence', -20);
 
         // The instance is now broken BEFORE any turn runs.
         let icNow = ic.getInternalComponents(entityId, handId)[0];
         expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.durability).toBe(0);
+        expect(icNow.instanceStats.Physical.existence).toBe(0);
 
         // Turn 1: broken ⇒ NO effects at all (neither the host drain nor the strength set).
         stepTo(world, tick, turns, 0);
         icNow = ic.getInternalComponents(entityId, handId)[0];
         expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.durability).toBe(0); // unchanged
-        // Host hand durability is UNCHANGED (no drain ran).
-        expect(world.getComponentStats(handId).Physical.durability).toBe(40);
+        expect(icNow.instanceStats.Physical.existence).toBe(0); // unchanged
+        // Host hand existence is UNCHANGED (no drain ran).
+        expect(world.getComponentStats(handId).Physical.existence).toBe(40);
         // Host strength is UNCHANGED (no maintained set ran).
         expect(world.getComponentStats(handId).Physical.strength).toBe(25);
 
@@ -213,8 +213,8 @@ describe('turn-driven internal components (strengthCore)', () => {
         stepTo(world, tick, turns, 1);
         icNow = ic.getInternalComponents(entityId, handId)[0];
         expect(icNow.broken).toBe(true);
-        expect(icNow.instanceStats.Physical.durability).toBe(0); // unchanged
-        expect(world.getComponentStats(handId).Physical.durability).toBe(40); // unchanged
+        expect(icNow.instanceStats.Physical.existence).toBe(0); // unchanged
+        expect(world.getComponentStats(handId).Physical.existence).toBe(40); // unchanged
         expect(world.getComponentStats(handId).Physical.strength).toBe(25); // frozen at base
     });
 

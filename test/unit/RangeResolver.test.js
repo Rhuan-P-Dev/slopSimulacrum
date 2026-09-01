@@ -77,7 +77,7 @@ function buildRangeValidator() {
         }
     };
     const componentStats = {
-        'comp-range-1': { Physical: { strength: 25, mass: 20, durability: 100 } }
+        'comp-range-1': { Physical: { strength: 25, mass: 20, existence: 100 } }
     };
 
     const mockWSC = {

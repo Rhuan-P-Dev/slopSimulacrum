@@ -66,7 +66,6 @@ describe('Material traits — persistence contract', () => {
 
         // Verify material-derived stats are present.
         expect(knifeData.item.traits.Physical.mass).toBeCloseTo(4.92, 1);
-        expect(knifeData.item.traits.Physical.flammability).toBe(35);
     });
 
     it('restored snapshot retains material-derived traits on knife items', () => {
@@ -88,7 +87,6 @@ describe('Material traits — persistence contract', () => {
         // Verify snapshot contains the knife with material stats.
         const snapshotInventory = originalSnapshot.state.inventory[entityId];
         expect(snapshotInventory[knifeItemId].traits.Physical.mass).toBeCloseTo(4.92, 1);
-        expect(snapshotInventory[knifeItemId].traits.Physical.flammability).toBe(35);
 
         // Restore the snapshot.
         const restoreResult = wsc.restore(originalSnapshot);
@@ -99,7 +97,6 @@ describe('Material traits — persistence contract', () => {
         expect(knifeData, 'a knife item must survive restore').toBeTruthy();
         // Material stats should be present (either from original serialization or re-derivation).
         expect(knifeData.item.traits.Physical.mass).toBeCloseTo(4.92, 1);
-        expect(knifeData.item.traits.Physical.flammability).toBe(35);
     });
 
     it('old-format snapshot (missing material stats) gets them after restore via resyncItemTraits', () => {
@@ -119,7 +116,6 @@ describe('Material traits — persistence contract', () => {
             for (const item of Object.values(entityInv)) {
                 if (item.traits && item.traits.Physical) {
                     delete item.traits.Physical.mass;
-                    delete item.traits.Physical.flammability;
                 }
             }
         }
@@ -128,7 +124,6 @@ describe('Material traits — persistence contract', () => {
         const tamperedKnife = originalSnapshot.state.inventory[entityId][knifeItemId];
         expect(tamperedKnife).toBeDefined();
         expect(tamperedKnife.traits.Physical.mass).toBeUndefined();
-        expect(tamperedKnife.traits.Physical.flammability).toBeUndefined();
 
         // Restore the tampered snapshot.
         const restoreResult = wsc.restore(originalSnapshot);
@@ -139,7 +134,6 @@ describe('Material traits — persistence contract', () => {
         expect(knifeData, 'a knife item must survive restore').toBeTruthy();
         // resyncItemTraits should have filled in the missing material stats.
         expect(knifeData.item.traits.Physical.mass).toBeCloseTo(4.92, 1);
-        expect(knifeData.item.traits.Physical.flammability).toBe(35);
     });
 });
 
@@ -174,6 +168,5 @@ describe('Material traits — getItemStats display', () => {
 
         // Material-derived stats should be in _baseStats.
         expect(stats._baseStats.mass).toBeCloseTo(4.92, 1);
-        expect(stats._baseStats.flammability).toBe(35);
     });
 });

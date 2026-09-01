@@ -28,8 +28,8 @@ import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
-    DURABILITY_BROKEN_AT,
-    DURABILITY_USABLE_MIN,
+    EXISTENCE_GONE_AT,
+    EXISTENCE_USABLE_MIN,
     TRAIT_STAT_KEY_PATTERN,
 } from '../../shared/StatVocabulary.js';
 
@@ -41,7 +41,7 @@ import {
 /** @type {Object} data/traits.json */
 const TRAITS = {
     Physical: {
-        durability: 100, mass: 10, volume: 1, temperature: 20,
+        existence: 100, mass: 10, volume: 1, temperature: 20,
         strength: 10, sharpness: 10, flammability: 0,
     },
     Mind: { think_level: 10 },
@@ -53,7 +53,7 @@ const TRAITS = {
 /** @type {Object} data/propertyTraitMapping.json (flat "Group.stat" keys) */
 const PROPERTY_TRAIT_MAPPING = {
     'Physical.mass': { formula: 'densityVolume' },
-    'Physical.durability': {
+    'Physical.existence': {
         sources: { wearResistance: 0.5, impactResistance: 0.3, cutResistance: 0.2 },
     },
     'Physical.flammability': { sources: { flammability: 1.0 } },
@@ -105,20 +105,20 @@ const INVENTORY_ITEMS = {
             { material: 'iron', fraction: 0.6, role: 'blade' },
             { material: 'wood', fraction: 0.4, role: 'handle' },
         ],
-        traits: { Physical: { durability: 30, sharpness: 50 } },
+        traits: { Physical: { existence: 30, sharpness: 50 } },
     },
     t1: {
         name: 'T1',
         description: 'A container weapon that fires stored items.',
         volume: 10,
         externalVolume: 1,
-        traits: { Physical: { durability: 60 } },
+        traits: { Physical: { existence: 60 } },
     },
     powerCell: {
         name: 'Power Cell',
         description: 'Compact power source for droid systems.',
         volume: 2,
-        traits: { Physical: { mass: 1, durability: 50 } },
+        traits: { Physical: { mass: 1, existence: 50 } },
     },
 };
 
@@ -232,7 +232,7 @@ describe('KnowledgeController — empty fallback construction', () => {
                 vocabulary: {
                     traitGroups: Object.values(TRAIT_GROUPS),
                     stats: Object.values(STAT_NAMES),
-                    durability: { brokenAt: DURABILITY_BROKEN_AT, usableMin: DURABILITY_USABLE_MIN },
+                    existence: { goneAt: EXISTENCE_GONE_AT, usableMin: EXISTENCE_USABLE_MIN },
                 },
             },
             recipes: [],
@@ -267,7 +267,7 @@ describe('KnowledgeController — getKnowledge() contract', () => {
 
         // sorted by statKey
         const keys = mappings.map((m) => m.statKey);
-        expect(keys).toEqual(['Physical.durability', 'Physical.flammability', 'Physical.mass']);
+        expect(keys).toEqual(['Physical.existence', 'Physical.flammability', 'Physical.mass']);
 
         // formula row: sources must be the empty array
         const mass = mappings.find((m) => m.statKey === 'Physical.mass');
@@ -277,9 +277,9 @@ describe('KnowledgeController — getKnowledge() contract', () => {
         expect(mass.sources).toEqual([]);
 
         // source row: formula must be null; sources expanded + sorted by property
-        const durability = mappings.find((m) => m.statKey === 'Physical.durability');
-        expect(durability.formula).toBe(null);
-        expect(durability.sources).toEqual([
+        const existence = mappings.find((m) => m.statKey === 'Physical.existence');
+        expect(existence.formula).toBe(null);
+        expect(existence.sources).toEqual([
             { property: 'cutResistance', weight: 0.2 },
             { property: 'impactResistance', weight: 0.3 },
             { property: 'wearResistance', weight: 0.5 },
@@ -371,7 +371,7 @@ describe('KnowledgeController — getKnowledge() contract', () => {
         // defensive-copy of traits: mutating the returned copy must not change
         // a second call's result
         const first = kb.getKnowledge();
-        first.items.find((i) => i.type === 'bare').traits.Physical = { durability: 9999 };
+        first.items.find((i) => i.type === 'bare').traits.Physical = { existence: 9999 };
         const second = kb.getKnowledge();
         expect(second.items.find((i) => i.type === 'bare').traits).toEqual({});
     });
@@ -382,13 +382,13 @@ describe('KnowledgeController — getKnowledge() contract', () => {
 
         // Mutate deeply nested values across all three sections.
         a.traitStats.materials.find((m) => m.type === 'wood').properties.flammability = -1;
-        a.traitStats.groups.Physical.durability = 0;
+        a.traitStats.groups.Physical.existence = 0;
         a.recipes.find((r) => r.id === 'knife_to_t1').name = 'HACKED';
         a.items.find((i) => i.type === 'knife').materials[0].fraction = 99;
 
         const b = kc.getKnowledge();
         expect(b.traitStats.materials.find((m) => m.type === 'wood').properties.flammability).toBe(80);
-        expect(b.traitStats.groups.Physical.durability).toBe(100);
+        expect(b.traitStats.groups.Physical.existence).toBe(100);
         expect(b.recipes.find((r) => r.id === 'knife_to_t1').name).toBe('T1 Assembly');
         expect(b.items.find((i) => i.type === 'knife').materials[0].fraction).toBe(0.6);
     });
@@ -402,13 +402,13 @@ describe('KnowledgeController — getKnowledge() contract', () => {
         expect(Object.keys(k.traitStats.groups)).toEqual(Object.keys(TRAITS));
 
         // Mutating the returned groups must not corrupt the source registry.
-        k.traitStats.groups.Physical.durability = 0;
-        expect(TRAITS.Physical.durability).toBe(100);
+        k.traitStats.groups.Physical.existence = 0;
+        expect(TRAITS.Physical.existence).toBe(100);
 
         // Vocabulary pinned from shared/StatVocabulary.js (not a data file).
-        expect(k.traitStats.vocabulary.durability).toEqual({
-            brokenAt: DURABILITY_BROKEN_AT,
-            usableMin: DURABILITY_USABLE_MIN,
+        expect(k.traitStats.vocabulary.existence).toEqual({
+            goneAt: EXISTENCE_GONE_AT,
+            usableMin: EXISTENCE_USABLE_MIN,
         });
         expect(k.traitStats.vocabulary.traitGroups).toEqual(Object.values(TRAIT_GROUPS));
         expect(k.traitStats.vocabulary.stats).toEqual(Object.values(STAT_NAMES));

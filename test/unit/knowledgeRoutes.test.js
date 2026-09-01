@@ -21,10 +21,10 @@ import { register } from '../../src/routes/knowledgeRoutes.js';
  */
 const PAYLOAD = {
     traitStats: {
-        groups: { Physical: { durability: 100 } },
+        groups: { Physical: { existence: 100 } },
         mappings: [],
         materials: [{ type: 'wood', name: 'Wood', density: 0.6, properties: {} }],
-        vocabulary: { traitGroups: ['Physical'], stats: ['durability'], durability: { brokenAt: 1, usableMin: 30 } },
+        vocabulary: { traitGroups: ['Physical'], stats: ['existence'], existence: { brokenAt: 1, usableMin: 30 } },
     },
     recipes: [{ id: 'knife_to_t1', name: 'T1 Assembly', description: null, inputs: [], outputs: [] }],
     items: [{ type: 'knife', name: 'Knife', description: null, volume: 1, externalVolume: null, materials: null, traits: {} }],

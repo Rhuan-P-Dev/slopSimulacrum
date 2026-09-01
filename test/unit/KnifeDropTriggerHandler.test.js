@@ -27,7 +27,7 @@ import Logger from '../../src/utils/Logger.js';
 function buildWSCStub(options = {}) {
     const {
         entity = { id: options.entityId || 'entity-1' },
-        registry = { knife: { name: 'Knife', volume: 1, traits: { Physical: { durability: 30 } } } },
+        registry = { knife: { name: 'Knife', volume: 1, traits: { Physical: { existence: 30 } } } },
         returnEntity = true,
     } = options;
 
@@ -45,7 +45,7 @@ function buildWSCStub(options = {}) {
 }
 
 const KNIFE_TYPE = 'knife';
-const KNIFE_DEF = { name: 'Knife', description: 'A sharp blade.', volume: 1, traits: { Physical: { durability: 30, sharpness: 50 } } };
+const KNIFE_DEF = { name: 'Knife', description: 'A sharp blade.', volume: 1, traits: { Physical: { existence: 30, sharpness: 50 } } };
 const PAYLOAD = { position: { x: 10, y: 20 }, roomId: 'room-1', entityId: 'entity-1' };
 
 // =========================================================================

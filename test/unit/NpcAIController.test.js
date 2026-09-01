@@ -22,9 +22,9 @@
  *   14. think() throws inside strategy (bug simulated) → root guard captures; returns structured skip
  *   15. registerBehavior('test_idle', → null) + entry in registry → dispatch uses registered behavior
  *   16. Custom config: ai.attackRange = 50 + target at 70 → move (not attack)
- *   C11a. Target with first component durability=0, second durability>=1 → valid component selected
- *   C11b. All components durability < 1 → attack skipped (think returns acted:false)
- *   C11c. First component non-numeric durability, second numeric >=1 → numeric component selected
+ *   C11a. Target with first component existence=0, second existence>=1 → valid component selected
+ *   C11b. All components existence < 1 → attack skipped (think returns acted:false)
+ *   C11c. First component non-numeric existence, second numeric >=1 → numeric component selected
  *   C11d. Components array contains null + healthy component → healthy selected
  *   Picker: deterministic hash, edge rng values, empty/single-element guards
  *
@@ -50,7 +50,7 @@ const NPC_ENTITY = {
     location: 'room-main',
     spatial: { x: 0, y: 0 },
     components: [
-        { id: 'comp-core-1', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+        { id: 'comp-core-1', type: 'centralBall', stats: { 'Physical.existence': 100 } },
         { id: 'comp-hand-1', type: 'droidHand', stats: { 'Physical.strength': 25 } },
         { id: 'comp-arm-1', type: 'droidArm', stats: {} },
         { id: 'comp-wheel-1', type: 'droidRollingBall', stats: { 'Movement.move': 20 } },
@@ -72,7 +72,7 @@ const TARGET_ENTITY = {
     location: 'room-main',
     spatial: { x: 30, y: 0 }, // dist = 30 from NPC
     components: [
-        { id: 'comp-core-2', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+        { id: 'comp-core-2', type: 'centralBall', stats: { 'Physical.existence': 100 } },
         { id: 'comp-hand-2', type: 'droidHand', stats: { 'Physical.strength': 25 } }
     ],
     status: 'active',
@@ -88,7 +88,7 @@ const FAR_TARGET_ENTITY = {
     location: 'room-main',
     spatial: { x: 150, y: 0 }, // dist = 150 from NPC
     components: [
-        { id: 'comp-core-far', type: 'centralBall', stats: { 'Physical.durability': 100 } }
+        { id: 'comp-core-far', type: 'centralBall', stats: { 'Physical.existence': 100 } }
     ],
     status: 'active',
     internalComponents: {},
@@ -103,7 +103,7 @@ const OTHER_ROOM_ENTITY = {
     location: 'room-other', // Different room!
     spatial: { x: 10, y: 10 },
     components: [
-        { id: 'comp-core-other', type: 'centralBall', stats: { 'Physical.durability': 100 } }
+        { id: 'comp-core-other', type: 'centralBall', stats: { 'Physical.existence': 100 } }
     ],
     status: 'active',
     internalComponents: {},
@@ -118,7 +118,7 @@ const OTHER_AI_ENTITY = {
     location: 'room-main',
     spatial: { x: 50, y: 0 }, // dist = 50 from NPC
     components: [
-        { id: 'comp-core-3', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+        { id: 'comp-core-3', type: 'centralBall', stats: { 'Physical.existence': 100 } },
         { id: 'comp-hand-3', type: 'droidHand', stats: { 'Physical.strength': 25 } }
     ],
     npcConfig: {
@@ -137,7 +137,7 @@ const ACTION_REGISTRY = {
 /**
  * Builds a fake facade with configurable state.
  *
- * NOTE: getComponentStats() is wired to read durability from the entity's
+ * NOTE: getComponentStats() is wired to read existence from the entity's
  * component stats (flat-keyed) so that _readDurability() — which now prefers
  * the authoritative nested store via this._facade.getComponentStats — still
  * works with the existing flat-stats fixtures used by all unit tests.
@@ -150,7 +150,7 @@ function makeFacade({ entities = {}, canExecute = {}, executeResult } = {}) {
     for (const ent of Object.values(entities)) {
         for (const comp of Array.isArray(ent.components) ? ent.components : []) {
             if (comp && comp.id && comp.stats) {
-                // Convert flat keys to nested: { 'Physical.durability': 100 } → { Physical: { durability: 100 } }
+                // Convert flat keys to nested: { 'Physical.existence': 100 } → { Physical: { existence: 100 } }
                 const nested = {};
                 for (const [flatKey, val] of Object.entries(comp.stats)) {
                     if (typeof flatKey === 'string' && flatKey.includes('.')) {
@@ -685,7 +685,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 spatial: { x: 30, y: 0 }, // dist = 30
                 components: [
                     { id: 'comp-plain-no-dur', type: 'droidArm', stats: { 'Physical.strength': 10 } },
-                    { id: 'comp-hp-bearing', type: 'centralBall', stats: { 'Physical.durability': 100 } }
+                    { id: 'comp-hp-bearing', type: 'centralBall', stats: { 'Physical.existence': 100 } }
                 ],
                 status: 'active',
                 internalComponents: {},
@@ -715,7 +715,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 location: 'room-main',
                 spatial: { x: 30, y: 0 }, // dist = 30
                 components: [
-                    { id: 'comp-hp-first', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+                    { id: 'comp-hp-first', type: 'centralBall', stats: { 'Physical.existence': 100 } },
                     { id: 'comp-plain-after', type: 'droidArm', stats: { 'Physical.strength': 10 } }
                 ],
                 status: 'active',
@@ -784,7 +784,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             });
         }
 
-        it('C11a. target first comp durability=0, second durability>=1 → valid component selected', () => {
+        it('C11a. target first comp existence=0, second existence>=1 → valid component selected', () => {
             const targetEntity = {
                 id: 'ent-c11a',
                 name: 'BrokenFirstValidSecond',
@@ -793,8 +793,8 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 location: 'room-main',
                 spatial: { x: 30, y: 0 },
                 components: [
-                    { id: 'comp-broken', type: 'centralBall', stats: { 'Physical.durability': 0 } },
-                    { id: 'comp-valid', type: 'droidArm', stats: { 'Physical.durability': 100 } }
+                    { id: 'comp-broken', type: 'centralBall', stats: { 'Physical.existence': 0 } },
+                    { id: 'comp-valid', type: 'droidArm', stats: { 'Physical.existence': 100 } }
                 ],
                 status: 'active',
                 internalComponents: {},
@@ -811,7 +811,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             expect(turns.queued[0].params.targetComponentId).toBe('comp-valid');
         });
 
-        it('C11b. ALL components durability < 1 → attack skipped (think returns acted:false)', () => {
+        it('C11b. ALL components existence < 1 → attack skipped (think returns acted:false)', () => {
             const targetEntity = {
                 id: 'ent-c11b',
                 name: 'AllBroken',
@@ -820,8 +820,8 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 location: 'room-main',
                 spatial: { x: 30, y: 0 },
                 components: [
-                    { id: 'comp-broken-a', type: 'centralBall', stats: { 'Physical.durability': 0 } },
-                    { id: 'comp-broken-b', type: 'droidArm', stats: { 'Physical.durability': 0.5 } }
+                    { id: 'comp-broken-a', type: 'centralBall', stats: { 'Physical.existence': 0 } },
+                    { id: 'comp-broken-b', type: 'droidArm', stats: { 'Physical.existence': 0.5 } }
                 ],
                 status: 'active',
                 internalComponents: {},
@@ -837,7 +837,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
             expect(turns.queued).toHaveLength(0);
         });
 
-        it('C11c. first comp non-numeric durability "0", second numeric>=1 → numeric component selected', () => {
+        it('C11c. first comp non-numeric existence "0", second numeric>=1 → numeric component selected', () => {
             const targetEntity = {
                 id: 'ent-c11c',
                 name: 'NonNumericDurability',
@@ -846,8 +846,8 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 location: 'room-main',
                 spatial: { x: 30, y: 0 },
                 components: [
-                    { id: 'comp-non-numeric', type: 'centralBall', stats: { 'Physical.durability': '0' } },
-                    { id: 'comp-numeric', type: 'droidArm', stats: { 'Physical.durability': 50 } }
+                    { id: 'comp-non-numeric', type: 'centralBall', stats: { 'Physical.existence': '0' } },
+                    { id: 'comp-numeric', type: 'droidArm', stats: { 'Physical.existence': 50 } }
                 ],
                 status: 'active',
                 internalComponents: {},
@@ -874,7 +874,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
                 spatial: { x: 30, y: 0 },
                 components: [
                     null,
-                    { id: 'comp-healthy', type: 'centralBall', stats: { 'Physical.durability': 100 } }
+                    { id: 'comp-healthy', type: 'centralBall', stats: { 'Physical.existence': 100 } }
                 ],
                 status: 'active',
                 internalComponents: {},

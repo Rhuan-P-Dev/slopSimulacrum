@@ -87,11 +87,11 @@ function makeNpcEntity({ id = NPC_ID, location = 'room-main', spatial = { x: 0, 
         location,
         spatial,
         components: [
-            { id: 'comp-core-1', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+            { id: 'comp-core-1', type: 'centralBall', stats: { 'Physical.existence': 100 } },
             { id: 'comp-hand-1', type: 'droidHand', stats: { 'Physical.strength': 25 } }
         ],
         _components: {
-            'comp-core-1': { stats: { 'Physical.durability': 100 } },
+            'comp-core-1': { stats: { 'Physical.existence': 100 } },
             'comp-hand-1': { stats: { 'Physical.strength': 25 } }
         }
     };
@@ -103,11 +103,11 @@ function makeTargetEntity({ id = TARGET_ID, location = 'room-main', spatial = { 
         location,
         spatial,
         components: [
-            { id: 'comp-target-1', type: 'centralBall', stats: { 'Physical.durability': 100 } },
+            { id: 'comp-target-1', type: 'centralBall', stats: { 'Physical.existence': 100 } },
             { id: 'comp-target-2', type: 'droidHand', stats: { 'Physical.strength': 20 } }
         ],
         _components: {
-            'comp-target-1': { stats: { 'Physical.durability': 100 } },
+            'comp-target-1': { stats: { 'Physical.existence': 100 } },
             'comp-target-2': { stats: { 'Physical.strength': 20 } }
         }
     };
@@ -139,12 +139,12 @@ function makeEntityWithBrokenComponents(id = 'ent-broken-0001') {
         location: 'room-main',
         spatial: { x: 20, y: 0 },
         components: [
-            { id: 'comp-broken-1', type: 'centralBall', stats: { 'Physical.durability': 0 } },
-            { id: 'comp-broken-2', type: 'droidHand', stats: { 'Physical.durability': 0.5 } }
+            { id: 'comp-broken-1', type: 'centralBall', stats: { 'Physical.existence': 0 } },
+            { id: 'comp-broken-2', type: 'droidHand', stats: { 'Physical.existence': 0.5 } }
         ],
         _components: {
-            'comp-broken-1': { stats: { 'Physical.durability': 0 } },
-            'comp-broken-2': { stats: { 'Physical.durability': 0.5 } }
+            'comp-broken-1': { stats: { 'Physical.existence': 0 } },
+            'comp-broken-2': { stats: { 'Physical.existence': 0.5 } }
         }
     };
 }

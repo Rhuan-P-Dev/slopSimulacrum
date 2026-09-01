@@ -3,7 +3,7 @@
  *
  * Follows convention of `test/unit/NpcAIController.durabilityDesync.test.js`:
  * `buildWorldState(tick)` with UniversalTickSystem **not started**; damage
- * applied via `updateComponentStatDelta(compId, 'Physical', 'durability', delta)`.
+ * applied via `updateComponentStatDelta(compId, 'Physical', 'existence', delta)`.
  *
  * NOTE: Tests verify behavior through SIDE EFFECTS (knife counts, component
  * removal, event log entries) rather than spying on emit(), because vi.spyOn
@@ -108,7 +108,7 @@ function spawnDroidWithCascade(world) {
 }
 
 function damageComponent(world, compId, delta) {
-    world.componentController.updateComponentStatDelta(compId, 'Physical', 'durability', delta);
+    world.componentController.updateComponentStatDelta(compId, 'Physical', 'existence', delta);
 }
 
 function countAllKnives(world) {
@@ -147,7 +147,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
         const { entityId, entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 10);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 10);
         damageComponent(world, comp.id, -15);
 
         expect(countBrokeEvents(world)).toBe(1);
@@ -159,7 +159,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
         const comp = entity.components.find(c => c.type === 'centralBall');
 
         // First break
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 10);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 10);
         damageComponent(world, comp.id, -15);
         expect(countBrokeEvents(world)).toBe(1);
 
@@ -174,7 +174,7 @@ describe('Trigger system — crossing semantics (tests 1–3)', () => {
         const comp = entity.components.find(c => c.type === 'centralBall');
 
         // Set to small positive value first (100 → 1, no crossing since both > 0)
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         // Repair: 1 → 2 (delta positive), should NOT fire break event
         damageComponent(world, comp.id, +1);
 
@@ -193,7 +193,7 @@ describe('Trigger system — knife drop (test 4)', () => {
         const { entityId: eid, entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         damageComponent(world, comp.id, -10);
 
         // Event should have fired
@@ -234,7 +234,7 @@ describe('Trigger system — multiple components (test 5)', () => {
         const comps = entity.components.slice(0, 3);
 
         for (const c of comps) {
-            world.componentController.updateComponentStat(c.id, 'Physical', 'durability', 1);
+            world.componentController.updateComponentStat(c.id, 'Physical', 'existence', 1);
             damageComponent(world, c.id, -10);
         }
 
@@ -255,7 +255,7 @@ describe('Trigger system — despawn (test 6)', () => {
 
         world.stateEntityController.despawnEntity(entityId);
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         damageComponent(world, comp.id, -10);
 
         // Spec §6: event MUST still be logged even when owning entity is despawned.
@@ -280,7 +280,7 @@ describe('Trigger system — component removal (test 7)', () => {
 
         world.actionSelectController.registerSelection(compId, 'test-action', entity.id);
 
-        world.componentController.updateComponentStat(compId, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compId, 'Physical', 'existence', 1);
         damageComponent(world, compId, -10);
 
         const updatedEntity = world.getEntity(entity.id);
@@ -304,7 +304,7 @@ describe('Trigger system — single component entity (test 9)', () => {
         }
 
         const singleComp = entity.components[0];
-        world.componentController.updateComponentStat(singleComp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(singleComp.id, 'Physical', 'existence', 1);
         damageComponent(world, singleComp.id, -10);
 
         const entity2 = world.getEntity(entityId);
@@ -323,7 +323,7 @@ describe('Trigger system — idempotency (test 10)', () => {
         const { entity } = spawnDroid(world);
         const comp = entity.components[0];
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         damageComponent(world, comp.id, -10);
         const initialKnives = countAllKnives(world);
         const initialEvents = countBrokeEvents(world);
@@ -363,7 +363,7 @@ describe('Trigger system — handler isolation (test 11)', () => {
             handlers.unshift(faulty);
         }
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         damageComponent(world, comp.id, -10);
 
         // Knives should still be dropped even though the faulty handler ran first and threw.
@@ -383,7 +383,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
 
         const centralBall = entity.components.find(c => c.type === 'centralBall');
 
-        world.componentController.updateComponentStat(centralBall.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(centralBall.id, 'Physical', 'existence', 1);
         damageComponent(world, centralBall.id, -10);
 
         // Tree structure: centralBall → {droidHead, droidArm×2→droidHand×2→humanoidDroidFinger×6, droidRollingBall×2}
@@ -406,7 +406,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         compA.dependsOn = [compB.id];
         compB.dependsOn = [compA.id];
 
-        world.componentController.updateComponentStat(compA.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compA.id, 'Physical', 'existence', 1);
         damageComponent(world, compA.id, -10);
 
         expect(countBrokeEvents(world)).toBe(2);
@@ -432,7 +432,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         compB.dependsOn = [compX.id];
         compC.dependsOn = [compA.id, compB.id];
 
-        world.componentController.updateComponentStat(compX.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compX.id, 'Physical', 'existence', 1);
         damageComponent(world, compX.id, -10);
 
         expect(countBrokeEvents(world)).toBe(4);
@@ -449,7 +449,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         entity.components = entity.components.filter(c => c.id !== compChild.id);
         compChild.dependsOn = [compParent.id];
 
-        world.componentController.updateComponentStat(compParent.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compParent.id, 'Physical', 'existence', 1);
         damageComponent(world, compParent.id, -10);
 
         expect(countBrokeEvents(world)).toBe(1); // PHASE 8-7a: EXACT count
@@ -461,7 +461,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
 
         const centralBall = entity.components.find(c => c.type === 'centralBall');
 
-        world.componentController.updateComponentStat(centralBall.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(centralBall.id, 'Physical', 'existence', 1);
         damageComponent(world, centralBall.id, -10);
 
         expect(countBrokeEvents(world)).toBe(14);
@@ -475,20 +475,20 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         const compParent = entity.components[0];
         const compChild = entity.components[1];
 
-        world.componentController.updateComponentStat(compChild.id, 'Physical', 'durability', -5);
+        world.componentController.updateComponentStat(compChild.id, 'Physical', 'existence', -5);
         compChild.dependsOn = [compParent.id];
 
-        world.componentController.updateComponentStat(compParent.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compParent.id, 'Physical', 'existence', 1);
         damageComponent(world, compParent.id, -10);
 
         // Parent event fires (1); child forced to 0 via updateComponentStat → crossing detected (old=-5 is NOT >0, so no crossing).
-        // But the forcing uses updateComponentStat(curId, 'Physical', 'durability', 0) where curId=child has old=-5.
+        // But the forcing uses updateComponentStat(curId, 'Physical', 'existence', 0) where curId=child has old=-5.
         // -5 > 0 is false → no crossing → no extra event. Total = 1.
-        // Why is it 2? The child was set to -5 initially (updateComponentStat compChild.id, 'Physical', 'durability', -5)
+        // Why is it 2? The child was set to -5 initially (updateComponentStat compChild.id, 'Physical', 'existence', -5)
         // That already crosses! old=100 (default) → new=-5: crossing detected! So child has its own event.
         // Then parent breaks → cascade forces child to 0, but child already broke before.
-        // Fix: the test sets durability -5 ON THE CHILD BEFORE breaking the parent.
-        // The child's initial stat is 100 (blueprint). updateComponentStat(compChild.id, 'Physical', 'durability', -5) does 100 → -5: CROSSING!
+        // Fix: the test sets existence -5 ON THE CHILD BEFORE breaking the parent.
+        // The child's initial stat is 100 (blueprint). updateComponentStat(compChild.id, 'Physical', 'existence', -5) does 100 → -5: CROSSING!
         // Then damage to parent: parent 100→-10: CROSSING! Cascade tries to force child to 0, but child already has dur= -5 ≤ 0 → direct removal without event.
         // Total = 2 events (child first, then parent).
         expect(countBrokeEvents(world)).toBe(2); // PHASE 8-7a: EXACT count (child + parent)
@@ -500,7 +500,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(updatedEntity.components.some(c => c.id === compChild.id)).toBe(false);
     });
 
-    it('Test 21b: Dependente sem stat Physical.durability → skip seguro', () => {
+    it('Test 21b: Dependente sem stat Physical.existence → skip seguro', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
 
@@ -510,7 +510,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         world.statsController.removeStats(compChild.id);
         compChild.dependsOn = [compParent.id];
 
-        world.componentController.updateComponentStat(compParent.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compParent.id, 'Physical', 'existence', 1);
         damageComponent(world, compParent.id, -10);
 
         expect(countBrokeEvents(world)).toBe(1); // PHASE 8-7a: EXACT count
@@ -538,16 +538,16 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         const equippedItems = world.holdingCostController._equippedItems[entityId];
         const eqId = Object.keys(equippedItems)[0];
         
-        // Verify the equipped item has durability=30 (default for knife from inventoryItems.json).
+        // Verify the equipped item has existence=30 (default for knife from inventoryItems.json).
         const stats = world.equippedItemStats.getStats(eqId);
         expect(stats).not.toBeNull();
-        expect(stats.Physical.durability).toBe(30);
+        expect(stats.Physical.existence).toBe(30);
         
         // Drive damage through the REAL P8 pipeline: equipped-item stat change → callback → triggerController.
         // This exercises the same path that src/controllers/WorldStateController.js:210-234 uses.
-        // durability: 30 → 29 (delta -1, no crossing since both > 0).
+        // existence: 30 → 29 (delta -1, no crossing since both > 0).
         // Then: 30 → 0 (delta -30, crossing: 30 > 0 && 0 <= 0).
-        world.equippedItemStats.updateStatDelta(eqId, 'Physical', 'durability', -30);
+        world.equippedItemStats.updateStatDelta(eqId, 'Physical', 'existence', -30);
         
         // Event should have been logged via the real P8 pipeline (stat change → callback → emit).
         expect(countBrokeEvents(world)).toBe(1);
@@ -574,7 +574,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(addResult.success).toBe(true);
         
         // Break the component → spill should happen for the testItem
-        world.componentController.updateComponentStat(comp0.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp0.id, 'Physical', 'existence', 1);
         damageComponent(world, comp0.id, -10);
         
         // Verify: exactly 3 knives from trigger + 1 spilled testItem = 4 total dropped items.
@@ -598,7 +598,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         const comp0 = entity.components[0];
         
         // Trigger break
-        world.componentController.updateComponentStat(comp0.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp0.id, 'Physical', 'existence', 1);
         damageComponent(world, comp0.id, -10);
         
         // Event fired + knives dropped in a single batch (§3.5.3)
@@ -621,7 +621,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         
         // Break the component after despawn — spec §6: event still logged per spec,
         // but side effects (spill/drop/removal) are skipped.
-        world.componentController.updateComponentStat(comp0.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp0.id, 'Physical', 'existence', 1);
         damageComponent(world, comp0.id, -10);
         
         // Spec §6: event MUST be logged even when owning entity is despawned.
@@ -647,7 +647,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         compB.dependsOn = [compA.id];
         
         // Break compA → should cascade to compB
-        world.componentController.updateComponentStat(compA.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compA.id, 'Physical', 'existence', 1);
         damageComponent(world, compA.id, -10);
         
         // Both events fired in a single batch (parent + child cascade)
@@ -669,26 +669,26 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
 
 describe('Trigger system — edge cases (tests 22–26)', () => {
     /**
-     * Test 22: Repair from zero — durability going 0 → positive must NOT fire component:broke.
+     * Test 22: Repair from zero — existence going 0 → positive must NOT fire component:broke.
      * No event, no removal, no drop.
      */
-    it('Test 22: Repair 0 → positive (durability 0→1) DOES NOT trigger component:broke', () => {
+    it('Test 22: Repair 0 → positive (existence 0→1) DOES NOT trigger component:broke', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
 
-        // Set durability to exactly 0 by bypassing crossing detection.
+        // Set existence to exactly 0 by bypassing crossing detection.
         // Default is 100, so going 100 → 0 directly would trigger crossing (100 > 0 && 0 <= 0).
         // To test repair from 0 without triggering break first, we:
         // 1. Set to a positive value first (1) - no crossing since both old(100) and new(1) are > 0
         // Wait - that doesn't work either because updateComponentStat sets the VALUE not delta.
         //
-        // Correct approach: use statsController directly to set durability = 0 without triggering
+        // Correct approach: use statsController directly to set existence = 0 without triggering
         // the onChange callback that would detect crossing.
         const stats = world.statsController.getStats(comp.id);
-        stats.Physical.durability = 0;
+        stats.Physical.existence = 0;
         
-        // Verify component still exists and has durability = 0
+        // Verify component still exists and has existence = 0
         let updatedEntity = world.getEntity(entity.id);
         expect(updatedEntity.components.some(c => c.id === comp.id)).toBe(true);
         
@@ -717,7 +717,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
 
         // Break the component — should NOT crash during spill phase
         expect(() => {
-            world.componentController.updateComponentStat(comp0.id, 'Physical', 'durability', 1);
+            world.componentController.updateComponentStat(comp0.id, 'Physical', 'existence', 1);
             damageComponent(world, comp0.id, -10);
         }).not.toThrow();
 
@@ -739,14 +739,14 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
         const compB = entity.components[1];
 
         // First component breaks
-        world.componentController.updateComponentStat(compA.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compA.id, 'Physical', 'existence', 1);
         damageComponent(world, compA.id, -10);
         expect(countBrokeEvents(world)).toBe(1);
         const firstBreakKnives = countAllKnives(world);
         expect(firstBreakKnives).toBe(3);
 
         // Second component breaks
-        world.componentController.updateComponentStat(compB.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compB.id, 'Physical', 'existence', 1);
         damageComponent(world, compB.id, -10);
         expect(countBrokeEvents(world)).toBe(2);
         
@@ -776,7 +776,7 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
             order.push('B');
         });
 
-        world.componentController.updateComponentStat(comp.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 1);
         damageComponent(world, comp.id, -10);
 
         // A must appear before B (registration order)
@@ -796,11 +796,11 @@ describe('Trigger system — edge cases (tests 22–26)', () => {
         const compB = entity.components[1];
 
         // First component breaks
-        world.componentController.updateComponentStat(compA.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compA.id, 'Physical', 'existence', 1);
         damageComponent(world, compA.id, -10);
         
         // Second component breaks
-        world.componentController.updateComponentStat(compB.id, 'Physical', 'durability', 1);
+        world.componentController.updateComponentStat(compB.id, 'Physical', 'existence', 1);
         damageComponent(world, compB.id, -10);
         
         const droppedItems = world.getDroppedItems();

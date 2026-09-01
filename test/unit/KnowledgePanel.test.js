@@ -44,8 +44,8 @@ import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import {
     TRAIT_GROUPS,
     STAT_NAMES,
-    DURABILITY_BROKEN_AT,
-    DURABILITY_USABLE_MIN,
+    EXISTENCE_GONE_AT,
+    EXISTENCE_USABLE_MIN,
 } from '../../shared/StatVocabulary.js';
 
 // --- Fixtures ------------------------------------------------------------------
@@ -54,14 +54,14 @@ import {
 const VALID_PAYLOAD = {
     traitStats: {
         groups: {
-            Physical: { durability: 10, strength: 4 },
+            Physical: { existence: 10, strength: 4 },
             Movement: { speed: 2 },
         },
         mappings: [
             {
-                statKey: 'Physical.durability',
+                statKey: 'Physical.existence',
                 trait: 'Physical',
-                stat: 'durability',
+                stat: 'existence',
                 formula: 'densityVolume',
                 sources: [],
             },
@@ -82,8 +82,8 @@ const VALID_PAYLOAD = {
         ],
         vocabulary: {
             traitGroups: ['Physical', 'Movement', 'Manipulation'],
-            stats: ['durability', 'strength', 'sharpness', 'volume'],
-            durability: { brokenAt: 0, usableMin: 1 },
+            stats: ['existence', 'strength', 'sharpness', 'volume'],
+            existence: { goneAt: 0, usableMin: 1 },
         },
     },
     recipes: [
@@ -214,9 +214,9 @@ describe('shapeMappings', () => {
     });
 
     it('splits the flat statKey into trait and stat', () => {
-        const rows = shapeMappings([{ statKey: 'Physical.durability', formula: 'densityVolume', sources: [] }]);
+        const rows = shapeMappings([{ statKey: 'Physical.existence', formula: 'densityVolume', sources: [] }]);
         expect(rows[0].trait).toBe('Physical');
-        expect(rows[0].stat).toBe('durability');
+        expect(rows[0].stat).toBe('existence');
     });
 
     it('keeps exactly one of formula / sources populated (the other defaults)', () => {
@@ -381,30 +381,30 @@ describe('shapeItems', () => {
 // --- 18e. shapeVocabulary --------------------------------------------------------------
 
 describe('shapeVocabulary', () => {
-    it('passes a well-formed vocabulary through (including the two durability boundaries)', () => {
+    it('passes a well-formed vocabulary through (including the two existence boundaries)', () => {
         const vocab = shapeVocabulary({
             traitGroups: ['Physical'],
-            stats: ['durability'],
-            durability: { brokenAt: 0, usableMin: 1 },
+            stats: ['existence'],
+            existence: { goneAt: 0, usableMin: 1 },
         });
         expect(vocab.traitGroups).toEqual(['Physical']);
-        expect(vocab.stats).toEqual(['durability']);
-        expect(vocab.durability).toEqual({ brokenAt: 0, usableMin: 1 });
+        expect(vocab.stats).toEqual(['existence']);
+        expect(vocab.existence).toEqual({ goneAt: 0, usableMin: 1 });
     });
 
     it('falls back to the shared-module constants for malformed input', () => {
         const vocab = shapeVocabulary(null);
         expect(vocab.traitGroups).toEqual([]);
         expect(vocab.stats).toEqual([]);
-        expect(vocab.durability).toEqual({
-            brokenAt: DURABILITY_BROKEN_AT,
-            usableMin: DURABILITY_USABLE_MIN,
+        expect(vocab.existence).toEqual({
+            goneAt: EXISTENCE_GONE_AT,
+            usableMin: EXISTENCE_USABLE_MIN,
         });
-        const partial = shapeVocabulary({ traitGroups: ['Physical', '', 42], durability: {} });
+        const partial = shapeVocabulary({ traitGroups: ['Physical', '', 42], existence: {} });
         expect(partial.traitGroups).toEqual(['Physical']);
-        expect(partial.durability).toEqual({
-            brokenAt: DURABILITY_BROKEN_AT,
-            usableMin: DURABILITY_USABLE_MIN,
+        expect(partial.existence).toEqual({
+            goneAt: EXISTENCE_GONE_AT,
+            usableMin: EXISTENCE_USABLE_MIN,
         });
     });
 });
@@ -460,9 +460,9 @@ describe('default section and empty shape', () => {
                 vocabulary: {
                     traitGroups: Object.values(TRAIT_GROUPS),
                     stats: Object.values(STAT_NAMES),
-                    durability: {
-                        brokenAt: DURABILITY_BROKEN_AT,
-                        usableMin: DURABILITY_USABLE_MIN,
+                    existence: {
+                        goneAt: EXISTENCE_GONE_AT,
+                        usableMin: EXISTENCE_USABLE_MIN,
                     },
                 },
             },
@@ -479,10 +479,14 @@ describe('default section and empty shape', () => {
 });
 
 describe('shared/StatVocabulary pin (spec §5.2 / §3.2 canonical values)', () => {
-    it('pins the exact trait group names, stat names, and durability boundaries', () => {
-        expect(Object.values(TRAIT_GROUPS)).toEqual(['Physical', 'Movement', 'Manipulation']);
-        expect(Object.values(STAT_NAMES)).toEqual(['durability', 'strength', 'sharpness', 'volume']);
-        expect(DURABILITY_BROKEN_AT).toBe(0);
-        expect(DURABILITY_USABLE_MIN).toBe(1);
+    it('pins the exact trait group names, stat names, and existence boundaries', () => {
+        expect(Object.values(TRAIT_GROUPS)).toEqual(['Physical', 'Movement', 'Manipulation', 'Mind']);
+        expect(Object.values(STAT_NAMES)).toEqual([
+            'existence', 'cut_resistance', 'impact_resistance', 'wear_resistance',
+            'heat_resistance', 'electricity_resistance', 'corrosion_resistance',
+            'mass', 'sharpness', 'volume', 'strength', 'move', 'fine_controls', 'think_level',
+        ]);
+        expect(EXISTENCE_GONE_AT).toBe(0);
+        expect(EXISTENCE_USABLE_MIN).toBe(0);
     });
 });

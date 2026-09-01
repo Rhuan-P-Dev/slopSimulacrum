@@ -389,7 +389,7 @@ describe('WorldStateController._spawnNpcs — killer LLM drone (env-gated, LLM-r
         // check for that item type (the same canHoldItem gate equip() uses —
         // evaluated on the component's effective, material-derived stats), and
         // never on a bare arm. (In practice the t1 lands on the iron centralBall
-        // — its derived strength/durability meet the t1 cost — while the knife
+        // — its derived strength/existence meet the t1 cost — while the knife
         // needs Manipulation.fine_controls, which only a hand provides.)
         const canHold = (itemType, componentId) =>
             wsc.holdingCostController.canHoldItem(itemType, wsc.getComponentStats(componentId)).success;

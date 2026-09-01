@@ -142,7 +142,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         const head = aHeadComponentId(world, entityId);
 
         turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
-        const before = world.getComponentStats(head).Physical.durability;
+        const before = world.getComponentStats(head).Physical.existence;
 
         const updates = [];
         turns.setBroadcaster({
@@ -166,7 +166,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         expect(Object.keys(state.queues)).toHaveLength(0);
 
         // The queued action executed through the REAL pipeline.
-        const after = world.getComponentStats(head).Physical.durability;
+        const after = world.getComponentStats(head).Physical.existence;
         expect(after).toBe(before + 10);
 
         // A turn-round-update with phase 'resolution' was emitted on the close tick.
@@ -220,7 +220,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         stepTo(world, tick, turns, 0);
         const head = aHeadComponentId(world, entityId);
         turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
-        const before = world.getComponentStats(head).Physical.durability;
+        const before = world.getComponentStats(head).Physical.existence;
 
         // The very signal that completes the roster closes AND resolves in
         // this same call.
@@ -229,7 +229,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         expect(sig.closed).toBe(true);
         expect(sig.barrier.closeReason).toBe('all-ready');
         expect(turns.getRoundState().phase).toBe('resolution');
-        expect(world.getComponentStats(head).Physical.durability).toBe(before + 10);
+        expect(world.getComponentStats(head).Physical.existence).toBe(before + 10);
     });
 
     it('4. idempotent signaling — a second signal is a no-op; exactly one close + one resolution', () => {
@@ -237,7 +237,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         stepTo(world, tick, turns, 0);
         const head = aHeadComponentId(world, entityId);
         turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
-        const before = world.getComponentStats(head).Physical.durability;
+        const before = world.getComponentStats(head).Physical.existence;
 
         const updates = [];
         turns.setBroadcaster({
@@ -257,7 +257,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
 
         // Exactly one resolution: the queued selfHeal ran exactly once
         // (+10, NOT +20), and exactly one resolution transition was emitted.
-        expect(world.getComponentStats(head).Physical.durability).toBe(before + 10);
+        expect(world.getComponentStats(head).Physical.existence).toBe(before + 10);
         expect(updates.filter(u => u.phase === 'resolution')).toHaveLength(1);
         expect(Object.keys(turns.getRoundState().queues)).toHaveLength(0);
     });
@@ -481,11 +481,11 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         // real pipeline.
         resolveAgent2();
         await flush();
-        const before = world2.getComponentStats(head).Physical.durability;
+        const before = world2.getComponentStats(head).Physical.existence;
         const sig2 = turns2.signalPlanComplete(entityId, 'player');
         expect(sig2.closed).toBe(true);
         expect(sig2.barrier.closeReason).toBe('all-ready');
-        expect(world2.getComponentStats(head).Physical.durability).toBe(before + 10);
+        expect(world2.getComponentStats(head).Physical.existence).toBe(before + 10);
 
         // Post-resolution snapshot: restores as closed, no re-resolution,
         // and the queue gate stays closed.
@@ -548,7 +548,7 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         expect(close.barrier.closeReason).toBe('all-ready');
 
         // The late joiner's entry executed via the late-joiner reconciliation.
-        expect(world.getComponentStats(lateHead).Physical.durability).toBeGreaterThan(0);
+        expect(world.getComponentStats(lateHead).Physical.existence).toBeGreaterThan(0);
     });
 
     it('14. late cross-round NPC agent settlement — warn, ignore, no double resolution', async () => {

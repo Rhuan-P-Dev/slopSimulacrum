@@ -71,13 +71,13 @@ function applyMutations(world, handles) {
     handles.handComponentId = hand.id;
 
     // 1. Component stats mutation via the public action API (selfHeal:
-    //    Physical.durability +10 per execution, target 'self' pinned to the head).
-    const beforeDurability = world.getComponentStats(head.id).Physical.durability;
+    //    Physical.existence +10 per execution, target 'self' pinned to the head).
+    const beforeDurability = world.getComponentStats(head.id).Physical.existence;
     const heal1 = world.actionController.executeAction('selfHeal', entity.id, { targetComponentId: head.id });
     const heal2 = world.actionController.executeAction('selfHeal', entity.id, { targetComponentId: head.id });
     expect(heal1.success, `selfHeal #1 should succeed: ${JSON.stringify(heal1.error)}`).toBe(true);
     expect(heal2.success, `selfHeal #2 should succeed: ${JSON.stringify(heal2.error)}`).toBe(true);
-    const afterDurability = world.getComponentStats(head.id).Physical.durability;
+    const afterDurability = world.getComponentStats(head.id).Physical.existence;
     expect(afterDurability).toBe(beforeDurability + 20);
 
     // 2. Inventory + equipped mutation via the public state API.
@@ -204,7 +204,7 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         // Aggressively mutate the snapshot
         snapshot.state.entities[liveEntityId].spatial.x = 999999;
         snapshot.state.entities[liveEntityId].status = 'zombified';
-        snapshot.state.components[Object.keys(snapshot.state.components)[0]].Physical.durability = -1;
+        snapshot.state.components[Object.keys(snapshot.state.components)[0]].Physical.existence = -1;
         snapshot.state.droppedItems['injected-item'] = { id: 'injected-item' };
 
         // Live state must be untouched
@@ -230,8 +230,8 @@ describe('WorldStateController persistence (serialize/restore)', () => {
         const entityB = worldB.getEntity(handles.entityId);
         expect(entityB, 'restored instance must contain the same entity ID').toBeTruthy();
         expect(entityB.spatial).toEqual(handles.spatial.after);
-        expect(worldB.getComponentStats(handles.headComponentId).Physical.durability)
-            .toBe(worldA.getComponentStats(handles.headComponentId).Physical.durability);
+        expect(worldB.getComponentStats(handles.headComponentId).Physical.existence)
+            .toBe(worldA.getComponentStats(handles.headComponentId).Physical.existence);
         const equippedB = worldB.getEquippedItems(handles.entityId) || [];
         expect(equippedB.some(eq => eq.itemId === handles.knifeItemId), 'restored instance must keep the equipped knife').toBe(true);
         // Internal-component mirror re-synced from the canonical store

@@ -189,13 +189,13 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         const arm = drone.components.find(c => c.type === 'crafterArm');
         const wheel = drone.components.find(c => c.type === 'crafterRollingBall');
         expect(world.getComponentStats(core.id).Physical).toMatchObject({
-            durability: 100, mass: 20, volume: 12
+            existence: 100, mass: 20, volume: 12
         });
         expect(world.getComponentStats(arm.id).Physical).toMatchObject({
-            durability: 50, strength: 10, volume: 6
+            existence: 50, strength: 10, volume: 6
         });
         expect(world.getComponentStats(wheel.id)).toMatchObject({
-            Physical: { durability: 80, volume: 10 },
+            Physical: { existence: 80, volume: 10 },
             Movement: { move: 10 }
         });
     });

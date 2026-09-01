@@ -16,7 +16,7 @@
  *     (planningDeadlineTick absent), NPC already auto-signaled.
  *   - queueAction during planning → q- id; 4th entry → QUEUE_FULL.
  *   - close via the droid's signal: resolution in the SAME call (real
- *     pipeline durability delta), turn event logged, queue cleared,
+ *     pipeline existence delta), turn event logged, queue cleared,
  *     closeReason 'all-ready'.
  *   - out-of-range 'droid punch' (target in another room) → discarded with a
  *     failure log, no exception, other entries still execute.
@@ -160,7 +160,7 @@ describe('TurnSystemController (Feature A)', () => {
         const { world, tick, turns, entityId } = buildWorld();
         stepTo(world, tick, turns, 5);
         const head = aHeadComponentId(world, entityId);
-        const before = world.getComponentStats(head).Physical.durability;
+        const before = world.getComponentStats(head).Physical.existence;
 
         turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
 
@@ -182,8 +182,8 @@ describe('TurnSystemController (Feature A)', () => {
         // Queue emptied at resolution.
         expect(Object.keys(state.queues)).toHaveLength(0);
 
-        // selfHeal ran through the real pipeline: durability +10.
-        const after = world.getComponentStats(head).Physical.durability;
+        // selfHeal ran through the real pipeline: existence +10.
+        const after = world.getComponentStats(head).Physical.existence;
         expect(after).toBe(before + 10);
 
         // worldEventLog surfaced the "who acted in what order" turn line.
@@ -217,7 +217,7 @@ describe('TurnSystemController (Feature A)', () => {
         const punch = turns.queueAction(entityId, 'droid punch', { targetEntityId: targetEntityId }, 'player');
         expect(punch.success).toBe(true);
 
-        const before = world.getComponentStats(head).Physical.durability;
+        const before = world.getComponentStats(head).Physical.existence;
 
         // Signal-driven close: the droid's signal resolves the round in the
         // same call (the NPC auto-signaled at round start).
@@ -226,7 +226,7 @@ describe('TurnSystemController (Feature A)', () => {
         expect(sig.barrier.closeReason).toBe('all-ready');
 
         // The valid entry still executed (round did not abort).
-        const after = world.getComponentStats(head).Physical.durability;
+        const after = world.getComponentStats(head).Physical.existence;
         expect(after).toBe(before + 10);
 
         // The punch was discarded with a failure log line (not executed).
@@ -360,11 +360,11 @@ describe('TurnSystemController (Feature A)', () => {
         // The barrier RESUMES: the remaining signal (the droid) closes and
         // resolves the restored queue through the real pipeline.
         expect(turns2.getRoundState().barrier.pendingEntityIds).toEqual([entityId]);
-        const before2 = world2.getComponentStats(head).Physical.durability;
+        const before2 = world2.getComponentStats(head).Physical.existence;
         const sig2 = turns2.signalPlanComplete(entityId, 'player');
         expect(sig2.closed).toBe(true);
         expect(sig2.barrier.closeReason).toBe('all-ready');
-        expect(world2.getComponentStats(head).Physical.durability).toBe(before2 + 10);
+        expect(world2.getComponentStats(head).Physical.existence).toBe(before2 + 10);
     });
 
     it('TURNS_DISABLED when the tick system is absent (driven world with null tickSystem)', () => {

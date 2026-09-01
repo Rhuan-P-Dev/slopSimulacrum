@@ -45,7 +45,7 @@ const materialsRegistry = {
 // Minimal mapping registry for testing
 const mappingRegistry = {
     'Physical.mass': { formula: 'densityVolume' },
-    'Physical.durability': {
+    'Physical.existence': {
         sources: { wearResistance: 0.5, impactResistance: 0.3, cutResistance: 0.2 }
     },
     'Physical.flammability': { sources: { flammability: 1.0 } }
@@ -54,7 +54,7 @@ const mappingRegistry = {
 // Global traits for testing merge
 const globalTraits = {
     Physical: {
-        durability: 100,
+        existence: 100,
         mass: 10,
         volume: 1,
         temperature: 20,
@@ -68,7 +68,7 @@ describe('MaterialController', () => {
     describe('derive', () => {
         it('returns empty object for blueprint without materials', () => {
             const controller = new MaterialController(materialsRegistry, mappingRegistry);
-            const result = controller.derive({ traits: { Physical: { durability: 50 } } });
+            const result = controller.derive({ traits: { Physical: { existence: 50 } } });
             expect(result).toEqual({});
         });
 
@@ -282,28 +282,28 @@ describe('MaterialController', () => {
             expect(result.Physical.flammability).toBeCloseTo(35, 2);
         });
 
-        it('blends iron-only durability (weighted sources)', () => {
+        it('blends iron-only existence (weighted sources)', () => {
             const controller = new MaterialController(materialsRegistry, mappingRegistry);
             const result = controller.derive({
                 materials: [{ material: 'iron', fraction: 1.0 }],
                 traits: {},
                 volume: 1
             });
-            // durability sources: wearResistance=80 (w=0.5), impactResistance=45 (w=0.3), cutResistance=85 (w=0.2)
+            // existence sources: wearResistance=80 (w=0.5), impactResistance=45 (w=0.3), cutResistance=85 (w=0.2)
             // = (80×0.5 + 45×0.3 + 85×0.2) / (0.5+0.3+0.2) = (40+13.5+17)/1 = 70.5
-            expect(result.Physical.durability).toBeCloseTo(70.5, 2);
+            expect(result.Physical.existence).toBeCloseTo(70.5, 2);
         });
 
-        it('blends wood-only durability', () => {
+        it('blends wood-only existence', () => {
             const controller = new MaterialController(materialsRegistry, mappingRegistry);
             const result = controller.derive({
                 materials: [{ material: 'wood', fraction: 1.0 }],
                 traits: {},
                 volume: 1
             });
-            // durability sources: wearResistance=30 (w=0.5), impactResistance=70 (w=0.3), cutResistance=20 (w=0.2)
+            // existence sources: wearResistance=30 (w=0.5), impactResistance=70 (w=0.3), cutResistance=20 (w=0.2)
             // = (30×0.5 + 70×0.3 + 20×0.2) / 1 = (15+21+4)/1 = 40
-            expect(result.Physical.durability).toBeCloseTo(40, 2);
+            expect(result.Physical.existence).toBeCloseTo(40, 2);
         });
 
         it('blends wood-only flammability', () => {
@@ -328,7 +328,7 @@ describe('MaterialController', () => {
             expect(result.Physical.flammability).toBeCloseTo(5, 2);
         });
 
-        it('knife 60/40 iron/wood durability', () => {
+        it('knife 60/40 iron/wood existence', () => {
             const controller = new MaterialController(materialsRegistry, mappingRegistry);
             const result = controller.derive({
                 materials: [
@@ -342,8 +342,8 @@ describe('MaterialController', () => {
             // wearResistance = 0.6×80 + 0.4×30 = 48+12 = 60
             // impactResistance = 0.6×45 + 0.4×70 = 27+28 = 55
             // cutResistance = 0.6×85 + 0.4×20 = 51+8 = 59
-            // durability = (60×0.5 + 55×0.3 + 59×0.2) / 1 = (30+16.5+11.8)/1 = 58.3
-            expect(result.Physical.durability).toBeCloseTo(58.3, 2);
+            // existence = (60×0.5 + 55×0.3 + 59×0.2) / 1 = (30+16.5+11.8)/1 = 58.3
+            expect(result.Physical.existence).toBeCloseTo(58.3, 2);
         });
     });
 
@@ -352,15 +352,15 @@ describe('MaterialController', () => {
             const materialController = new MaterialController(materialsRegistry, mappingRegistry);
             const traitsController = new TraitsController(globalTraits);
 
-            // Knife blueprint: hand-sets durability=30, sharpness=50
-            // Materials derive durability≈58.3 but blueprint override should win
+            // Knife blueprint: hand-sets existence=30, sharpness=50
+            // Materials derive existence≈58.3 but blueprint override should win
             const blueprint = {
                 materials: [
                     { material: 'iron', fraction: 0.6 },
                     { material: 'wood', fraction: 0.4 }
                 ],
                 traits: {
-                    Physical: { durability: 30, sharpness: 50 }
+                    Physical: { existence: 30, sharpness: 50 }
                 },
                 volume: 1
             };
@@ -368,8 +368,8 @@ describe('MaterialController', () => {
             const derived = materialController.derive(blueprint);
             const finalStats = traitsController.mergeTraits(blueprint.traits, derived);
 
-            // Blueprint override wins for durability → should be 30, not ~58.3
-            expect(finalStats.Physical.durability).toBe(30);
+            // Blueprint override wins for existence → should be 30, not ~58.3
+            expect(finalStats.Physical.existence).toBe(30);
             // sharpness from blueprint is preserved
             expect(finalStats.Physical.sharpness).toBe(50);
             // mass and flammability come from materials (blueprint doesn't override them)
@@ -381,11 +381,11 @@ describe('MaterialController', () => {
             const materialController = new MaterialController(materialsRegistry, mappingRegistry);
             const traitsController = new TraitsController(globalTraits);
 
-            // MetalBox: hand-sets mass=2, durability=100 (flammability NOT set)
+            // MetalBox: hand-sets mass=2, existence=100 (flammability NOT set)
             const blueprint = {
                 materials: [{ material: 'iron', fraction: 1.0 }],
                 traits: {
-                    Physical: { mass: 2, durability: 100 }
+                    Physical: { mass: 2, existence: 100 }
                 },
                 volume: 10
             };
@@ -393,9 +393,9 @@ describe('MaterialController', () => {
             const derived = materialController.derive(blueprint);
             const finalStats = traitsController.mergeTraits(blueprint.traits, derived);
 
-            // Blueprint overrides win for mass and durability
+            // Blueprint overrides win for mass and existence
             expect(finalStats.Physical.mass).toBe(2);
-            expect(finalStats.Physical.durability).toBe(100);
+            expect(finalStats.Physical.existence).toBe(100);
             // Flammability comes from materials (iron → 5)
             expect(finalStats.Physical.flammability).toBeCloseTo(5, 2);
         });
@@ -407,7 +407,7 @@ describe('MaterialController', () => {
             // DroidArm has no materials field — should behave exactly as before
             const blueprint = {
                 traits: {
-                    Physical: { durability: 50, volume: 8 },
+                    Physical: { existence: 50, volume: 8 },
                     Spatial: { x: 20, y: 10 }
                 }
             };
@@ -416,7 +416,7 @@ describe('MaterialController', () => {
             const finalStats = traitsController.mergeTraits(blueprint.traits, derived);
 
             // No materials → derived is empty → merge output = globalDefaults + blueprint overrides
-            expect(finalStats.Physical.durability).toBe(50);
+            expect(finalStats.Physical.existence).toBe(50);
             expect(finalStats.Physical.volume).toBe(8);
             expect(finalStats.Physical.mass).toBe(10); // from global defaults (not overridden)
             expect(finalStats.Physical.flammability).toBe(0); // from global defaults
@@ -427,13 +427,13 @@ describe('MaterialController', () => {
         it('backward compat: mergeTraits(null materialDerived) is identical to old behavior', () => {
             const traitsController = new TraitsController(globalTraits);
             const blueprintTraits = {
-                Physical: { durability: 40, volume: 6 }
+                Physical: { existence: 40, volume: 6 }
             };
 
             // Call without the second argument (default null)
             const finalStats = traitsController.mergeTraits(blueprintTraits);
 
-            expect(finalStats.Physical.durability).toBe(40);
+            expect(finalStats.Physical.existence).toBe(40);
             expect(finalStats.Physical.volume).toBe(6);
             expect(finalStats.Physical.mass).toBe(10); // global default preserved
             expect(finalStats.Physical.flammability).toBe(0); // global default preserved
@@ -442,7 +442,7 @@ describe('MaterialController', () => {
         it('backward compat: blueprint declaring only one group does NOT get undeclared groups from globalTraits', () => {
             // Strengthened test: globalTraits now contains additional groups beyond Physical.
             const enrichedGlobalTraits = {
-                Physical: { durability: 100, mass: 10 },
+                Physical: { existence: 100, mass: 10 },
                 Mind: { think_level: 50 },
                 Spatial: { x: 99, y: 99 },
                 Movement: {},
@@ -451,14 +451,14 @@ describe('MaterialController', () => {
 
             const traitsController = new TraitsController(enrichedGlobalTraits);
             const blueprintTraits = {
-                Physical: { durability: 40, volume: 6 }
+                Physical: { existence: 40, volume: 6 }
                 // Blueprint declares ONLY Physical — should NOT get Mind, Spatial, Movement, Manipulation
             };
 
             const finalStats = traitsController.mergeTraits(blueprintTraits);
 
             // Physical from blueprint is present with global defaults filled in
-            expect(finalStats.Physical.durability).toBe(40);
+            expect(finalStats.Physical.existence).toBe(40);
             expect(finalStats.Physical.mass).toBe(10); // global default preserved
             // Blueprint did NOT declare these groups — they must NOT appear
             expect(finalStats).not.toHaveProperty('Mind');
@@ -470,11 +470,11 @@ describe('MaterialController', () => {
         it('material-derived group not declared by blueprint IS present in merged output', () => {
             // Test the new capability: a material-derived group the blueprint does NOT declare must still appear.
             const traitsController = new TraitsController({
-                Physical: { durability: 100, mass: 10 }
+                Physical: { existence: 100, mass: 10 }
             });
 
             const blueprintTraits = {
-                Physical: { durability: 50 }
+                Physical: { existence: 50 }
                 // Blueprint declares only Physical, no Movement
             };
 
@@ -487,7 +487,7 @@ describe('MaterialController', () => {
             const finalStats = traitsController.mergeTraits(blueprintTraits, materialDerived);
 
             // Blueprint's Physical is present
-            expect(finalStats.Physical.durability).toBe(50);
+            expect(finalStats.Physical.existence).toBe(50);
             expect(finalStats.Physical.mass).toBe(5); // from derived (blueprint doesn't override)
             // Movement group IS present because material-derived produced it, even though blueprint didn't declare it
             expect(finalStats).toHaveProperty('Movement');
@@ -497,7 +497,7 @@ describe('MaterialController', () => {
         // Fix 3 tests: Movement default removal — no phantom move injected
         it('Fix 3: blueprint declaring only Mind → merged stats contain no Movement key', () => {
             const traitsController = new TraitsController({
-                Physical: { durability: 100 },
+                Physical: { existence: 100 },
                 Mind: { think_level: 10 },
                 Movement: {} // Empty in data/traits.json — no default move
             });
@@ -518,7 +518,7 @@ describe('MaterialController', () => {
 
         it('Fix 3: blueprint declaring Movement without move → group present, move undefined, no default injected', () => {
             const traitsController = new TraitsController({
-                Physical: { durability: 100 },
+                Physical: { existence: 100 },
                 Movement: {} // No default move
             });
 
@@ -538,7 +538,7 @@ describe('MaterialController', () => {
 
 describe('shared mapping-key pattern (spec §2 R3)', () => {
     it('classifies trait→stat key forms (the shared constant used by both boot validators)', () => {
-        expect(TRAIT_STAT_KEY_PATTERN.test('Physical.durability')).toBe(true);
+        expect(TRAIT_STAT_KEY_PATTERN.test('Physical.existence')).toBe(true);
         expect(TRAIT_STAT_KEY_PATTERN.test('a.b')).toBe(true); // lowercase allowed
         expect(TRAIT_STAT_KEY_PATTERN.test('A.b.c')).toBe(false); // two dots
         expect(TRAIT_STAT_KEY_PATTERN.test('A')).toBe(false);

@@ -23,10 +23,10 @@ import LlmContextController from '../../src/controllers/networking/LlmContextCon
 // =========================================================================
 
 const COMPONENT_REGISTRY = {
-    coreBall: { traits: { Physical: { durability: 100, volume: 10 } } },
-    head: { traits: { Physical: { durability: 50 }, Mind: { think_level: 5 } } },
+    coreBall: { traits: { Physical: { existence: 100, volume: 10 } } },
+    head: { traits: { Physical: { existence: 50 }, Mind: { think_level: 5 } } },
     hand: { traits: { Physical: { strength: 25 }, Manipulation: { fine_controls: 30 } } },
-    roller: { traits: { Physical: { durability: 60 }, Movement: { move: 20 } } }
+    roller: { traits: { Physical: { existence: 60 }, Movement: { move: 20 } } }
 };
 
 const ACTION_REGISTRY = {
@@ -36,10 +36,10 @@ const ACTION_REGISTRY = {
         requirements: [{ trait: 'Physical', stat: 'strength', minValue: 15 }]
     },
     selfHeal: {
-        description: 'Run a self-repair cycle that restores 10 durability to your core.',
+        description: 'Run a self-repair cycle that restores 10 existence to your core.',
         requirements: [
             { trait: 'Movement', stat: 'move', minValue: 1 },
-            { trait: 'Physical', stat: 'durability', minValue: 1 }
+            { trait: 'Physical', stat: 'existence', minValue: 1 }
         ]
     },
     cut: {
@@ -104,18 +104,18 @@ function makeWorld(overrides = {}) {
         }
     };
 
-    // Live component stats (current values); max durability comes from COMPONENT_REGISTRY.
+    // Live component stats (current values); max existence comes from COMPONENT_REGISTRY.
     const componentStats = {};
     for (const compId of ['comp-core', 'comp-head', 'comp-hand', 'comp-roller', 'comp-same-core', 'comp-same-hand', 'comp-other-core']) {
         componentStats[compId] = {
-            Physical: { durability: compId.startsWith('comp-same') ? 78 : compId.startsWith('comp-other') ? 80 : 90 },
+            Physical: { existence: compId.startsWith('comp-same') ? 78 : compId.startsWith('comp-other') ? 80 : 90 },
             Spatial: { x: 0, y: 0 }
         };
     }
-    componentStats['comp-hand'] = { Physical: { durability: 90, strength: 25 }, Manipulation: { fine_controls: 30 }, Spatial: { x: 0, y: 0 } };
-    componentStats['comp-roller'] = { Physical: { durability: 60 }, Movement: { move: 20 }, Spatial: { x: 0, y: 0 } };
-    componentStats['comp-head'] = { Physical: { durability: 45 }, Mind: { think_level: 8 }, Spatial: { x: 0, y: 0 } };
-    componentStats['comp-same-hand'] = { Physical: { durability: 78, strength: 25 }, Spatial: { x: 0, y: 0 } };
+    componentStats['comp-hand'] = { Physical: { existence: 90, strength: 25 }, Manipulation: { fine_controls: 30 }, Spatial: { x: 0, y: 0 } };
+    componentStats['comp-roller'] = { Physical: { existence: 60 }, Movement: { move: 20 }, Spatial: { x: 0, y: 0 } };
+    componentStats['comp-head'] = { Physical: { existence: 45 }, Mind: { think_level: 8 }, Spatial: { x: 0, y: 0 } };
+    componentStats['comp-same-hand'] = { Physical: { existence: 78, strength: 25 }, Spatial: { x: 0, y: 0 } };
 
     const actionsForEntity = {
         'droid punch': {
@@ -205,17 +205,17 @@ describe('LlmContextController (context renderer)', () => {
         }
     });
 
-    it('renders the self section (name, room block, durability lowest-ratio-first, key stats, equipped, inventory)', () => {
+    it('renders the self section (name, room block, existence lowest-ratio-first, key stats, equipped, inventory)', () => {
         const { text, data } = controller.buildContext('ent-self');
         expect(text).toContain('Name: Bolt the Merchant');
         // Enriched room block (spec: better text & vision).
         expect(text).toContain('You are in: The Entrance Hall — A dimly lit hall.');
         expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
         expect(text).toContain('Exits: right_door → The Deep Vault');
-        // max 2 durability components, lowest ratio first (stable sort keeps
+        // max 2 existence components, lowest ratio first (stable sort keeps
         // component order on ties: head 45/50 = 0.9 and core 90/100 = 0.9)
-        expect(data.self.durability).toHaveLength(2);
-        expect(data.self.durability).toEqual(expect.arrayContaining([
+        expect(data.self.existence).toHaveLength(2);
+        expect(data.self.existence).toEqual(expect.arrayContaining([
             expect.objectContaining({ component: 'head', current: 45, max: 50 }),
             expect.objectContaining({ component: 'coreBall', current: 90, max: 100 })
         ]));
@@ -359,7 +359,7 @@ describe('LlmContextController (context renderer)', () => {
     it('renders executable actions with description, range, requirement and a valid canExecute id', () => {
         const { text, data } = controller.buildContext('ent-self');
         expect(text).toMatch(/- droid punch: Throw a punch with your arm.*\| range 100 \| needs Physical\.strength >= 15 \| use comp-hand/);
-        expect(text).toMatch(/- selfHeal: Run a self-repair cycle.*\| range self \| needs Movement\.move >= 1, Physical\.durability >= 1 \| use comp-roller/);
+        expect(text).toMatch(/- selfHeal: Run a self-repair cycle.*\| range self \| needs Movement\.move >= 1, Physical\.existence >= 1 \| use comp-roller/);
         expect(data.actions.entries.map(a => a.name).sort()).toEqual(['droid punch', 'selfHeal']);
         for (const entry of data.actions.entries) {
             expect(entry.canExecute[0]).toMatch(/^comp-/);

@@ -1,13 +1,13 @@
 /**
  * NpcAIController — verifies trigger-system behavior when NPC attacks a victim
- * whose component durability crosses the BROKEN_DURABILITY_THRESHOLD (0).
+ * whose component existence crosses the BROKEN_DURABILITY_THRESHOLD (0).
  *
  * Builds the REAL controller chain via buildWorldState() — same pattern as
  * test/contract/TurnSystem.contract.test.js — and drives the deterministic
  * brain exactly as src/server.js does.
  *
  * What these tests verify:
- *   - Test 1 documents that durability damage lands in the authoritative NESTED
+ *   - Test 1 documents that existence damage lands in the authoritative NESTED
  *     store (ComponentStatsController), while the entity-side component copy
  *     has NO `stats` field. After the trigger system fires, the broken component
  *     is REMOVED from both stores (spill + cleanup).
@@ -81,7 +81,7 @@ function spawnAttackerAndVictim(world) {
  * 'target'-typed damageComponent consequence (DamageConsequenceHandler.js:72).
  */
 function dealDamage(world, compId, delta) {
-    return world.componentController.updateComponentStatDelta(compId, 'Physical', 'durability', delta);
+    return world.componentController.updateComponentStatDelta(compId, 'Physical', 'existence', delta);
 }
 
 /**
@@ -97,7 +97,7 @@ function think(world, turns, npcId, round) {
 // Tests
 // =========================================================================
 
-describe('NpcAIController durability desync (real controller chain)', () => {
+describe('NpcAIController existence desync (real controller chain)', () => {
     it('documents that broken components are removed from both the nested store and entity components array', () => {
         const { world } = buildWorld();
         const { victimId } = spawnAttackerAndVictim(world);
@@ -113,7 +113,7 @@ describe('NpcAIController durability desync (real controller chain)', () => {
         expect('stats' in comp0).toBe(false);
 
         // The authoritative nested store has the full blueprint stats.
-        expect(world.getComponentStats(comp0.id).Physical.durability).toBe(100);
+        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(100);
 
         // Apply the real damage call (e.g. two punches of 87.5 → -75).
         const ok = dealDamage(world, comp0.id, -175);
@@ -129,12 +129,12 @@ describe('NpcAIController durability desync (real controller chain)', () => {
         expect(compFound).toBeUndefined();
     });
 
-    it('REGRESSION (currently failing): brain must NOT attack a component whose authoritative durability < 1', () => {
+    it('REGRESSION (currently failing): brain must NOT attack a component whose authoritative existence < 1', () => {
         const { world } = buildWorld();
         const { npcId, victimId } = spawnAttackerAndVictim(world);
 
         const comp0 = world.stateEntityController.getEntity(victimId).components[0];
-        expect(world.getComponentStats(comp0.id).Physical.durability).toBe(100);
+        expect(world.getComponentStats(comp0.id).Physical.existence).toBe(100);
 
         // Break the first component: 100 → -75 via the real damage path.
         dealDamage(world, comp0.id, -175);

@@ -45,7 +45,7 @@ const materialsRegistry = {
 
 const mappingRegistry = {
     'Physical.mass': { formula: 'densityVolume' },
-    'Physical.durability': {
+    'Physical.existence': {
         sources: { wearResistance: 0.5, impactResistance: 0.3, cutResistance: 0.2 }
     },
     'Physical.flammability': { sources: { flammability: 1.0 } }
@@ -59,19 +59,19 @@ const itemDefinitions = {
             { material: 'iron', fraction: 0.6, role: 'blade' },
             { material: 'wood', fraction: 0.4, role: 'handle' }
         ],
-        traits: { Physical: { durability: 30, sharpness: 50 } }
+        traits: { Physical: { existence: 30, sharpness: 50 } }
     },
     metalBox: {
         name: 'Metal Box',
         volume: 10,
         materials: [{ material: 'iron', fraction: 1.0 }],
-        traits: { Physical: { mass: 2, durability: 100 } }
+        traits: { Physical: { mass: 2, existence: 100 } }
     },
     powerCell: {
         name: 'Power Cell',
         volume: 2,
         // No materials field — backward-compatible passthrough
-        traits: { Physical: { mass: 1, durability: 50 } }
+        traits: { Physical: { mass: 1, existence: 50 } }
     }
 };
 
@@ -125,15 +125,15 @@ describe('InventoryManager — material traits derivation', () => {
         expect(item.traits.Physical.flammability).toBe(35);
     });
 
-    it('knife blueprint override wins for durability (30, not ~58.3)', () => {
+    it('knife blueprint override wins for existence (30, not ~58.3)', () => {
         const manager = createManager({ materialController: controller });
         const entity = makeEntity();
         const result = manager.addItem(entity, 'knife', 'comp-1');
         expect(result.success).toBe(true);
 
         const item = entity.items[0];
-        // Material-derived durability ~58.3 but blueprint overrides to 30
-        expect(item.traits.Physical.durability).toBe(30);
+        // Material-derived existence ~58.3 but blueprint overrides to 30
+        expect(item.traits.Physical.existence).toBe(30);
     });
 
     it('knife preserves blueprint sharpness (50)', () => {
@@ -146,7 +146,7 @@ describe('InventoryManager — material traits derivation', () => {
         expect(item.traits.Physical.sharpness).toBe(50);
     });
 
-    it('knife stats panel display: mass, durability, sharpness, flammability all present', () => {
+    it('knife stats panel display: mass, existence, sharpness, flammability all present', () => {
         const manager = createManager({ materialController: controller });
         const entity = makeEntity();
         const result = manager.addItem(entity, 'knife', 'comp-1');
@@ -154,7 +154,7 @@ describe('InventoryManager — material traits derivation', () => {
 
         const item = entity.items[0];
         expect(item.traits.Physical.mass).toBeDefined();
-        expect(item.traits.Physical.durability).toBe(30);
+        expect(item.traits.Physical.existence).toBe(30);
         expect(item.traits.Physical.sharpness).toBe(50);
         expect(item.traits.Physical.flammability).toBe(35);
     });
@@ -185,7 +185,7 @@ describe('InventoryManager — material traits derivation', () => {
         const item = entity.items[0];
         // No materials → traits unchanged from blueprint
         expect(item.traits.Physical.mass).toBe(1);
-        expect(item.traits.Physical.durability).toBe(50);
+        expect(item.traits.Physical.existence).toBe(50);
         expect(item.traits.Physical.flammability).toBeUndefined();
     });
 
@@ -197,7 +197,7 @@ describe('InventoryManager — material traits derivation', () => {
 
         const item = entity.items[0];
         // Null controller → traits unchanged from blueprint (no mass/flammability)
-        expect(item.traits.Physical.durability).toBe(30);
+        expect(item.traits.Physical.existence).toBe(30);
         expect(item.traits.Physical.sharpness).toBe(50);
         expect(item.traits.Physical.mass).toBeUndefined();
         expect(item.traits.Physical.flammability).toBeUndefined();
@@ -239,7 +239,7 @@ describe('InventoryManager — material traits derivation', () => {
             volume: 1,
             hostVolume: 1,
             externalVolume: null,
-            traits: { Physical: { durability: 30, sharpness: 50 } }, // no mass/flammability
+            traits: { Physical: { existence: 30, sharpness: 50 } }, // no mass/flammability
             hostComponentId: 'comp-1'
         };
         entity.items.push(oldItem);
@@ -302,7 +302,7 @@ describe('InventoryManager — material traits derivation', () => {
             volume: 1,
             hostVolume: 1,
             externalVolume: null,
-            traits: { Physical: { durability: 30, sharpness: 50, mass: 999 } }, // mass tampered
+            traits: { Physical: { existence: 30, sharpness: 50, mass: 999 } }, // mass tampered
             hostComponentId: 'comp-1'
         };
         entity.items.push(tamperedItem);
@@ -316,7 +316,7 @@ describe('InventoryManager — material traits derivation', () => {
         // Missing key MUST be filled from derived values.
         expect(tamperedItem.traits.Physical.flammability).toBe(35);
         // Blueprint overrides should still be present.
-        expect(tamperedItem.traits.Physical.durability).toBe(30);
+        expect(tamperedItem.traits.Physical.existence).toBe(30);
         expect(tamperedItem.traits.Physical.sharpness).toBe(50);
     });
 });
