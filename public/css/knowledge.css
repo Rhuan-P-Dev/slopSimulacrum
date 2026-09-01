@@ -18,6 +18,7 @@
     padding: 10px;
     color: var(--text-main);
     font-family: monospace;
+    font-size: 1em;
 }
 
 /* ---- Sub-tab bar -------------------------------------------------------------
@@ -38,7 +39,7 @@
     border-radius: 4px;
     color: var(--text-dim);
     font-family: monospace;
-    font-size: 0.85em;
+    font-size: 0.95em;
     cursor: pointer;
 }
 
@@ -77,7 +78,7 @@
 .knowledge-block-title {
     color: var(--neon-green);
     font-weight: bold;
-    font-size: 0.95em;
+    font-size: 1.05em;
     margin-bottom: 8px;
 }
 
@@ -87,7 +88,7 @@
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 8px;
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 .knowledge-mold-table caption {
@@ -122,7 +123,7 @@
     gap: 8px;
     padding: 3px 0;
     border-bottom: 1px solid #222;
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 .knowledge-mapping-key {
@@ -141,7 +142,7 @@
 
 .knowledge-mapping-annotation {
     color: var(--text-dim);
-    font-size: 0.9em;
+    font-size: 1em;
 }
 
 /* Property chips: shared by the source list and the material property list. */
@@ -156,7 +157,7 @@
     border: 1px solid #555;
     border-radius: 3px;
     padding: 1px 6px;
-    font-size: 0.9em;
+    font-size: 1em;
     color: var(--text-main);
 }
 
@@ -181,7 +182,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 .knowledge-vocab-row {
@@ -216,7 +217,7 @@
     color: var(--neon-green);
     border-radius: 3px;
     padding: 1px 6px;
-    font-size: 0.9em;
+    font-size: 1em;
 }
 
 /* ---- Tab 2: recipe cards (spec §5.6.5 — grid like the crafting panel) ---------- */
@@ -238,7 +239,7 @@
 
 .knowledge-card-desc {
     color: var(--text-dim);
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 .knowledge-ref-line {
@@ -253,7 +254,7 @@
     border: 1px solid #555;
     border-radius: 3px;
     padding: 1px 6px;
-    font-size: 0.8em;
+    font-size: 0.9em;
     color: var(--text-main);
 }
 
@@ -278,7 +279,7 @@
     flex-wrap: wrap;
     gap: 8px;
     color: var(--text-dim);
-    font-size: 0.85em;
+    font-size: 0.95em;
 }
 
 .knowledge-item-volume {
@@ -296,7 +297,7 @@
 .knowledge-trait-label {
     color: var(--text-main);
     font-weight: bold;
-    font-size: 0.85em;
+    font-size: 0.95em;
     margin-right: 4px;
 }
 
@@ -304,7 +305,7 @@
 .knowledge-composition {
     border-top: 1px solid #222;
     padding-top: 4px;
-    font-size: 0.8em;
+    font-size: 0.9em;
     color: var(--text-dim);
 }
 
