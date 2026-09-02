@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `a5b49ef` (the commit that introduced both the per-material damage-type split and the chunk drop — the one-line guard fix that closed this bug, `DAMAGE_CHANNELS.includes` → `Object.values(DAMAGE_CHANNELS).includes`, shipped in that same commit)
 - **Related Files**: `src/controllers/consequences/DamageConsequenceHandler.js`
 
 ## Symptoms
