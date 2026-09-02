@@ -1,5 +1,5 @@
 {
-  "_comment": "Component recipes, not stat sheets. Each recipe declares exactly three things: FORM (size/volume + positioning offsets), a COMPOSITION of distinct materials (fractions sum to 1.0), and the INTERNAL COMPONENTS (organs) that are pre-installed. It declares NO stat values: existence, the six channel resistances, mass, and sharpness derive from matter; volume from form; strength/move/fine_controls/think_level from the organs a recipe installs. A recipe with matter but no organs is inert. Material and IC references point at data/materials.json and data/internalComponents.json.",
+  "_comment": "Component recipes, not stat sheets. Each recipe declares exactly three things: FORM (size/volume + positioning offsets), a COMPOSITION of distinct materials (fractions sum to 1.0), and the INTERNAL COMPONENTS (organs) that are pre-installed. It declares NO stat values: existence, the six channel resistances, mass, and sharpness derive from matter; volume from form; strength/move/fine_controls/think_level from the organs a recipe installs. A recipe with matter but no organs is inert. Material and IC references point at data/materials.json and data/internalComponents.json. An internalComponents entry is either an organ type string (type-default grants) or an object { type, grants? } whose grants override the organ type's defaults for that recipe's instances — e.g. droidRollingBall's strengthCore override (120) lets the 12-volume iron wheels bear the heaviest equipable item (T1 needs 1.5 x 78 = 117 strength) where the 10-volume centralBall cannot spare room for a second heavy item.",
   "centralBall": {
     "name": "Central Ball",
     "form": { "volume": 10, "position": { "x": 0, "y": 0 } },
@@ -37,7 +37,7 @@
     "name": "Droid Rolling Ball",
     "form": { "volume": 12, "position": { "x": 0, "y": 20 } },
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "internalComponents": ["moveCore"]
+    "internalComponents": ["moveCore", { "type": "strengthCore", "grants": { "Physical.strength": 120 } }]
   },
   "merchantCore": {
     "name": "Merchant Core",

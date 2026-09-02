@@ -31,6 +31,7 @@ class InternalComponentController {
 
         // Load component definitions for trait checking
         this.componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+        this._validateComponentDeclarations();
 
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
         this.internalComponents = {};
@@ -150,18 +151,102 @@ class InternalComponentController {
     }
 
     /**
+     * Returns the organ declaration of the given type in a component type's
+     * `internalComponents` list (the component's own data-driven organ list
+     * from data/components.json). A declaration is either a plain type string
+     * (the organ type's default grants apply) or an object
+     * `{ type, grants? }` whose `grants` override the organ type's defaults
+     * for that recipe's instances (e.g. a stronger strengthCore on a
+     * heavy-lifting rolling ball).
+     * @param {string} componentType - The component type (e.g., "droidRollingBall").
+     * @param {string} icType - The internal component type (e.g., "strengthCore").
+     * @returns {string|Object|null} The declaration entry, or null when the
+     *   controller is not wired, the recipe is unknown, or the organ is not
+     *   declared (fail closed — the organ is not installed).
+     * @private
+     */
+    _getDeclaration(componentType, icType) {
+        const registry = this.worldStateController?.componentController?.componentRegistry;
+        const def = registry?.[componentType];
+        if (!Array.isArray(def?.internalComponents)) return null;
+        return def.internalComponents.find((entry) =>
+            (typeof entry === 'string' ? entry : entry?.type) === icType
+        ) ?? null;
+    }
+
+    /**
      * Checks whether an internal component type is declared on a component
-     * type's `internalComponents` list (the component's own data-driven organ
-     * list from data/components.json).
+     * type's `internalComponents` list, in either entry form (string or
+     * `{ type, grants }` object).
      * @param {string} componentType - The component type (e.g., "droidHand").
      * @param {string} icType - The internal component type (e.g., "strengthCore").
      * @returns {boolean}
      * @private
      */
     _isDeclaredOnComponentType(componentType, icType) {
-        const registry = this.worldStateController?.componentController?.componentRegistry;
-        const def = registry?.[componentType];
-        return Array.isArray(def?.internalComponents) && def.internalComponents.includes(icType);
+        return this._getDeclaration(componentType, icType) !== null;
+    }
+
+    /**
+     * Extracts the per-instance grants override from a declaration entry: the
+     * `grants` object of an object-form entry, or null for a string entry
+     * (the organ type's default grants apply).
+     * @param {string|Object|null} declaration - A declaration entry from
+     *   `_getDeclaration`.
+     * @returns {Object|null} The override map, or null.
+     * @private
+     */
+    _declarationOverrides(declaration) {
+        if (declaration && typeof declaration === 'object' && !Array.isArray(declaration)
+            && typeof declaration.grants === 'object' && declaration.grants !== null) {
+            return declaration.grants;
+        }
+        return null;
+    }
+
+    /**
+     * Validates every component recipe's `internalComponents` declaration
+     * entries at construction (fail-fast, same philosophy as the registry
+     * validation): each entry must be an organ type string known to this
+     * registry, or an object with a known string `type` and — when present —
+     * a `grants` object whose values are numbers.
+     * @private
+     */
+    _validateComponentDeclarations() {
+        for (const [componentType, def] of Object.entries(this.componentDefinitions || {})) {
+            if (typeof def !== 'object' || def === null) continue;
+            if (def.internalComponents === undefined) continue;
+            if (!Array.isArray(def.internalComponents)) {
+                throw new TypeError(`[InternalComponentController] Component "${componentType}" has a non-array "internalComponents" declaration.`);
+            }
+            for (const entry of def.internalComponents) {
+                if (typeof entry === 'string') {
+                    if (!this.registry[entry]) {
+                        throw new TypeError(`[InternalComponentController] Component "${componentType}" declares unknown organ type "${entry}".`);
+                    }
+                    continue;
+                }
+                if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+                    throw new TypeError(`[InternalComponentController] Component "${componentType}" has a non-object "internalComponents" entry.`);
+                }
+                if (typeof entry.type !== 'string' || entry.type.length === 0) {
+                    throw new TypeError(`[InternalComponentController] Component "${componentType}" has an "internalComponents" entry with a missing or non-string "type".`);
+                }
+                if (!this.registry[entry.type]) {
+                    throw new TypeError(`[InternalComponentController] Component "${componentType}" declares unknown organ type "${entry.type}".`);
+                }
+                if (entry.grants !== undefined) {
+                    if (typeof entry.grants !== 'object' || entry.grants === null || Array.isArray(entry.grants)) {
+                        throw new TypeError(`[InternalComponentController] Component "${componentType}" organ "${entry.type}" has a non-object "grants" override.`);
+                    }
+                    for (const [key, value] of Object.entries(entry.grants)) {
+                        if (typeof value !== 'number') {
+                            throw new TypeError(`[InternalComponentController] Component "${componentType}" organ "${entry.type}" grant override "${key}" must be a number (got ${typeof value}).`);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -227,7 +312,7 @@ class InternalComponentController {
             }
 
             for (const component of components) {
-                const declared = this._isDeclaredOnComponentType(component.type, compType);
+                const declaration = this._getDeclaration(component.type, compType);
 
                 // Per-component gate + host filters. Two installation modes:
                 //  - Auto-install ICs (autoInstallOnSpawn): land only where the
@@ -243,7 +328,7 @@ class InternalComponentController {
                         const parentIdentifier = this._resolveParentIdentifier(component, components);
                         if (parentIdentifier !== hostSlot) continue;
                     }
-                } else if (!declared) {
+                } else if (declaration === null) {
                     continue;
                 }
 
@@ -310,7 +395,9 @@ class InternalComponentController {
 
                 // The organ's static grants become the host's function stats
                 // (set, non-additive) — the recipe-model source of capability.
-                this._applyGrants(component.id, compDef);
+                // An object-form declaration on the host recipe may override
+                // those grants for this recipe's instances.
+                this._applyGrants(component.id, compDef, this._declarationOverrides(declaration));
 
                 Logger.info(`[InternalComponentController] Auto-installed ${compType} in ${component.type} (${component.identifier}) of entity ${entityId}`);
             }
@@ -386,12 +473,31 @@ class InternalComponentController {
 
         // The organ's static grants become the host's function stats (set,
         // non-additive) — applied here so a manually added organ is immediately
-        // effective, matching the auto-install path.
-        this._applyGrants(hostComponentId, compDef);
+        // effective, matching the auto-install path. A host recipe may also
+        // override those grants for its own instances (object-form
+        // declaration), so the manual path honors the same semantics as the
+        // spawn-time path.
+        const hostType = this._resolveHostComponentType(entityId, hostComponentId);
+        const declaration = hostType ? this._getDeclaration(hostType, internalComponentType) : null;
+        this._applyGrants(hostComponentId, compDef, this._declarationOverrides(declaration));
 
         Logger.info(`[InternalComponentController] Added ${internalComponentType} to ${hostComponentId} of entity ${entityId}`);
 
         return structuredClone(instance);
+    }
+
+    /**
+     * Resolves the type of a component instance on an entity through the
+     * facade (this controller never owns component instances); null when the
+     * facade is not wired or the component is not found.
+     * @param {string} entityId - The entity ID.
+     * @param {string} componentId - The component instance ID.
+     * @returns {string|null} The component type, or null.
+     * @private
+     */
+    _resolveHostComponentType(entityId, componentId) {
+        const entity = this.worldStateController?.getEntity?.(entityId);
+        return entity?.components?.find((c) => c.id === componentId)?.type ?? null;
     }
 
     /**
@@ -412,20 +518,27 @@ class InternalComponentController {
      *
      * @param {string} hostComponentId - The host component instance ID.
      * @param {Object} compDef - The organ type definition (its `grants` map).
+     * @param {Object|null} [instanceOverrides=null] - Per-instance grants
+     *   override taken from the host recipe's object-form declaration
+     *   (`{ type, grants }`); a key present here replaces that key's
+     *   type-default value, all other keys keep the type defaults.
      * @private
      */
-    _applyGrants(hostComponentId, compDef) {
+    _applyGrants(hostComponentId, compDef, instanceOverrides = null) {
         if (!this.worldStateController) return;
         const grants = compDef.grants;
         if (grants && typeof grants === 'object') {
             for (const [key, value] of Object.entries(grants)) {
                 if (typeof value !== 'number') continue;
+                const effective = (instanceOverrides && typeof instanceOverrides[key] === 'number')
+                    ? instanceOverrides[key]
+                    : value;
                 const dot = key.indexOf('.');
                 if (dot === -1) continue;
                 const traitId = key.slice(0, dot);
                 const statName = key.slice(dot + 1);
                 this.worldStateController.componentController.updateComponentStat(
-                    hostComponentId, traitId, statName, value
+                    hostComponentId, traitId, statName, effective
                 );
             }
         }

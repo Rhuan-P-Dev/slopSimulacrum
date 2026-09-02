@@ -1,5 +1,5 @@
 {
-  "_comment": "Organ type definitions. An internal component (IC) is an atomic organ that gives a host component its FUNCTION stats (strength, move, fine_controls, think_level) — a component with matter but no organs is inert. 'grants' is the organ's static contribution to the host's function stats, keyed by the group.stat wire form. 'weight' is the organ's own mass (the physical cost of ambition). 'overTime' declares periodic effects on a unified tick system; the repair organ closes the world's salvage->existence loop, and the corrosive organ both marks its host and degrades neighbors. ICs do not carry their own material composition in the basic set.",
+  "_comment": "Organ type definitions. An internal component (IC) is an atomic organ that gives a host component its FUNCTION stats (strength, move, fine_controls, think_level) — a component with matter but no organs is inert. 'grants' is the organ's static contribution to the host's function stats, keyed by the group.stat wire form. 'weight' is the organ's own mass (the physical cost of ambition). 'overTime' declares periodic effects on a unified tick system; the repair organ closes the world's salvage->existence loop, and the corrosive organ both marks its host and degrades neighbors. ICs do not carry their own material composition in the basic set. A component recipe (data/components.json) may declare an organ either as a type string (type-default grants apply) or as an object { type, grants? } — the object form overrides the type's default grants for that organ instance, letting a recipe tune an organ to its host (e.g. a stronger strengthCore on a heavy-lifting rolling ball).",
   "strengthCore": {
     "name": "Strength Core",
     "description": "A dense force organ: grants the host strength — the force behind impact damage and the mass it can bear. Function stat, so a component carrying it can act; without it the same matter is inert.",
@@ -9,7 +9,7 @@
     "overTime": [],
     "excludedComponentTypes": [],
     "autoInstallOnSpawn": false,
-    "targetBlueprintTypes": ["smallBallDroid"],
+    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone", "killerLlmDrone"],
     "hostComponentType": "droidHand",
     "hostSlot": "left"
   },
@@ -22,7 +22,7 @@
     "overTime": [],
     "excludedComponentTypes": ["humanoidDroidFinger"],
     "autoInstallOnSpawn": false,
-    "targetBlueprintTypes": ["smallBallDroid"]
+    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone"]
   },
   "precisionCore": {
     "name": "Precision Servo",
