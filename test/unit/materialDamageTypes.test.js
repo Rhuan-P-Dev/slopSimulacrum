@@ -23,6 +23,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import MaterialController from '../../src/controllers/materials/MaterialController.js';
 import DamageConsequenceHandler from '../../src/controllers/consequences/DamageConsequenceHandler.js';
+import MaterialChunkDropHandler from '../../src/controllers/consequences/MaterialChunkDropHandler.js';
+import { PUBLISHED_CHANNEL_LOSS_KEY } from '../../src/utils/Constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (rel) =>
@@ -360,4 +362,50 @@ describe('DamageConsequenceHandler._resolveAttackerSplit()', () => {
         )).toBeNull();
     });
 
+});
+
+// ===========================================================================
+// PUBLISHED_CHANNEL_LOSS_KEY — the dispatcher's publish→read contract (spec D5)
+// ===========================================================================
+
+describe('PUBLISHED_CHANNEL_LOSS_KEY (dispatcher contract)', () => {
+    it('is the literal string "lastChannelLoss"', () => {
+        expect(PUBLISHED_CHANNEL_LOSS_KEY).toBe('lastChannelLoss');
+    });
+
+    it('publish (damage handler) → read (chunk handler) round-trips through the constant', () => {
+        const damageHandler = makeHandler();
+        const context = { actionParams: {} };
+        const entry = { targetId: 'comp-x', appliedLoss: 0.5 };
+
+        // The damage handler's publisher writes under the named constant.
+        damageHandler._publishChannelLoss(context, entry);
+
+        // The chunk handler reads with the identical constant expression
+        // (`context?.actionParams?.[PUBLISHED_CHANNEL_LOSS_KEY]`), so whatever the
+        // publisher wrote is exactly what the consumer reads back.
+        const readBack = context?.actionParams?.[PUBLISHED_CHANNEL_LOSS_KEY];
+        expect(readBack).toEqual(entry);
+        // The write site no longer uses a bare string literal: the only key present
+        // is the one addressed by the constant.
+        expect(context.actionParams).toHaveProperty(PUBLISHED_CHANNEL_LOSS_KEY, entry);
+    });
+
+    it('the chunk handler recognizes an entry published under the constant', () => {
+        // A real chunk handler wired to a mock world; feature off (materialController
+        // null) so the read guard is what under test, not the drop math.
+        const chunkHandler = new MaterialChunkDropHandler({
+            worldStateController: makeMockWorld(),
+            materialController: null
+        });
+        const context = { actionParams: {} };
+        // Publish a loss the way the damage handler does (same constant).
+        context.actionParams[PUBLISHED_CHANNEL_LOSS_KEY] = { targetId: 'comp-head-1', appliedLoss: 0.25 };
+        // With no materialController the handler reports feature-off (zero drops) —
+        // proof it READ the published entry (non-zero appliedLoss) rather than the
+        // "missing loss" early return. We assert on the distinct message.
+        const result = chunkHandler._handleDropMaterialChunk('comp-head-1', {}, context);
+        expect(result.success).toBe(true);
+        expect(result.message).toBe('Material chunk drop disabled.');
+    });
 });

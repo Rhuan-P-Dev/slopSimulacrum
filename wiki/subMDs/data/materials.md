@@ -42,6 +42,12 @@ This single table is the **only place where physical properties are translated i
 
 The exact weights and thresholds live in the data file and are the only balance levers for derived stats.
 
+## The Single Reader of Material Knowledge
+
+`MaterialController` is the **single owner of all material knowledge**. It reads the four material registries — the composition (`data/materials.json`), the property→stat mapping (`data/propertyTraitMapping.json`), the per-material damage-type split (`data/materialDamageTypes.json`), and the per-material punch drop rates (`data/materialDropRates.json`) — and every other part of the system asks *it* "what is this material?" rather than reaching into those files directly.
+
+Keeping one owner for all four registries means the combat layer (damage split) and the salvage layer (chunk drops) consult the same source for "what is this material," so the two features can never disagree about a material's identity or silently read two copies of the same knowledge. It also inherits the controller's existing invariants for free: loaded once at the composition root, validated at construction, and returning defensive copies on every read.
+
 ## Derivation Pipeline
 
 Derivation turns a recipe's composition into derived stats in three conceptual stages: the composition is validated for consistency, the materials' properties are blended into a single profile weighted by each material's share, and the mapping table converts that profile into the stat set. Fail-fast validation means a malformed composition is rejected at derivation time instead of silently producing wrong stats.

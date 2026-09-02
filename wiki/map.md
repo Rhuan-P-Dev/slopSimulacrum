@@ -34,6 +34,8 @@ graph TD
     EISC[EquippedItemStatsController]
     HCC[HoldingCostController]
     SCH[StatConsequenceHandler]
+    DCH[DamageConsequenceHandler]
+    MCH[MaterialChunkDropHandler]
     RNGV[RangeValidator]
     NAC[NpcAIController]
     MC[MaterialController]
@@ -98,6 +100,10 @@ graph TD
     WSC --> MC
     CC --> MC
     INV --> MC
+    DCH --> MC
+    MCH --> MC
+    MCH --> WSC
+    CH --> MCH
 
     WSC --> CFT
     WSC --> KC
@@ -126,6 +132,8 @@ graph TD
 | `data/holdingCost.json` | Burden definitions — a single lever: total carried mass reduces the carrier's effective `move` and `fine_controls`, with a strength/mass gate on equip |
 | `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
 | `data/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
+| `data/materialDamageTypes.json` | Per-material damage-type split — how a raw value dealt *by* a material is distributed across the six damage channels, so the attacker's material decides a hit's channel mix (wood blunts and shreds, iron is pure impact); a missing/empty file turns the feature off, exactly reproducing legacy combat |
+| `data/materialDropRates.json` | Per-material punch loot — the chance a material drops a chunk and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
 
 ## 🧩 Shared Modules

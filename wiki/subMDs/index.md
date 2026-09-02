@@ -62,6 +62,7 @@ Data definitions for entities, components, traits, world state, and inventory.
 | [Traits](data/traits.md) | Trait system |
 | [World State](data/world_state.md) | World state data model |
 | [Inventory System](data/inventory_system.md) | Volume-based item storage on components |
+| [Material Damage & Chunk Drop](data/material_damage_and_drop.md) | Why the attacker's material decides the damage-channel split, and why punch yields dynamically-generated chunk items with no registry entry — two data-driven features that degrade safely to legacy behavior |
 
 ---
 
@@ -113,11 +114,11 @@ Game mechanics, visualizations, and feature systems.
 
 | Metric | Count |
 |--------|-------|
-| Total documents | 42 |
+| Total documents | 43 |
 | Categories | 7 |
 | Architecture docs | 6 |
 | Controller docs | 12 |
-| Data model docs | 6 |
+| Data model docs | 7 |
 | Frontend docs | 4 |
 | Networking docs | 1 |
 | Systems docs | 12 |

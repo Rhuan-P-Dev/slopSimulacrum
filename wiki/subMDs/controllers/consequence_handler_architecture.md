@@ -22,19 +22,20 @@ All handlers share one contract so the dispatcher can route uniformly without kn
 |------|---------------|----------------|
 | `updateStat` | `StatConsequenceHandler` | Direct stat assignment |
 | `updateComponentStatDelta` | `StatConsequenceHandler` | Stat delta modification (additive changes) |
-| `damageComponent` | `StatConsequenceHandler` | Component/item damage — applies trait-based damage to host components or equipped items |
+| `damageComponent` | `DamageConsequenceHandler` | Channel-based component/item damage — the raw value is split across the damage channels by the attacker's material, each slice resisted by the target's own resistance to that channel; legacy trait/stat delta when no channel is set |
 | `log` | `LogConsequenceHandler` | Server-side logging |
 | `triggerEvent` | `EventConsequenceHandler` | Event triggering |
 | `spatial` | `SpatialConsequenceHandler` | Delta movement and spatial translation |
 | `dropItem` | `DropItemHandler` | Item dropping on the world map |
 | `pickUpItem` | `PickUpItemHandler` | Item pickup from the world map |
 | `consumeItemAndDamage` | `ConsumeItemHandler` | T1 weapon ammo consumption — consumes an item from the T1's internal inventory, with the consumed item's volume determining the damage magnitude |
+| `dropMaterialChunk` | `MaterialChunkDropHandler` | Material chunk drop on punch — consumes the applied loss published by the damage step and writes a pickable chunk per dropped material (no item-registry entry) |
 
 ### damageComponent Consequence Type
 
-The `damageComponent` consequence deals trait-based damage to a target component or equipped item. Unlike `updateComponentStatDelta`, which applies a fixed numeric delta, damage magnitudes here are expressed as trait references (e.g., the attacker's `Physical.sharpness`) so they scale with the attacker's traits rather than using hardcoded numbers.
+The `damageComponent` consequence is the single choke point for channel-based damage — punch, cut, and shootT1 all converge here. It carries a damage channel and a raw value; the raw value is split across the damage channels by the **attacker's** material composition, each resulting slice is reduced by the target's own resistance to that channel, and the total is applied as one existence delta. The attacker decides *which channels* a hit lands on (a wooden fist blunts and shreds, an iron fist is pure impact); the target resists *each of those channels independently*.
 
-When the target is an equipped item, damage is applied to the item's per-instance stats instead of the host component — so a knife's durability degrades from cutting, not the droid's hand.
+The channel model is the primary path. A consequence that carries no channel falls back to the legacy trait/stat delta (damage scaled by the attacker's traits rather than hardcoded numbers) — that fallback is left intact so back-compat actions behave exactly as before. When the target is an equipped item, damage is applied to the item's per-instance stats instead of the host component — so a knife degrades from cutting, not the droid's hand.
 
 ## Equipped Item Routing
 
@@ -45,6 +46,10 @@ Stat consequences that target an equipped item are routed to the item's per-inst
 - Multiple item instances maintain independent stat values across equip/unequip cycles
 
 Stat changes on equipped items also trigger capability re-evaluation, so the UI reflects the updated capability state.
+
+## Cross-Consequence Data Flow
+
+A consequence can publish a *result* into the shared dispatch context, and the dispatcher's parameter propagation carries it to later consequences in the same action. The damage step uses this to hand the **applied loss** to the `dropMaterialChunk` step that runs after it, so the drop derives its chunk volumes from the damage that actually left the target rather than recomputing it. This is the established way one consequence feeds another within a single action — a one-way hand-off of an already-computed result — and it is why the drop handler never re-derives damage. (On the multi-attacker path, parameter propagation is disabled, so nothing is published and the drop produces no chunks — consistent with that path applying no damage.)
 
 ## Benefits
 

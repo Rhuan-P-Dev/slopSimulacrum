@@ -129,6 +129,25 @@ export function recoverChunkMaterial(itemType) {
 }
 
 // =========================================================================
+// CONSEQUENCE-PIPELINE PUBLISHED-LOSS CONTRACT (server-internal, spec D5)
+// =========================================================================
+/**
+ * The reserved action-params key under which the channel-damage step publishes
+ * the applied (clamped) loss and the chunk-drop step reads it back. Server-internal
+ * only — never part of a client payload. Kept here (not in shared/) because it is
+ * a dispatcher contract, not a wire contract.
+ * @type {string}
+ */
+export const PUBLISHED_CHANNEL_LOSS_KEY = 'lastChannelLoss';
+
+/**
+ * Shape of the entry written under {@link PUBLISHED_CHANNEL_LOSS_KEY} (spec D5).
+ * @typedef {Object} ChannelLossPublication
+ * @property {string} targetId - The damaged target's component (or equipped-item) ID.
+ * @property {number} appliedLoss - Applied, clamped existence loss (0..1) that actually left the target.
+ */
+
+// =========================================================================
 // TURN SYSTEM CONSTANTS (Feature A + two-phase barrier turns, spec v2)
 //
 // Rounds are EVENT-DRIVEN rendezvous (wiki/two_phase_turns_design.md v2), not

@@ -21,7 +21,7 @@
 import Logger from '../../utils/Logger.js';
 import { writeDroppedItem } from './DropItemHandler.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
-import { CHUNK_ITEM_TYPE_PREFIX } from '../../utils/Constants.js';
+import { CHUNK_ITEM_TYPE_PREFIX, PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
 
 class MaterialChunkDropHandler {
     /**
@@ -51,7 +51,8 @@ class MaterialChunkDropHandler {
      *
      * @param {string} targetId - The resolved target (component) ID from the dispatcher.
      * @param {Object} params - Consequence params (unused; everything arrives via context).
-     * @param {Object} context - The dispatch context (carries actionParams.lastChannelLoss).
+     * @param {Object} context - The dispatch context (carries a {@link ChannelLossPublication}
+     *   entry under {@link PUBLISHED_CHANNEL_LOSS_KEY}).
      * @returns {{ success: boolean, message?: string, data?: { droppedChunks: number, chunkVolumes: Object<string,number> } }}
      */
     _handleDropMaterialChunk(targetId, params, context) {
@@ -63,7 +64,7 @@ class MaterialChunkDropHandler {
         // 1. Read the published loss — the drop handler's only damage input (spec D5).
         // Missing / non-positive / target-mismatch → nothing to convert (covers the
         // multi-attacker path, which never propagates a loss; spec D11).
-        const published = context?.actionParams?.lastChannelLoss;
+        const published = context?.actionParams?.[PUBLISHED_CHANNEL_LOSS_KEY];
         if (!published || typeof published !== 'object'
             || typeof published.appliedLoss !== 'number'
             || published.appliedLoss <= 0

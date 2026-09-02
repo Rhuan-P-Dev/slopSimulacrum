@@ -36,6 +36,12 @@ The handler supports selecting multiple attacker components simultaneously, dele
 
 The backend consequence system remains fully data-driven. The action's `consequences` array in `data/actions.json` determines all effects — damage calculation, targeting, and logging — with no frontend involvement. The frontend's role is limited to selecting targets and dispatching the action; the backend owns all game logic.
 
+## Attacker-Material Channel Split
+
+Channel-damage actions (punch, cut, shootT1) converge on one backend choke point, and the **attacker's** material decides how a hit's raw value is distributed across the damage channels. A wooden fist blunts and shreds; an iron fist is pure impact — so the channel mix is a property of the *attacking* object, resolved from its composition, while the target resists each resulting channel slice on its own.
+
+The split is applied at that single choke point rather than per action, which keeps the unified, action-name-agnostic handler generic: any current or future `targetingType: 'component'` attack that deals channel damage inherits material-aware splitting without per-action code, and the legacy trait/stat path (no channel) is left untouched for back-compat. See [Material Damage & Chunk Drop](../data/material_damage_and_drop.md) for the rationale.
+
 ## Data Schema
 
 Component-targeted attacks declare everything they do — range, requirements, and

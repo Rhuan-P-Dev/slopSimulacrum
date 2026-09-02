@@ -78,6 +78,7 @@ Additional reference documentation for specific systems and components, organize
 - [Traits](subMDs/data/traits.md) — Trait system
 - [World State](subMDs/data/world_state.md) — World state data model
 - [Inventory System](subMDs/data/inventory_system.md) — Volume-based item storage on components
+- [Material Damage & Chunk Drop](subMDs/data/material_damage_and_drop.md) — Why the attacker's material decides a hit's channel split and why punch yields dynamically-generated chunk items with no item-registry entry (safe, data-driven degradation to legacy combat)
 
 ### 🖥️ Frontend & UI
 - [Client Architecture](subMDs/frontend/client_architecture.md) — Client-side architecture + UI overview

@@ -30,6 +30,7 @@
 
 import { DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 import IdResolver from '../../utils/IdResolver.js';
+import { PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
 
 // The base absorption capacity on the 0–100 resistance scale. A channel with
 // resistance R drains the target's existence by damage / (RESISTANCE_SCALE + R),
@@ -166,20 +167,20 @@ class DamageConsequenceHandler {
 
     /**
      * Publishes the applied (clamped) channel loss into the dispatch context's action
-     * params under the reserved key `lastChannelLoss` (spec D5). The dispatcher's
-     * `propagateParams` (true on the single-attacker path) carries it forward to later
-     * consequences in the same pipeline (e.g. `dropMaterialChunk`); on the multi-attacker
-     * path propagation is off, so nothing is published and those attacks drop nothing
-     * (spec D11). The drop handler reads this as its only input — it never recomputes
-     * the split / resistance / clamping. No-op when there is no context/actionParams to
-     * write to (defensive; never throws).
+     * params under the reserved key {@link PUBLISHED_CHANNEL_LOSS_KEY} (spec D5). The
+     * dispatcher's `propagateParams` (true on the single-attacker path) carries it
+     * forward to later consequences in the same pipeline (e.g. `dropMaterialChunk`);
+     * on the multi-attacker path propagation is off, so nothing is published and those
+     * attacks drop nothing (spec D11). The drop handler reads this as its only input —
+     * it never recomputes the split / resistance / clamping. No-op when there is no
+     * context/actionParams to write to (defensive; never throws).
      * @param {Object|null} context - The consequence dispatch context (handler context).
-     * @param {{ targetId: string, appliedLoss: number }} entry - Target id + applied loss.
+     * @param {ChannelLossPublication} entry - Target id + applied loss (see the type in Constants.js).
      * @private
      */
     _publishChannelLoss(context, entry) {
         if (context && typeof context === 'object' && typeof context.actionParams === 'object' && context.actionParams !== null) {
-            context.actionParams.lastChannelLoss = entry;
+            context.actionParams[PUBLISHED_CHANNEL_LOSS_KEY] = entry;
         }
     }
 

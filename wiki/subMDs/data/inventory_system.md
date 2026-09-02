@@ -67,6 +67,12 @@ A `testItem` is included in the item registry for inventory system verification.
 
 Each item instance stored on an entity records its type, its resolved volume and traits, and the component that hosts it. Resolving display values onto the instance makes items self-describing — they can be serialized, broadcast, and restored without re-deriving data from type definitions.
 
+## Dynamic Item Types (No Registry Entry)
+
+Not every item type has a row in the registry. The [material chunk drop](material_damage_and_drop.md) feature produces items whose type is *self-describing* (the material is embedded in the type name) and whose only variable is volume, which changes per drop. Such an item has **no entry in `data/inventoryItems.json`** — its definition is synthesized on the fly at the few places an item definition is looked up (pickup, add-to-inventory, re-drop, stat reporting).
+
+This was chosen over one registry entry per material for the same reason the feature exists: the material set is open-ended, and a registry row would carry a *static* volume where a chunk's volume is *dynamic*. Because ground-item records are already self-describing, the client renders these items with no changes. This sets a precedent for the system: the registry is no longer the *only* source of an item definition — a self-describing type can stand in where the type itself names what the item is.
+
 ## Architectural Placement
 
 The inventory system follows the established patterns:
