@@ -13,9 +13,9 @@
   "knife_to_t1": {
     "id": "knife_to_t1",
     "name": "T1 Assembly",
-    "description": "Fuse two knives into one T1 container weapon.",
+    "description": "Forge one knife into a T1 container weapon.",
     "inputs": [
-      { "type": "knife", "quantity": 2 }
+      { "type": "knife", "quantity": 1 }
     ],
     "outputs": [
       { "type": "t1", "quantity": 1 }

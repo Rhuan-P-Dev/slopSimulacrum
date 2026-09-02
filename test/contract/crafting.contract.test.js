@@ -11,7 +11,7 @@
  * (8) and the right droidArm (8) start empty — those are the test surfaces.
  *
  * Covers the spec §8 test plan:
- *   1. craft 2 knives → 1 t1 on the same component; hostComponentId preserved;
+ *   1. craft 1 knife → 1 t1 on the same component; hostComponentId preserved;
  *      inputs gone, output present; exactly one broadcast on success.
  *   2. insufficient inputs (1 knife) → INPUTS_MISMATCH; inputs intact; 0 broadcasts.
  *   3. item hosted on a different component → INVALID_ITEM; inputs intact; 0 broadcasts.
@@ -101,20 +101,20 @@ function itemsOfType(items, type) {
 }
 
 describe('crafting contract — success path', () => {
-    it('crafts 2 knives into 1 t1 on the same component; exactly one broadcast; no item loss', () => {
+    it('crafts 1 knife into 1 t1 on the same component; exactly one broadcast; no item loss', () => {
         const world = buildWorld();
         const { worldStateController: wsc, broadcast } = world;
         const { entityId, droidHead } = spawnDroid(world);
 
-        const [knifeA, knifeB] = addItems(wsc, entityId, droidHead.id, ['knife', 'knife']);
+        const [knifeA] = addItems(wsc, entityId, droidHead.id, ['knife']);
         const broadcastCallsBefore = broadcast.mock.calls.length;
 
-        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA, knifeB]);
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA]);
 
         // Shape: mirrors the HTTP 200 body.
         expect(result.success).toBe(true);
         expect(result.recipeId).toBe('knife_to_t1');
-        expect(result.consumed).toEqual([knifeA, knifeB]);
+        expect(result.consumed).toEqual([knifeA]);
         expect(result.produced).toHaveLength(1);
 
         // The output landed on the SAME component (hostComponentId preserved).
@@ -128,7 +128,6 @@ describe('crafting contract — success path', () => {
         expect(itemsOfType(headItems, 't1')).toHaveLength(1);
         expect(headItems[0].id).toBe(t1.id);
         expect(wsc.getItem(entityId, knifeA)).toBeNull();
-        expect(wsc.getItem(entityId, knifeB)).toBeNull();
 
         // Exactly one broadcast on success (the two setup addItems happened
         // before this snapshot, so the delta must be exactly 1).
@@ -138,23 +137,23 @@ describe('crafting contract — success path', () => {
 });
 
 describe('crafting contract — failure paths (no mutation, no broadcast)', () => {
-    it('1 knife for a 2-knife recipe → INPUTS_MISMATCH; knife intact; 0 broadcasts', () => {
+    it('2 knives for a 1-knife recipe → INPUTS_MISMATCH; knives intact; 0 broadcasts', () => {
         const world = buildWorld();
         const { worldStateController: wsc, broadcast } = world;
         const { entityId, droidHead } = spawnDroid(world);
 
-        const [knifeA] = addItems(wsc, entityId, droidHead.id, ['knife']);
+        const [knifeA, knifeB] = addItems(wsc, entityId, droidHead.id, ['knife', 'knife']);
         const broadcastCallsBefore = broadcast.mock.calls.length;
 
-        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA]);
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeA, knifeB]);
 
         expect(result.success).toBe(false);
         expect(result.code).toBe('INPUTS_MISMATCH');
-        expect(result.message).toContain('knife: have 1, need 2');
+        expect(result.message).toContain('knife: have 2, need 1');
 
-        // No mutation: the knife is exactly where it was.
+        // No mutation: the knives are exactly where they were.
         const headItems = componentItems(wsc, entityId, droidHead.id);
-        expect(itemsOfType(headItems, 'knife').map((i) => i.id)).toEqual([knifeA]);
+        expect(itemsOfType(headItems, 'knife').map((i) => i.id)).toEqual([knifeA, knifeB]);
         expect(itemsOfType(headItems, 't1')).toHaveLength(0);
 
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
@@ -402,14 +401,14 @@ describe('crafting contract — data-driven registry & no-turn decision', () => 
 
         const recipes = wsc.getCraftingRecipes();
         expect(Array.isArray(recipes)).toBe(true);
-        // Two recipes now: the original 2-knife recipe + the drone's
-        // single-knife recipe (data/crafting.json).
+        // Two single-knife recipes: the shared T1 Assembly + the drone's
+        // field variant (data/crafting.json).
         expect(recipes).toHaveLength(2);
 
         const existing = recipes.find(r => r.id === 'knife_to_t1');
         expect(existing).toBeDefined();
         expect(existing.name).toBe('T1 Assembly');
-        expect(existing.inputs).toEqual([{ type: 'knife', quantity: 2 }]);
+        expect(existing.inputs).toEqual([{ type: 'knife', quantity: 1 }]);
         expect(existing.outputs).toEqual([{ type: 't1', quantity: 1 }]);
 
         const single = recipes.find(r => r.id === 'single_knife_to_t1');
