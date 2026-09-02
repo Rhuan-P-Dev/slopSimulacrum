@@ -41,12 +41,14 @@
  * the settle window that follows.
  *
  * MEASURED TIMELINE (real world; data-driven pickUpItem range 50 from
- * data/actions.json — the same source the handler validates; 10 px/round
- * from the components data, pinned by test 1): knife dropped 120 from the
- * drone at (270, 100) → rounds 0–6: seven approach moves (120 → 50);
- * round 7: immediate pickup at exactly 50 ≤ 50 (zero cost); round 8:
- * craft + drop → the T1 is first observable after 9 onTick calls. The
- * test budget is 10.
+ * data/actions.json — the same source the handler validates; 20 px/round
+ * from the moveCore grant 20 in data/internalComponents.json, resolved
+ * through the move action's ":Movement.move" speed parameter — the last
+ * wheel in the drone's component order wins the entity aggregation):
+ * knife dropped 120 from the drone at (270, 100) → rounds 0–3: four
+ * approach moves (120 → 40); round 4: immediate pickup at 40 ≤ 50
+ * (zero cost); round 5: craft + drop → the T1 is first observable
+ * after 6 onTick calls. The test budget is 10.
  *
  * Covers the spec §5 contract checklist:
  *   1. Drone boots in start_room with the correct flags (isNPC, craft_loop,
@@ -217,9 +219,9 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         const driveRound = registerBrainAndDrive();
 
         // Drive rounds until the forged T1 appears on the ground
-        // (budget of 10; measured 9 — see the header timeline: seven
-        // approach moves 120→50, pickup at exactly 50 in round 7, craft +
-        // drop in round 8).
+        // (budget of 10; measured 6 — see the header timeline: four
+        // approach moves 120→40 at 20 px/round, pickup at 40 ≤ 50 in
+        // round 4, craft + drop in round 5).
         let t1 = null;
         for (let i = 0; i < 10 && !t1; i++) {
             await driveRound();
@@ -235,12 +237,13 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         expect(t1.roomId).toBe(after.location);
         expect(t1.ownerId).toBe(drone.id);
 
-        // The drone stopped exactly at the pickup-range boundary: the knife
-        // was at x=270 and the resolved pickUpItem range is 50, so the last
-        // approach move (10 px/round, pinned by test 1) landed at 220 — the
-        // range contract (single source of truth, brain and handler) is the
-        // reason the cycle converged at all.
-        expect(after.spatial.x).toBeCloseTo(270 - 50, 5);
+        // The drone stopped the moment it entered the pickup range: the
+        // knife was at x=270 and the resolved pickUpItem range is 50, so
+        // the last of the 20 px/round approach moves (120 → 40) landed at
+        // 230 and the pickup committed from 40 ≤ 50 — the range contract
+        // (single source of truth, brain and handler) is the reason the
+        // cycle converged at all.
+        expect(after.spatial.x).toBe(230);
         expect(after.spatial.y).toBe(100);
 
         // The foraged knife no longer exists anywhere; the drone is empty.
