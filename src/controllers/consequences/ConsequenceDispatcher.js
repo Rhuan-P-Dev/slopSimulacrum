@@ -15,7 +15,7 @@
 
 import Logger from '../../utils/Logger.js';
 import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
-import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
+import { SYNERGY_BONUS_THRESHOLD, PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
 
@@ -145,13 +145,12 @@ class ConsequenceDispatcher {
             const perAttackerFulfilling = { 'Physical.strength': attackerId };
             const perAttackerParams = { ...params, attackerComponentId: attackerId };
 
-            // The shared dispatch loop keeps the strength-only requirementValues (D11: the
-            // multi-attacker path never propagates handler-modified params, so the published
-            // loss stays invisible to the drop step). The per-attacker consequence builder
-            // instead receives the FULL per-attacker stat context so it can resolve the
-            // declared `value` placeholder per attacker (same PlaceholderResolver mechanism
-            // the single-attacker execute() path uses) instead of assuming strength for every
-            // channel — e.g. a cut declaring ':Physical.sharpness' now scales by sharpness.
+            // The shared dispatch loop keeps the strength-only requirementValues. The
+            // per-attacker consequence builder instead receives the FULL per-attacker stat
+            // context so it can resolve the declared `value` placeholder per attacker (same
+            // PlaceholderResolver mechanism the single-attacker execute() path uses) instead
+            // of assuming strength for every channel — e.g. a cut declaring
+            // ':Physical.sharpness' now scales by sharpness.
             const perAttackerStatContext = this._flattenStatsToTraitStatMap(attackerStats);
 
             const perAttackerConsequences = this._buildPerAttackerConsequences(action, perAttackerStatContext);
@@ -162,8 +161,16 @@ class ConsequenceDispatcher {
             //   (the metadata the multi-attacker path has always produced).
             // - extraHandlerContext: attackerComponentId is also passed inside the
             //   handler context (preserved from the original implementation).
-            // - propagateParams: false — the original multi-attacker loop never
-            //   merged handler-modified params back into its context.
+            // - propagateParams: false — this path never merges the handler-modified
+            //   params back into its context (no aggregation of any handler output
+            //   across consequences, e.g. ConsumeItemHandler's itemVolume still does
+            //   not flow forward here).
+            // - propagateKeys: the one deliberate exception (spec D11, revised):
+            //   the reserved published-loss key written by the damage handler is
+            //   carried forward so THIS attacker's own dropMaterialChunk consequence
+            //   consumes THIS attacker's applied loss. Each attacker gets a fresh
+            //   dispatch context, so the loss never crosses attacker boundaries —
+            //   two independent per-fist rolls, never an aggregate.
             // - includeResolvedSourceId: false — the original loop did not add
             //   resolvedSourceId to the handler context.
             const { results } = this._dispatchConsequences(perAttackerConsequences, {
@@ -179,6 +186,7 @@ class ConsequenceDispatcher {
                 resultMeta: { attackerComponentId: attackerId },
                 extraHandlerContext: { attackerComponentId: attackerId },
                 propagateParams: false,
+                propagateKeys: [PUBLISHED_CHANNEL_LOSS_KEY],
                 includeResolvedSourceId: false
             });
             allResults.push(...results);
@@ -293,6 +301,7 @@ class ConsequenceDispatcher {
         resultMeta = null,
         extraHandlerContext = null,
         propagateParams = false,
+        propagateKeys = null,
         includeResolvedSourceId = false
     }) {
         const results = [];
@@ -375,6 +384,21 @@ class ConsequenceDispatcher {
                 // (e.g., itemVolume set by ConsumeItemHandler) — execute() semantics only.
                 if (propagateParams) {
                     Object.assign(context.actionParams, handlerContext.actionParams);
+                }
+
+                // Targeted propagation (spec D11, revised): when the caller allows a
+                // specific set of reserved keys, carry exactly those forward from the
+                // handler context into the shared context — and nothing else. The
+                // multi-attacker path uses this for the published channel loss so each
+                // attacker's own drop step can consume its own damage result, while
+                // every other handler-modified param keeps the path's no-propagation
+                // semantics.
+                if (propagateKeys) {
+                    for (const key of propagateKeys) {
+                        if (handlerContext.actionParams[key] !== undefined) {
+                            context.actionParams[key] = handlerContext.actionParams[key];
+                        }
+                    }
                 }
 
                 results.push({

@@ -166,10 +166,12 @@ class DamageConsequenceHandler {
      * params under the reserved key {@link PUBLISHED_CHANNEL_LOSS_KEY} (spec D5). The
      * dispatcher's `propagateParams` (true on the single-attacker path) carries it
      * forward to later consequences in the same pipeline (e.g. `dropMaterialChunk`);
-     * on the multi-attacker path propagation is off, so nothing is published and those
-     * attacks drop nothing (spec D11). The drop handler reads this as its only input —
-     * it never recomputes the split / resistance / clamping. No-op when there is no
-     * context/actionParams to write to (defensive; never throws).
+     * on the multi-attacker path the dispatcher carries only this reserved key forward
+     * (per-attacker isolated contexts — spec D11, revised), so each attacker's own
+     * drop step consumes its own published loss and drops its own chunks. The drop
+     * handler reads this as its only input — it never recomputes the split /
+     * resistance / clamping. No-op when there is no context/actionParams to write to
+     * (defensive; never throws).
      * @param {Object|null} context - The consequence dispatch context (handler context).
      * @param {ChannelLossPublication} entry - Target id + applied loss (see the type in Constants.js).
      * @private

@@ -40,9 +40,13 @@ class MaterialChunkDropHandler {
      * Handles the `dropMaterialChunk` consequence: after a successful punch, drop at most
      * one chunk per material whose independent roll succeeds, with volume per the D7 contract.
      *
+     * On the multi-attacker path each attacker's dispatch context is isolated and carries
+     * only that attacker's own published loss (spec D11, revised): two fists therefore
+     * perform two independent rolls on two independent losses — never an aggregate.
+     *
      * Zero-drop (but still successful) outcomes — all deliberate (spec D9/D10/D11):
-     *   - no published loss / non-positive / target-mismatch (the multi-attacker path never
-     *     propagates a loss, so those attacks drop nothing);
+     *   - no published loss / non-positive / target-mismatch (e.g. the punch's value
+     *     resolved to zero, or the damage step failed to apply);
      *   - the feature is off (drop-rates file absent/empty) or the target declares no
      *     materials (nothing to chip from);
      *   - the target is gone (a lethal punch's break/removal cascade already ran inside the
@@ -63,8 +67,9 @@ class MaterialChunkDropHandler {
         }
 
         // 1. Read the published loss — the drop handler's only damage input (spec D5).
-        // Missing / non-positive / target-mismatch → nothing to convert (covers the
-        // multi-attacker path, which never propagates a loss; spec D11).
+        // On the multi-attacker path this is the loss published by THIS attacker's own
+        // damage step (per-attacker isolated context; spec D11, revised). Missing /
+        // non-positive / target-mismatch → nothing to convert.
         const published = context?.actionParams?.[PUBLISHED_CHANNEL_LOSS_KEY];
         if (!published || typeof published !== 'object'
             || typeof published.appliedLoss !== 'number'
