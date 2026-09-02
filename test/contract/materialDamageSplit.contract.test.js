@@ -131,7 +131,7 @@ describe('Feature 1 — per-material damage-type split (contract, full round-tri
         expect(actualLoss).not.toBeCloseTo(legacyLoss, 6);
     });
 
-    it('feature-off regression: with the damage-types feature disabled, punch reproduces the legacy single-channel formula exactly', () => {
+    it('feature-off regression: with the damage-types feature disabled, punch applies the single-declared-channel formula (the intended pre-split behavior; channel damage was non-functional before this feature set — BUG-132)', () => {
         const world = buildWorld();
         // Simulate the feature being OFF the way the loader does for an absent/empty
         // file: registry emptied and the enabled flag cleared. Everything else (the
@@ -152,8 +152,7 @@ describe('Feature 1 — per-material damage-type split (contract, full round-tri
         const head = victimHead(world, victimId);
         const res = channelResistances(world, head.id);
 
-        // With the feature off, the split is null → the whole raw value goes through
-        // the declared channel's (impact) resistance, exactly the pre-feature formula.
+        // With the feature off, the split is null → the whole raw value goes through the declared channel's (impact) resistance: the intended single-declared-channel formula. NOTE: this is NOT "the pre-feature runtime" — before this feature set, channel damage threw and was swallowed, applying zero (BUG-132). These assertions verify the formula channel damage should always have applied.
         const legacyLoss = rawStrength / (RESISTANCE_SCALE + res.impact);
 
         const before = world.getComponentStats(head.id).Physical.existence;

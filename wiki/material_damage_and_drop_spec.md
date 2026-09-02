@@ -82,7 +82,7 @@ The resolved ID is then mapped to a material composition:
 
 - **`comp-` ID** → the component's type → its recipe composition from the component registry (per-type static composition; there is no per-instance composition store, and none is needed — composition is part of the recipe).
 - **`eq-` ID** (an equipped item, e.g. the knife in `cut`) → the *item's own* composition from its item definition. Semantically, the material doing the cutting is the blade, not the hand holding it. If the item's materials are unavailable, fall back to the host component's composition.
-- **Unresolvable** (neither form, or missing) → no split: 100% of the value stays on the consequence's declared channel — exactly today's behavior.
+- **Unresolvable** (neither form, or missing) → no split: 100% of the value stays on the consequence's declared channel — the single-declared-channel formula.
 
 **Why blend by composition fraction for multi-material attackers.** A `droidHand` (iron 0.7 + wood 0.3) is neither fully iron nor fully wood. The blended split is the fraction-weighted sum of each material's split — the same weighting rule [`MaterialController._blendProperties`](src/controllers/materials/MaterialController.js:198) uses to derive stats. One rule for "what does a composition do" keeps the model consistent across derivation and combat. The blend computation itself (`getBlendedDamageTypeSplit(materials, fallbackChannel)`) belongs in `MaterialController`, because it is pure material-data math; the damage handler keeps the damage mechanics (slice → resistance → loss).
 
@@ -140,10 +140,12 @@ For a successful punch with applied loss `L` (0..1) against a target of recipe v
 | File missing/empty | Feature disabled: no split (100% declared channel), no drops. `Logger.warn` at boot. |
 | File present but structurally malformed | `TypeError` at construction (boot failure). |
 | Percentages for a material don't sum to 100 | **Normalized** at load (proportional rescale) + `Logger.warn`. This is tuning drift, not malformed shape — the shape is still valid, so rejecting it would make a balance tweak a crash. |
-| Attacker material missing from the damage file | 100% to the consequence's declared channel (today's behavior — the safe direction: the file's absence exactly reproduces current combat). |
+| Attacker material missing from the damage file | 100% to the consequence's declared channel — the intended single-declared-channel formula. This is the safe direction, but "reproduces current combat" holds only in the value-routing sense: the pre-feature runtime never applied channel damage at all (BUG-132, wiki/bugfixWiki/high/BUG-132-channel-damage-silently-never-applied.md), so feature-off is not a runtime no-op. |
 | Target material missing from the drop file | No drop for that material (equivalent to rate 0). |
 | Attacker unresolvable (no component/equipped ID in context) | No split — declared channel only, today's behavior. |
 | Chunk pickup with a material absent from the materials registry | Pickup refused with a clear message (defensive; unreachable in play). |
+
+One cross-reference for the degradation wording above: the BUG-132 fix (channel damage actually applying) landed in the Feature 1 commit, so an absent damage file is the single-declared-channel formula — *not* the zero-damage behavior that briefly existed before that fix.
 
 **Why normalize at load rather than reject.** The split percentages are a tuning surface; designers will write 90s and 110s. Normalizing keeps the invariant (the raw value is fully allocated across channels) without punishing drift, and the warn makes the drift visible.
 

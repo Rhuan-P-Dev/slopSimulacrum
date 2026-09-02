@@ -37,14 +37,14 @@ The chunk's volume has to be tied to the damage that **actually left** the targe
 
 This matters for two reasons. **It cannot diverge:** recomputing in the drop handler would duplicate the damage math, and the two copies would silently drift the moment either changed. **It preserves one-way flow:** the drop is a *consequence of* the punch result, computed from that result, never feeding back into it. On the multi-attacker path the dispatcher deliberately does not propagate handler-modified params, so nothing is published and no chunks drop there — which is the *consistent* reading, because that same path currently applies zero damage by construction.
 
-## Why Deleting Either Data File Reproduces Legacy Behavior
+## Why Deleting Either Data File Disables the Split (Not a No-Op)
 
 The two files deliberately distinguish **"absent"** from **"malformed"**:
 
-- **Missing or empty** means the *feature is off* — no split (the raw value stays entirely on the consequence's declared channel, exactly today's combat) and no drops. Deleting a balance file before boot must never crash the game; it quietly reproduces current behavior with a warning.
+- **Missing or empty** means the *split is off* — each hit keeps its whole value on the consequence's single declared channel (the intended single-declared-channel formula) and no chunks drop. Deleting a balance file before boot must never crash the game; it quietly restores that single-channel behavior with a warning.
 - **Structurally malformed** (a shape the model cannot interpret) is a real defect and fails boot, exactly like the existing material validation.
 
-That asymmetry is the whole point of the degradation story: tuning drift (e.g. percentages that don't sum to 100) is *normalized and warned*, not rejected, so a balance tweak is never a crash; only a genuinely broken file is. The safe direction is always "do what the game did before this feature existed."
+The "reproduces legacy" wording is accurate only in the *value-routing* sense: an absent file routes the whole value to the declared channel, which is what the pre-split design *intended*. It is **not** a no-op against the code that actually ran before this feature set — before Feature 1, channel damage raised an error the dispatcher silently swallowed, so a punch applied **zero** channel damage at all ([BUG-132](../../bugfixWiki/high/BUG-132-channel-damage-silently-never-applied.md)). That fix shipped *with* Feature 1, so "feature off" now means **one working declared channel, no split — not nothing happens.** The absent/malformed asymmetry is unchanged: tuning drift (percentages that don't sum to 100) is *normalized and warned*, never rejected, so a balance tweak is never a crash; only a genuinely broken file is.
 
 ## Related Documentation
 
