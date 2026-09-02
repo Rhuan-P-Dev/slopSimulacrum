@@ -145,7 +145,16 @@ class ConsequenceDispatcher {
             const perAttackerFulfilling = { 'Physical.strength': attackerId };
             const perAttackerParams = { ...params, attackerComponentId: attackerId };
 
-            const perAttackerConsequences = this._buildPerAttackerConsequences(action, attackerStrength);
+            // The shared dispatch loop keeps the strength-only requirementValues (D11: the
+            // multi-attacker path never propagates handler-modified params, so the published
+            // loss stays invisible to the drop step). The per-attacker consequence builder
+            // instead receives the FULL per-attacker stat context so it can resolve the
+            // declared `value` placeholder per attacker (same PlaceholderResolver mechanism
+            // the single-attacker execute() path uses) instead of assuming strength for every
+            // channel — e.g. a cut declaring ':Physical.sharpness' now scales by sharpness.
+            const perAttackerStatContext = this._flattenStatsToTraitStatMap(attackerStats);
+
+            const perAttackerConsequences = this._buildPerAttackerConsequences(action, perAttackerStatContext);
 
             // Phase 4 dedup: shared per-consequence loop (see _dispatchConsequences).
             // Options preserve this path's exact semantics:
@@ -487,45 +496,77 @@ class ConsequenceDispatcher {
     }
 
     /**
+     * Flattens a nested trait-shaped stats object ({ Trait: { stat: value, ... } }) into
+     * the flat { 'Trait.stat': value } map that PlaceholderResolver consumes as
+     * requirementValues. Only finite numeric leaves are kept — non-numeric leaves are
+     * irrelevant to :Trait.stat resolution and would only add noise to the context.
+     *
+     * @param {Object|null} stats - Nested trait-shaped stats (e.g. from getComponentStats).
+     * @returns {Object<string, number>} Flat 'Trait.stat' → number map.
+     * @private
+     */
+    _flattenStatsToTraitStatMap(stats) {
+        const flat = {};
+        if (!stats || typeof stats !== 'object') return flat;
+        for (const [trait, group] of Object.entries(stats)) {
+            if (!group || typeof group !== 'object') continue;
+            for (const [stat, value] of Object.entries(group)) {
+                if (typeof value === 'number' && Number.isFinite(value)) {
+                    flat[`${trait}.${stat}`] = value;
+                }
+            }
+        }
+        return flat;
+    }
+
+    /**
      * Builds per-attacker consequences from the action definition for the
      * multi-attacker path.
      *
-     * The channel-damage model passes the raw damage value as a POSITIVE number
-     * (the channel-loss formula clamps negative values to zero), while the legacy
-     * stat-delta model uses a NEGATIVE value (an additive delta). This method
-     * inspects each consequence's declared params to determine which model it
-     * uses and emits the correct shape, preserving all fields that the downstream
-     * handler needs.
+     * Two consequence models share the `damageComponent` type and are distinguished by
+     * their declared params, mirroring the single-attacker execute() path:
      *
-     * Why channel params must be passed through un-rebuilt:
-     * The channel model identifies the damage axis by `channel` (e.g. "impact")
-     * rather than by a trait/stat pair, and the DamageConsequenceHandler uses
-     * `context.attackerComponentId` to resolve the per-attacker material split.
-     * Rebuilding from a legacy trait/stat shape would silently drop the channel
-     * and apply zero damage (BUG-133).
+     *   - Channel model (declares `channel`): the damage axis is named by the channel
+     *     string rather than a trait/stat pair, and the raw value is a POSITIVE number
+     *     (the channel-loss formula clamps negative values to zero). The declared params
+     *     are passed through SPREAD — so `channel` (and any other declared field) is
+     *     preserved from the data, never hardcoded — and the declared `value` placeholder
+     *     is resolved PER ATTACKER with the same PlaceholderResolver/requirementValues
+     *     mechanism the single-attacker path uses. A stat reference (e.g. ':Physical.strength',
+     *     ':Physical.sharpness') resolves to that attacker's own value, so a channel action
+     *     is scaled by its declared stat, not unconditionally by strength. If the declared
+     *     value does not resolve to a finite number (a :variable, an unknown stat, or a
+     *     non-numeric leaf), it falls back to the attacker's resolved strength, keeping the
+     *     model total.
+     *
+     *   - Legacy stat-delta model (no channel, declares `trait`/`stat`): unchanged — an
+     *     additive NEGATIVE delta on the trait/stat pair.
      *
      * @param {Object} action - The action definition from the registry.
-     * @param {number} attackerStrength - The resolved Physical.strength for this attacker.
+     * @param {Object<string, number>} requirementValues - The per-attacker flat
+     *   'Trait.stat' → number stat context (see _flattenStatsToTraitStatMap); it supplies
+     *   both the declared-`value` resolution and the strength fallback.
      * @returns {Array<Object>} Per-attacker consequence descriptors ready for _dispatchConsequences.
      * @private
      */
-    _buildPerAttackerConsequences(action, attackerStrength) {
+    _buildPerAttackerConsequences(action, requirementValues) {
+        const attackerStrength = requirementValues?.['Physical.strength'];
         return action.consequences.map(consequence => {
             if (consequence.type === 'damageComponent') {
-                // Channel-damage model (punch, cut, shootT1): pass the declared channel
-                // and a POSITIVE raw value through un-rebuilt. The DamageConsequenceHandler
-                // reads `channel` to route through the channel-loss formula and `value` as
-                // the raw damage amount (positive — the formula clamps negative to zero).
-                // The per-attacker material split is resolved downstream from
-                // context.attackerComponentId (set per-attacker in executeMultiAttacker).
                 if (consequence.params?.channel) {
+                    // Channel model: pass the declared params through (preserving `channel`)
+                    // and resolve the declared `value` placeholder per attacker. The result is
+                    // a positive raw amount for the channel-loss formula (the handler clamps any
+                    // negative), or the attacker's strength when it cannot be resolved to a
+                    // finite number.
+                    const resolvedValue = resolvePlaceholders(consequence.params.value, requirementValues);
+                    const value = (typeof resolvedValue === 'number' && Number.isFinite(resolvedValue))
+                        ? resolvedValue
+                        : attackerStrength;
                     return {
                         type: 'damageComponent',
                         target: consequence.target,
-                        params: {
-                            channel: consequence.params.channel,
-                            value: attackerStrength
-                        }
+                        params: { ...consequence.params, value }
                     };
                 }
                 // Legacy stat-delta model: additive negative delta on a trait/stat pair.

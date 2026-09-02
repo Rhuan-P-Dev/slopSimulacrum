@@ -9,8 +9,20 @@
  *    that preserve the `channel` and carry a POSITIVE `value` (the channel-loss
  *    formula clamps negative to zero — a negative value means zero damage).
  *
- * 2. Legacy stat-delta actions (declaring `trait`/`stat` in params) produce the
+ * 2. The channel-model `value` is resolved PER ATTACKER from the declared
+ *    placeholder via the same PlaceholderResolver/requirementValues mechanism the
+ *    single-attacker execute() path uses: a non-strength stat reference (e.g.
+ *    ':Physical.sharpness') resolves to that stat's own value, NOT to strength —
+ *    so a channel action is scaled by its declared stat, not unconditionally by
+ *    strength. A declared value that cannot be resolved to a finite number falls
+ *    back to strength (the documented limitation that keeps the model total).
+ *
+ * 3. Legacy stat-delta actions (declaring `trait`/`stat` in params) produce the
  *    unchanged legacy shape with a negative value (additive delta semantics).
+ *
+ * The method's second argument is the per-attacker flat 'Trait.stat' → number stat
+ * context (see _flattenStatsToTraitStatMap) — the same shape requirementValues has
+ * on the single-attacker path.
  *
  * @module test/unit/ConsequenceDispatcher.buildPerAttackerConsequences
  */
@@ -20,8 +32,8 @@ import ConsequenceDispatcher from '../../src/controllers/consequences/Consequenc
 
 /**
  * Creates a minimal ConsequenceDispatcher instance for unit testing.
- * The method under test (_buildPerAttackerConsequences) is pure — it reads
- * only from its arguments, not from the controller's injected dependencies.
+ * The methods under test are pure — they read only from their arguments, not from
+ * the controller's injected dependencies.
  */
 function makeDispatcher() {
     // actionController and synergyController are not accessed by _buildPerAttackerConsequences
@@ -30,6 +42,9 @@ function makeDispatcher() {
         null                    // no synergyController needed
     );
 }
+
+/** A per-attacker stat context carrying only the strength the method needs for the punch case. */
+const STRENGTH_ONLY = { 'Physical.strength': 42 };
 
 describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
     const dispatcher = makeDispatcher();
@@ -59,15 +74,15 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
         };
 
         it('preserves the channel field in emitted damageComponent params', () => {
-            const result = dispatcher._buildPerAttackerConsequences(punchAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(punchAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage, 'damageComponent consequence should be present').toBeTruthy();
             expect(damage.params.channel, 'channel should be preserved').toBe('impact');
         });
 
-        it('emits a POSITIVE value (the channel-loss formula requires positive input)', () => {
-            const result = dispatcher._buildPerAttackerConsequences(punchAction, 42);
+        it('resolves the declared strength placeholder to a POSITIVE value (channel-loss formula requires positive input)', () => {
+            const result = dispatcher._buildPerAttackerConsequences(punchAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage.params.value, 'value should equal the attacker strength (positive)').toBe(42);
@@ -75,7 +90,7 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
         });
 
         it('does NOT emit legacy trait/stat fields on channel-model consequences', () => {
-            const result = dispatcher._buildPerAttackerConsequences(punchAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(punchAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage.params.trait, 'legacy trait should not be present on channel-model consequences').toBeUndefined();
@@ -83,12 +98,62 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
         });
 
         it('emits exactly the channel and value keys (no extra fields that could confuse the handler)', () => {
-            const result = dispatcher._buildPerAttackerConsequences(punchAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(punchAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             // Only channel and value should be in params — no trait, stat, or other legacy fields.
             const keys = Object.keys(damage.params).sort();
             expect(keys).toEqual(['channel', 'value']);
+        });
+
+        // Non-strength stat reference: the declared value placeholder must resolve to the
+        // attacker's own value for THAT stat, not to strength (BUG-133 audit M2 — a
+        // channel action is scaled by its declared stat, not unconditionally by strength).
+        it('resolves a NON-strength placeholder (e.g. :Physical.sharpness) from the attacker stat, not strength', () => {
+            const cutAction = {
+                consequences: [
+                    {
+                        type: 'damageComponent',
+                        target: 'target',
+                        params: {
+                            channel: 'cut',
+                            value: ':Physical.sharpness'
+                        }
+                    }
+                ]
+            };
+            // The attacker has sharpness 7 but strength 42 — a strength-scaled assumption
+            // would (silently) yield 42; the correct per-attacker resolution yields 7.
+            const context = { 'Physical.strength': 42, 'Physical.sharpness': 7 };
+            const result = dispatcher._buildPerAttackerConsequences(cutAction, context);
+            const damage = result.find(r => r.type === 'damageComponent');
+
+            expect(damage, 'damageComponent consequence should be present').toBeTruthy();
+            expect(damage.params.channel, 'channel should be preserved from the data (not hardcoded)').toBe('cut');
+            expect(damage.params.value, 'value should resolve to the attacker sharpness, not strength').toBe(7);
+            expect(damage.params.value).not.toBe(42);
+        });
+
+        // Totality fallback: a declared value that does not resolve to a finite number
+        // (an unknown stat / :variable) falls back to the attacker's resolved strength,
+        // keeping the channel model total (documented in the method JSDoc).
+        it('falls back to strength when the declared value does not resolve to a finite number', () => {
+            const unknownStatAction = {
+                consequences: [
+                    {
+                        type: 'damageComponent',
+                        target: 'target',
+                        params: {
+                            channel: 'impact',
+                            value: ':Some.unknown_stat'
+                        }
+                    }
+                ]
+            };
+            const result = dispatcher._buildPerAttackerConsequences(unknownStatAction, STRENGTH_ONLY);
+            const damage = result.find(r => r.type === 'damageComponent');
+
+            expect(damage.params.value, 'unresolvable value falls back to the attacker strength').toBe(42);
         });
     });
 
@@ -108,7 +173,7 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
         };
 
         it('preserves the trait/stat fields for legacy actions', () => {
-            const result = dispatcher._buildPerAttackerConsequences(legacyAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(legacyAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage.params.trait).toBe('Physical');
@@ -116,14 +181,14 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
         });
 
         it('emits a NEGATIVE value (additive delta semantics for legacy model)', () => {
-            const result = dispatcher._buildPerAttackerConsequences(legacyAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(legacyAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage.params.value, 'legacy model uses negative value').toBe(-42);
         });
 
         it('does NOT emit a channel field on legacy actions', () => {
-            const result = dispatcher._buildPerAttackerConsequences(legacyAction, 42);
+            const result = dispatcher._buildPerAttackerConsequences(legacyAction, STRENGTH_ONLY);
             const damage = result.find(r => r.type === 'damageComponent');
 
             expect(damage.params.channel).toBeUndefined();
@@ -139,7 +204,7 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
                 ]
             };
 
-            const result = dispatcher._buildPerAttackerConsequences(action, 42);
+            const result = dispatcher._buildPerAttackerConsequences(action, STRENGTH_ONLY);
 
             // dropMaterialChunk should pass through unchanged
             expect(result[0]).toEqual({ type: 'dropMaterialChunk', target: 'target' });

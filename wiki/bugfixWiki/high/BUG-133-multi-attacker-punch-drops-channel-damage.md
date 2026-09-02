@@ -3,44 +3,39 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `pending`
-- **Related Files**: `src/controllers/consequences/ConsequenceDispatcher.js` (lines 493–518)
+- **Related Files**: `src/controllers/consequences/ConsequenceDispatcher.js` (`_buildPerAttackerConsequences`)
 
 ## Symptoms
 
-A droid with two `droidHand` fists performing a "droid punch" with both fists selected as `source` dealt **zero damage** to the target. The single-fist punch (the normal `execute()` path) worked correctly, so the bug only manifested in the multi-attacker case. The punch action's log message fired, but no existence loss was applied.
+A droid punching with **both** of its fists selected as sources dealt **no damage at all** to the target, even though the same punch from a single fist worked perfectly and its log message still printed. The failure was silent end to end: the action reported success, the punch message fired, yet the target's existence never moved. Because a two-fist punch is the only combat path that routes through the multi-attacker consequence builder, the bug could not be seen by testing the ordinary single-fist punch at all.
 
 ## Root Cause
 
-The two-fist case is the **only** combat path routed through the multi-attacker consequence builder (`executeMultiAttacker` → `_buildPerAttackerConsequences`). That builder was written for the **legacy stat-delta model** and contains two independent defects that each zero the channel damage:
+The multi-attacker path rebuilds each consequence's declared parameters from scratch before dispatching them, and that rebuild was written for the **legacy stat-delta model** — a damage value expressed as a signed delta against a single trait/stat pair. Two independent defects, each sufficient on its own to zero a modern **channel-damage** punch, lived in that rebuild:
 
-1. **Channel field dropped**: For `damageComponent` consequences, the builder rebuilds params as `{ trait, stat, value: -strength }`. The punch action declares `{ channel: "impact", value: ":Physical.strength" }` — it has no `trait`/`stat` fields — so `channel` is silently dropped from the rebuilt params.
+1. **The damage axis was dropped.** A channel-damage consequence names its target axis by a channel rather than by a trait/stat pair. The rebuild forced every damage value into the legacy trait/stat shape, so the channel fell out with nothing to replace it — leaving the handler unable to tell *what kind* of loss to apply.
+2. **The value was sign-flipped.** Even where a channel survived, the rebuild emitted the attacker's strength as a *negative* number, following the legacy additive-delta convention. The channel-loss step only ever counts a positive amount (a raw value divided by a per-channel resistance, clamped at zero), so a negative input collapsed to zero damage.
 
-2. **Negative value**: Even with `channel` preserved, the value is negated (`-strength`). The channel-loss formula (`channelLossFromResistance`) clamps with `Math.max(0, value)`, so a negative raw value becomes zero loss.
-
-Both defects independently produce zero damage; fixing only one is insufficient.
+Either defect alone was enough to produce zero damage; both had to be fixed together.
 
 ## Fix
 
-`_buildPerAttackerConsequences` now inspects the declared params of each `damageComponent` consequence:
+The per-attacker builder now reads each consequence's **declared** parameters and branches on the model the data actually uses, instead of forcing everything into the legacy shape:
 
-- **Channel model** (`params.channel` present): emits `{ channel, value: +strength }` — the channel string is preserved and the value is **positive** (matching the channel-loss formula's contract). The per-attacker material split is resolved downstream from `context.attackerComponentId`.
-- **Legacy model** (no channel, declares `trait`/`stat`): unchanged — emits the additive negative delta `{ trait, stat, value: -strength }`.
+- **Channel model:** the declared channel is passed straight through (never hardcoded), and the declared value is resolved **per attacker** with the same placeholder mechanism the single-attacker path already uses — so a punch that scales on strength deals strength, and a cut that scales on sharpness deals sharpness. The resolved value is a positive raw amount, exactly what the channel-loss step expects.
+- **Legacy model:** a consequence that declares a trait/stat pair is left untouched — still an additive signed delta, as before.
 
-The `propagateParams: false` constraint on the multi-attacker path (spec D11) is preserved: the drop-material-chunk consequence remains a no-op because the published channel loss is never carried forward, consistent with that path's semantics.
+The multi-attacker path's rule against carrying applied losses forward is deliberately preserved: it still publishes no loss, so the chunk-drop step has nothing to convert and drops no chunks (spec D11). That is now understood as a consequence of the path never aggregating a loss — not as a symptom of the punches dealing no damage, since they do.
 
 ## Prevention
 
-- The unit test `test/unit/ConsequenceDispatcher.buildPerAttackerConsequences.test.js` asserts the correct shape for both channel and legacy models.
-- The contract test `test/contract/doublePunchChannelDamage.contract.test.js` exercises the full round-trip with two fists, verifying formula-exact synergy-scaled loss, per-attacker result shape, and the D11 no-chunks behavior.
-
-## Follow-ups (Known Out-of-Scope)
-
-- **Log placeholder**: the punch log message `Droid performed a punch dealing :Physical.strength impact damage!` prints the raw `:Physical.strength` placeholder because the `log` consequence stores `message`/`level` at the top level (not inside `params`), and neither `_resolveParams` nor the log branch in `_buildPerAttackerConsequences` resolves top-level placeholders. Cosmetic only.
-- **Dead synergy cap key**: the punch synergy config in `data/synergy.json` declares `caps.damage.req: "Physical.strength"`, but no code reads this key. Cosmetic; do not modify as part of this fix.
+- A **unit** test pins the builder's contract for both models: the channel is preserved, the value resolves to the attacker's declared stat (not unconditionally to strength), and the legacy trait/stat form keeps its signed-delta shape. A dedicated case covers a channel action whose value is a **non-strength** stat — the exact shape the old rebuild would have silently mis-scaled.
+- A **contract** test drives a real two-fist punch through the whole pipeline and asserts formula-exact synergy-scaled loss, the per-attacker result shape, and — with real, non-vacuous checks — that no chunks are dropped and no new ground items appear (D11).
+- Two related gaps are known and intentionally left for separate work (neither blocks this fix): the punch's **log message** still prints its raw strength placeholder, because log text is stored outside the consequence's parameters and is not placeholder-resolved on this path; and the punch's **synergy configuration** declares a damage-cap requirement key that no code currently reads.
 
 ## References
 
 - Related wiki: `wiki/subMDs/controllers/consequence_handler_architecture.md`
 - Related wiki: `wiki/subMDs/data/material_damage_and_drop.md`
 - Related controller: `ConsequenceDispatcher`
-- Related wiki: `wiki/bugfixWiki/high/BUG-132-channel-damage-silently-never-applied.md`
+- Related bug: [BUG-132](BUG-132-channel-damage-silently-never-applied.md) — the single-attacker channel-damage outage this builds on

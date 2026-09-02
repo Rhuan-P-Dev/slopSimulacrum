@@ -25,8 +25,7 @@ import { describe, it, expect } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
-
-const RESISTANCE_SCALE = 100; // mirrors the per-channel formula's base absorption
+import { RESISTANCE_SCALE, channelLossFromResistance } from '../../src/utils/channelLoss.js';
 
 /**
  * Builds a fresh world for an isolated scenario.
@@ -75,7 +74,7 @@ describe('BUG-133 — two-fist punch channel damage (contract, full round-trip)'
         world.stateEntityController.updateEntitySpatial(victimId, { x: 50, y: 0 }); // well within punch range (100)
 
         // Feature must be active for the punch to produce a meaningful split assertion.
-        expect(world.materialController._damageTypesEnabled, 'feature should be on with the real balance file').toBe(true);
+        expect(world.materialController.isDamageTypesEnabled(), 'feature should be on with the real balance file').toBe(true);
         const blend = droidHandBlend(world);
         expect(blend, 'droidHand should produce a non-trivial blend').not.toBeNull();
         expect(Object.keys(blend).length, 'droidHand (2 materials) should split across >1 channel').toBeGreaterThan(1);
@@ -110,10 +109,15 @@ describe('BUG-133 — two-fist punch channel damage (contract, full round-trip)'
         // (a) Formula-exact loss: per-attacker the raw value is synergy-scaled, then
         // sliced by the attacker's blend across channels; each slice goes through
         // value/(100+resistance). Both per-attacker losses sum into the total.
+        // Expected loss per attacker, derived from the SAME single source of truth the
+        // handler uses: channelLossFromResistance over each channel's resistance. The raw
+        // value is synergy-scaled, sliced by the attacker's material blend across channels
+        // (a percentage on the 0-100 RESISTANCE_SCALE), and each slice run through the
+        // per-channel loss ratio — bit-identical to the handler's math, no re-derivation.
         const expectedLossPerAttacker = (s) =>
-            (s * synergyMult * (blend.impact / 100)) / (RESISTANCE_SCALE + res.impact) +
-            (s * synergyMult * (blend.cut / 100)) / (RESISTANCE_SCALE + res.cut) +
-            (s * synergyMult * (blend.wear / 100)) / (RESISTANCE_SCALE + res.wear);
+            channelLossFromResistance(s * synergyMult * (blend.impact / RESISTANCE_SCALE), res.impact) +
+            channelLossFromResistance(s * synergyMult * (blend.cut / RESISTANCE_SCALE), res.cut) +
+            channelLossFromResistance(s * synergyMult * (blend.wear / RESISTANCE_SCALE), res.wear);
 
         const totalExpectedLoss = expectedLossPerAttacker(strengths[0]) + expectedLossPerAttacker(strengths[1]);
 
@@ -142,9 +146,14 @@ describe('BUG-133 — two-fist punch channel damage (contract, full round-trip)'
         world.stateEntityController.updateEntitySpatial(victimId, { x: 50, y: 0 });
 
         const fists = droidHands(world, attackerId);
-        expect(fists.length).toBe(2);
+        expect(fists.length, 'attacker must have two droidHands for the multi-attacker path').toBe(2);
 
         const head = victimHead(world, victimId);
+
+        // Baseline: the count of ground items BEFORE the punch. A fresh world has none,
+        // but capturing the baseline keeps the "no new items" assertion robust to any
+        // ambient items a fixture might have placed.
+        const beforeGroundCount = Object.keys(world.getDroppedItems()).length;
 
         const result = world.actionController.executeAction('droid punch', attackerId, {
             targetEntityId: victimId,
@@ -154,21 +163,26 @@ describe('BUG-133 — two-fist punch channel damage (contract, full round-trip)'
 
         expect(result.success).toBe(true);
 
-        // The dropMaterialChunk consequence should NOT produce any chunks because
-        // propagateParams is false on the multi-attacker path: the published channel
-        // loss is never carried forward to the drop step (spec D11).
+        // One dropMaterialChunk consequence runs per attacker (the multi-attacker path
+        // passes each consequence through per attacker), so exactly one drop result per fist.
         const dropResults = result.results.filter(r => r.type === 'dropMaterialChunk');
+        expect(dropResults.length, 'one dropMaterialChunk result should run per attacker').toBe(2);
+
+        // The drop handler's only damage input is the published channel loss, which the
+        // multi-attacker path never propagates (propagateParams: false). Assert it
+        // UNCONDITIONALLY reports zero dropped chunks for every per-attacker drop result.
+        // (This is the assertion that was previously vacuous: it guarded on the wrong
+        // field name, `chunksDropped`, which the handler never returns — it returns
+        // `droppedChunks`.)
         for (const r of dropResults) {
-            // The handler should no-op (no published loss to consume) and produce
-            // no new ground items. The success flag may be true (no error) or the
-            // handler may report zero chunks — either way, no items appear.
-            if (r.data && r.data.chunksDropped !== undefined) {
-                expect(r.data.chunksDropped, 'no chunks should be dropped on the multi-attacker path').toBe(0);
-            }
+            expect(r.data, 'each drop result should carry a data object').toBeTruthy();
+            expect(r.data.droppedChunks, 'no chunks should be dropped on the multi-attacker path (spec D11)').toBe(0);
         }
 
-        // Verify no new ground items appeared (the chunk drop was a no-op).
-        const groundItems = world.worldEventLog ? [] : []; // No ground items expected
-        expect(groundItems.length).toBe(0);
+        // Real D11 check: no new ground items appeared after the punch (the chunk drop
+        // was a no-op because no published loss reached the drop handler).
+        const afterGroundCount = Object.keys(world.getDroppedItems()).length;
+        expect(afterGroundCount, 'no new ground items should appear after a multi-attacker punch (spec D11)')
+            .toBe(beforeGroundCount);
     });
 });

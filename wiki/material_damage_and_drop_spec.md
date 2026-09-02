@@ -161,11 +161,11 @@ A punch that empties a component's existence crosses `EXISTENCE_GONE_AT = 0`, wh
 
 The drop path never triggers, delays, or observes the break flow; the break flow never knows chunks exist. They share only the ground-item store.
 
-### D11 — Multi-attacker punches drop nothing (consistent with today's zero damage)
+### D11 — Multi-attacker punches drop nothing (no aggregate loss publication)
 
 On the multi-attacker path ([`executeMultiAttacker`](src/controllers/consequences/ConsequenceDispatcher.js:102)), the dispatcher (a) passes unknown consequence types through per attacker unchanged — so `dropMaterialChunk` *does* run, once per attacker — and (b) never propagates handler-modified params (`propagateParams: false`), so no applied loss is published. The drop handler therefore sees no published loss and drops nothing, per-attacker.
 
-**Why that is correct, not a gap.** That same path's per-attacker damage value is currently negated by construction (the legacy `_buildPerAttackerConsequences` value rewrite, [`ConsequenceDispatcher`](src/controllers/consequences/ConsequenceDispatcher.js:493)), so multi-attacker punches apply zero damage today; dropping nothing is the *consistent* reading of "volume tied to damage actually applied". Fixing the multi-attacker value semantics (and enabling propagation there) is a separate task — see Open Questions.
+**Why that is correct, not a gap.** Multi-attacker punches *do* deal damage on this path — each attacker's declared channel value is resolved per attacker and scaled by synergy, exactly as on the single-attacker path. What does not happen is a chunk drop, and that is the point: chunk volume is tied to the *published* loss, and this path never aggregates a published loss across its per-attacker consequences (it does not propagate handler-modified params). So the drop step has no loss to convert and drops nothing. "No chunks" is therefore the consistent reading of "no published loss is carried forward on this path" — not evidence that the punch dealt no damage.
 
 ### D12 — Testing strategy: contract tests prove the pipeline, unit tests prove the math
 
@@ -254,7 +254,7 @@ The channel-damage step publishes, into the consequence context's action params 
 - **Multi-material target** (e.g. a `droidHand` target, iron 0.7 + wood 0.3): one independent roll per material; at most one chunk per material per punch; lost matter attributed by fractions.
 - **Multi-material attacker** (e.g. a `droidHand` punching): fraction-weighted blended split (D4).
 - **Punch that breaks the target:** break/removal cascade runs inside the damage consequence; the drop consequence finds no target → zero drops; the spill flow (which spills *contents*, not matter) is untouched and orthogonal (D10).
-- **Multi-attacker punch:** drop consequence runs per attacker but sees no published loss → zero drops, consistent with that path's current zero damage (D11).
+- **Multi-attacker punch:** the per-attacker punches deal (synergy-scaled) channel damage, but the drop consequence runs per attacker and sees no published loss — this path never aggregates one — so zero drops (D11).
 - **Materials with no entry in either file:** declared-channel damage, no drops (D9).
 - **Micro-loss punches** (tiny applied loss): the `minChunkVolume` floor makes any successful roll produce a floor-sized chip; a roll miss still drops nothing.
 - **Chunk re-dropped and re-picked:** volume/name survive the round trip because the ground record and the inventory instance are self-describing and the re-drop site uses the instance (D8 site 3).
@@ -306,7 +306,7 @@ The channel-damage step publishes, into the consequence context's action params 
 
 ## 9. Open questions for the user
 
-1. **Multi-attacker zero-damage quirk.** The multi-attacker path's per-attacker damage value is negated by the legacy value rewrite, so those punches apply zero damage today; chunk drops are consistently absent there (D11). Confirm fixing that value (and enabling param propagation on that path) is a *separate* task, out of scope here.
+1. **Multi-attacker punches drop no chunks (by design).** Multi-attacker punches now deal per-attacker (synergy-scaled) channel damage, but the path never aggregates a published loss across its per-attacker consequences, so the chunk-drop step has nothing to convert and drops nothing (D11). If chunks are ever wanted off a multi-attacker punch, that requires an aggregate publication on this path — a deliberate, separate design decision that would change the no-propagation semantics that keep the path simple and predictable.
 2. **Broken target drops nothing** (D10): the break/spill flow owns total loss; a lethal punch emits no chunks. Confirm, or do you want chunks for the final full-matter loss too (would require a deliberate hand-off into the removal flow)?
 3. **Punch-only drops** (scope): `cut` and `shootT1` never drop chunks because the consequence is declared only on punch in data. Confirm this matches the intent.
 4. **Initial balance values** (wood 50/25/25 impact/cut/wear; iron 100 impact; drop rates 1.0/0.25; chunk fractions 0.3/0.5; `minChunkVolume` 0.05) are proposals encoded in the data contract — they are tunable without code changes.

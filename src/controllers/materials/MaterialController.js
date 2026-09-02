@@ -176,6 +176,20 @@ class MaterialController {
     }
 
     /**
+     * Whether the per-material damage-type split feature is active — i.e. the
+     * data/materialDamageTypes.json registry loaded and validated to a non-empty
+     * split. Mirrors the drop-rates feature flag (_dropRatesEnabled); both are set
+     * during construction. Exposed as a public predicate so callers and tests can
+     * query the feature state without reaching into the private flag.
+     *
+     * @returns {boolean} true when the split is on; false when off (feature off →
+     *   the declared channel keeps 100%, exactly the pre-feature behavior).
+     */
+    isDamageTypesEnabled() {
+        return this._damageTypesEnabled;
+    }
+
+    /**
      * Returns the damage-type distribution for a single material (feature 1).
      *
      * @param {string} materialName - A material ID (e.g. 'iron', 'wood').
