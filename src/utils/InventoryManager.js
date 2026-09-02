@@ -8,24 +8,7 @@ import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
-
-/**
- * Reads a definition's physical volume. In the recipe→derivation model the
- * volume lives under `form.volume` (items and components alike); the legacy
- * top-level `volume` / `traits.Physical.volume` locations are kept as a
- * fallback for definitions that have not been migrated. Returns 0 when no
- * volume is declared (an unbounded / non-volume-bearing definition).
- * @param {Object|undefined|null} def - The item or component definition.
- * @returns {number} The declared volume (0 when absent).
- * @private
- */
-function _defVolume(def) {
-    if (!def) return 0;
-    if (typeof def.form?.volume === 'number') return def.form.volume;
-    if (typeof def.volume === 'number') return def.volume;
-    if (typeof def.traits?.Physical?.volume === 'number') return def.traits.Physical.volume;
-    return 0;
-}
+import { getDefinitionVolume } from './definitionVolume.js';
 
 class InventoryManager {
     constructor(options = {}) {
@@ -216,7 +199,7 @@ class InventoryManager {
         const externalVolume = (typeof itemDef.form?.externalVolume === 'number')
             ? itemDef.form.externalVolume
             : (typeof itemDef.externalVolume === 'number' ? itemDef.externalVolume : undefined);
-        const hostVolume = (typeof externalVolume === 'number') ? externalVolume : _defVolume(itemDef);
+        const hostVolume = (typeof externalVolume === 'number') ? externalVolume : getDefinitionVolume(itemDef);
 
         const maxVolume = this._getComponentMaxVolume(componentType);
         if (maxVolume > 0) {
@@ -236,7 +219,7 @@ class InventoryManager {
             // Store the instance's volume/footprint from the definition's recipe→derivation
             // location (form.volume / form.externalVolume). This is informational (used by the
             // craft pre-check and volume readouts); it does NOT enforce capacity here.
-            volume: _defVolume(itemDef),
+            volume: getDefinitionVolume(itemDef),
             hostVolume: hostVolume,
             externalVolume: itemDef.externalVolume ?? null,
             traits: this._mergeItemTraits(itemDef),
@@ -431,7 +414,7 @@ class InventoryManager {
         // readouts getAvailableVolume/getComponentVolume); it is independent of the
         // additive capacity enforcement in addItem, which remains non-enforcing.
         const componentDef = this._componentDefinitions[compType];
-        return _defVolume(componentDef);
+        return getDefinitionVolume(componentDef);
     }
 
     /**
@@ -665,7 +648,7 @@ class InventoryManager {
 
         // GENERIC VALIDATION: Use same logic as component volume check. The child's
         // footprint comes from the recipe→derivation location (form.volume / form.externalVolume).
-        const childVolume = _defVolume(itemDef);
+        const childVolume = getDefinitionVolume(itemDef);
         if (!this._canChildFit(entity, containerItemId, childVolume)) {
             const used = this._getHostUsedVolume(entity, containerItemId);
             return {
@@ -678,7 +661,7 @@ class InventoryManager {
             id: generateItemId(),
             type: itemType,
             name: itemDef.name,
-            volume: _defVolume(itemDef),
+            volume: getDefinitionVolume(itemDef),
             traits: this._mergeItemTraits(itemDef),
             hostComponentId: containerItemId
         };

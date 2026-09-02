@@ -22,6 +22,7 @@ import Logger from '../../utils/Logger.js';
 import { writeDroppedItem } from './DropItemHandler.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
 import { CHUNK_ITEM_TYPE_PREFIX, PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
+import { getDefinitionVolume } from '../../utils/definitionVolume.js';
 
 class MaterialChunkDropHandler {
     /**
@@ -97,7 +98,7 @@ class MaterialChunkDropHandler {
         if (!Array.isArray(materials) || materials.length === 0) {
             return { success: true, message: 'Target declares no materials.', data: { droppedChunks: 0, chunkVolumes: {} } };
         }
-        const recipeVolume = _recipeVolume(world.componentController?.getComponentDefinition?.(comp.type));
+        const recipeVolume = getDefinitionVolume(world.componentController?.getComponentDefinition?.(comp.type));
 
         // 4. Per-material independent roll + volume (D7/D12), batched into one write.
         const minChunkVolume = this.materialController.getMinChunkVolume();
@@ -159,21 +160,6 @@ class MaterialChunkDropHandler {
             data: { droppedChunks: dropped, chunkVolumes }
         };
     }
-}
-
-/**
- * Reads a component definition's recipe volume (form.volume / top-level volume /
- * traits.Physical.volume), mirroring InventoryManager._defVolume. Returns 0 when no
- * volume is declared — a 0 recipe volume makes lost_i 0, so the minChunkVolume floor
- * still yields a floor-sized chip on a successful roll (a non-degenerate outcome).
- * @private
- */
-function _recipeVolume(def) {
-    if (!def) return 0;
-    if (typeof def.form?.volume === 'number') return def.form.volume;
-    if (typeof def.volume === 'number') return def.volume;
-    if (typeof def.traits?.Physical?.volume === 'number') return def.traits.Physical.volume;
-    return 0;
 }
 
 function round4(n) {
