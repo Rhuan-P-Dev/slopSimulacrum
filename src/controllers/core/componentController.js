@@ -268,12 +268,16 @@ class ComponentController {
     }
 
     /**
-     * Retrieves the component definition (blueprint) from the registry.
+     * Retrieves the component definition (blueprint) from the registry as a
+     * defensive deep copy — matching this controller's other public getters
+     * (the defensive-copy rule: a state controller must never hand out a live
+     * reference to its internal registry). Returns null when the type is unknown.
      * @param {string} componentType - The component type name.
-     * @returns {Object|null} The component blueprint or null if not found.
+     * @returns {Object|null} A deep copy of the component blueprint, or null if not found.
      */
     getComponentDefinition(componentType) {
-        return this.componentRegistry[componentType] || null;
+        const def = this.componentRegistry[componentType];
+        return def ? structuredClone(def) : null;
     }
 
     /**
