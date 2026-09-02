@@ -49,7 +49,7 @@ Stat changes on equipped items also trigger capability re-evaluation, so the UI 
 
 ## Cross-Consequence Data Flow
 
-A consequence can publish a *result* into the shared dispatch context, and the dispatcher's parameter propagation carries it to later consequences in the same action. The damage step uses this to hand the **applied loss** to the `dropMaterialChunk` step that runs after it, so the drop derives its chunk volumes from the damage that actually left the target rather than recomputing it. This is the established way one consequence feeds another within a single action — a one-way hand-off of an already-computed result — and it is why the drop handler never re-derives damage. (On the multi-attacker path, parameter propagation is disabled, so nothing is published and the drop produces no chunks — consistent with that path applying no damage.)
+A consequence can publish a *result* into the shared dispatch context, and the dispatcher's parameter propagation carries it to later consequences in the same action. The damage step uses this to hand the **applied loss** to the `dropMaterialChunk` step that runs after it, so the drop derives its chunk volumes from the damage that actually left the target rather than recomputing it. This is the established way one consequence feeds another within a single action — a one-way hand-off of an already-computed result — and it is why the drop handler never re-derives damage. (On the multi-attacker path, parameter propagation is disabled, so the published channel loss is never carried forward and the drop produces no chunks — the path applies per-attacker damage independently, and the drop step has no aggregate publication to consume.)
 
 ## Benefits
 

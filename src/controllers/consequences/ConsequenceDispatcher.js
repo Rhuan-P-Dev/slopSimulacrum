@@ -487,18 +487,54 @@ class ConsequenceDispatcher {
     }
 
     /**
-     * Builds per-attacker consequences from action definition.
+     * Builds per-attacker consequences from the action definition for the
+     * multi-attacker path.
+     *
+     * The channel-damage model passes the raw damage value as a POSITIVE number
+     * (the channel-loss formula clamps negative values to zero), while the legacy
+     * stat-delta model uses a NEGATIVE value (an additive delta). This method
+     * inspects each consequence's declared params to determine which model it
+     * uses and emits the correct shape, preserving all fields that the downstream
+     * handler needs.
+     *
+     * Why channel params must be passed through un-rebuilt:
+     * The channel model identifies the damage axis by `channel` (e.g. "impact")
+     * rather than by a trait/stat pair, and the DamageConsequenceHandler uses
+     * `context.attackerComponentId` to resolve the per-attacker material split.
+     * Rebuilding from a legacy trait/stat shape would silently drop the channel
+     * and apply zero damage (BUG-133).
+     *
+     * @param {Object} action - The action definition from the registry.
+     * @param {number} attackerStrength - The resolved Physical.strength for this attacker.
+     * @returns {Array<Object>} Per-attacker consequence descriptors ready for _dispatchConsequences.
      * @private
      */
     _buildPerAttackerConsequences(action, attackerStrength) {
         return action.consequences.map(consequence => {
             if (consequence.type === 'damageComponent') {
+                // Channel-damage model (punch, cut, shootT1): pass the declared channel
+                // and a POSITIVE raw value through un-rebuilt. The DamageConsequenceHandler
+                // reads `channel` to route through the channel-loss formula and `value` as
+                // the raw damage amount (positive — the formula clamps negative to zero).
+                // The per-attacker material split is resolved downstream from
+                // context.attackerComponentId (set per-attacker in executeMultiAttacker).
+                if (consequence.params?.channel) {
+                    return {
+                        type: 'damageComponent',
+                        target: consequence.target,
+                        params: {
+                            channel: consequence.params.channel,
+                            value: attackerStrength
+                        }
+                    };
+                }
+                // Legacy stat-delta model: additive negative delta on a trait/stat pair.
                 return {
                     type: 'damageComponent',
                     target: consequence.target,
                     params: {
-                        trait: consequence.params.trait,
-                        stat: consequence.params.stat,
+                        trait: consequence.params?.trait,
+                        stat: consequence.params?.stat,
                         value: -attackerStrength
                     }
                 };

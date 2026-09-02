@@ -81,6 +81,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-129](high/BUG-129-client-side-inventory-uses-item-volume-instead-of-externalVolume-for-host-component-display.md) | Client-Side Inventory Uses item.volume Instead of externalVolume for Host Component Display | ✅ Fixed | `pending` | `InventoryManager.js` (client) |
 | [BUG-131](high/BUG-131-universal-tick-system-delayed-first-execution.md) | UniversalTickSystem Jobs Delayed by One Interval on First Execution | ✅ Fixed | `pending` | `UniversalTickSystem.js` |
 | [BUG-132](high/BUG-132-channel-damage-silently-never-applied.md) | Channel Damage Silently Never Applied (DAMAGE_CHANNELS Member Test on an Object) | ✅ Fixed | `pending` | `DamageConsequenceHandler.js` |
+| [BUG-133](high/BUG-133-multi-attacker-punch-drops-channel-damage.md) | Multi-Attacker Punch Drops Channel Damage (Zero Damage Dealt) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js` |
 
 ### 🟡 Medium Severity
 
