@@ -44,7 +44,7 @@ class MaterialController {
         // Must run AFTER the materials registry is validated, because the validator
         // cross-checks every damage-file material key against this.materialsRegistry.
         // It returns the (possibly normalized) registry and sets _damageTypesEnabled.
-        this.damageTypesRegistry = this._validateDamageTypesRegistry(damageTypesRegistry);
+        this.damageTypesRegistry = this._validateMaterialDamageTypes(damageTypesRegistry);
         // Feature 2 (material chunk drop on punch): validate the injected drop-rates
         // registry (data/materialDropRates.json). Must ALSO run after the materials
         // registry is validated, because the validator cross-checks each drop-file
@@ -113,7 +113,7 @@ class MaterialController {
      * @returns {Object} The normalized registry ({} when the feature is off).
      * @private
      */
-    _validateDamageTypesRegistry(registry) {
+    _validateMaterialDamageTypes(registry) {
         // Absent / null → feature OFF (graceful degradation, spec D9). The loader's
         // {} fallback (missing/unreadable file) and an explicitly-null file land here;
         // neither is a malformation.
@@ -247,7 +247,7 @@ class MaterialController {
      * data/holdingCost.json): an optional global scalar `minChunkVolume` plus a
      * `materials` section mapping material name → { dropRate, chunkFraction }.
      *
-     * Three distinct outcomes (spec D9), mirroring _validateDamageTypesRegistry:
+     * Three distinct outcomes (spec D9), mirroring _validateMaterialDamageTypes:
      *   - Absent / null / empty object → feature OFF (no drops). Not an error:
      *     deleting the balance file must never crash the world. Stored as {} with
      *     _dropRatesEnabled false and a single Logger.warn at boot.

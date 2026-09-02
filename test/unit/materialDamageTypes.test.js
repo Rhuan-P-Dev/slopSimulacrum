@@ -409,3 +409,14 @@ describe('PUBLISHED_CHANNEL_LOSS_KEY (dispatcher contract)', () => {
         expect(result.message).toBe('Material chunk drop disabled.');
     });
 });
+
+// ===========================================================================
+// Method-name guard (M3): the validator is named _validateMaterialDamageTypes
+// ===========================================================================
+
+describe('MaterialController method-name guard (M3)', () => {
+    it('exposes _validateMaterialDamageTypes (the winning, file/sibling-matching name)', () => {
+        const mc = makeMaterialController();
+        expect(typeof mc._validateMaterialDamageTypes).toBe('function');
+    });
+});
