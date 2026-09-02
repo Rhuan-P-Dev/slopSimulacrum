@@ -143,7 +143,17 @@ export function buildWorldState(tickSystem = null) {
     // (zero new file I/O; the controller itself never loads).
     const materialsRegistry = DataLoader.loadJsonSafe('data/materials.json', {});
     const propertyTraitMappingRegistry = DataLoader.loadJsonSafe('data/propertyTraitMapping.json', {});
-    const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry);
+    // Feature 1: per-material damage-type distributions (data/materialDamageTypes.json).
+    // Loaded here (one load, N readers) and injected into the MaterialController, which
+    // validates it (cross-checking material keys against the materials registry) and
+    // serves it to the damage handler. Absent/empty file → feature off (graceful).
+    const materialDamageTypesRegistry = DataLoader.loadJsonSafe('data/materialDamageTypes.json', {});
+    // Feature 2: per-material chunk-drop rates (data/materialDropRates.json). Same
+    // one-load/N-readers pattern; the MaterialController validates it (minChunkVolume,
+    // per-material dropRate/chunkFraction in [0,1], material-key cross-check) and serves
+    // it to the chunk-drop handler. Absent/empty file → feature off (graceful — no drops).
+    const materialDropRatesRegistry = DataLoader.loadJsonSafe('data/materialDropRates.json', {});
+    const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry, materialDamageTypesRegistry, materialDropRatesRegistry);
 
     // =========================================================================
     // 0.5: FAIL-FAST STARTUP VALIDATION — validate all compositions now,
@@ -218,7 +228,9 @@ export function buildWorldState(tickSystem = null) {
     // --- Layer 3: action system (depends on the controllers above) ---
     // ConsequenceHandlers: needs equippedItemStats (named); the world event log
     // feeds the LogConsequenceHandler sink (Feature B); facade injected later.
-    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController });
+    // materialController is forwarded (feature 1) so the damage handler can apply the
+    // attacker's per-material damage-type split at the single damage choke point.
+    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController });
     // ActionController: needs its named collaborators; facade injected later.
     const actionController = new ActionController(
         consequenceHandlers,

@@ -16,6 +16,7 @@ import Logger from '../../utils/Logger.js';
 import SpatialConsequenceHandler from './SpatialConsequenceHandler.js';
 import StatConsequenceHandler from './StatConsequenceHandler.js';
 import DamageConsequenceHandler from './DamageConsequenceHandler.js';
+import MaterialChunkDropHandler from './MaterialChunkDropHandler.js';
 import LogConsequenceHandler from './LogConsequenceHandler.js';
 import EventConsequenceHandler from './EventConsequenceHandler.js';
 import { handleDropItem } from './DropItemHandler.js';
@@ -26,6 +27,9 @@ class ConsequenceHandlers {
     /**
      * @param {Object} [deps] - Named dependencies.
      * @param {EquippedItemStatsController} [deps.equippedItemStats] - Mutable equipped-item stats.
+     * @param {MaterialController|null} [deps.materialController] - Feature 1: owns the
+     *   per-material damage-type split (data/materialDamageTypes.json); forwarded to the
+     *   damage handler. Null-tolerant (the feature degrades to the declared channel).
      * @param {WorldEventLogController|null} [deps.worldEventLog] - World event ring buffer
      *   (Feature B): the log handler forwards every resolved log message to it.
      *
@@ -34,19 +38,29 @@ class ConsequenceHandlers {
      * and propagated to the focused handlers (which keep reading
      * `this.worldStateController` exactly as before — their class bodies are untouched).
      */
-    constructor({ equippedItemStats, worldEventLog = null } = {}) {
+    constructor({ equippedItemStats, worldEventLog = null, materialController = null } = {}) {
         /** @type {WorldStateController|null} Injected post-construction. */
         this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
+        // Feature 1: MaterialController owns the per-material damage-type split
+        // (data/materialDamageTypes.json); forwarded to the damage handler below.
+        this.materialController = materialController || null;
 
         // Initialize focused handlers. The `controllers` bag carries the facade
         // reference each handler stores; setWorldStateController() keeps it in sync.
         const controllers = { worldStateController: this.worldStateController, equippedItemStats: this.equippedItemStats };
         this.spatialHandler = new SpatialConsequenceHandler(controllers);
         this.statHandler = new StatConsequenceHandler(controllers);
-        // Pass equippedItemStats so DamageConsequenceHandler can route equipped item damage correctly
-        const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats };
+        // Pass equippedItemStats so DamageConsequenceHandler can route equipped item
+        // damage correctly, and materialController for the per-material damage-type
+        // split (feature 1).
+        const damageControllers = { ...controllers, equippedItemStats: this.equippedItemStats, materialController: this.materialController };
         this.damageHandler = new DamageConsequenceHandler(damageControllers);
+        // Feature 2: chunk drop on punch. Named deps only (the facade arrives via
+        // setWorldStateController below); materialController is forwarded so the handler
+        // can read the drop-rates registry (data/materialDropRates.json).
+        const chunkControllers = { worldStateController: this.worldStateController, materialController: this.materialController };
+        this.materialChunkDropHandler = new MaterialChunkDropHandler(chunkControllers);
         // Feature B: single choke point where "something happened in the world"
         // already produces a human sentence — forward it into the event buffer.
         // The closure reads this.worldStateController lazily (the facade is
@@ -76,6 +90,7 @@ class ConsequenceHandlers {
         this.spatialHandler.worldStateController = worldStateController;
         this.statHandler.worldStateController = worldStateController;
         this.damageHandler.worldStateController = worldStateController;
+        this.materialChunkDropHandler.worldStateController = worldStateController;
     }
 
     /**
@@ -102,6 +117,7 @@ class ConsequenceHandlers {
             updateComponentStatDelta: (targetId, params, context) => this.statHandler._handleUpdateComponentStatDelta(targetId, params, context),
             triggerEvent: (targetId, params, context) => this.eventHandler._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
+            dropMaterialChunk: (targetId, params, context) => this.materialChunkDropHandler._handleDropMaterialChunk(targetId, params, context),
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
             consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),

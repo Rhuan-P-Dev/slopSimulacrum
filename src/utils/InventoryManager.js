@@ -175,7 +175,11 @@ class InventoryManager {
      */
     addItem(entity, itemType, hostComponentId, options = {}) {
         const { componentController } = options;
-        const itemDef = this._itemDefinitions[itemType];
+        // Explicit definition override (feature 2, D8 site 2): a dynamically-generated
+        // chunk type has no registry entry, so callers pass the synthesized definition
+        // (self-describing name/volume + a 100% single-material composition). When absent,
+        // this resolves to the normal registry lookup (behavior unchanged).
+        const itemDef = options.itemDef || this._itemDefinitions[itemType];
 
         if (!itemDef) {
             Logger.warn(`[InventoryManager] Item type "${itemType}" not found in registry.`);

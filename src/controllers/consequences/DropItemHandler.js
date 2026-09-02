@@ -14,6 +14,7 @@
 
 import Logger from '../../utils/Logger.js';
 import { generateItemId } from '../../utils/idGenerator.js';
+import { recoverChunkMaterial } from '../../utils/Constants.js';
 
 /**
  * Writes a dropped item record to the droppedItems map.
@@ -116,6 +117,10 @@ function handleDropItem(deps, params, context) {
 
     // If equipped, unequip it first
     let usedItemType = itemType;
+    // The item instance (name/volume) captured before removal, so a re-dropped chunk can
+    // keep its dynamic volume + derived name (feature 2, D8 site 3). Chunks are not
+    // equipable, so this is only ever set on the inventory branch.
+    let sourceInstance = null;
     if (equippedItem) {
         const unequipResult = worldStateController.unequipItem(entityId, itemId);
         if (!unequipResult.success) {
@@ -134,6 +139,7 @@ function handleDropItem(deps, params, context) {
             return { success: false, message: `Item "${itemId}" not found.` };
         }
         usedItemType = usedItemType || foundItem.type;
+        sourceInstance = foundItem;
     }
 
     // Collect all nested items from the container before removal.
@@ -152,7 +158,19 @@ function handleDropItem(deps, params, context) {
 
     // Fetch item definition for fallback
     const itemRegistry = worldStateController.getItemRegistry();
-    const itemDef = itemRegistry[usedItemType] || {};
+    let itemDef = itemRegistry[usedItemType] || {};
+    // Feature 2 (D8 site 3): a re-dropped chunk has no registry entry. Build the ground
+    // record from the item instance's own (dynamic) name/volume instead of the empty
+    // fallback — otherwise the chunk would silently reset to the default volume (1).
+    const chunkMaterial = recoverChunkMaterial(usedItemType);
+    if (chunkMaterial && !itemRegistry[usedItemType]) {
+        const matName = worldStateController.getMaterialRegistry?.()[chunkMaterial]?.name || chunkMaterial;
+        itemDef = {
+            name: sourceInstance?.name || `${matName} chunk`,
+            description: sourceInstance?.description || `A chunk of ${matName} chipped off a damaged component.`,
+            volume: sourceInstance?.volume ?? 1
+        };
+    }
 
     // Use extracted helper to write the dropped item record
     const { droppedItemId } = writeDroppedItem(

@@ -90,6 +90,45 @@ export const DROP_RANGE_MULTIPLIER = 2;
 export const PICK_UP_RANGE_FALLBACK = 50;
 
 // =========================================================================
+// DYNAMIC ITEM TYPE CONSTANTS (feature 2 — material chunk drop on punch)
+// =========================================================================
+
+/**
+ * Prefix for dynamically-generated chunk item types (feature 2). When a
+ * component is punched it sheds a "chunk" per dropped material; a chunk's only
+ * identity is its material, so the type embeds it:
+ * `${CHUNK_ITEM_TYPE_PREFIX}${material}` (e.g. `chunk_iron`). The type is
+ * self-describing — any consumer can recover the material from the type alone —
+ * which is what lets chunks exist with NO inventoryItems.json entry (spec D8).
+ * Kept server-side: the client never classifies a type, it only renders the
+ * self-describing ground record.
+ * @type {string}
+ */
+export const CHUNK_ITEM_TYPE_PREFIX = 'chunk_';
+
+/**
+ * Whether an item type string is a dynamically-generated chunk type.
+ * @param {string|undefined|null} itemType - An item type string.
+ * @returns {boolean} true only when the type starts with the chunk prefix and
+ *   has a non-empty material name after it.
+ */
+export function isChunkItemType(itemType) {
+    return typeof itemType === 'string'
+        && itemType.startsWith(CHUNK_ITEM_TYPE_PREFIX)
+        && itemType.length > CHUNK_ITEM_TYPE_PREFIX.length;
+}
+
+/**
+ * Recovers the material name embedded in a chunk item type string.
+ * @param {string|undefined|null} itemType - A chunk item type string (e.g. `chunk_iron`).
+ * @returns {string|null} The material name (`iron`), or null when the type is not a chunk type.
+ */
+export function recoverChunkMaterial(itemType) {
+    if (!isChunkItemType(itemType)) return null;
+    return itemType.slice(CHUNK_ITEM_TYPE_PREFIX.length);
+}
+
+// =========================================================================
 // TURN SYSTEM CONSTANTS (Feature A + two-phase barrier turns, spec v2)
 //
 // Rounds are EVENT-DRIVEN rendezvous (wiki/two_phase_turns_design.md v2), not

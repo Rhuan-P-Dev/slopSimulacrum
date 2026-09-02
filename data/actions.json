@@ -113,6 +113,10 @@
         }
       },
       {
+        "type": "dropMaterialChunk",
+        "target": "target"
+      },
+      {
         "type": "log",
         "target": "self",
         "level": "info",

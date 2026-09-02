@@ -1663,7 +1663,7 @@ class WorldStateController {
      * @param {string} componentId - The component ID to attach the item to (required).
      * @returns {{ success: boolean, message?: string, item?: Object }}
      */
-    addItemToEntity(entityId, itemType, componentId) {
+    addItemToEntity(entityId, itemType, componentId, options = {}) {
         const entity = this.stateEntityController.getEntity(entityId);
         if (!entity) {
             Logger.warn(`[WorldStateController] Entity "${entityId}" not found for item addition.`);
@@ -1671,7 +1671,8 @@ class WorldStateController {
         }
 
         const result = this.inventoryManager.addItem(entity, itemType, componentId, {
-            componentController: this.componentController
+            componentController: this.componentController,
+            ...options
         });
 
         if (result.success && this._broadcastService) {

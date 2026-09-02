@@ -1,0 +1,11 @@
+{
+  "_comment": "Per-material damage-type distribution (feature 1, material_damage_and_drop_spec.md §3). Maps each material name to a distribution over the DAMAGE_CHANNELS vocabulary (impact/cut/burn/blast/wear) giving the percentage of an attack's raw value routed to each channel, based on the material the ATTACKER used. The percentages for a material sum to 100 (the load-time validator proportionally rescales + warns if they do not — tuning drift, not malformation). Channels use the exact vocabulary from shared/StatVocabulary.js; the resistance denominator (100 + resistance) already encodes relative effectiveness, so these percentages are the only new degree of freedom. Initial balance is PROVISIONAL (spec §10, pending empirical combat data) and is deliberately tuned to preserve current combat totals: iron is 100% impact, so an iron attacker is bit-identical to pre-feature combat; wood (a common multi-material fraction in droidHand/knife) is the only material whose presence changes a total. Deleting this file disables the feature (graceful degradation) — an absent file exactly reproduces today's single-declared-channel behavior.",
+  "wood": {
+    "impact": 50,
+    "cut": 25,
+    "wear": 25
+  },
+  "iron": {
+    "impact": 100
+  }
+}

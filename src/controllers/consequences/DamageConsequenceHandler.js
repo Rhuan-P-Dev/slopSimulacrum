@@ -29,6 +29,7 @@
  */
 
 import { DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
+import IdResolver from '../../utils/IdResolver.js';
 
 // The base absorption capacity on the 0–100 resistance scale. A channel with
 // resistance R drains the target's existence by damage / (RESISTANCE_SCALE + R),
@@ -42,9 +43,13 @@ class DamageConsequenceHandler {
      * @param {EquippedItemStatsController} [controllers.equippedItemStats] - The equipped item stats manager (for equipped item damage routing).
      */
     constructor(controllers) {
-        this.worldStateController = controllers.worldStateController;
-        this.equippedItemStats = controllers.equippedItemStats || null;
-    }
+       this.worldStateController = controllers.worldStateController;
+       this.equippedItemStats = controllers.equippedItemStats || null;
+       // Feature 1: the MaterialController owns the per-material damage-type
+       // distributions (data/materialDamageTypes.json). Null-tolerant so the
+       // feature degrades gracefully (declared channel keeps 100%) when absent.
+       this.materialController = controllers.materialController || null;
+   }
 
     /**
      * Applies damage to a target by draining its existence.
@@ -64,9 +69,11 @@ class DamageConsequenceHandler {
         const { channel, value } = resolvedParams;
         const targetType = context?.actionParams?.consequenceTarget || 'target';
 
-        // Channel-based damage (the new DAMAGE_CHANNELS model).
+        // Channel-based damage (the new DAMAGE_CHANNELS model). The context is
+        // passed through so the attacker's per-material damage-type split (feature
+        // 1) can be resolved; when unresolvable it degrades to the declared channel.
         if (channel) {
-            return this._handleChannelDamage(targetId, channel, value, targetType);
+            return this._handleChannelDamage(targetId, channel, value, targetType, context);
         }
 
         // Legacy stat-delta path (back-compat).
@@ -100,16 +107,24 @@ class DamageConsequenceHandler {
     /**
      * Routes channel damage to a single component or equipped item. The
      * existence loss is computed from the target's resistance to the channel.
+     *
+     * Feature 1: the raw value is first sliced across channels by the ATTACKER's
+     * blended material split (resolved from `context`); each slice then passes
+     * through the unchanged per-channel resistance formula and the per-channel
+     * losses sum into one existence delta. A null split (feature off / attacker
+     * unresolvable) keeps the whole value on the declared channel — today's math.
      * @param {string} targetId - The target component (or equipped item) ID.
      * @param {string} channel - A DAMAGE_CHANNELS name (cut, impact, …).
      * @param {number} value - The raw damage amount (positive).
      * @param {string} targetType - 'self', 'target', or 'entity'.
+     * @param {Object|null} context - The consequence dispatch context (used to resolve the attacker).
      * @returns {Object} { success, message, data }
      * @private
      */
-    _handleChannelDamage(targetId, channel, value, targetType) {
+    _handleChannelDamage(targetId, channel, value, targetType, context) {
+        const split = this._resolveAttackerSplit(context, channel);
         if (targetType === 'entity') {
-            return this._damageEntityComponentsByChannel(targetId, channel, value);
+            return this._damageEntityComponentsByChannel(targetId, channel, value, split);
         }
         if (!targetId) {
             return { success: false, message: 'No target specified', data: null };
@@ -117,8 +132,11 @@ class DamageConsequenceHandler {
 
         // Equipped item path: drain the item's stored existence.
         if (this.equippedItemStats?.hasStats(targetId)) {
-            const loss = this._computeChannelLoss(this.equippedItemStats.getStats(targetId), channel, value);
+            const priorExistence = this.equippedItemStats.getStats(targetId)?.Physical?.existence ?? 0;
+            const loss = this._computeSplitLoss(this.equippedItemStats.getStats(targetId), channel, value, split);
+            const appliedLoss = Math.min(Math.max(0, priorExistence), Math.max(0, loss));
             const success = this.equippedItemStats.updateStatDelta(targetId, 'Physical', 'existence', -loss);
+            if (success) this._publishChannelLoss(context, { targetId, appliedLoss });
             return {
                 success,
                 message: success ? `Dealt ${round3(loss)} ${channel} damage to equipped item ${targetId}` : `Failed to damage ${targetId}`,
@@ -131,8 +149,14 @@ class DamageConsequenceHandler {
         if (!stats) {
             return { success: false, message: `Target "${targetId}" has no stats — cannot apply damage`, data: null };
         }
-        const loss = this._computeChannelLoss(stats, channel, value);
+        // Applied (clamped) loss: the existence delta that actually left the target —
+        // the computed loss capped at what the target had (a nearly-gone target sheds
+        // only what it held, never a negative or over-the-top value; spec D5).
+        const priorExistence = stats?.Physical?.existence ?? 0;
+        const loss = this._computeSplitLoss(stats, channel, value, split);
+        const appliedLoss = Math.min(Math.max(0, priorExistence), Math.max(0, loss));
         const success = this.worldStateController.componentController.updateComponentStatDelta(targetId, 'Physical', 'existence', -loss);
+        if (success) this._publishChannelLoss(context, { targetId, appliedLoss });
         return {
             success,
             message: success ? `Dealt ${round3(loss)} ${channel} damage to ${targetId}` : `Failed to damage ${targetId}`,
@@ -141,15 +165,35 @@ class DamageConsequenceHandler {
     }
 
     /**
+     * Publishes the applied (clamped) channel loss into the dispatch context's action
+     * params under the reserved key `lastChannelLoss` (spec D5). The dispatcher's
+     * `propagateParams` (true on the single-attacker path) carries it forward to later
+     * consequences in the same pipeline (e.g. `dropMaterialChunk`); on the multi-attacker
+     * path propagation is off, so nothing is published and those attacks drop nothing
+     * (spec D11). The drop handler reads this as its only input — it never recomputes
+     * the split / resistance / clamping. No-op when there is no context/actionParams to
+     * write to (defensive; never throws).
+     * @param {Object|null} context - The consequence dispatch context (handler context).
+     * @param {{ targetId: string, appliedLoss: number }} entry - Target id + applied loss.
+     * @private
+     */
+    _publishChannelLoss(context, entry) {
+        if (context && typeof context === 'object' && typeof context.actionParams === 'object' && context.actionParams !== null) {
+            context.actionParams.lastChannelLoss = entry;
+        }
+    }
+
+    /**
      * Applies channel damage to every component of an entity that carries the
      * relevant resistance stat (the 0–1 existence store exists on all components).
      * @param {string} entityId - The target entity ID.
      * @param {string} channel - A DAMAGE_CHANNELS name.
      * @param {number} value - The raw damage amount.
+     * @param {Object<string, number>|null} split - Feature 1 damage-type split (or null).
      * @returns {Object} { success, message, data }
      * @private
      */
-    _damageEntityComponentsByChannel(entityId, channel, value) {
+    _damageEntityComponentsByChannel(entityId, channel, value, split) {
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) {
             return { success: false, message: `Entity "${entityId}" not found`, data: null };
@@ -160,7 +204,7 @@ class DamageConsequenceHandler {
         for (const component of entity.components || []) {
             const stats = this.worldStateController.componentController.getComponentStats(component.id);
             if (!stats) continue;
-            const loss = this._computeChannelLoss(stats, channel, value);
+            const loss = this._computeSplitLoss(stats, channel, value, split);
             const success = this.worldStateController.componentController.updateComponentStatDelta(component.id, 'Physical', 'existence', -loss);
             if (success) {
                 totalLoss += loss;
@@ -188,9 +232,137 @@ class DamageConsequenceHandler {
      * @private
      */
     _computeChannelLoss(stats, channel, value) {
-        if (!DAMAGE_CHANNELS.includes(channel)) return 0;
+        // DAMAGE_CHANNELS is a constant-name → channel map (an object), so the
+        // membership check runs against its values, not .includes() (a latent bug:
+        // the object has no .includes, which made every channel-damage call throw
+        // and be swallowed by the dispatcher's try/catch — i.e. channel damage
+        // silently never applied). Fixed here because feature 1's split loss is
+        // built directly on this per-channel formula.
+        if (!Object.values(DAMAGE_CHANNELS).includes(channel)) return 0;
         const resistance = stats?.Physical?.[`${channel}_resistance`] ?? 0;
         return Math.max(0, value) / (RESISTANCE_SCALE + Math.max(0, resistance));
+    }
+
+    /**
+     * Computes the total existence loss for a channel-bearing attack, applying
+     * feature 1's per-material damage-type split.
+     *
+     * When `split` is null (feature off or attacker unresolvable) this is EXACTLY
+     * the legacy formula — the whole raw value goes through the declared channel's
+     * resistance, so an absent damage-types file is bit-identical to pre-feature
+     * combat (spec D9). When a split is present, the raw value is sliced per
+     * channel by the attacker's blended material distribution and each slice passes
+     * through the UNCHANGED per-channel resistance formula; the per-channel losses
+     * sum to the single existence delta (the existing resistance math is untouched).
+     * @param {Object} stats - The target's stats (component or equipped item).
+     * @param {string} declaredChannel - The consequence's declared channel.
+     * @param {number} value - The raw damage amount (positive).
+     * @param {Object<string, number>|null} split - Channel → percentage map, or null.
+     * @returns {number} The total existence loss (≥ 0).
+     * @private
+     */
+    _computeSplitLoss(stats, declaredChannel, value, split) {
+        if (!split) {
+            return this._computeChannelLoss(stats, declaredChannel, value);
+        }
+        let totalLoss = 0;
+        for (const [ch, pct] of Object.entries(split)) {
+            if (typeof pct !== 'number' || pct <= 0) continue;
+            totalLoss += this._computeChannelLoss(stats, ch, value * (pct / 100));
+        }
+        return totalLoss;
+    }
+
+    /**
+     * Resolves the attacker's blended damage-type split for a damage consequence.
+     * Returns null (no split) when the feature is off or the attacker cannot be
+     * resolved to a material composition. The split math itself lives in the
+     * MaterialController (pure material-data math).
+     * @param {Object|null} context - The consequence dispatch context.
+     * @param {string} declaredChannel - The consequence's declared channel (fallback).
+     * @returns {Object<string, number>|null}
+     * @private
+     */
+    _resolveAttackerSplit(context, declaredChannel) {
+        if (!this.materialController) return null;
+        const materials = this._resolveAttackerMaterials(context);
+        if (!materials) return null;
+        return this.materialController.getBlendedDamageTypeSplit(materials, declaredChannel);
+    }
+
+    /**
+     * Resolves the attacker's material composition from the dispatch context.
+     *
+     * Resolution order (spec D4):
+     *   1. `attackerComponentId` in the handler context (multi-attacker path) or in
+     *      actionParams (a single-attacker call may carry it too).
+     *   2. Otherwise, the first comp-/eq- ID among the fulfillingComponents values
+     *      (the single-attacker path: e.g. the fist fulfilling Physical.strength for
+     *      punch, or the equipped knife fulfilling Physical.sharpness for cut).
+     *
+     * An `eq-` ID maps to the item's OWN recipe materials, falling back to the host
+     * component's materials when the item type declares none. A `comp-` ID maps to
+     * the component TYPE's recipe materials via the component controller's existing
+     * lookup (single source of truth — no second registry read). Unresolvable (no
+     * typed ID, or a type with no materials) → null, which the caller treats as
+     * "no split" (legacy behavior).
+     *
+     * @param {Object|null} context - The consequence dispatch context.
+     * @returns {Array<{material: string, fraction: number}>|null}
+     * @private
+     */
+    _resolveAttackerMaterials(context) {
+        if (!context || !this.worldStateController) return null;
+
+        let attackerId = context.attackerComponentId || context?.actionParams?.attackerComponentId || null;
+        if (!attackerId && context.fulfillingComponents && typeof context.fulfillingComponents === 'object') {
+            for (const id of Object.values(context.fulfillingComponents)) {
+                if (id && (IdResolver.isCompId(id) || IdResolver.isEquippedId(id))) {
+                    attackerId = id;
+                    break;
+                }
+            }
+        }
+        if (!attackerId) return null;
+
+        if (IdResolver.isEquippedId(attackerId)) {
+            const equipped = this.worldStateController.getEquippedItem(context?.actionParams?.entityId, attackerId);
+            if (!equipped) return null;
+            if (equipped.itemType) {
+                const itemMaterials = this._getItemMaterials(equipped.itemType);
+                if (itemMaterials) return itemMaterials;
+            }
+            return equipped.componentId ? this._getComponentMaterials(equipped.componentId) : null;
+        }
+        return this._getComponentMaterials(attackerId);
+    }
+
+    /**
+     * Maps a component ID to its TYPE's recipe materials via the component
+     * controller's existing lookup. Returns null when the component or its type
+     * declares no materials.
+     * @param {string} componentId
+     * @returns {Array<{material: string, fraction: number}>|null}
+     * @private
+     */
+    _getComponentMaterials(componentId) {
+        const comp = this.worldStateController.getComponent(componentId);
+        if (!comp || !comp.type) return null;
+        const byType = this.worldStateController.componentController.getComponentMaterialsByType();
+        return byType[comp.type] || null;
+    }
+
+    /**
+     * Reads an item TYPE's recipe materials from the inventory item registry.
+     * @param {string} itemType
+     * @returns {Array<{material: string, fraction: number}>|null}
+     * @private
+     */
+    _getItemMaterials(itemType) {
+        const itemDefs = this.worldStateController.inventoryManager?.getItemDefinitions?.();
+        if (!itemDefs) return null;
+        const def = itemDefs[itemType];
+        return (def && Array.isArray(def.materials)) ? def.materials : null;
     }
 
     /**

@@ -11,7 +11,7 @@
 
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
-import { PICK_UP_RANGE_FALLBACK } from '../../utils/Constants.js';
+import { PICK_UP_RANGE_FALLBACK, recoverChunkMaterial } from '../../utils/Constants.js';
 import { resolveRange } from '../../../shared/RangeResolver.js';
 import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
@@ -124,9 +124,33 @@ function handlePickUpItem(deps, params, context) {
         return { success: false, message: `Item is out of range. Distance: ${distance.toFixed(2)}, Max Range: ${maxRange}` };
     }
 
-    // Get item definition from inventoryItems.json
+    // Get the item definition from inventoryItems.json — OR synthesize it for a
+    // dynamically-generated chunk type (feature 2, D8 site 1): chunks have NO registry
+    // entry. The ground record is self-describing (name/volume) and the material is
+    // recovered from the type string (`chunk_<material>`). A chunk's composition is 100%
+    // the recovered material, so its traits derive through the existing material pipeline
+    // downstream (InventoryManager._mergeItemTraits).
     const itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
-    const itemDef = itemDefinitions[droppedItem.itemType];
+    let itemDef = itemDefinitions[droppedItem.itemType];
+    const chunkMaterial = recoverChunkMaterial(droppedItem.itemType);
+    if (!itemDef && chunkMaterial) {
+        // Defensive: the recovered material must be a known material. Drops only ever
+        // originate from validated recipes, so this should never fire in play — but a
+        // corrupt/foreign record must not mint an untyped item.
+        // getMaterialRegistry() returns { materials, compositions }; the per-material
+        // entries live under .materials.
+        const materialsRegistry = worldStateController.getMaterialRegistry?.()?.materials || {};
+        if (!materialsRegistry[chunkMaterial]) {
+            Logger.warn(`[PickUpItemHandler] Chunk material "${chunkMaterial}" (type "${droppedItem.itemType}") is not a known material; refusing pickup.`);
+            return { success: false, message: `Chunk material "${chunkMaterial}" is not a known material.` };
+        }
+        itemDef = {
+            name: droppedItem.name || `${chunkMaterial} chunk`,
+            description: droppedItem.description || '',
+            volume: droppedItem.volume ?? 1,
+            materials: [{ material: chunkMaterial, fraction: 1.0 }]
+        };
+    }
     if (!itemDef) {
         Logger.warn(`[PickUpItemHandler] Item type "${droppedItem.itemType}" not found in inventoryItems.json.`);
         return { success: false, message: `Item type "${droppedItem.itemType}" not found in registry.` };
@@ -152,8 +176,11 @@ function handlePickUpItem(deps, params, context) {
         }
     }
 
-    // Add item to entity inventory (attached to the target component)
-    const addResult = worldStateController.addItemToEntity(entityId, droppedItem.itemType, componentId);
+    // Add item to entity inventory (attached to the target component). For a chunk, pass
+    // the synthesized definition through so InventoryManager bypasses the (empty-for-
+    // chunks) registry and uses the self-describing ground-record fields (D8 site 2).
+    const addOptions = chunkMaterial ? { itemDef } : {};
+    const addResult = worldStateController.addItemToEntity(entityId, droppedItem.itemType, componentId, addOptions);
     if (!addResult.success) {
         Logger.warn(`[PickUpItemHandler] Failed to add item "${droppedItem.itemType}" to entity "${entityId}": ${addResult.message}`);
         return { success: false, message: `Failed to add item: ${addResult.message}` };

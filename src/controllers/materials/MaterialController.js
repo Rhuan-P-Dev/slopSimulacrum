@@ -11,19 +11,46 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import { TRAIT_STAT_KEY_PATTERN } from '../../../shared/StatVocabulary.js';
+import { TRAIT_STAT_KEY_PATTERN, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 
 const FRACTION_SUM_TOLERANCE = 1e-9;
 const STAT_PRECISION = 100;
 
 /**
+ * Tolerance when checking that a material's damage-type percentages sum to 100.
+ * The distribution is a percentage (not a fraction); a designer may write values
+ * that round to, but do not exactly equal, 100 (e.g. 33.3+33.3+33.4). Anything
+ * within this band is treated as 100 and stored as-is; a larger deviation is a
+ * TUNING DRIFT (not malformation) and is proportionally rescaled to 100 with a
+ * Logger.warn (spec D9 — the file stays loadable and the feature stays on).
+ * @type {number}
+ */
+const DAMAGE_TYPE_SUM_TOLERANCE = 0.01;
+
+/**
  * Validates and blends material properties for a single blueprint.
  * @param {Object} materialsRegistry - Material definitions from data/materials.json.
  * @param {Object} mappingRegistry - Property-to-trait mapping from data/propertyTraitMapping.json.
+ * @param {Object} [damageTypesRegistry] - Per-material damage-type distributions from
+ *   data/materialDamageTypes.json (feature 1). Optional and defaulted to `{}` so that
+ *   hand-built controllers (and the "feature off" case — absent/empty file) never
+ *   change existing behavior; the constructor validates it and toggles the
+ *   damage-type split on/off accordingly.
  */
 class MaterialController {
-    constructor(materialsRegistry, mappingRegistry) {
+    constructor(materialsRegistry, mappingRegistry, damageTypesRegistry = {}, dropRatesRegistry = {}) {
         this.materialsRegistry = this._validateMaterialsRegistry(materialsRegistry || {});
+        // Feature 1 (per-material damage types): validate the injected registry.
+        // Must run AFTER the materials registry is validated, because the validator
+        // cross-checks every damage-file material key against this.materialsRegistry.
+        // It returns the (possibly normalized) registry and sets _damageTypesEnabled.
+        this.damageTypesRegistry = this._validateDamageTypesRegistry(damageTypesRegistry);
+        // Feature 2 (material chunk drop on punch): validate the injected drop-rates
+        // registry (data/materialDropRates.json). Must ALSO run after the materials
+        // registry is validated, because the validator cross-checks each drop-file
+        // material key against this.materialsRegistry. Returns the normalized registry
+        // and sets _dropRatesEnabled (feature off → no drops, graceful degradation).
+        this.dropRatesRegistry = this._validateMaterialDropRates(dropRatesRegistry);
         // The mapping registry is the recipe-model wrapper { derivedStats, flagThresholds }
         // (data/propertyTraitMapping.json). For backward compatibility a legacy flat
         // { "Trait.stat": mapping } map is also accepted (treated as the derivedStats body).
@@ -35,7 +62,8 @@ class MaterialController {
             ? raw.derivedStats
             : raw;
         this.mappingRegistry = this._validateMappingRegistry(this.mappingRegistry);
-        Logger.info(`[MaterialController] initialized with ${Object.keys(this.materialsRegistry).length} materials, ${Object.keys(this.mappingRegistry).length} mappings, ${Object.keys(this.flagThresholds).length} flag thresholds`);
+        const dropMatCount = Object.keys(this.dropRatesRegistry?.materials || {}).length;
+        Logger.info(`[MaterialController] initialized with ${Object.keys(this.materialsRegistry).length} materials, ${Object.keys(this.mappingRegistry).length} mappings, ${Object.keys(this.flagThresholds).length} flag thresholds, damage-types ${this._damageTypesEnabled ? `ON (${Object.keys(this.damageTypesRegistry).length} materials)` : 'off (no split)'}, drop-rates ${this._dropRatesEnabled ? `ON (${dropMatCount} materials, minChunkVolume ${this.dropRatesRegistry?.minChunkVolume ?? 0})` : 'off (no drops)'}`);
     }
 
     /**
@@ -61,6 +89,262 @@ class MaterialController {
             }
         }
         return registry;
+    }
+
+    /**
+     * Validates the per-material damage-types registry (feature 1, spec D9).
+     *
+     * Three distinct outcomes, mirroring the spec's failure-mode table:
+     *   - Absent / null / empty object → the feature is intentionally OFF. This is
+     *     NOT an error: deleting the balance file must never crash the world. The
+     *     registry is stored as {} and _damageTypesEnabled is false, so readers
+     *     return "no split" and combat exactly reproduces the pre-feature
+     *     single-declared-channel behavior. A single Logger.warn is emitted at boot.
+     *   - Present but the wrong type (array / string / number / boolean) → a
+     *     TypeError (structural malformation → boot failure).
+     *   - Present and a non-empty object → validated: every material key must exist
+     *     in the materials registry (cross-validation, D2), each value must be an
+     *     object of channel → number, each channel must be a known DAMAGE_CHANNELS
+     *     entry, and each percentage must be a finite number ≥ 0. If a material's
+     *     percentages don't sum to 100 (beyond tolerance) they are proportionally
+     *     rescaled to 100 with a Logger.warn (tuning drift, D9 — feature stays on).
+     *
+     * @param {Object|null} registry - Raw registry from data/materialDamageTypes.json.
+     * @returns {Object} The normalized registry ({} when the feature is off).
+     * @private
+     */
+    _validateDamageTypesRegistry(registry) {
+        // Absent / null → feature OFF (graceful degradation, spec D9). The loader's
+        // {} fallback (missing/unreadable file) and an explicitly-null file land here;
+        // neither is a malformation.
+        if (registry === null || registry === undefined) {
+            this._damageTypesEnabled = false;
+            Logger.warn('[MaterialController] materialDamageTypes registry is absent — per-material damage split disabled (declared channel keeps 100%).');
+            return {};
+        }
+        if (typeof registry !== 'object' || Array.isArray(registry)) {
+            // A present-but-wrong-type file is structurally malformed → boot failure.
+            throw new TypeError('Material damage-types registry must be a plain object.');
+        }
+        if (Object.keys(registry).length === 0) {
+            // Explicitly-empty file → feature OFF (same safe behavior as absent).
+            this._damageTypesEnabled = false;
+            Logger.warn('[MaterialController] materialDamageTypes registry is empty — per-material damage split disabled (declared channel keeps 100%).');
+            return {};
+        }
+
+        const valid = {};
+        const knownChannels = new Set(Object.values(DAMAGE_CHANNELS));
+        for (const [material, channels] of Object.entries(registry)) {
+            // Skip comment / metadata keys (JSON has no native comments; a "_"-prefixed
+            // key is a human note, not a material — e.g. the file's _comment header).
+            if (material.startsWith('_')) continue;
+            // Cross-validation (D2): every damage-file material must be a known material.
+            if (!this.materialsRegistry[material]) {
+                throw new TypeError(`Material damage-types: unknown material "${material}" (not in data/materials.json).`);
+            }
+            if (typeof channels !== 'object' || channels === null || Array.isArray(channels)) {
+                throw new TypeError(`Material damage-types: entry for "${material}" must be an object of channel → percentage.`);
+            }
+            if (Object.keys(channels).length === 0) {
+                throw new TypeError(`Material damage-types: entry for "${material}" must declare at least one channel.`);
+            }
+            const normalized = {};
+            let sum = 0;
+            for (const [channel, pct] of Object.entries(channels)) {
+                if (!knownChannels.has(channel)) {
+                    throw new TypeError(`Material damage-types: channel "${channel}" for material "${material}" is not a known damage channel (${[...knownChannels].join(', ')}).`);
+                }
+                if (typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0) {
+                    throw new TypeError(`Material damage-types: percentage for channel "${channel}" of material "${material}" must be a finite number ≥ 0.`);
+                }
+                normalized[channel] = pct;
+                sum += pct;
+            }
+            // Normalization (tuning drift, D9): rescale to 100 only when off beyond
+            // tolerance; otherwise store as-is (avoids needless float churn).
+            if (Math.abs(sum - 100) > DAMAGE_TYPE_SUM_TOLERANCE) {
+                Logger.warn(`[MaterialController] Material damage-types: percentages for "${material}" sum to ${Math.round(sum * STAT_PRECISION) / STAT_PRECISION}, not 100 — proportionally rescaled to 100.`);
+                for (const channel of Object.keys(normalized)) {
+                    normalized[channel] = normalized[channel] / sum * 100;
+                }
+            }
+            valid[material] = normalized;
+        }
+        this._damageTypesEnabled = true;
+        return valid;
+    }
+
+    /**
+     * Returns the damage-type distribution for a single material (feature 1).
+     *
+     * @param {string} materialName - A material ID (e.g. 'iron', 'wood').
+     * @returns {Object<string, number>|null} A DEFENSIVE DEEP COPY of the
+     *   channel → percentage map (summing to 100), or null when the damage-type
+     *   split is disabled (file absent/empty) or the material has no entry.
+     *   Callers treat null as "no split" → the declared channel keeps 100%.
+     */
+    getDamageTypeSplit(materialName) {
+        if (!this._damageTypesEnabled) return null;
+        const entry = this.damageTypesRegistry[materialName];
+        return entry ? structuredClone(entry) : null;
+    }
+
+    /**
+     * Computes the fraction-weighted damage-type distribution for a material
+     * composition (feature 1). This is pure material-data math and therefore lives
+     * in this controller — the damage handler keeps the damage mechanics (slice →
+     * resistance → loss).
+     *
+     * The blend is the fraction-weighted sum of each material's split — the same
+     * weighting rule `_blendProperties` uses to derive stats. Unknown materials
+     * contribute 100% of the fallback channel, so a composition whose materials are
+     * all absent from the damage file yields exactly the fallback (declared) channel
+     * at 100% — i.e. no effective change from pre-feature behavior (spec D9).
+     *
+     * @param {Array<{material: string, fraction: number}>} materials - A composition
+     *   (e.g. from componentController.getComponentMaterialsByType()).
+     * @param {string} fallbackChannel - Channel assigned to unknown materials and to
+     *   the degenerate case; usually the consequence's declared channel. Must be a
+     *   known DAMAGE_CHANNELS entry.
+     * @returns {Object<string, number>|null} A fresh channel → percentage map (a
+     *   distribution summing to 100), or null when the split is disabled or the
+     *   composition is empty. Callers treat null as "no split".
+     */
+    getBlendedDamageTypeSplit(materials, fallbackChannel) {
+        if (!this._damageTypesEnabled) return null;
+        if (!Array.isArray(materials) || materials.length === 0) return null;
+        if (typeof fallbackChannel !== 'string' || !Object.values(DAMAGE_CHANNELS).includes(fallbackChannel)) {
+            throw new TypeError(`getBlendedDamageTypeSplit: fallbackChannel "${fallbackChannel}" is not a known damage channel.`);
+        }
+
+        const split = {};
+        let totalFraction = 0;
+        for (const entry of materials) {
+            if (!entry || typeof entry !== 'object') continue;
+            if (typeof entry.fraction !== 'number' || entry.fraction <= 0) continue;
+            // Unknown material → 100% of the fallback channel (the safe direction).
+            const perMaterial = this.damageTypesRegistry[entry.material] || { [fallbackChannel]: 100 };
+            for (const [channel, pct] of Object.entries(perMaterial)) {
+                split[channel] = (split[channel] || 0) + entry.fraction * pct;
+            }
+            totalFraction += entry.fraction;
+        }
+        if (totalFraction === 0) return null;
+        // Normalize by total weight so the result is a full distribution (sums to
+        // 100). A no-op for valid compositions (fractions sum to 1); guards against
+        // partially-filled compositions drifting the allocation below 100.
+        for (const channel of Object.keys(split)) {
+            split[channel] = split[channel] / totalFraction;
+        }
+        return split;
+    }
+
+    /**
+     * Validates the material drop-rates registry (feature 2, spec D1/D9).
+     *
+     * Multi-section shape (data/materialDropRates.json, same precedent as
+     * data/holdingCost.json): an optional global scalar `minChunkVolume` plus a
+     * `materials` section mapping material name → { dropRate, chunkFraction }.
+     *
+     * Three distinct outcomes (spec D9), mirroring _validateDamageTypesRegistry:
+     *   - Absent / null / empty object → feature OFF (no drops). Not an error:
+     *     deleting the balance file must never crash the world. Stored as {} with
+     *     _dropRatesEnabled false and a single Logger.warn at boot.
+     *   - Present but the wrong container type (array / string / number / boolean)
+     *     → a TypeError (structural malformation → boot failure).
+     *   - Present and a non-empty object → validated: `minChunkVolume` (when present)
+     *     must be a finite number > 0; the `materials` section (when present) must be a
+     *     plain object whose keys are known materials (cross-validation against
+     *     this.materialsRegistry) and whose entries carry dropRate and chunkFraction,
+     *     each a finite number in [0, 1].
+     *
+     * A missing `minChunkVolume` is stored as 0 (the floor becomes a no-op); a missing
+     * `materials` section yields an empty materials map (no material ever drops).
+     *
+     * @param {Object|null} registry - Raw registry from data/materialDropRates.json.
+     * @returns {Object} { minChunkVolume: number, materials: Object<string, {dropRate:number, chunkFraction:number}> }.
+     *   An empty object when the feature is off.
+     * @private
+     */
+    _validateMaterialDropRates(registry) {
+        if (registry === null || registry === undefined) {
+            this._dropRatesEnabled = false;
+            Logger.warn('[MaterialController] materialDropRates registry is absent — material chunk drop disabled.');
+            return {};
+        }
+        if (typeof registry !== 'object' || Array.isArray(registry)) {
+            throw new TypeError('Material drop-rates registry must be a plain object.');
+        }
+        if (Object.keys(registry).length === 0) {
+            this._dropRatesEnabled = false;
+            Logger.warn('[MaterialController] materialDropRates registry is empty — material chunk drop disabled.');
+            return {};
+        }
+
+        // Global scalar floor. Optional (0 = no-op floor); when present it must be > 0.
+        let minChunkVolume = 0;
+        if (registry.minChunkVolume !== undefined) {
+            if (typeof registry.minChunkVolume !== 'number' || !Number.isFinite(registry.minChunkVolume) || registry.minChunkVolume <= 0) {
+                throw new TypeError('Material drop-rates: "minChunkVolume" must be a finite number > 0.');
+            }
+            minChunkVolume = registry.minChunkVolume;
+        }
+
+        const rawMaterials = registry.materials;
+        const materials = {};
+        if (rawMaterials !== undefined) {
+            if (typeof rawMaterials !== 'object' || rawMaterials === null || Array.isArray(rawMaterials)) {
+                throw new TypeError('Material drop-rates: "materials" section must be a plain object.');
+            }
+            for (const [material, entry] of Object.entries(rawMaterials)) {
+                // Skip comment / metadata keys (a "_"-prefixed key is a human note).
+                if (material.startsWith('_')) continue;
+                // Cross-validation (D2/D9): every drop-file material must be a known material.
+                if (!this.materialsRegistry[material]) {
+                    throw new TypeError(`Material drop-rates: unknown material "${material}" (not in data/materials.json).`);
+                }
+                if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+                    throw new TypeError(`Material drop-rates: entry for "${material}" must be an object with dropRate and chunkFraction.`);
+                }
+                const { dropRate, chunkFraction } = entry;
+                if (typeof dropRate !== 'number' || !Number.isFinite(dropRate) || dropRate < 0 || dropRate > 1) {
+                    throw new TypeError(`Material drop-rates: "dropRate" for "${material}" must be a number in [0, 1].`);
+                }
+                if (typeof chunkFraction !== 'number' || !Number.isFinite(chunkFraction) || chunkFraction < 0 || chunkFraction > 1) {
+                    throw new TypeError(`Material drop-rates: "chunkFraction" for "${material}" must be a number in [0, 1].`);
+                }
+                materials[material] = { dropRate, chunkFraction };
+            }
+        }
+
+        this._dropRatesEnabled = true;
+        return { minChunkVolume, materials };
+    }
+
+    /**
+     * Returns the per-material drop configuration for a single material (feature 2).
+     *
+     * @param {string} materialName - A material ID (e.g. 'iron', 'wood').
+     * @returns {{ dropRate: number, chunkFraction: number }|null} A DEFENSIVE COPY of the
+     *   material's { dropRate, chunkFraction }, or null when the drop feature is disabled
+     *   (file absent/empty) or the material has no entry (equivalent to a 0 rate — no drop;
+     *   spec D9). Callers treat null as "this material never drops".
+     */
+    getDropRate(materialName) {
+        if (!this._dropRatesEnabled) return null;
+        const entry = this.dropRatesRegistry?.materials?.[materialName];
+        return entry ? { dropRate: entry.dropRate, chunkFraction: entry.chunkFraction } : null;
+    }
+
+    /**
+     * Returns the global floor applied to any dropped chunk volume (feature 2, D7).
+     * @returns {number} The minimum chunk volume (0 when the feature is off or no floor
+     *   is declared — a 0 floor makes max(min, fraction×lost) a no-op).
+     */
+    getMinChunkVolume() {
+        if (!this._dropRatesEnabled) return 0;
+        return this.dropRatesRegistry?.minChunkVolume ?? 0;
     }
 
     /**
