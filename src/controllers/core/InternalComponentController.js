@@ -9,6 +9,7 @@ import DataLoader from '../../utils/DataLoader.js';
 import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateUID } from '../../utils/idGenerator.js';
 import { DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
+import { channelLossFromResistance } from '../../utils/channelLoss.js';
 import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 
 // Internal components fire their overTime effects on the unified tick system.
@@ -859,15 +860,17 @@ class InternalComponentController {
 
     /**
      * Computes the existence loss (a 0–1 fraction) from a raw damage amount and
-     * a channel resistance (0–100). Higher resistance absorbs more, so the loss
-     * shrinks. Mirrors the DamageConsequenceHandler channel model.
+     * a channel resistance (0–100). Delegates to the shared channelLossFromResistance
+     * helper — the same single-source ratio the DamageConsequenceHandler uses — so the
+     * base absorption constant lives in exactly one place. No channel-validity guard
+     * here: the IC's channel is validated upstream at effect declaration (_validateRegistry).
      * @param {number} damage - The raw damage amount.
      * @param {number} resistance - The target's resistance to the channel (0–100).
      * @returns {number} The existence loss (≥ 0).
      * @private
      */
     _computeChannelLoss(damage, resistance) {
-        return Math.max(0, damage) / (100 + Math.max(0, resistance));
+        return channelLossFromResistance(damage, resistance);
     }
 
     /**

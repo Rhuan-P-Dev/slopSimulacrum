@@ -31,11 +31,7 @@
 import { DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
-
-// The base absorption capacity on the 0–100 resistance scale. A channel with
-// resistance R drains the target's existence by damage / (RESISTANCE_SCALE + R),
-// so resistance 0 → damage/100 and resistance 100 → damage/200.
-const RESISTANCE_SCALE = 100;
+import { channelLossFromResistance } from '../../utils/channelLoss.js';
 
 class DamageConsequenceHandler {
     /**
@@ -241,7 +237,7 @@ class DamageConsequenceHandler {
         // built directly on this per-channel formula.
         if (!Object.values(DAMAGE_CHANNELS).includes(channel)) return 0;
         const resistance = stats?.Physical?.[`${channel}_resistance`] ?? 0;
-        return Math.max(0, value) / (RESISTANCE_SCALE + Math.max(0, resistance));
+        return channelLossFromResistance(value, resistance);
     }
 
     /**
