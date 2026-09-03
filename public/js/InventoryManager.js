@@ -4,6 +4,7 @@ import { AppConfig } from './Config.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { directChildrenOf } from '/utils/ItemTree.js';
+import { STAT_NAMES } from '../../shared/StatVocabulary.js';
 
 /**
  * InventoryManager - Client-side inventory management module.
@@ -226,10 +227,17 @@ export class InventoryManager {
                 return;
             }
             const data = await response.json();
-            // Key by eqId (eq-uuid typed ID) instead of itemId
+            // Key by the typed eqId (eq-uuid) — the server's equipped entries carry a
+            // typed eqId, not a bare `id`; keying on the wrong field collapses every
+            // entry under "undefined". Skip (with a warning) any malformed entry that
+            // lacks an eqId rather than collapsing it under "undefined".
             this._equippedItems = {};
             for (const eq of (data.equipped || [])) {
-                this._equippedItems[eq.id] = eq;
+                if (!eq?.eqId) {
+                    ClientLogger.warn('InventoryManager', ' Skipping equipped entry with no eqId:', eq);
+                    continue;
+                }
+                this._equippedItems[eq.eqId] = eq;
             }
         } catch (error) {
             ClientLogger.warn('InventoryManager', ` Error loading equipped items for entity ${entityId}:`, error);
@@ -488,7 +496,11 @@ export class InventoryManager {
             const isContainer = internalCapacity >= AppConfig.INVENTORY.CONTAINER_MIN_CAPACITY || (item.children && item.children.length > 0);
             const hasChildren = item.children && item.children.length > 0;
             const percentageStr = displayVolume > 0 ? '100' : '0';
-            const hasHoldingCost = this._holdingCostRegistry && this._holdingCostRegistry[item.type];
+            // massBurden model: equipability is declared by the model's equipableItems
+            // list (the old per-item registry key no longer exists after the
+            // recipe→derivation migration). Gate on that list.
+            const hasHoldingCost = Array.isArray(this._holdingCostRegistry?.equipableItems)
+                && this._holdingCostRegistry.equipableItems.includes(item.type);
             const isEquipped = this._isEquippedByItemId(item.id);
             const materialBadges = MaterialRegistry.formatBadges(item.type);
 
@@ -499,7 +511,7 @@ export class InventoryManager {
                 const btnClass = isEquipped ? 'equip-btn unequip' : 'equip-btn equip';
                 const btnTitle = isEquipped
                     ? 'Click to unequip (remove holding cost debuffs)'
-                    : `Click to equip (requires: ${this._formatHoldingCost(item.type)})`;
+                    : `Click to equip (requires: ${this._formatHoldingCost()})`;
 
                 equipButtonHtml = `
                     <button class="${btnClass}"
@@ -601,14 +613,43 @@ export class InventoryManager {
 
     /**
      * Formats the holding cost requirements as a readable string.
-     * @param {string} itemType - The item type.
+     * Under the massBurden model the burden is uniform (a single mass lever), so
+     * the display is derived from the model's equipGate/carryingCost and does not
+     * vary by item type — no per-type parameter is required.
+     *
+     * The equip gate's own `description` wording from the model is preferred
+     * (single source of display copy). When the gate declares no description, a
+     * string is synthesized from the gate's numeric ratio, with the stat label
+     * taken from the shared stat vocabulary — never hand-typed.
      * @returns {string}
      * @private
      */
-    _formatHoldingCost(itemType) {
-        const def = this._holdingCostRegistry?.[itemType];
-        if (!def?.holdingCost) return '';
-        return def.holdingCost.map(entry => `${entry.stat}≥${entry.value}`).join(', ');
+    _formatHoldingCost() {
+        // massBurden model: the burden is a single mass lever (uniform for all
+        // equipable items), so the display is derived from the model's equipGate +
+        // carryingCost rather than the removed per-item holdingCost list. Prefer the
+        // gate's own description (single source of display copy); only synthesize
+        // from the ratio when the model provides none.
+        const registry = this._holdingCostRegistry;
+        if (!registry || typeof registry !== 'object') return '';
+        const parts = [];
+        const gate = registry.equipGate;
+        if (gate && gate.type === 'strengthToMassRatio') {
+            if (typeof gate.description === 'string' && gate.description.length > 0) {
+                parts.push(gate.description);
+            } else if (typeof gate.requiredStrengthPerUnitMass === 'number') {
+                parts.push(`${STAT_NAMES.STRENGTH} ≥ ${gate.requiredStrengthPerUnitMass} × item mass`);
+            }
+        } else if (gate && gate.description) {
+            parts.push(gate.description);
+        }
+        const cost = registry.carryingCost;
+        if (cost && cost.type === 'linearReduction' && typeof cost.reductionPerUnitMass === 'number') {
+            const burdened = (Array.isArray(registry.burdenedStats) ? registry.burdenedStats : [])
+                .map(s => s?.stat).filter(Boolean).join(' & ');
+            if (burdened) parts.push(`carrying reduces ${burdened}`);
+        }
+        return parts.join(' · ');
     }
 
     /**
@@ -1004,8 +1045,9 @@ export class InventoryManager {
             });
 
             if (response.ok) {
-                // Update local tracking — delete by eqId
-                delete this._equippedItems[eq.id];
+                // Update local tracking — delete by the typed eqId (matches the key
+                // used in _loadEquippedItems).
+                delete this._equippedItems[eq.eqId];
                 ClientLogger.info('InventoryManager', ` Auto-unequipped ${itemType} from ${componentId} before move.`);
             }
         } catch (error) {

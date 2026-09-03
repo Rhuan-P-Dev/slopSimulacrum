@@ -118,6 +118,75 @@ class HoldingCostController {
     }
 
     /**
+     * Seeds a freshly equipped item's per-instance live stats from its matter when
+     * the item's recipe declares no explicit traits.
+     *
+     * WHY: in the recipe→derivation model a recipe declares structure, not values —
+     * existence, the six channel resistances, mass, and (for the knife) a depletable
+     * sharpness all derive from matter. `initializeStats` can only seed what a recipe
+     * declares explicitly (`form.traits` / legacy `traits`); for post-migration items
+     * that is nothing, so the per-instance store was left at the existence-only
+     * baseline and every live-stats-first reader (the capability scan, requirement
+     * resolution) saw a knife with no sharpness to score `cut` against. This closes
+     * the writer-side gap so the per-instance store starts life from the same matter
+     * derivation the equip gate already performs — an equipped item is a small
+     * component, and its stats derive from its own matter exactly as any component's
+     * do (basic-traits spec D4/D6).
+     *
+     * Precedence: explicit recipe traits (handled by `initializeStats`) > matter
+     * derivation (this) > the existence baseline (`initializeStats`'s default). When
+     * the recipe declares explicit traits, `initializeStats` already seeded the
+     * authoritative values and they are never overwritten here. When matter
+     * derivation yields nothing usable (no materials / no derived stats), the
+     * existence baseline is left untouched (graceful degradation).
+     *
+     * Uses the same pre-existing facade-access pattern as `_getItemMass` (the
+     * controller holds no direct reference to the material controller).
+     *
+     * @param {string} eqId - The typed equipped item ID.
+     * @param {string} itemType - The item type identifier (e.g., "knife").
+     * @private
+     */
+    _seedDerivedStatsOnEquip(eqId, itemType) {
+        const wc = this.worldStateController;
+        // Facade public API only (project_rules §2/§3): read item definitions
+        // through the root controller's getItemRegistry() rather than reaching
+        // into the inventoryManager sub-controller.
+        const itemDef = wc?.getItemRegistry?.()[itemType];
+        const mc = wc?.materialController;
+        if (!itemDef || !mc) return;
+
+        // Explicit recipe traits outrank matter derivation: initializeStats already
+        // seeded them (form.traits first, then legacy traits) — never clobber. The
+        // guard mirrors the initializer's effective numeric-leaf rule (M2): a traits
+        // map with no numeric leaves seeds nothing and must NOT suppress the matter
+        // derivation that is the post-migration source of base traits.
+        if (this.equippedItemStats.hasSeedableTraitValues(itemDef.form?.traits ?? itemDef.traits)) return;
+        // No materials → nothing to derive from; keep the existence baseline.
+        if (!Array.isArray(itemDef.materials) || itemDef.materials.length === 0) return;
+
+        let derived;
+        try {
+            derived = mc.derive(itemDef);
+        } catch (e) {
+            Logger.warn(`[HoldingCostController] Could not derive stats for "${itemType}" on equip: ${e.message}`);
+            return;
+        }
+        // Graceful degradation: no usable derived stats → leave the baseline intact.
+        if (!derived || typeof derived !== 'object' || Object.keys(derived).length === 0) return;
+
+        // Preserve the existence baseline initializeStats established if the derived
+        // shape ever omits it, so the wear lifecycle keeps a valid 0–1 reference.
+        const existing = this.equippedItemStats.getStats(eqId);
+        if (existing?.Physical?.existence !== undefined && typeof derived.Physical?.existence !== 'number') {
+            derived.Physical = { ...(derived.Physical || {}), existence: existing.Physical.existence };
+        }
+
+        this.equippedItemStats.setStats(eqId, derived);
+        Logger.info(`[HoldingCostController] Seeded matter-derived stats for "${itemType}" (eqId ${eqId}): ${Object.keys(derived).join(', ')}.`);
+    }
+
+    /**
      * Applies the carrying cost of an equipped item to its host component: the
      * carried item's mass (above the free allowance) reduces the burdened
      * function stats (move / fine_controls) via a linear reduction, floored at
@@ -281,6 +350,12 @@ class HoldingCostController {
 
         // Initialize in-memory stats for the equipped item (sharpness, existence, etc.)
         this.equippedItemStats.initializeStats(eqId, itemId, itemType);
+
+        // Writer-side seeding (BUG-134): for items whose recipe declares no explicit
+        // traits (the post-migration norm), seed the per-instance store from the
+        // item's matter so live-stats-first readers see the full derived stat set
+        // (e.g. a knife's sharpness) instead of only the existence baseline.
+        this._seedDerivedStatsOnEquip(eqId, itemType);
 
         if (!this._preEquipStats[entityId]) {
             this._preEquipStats[entityId] = {};

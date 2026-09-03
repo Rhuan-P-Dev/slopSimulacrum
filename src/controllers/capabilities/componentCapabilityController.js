@@ -1017,23 +1017,26 @@ class ComponentCapabilityController {
                     continue;
                 }
 
-                // Look up item definition from inventory items
+                // recipe→derivation: an item's base traits may live under form.traits
+                // (the recipe model) or top-level traits (legacy); the old contract
+                // required the top-level field, which recipe-migrated items no longer
+                // carry. Skip an equipped item only when it has neither live per-instance
+                // stats nor any base traits (graceful degradation for trait-less items).
                 const itemDef = inventoryItems[equipped.itemType];
-                if (!itemDef?.traits) continue;
 
-                // FIX (Round 4): Use CURRENT stats from EquippedItemStatsController instead of
-                // base stats from inventoryItems.json. This ensures that when an item's stats
-                // change (e.g., sharpness drain from cut), the capability cache reflects the
-                // actual current state, not the stale base values.
-
-                let itemStats;
-                const currentStats = this.worldStateController.equippedItemStats.getStats(equipped.eqId);
-                if (currentStats) {
-                    // Use mutable copy of current stats (may have been drained/degraded)
-                    itemStats = currentStats;
-                } else {
-                    // Fallback: no mutable stats tracked — use base definition traits
-                    itemStats = this._convertTraitsToStats(itemDef.traits);
+                // Prefer CURRENT per-instance stats from EquippedItemStatsController
+                // (reflects wear/drain); fall back to the item's derived base traits.
+                // (Optional chaining for graceful degradation if the controller is absent.)
+                let itemStats = this.worldStateController.equippedItemStats?.getStats(equipped.eqId);
+                if (!itemStats) {
+                    const baseTraits = itemDef?.form?.traits ?? itemDef?.traits;
+                    if (!baseTraits || Object.keys(baseTraits).length === 0) {
+                        // Debug (not warn): this can fire on every stat-change-triggered
+                        // rescan for a trait-less equipped item, so keep it quiet.
+                        Logger.debug(`[ComponentCapabilityController] Skipping equipped item "${equipped.itemType}" (entity ${entityId}): no traits (form.traits/itemDef.traits) and no live stats.`);
+                        continue;
+                    }
+                    itemStats = this._convertTraitsToStats(baseTraits);
                 }
 
                 // Check each action against item traits
@@ -1194,13 +1197,23 @@ class ComponentCapabilityController {
         // Look up item definition from registry
         const itemRegistry = this.worldStateController.getItemRegistry() || {};
         const itemDef = itemRegistry[equipped.itemType];
-        if (!itemDef?.traits) {
+
+        // recipe→derivation: prefer the item's live per-instance stats (reflect
+        // wear); fall back to its derived base traits (form.traits, then legacy
+        // top-level traits). An item with no traits anywhere yields null.
+        const liveStats = this.worldStateController.equippedItemStats?.getStats(equipped.eqId);
+        if (liveStats && Object.keys(liveStats).length > 0) {
+            return liveStats;
+        }
+
+        const baseTraits = itemDef?.form?.traits ?? itemDef?.traits;
+        if (!baseTraits || Object.keys(baseTraits).length === 0) {
             return null;
         }
 
-        // Return item traits directly (shallow copy per trait to prevent reference sharing)
+        // Return item traits (shallow copy per trait to prevent reference sharing)
         const stats = {};
-        for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
+        for (const [traitId, traitData] of Object.entries(baseTraits)) {
             stats[traitId] = { ...traitData };
         }
         return stats;

@@ -285,6 +285,28 @@ class EquippedItemStatsController {
         return structuredClone(this._itemStats);
     }
 
+    /**
+     * Reports whether a traits map would seed at least one numeric stat leaf.
+     *
+     * WHY: this is the single source of the "numeric leaf" rule that
+     * {@linkcode _buildStatsFromTraits} applies — it returns true exactly when
+     * that builder would produce a non-empty stats object. Callers use it to
+     * decide whether explicit recipe traits are *authoritative* (and should
+     * therefore suppress a fallback matter derivation). A traits map with no
+     * numeric leaves (e.g. only non-numeric annotations, or `{}`) seeds nothing,
+     * so it must NOT be treated as authoritative: suppressing derivation for it
+     * would strand the item at the existence-only baseline (the exact symptom
+     * class BUG-134 fixes). The check adds no state — it is a pure predicate
+     * over input data, so the controller remains a pure data store.
+     *
+     * @param {Object} [traits] - A traits map ({ [traitId]: { [statName]: value } }),
+     *   as read from `form.traits` or the legacy top-level `traits`.
+     * @returns {boolean} True if at least one numeric leaf would be seeded.
+     */
+    hasSeedableTraitValues(traits) {
+        return Object.keys(this._buildStatsFromTraits(traits)).length > 0;
+    }
+
     // =========================================================================
     // PRIVATE HELPERS
     // =========================================================================

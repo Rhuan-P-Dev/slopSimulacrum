@@ -269,19 +269,28 @@ class RequirementResolver {
         const equipped = allEquipped.find(eq => eq.componentId === componentId);
         if (!equipped) return null;
 
-        // Look up item definition from registry
+        // recipe→derivation: resolve the item's traits from its live per-instance
+        // stats (reflect wear) or its derived base traits (form.traits, then legacy
+        // top-level traits) — the top-level field alone is no longer required.
         const itemRegistry = this.worldStateController.getItemRegistry() || {};
         const itemDef = itemRegistry[equipped.itemType];
-        if (!itemDef?.traits) {
+
+        const liveStats = this.equippedItemStats?.getStats(equipped.eqId);
+        if (liveStats && Object.keys(liveStats).length > 0) {
+            return { traits: liveStats, eqId: equipped.eqId };
+        }
+
+        const baseTraits = itemDef?.form?.traits ?? itemDef?.traits;
+        if (!baseTraits || Object.keys(baseTraits).length === 0) {
             if (entityId) {
-                Logger.warn(`[RequirementResolver] Item type "${equipped.itemType}" has no traits defined.`);
+                Logger.warn(`[RequirementResolver] Item type "${equipped.itemType}" has no traits (form.traits/itemDef.traits) or live stats.`);
             }
             return null;
         }
 
         // Build traits as a stats-like object (shallow copy per trait)
         const traits = {};
-        for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
+        for (const [traitId, traitData] of Object.entries(baseTraits)) {
             traits[traitId] = { ...traitData };
         }
 
@@ -310,15 +319,24 @@ class RequirementResolver {
 
         const itemRegistry = this.worldStateController.getItemRegistry() || {};
         const itemDef = itemRegistry[equippedItem.itemType];
-        if (!itemDef?.traits) {
+
+        // recipe→derivation: prefer live per-instance stats, then derived base
+        // traits (form.traits, then legacy top-level traits).
+        const liveStats = this.equippedItemStats?.getStats(equippedItem.eqId);
+        if (liveStats && Object.keys(liveStats).length > 0) {
+            return { traits: liveStats, eqId: equippedItem.eqId };
+        }
+
+        const baseTraits = itemDef?.form?.traits ?? itemDef?.traits;
+        if (!baseTraits || Object.keys(baseTraits).length === 0) {
             if (entityId) {
-                Logger.warn(`[RequirementResolver] Item type "${equippedItem.itemType}" has no traits defined.`);
+                Logger.warn(`[RequirementResolver] Item type "${equippedItem.itemType}" has no traits (form.traits/itemDef.traits) or live stats.`);
             }
             return null;
         }
 
         const traits = {};
-        for (const [traitId, traitData] of Object.entries(itemDef.traits)) {
+        for (const [traitId, traitData] of Object.entries(baseTraits)) {
             traits[traitId] = { ...traitData };
         }
 
