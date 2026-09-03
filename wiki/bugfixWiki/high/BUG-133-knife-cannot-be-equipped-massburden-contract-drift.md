@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/js/InventoryManager.js`, `src/controllers/capabilities/componentCapabilityController.js`, `src/controllers/actions/RequirementResolver.js`
 
 ## Symptoms

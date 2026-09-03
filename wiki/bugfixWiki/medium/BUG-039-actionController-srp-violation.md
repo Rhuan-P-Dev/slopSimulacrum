@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/actionController.js`, `RangeValidator.js`, `ComponentResolver.js`, `RequirementResolver.js`, `ConsequenceDispatcher.js`
 
 ## Symptoms

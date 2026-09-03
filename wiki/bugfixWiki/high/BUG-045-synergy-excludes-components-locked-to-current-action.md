@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/SynergyComponentGatherer.js`, `src/controllers/actionSelectController.js`
 
 ## Symptoms

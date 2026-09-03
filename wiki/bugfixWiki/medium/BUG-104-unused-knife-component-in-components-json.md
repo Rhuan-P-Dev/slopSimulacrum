@@ -2,7 +2,7 @@
 
 - **Severity**: LOW
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `data/components.json` (lines 42-46)
 
 ## Symptoms

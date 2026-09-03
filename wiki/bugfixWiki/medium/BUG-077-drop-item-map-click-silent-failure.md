@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/js/EventDispatcher.js`, `public/js/App.js`
 
 ## Symptoms

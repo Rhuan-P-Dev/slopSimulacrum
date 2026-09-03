@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/consequences/ConsequenceDispatcher.js`, `src/controllers/consequences/MaterialChunkDropHandler.js`, `src/controllers/consequences/DamageConsequenceHandler.js`, `test/contract/doublePunchChannelDamage.contract.test.js`
 
 ## Symptoms

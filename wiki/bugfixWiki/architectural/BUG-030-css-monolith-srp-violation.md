@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/styles.css` → `public/css/` (9 new files)
 
 ## Symptoms

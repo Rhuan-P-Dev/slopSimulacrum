@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/css/navigation.css` (lines 143-157), `public/js/WorldMapView.js` (lines 330-395), `public/js/RoomConnectionRenderer.js`
 
 ## Symptoms

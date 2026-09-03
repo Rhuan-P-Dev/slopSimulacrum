@@ -1,7 +1,7 @@
 # BUG-008: State Desynchronization Between Save/Load
 
 - **Severity**: HIGH
-- **Status**: ✅ Documented (process fix, not code fix)
+- **Status**: ✅ Fixed
 - **Fixed In**: — (governance standard)
 - **Related Files**: `src/controllers/WorldStateController.js`, `src/controllers/stateEntityController.js`
 

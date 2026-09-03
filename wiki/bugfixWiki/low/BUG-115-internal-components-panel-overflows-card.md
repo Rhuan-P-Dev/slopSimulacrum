@@ -2,7 +2,7 @@
 
 - **Severity**: LOW
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/css/internal-components.css`, `public/css/components.css`, `public/js/ComponentViewer.js`
 
 ## Symptoms

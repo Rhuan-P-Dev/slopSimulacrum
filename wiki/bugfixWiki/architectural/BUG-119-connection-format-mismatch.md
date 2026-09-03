@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending` (merge of `map-door-click-range` into `main`)
+- **Fixed In**: `commit unknown` (merge of `map-door-click-range` into `main`)
 - **Related Files**: `src/utils/WorldGraphBuilder.js`, `public/js/WorldMapView.js`, `src/controllers/core/RoomsController.js`, `public/js/RoomConnectionRenderer.js`, `public/js/App.js`
 
 ## Symptoms

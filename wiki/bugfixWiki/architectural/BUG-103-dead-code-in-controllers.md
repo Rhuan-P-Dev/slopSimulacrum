@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: 
   - `src/controllers/actions/ComponentResolver.js` (lines 229-231)
   - `src/controllers/core/componentStatsController.js` (lines 58-64)

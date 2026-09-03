@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `OverlayManager.js`, `App.js`, `ComponentViewer.js`, `NavActionsPanel.js`
 
 ## Symptoms

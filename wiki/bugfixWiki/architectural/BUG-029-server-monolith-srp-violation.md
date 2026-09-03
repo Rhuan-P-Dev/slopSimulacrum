@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending` (server splitting refactoring)
+- **Fixed In**: `commit unknown` (server splitting refactoring)
 - **Related Files**: `src/server.js` (455 lines → 22 lines), new modules created
 
 ## Symptoms

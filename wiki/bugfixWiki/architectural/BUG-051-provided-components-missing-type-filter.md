@@ -1,8 +1,8 @@
 # BUG-051: _filterProvidedForGroup missing sameComponentType matching after groupType unification
 
 - **Severity**: HIGH
-- **Status**: ✅ Fixed (Round 2)
-- **Fixed In**: `pending`
+- **Status**: ✅ Fixed
+- **Fixed In**: `commit unknown`
 - **Related Files**: `synergyController.js` (lines 201-245)
 
 ## Symptoms

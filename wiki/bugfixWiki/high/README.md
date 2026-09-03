@@ -4,7 +4,7 @@ Major feature impairments and incorrect behaviors that had workarounds available
 
 | Bug ID | Title | Status | Fixed In |
 |--------|-------|--------|----------|
-| [BUG-132](high/BUG-132-channel-damage-silently-never-applied.md) | Channel Damage Silently Never Applied (DAMAGE_CHANNELS Member Test on an Object) | ✅ Fixed | `pending` |
+| [BUG-132](high/BUG-132-channel-damage-silently-never-applied.md) | Channel Damage Silently Never Applied (DAMAGE_CHANNELS Member Test on an Object) | ✅ Fixed | `a5b49ef` (the commit that introduced both the per-material damage-type split and the chunk drop — the one-line guard fix that closed this bug, `DAMAGE_CHANNELS.includes` → `Object.values(DAMAGE_CHANNELS).includes`, shipped in that same commit) |
 | [BUG-128](high/BUG-128-t1-weapon-placement-used-wrong-volume-metric.md) | T1 Weapon Placement Checked Max Volume Instead of Available Volume | ✅ Fixed | `t1-weapon-implementation` |
 | [BUG-127](high/BUG-127-inventory-items-lack-dual-volume-model.md) | Inventory Items Lack Dual-Volume Model (externalVolume Not Supported) | ✅ Fixed | `t1-weapon-implementation` |
 | [BUG-126](high/BUG-126-nested-items-vanish-on-drop-pickup.md) | Nested Items Vanish on Drop/Pickup | ✅ Fixed | — |

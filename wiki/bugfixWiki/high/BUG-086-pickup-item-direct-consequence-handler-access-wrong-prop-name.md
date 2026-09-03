@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/routes/worldRoutes.js` (lines 129-167), `src/controllers/WorldStateController.js` (lines 943-958)
 
 ## Symptoms

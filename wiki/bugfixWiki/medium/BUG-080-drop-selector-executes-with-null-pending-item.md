@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: See below
 
 ## Symptoms

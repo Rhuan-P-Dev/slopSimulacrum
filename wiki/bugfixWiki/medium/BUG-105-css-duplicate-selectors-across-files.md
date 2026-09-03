@@ -2,7 +2,7 @@
 
 - **Severity**: LOW
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: 
   - `public/css/layout.css` (.overlay-panel, .add-stat-dialog, .add-stat-dialog-overlay)
   - `public/css/components.css` (removed duplicates)

@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/consequences/ConsequenceDispatcher.js` (`_buildPerAttackerConsequences`)
 
 ## Symptoms

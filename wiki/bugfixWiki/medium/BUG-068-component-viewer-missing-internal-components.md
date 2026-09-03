@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/js/ComponentViewer.js`, `public/css/internal-components.css`, `src/routes/internalComponentRoutes.js`, `wiki/subMDs/internal_components.md`
 
 ## Symptoms
