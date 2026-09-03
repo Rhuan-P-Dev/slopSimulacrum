@@ -38,6 +38,7 @@ More generally: treat "a field moved / was removed" as a breaking contract chang
 
 **Follow-up (tracked refactor, deferred to keep this fix surgical):** the staged "live per-instance stats → base traits → safe skip" resolution order is currently inlined at several call sites across the capability-discovery and requirement-resolution controllers — the very drift class that caused this bug. Consolidate it into a single shared resolver on the per-instance stats store, and route the capability controller's access to that store through a new public world-facade passthrough method (it currently reaches the sub-controller through a documented facade property). Update the composition-root dependency notes and the architecture map when done; the BUG-133 fallback contract tests are the acceptance net and must pass unchanged.
 ## References
+- Related bug (direct follow-up): [BUG-134](BUG-134-equipped-knife-absent-from-capability-list-writer-side-stats-seeding.md) — this fix aligned the *readers* to the post-migration contract, but the equipped knife still never surfaced `cut` because the writer never seeded the per-instance store from matter; BUG-134 closes that writer-side gap.
 - Related wiki: `wiki/subMDs/data/holding_cost.md`
 - Related wiki: `wiki/subMDs/data/inventory_system.md`
 - Related wiki: `wiki/subMDs/controllers/equipped_item_stats_controller.md`
