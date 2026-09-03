@@ -134,6 +134,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-125](medium/BUG-125-container-header-destroyed-by-toggle.md) | Container Header Destroyed by _toggleContainer() (Double Toggle) | ✅ Fixed | `pending` | `InventoryManager.js` |
 | [BUG-130](medium/BUG-130-consequence-handler-actionParams-modifications-not-propagated.md) | Consequence Handler actionParams Modifications Not Propagated to Subsequent Consequences | ✅ Fixed | `t1-weapon-implementation` | `ConsequenceDispatcher.js` |
 | [BUG-135](medium/BUG-135-world-json-slots-invalid-for-player-blueprint.md) | world.json Initial-Spawn Slots Invalid for Player Blueprint (smallBallDroid) | ✅ Fixed | `pending` | `data/world.json`, `playerInitialSpawns.contract.test.js` |
+| [BUG-136](medium/BUG-136-cut-shoot-t1-no-chunk-drop.md) | cut and shootT1 Drop No Material Chunks (missing dropMaterialChunk consequence declaration) | ✅ Fixed | `pending` | `data/actions.json`, `data/materialDropRates.json`, `materialChunkDropCutShootT1.contract.test.js` |
 
 ### 🟢 Low Severity
 

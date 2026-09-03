@@ -134,7 +134,7 @@ graph TD
 | `data/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
 | `data/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
 | `data/materialDamageTypes.json` | Per-material damage-type split — how a raw value dealt *by* a material is distributed across the six damage channels, so the attacker's material decides a hit's channel mix (wood blunts and shreds, iron is pure impact); a missing/empty file turns the feature off, exactly reproducing legacy combat |
-| `data/materialDropRates.json` | Per-material punch loot — the chance a material drops a chunk and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
+| `data/materialDropRates.json` | Per-material chunk-drop loot — the chance a material drops a chunk on a successful channel-damage hit (punch, cut, shootT1) and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
 
 ## 🧩 Shared Modules

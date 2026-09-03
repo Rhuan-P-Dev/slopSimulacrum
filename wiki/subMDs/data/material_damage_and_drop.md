@@ -1,6 +1,6 @@
 # Material Damage & Chunk Drop
 
-Two data-driven features that make matter consequential in combat and salvage: a **per-material damage-type split** (the attacking material decides how a hit's raw value is distributed across the damage channels) and a **material chunk drop on punch** (a successful punch may leave a small, pickable chunk of the target's material on the ground). Both are pure **data + thin read paths** — no new world-state categories, no new stat vocabulary, no new client protocol — and both degrade to exactly today's behavior if their data files are absent. The full rationale, data contracts, and open questions live in the [design spec](../../material_damage_and_drop_spec.md).
+Two data-driven features that make matter consequential in combat and salvage: a **per-material damage-type split** (the attacking material decides how a hit's raw value is distributed across the damage channels) and a **material chunk drop on channel-damage hits** (a successful punch, cut, or shootT1 may leave a small, pickable chunk of the target's material on the ground). Both are pure **data + thin read paths** — no new world-state categories, no new stat vocabulary, no new client protocol — and both degrade to exactly today's behavior if their data files are absent. The full rationale, data contracts, and open questions live in the [design spec](../../material_damage_and_drop_spec.md).
 
 ## Why the Attacker's Material Decides the Channel Split
 

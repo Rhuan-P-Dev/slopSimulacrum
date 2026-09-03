@@ -153,6 +153,10 @@
         }
       },
       {
+        "type": "dropMaterialChunk",
+        "target": "target"
+      },
+      {
         "type": "updateComponentStatDelta",
         "target": "self",
         "params": { "trait": "Physical", "stat": "sharpness", "value": -1 }
@@ -270,6 +274,10 @@
           "value": 0
         },
         "damageSource": "equippedItem.firstChild.volume"
+      },
+      {
+        "type": "dropMaterialChunk",
+        "target": "target"
       },
       {
         "type": "log",

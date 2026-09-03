@@ -4,7 +4,7 @@
 >
 > **Feature 1 — Per-material damage types.** A new data file defines, per material, how the raw value of a channel-damage consequence is split across the six damage channels. The split is driven by the **attacking** component's material composition and applies to **all** channel-based damage actions — `droid punch`, `cut`, `shootT1` — through one shared code path.
 >
-> **Feature 2 — Material chunk drop on punch.** On every successful punch hit, the target loses existence (its remaining matter). Per material present in the target's composition, one **material chunk** ground item may drop, with probability and volume governed by a second new data file. Chunk items are **dynamically generated** — they have no entry in [`data/inventoryItems.json`](data/inventoryItems.json) — and integrate with the existing dropped-item/pickup flows.
+> **Feature 2 — Material chunk drop on channel-damage hits.** On every successful channel-damage hit (currently `droid punch`, `cut`, and `shootT1` — which actions drop is a data decision, D6), the target loses existence (its remaining matter). Per material present in the target's composition, one **material chunk** ground item may drop, with probability and volume governed by a second new data file. Chunk items are **dynamically generated** — they have no entry in [`data/inventoryItems.json`](data/inventoryItems.json) — and integrate with the existing dropped-item/pickup flows.
 
 ---
 
@@ -94,11 +94,11 @@ On success, the channel-damage step writes a reserved entry into the consequence
 
 **Why the applied (clamped) loss, not the computed loss.** If a punch overkills a nearly-gone component, the matter that left the component is what it had, not the theoretical loss. Chunks represent matter that actually became loose, so the volume derives from the clamped delta.
 
-### D6 — Chunk drop is a new consequence type, declared on punch in data
+### D6 — Chunk drop is a new consequence type, declared per action in data
 
-A new consequence type, `dropMaterialChunk`, is added to the `droid punch` consequence list in [`data/actions.json`](data/actions.json:95) **after** `damageComponent`, with target `target` and no params (everything it needs arrives via context and world state). A new focused handler module, `src/controllers/consequences/MaterialChunkDropHandler.js` (a class with named dependencies, following the `DamageConsequenceHandler` precedent), is registered in the [`ConsequenceHandlers`](src/controllers/consequences/consequenceHandlers.js:96) handler map alongside the others.
+A new consequence type, `dropMaterialChunk`, is declared in each channel-damage action's consequence list in [`data/actions.json`](data/actions.json:95) **after** that action's damage consequence (`damageComponent` for punch/cut, `consumeItemAndDamage` for shootT1), with target `target` and no params (everything it needs arrives via context and world state). A new focused handler module, `src/controllers/consequences/MaterialChunkDropHandler.js` (a class with named dependencies, following the `DamageConsequenceHandler` precedent), is registered in the [`ConsequenceHandlers`](src/controllers/consequences/consequenceHandlers.js:96) handler map alongside the others.
 
-**Why a consequence and not logic inside the damage handler.** Consequence lists in data are the project's answer to "what happens when an action succeeds" — declaring the drop on punch means *which actions drop chunks is a data decision* (today: punch only; `cut` and `shootT1` never drop, per scope). It keeps the damage handler responsible for exactly one thing, and it gives the drop its own result entry in the action outcome (auditable, testable, logged). **Why a handler module and not controller logic.** The consequences system is where action-result side effects live; a world-state controller writing ground items mid-action would invert the flow (controllers hold state; consequences act on it).
+**Why a consequence and not logic inside the damage handler.** Consequence lists in data are the project's answer to "what happens when an action succeeds" — declaring the drop per action means *which actions drop chunks is a data decision* (today: `droid punch`, `cut`, and `shootT1`). It keeps the damage handler responsible for exactly one thing, and it gives the drop its own result entry in the action outcome (auditable, testable, logged). **Why a handler module and not controller logic.** The consequences system is where action-result side effects live; a world-state controller writing ground items mid-action would invert the flow (controllers hold state; consequences act on it).
 
 **Wiring:** `ConsequenceHandlers` gains one named dependency, `materialController` (one line at its construction in [`WorldComposition`](src/composition/WorldComposition.js:221), where `materialController` already exists one section earlier). The facade reference arrives post-construction via the existing `setWorldStateController` propagation. `DamageConsequenceHandler` likewise receives `materialController` in its controllers bag for the split lookups.
 
@@ -194,7 +194,7 @@ Top level: object with two sections (same multi-section precedent as `data/holdi
 
 - `minChunkVolume` — number > 0. Fixed floor for any dropped chunk volume.
 - `materials` — object; keys = material names (must exist in `data/materials.json`); value per material:
-  - `dropRate` — number in [0, 1]. Probability that this material drops a chunk per successful punch hit.
+  - `dropRate` — number in [0, 1]. Probability that this material drops a chunk per successful channel-damage hit.
   - `chunkFraction` — number in [0, 1]. Share of the material's lost matter that forms the chunk (the rest disperses).
 
 ```json
@@ -231,7 +231,7 @@ The channel-damage step publishes, into the consequence context's action params 
 | [`src/controllers/consequences/consequenceHandlers.js`](src/controllers/consequences/consequenceHandlers.js:49) | `DamageConsequenceHandler` constructed with `materialController` in its controllers bag; `ConsequenceHandlers` constructor gains the `materialController` named dependency (fed at its single construction site in WorldComposition). |
 | [`data/actions.json`](data/actions.json) | **No change for Feature 1** — the split is inside the existing `damageComponent` consequences of punch/cut/shootT1. |
 
-### Feature 2 — material chunk drop on punch
+### Feature 2 — material chunk drop on channel-damage hits
 
 | File / area | Change |
 |---|---|
@@ -239,7 +239,7 @@ The channel-damage step publishes, into the consequence context's action params 
 | [`src/composition/WorldComposition.js`](src/composition/WorldComposition.js:221) | Load the file; pass to `MaterialController` (with `MaterialController` gaining `getDropRate(materialName)` and `getMinChunkVolume()`); pass `materialController` into the `ConsequenceHandlers` construction. |
 | `src/controllers/consequences/MaterialChunkDropHandler.js` | **New** focused handler (class, named deps `{ worldStateController, materialController }`; facade arrives via the existing post-construction propagation). Behavior: read published loss (missing/≤0/target-mismatch → success, zero drops) → resolve target component (vanished/equipped/entity → success, zero drops) → per-material recipe fractions + drop-rate lookups → roll + volume per D7 → write one ground record per successful roll via [`writeDroppedItem`](src/controllers/consequences/DropItemHandler.js:35) (position = disk sample around the target entity's position in its room, the spill flow's own approach; batched into one `setDroppedItems` write per punch). |
 | [`src/controllers/consequences/consequenceHandlers.js`](src/controllers/consequences/consequenceHandlers.js:96) | Register `dropMaterialChunk` in the handler map; construct the new handler alongside the others. |
-| [`data/actions.json`](data/actions.json:95) | `'droid punch'` consequences: add `{ "type": "dropMaterialChunk", "target": "target" }` after `damageComponent`. (Scope: punch only — `cut`/`shootT1` unchanged.) |
+| [`data/actions.json`](data/actions.json:95) | The `droid punch`, `cut`, and `shootT1` consequence lists each carry `{ "type": "dropMaterialChunk", "target": "target" }` after their damage consequence. (Scope: all channel-damage actions — the drop is a data-declared consequence, so which actions drop is a data decision.) |
 | [`src/controllers/consequences/PickUpItemHandler.js`](src/controllers/consequences/PickUpItemHandler.js:127) | Chunk-type synthesis at the registry lookup (D8 site 1): definition from the ground record (name, dynamic volume) + material recovered from the type; material-exists guard. |
 | [`src/utils/InventoryManager.js`](src/utils/InventoryManager.js:176) | `addItem` accepts an explicit definition override in options (registry bypass; traits via existing `_mergeItemTraits` from the synthesized 100%-single-material composition) (D8 site 2). |
 | [`src/controllers/WorldStateController.js`](src/controllers/WorldStateController.js:1666) | `addItemToEntity` carries the options through to `InventoryManager.addItem` (D8 site 2 facade passthrough). `getItemStats` needs no change — it reads the instance's stored traits, not a definition registry. |
@@ -308,6 +308,6 @@ The channel-damage step publishes, into the consequence context's action params 
 
 1. **Multi-attacker punches: per-fist drops (resolved in this revision).** The earlier open question — aggregate or nothing — was answered in favor of *per-attacker* publication: the dispatcher now carries only the reserved published-loss key, and only inside each attacker's isolated context, so each fist drops its own chunks from its own loss (D11, revised; BUG-134). The path's no-propagation semantics for all other params are preserved, and no aggregate is ever formed.
 2. **Broken target drops nothing** (D10): the break/spill flow owns total loss; a lethal punch emits no chunks. Confirm, or do you want chunks for the final full-matter loss too (would require a deliberate hand-off into the removal flow)?
-3. **Punch-only drops** (scope): `cut` and `shootT1` never drop chunks because the consequence is declared only on punch in data. Confirm this matches the intent.
+3. **Punch-only drops** (scope — resolved): the original punch-only scope is lifted; the `dropMaterialChunk` consequence is now declared on `droid punch`, `cut`, and `shootT1` in data (a data-only change, see BUG-136), which is exactly what the "which actions drop is a data decision" design (D6) anticipated.
 4. **Initial balance values** (wood 50/25/25 impact/cut/wear; iron 100 impact; drop rates 1.0/0.25; chunk fractions 0.3/0.5; `minChunkVolume` 0.05) are proposals encoded in the data contract — they are tunable without code changes.
 5. **Chunk type naming** `chunk_<material>` — confirm the prefix convention (it is the load-bearing part of the dynamic-item design, D8).
