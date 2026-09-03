@@ -1,5 +1,6 @@
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import { getDefinitionFootprint } from '../utils/definitionVolume.js';
 import { isEnvFlagOn } from '../utils/Constants.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
@@ -11,7 +12,6 @@ import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPA
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
-import { getDefinitionHostFootprint } from '../utils/definitionVolume.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -773,13 +773,10 @@ class WorldStateController {
             Logger.warn(`[WorldStateController] Unknown item type "${entry.item}" in initial spawn config.`);
             return null;
         }
-        // Items like T1 occupy their external footprint on the host component.
-        // Recipe→derivation stores the footprint under form.externalVolume (with
-        // legacy top-level fallbacks); getDefinitionHostFootprint is the single
-        // source of this chain and shares it with InventoryManager.addItem's
-        // hostVolume computation, so slot gating here stays in lockstep with
-        // the capacity check that runs when the item is actually added.
-        const hostFootprint = getDefinitionHostFootprint(itemDef);
+        // Items like T1 occupy their externalVolume footprint on the host component.
+        // Single source of truth: the shared footprint helper (definitionVolume.js),
+        // so the initial-spawn resolver and InventoryManager.addItem agree.
+        const hostFootprint = getDefinitionFootprint(itemDef);
 
         const slot = entry.slot;
         if (typeof slot !== 'string' || slot === '') {
@@ -1985,7 +1982,7 @@ class WorldStateController {
             // (legacy top-level externalVolume is a fallback); the full volume lives under
             // form.volume. The footprint (what counts against a component's capacity) is the
             // external footprint when declared, else the full volume.
-            // Deliberately NOT unified with getDefinitionHostFootprint (utils/definitionVolume.js):
+            // Deliberately NOT unified with getDefinitionFootprint (utils/definitionVolume.js):
             // its first two chain steps match, but its declared-volume fallback is the
             // DEFAULT_ITEM_VOLUME no-item-loss floor (an undeclared output must never read as a
             // zero-footprint item in a craft), while the helper falls back to

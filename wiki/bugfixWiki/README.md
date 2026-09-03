@@ -130,6 +130,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-124](medium/BUG-124-checkItemFit-missing-container-volume.md) | _checkItemFit Does Not Account for Container Volume (Nested Inventory) | ✅ Fixed | `pending` | `InventoryManager.js` (client) |
 | [BUG-125](medium/BUG-125-container-header-destroyed-by-toggle.md) | Container Header Destroyed by _toggleContainer() (Double Toggle) | ✅ Fixed | `pending` | `InventoryManager.js` |
 | [BUG-130](medium/BUG-130-consequence-handler-actionParams-modifications-not-propagated.md) | Consequence Handler actionParams Modifications Not Propagated to Subsequent Consequences | ✅ Fixed | `t1-weapon-implementation` | `ConsequenceDispatcher.js` |
+| [BUG-135](medium/BUG-135-world-json-slots-invalid-for-player-blueprint.md) | world.json Initial-Spawn Slots Invalid for Player Blueprint (smallBallDroid) | ✅ Fixed | `pending` | `data/world.json`, `playerInitialSpawns.contract.test.js` |
 
 ### 🟢 Low Severity
 

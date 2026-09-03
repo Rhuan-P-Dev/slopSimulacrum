@@ -8,7 +8,7 @@ import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
-import { getDefinitionVolume, getDefinitionHostFootprint } from './definitionVolume.js';
+import { getDefinitionVolume, getDefinitionFootprint } from './definitionVolume.js';
 
 class InventoryManager {
     constructor(options = {}) {
@@ -195,10 +195,9 @@ class InventoryManager {
         // Determine the host volume: prefer the external footprint (recipe→derivation stores it
         // under form.externalVolume; the legacy top-level externalVolume is a fallback), else the
         // full volume. This lets items like T1 occupy a small external footprint while keeping a
-        // large internal capacity. getDefinitionHostFootprint is the single source of this
-        // chain and shares it with WorldStateController._resolveInitialSpawnSlot's
-        // hostFootprint, so this capacity check stays in lockstep with slot gating.
-        const hostVolume = getDefinitionHostFootprint(itemDef);
+        // large internal capacity. Single source of truth: the shared footprint helper
+        // (definitionVolume.js), shared with WorldStateController._resolveInitialSpawnSlot.
+        const hostVolume = getDefinitionFootprint(itemDef);
 
         const maxVolume = this._getComponentMaxVolume(componentType);
         if (maxVolume > 0) {

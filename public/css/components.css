@@ -365,3 +365,69 @@
     border-left: 2px solid var(--neon-cyan);
     align-items: center;
 }
+
+/* =========================================================================
+   Read-only Carried-Items List (ComponentViewer, per-entity inspection)
+   Surfaces a droid's entity.items grouped by host component, with equipped
+   markers and nested container contents. Read-only: no drag/drop/equip UI.
+   ========================================================================= */
+
+.component-viewer-items-summary {
+    margin: 0 0 10px;
+    padding: 8px 12px;
+    background: rgba(0, 255, 255, 0.06);
+    border: 1px solid rgba(0, 255, 255, 0.25);
+    border-left: 3px solid var(--neon-cyan);
+    color: var(--text-main);
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    font-size: 0.9em;
+}
+
+.component-card-items {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 255, 0, 0.12);
+}
+
+.cv-items {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cv-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    background: rgba(0, 255, 0, 0.05);
+    border: 1px solid rgba(0, 255, 0, 0.15);
+    font-size: 0.85em;
+}
+
+.cv-item-equipped {
+    border-left: 3px solid var(--neon-cyan);
+    background: rgba(0, 255, 255, 0.08);
+}
+
+.cv-item-nested {
+    margin-left: 14px;
+}
+
+.cv-item-name {
+    color: var(--text-main);
+}
+
+.cv-item-type {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cv-item-children {
+    margin-top: 4px;
+    padding-left: 4px;
+    border-left: 1px dashed rgba(0, 255, 255, 0.35);
+}

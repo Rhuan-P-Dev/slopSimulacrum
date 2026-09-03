@@ -14,22 +14,20 @@ export function getDefinitionVolume(def) {
 }
 
 /**
- * Reads a definition's host footprint — the volume an item occupies on its
- * host component. Recipe→derivation stores it under `form.externalVolume`;
- * the legacy top-level `externalVolume` is a fallback for unmigrated
- * definitions; when neither is declared, the full declared volume applies
- * (getDefinitionVolume).
- *
- * This is the single source of the footprint chain, shared by the capacity
- * checks that must agree with each other (initial-spawn slot gating and the
- * item-addition capacity check) so the gate and the actual add never
- * disagree.
+ * Reads a definition's host footprint — the volume an item actually occupies on
+ * its host component. A container can declare a separate external footprint under
+ * `form.externalVolume` (the recipe→derivation model location); the legacy
+ * top-level `externalVolume` is a fallback for unmigrated definitions; otherwise
+ * the item's full volume (via getDefinitionVolume) is its footprint. This is the
+ * single source of truth shared by the initial-spawn slot resolver
+ * (WorldStateController._resolveInitialSpawnSlot) and InventoryManager.addItem,
+ * so the footprint rule has exactly one definition.
  * @param {Object|undefined|null} def - An item or component definition.
- * @returns {number} The host footprint (external footprint, else full volume).
+ * @returns {number} The host footprint (falls back to the full volume).
  */
-export function getDefinitionHostFootprint(def) {
-    const externalVolume = (typeof def?.form?.externalVolume === 'number')
-        ? def.form.externalVolume
-        : (typeof def?.externalVolume === 'number' ? def.externalVolume : undefined);
-    return (typeof externalVolume === 'number') ? externalVolume : getDefinitionVolume(def);
+export function getDefinitionFootprint(def) {
+    if (!def) return 0;
+    if (typeof def.form?.externalVolume === 'number') return def.form.externalVolume;
+    if (typeof def.externalVolume === 'number') return def.externalVolume;
+    return getDefinitionVolume(def);
 }

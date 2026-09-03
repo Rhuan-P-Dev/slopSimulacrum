@@ -315,18 +315,15 @@ describe('WorldStateController.getAll() shape', () => {
 
             // Exact per-entity key set (broadcast adds `equipped` later, not here).
             // Feature D: NPC entities (data/npcs.json) carry the extra spawn
-            // fields (isNPC, name, npcConfig) — player droids keep the base
-            // shape. NPCs whose registry entry declares initialItems ALSO carry
-            // the `items` key (their loadout is placed on a component at
-            // spawn); NPCs without initialItems do not. The world.json opt-out
-            // flag lives in the in-memory _npcSpawnFlags set and must NEVER
-            // appear on the entity record (audit: it used to leak into
-            // serialize() snapshots).
-            // Non-NPC entities carry `items` whenever data/world.json
-            // initialSpawns resolved at least one slot for their blueprint
-            // (the M1 loadout does: the T1 lands on the first hand-type
-            // component). The test-spawned droid below is the world's
-            // non-NPC "player slot", so it receives that loadout.
+            // fields (isNPC, name, npcConfig) — player droids keep the base shape
+            // PLUS the `items` key: the spawn observer applies the data/world.json
+            // initialSpawns loadout to the incarnated player (non-NPC
+            // smallBallDroid), so it carries its items on a component. NPCs whose
+            // registry entry declares initialItems ALSO carry the `items` key
+            // (their loadout is placed on a component at spawn); NPCs without
+            // initialItems do not. The world.json opt-out flag lives in the
+            // in-memory _npcSpawnFlags set and must NEVER appear on the entity
+            // record (audit: it used to leak into serialize() snapshots).
             const isNpc = entity.isNPC === true;
             const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
             const npcHasInitialItems = Boolean(

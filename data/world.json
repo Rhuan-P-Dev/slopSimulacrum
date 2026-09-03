@@ -2,7 +2,7 @@
   "initialSpawns": [
     {
       "item": "coal",
-      "slot": "m1CentralBody",
+      "slot": "firstFit:m1CentralBody,centralBall",
       "count": 10
     },
     {
@@ -12,7 +12,7 @@
     },
     {
       "item": "knife",
-      "slot": "m1Leg",
+      "slot": "firstFit:m1Leg,droidRollingBall",
       "count": 5
     }
   ]

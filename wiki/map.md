@@ -152,3 +152,5 @@ The `shared/` directory is the **only import path available to both layers** —
 | `shared/RangeResolver.js` | Range-expression resolver (numbers and `:trait.stat` expressions from `data/actions.json`) used by both layers so range semantics cannot drift |
 
 `public/utils/MapGeometry.js` is the client-side counterpart for map-rendering geometry: it is shared **only** between the two client map renderers (`WorldMapView`, `RoomConnectionRenderer`) and is deliberately **not** part of `shared/` — the server has no map rendering.
+
+`public/utils/ItemTree.js` is the client-side counterpart for the flat per-entity items model: it provides the pure child-grouping primitive (children of a host = the flat items whose `hostComponentId` names that host) shared **only** between the two client inventory surfaces (`InventoryManager`, `ComponentViewer`) and is deliberately **not** part of `shared/` — the server resolves the same containment independently in `src/utils/InventoryManager.js`.

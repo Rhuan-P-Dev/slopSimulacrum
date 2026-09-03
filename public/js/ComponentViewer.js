@@ -10,6 +10,84 @@
  */
 import MaterialRegistry from './MaterialRegistry.js';
 import ClientLogger from '/utils/ClientLogger.js';
+import { directChildrenOf, escapeHtml } from '/utils/ItemTree.js';
+
+/**
+ * Maximum containment depth rendered for a droid's carried items. Guards
+ * against pathological/cyclic data that would otherwise recurse without bound;
+ * real loadouts are far shallower, so the cap is purely defensive.
+ */
+const MAX_ITEM_NESTING_DEPTH = 12;
+
+/**
+ * Collects the set of item IDs currently equipped on an entity.
+ * @param {Object} entity - The entity object (may have an `equipped` array).
+ * @returns {Set<string>} The equipped item IDs (empty set when none).
+ */
+export function getEquippedItemIds(entity) {
+    const equipped = entity && Array.isArray(entity.equipped) ? entity.equipped : [];
+    const ids = new Set();
+    for (const entry of equipped) {
+        if (entry && entry.itemId) ids.add(entry.itemId);
+    }
+    return ids;
+}
+
+/**
+ * Renders the read-only item list for the items directly hosted on a component.
+ * Uses the flat per-entity items model: an item's children are the flat items
+ * whose hostComponentId equals the item's own id (see directChildrenOf). The
+ * result is a pure HTML string — it never mutates the shared item instances,
+ * so it can be called on live world-state data safely.
+ * @param {Array<Object>} flatItems - The entity's flat items array.
+ * @param {string} hostComponentId - The component to render hosted items for.
+ * @param {Set<string>|string[]} equippedItemIds - IDs of currently equipped items.
+ * @returns {string} HTML string ('' when the host carries no items).
+ */
+export function renderHostedItemsHtml(flatItems, hostComponentId, equippedItemIds) {
+    const allItems = Array.isArray(flatItems) ? flatItems : [];
+    const equippedSet = equippedItemIds instanceof Set
+        ? equippedItemIds
+        : new Set(Array.isArray(equippedItemIds) ? equippedItemIds : []);
+    const topItems = directChildrenOf(hostComponentId, allItems);
+    if (topItems.length === 0) return '';
+    const rows = topItems
+        .map((item) => renderReadOnlyItemRow(item, allItems, equippedSet, 0))
+        .join('');
+    return `<div class="cv-items">${rows}</div>`;
+}
+
+/**
+ * Renders a single carried item (and its nested container contents) read-only.
+ * @param {Object} item - The item instance.
+ * @param {Array<Object>} allItems - The full flat items array (for child lookup).
+ * @param {Set<string>} equippedSet - Equipped item IDs.
+ * @param {number} depth - Current nesting depth (0 = top-level on a component).
+ * @returns {string} HTML string.
+ * @private
+ */
+function renderReadOnlyItemRow(item, allItems, equippedSet, depth) {
+    if (!item || !item.id) return '';
+    const name = item.name || item.type || 'unknown';
+    const isEquipped = equippedSet.has(item.id);
+    const children = depth < MAX_ITEM_NESTING_DEPTH ? directChildrenOf(item.id, allItems) : [];
+    const rowClass = ['cv-item', isEquipped ? 'cv-item-equipped' : '', depth > 0 ? 'cv-item-nested' : '']
+        .filter(Boolean)
+        .join(' ');
+    let html = `<div class="${rowClass}" data-cv-item="${escapeHtml(item.id)}">`;
+    html += `<span class="cv-item-name">${isEquipped ? '⚔️ ' : ''}${escapeHtml(name)}</span>`;
+    if (item.type && item.type !== name) {
+        html += `<span class="cv-item-type">${escapeHtml(item.type)}</span>`;
+    }
+    html += `</div>`;
+    if (children.length > 0) {
+        const nested = children
+            .map((child) => renderReadOnlyItemRow(child, allItems, equippedSet, depth + 1))
+            .join('');
+        html += `<div class="cv-item-children">${nested}</div>`;
+    }
+    return html;
+}
 
 export class ComponentViewer {
     /**
@@ -24,6 +102,8 @@ export class ComponentViewer {
         this._statBarsManager = statBarsManager;
         /** @private {Function|null} Optional callback when a component is clicked for pick-up */
         this._onPickUpComponentClick = null;
+        /** @private {Function|null} Optional callback invoked when the panel is hidden */
+        this._onHide = null;
         /** @public {HTMLElement|null} */
         this.overlay = null;
         /** @private {HTMLElement|null} */
@@ -93,13 +173,14 @@ export class ComponentViewer {
     }
 
     /**
-     * Hides the component viewer overlay.
+     * Hides the component viewer overlay and notifies the registered hide callback, if any.
      */
     hide() {
         if (this.overlay) {
             this.overlay.style.display = 'none';
         }
         this._renderGeneration = (this._renderGeneration || 0) + 1;
+        if (this._onHide) this._onHide();
     }
 
     /**
@@ -131,6 +212,16 @@ export class ComponentViewer {
     }
 
     /**
+     * Sets the callback invoked whenever the panel is hidden (close button,
+     * Escape/backdrop/exclusive close — all funnel through hide()). Used by
+     * the orchestrator to clear its one-shot "inspected entity" stash.
+     * @param {Function} callback - Called with no arguments when hide() runs.
+     */
+    setHideCallback(callback) {
+        this._onHide = callback;
+    }
+
+    /**
      * Renders the component grid inside the overlay content.
      * @param {Object} entity - The active droid entity.
      * @param {Object} state - The complete world state.
@@ -159,7 +250,17 @@ export class ComponentViewer {
        // be synchronized with the entity object's internalComponents property.
        const entityInternalComponents = entity?.internalComponents || {};
 
-       let html = '<div class="component-viewer-grid">';
+       // Read-only carried-items view: read the entity's flat items array and
+       // its equipped set straight from world state (never mutated). Items are
+       // grouped per host component below, mirroring the server's flat/
+       // polymorphic-host model (see ItemTree.directChildrenOf).
+       const entityItems = Array.isArray(entity.items) ? entity.items : [];
+       const equippedItemIds = getEquippedItemIds(entity);
+       const carriedSummary = entityItems.length > 0
+           ? `<div class="component-viewer-items-summary">🎒 Carried items (${entityItems.length})</div>`
+           : '';
+
+       let html = carriedSummary + '<div class="component-viewer-grid">';
 
        for (const comp of entity.components) {
            const stats = instances[comp.id] || {};
@@ -169,6 +270,8 @@ export class ComponentViewer {
            // Check if this component has internal components from the entity object
            const compInternalComps = entityInternalComponents[comp.id] || [];
            const hasInternalComps = compInternalComps.length > 0;
+           // Read-only items hosted on this component (nested contents included).
+           const compItemsHtml = renderHostedItemsHtml(entityItems, comp.id, equippedItemIds);
 
            html += `
                <div class="component-card" data-comp-id="${comp.id}">
@@ -183,6 +286,7 @@ export class ComponentViewer {
                        ${statsHtml || '<em class="component-stats-placeholder">No stats</em>'}
                    </div>
                    ${hasInternalComps ? `<div class="component-internal-container" data-comp-id="${comp.id}" style="display: none;"></div>` : ''}
+                   ${compItemsHtml ? `<div class="component-card-items">${compItemsHtml}</div>` : ''}
                </div>`;
        }
 

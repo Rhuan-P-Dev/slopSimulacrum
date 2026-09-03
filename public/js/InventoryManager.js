@@ -3,6 +3,7 @@ import MaterialRegistry from './MaterialRegistry.js';
 import { AppConfig } from './Config.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
+import { directChildrenOf } from '/utils/ItemTree.js';
 
 /**
  * InventoryManager - Client-side inventory management module.
@@ -389,7 +390,8 @@ export class InventoryManager {
 
         return parentItems.map(item => {
             // Find direct children: items whose hostComponentId === this item's id
-            const children = allItems.filter(i => i.hostComponentId === item.id);
+            // (shared grouping primitive — see ItemTree.directChildrenOf)
+            const children = directChildrenOf(item.id, allItems);
             if (children.length > 0) {
                 item.children = this._attachChildren(children);
             } else {

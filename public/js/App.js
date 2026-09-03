@@ -49,6 +49,12 @@ export class ClientApp {
         // 1. Available actions cache
         this.availableActions = {};
 
+        // Entity currently inspected via the spatial-map "inspect this droid"
+        // entry point. One-shot: set on marker click, cleared when the
+        // component viewer panel hides (setHideCallback wiring in init()),
+        // resolved defensively against despawn in _resolveComponentViewerEntity().
+        this._inspectEntityId = null;
+
         // 2. Core modules
         this.worldState = new WorldStateManager();
         this.ui = new UIManager();
@@ -656,6 +662,10 @@ export class ClientApp {
             // Initialize modules
             this.statBars.init();
             this.componentViewer.init();
+            // The inspection stash is one-shot: clearing it when the panel hides keeps
+            // the "1" config-bar button meaning "my droid" (historical behavior);
+            // marker clicks re-select per viewing.
+            this.componentViewer.setHideCallback(() => { this._inspectEntityId = null; });
             this.navActions.init();
             this.worldMap.init();
             this.inventory.init();
@@ -671,7 +681,7 @@ export class ClientApp {
 
             // Register panels with overlay manager
             this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer', '1',
-                () => ({ entity: this.worldState.getActiveDroid(), state: this.worldState.getState() })
+                () => ({ entity: this._resolveComponentViewerEntity(), state: this.worldState.getState() })
             );
             this.overlayManager.register('nav-actions', this.navActions, 'btn-nav-actions', '2',
                 () => this._buildNavActionsData()
@@ -705,6 +715,36 @@ export class ClientApp {
     }
 
     /**
+     * "Inspect this droid" entry point, triggered by clicking a droid marker on
+     * the spatial map. Remembers the chosen entity and opens the per-entity
+     * component viewer for it (rather than only the player's active droid).
+     * @param {string} entityId - The entity to inspect.
+     */
+    _inspectEntity(entityId) {
+        const state = this.worldState.getState();
+        if (!entityId || !state?.entities?.[entityId]) return;
+        this._inspectEntityId = entityId;
+        this.overlayManager.open('component-viewer');
+    }
+
+    /**
+     * Resolves which entity the component viewer should display: the explicitly
+     * inspected entity when one is set and still present in state (the despawn
+     * check is defense-in-depth — the id is normally cleared on panel hide),
+     * otherwise the active droid (the historical default for the '1' button).
+     * @returns {Object|null} The entity to display, or null.
+     * @private
+     */
+    _resolveComponentViewerEntity() {
+        const state = this.worldState.getState();
+        if (this._inspectEntityId) {
+            const target = state?.entities?.[this._inspectEntityId];
+            if (target) return target;
+        }
+        return this.worldState.getActiveDroid();
+    }
+
+    /**
      * Triggers a full refresh of the world state and available actions.
      */
     async refreshWorldAndActions() {
@@ -729,7 +769,8 @@ export class ClientApp {
                 droid,
                 (entityId, targetRoomId, doorName) => this._handleDoorClick(entityId, targetRoomId, doorName),
                 (doorName, doorPosition) => this._handleDoorHover(doorName, doorPosition),
-                () => this._hideDoorRangeIndicator()
+                () => this._hideDoorRangeIndicator(),
+                (entityId) => this._inspectEntity(entityId)
             );
 
             // Re-render entities and components with callbacks
@@ -740,7 +781,8 @@ export class ClientApp {
                     room,
                     state.entities,
                     droid,
-                    state
+                    state,
+                    (entityId) => this._inspectEntity(entityId)
                 );
 
                 // Re-render pending drop/pickup range indicators that were destroyed
