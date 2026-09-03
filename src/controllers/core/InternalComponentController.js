@@ -37,6 +37,14 @@ class InternalComponentController {
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
         this.internalComponents = {};
 
+        // Transient (never persisted) dry-transition markers for the
+        // consumeFuelGenerateStat effect: keys are "entityId:hostComponentId"
+        // once a fuel-exhaustion log has fired, so a droid sitting at zero
+        // fuel logs once instead of every interval. Kept outside the IC
+        // instances on purpose — the effect state must not change the
+        // persisted instance shape.
+        this._fuelExhaustionLogged = new Map();
+
         // Reference to the global tick system
         this.tickSystem = tickSystem;
 
@@ -92,14 +100,14 @@ class InternalComponentController {
             }
 
             // Validate the unified overTime channel: a structurally valid array
-            // of effect definitions (restoreExistence / emitChannelDamage), each
-            // with a positive intervalTicks cadence.
+            // of effect definitions (restoreExistence / emitChannelDamage /
+            // consumeFuelGenerateStat), each with a positive intervalTicks cadence.
             if (definition.overTime !== undefined) {
                 if (!Array.isArray(definition.overTime)) {
                     throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime must be an array`);
                 }
                 for (const effect of definition.overTime) {
-                    if (!effect.type || !['restoreExistence', 'emitChannelDamage'].includes(effect.type)) {
+                    if (!effect.type || !['restoreExistence', 'emitChannelDamage', 'consumeFuelGenerateStat'].includes(effect.type)) {
                         throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime has invalid type: ${effect.type}`);
                     }
                     if (typeof effect.intervalTicks !== 'number' || effect.intervalTicks <= 0) {
@@ -114,6 +122,26 @@ class InternalComponentController {
                         }
                         if (typeof effect.damagePerInterval !== 'number' || effect.damagePerInterval <= 0) {
                             throw new TypeError(`[InternalComponentController] Internal component "${type}" emitChannelDamage needs a positive damagePerInterval`);
+                        }
+                    }
+                    if (effect.type === 'consumeFuelGenerateStat') {
+                        if (typeof effect.fuelItem !== 'string' || effect.fuelItem.trim() === '') {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a non-empty fuelItem string`);
+                        }
+                        if (!Number.isInteger(effect.fuelConsumedPerInterval) || effect.fuelConsumedPerInterval <= 0) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a positive integer fuelConsumedPerInterval`);
+                        }
+                        const targetStat = effect.targetStat;
+                        const dot = typeof targetStat === 'string' ? targetStat.indexOf('.') : -1;
+                        const statGroup = dot > 0 ? targetStat.slice(0, dot) : '';
+                        if (dot === -1 || !Object.values(TRAIT_GROUPS).includes(statGroup)) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a targetStat in "Group.stat" wire form: ${targetStat}`);
+                        }
+                        if (typeof effect.energyGainPerInterval !== 'number' || effect.energyGainPerInterval <= 0) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a positive energyGainPerInterval`);
+                        }
+                        if (typeof effect.energyCapacity !== 'number' || effect.energyCapacity <= 0) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a positive energyCapacity`);
                         }
                     }
                 }
@@ -668,20 +696,31 @@ class InternalComponentController {
 
     /**
      * Cleans up internal component data for a specific entity.
-     * Called when an entity is despawned.
+     * Called when an entity is despawned; also drops the transient
+     * `_fuelExhaustionLogged` dry-transition markers for this entity, so a
+     * respawned droid re-logs its first fuel exhaustion as a fresh transition
+     * instead of inheriting the removed entity's "already logged" state.
      *
      * @param {string} entityId - The entity ID to clean up.
-     * @returns {boolean} True if cleanup was performed.
+     * @returns {boolean} True if cleanup was performed; false when the entity
+     *   had no internal components (and therefore no markers to sweep).
      */
     cleanupEntity(entityId) {
         if (!this.internalComponents[entityId]) {
             return false;
         }
+
         delete this.internalComponents[entityId];
+        // Drop the transient dry-transition markers for this entity so a
+        // re-spawned entity re-logs its first exhaustion (fresh transition).
+        for (const key of this._fuelExhaustionLogged.keys()) {
+            if (key.startsWith(`${entityId}:`)) {
+                this._fuelExhaustionLogged.delete(key);
+            }
+        }
         Logger.info(`[InternalComponentController] Cleaned up internal components for entity ${entityId}`);
         return true;
     }
-
     // =========================================================================
     // UNIFIED OVERTIME PROCESSING (single channel for all overTime effects)
     // =========================================================================
@@ -693,9 +732,10 @@ class InternalComponentController {
      * that is not broken and whose host is not broken, each `overTime` effect
      * fires when the absolute tick counter is a positive multiple of the
      * effect's `intervalTicks`. Supported effect types: `restoreExistence`
-     * (the organ repairs the host, closing the salvage→existence loop) and
-     * `emitChannelDamage` (the organ radiates a damage channel to components in
-     * range).
+     * (the organ repairs the host, closing the salvage→existence loop),
+     * `emitChannelDamage` (the organ radiates a damage channel to components
+     * in range) and `consumeFuelGenerateStat` (the organ burns carried fuel
+     * items to charge a host resource stat, degrading gracefully on runout).
      *
      * @private
      */
@@ -759,6 +799,8 @@ class InternalComponentController {
                 return this._applyRestoreExistence(effect, hostComponentId);
             case 'emitChannelDamage':
                 return this._applyEmitChannelDamage(entityId, effect, hostComponentId);
+            case 'consumeFuelGenerateStat':
+                return this._applyConsumeFuelGenerateStat(entityId, effect, hostComponentId);
             default:
                 Logger.warn(`[InternalComponentController] Unknown overTime effect type: ${effect.type}`);
                 return false;
@@ -789,6 +831,107 @@ class InternalComponentController {
             hostComponentId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, gain
         );
         Logger.info(`[InternalComponentController] overTime(restoreExistence): +${gain} existence on ${hostComponentId}`);
+        return true;
+    }
+
+    /**
+     * `consumeFuelGenerateStat`: the fuel → energy loop. Every interval the
+     * organ reads the host's current charge on `targetStat` and then, in
+     * priority order: (1) a full battery (charge ≥ `energyCapacity`) skips
+     * without burning fuel — coal is never burned for a full tank; (2) with
+     * fewer than `fuelConsumedPerInterval` units of `fuelItem` aboard, it
+     * degrades gracefully — nothing is consumed, nothing is charged, and the
+     * exhaustion is logged ONCE on the dry transition (the transient
+     * `_fuelExhaustionLogged` map marks that it already happened, so a droid
+     * sitting at zero fuel does not spam the log every interval); (3)
+     * otherwise it consumes whole fuel units through the facade's public
+     * removal API and charges the stat by
+     * `min(energyGainPerInterval, energyCapacity − current)` — clamped at the
+     * margin, so the last burn can waste partial energy rather than stall the
+     * final tick of a charge.
+     *
+     * Whole units only: energy stays an exact multiple of the per-fuel gain
+     * for the life of the droid, keeping the "1 fuel = N energy" balance lever
+     * exact and testable. All balance numbers come from the effect definition
+     * (data/internalComponents.json) — nothing here is a magic number.
+     *
+     * Invariant: the fuel snapshot (getEntityItems) and the removals
+     * (removeItemFromEntity) share the `entity.items` source within one
+     * synchronous tick, so a mid-loop removal failure is a desync, not a
+     * normal path. When it happens the burn aborts BEFORE any charge — no
+     * partial charge on a partial removal — and deliberately does not roll
+     * back, because re-adding the removed fuel would re-derive its footprint
+     * from the current definitions. With the shipped data
+     * (fuelConsumedPerInterval: 1) the failure is unreachable: the snapshot
+     * already proved the fuel is aboard.
+     *
+     * @param {string} entityId - The host entity ID.
+     * @param {Object} effect - The consumeFuelGenerateStat effect definition.
+     * @param {string} hostComponentId - The host component instance ID.
+     * @returns {boolean} True when fuel was consumed and the stat charged.
+     * @private
+     */
+    _applyConsumeFuelGenerateStat(entityId, effect, hostComponentId) {
+        const wsc = this.worldStateController;
+        if (!wsc) return false;
+
+        const capacity = typeof effect.energyCapacity === 'number' ? effect.energyCapacity : 0;
+        const gain = typeof effect.energyGainPerInterval === 'number' ? effect.energyGainPerInterval : 0;
+        const fuelNeeded = Number.isInteger(effect.fuelConsumedPerInterval) && effect.fuelConsumedPerInterval > 0
+            ? effect.fuelConsumedPerInterval
+            : 0;
+        if (capacity <= 0 || gain <= 0 || fuelNeeded <= 0) return false;
+
+        // The target stat is declared in the flat "Group.stat" wire form
+        // (identical to the grants key form) — split it for the (trait, stat)
+        // setter the componentController exposes.
+        const dot = (typeof effect.targetStat === 'string' ? effect.targetStat : '').indexOf('.');
+        if (dot === -1) return false;
+        const traitId = effect.targetStat.slice(0, dot);
+        const statName = effect.targetStat.slice(dot + 1);
+
+        // Rule 1 — full battery: never burn fuel for a full tank.
+        const stats = wsc.getComponentStats(hostComponentId);
+        const current = stats?.[traitId]?.[statName] ?? 0;
+        if (current >= capacity) return false;
+
+        // Rule 2 — fuel search across the entity's items (public facade only;
+        // items are matched by their registry type, e.g. "coal").
+        const itemsByHost = wsc.getEntityItems(entityId);
+        const fuelItems = [];
+        for (const items of Object.values(itemsByHost)) {
+            for (const item of items) {
+                if (item?.type === effect.fuelItem) fuelItems.push(item);
+            }
+            if (fuelItems.length >= fuelNeeded) break;
+        }
+
+        // Not enough fuel: consume nothing, charge nothing, log once on the
+        // transition into the dry state.
+        if (fuelItems.length < fuelNeeded) {
+            const dryKey = `${entityId}:${hostComponentId}`;
+            if (!this._fuelExhaustionLogged.has(dryKey)) {
+                this._fuelExhaustionLogged.set(dryKey, true);
+                Logger.warn(`[InternalComponentController] overTime(consumeFuelGenerateStat): fuel "${effect.fuelItem}" exhausted on ${hostComponentId} — generator idles (energy ${current}/${capacity})`);
+            }
+            return false;
+        }
+
+        // Rule 3 — burn: consume whole fuel units first; the charge only
+        // happens when the fuel was actually spent.
+        for (const item of fuelItems.slice(0, fuelNeeded)) {
+            const result = wsc.removeItemFromEntity(entityId, item.id);
+            if (!result.success) {
+                Logger.warn(`[InternalComponentController] overTime(consumeFuelGenerateStat): failed to remove fuel item ${item.id} from ${entityId}: ${result.message}`);
+                return false;
+            }
+        }
+        this._fuelExhaustionLogged.delete(`${entityId}:${hostComponentId}`);
+
+        // Charge, clamped at the capacity margin.
+        const charge = Math.min(gain, capacity - current);
+        wsc.componentController.updateComponentStatDelta(hostComponentId, traitId, statName, charge);
+        Logger.info(`[InternalComponentController] overTime(consumeFuelGenerateStat): consumed ${fuelNeeded} ${effect.fuelItem}, +${charge} ${traitId}.${statName} on ${hostComponentId}`);
         return true;
     }
 

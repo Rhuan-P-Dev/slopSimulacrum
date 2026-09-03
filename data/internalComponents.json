@@ -9,7 +9,7 @@
     "overTime": [],
     "excludedComponentTypes": [],
     "autoInstallOnSpawn": false,
-    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone", "killerLlmDrone"],
+    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone", "killerLlmDrone", "m1Droid"],
     "hostComponentType": "droidHand",
     "hostSlot": "left"
   },
@@ -20,9 +20,9 @@
     "weight": 3,
     "grants": { "Movement.move": 20 },
     "overTime": [],
-    "excludedComponentTypes": ["humanoidDroidFinger"],
+    "excludedComponentTypes": ["humanoidDroidFinger", "m1Toe", "m1Finger"],
     "autoInstallOnSpawn": false,
-    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone"]
+    "targetBlueprintTypes": ["smallBallDroid", "crafterDrone", "m1Droid"]
   },
   "precisionCore": {
     "name": "Precision Servo",
@@ -79,5 +79,26 @@
     ],
     "excludedComponentTypes": [],
     "autoInstallOnSpawn": false
+  },
+  "coalGenerator": {
+    "name": "Coal Generator",
+    "description": "Burns the coal the droid carries to charge its power stat — the fuel → energy loop: each interval consumes whole fuel units and adds a fixed burst of Physical.energy, clamped at the battery capacity. The organ seeds the stat at 0 (an empty battery) and is its single source.",
+    "volume": 2,
+    "weight": 4,
+    "grants": { "Physical.energy": 0 },
+    "overTime": [
+      {
+        "type": "consumeFuelGenerateStat",
+        "intervalTicks": 5,
+        "fuelItem": "coal",
+        "fuelConsumedPerInterval": 1,
+        "targetStat": "Physical.energy",
+        "energyGainPerInterval": 10,
+        "energyCapacity": 100
+      }
+    ],
+    "excludedComponentTypes": ["m1Toe", "m1Finger"],
+    "autoInstallOnSpawn": false,
+    "targetBlueprintTypes": ["m1Droid"]
   }
 }

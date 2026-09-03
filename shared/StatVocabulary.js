@@ -20,6 +20,9 @@
  *   - FORM-derived stat: `volume` (size declared by the recipe);
  *   - FUNCTION stats, granted by internal components (organs): `strength`,
  *     `move`, `fine_controls`, `think_level`;
+ *   - RESOURCE stat, seeded and charged by an organ: `energy` (the coal
+ *     generator's battery — charge-only, no material source, single organ
+ *     source);
  *   - named-trait FLAGS (gate and mark, never patch numbers): `flammable`,
  *     `conductive`, `corrosive`;
  *   - transient CONDITIONS (stored per instance): `burning`, `wet`, `corroded`;
@@ -87,6 +90,7 @@ export const STAT_NAMES = {
     MOVE: 'move',
     FINE_CONTROLS: 'fine_controls',
     THINK_LEVEL: 'think_level',
+    ENERGY: 'energy',
 };
 
 /**

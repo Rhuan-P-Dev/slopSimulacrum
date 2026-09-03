@@ -11,6 +11,7 @@ import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPA
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
+import { getDefinitionHostFootprint } from '../utils/definitionVolume.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -629,10 +630,15 @@ class WorldStateController {
      * only interprets it.
      *
      * Supported entry fields:
-     * - { item, slot, children?: [{ item, count }] }: add `item` to a component resolved by
-     *   `slot`, then add each child item `count` times inside the created container item.
-     *   slot forms: "<type>" (first component of that type), "firstFit:<type>[,<type>...]"
-     *   (first of the listed types with enough available volume).
+     * - { item, slot, count?: number, children?: [{ item, count }], ammo?: number,
+     *   fallback?: "<type>" }: add `item` to a component resolved by `slot`, then add each
+     *   child item `count` times inside the created container item. `count` is an optional
+     *   top-level multiplicity (default 1) — the item is added that many times to the same
+     *   resolved slot, mirroring the children count loop one level up (children and ammo
+     *   apply to each added instance). Entries without `count` add exactly one item,
+     *   identical to the pre-count behavior. slot forms: "<type>" (first component of that
+     *   type), "firstFit:<type>[,<type>...]" (first of the listed types with enough
+     *   available volume).
      * - { item, slot, fallback?: "<type>" }: like above, plus a fallback component type tried
      *   when the primary slot has no capacity.
      * - { item, slot: "bestAvailable[:<preferredType>...]", ammo?: number }: add `item`
@@ -686,36 +692,51 @@ class WorldStateController {
                     continue;
                 }
 
-                const addResult = this.inventoryManager.addItem(entity, entry.item, target.component.id, {
-                    componentController: this.componentController
-                });
-                if (!addResult.success) {
-                    Logger.warn(`[WorldStateController] Initial spawn "${entry.item}" failed on ${target.component.type} (entity ${entityId}): ${addResult.message}`);
-                    failed++;
-                    continue;
-                }
+                // Optional top-level multiplicity (data/world.json `count`, default
+                // 1): mirrors the children count loop one level up so a loadout
+                // entry can add the same item several times (e.g. the M1 coal
+                // loadout). Entries without `count` add exactly one item —
+                // identical to the pre-count behavior.
+                const spawnCount = Math.max(1, Math.floor(Number(entry.count) || 1));
+                let addedAny = false;
+                for (let i = 0; i < spawnCount; i++) {
+                    const addResult = this.inventoryManager.addItem(entity, entry.item, target.component.id, {
+                        componentController: this.componentController
+                    });
+                    if (!addResult.success) {
+                        Logger.warn(`[WorldStateController] Initial spawn "${entry.item}"${spawnCount > 1 ? ` #${i + 1}` : ''} failed on ${target.component.type} (entity ${entityId}): ${addResult.message}`);
+                        continue;
+                    }
 
-                // Container children (e.g., metalBox pre-filled with knives)
-                if (Array.isArray(entry.children)) {
-                    for (const child of entry.children) {
-                        const count = Math.max(0, Number(child?.count) || 0);
-                        for (let i = 0; i < count; i++) {
-                            const childResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, child.item);
-                            if (!childResult.success) {
-                                Logger.warn(`[WorldStateController] Initial spawn child "${child.item}" #${i + 1} into "${entry.item}" failed (entity ${entityId}): ${childResult.message}`);
+                    // Container children (e.g., metalBox pre-filled with knives)
+                    if (Array.isArray(entry.children)) {
+                        for (const child of entry.children) {
+                            const count = Math.max(0, Number(child?.count) || 0);
+                            for (let j = 0; j < count; j++) {
+                                const childResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, child.item);
+                                if (!childResult.success) {
+                                    Logger.warn(`[WorldStateController] Initial spawn child "${child.item}" #${j + 1} into "${entry.item}" failed (entity ${entityId}): ${childResult.message}`);
+                                }
                             }
                         }
                     }
-                }
 
-                // Weapon ammo (e.g., t1 pre-loaded with knife projectiles)
-                if (typeof entry.ammo === 'number' && entry.ammo > 0) {
-                    for (let i = 0; i < entry.ammo; i++) {
-                        const ammoResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, 'knife');
-                        if (!ammoResult.success) {
-                            Logger.warn(`[WorldStateController] Initial spawn ammo #${i + 1} into "${entry.item}" failed (entity ${entityId}): ${ammoResult.message}`);
+                    // Weapon ammo (e.g., t1 pre-loaded with knife projectiles)
+                    if (typeof entry.ammo === 'number' && entry.ammo > 0) {
+                        for (let j = 0; j < entry.ammo; j++) {
+                            const ammoResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, 'knife');
+                            if (!ammoResult.success) {
+                                Logger.warn(`[WorldStateController] Initial spawn ammo #${j + 1} into "${entry.item}" failed (entity ${entityId}): ${ammoResult.message}`);
+                            }
                         }
                     }
+
+                    addedAny = true;
+                }
+
+                if (!addedAny) {
+                    failed++;
+                    continue;
                 }
 
                 applied++;
@@ -752,8 +773,13 @@ class WorldStateController {
             Logger.warn(`[WorldStateController] Unknown item type "${entry.item}" in initial spawn config.`);
             return null;
         }
-        // Items like T1 occupy their externalVolume footprint on the host component
-        const hostFootprint = itemDef.externalVolume ?? itemDef.volume;
+        // Items like T1 occupy their external footprint on the host component.
+        // Recipe→derivation stores the footprint under form.externalVolume (with
+        // legacy top-level fallbacks); getDefinitionHostFootprint is the single
+        // source of this chain and shares it with InventoryManager.addItem's
+        // hostVolume computation, so slot gating here stays in lockstep with
+        // the capacity check that runs when the item is actually added.
+        const hostFootprint = getDefinitionHostFootprint(itemDef);
 
         const slot = entry.slot;
         if (typeof slot !== 'string' || slot === '') {
@@ -1959,6 +1985,12 @@ class WorldStateController {
             // (legacy top-level externalVolume is a fallback); the full volume lives under
             // form.volume. The footprint (what counts against a component's capacity) is the
             // external footprint when declared, else the full volume.
+            // Deliberately NOT unified with getDefinitionHostFootprint (utils/definitionVolume.js):
+            // its first two chain steps match, but its declared-volume fallback is the
+            // DEFAULT_ITEM_VOLUME no-item-loss floor (an undeclared output must never read as a
+            // zero-footprint item in a craft), while the helper falls back to
+            // getDefinitionVolume (0 when undeclared). TODO: Refactor — revisit unifying the
+            // external-footprint prefix once that fallback difference is reconciled.
             const external = (typeof def.form?.externalVolume === 'number')
                 ? def.form.externalVolume
                 : (typeof def.externalVolume === 'number' ? def.externalVolume : undefined);

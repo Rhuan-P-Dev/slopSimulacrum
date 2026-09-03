@@ -1,27 +1,19 @@
 {
   "initialSpawns": [
     {
-      "item": "metalBox",
-      "slot": "firstFit:centralBall,droidArm,droidHand",
-      "children": [{ "item": "knife", "count": 5 }]
-    },
-    {
-      "item": "testItem",
-      "slot": "droidArm"
-    },
-    {
-      "item": "testItem2",
-      "slot": "droidArm"
-    },
-    {
-      "item": "knife",
-      "slot": "droidHand",
-      "fallback": "droidArm"
+      "item": "coal",
+      "slot": "m1CentralBody",
+      "count": 10
     },
     {
       "item": "t1",
       "slot": "bestAvailable:hand",
       "ammo": 1
+    },
+    {
+      "item": "knife",
+      "slot": "m1Leg",
+      "count": 5
     }
   ]
 }

@@ -322,6 +322,11 @@ describe('WorldStateController.getAll() shape', () => {
             // flag lives in the in-memory _npcSpawnFlags set and must NEVER
             // appear on the entity record (audit: it used to leak into
             // serialize() snapshots).
+            // Non-NPC entities carry `items` whenever data/world.json
+            // initialSpawns resolved at least one slot for their blueprint
+            // (the M1 loadout does: the T1 lands on the first hand-type
+            // component). The test-spawned droid below is the world's
+            // non-NPC "player slot", so it receives that loadout.
             const isNpc = entity.isNPC === true;
             const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
             const npcHasInitialItems = Boolean(
@@ -361,6 +366,7 @@ describe('WorldStateController.getAll() shape', () => {
                     'components',
                     'id',
                     'internalComponents',
+                    'items',
                     'location',
                     'spatial',
                     'status',

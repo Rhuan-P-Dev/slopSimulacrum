@@ -89,5 +89,62 @@
     "form": { "volume": 10, "position": { "x": 0, "y": 20 } },
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
     "internalComponents": ["moveCore"]
+  },
+  "m1CentralBody": {
+    "name": "M1 Central Body",
+    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.8 },
+      { "material": "coal", "fraction": 0.2 }
+    ],
+    "internalComponents": ["coalGenerator"]
+  },
+  "m1Head": {
+    "name": "M1 Head",
+    "form": { "volume": 6, "position": { "x": 0, "y": -16 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.6 },
+      { "material": "wood", "fraction": 0.4 }
+    ],
+    "internalComponents": ["thinkCore"]
+  },
+  "m1Leg": {
+    "name": "M1 Leg",
+    "form": { "volume": 8, "position": { "x": 0, "y": 16 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.8 },
+      { "material": "wood", "fraction": 0.2 }
+    ],
+    "internalComponents": ["moveCore"]
+  },
+  "m1Toe": {
+    "name": "M1 Toe",
+    "form": { "volume": 1, "position": { "x": 0, "y": 26 } },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
+  },
+  "m1ArticulatedHand": {
+    "name": "M1 Articulated Hand",
+    "form": { "volume": 6, "position": { "x": 14, "y": -4 } },
+    "materials": [
+      { "material": "iron", "fraction": 0.7 },
+      { "material": "wood", "fraction": 0.3 }
+    ],
+    "internalComponents": [
+      { "type": "strengthCore", "grants": { "Physical.strength": 120 } },
+      "precisionCore"
+    ]
+  },
+  "m1Finger": {
+    "name": "M1 Finger",
+    "form": { "volume": 1, "position": { "x": 20, "y": -6 } },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
+  },
+  "m1Gun": {
+    "name": "M1 Gun",
+    "form": { "volume": 6, "position": { "x": 12, "y": -8 } },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   }
 }
