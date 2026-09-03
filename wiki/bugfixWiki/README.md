@@ -22,6 +22,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-133](high/BUG-133-knife-cannot-be-equipped-massburden-contract-drift.md) | Knife Cannot Be Equipped — massBurden Contract Drift Left Consumers Gating on the Removed itemDef.traits | ✅ Fixed | `pending` | `InventoryManager.js` (client), `ComponentCapabilityController.js`, `RequirementResolver.js` |
 | [BUG-118](high/BUG-118-entity-spawns-at-room-center-instead-of-door.md) | Entity Spawns at Room Center Instead of Door Position on World Map Navigation | ✅ Fixed | `pending` | `RoomConnectionRenderer.js` |
 | [BUG-114](high/BUG-114-dash-durability-loss-targets-wrong-component.md) | Dash Durability Loss Targets Wrong Component (Left Ball Affected When Dashing Right) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `actionController.js` |
 | [BUG-093](high/BUG-093-equipped-item-stats-ignored-in-requirement-checks.md) | Equipped Item Stats Ignored in Action Requirement Checks | ✅ Fixed | `pending` | `RequirementResolver.js` |
