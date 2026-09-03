@@ -15,7 +15,7 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Synergy Preview Controller | Synergy preview fetching, caching, range calculation |
 | Event Dispatcher | WebSocket and DOM event listeners |
 | Stat Bars Manager | Configurable stat bar visualization |
-| Component Viewer | Component detail overlay with internal component panel |
+| Component Viewer | Component detail overlay with internal component panel and a read-only carried-items list |
 | Navigation Actions Panel | Actions overlay with multi-component selection |
 | World Map View | Full-screen world map overlay with pan/zoom |
 | Inventory Manager | Inventory overlay with drag-and-drop items |
@@ -53,9 +53,15 @@ User interactions flow through the event dispatcher into the selection controlle
 
 All modules use a centralized logging utility.
 
-## 5. Component Viewer
+## 6. Component Viewer
 
 The Component Viewer overlay displays all components of a selected entity as interactive cards, each showing stat badges grouped by trait. It supports adding stat bars from individual components, expanding internal components, and opening the stat bar add dialog pre-filled with specific stat values.
+
+### Read-Only Carried-Items List
+
+Each component card also renders the inspected entity's items hosted on that component as a read-only list, recovered from the flat `entity.items` array (an item's `hostComponentId` polymorphically names its parent — a component id for a top-level item or a container item id for a nested item). The render is pure: it groups children from the shared world-state array without ever mutating the item instances, so it is safe to run on live state and degrades cleanly to nothing when an entity carries no items or an item type is unknown. This is what makes a spawned NPC's server-applied loadout visible in the UI — the items always reached the client, but no surface previously rendered `entity.items` for a non-player droid.
+
+**Why the inspection target is resolved by the orchestrator**: the Component Viewer can inspect *any* entity, but `WorldStateManager.getActiveDroid()` never resolves to an NPC blueprint such as `killerLlmDrone` (the active droid is always the incarnated player or a `smallBallDroid`). The orchestrator (App) therefore owns the "inspect this entity" entry point — clicking an entity marker on the world map — and stashes the chosen entity id for the duration of that viewing; the stash is cleared when the panel is hidden, and the data factory additionally falls back to the active droid if the inspected entity has since despawned, so the config-bar button always means the active droid. Keeping that decision in the orchestrator leaves the panel stateless about *which* entity it is showing and stops the panel from reaching into world-state heuristics to guess the user's intent.
 
 ### Trait Interaction Pattern
 

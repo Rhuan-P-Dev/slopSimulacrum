@@ -40,9 +40,11 @@ export class UIManager {
      * @param {Object} entities
      * @param {Object} droid
      * @param {Object} state
+     * @param {Function|null} [onEntityClick] - Called with the clicked entity's id
+     *   when a droid marker is clicked; markers are non-interactive when omitted.
      */
-    updateEntityAndComponentViews(room, entities, droid, state) {
-        this._renderEntities(room, entities, droid?.id);
+    updateEntityAndComponentViews(room, entities, droid, state, onEntityClick = null) {
+        this._renderEntities(room, entities, droid?.id, onEntityClick);
         this._renderDroidComponents(droid, state);
     }
 
@@ -54,8 +56,11 @@ export class UIManager {
      *   Receives (entityId, targetRoomId, doorName, range) where range is null if not set.
      * @param {Function} [onDoorHover] - Hover callback for door connections (doorName, doorPosition, range).
      * @param {Function} [onDoorLeave] - Leave callback for door connections.
+     * @param {Function|null} [onEntityClick] - Called with the clicked entity's id
+     *   when a droid marker is clicked ("inspect this droid"); markers are
+     *   non-interactive when omitted.
      */
-    updateWorldView(state, droid, onMoveCallback, onDoorHover = null, onDoorLeave = null) {
+    updateWorldView(state, droid, onMoveCallback, onDoorHover = null, onDoorLeave = null, onEntityClick = null) {
         if (!droid) {
             this._renderEmptyState();
             return;
@@ -76,7 +81,7 @@ export class UIManager {
         // Render map layers
         this._renderRoom(room);
         this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id, onDoorHover, onDoorLeave);
-        this._renderEntities(room, state.entities, droid.id);
+        this._renderEntities(room, state.entities, droid.id, onEntityClick);
         this._renderDroidComponents(droid, state);
     }
 
@@ -345,7 +350,16 @@ export class UIManager {
             onConnectionClick, entityId, onDoorHover, onDoorLeave);
     }
 
-    _renderEntities(room, entities, activeDroidId) {
+    /**
+     * Renders all entity markers for the given room onto the entities layer.
+     * @param {Object} room - The room whose entities are rendered.
+     * @param {Object} entities - All entities keyed by entity id (filtered to the room internally).
+     * @param {string} activeDroidId - The active droid's id (rendered with the active color).
+     * @param {Function|null} [onEntityClick] - Called with the clicked entity's id;
+     *   when omitted, markers are non-interactive.
+     * @private
+     */
+    _renderEntities(room, entities, activeDroidId, onEntityClick = null) {
         const entitiesLayer = this.elements.entitiesLayer;
         entitiesLayer.innerHTML = '';
 
@@ -362,6 +376,20 @@ export class UIManager {
             marker.setAttribute("fill", entity.id === activeDroidId ? AppConfig.COLORS.ENTITY_ACTIVE : AppConfig.COLORS.ENTITY_DEFAULT);
             marker.setAttribute("class", `entity-marker`);
             marker.setAttribute("filter", "url(#glow)");
+
+            // "Inspect this droid" entry point: clicking a droid marker opens the
+            // per-entity component viewer for that specific entity (not just the
+            // player's active droid).
+            if (onEntityClick) {
+                marker.style.cursor = 'pointer';
+                const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+                title.textContent = `Inspect ${entity.name || 'droid'}`;
+                marker.appendChild(title);
+                marker.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onEntityClick(entity.id);
+                });
+            }
 
             entitiesLayer.appendChild(marker);
 

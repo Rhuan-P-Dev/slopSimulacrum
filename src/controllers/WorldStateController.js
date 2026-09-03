@@ -1,5 +1,6 @@
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import { getDefinitionFootprint } from '../utils/definitionVolume.js';
 import { isEnvFlagOn } from '../utils/Constants.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
@@ -752,8 +753,10 @@ class WorldStateController {
             Logger.warn(`[WorldStateController] Unknown item type "${entry.item}" in initial spawn config.`);
             return null;
         }
-        // Items like T1 occupy their externalVolume footprint on the host component
-        const hostFootprint = itemDef.externalVolume ?? itemDef.volume;
+        // Items like T1 occupy their externalVolume footprint on the host component.
+        // Single source of truth: the shared footprint helper (definitionVolume.js),
+        // so the initial-spawn resolver and InventoryManager.addItem agree.
+        const hostFootprint = getDefinitionFootprint(itemDef);
 
         const slot = entry.slot;
         if (typeof slot !== 'string' || slot === '') {

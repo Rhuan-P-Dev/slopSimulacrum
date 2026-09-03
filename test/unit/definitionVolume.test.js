@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getDefinitionVolume } from '../../src/utils/definitionVolume.js';
+import { getDefinitionVolume, getDefinitionFootprint } from '../../src/utils/definitionVolume.js';
 
 describe('getDefinitionVolume()', () => {
     it('reads form.volume (the recipe→derivation model location) with top priority', () => {
@@ -43,5 +43,56 @@ describe('getDefinitionVolume()', () => {
         // form.volume is a string → not a number, so it falls through to top-level volume.
         const def = { form: { volume: '10' }, volume: 4 };
         expect(getDefinitionVolume(def)).toBe(4);
+    });
+});
+
+describe('getDefinitionFootprint()', () => {
+    // The footprint is the volume an item occupies on its host. Precedence:
+    // form.externalVolume (migrated) → legacy top-level externalVolume → the full
+    // volume (getDefinitionVolume, which itself is form.volume → volume → traits.Physical.volume).
+
+    it('reads form.externalVolume (the migrated location) with top priority', () => {
+        // t1: a small external footprint even though its internal capacity is 10.
+        const def = { form: { volume: 10, externalVolume: 1 } };
+        expect(getDefinitionFootprint(def)).toBe(1);
+    });
+
+    it('lets form.externalVolume win over the legacy top-level externalVolume', () => {
+        const def = { form: { externalVolume: 1 }, externalVolume: 5 };
+        expect(getDefinitionFootprint(def)).toBe(1);
+    });
+
+    it('falls back to the legacy top-level externalVolume when form.externalVolume is absent', () => {
+        const def = { externalVolume: 5, form: { volume: 10 } };
+        expect(getDefinitionFootprint(def)).toBe(5);
+    });
+
+    it('falls back to the migrated form volume (metalBox: form.volume = 10, no external volume)', () => {
+        const def = { form: { volume: 10 } };
+        expect(getDefinitionFootprint(def)).toBe(10);
+    });
+
+    it('falls back to the legacy top-level volume', () => {
+        const def = { volume: 7 };
+        expect(getDefinitionFootprint(def)).toBe(7);
+    });
+
+    it('falls back to traits.Physical.volume when neither external nor volume is present', () => {
+        const def = { traits: { Physical: { volume: 3 } } };
+        expect(getDefinitionFootprint(def)).toBe(3);
+    });
+
+    it('ignores non-numeric external volumes and continues down the fallback chain', () => {
+        // form.externalVolume is a string → not a number; externalVolume is a string → not a
+        // number; falls through to the full volume (form.volume = 4).
+        const def = { form: { externalVolume: 'nope', volume: 4 }, externalVolume: 'also-no' };
+        expect(getDefinitionFootprint(def)).toBe(4);
+    });
+
+    it('returns 0 for null / undefined / non-object inputs', () => {
+        expect(getDefinitionFootprint(null)).toBe(0);
+        expect(getDefinitionFootprint(undefined)).toBe(0);
+        expect(getDefinitionFootprint('not-an-object')).toBe(0);
+        expect(getDefinitionFootprint({})).toBe(0);
     });
 });
