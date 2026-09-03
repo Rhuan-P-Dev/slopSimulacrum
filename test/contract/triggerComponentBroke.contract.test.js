@@ -290,11 +290,11 @@ describe('Trigger system — component removal (test 7)', () => {
 });
 
 // =========================================================================
-// Test 9: Only component breaks → entity remains
+// Test 9: Only component breaks → entity eliminated (despawned)
 // =========================================================================
 
 describe('Trigger system — single component entity (test 9)', () => {
-    it('Test 9: Entity with single breaking component → remains in world', () => {
+    it('Test 9: Entity with single breaking component → eliminated (despawned)', () => {
         const { world } = buildWorld();
         const { entityId, entity } = spawnDroid(world);
 
@@ -307,9 +307,10 @@ describe('Trigger system — single component entity (test 9)', () => {
         world.componentController.updateComponentStat(singleComp.id, 'Physical', 'existence', 1);
         damageComponent(world, singleComp.id, -10);
 
+        // Entity-level elimination: when the last component is removed, the
+        // entity is despawned (genuinely removed from world state).
         const entity2 = world.getEntity(entityId);
-        expect(entity2).toBeDefined();
-        expect(entity2.components.length).toBe(0);
+        expect(entity2).toBeNull();
     });
 });
 
@@ -377,7 +378,7 @@ describe('Trigger system — handler isolation (test 11)', () => {
 // =========================================================================
 
 describe('Trigger system — dependency cascade (tests 16–21)', () => {
-    it('Test 16: smallBallDroid cascade — break centralBall → 14 events, 42 knives (full tree)', () => {
+    it('Test 16: smallBallDroid cascade — break centralBall → 14 events, 39 knives (full tree, entity eliminated)', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroidWithCascade(world);
 
@@ -387,13 +388,16 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         damageComponent(world, centralBall.id, -10);
 
         // Tree structure: centralBall → {droidHead, droidArm×2→droidHand×2→humanoidDroidFinger×6, droidRollingBall×2}
-        // Total nodes = 1 + 1 + 2 + 2 + 6 + 2 = 14 → 14 eventos × 3 facas = 42
+        // Total nodes = 1 + 1 + 2 + 2 + 6 + 2 = 14 events.
+        // Knife count: 13×3=39 — the root component's knife drop is skipped
+        // because the entity is despawned (eliminated) before the root event's
+        // KnifeDropTriggerHandler runs.
         expect(countBrokeEvents(world)).toBe(14);
-        expect(countAllKnives(world)).toBe(42);
+        expect(countAllKnives(world)).toBe(39);
 
-        // All components removed from entity
+        // Entity-level elimination: all components removed → entity despawned
         const updatedEntity = world.getEntity(entity.id);
-        expect(updatedEntity.components.length).toBe(0);
+        expect(updatedEntity).toBeNull();
     });
 
     it('Test 17: Cycle A↔B — termination in finite time, 2 events', () => {
@@ -455,7 +459,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(countBrokeEvents(world)).toBe(1); // PHASE 8-7a: EXACT count
     });
 
-    it('Test 20: Full droid tree (centralBall) = 14 events / 42 knives', () => {
+    it('Test 20: Full droid tree (centralBall) = 14 events / 39 knives (entity eliminated)', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroidWithCascade(world);
 
@@ -464,8 +468,9 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         world.componentController.updateComponentStat(centralBall.id, 'Physical', 'existence', 1);
         damageComponent(world, centralBall.id, -10);
 
+        // 14 events; 39 knives (13×3) — root component's drop skipped after despawn
         expect(countBrokeEvents(world)).toBe(14);
-        expect(countAllKnives(world)).toBe(42);
+        expect(countAllKnives(world)).toBe(39);
     });
 
     it('Test 21a: Dependent with dur ≤ 0 → direct removal without event', () => {

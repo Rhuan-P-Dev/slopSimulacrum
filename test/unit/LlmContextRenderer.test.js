@@ -51,7 +51,7 @@ const ACTION_REGISTRY = {
 
 function makeComponent(id, type) { return { id, type }; }
 
-function makeWorld(overrides = {}) {
+function makeWorld(overrides = {}, extraEntities = {}) {
     const selfEntity = {
         id: 'ent-self',
         name: 'Bolt the Merchant',
@@ -79,7 +79,7 @@ function makeWorld(overrides = {}) {
         spatial: { x: 10, y: 10 },
         components: [makeComponent('comp-other-core', 'coreBall')]
     };
-    const entities = { 'ent-self': selfEntity, 'ent-same': sameRoomEntity, 'ent-other': otherRoomEntity };
+    const entities = { 'ent-self': selfEntity, 'ent-same': sameRoomEntity, 'ent-other': otherRoomEntity, ...extraEntities };
 
     const rooms = {
         'room-1': {
@@ -239,6 +239,56 @@ describe('LlmContextController (context renderer)', () => {
         // Dropped items sub-list with positions (spec: better text & vision).
         expect(text).toContain('Dropped items: Knife at (150, 120)');
         expect(data.droppedItems).toEqual([{ id: 'dropped-1', name: 'Knife', itemType: 'knife', x: 150, y: 120 }]);
+    });
+
+    // Ghost exclusion (subtask 2b, defense-in-depth): a component-less "ghost"
+    // entity (mid-cascade or not yet despawned) must NOT appear in the
+    // NEARBY ENTITIES section — the LLM must never "see" a corpse. Exclusion
+    // (no dead marker) is the behavior the spec wants ("really deleted").
+    describe('ghost exclusion (defense-in-depth, subtask 2b)', () => {
+        it('excludes a component-less same-room ghost from NEARBY ENTITIES (text + data mirror)', () => {
+            // dist 1 from self — without the filter the ghost would sort FIRST.
+            const ghost = {
+                id: 'ent-ghost',
+                name: 'Ghost Droid',
+                location: 'room-1',
+                spatial: { x: 101, y: 100 },
+                components: []
+            };
+            const ghostWorld = makeWorld({}, { [ghost.id]: ghost });
+            const ghostCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ghostCtrl.setWorldStateController(ghostWorld);
+
+            const { text, data } = ghostCtrl.buildContext('ent-self');
+
+            expect(text).not.toContain('Ghost Droid');
+            expect(data.entities.find(e => e.id === 'ent-ghost')).toBeUndefined();
+            // Regression guard: the living same-room entity is still listed
+            // (now at index 1 — the ghost no longer occupies the top slot).
+            expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
+            expect(data.entities.filter(e => e.room === 'same')).toHaveLength(1);
+        });
+
+        it('excludes a component-less other-room ghost from the room-named list', () => {
+            const ghost = {
+                id: 'ent-ghost-2',
+                name: 'Wreck Droid',
+                location: 'room-2',
+                spatial: { x: 10, y: 10 },
+                components: []
+            };
+            const ghostWorld = makeWorld({}, { [ghost.id]: ghost });
+            const ghostCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ghostCtrl.setWorldStateController(ghostWorld);
+
+            const { text, data } = ghostCtrl.buildContext('ent-self');
+
+            expect(text).not.toContain('Wreck Droid');
+            expect(data.entities.find(e => e.id === 'ent-ghost-2')).toBeUndefined();
+            // The healthy other-room entity is still listed by room name.
+            expect(text).toContain('Vault Droid');
+            expect(data.entities.filter(e => e.room !== 'same')).toHaveLength(1);
+        });
     });
 
     it('exposes the enriched room detail in data.room (name, size, description, resolved exits)', () => {

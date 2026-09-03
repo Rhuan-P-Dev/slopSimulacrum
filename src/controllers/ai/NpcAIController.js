@@ -8,7 +8,8 @@
  * The strategy receives `{ entity, round, ai, facade }` and returns `{ actionName, params }` or null.
  *
  * Built-in behaviors:
- *   - `chase_attack`: chase and attack the nearest entity in the same room.
+ *   - `chase_attack`: chase and attack the nearest VIABLE entity in the same room
+ *     (a component-less "ghost" is never targeted — see _isViableTarget).
  *   - `craft_loop`: Crafter Drone — forage a dropped item, forge it into the
  *     recipe output, and drop it on the ground (wiki/crafter_drone_spec.md).
  *
@@ -20,6 +21,7 @@ import {
     hasDeterministicBrain,
     findNearestDroppedItem,
     resolvePickUpRange,
+    hasUsableComponent,
     RECIPE_ID,
     TARGET_ITEM_TYPE,
     CRAFT_OUTPUT_TYPE
@@ -357,8 +359,71 @@ class NpcAIController {
     }
 
     /**
+     * Viability filter for chase_attack candidates (defense-in-depth).
+     *
+     * WHY: the allEntities snapshot taken at think() entry can briefly contain
+     * an entity that has ceased to exist — a component-less "ghost" left behind
+     * by a mid-cascade removal, or an id that has since been despawned. Such an
+     * entity sits at distance ≈ 0 for a droid that chased it there, so without
+     * this filter it permanently wins the closest-candidate race: in range the
+     * brain idles stuck on the corpse (zero usable components), out of range it
+     * chases the ghost forever. A ghost must never be targeted: the droid either
+     * attacks a viable entity or idles. The root fix (WorldStateController
+     * despawns fully-eliminated entities) makes this path rare; the filter is
+     * the backstop for the window where a ghost is still visible.
+     *
+     * L2 — live-read semantics: when the facade exposes getEntity, component
+     * membership AND existence are read from the LIVE entity, never the stale
+     * snapshot (a mid-cascade wreck's components have reached existence 0 in the
+     * live state even though the snapshot still shows them alive; conversely a
+     * snapshot-ghost may be a fully alive live entity). getEntity is read
+     * through the facade's public API only — never internal state. The snapshot
+     * `candidate` is used ONLY when the facade has no getEntity (test facades
+     * that expose a single immutable world), where the snapshot IS the live
+     * state and there is no fresher source to read.
+     *
+     * Targetability is delegated to the shared core predicate
+     * (npcAiUtils.hasUsableComponent): at least one usable component
+     * (existence unknown, or > EXISTENCE_GONE_AT) — the same notion the LLM
+     * context enforces, so the brain and the LLM context never disagree.
+     *
+     * @param {Object} candidate — entity from the allEntities snapshot
+     * @returns {boolean} true when the entity still exists and has ≥ 1 usable component
+     * @private
+     */
+    _isViableTarget(candidate) {
+        const facade = this._facade;
+
+        // L2: prefer the LIVE entity. A stale snapshot can reference an id that
+        // has since been despawned (getEntity → null → non-viable), or an
+        // entity whose components have since changed (mid-cascade). When the
+        // facade exposes getEntity, source = the live entity, never the snapshot.
+        let source = candidate;
+        if (typeof facade.getEntity === 'function') {
+            const live = facade.getEntity(candidate.id);
+            if (!live) return false; // despawned after the snapshot was taken
+            source = live;
+        }
+
+        // A component-less entity is a ghost — nothing left to damage. The live
+        // entity's `components` may be a missing array (a mid-cascade wreck that
+        // has not been despawned yet); treat it as a ghost (non-viable). There
+        // is NO snapshot fallback here — that is exactly the stale data this
+        // guards against.
+        const components = Array.isArray(source.components) ? source.components : [];
+        if (components.length === 0) return false;
+
+        // Core targetability (single source of truth — npcAiUtils): ≥ 1 usable
+        // component (existence unknown, or > EXISTENCE_GONE_AT). The reader is
+        // the brain's own _readExistence (authoritative store, flat-key fallback
+        // for test fixtures).
+        return hasUsableComponent(components, (comp) => this._readExistence(comp));
+    }
+
+    /**
      * `chase_attack` behavior:
-     * - Candidates: ALL other entities in the SAME room.
+     * - Candidates: ALL other VIABLE entities in the SAME room (a
+     *   component-less "ghost" is never targeted — see _isViableTarget).
      * - Target: the closest (Euclidean distance).
      * - dist ≤ attackRange → attack (droid punch by default).
      * - dist > attackRange → move toward the target.
@@ -383,10 +448,14 @@ class NpcAIController {
             return null;
         }
 
-        // Candidates: ALL other entities in the SAME room.
+        // Candidates: ALL other VIABLE entities in the SAME room. The
+        // viability filter is defense-in-depth: a mid-cascade or not-yet-
+        // despawned "ghost" must never win the closest-candidate race
+        // (otherwise it is chased forever, or the droid idles stuck on it).
         const all = allEntities ?? (facade.getEntities?.() || {});
         const candidates = Object.values(all).filter(e =>
             e && e.id !== entity.id && e.location === room && e.spatial
+            && this._isViableTarget(e)
         );
 
         if (candidates.length === 0) {
@@ -405,9 +474,20 @@ class NpcAIController {
             }
         }
 
-        // L2: Guard non-finite spatial on the selected target.
-        if (!Number.isFinite(target.spatial.x) || !Number.isFinite(target.spatial.y)) {
-            Logger.warn(`[NpcAI] Target ${target.name || target.id} has non-finite spatial — skipping.`);
+        // L2: the snapshot candidate's id is authoritative, but its components
+        // and spatial may be stale (a mid-cascade wreck, or a snapshot-ghost
+        // that is actually alive). When the facade exposes getEntity, re-resolve
+        // the LIVE entity once and use it for everything downstream — the live
+        // read wins over the snapshot. (Read via the facade's public API only;
+        // when the facade has no getEntity the snapshot candidate IS the live
+        // state, so we fall back to it unchanged.)
+        const liveTarget = (typeof facade.getEntity === 'function')
+            ? (facade.getEntity(target.id) || target)
+            : target;
+
+        // L2: Guard non-finite spatial on the selected (live) target.
+        if (!Number.isFinite(liveTarget.spatial?.x) || !Number.isFinite(liveTarget.spatial?.y)) {
+            Logger.warn(`[NpcAI] Target ${liveTarget.name || liveTarget.id} has non-finite spatial — skipping.`);
             return null;
         }
 
@@ -418,20 +498,20 @@ class NpcAIController {
             : this._resolveActionRange(facade, attackAction, entity);
 
         if (minDistance <= attackRange) {
-            // Attack: select the best component for the target.
-            const targetComponent = this._selectTargetComponent(target, entity.id, round);
+            // Attack: select the best component of the LIVE target.
+            const targetComponent = this._selectTargetComponent(liveTarget, entity.id, round);
             if (!targetComponent) {
                 return null;
             }
-            Logger.debug(`[NpcAI] Round ${round}: ${entity.name} chases ${target.name || target.id} (dist: ${minDistance.toFixed(1)} ≤ ${attackRange}) → ${attackAction}.`);
+            Logger.debug(`[NpcAI] Round ${round}: ${entity.name} chases ${liveTarget.name || liveTarget.id} (dist: ${minDistance.toFixed(1)} ≤ ${attackRange}) → ${attackAction}.`);
             return { actionName: attackAction, params: { targetComponentId: targetComponent.id } };
         }
 
-        // Chase: move with targetX/Y = target's position.
-        Logger.debug(`[NpcAI] Round ${round}: ${entity.name} chases ${target.name || target.id} (dist: ${minDistance.toFixed(1)} > ${attackRange}) → move.`);
+        // Chase: move toward the LIVE target's position.
+        Logger.debug(`[NpcAI] Round ${round}: ${entity.name} chases ${liveTarget.name || liveTarget.id} (dist: ${minDistance.toFixed(1)} > ${attackRange}) → move.`);
         return {
             actionName: moveAction,
-            params: { targetX: target.spatial.x, targetY: target.spatial.y }
+            params: { targetX: liveTarget.spatial.x, targetY: liveTarget.spatial.y }
         };
     }
 

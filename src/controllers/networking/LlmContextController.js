@@ -39,6 +39,7 @@ import {
     LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT
 } from '../../utils/Constants.js';
 import { TRAIT_GROUPS, STAT_NAMES, flatKey } from '../../../shared/StatVocabulary.js';
+import { hasUsableComponent } from '../../utils/npcAiUtils.js';
 import { resolveRoomExits } from '../../utils/ContextResolution.js';
 
 class LlmContextController {
@@ -355,6 +356,11 @@ class LlmContextController {
 
         for (const other of all) {
             if (other.id === self.id) continue;
+            // Defense-in-depth: a component-less "ghost" (mid-cascade or not
+            // yet despawned) is excluded from the section entirely — no dead
+            // marker, the corpse must be invisible to the LLM. See
+            // _isViableTarget for the rationale.
+            if (!this._isViableTarget(other)) continue;
             const inSameRoom = other.location === selfRoomUid;
             const distance = inSameRoom
                 ? Math.round(Math.hypot((other.spatial?.x || 0) - (self.spatial?.x || 0), (other.spatial?.y || 0) - (self.spatial?.y || 0)))
@@ -654,6 +660,50 @@ class LlmContextController {
             }
         }
         return null;
+    }
+
+    /**
+     * Viability predicate for the NEARBY ENTITIES section (defense-in-depth).
+     *
+     * WHY: a mid-cascade or not-yet-despawned entity can briefly linger in the
+     * world state with no components (a "ghost"). Rendering it would hand the
+     * LLM a phantom target — a goal-bearing drone re-targets the corpse every
+     * round and its punch fails at component resolution, so the loop never
+     * converges. An eliminated entity must be invisible to the LLM ("really
+     * deleted"), so such entities are excluded from the section rather than
+     * marked as dead. The root fix (WorldStateController despawns
+     * fully-eliminated entities) makes this rare; the exclusion is the
+     * backstop for the window where a ghost is still visible.
+     *
+     * Mirrors the deterministic brain's targetability notion
+     * (NpcAIController._isViableTarget): both delegate to the SAME shared core
+     * predicate (npcAiUtils.hasUsableComponent), so the brain and the LLM
+     * context can never disagree about what is viable — a component is usable
+     * iff its existence is unknown or > EXISTENCE_GONE_AT. The only consumer-
+     * local difference is the data-source adapter: this reader reads the
+     * authoritative nested store via the facade's public getComponentStats()
+     * (no flat-key fallback — the LLM context only ever reads the live store),
+     * whereas the brain's reader adds a flat-key fallback for test fixtures.
+     *
+     * @param {Object} entity — entity from getAll().entities
+     * @returns {boolean} true when the entity is still a viable target
+     * @private
+     */
+    _isViableTarget(entity) {
+        const allComponents = Array.isArray(entity.components) ? entity.components : [];
+        // Malformed components (no id) cannot be damaged — skip them exactly as
+        // the prior inline loop did, so an all-malformed entity is not viable.
+        const components = allComponents.filter(comp => comp && comp.id);
+        if (components.length === 0) return false;
+        const facade = this.worldStateController;
+        // Core targetability (single source of truth — npcAiUtils): ≥ 1 usable
+        // component. The reader is this consumer's inline getComponentStats()
+        // read of the authoritative nested store.
+        return hasUsableComponent(components, (comp) => {
+            const stats = facade.getComponentStats ? facade.getComponentStats(comp.id) : null;
+            const existence = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
+            return (typeof existence === 'number' && Number.isFinite(existence)) ? existence : undefined;
+        });
     }
 
     /**

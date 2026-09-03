@@ -317,7 +317,10 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     it('7. Target at dist 150 (>100) → queues move with targetX/Y = target spatial', () => {
-        const entities = { [NPC_ID]: NPC_ENTITY, 'ent-far': FAR_TARGET_ENTITY };
+        // The entity map is keyed by entity id (same as the real facade's
+        // getEntities() store) — required by the brain's public-API liveness
+        // check (NpcAIController._isViableTarget).
+        const entities = { [NPC_ID]: NPC_ENTITY, [FAR_TARGET_ENTITY.id]: FAR_TARGET_ENTITY };
         const facade = makeFacade({ 
             entities,
             canExecute: { 'default': { 'droid punch': ['comp-hand-1'], 'move': ['comp-wheel-1'] } }

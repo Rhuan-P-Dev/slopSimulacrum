@@ -25,6 +25,12 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import NpcAIController from '../../src/controllers/ai/NpcAIController.js';
 
+/**
+ * Kills a component on the 0–1 existence scale (a fresh component holds 1.0;
+ * this delta drives it far below 0, triggering the component:broke cascade).
+ */
+const KILL_EXISTENCE_DELTA = -175;
+
 // =========================================================================
 // Helpers (mirror the contract-test buildWorld pattern + server.js wiring)
 // =========================================================================
@@ -117,17 +123,18 @@ describe('NpcAIController existence desync (real controller chain)', () => {
         expect(world.getComponentStats(comp0.id).Physical.existence).toBe(1);
 
         // Apply the real damage call (a raw delta that drives the 0–1 store to <= 0).
-        const ok = dealDamage(world, comp0.id, -175);
+        const ok = dealDamage(world, comp0.id, KILL_EXISTENCE_DELTA);
         expect(ok).toBe(true);
 
         // NEW SEMANTICS (trigger system): after break, the component is removed
         // from the world (spill + cleanup). getStats returns null (component no longer exists).
         expect(world.getComponentStats(comp0.id)).toBeNull();
 
-        // Layer (2) — entity copy: component left the components[] array.
+        // Layer (2) — entity copy: the broken root component cascades to remove
+        // ALL dependents, and the entity-level elimination step despawns the
+        // entity (genuinely removed from world state — no ghost record).
         const after = world.stateEntityController.getEntity(victimId);
-        const compFound = after.components.find(c => c.id === comp0.id);
-        expect(compFound).toBeUndefined();
+        expect(after).toBeNull();
     });
 
     it('REGRESSION: brain must NOT attack a component removed after its existence (0–1) breaks', () => {
@@ -138,7 +145,7 @@ describe('NpcAIController existence desync (real controller chain)', () => {
         expect(world.getComponentStats(comp0.id).Physical.existence).toBe(1);
 
         // Break the first component: 1 → below 0 via the real damage path.
-        dealDamage(world, comp0.id, -175);
+        dealDamage(world, comp0.id, KILL_EXISTENCE_DELTA);
         
         // NEW SEMANTICS (trigger system): component removed from world after break.
         expect(world.getComponentStats(comp0.id)).toBeNull();

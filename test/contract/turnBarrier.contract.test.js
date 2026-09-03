@@ -77,6 +77,12 @@ import { register as registerTurnRoutes } from '../../src/routes/turnRoutes.js';
 import Logger from '../../src/utils/Logger.js';
 
 /**
+ * Kills a component on the 0–1 existence scale (a fresh component holds 1.0;
+ * this delta drives it far below 0, triggering the component:broke cascade).
+ */
+const KILL_EXISTENCE_DELTA = -175;
+
+/**
  * Builds a fresh world wired to a (non-started) tick system, spawns the test
  * droid, and returns the facade + tick system + turn system + droid id.
  *
@@ -928,5 +934,40 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         } finally {
             infoSpy.mockRestore();
         }
+    });
+
+    it('24. entity eliminated via damage cascade completes its round vacuously (no barrier deadlock)', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        const npcId = aNpcEntityId(world);
+        expect(npcId, 'test world must contain the data-driven NPC').toBeTruthy();
+
+        // Never-settling agent: the NPC must stay UN-signaled so its elimination
+        // is a real vacuous-completion case.
+        turns.setNpcAgent(() => new Promise(() => {}));
+
+        // Start round 0 — roster snapshot is [NPC, test droid].
+        stepTo(world, tick, turns, 0);
+        expect(turns.getRoundState().barrier.pendingEntityIds).toContain(npcId);
+        expect(turns.getRoundState().barrier.pendingEntityIds).toContain(entityId);
+
+        // Eliminate the NPC via the DAMAGE CASCADE (not direct despawnEntity):
+        // break the NPC's root component so the cascade strips all its components,
+        // triggering entity-level elimination (despawn) in the finally block.
+        const npcEntity = world.stateEntityController.getEntity(npcId);
+        expect(npcEntity).not.toBeNull();
+        expect(npcEntity.components.length).toBeGreaterThan(0);
+        const rootComp = npcEntity.components[0];
+        world.componentController.updateComponentStatDelta(rootComp.id, 'Physical', 'existence', KILL_EXISTENCE_DELTA);
+
+        // The entity must be genuinely despawned (removed from world state).
+        expect(world.stateEntityController.getEntity(npcId)).toBeNull();
+
+        // The remaining planner's signal closes the round: the eliminated
+        // roster member is counted as vacuously complete (no deadlock).
+        const sig = turns.signalPlanComplete(entityId, 'player');
+        expect(sig.success).toBe(true);
+        expect(sig.closed).toBe(true);
+        expect(sig.barrier.closeReason).toBe('all-ready');
+        expect(sig.barrier.pendingCount).toBe(0);
     });
 });

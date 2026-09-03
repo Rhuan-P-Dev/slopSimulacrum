@@ -7,6 +7,7 @@
 
 import { resolveRange } from '../../shared/RangeResolver.js';
 import { ACTION_NAMES } from '../../shared/ActionVocabulary.js';
+import { EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { PICK_UP_RANGE_FALLBACK } from './Constants.js';
 
 /**
@@ -136,4 +137,84 @@ export function findNearestDroppedItem(droppedItems, roomId, x, y) {
         }
     }
     return best ? { item: best, distance: bestDistance } : null;
+}
+
+/**
+ * Core targetability predicate — the SINGLE source of truth for "is this
+ * component usable as a target?".
+ *
+ * WHY this lives here and NOT in `shared/` (see the "Shared Modules" contract
+ * in wiki/map.md): `shared/` is the cross-layer wire-contract vocabulary — the
+ * strings/numbers the browser and the Node server must agree on byte-for-byte.
+ * Targetability is server-only game logic: both the deterministic brain
+ * (NpcAIController) and the LLM context (LlmContextController) run on the Node
+ * server, and "a component is targetable iff its existence is unknown or >
+ * gone" is a gameplay decision, not a wire contract. Keeping it here leaves
+ * `shared/` minimal while giving both consumers ONE identical rule they cannot
+ * drift apart.
+ *
+ * The rule: a component is USABLE iff its existence is UNKNOWN (the injected
+ * reader returned `undefined` — no authoritative stat; we must not hide a
+ * healthy entity over a missing read) OR its existence is strictly greater than
+ * EXISTENCE_GONE_AT (any matter still remains). A component whose existence has
+ * reached 0 (gone) is not usable.
+ *
+ * The existence read is INJECTED (`readExistence`) so each consumer keeps its
+ * own data-source adapter (the brain's flat-key fallback for test fixtures, the
+ * LLM context's inline `getComponentStats()` read). The core rule is enforced
+ * in exactly one place, so the brain and the LLM context can never disagree
+ * about what is targetable.
+ *
+ * Pure — does not mutate its inputs.
+ *
+ * @param {Object} component — a component instance (shape is reader-specific)
+ * @param {Function} readExistence — (component) => number|undefined; the
+ *   consumer's data-source adapter for the component's existence
+ * @returns {boolean} true when the component is a usable target
+ */
+export function isComponentUsable(component, readExistence) {
+    const existence = (typeof readExistence === 'function') ? readExistence(component) : undefined;
+    return (existence === undefined) || (existence > EXISTENCE_GONE_AT);
+}
+
+/**
+ * Filters a list of components down to the USABLE ones (core targetability).
+ *
+ * WHY: both the deterministic brain and the LLM context need "the components of
+ * an entity that can still be damaged" — this is the shared half of that notion.
+ * The existence read is injected so each consumer keeps its own data-source
+ * adapter; the rule (unknown or > EXISTENCE_GONE_AT) is enforced once here.
+ * A non-array input degrades to an empty list (never crashes on a malformed
+ * entity copy).
+ *
+ * Pure — does not mutate its inputs.
+ *
+ * @param {Object[]|null|undefined} components — component instances
+ * @param {Function} readExistence — (component) => number|undefined
+ * @returns {Object[]} the components that are usable targets
+ */
+export function filterUsableComponents(components, readExistence) {
+    const list = Array.isArray(components) ? components : [];
+    return list.filter(comp => isComponentUsable(comp, readExistence));
+}
+
+/**
+ * Core entity targetability predicate: true iff the entity carries at least one
+ * usable component (see isComponentUsable).
+ *
+ * WHY: this is the single decision both the deterministic brain
+ * (NpcAIController._isViableTarget) and the LLM context
+ * (LlmContextController._isViableTarget) reduce to, once they have selected
+ * WHICH component list to read (live vs. snapshot is a consumer-local concern).
+ * A component-less entity is never viable (an empty list yields false), which
+ * is the "ghost is not a target" guarantee shared by both consumers.
+ *
+ * Pure — does not mutate its inputs.
+ *
+ * @param {Object[]|null|undefined} components — component instances
+ * @param {Function} readExistence — (component) => number|undefined
+ * @returns {boolean} true when at least one component is a usable target
+ */
+export function hasUsableComponent(components, readExistence) {
+    return filterUsableComponents(components, readExistence).length > 0;
 }
