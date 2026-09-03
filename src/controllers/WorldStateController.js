@@ -144,6 +144,15 @@ class WorldStateController {
          * and ~2147-2148. This is by design — not a spec violation.
          */
         this._cascadeVisitedSet = null;
+        /**
+         * @private {Set<string>|null} — per-root-cascade set of all entityIds that
+         * entered removeBrokenComponent during the current cascade chain (root or
+         * re-entry). Initialized and cleared in lockstep with _cascadeVisitedSet.
+         * At root exit (re-entrancy count → 0), every id in this set receives the
+         * entity-level elimination check. Size > 1 indicates a cross-entity cascade
+         * (the same-entity assumption was violated — logged as a warning).
+         */
+        this._cascadeAffectedEntityIds = null;
 
         // Map of sub-controllers for easy iteration/extension
         this.subControllers = {
@@ -2749,10 +2758,15 @@ class WorldStateController {
 
         // Increment re-entrancy counter (§3.5.3)
         this._cascadeReentrancyCount++;
-        // Initialize shared visited-set at root call
+        // Initialize shared visited-set + affected-entity set at root call
         if (this._cascadeReentrancyCount === 1) {
             this._cascadeVisitedSet = new Set();
+            this._cascadeAffectedEntityIds = new Set();
         }
+        // Track every entity touched by this cascade chain (root or re-entry) so
+        // the root-exit elimination check covers all affected entities, not just
+        // the outermost call's entity (cross-entity cascade robustness — M3).
+        this._cascadeAffectedEntityIds.add(entityId);
         try {
             // Look up the entity
             const entity = this.stateEntityController.getEntity(entityId);
@@ -2792,9 +2806,21 @@ class WorldStateController {
         } finally {
             // Decrement counter — broadcast only occurs when it reaches 0
             this._cascadeReentrancyCount--;
-            // Clear visited-set on exit from root chain
+            // Clear visited-set + affected-entity set on exit from root chain
             if (this._cascadeReentrancyCount === 0) {
+                // Entity-level elimination (§3.5.4): after the full root cascade
+                // completes (re-entrancy count returns to 0), check every entity
+                // affected during this cascade chain. This handles cross-entity
+                // cascades where a break on entity A forces a break on entity B.
+                const affectedIds = this._cascadeAffectedEntityIds;
+                if (affectedIds && affectedIds.size > 1) {
+                    Logger.warn(`[removeBrokenComponent] Cross-entity cascade detected — affected entities: [${[...affectedIds].join(', ')}]. Each entity will receive the elimination check.`);
+                }
+                for (const affectedId of affectedIds) {
+                    this._maybeEliminateEntity(affectedId);
+                }
                 this._cascadeVisitedSet = null;
+                this._cascadeAffectedEntityIds = null;
             }
         }
     }
@@ -2991,6 +3017,42 @@ class WorldStateController {
     }
 
     /**
+     * Entity-level elimination check (§3.5.4).
+     *
+     * Re-reads the live entity via the public API and, if its component array
+     * is missing or empty, despawns it to prevent a "ghost" record from
+     * lingering in world state. This is the single choke-point where an
+     * entity is truly removed after a damage cascade strips all its components.
+     *
+     * Why isolated in try/catch (L3): a throw here must not poison the whole
+     * cascade chain or mask the real phase in handler-level logs. If despawn
+     * fails, the entity may remain (logged, not silent) but the cascade
+     * completes — graceful degradation.
+     *
+     * Re-entrancy invariant: this method is called ONLY from the root-exit
+     * finally block of removeBrokenComponent (when _cascadeReentrancyCount
+     * returns to 0), so it never re-enters the cascade funnel.
+     *
+     * @private
+     * @param {string} entityId - The entity to check for elimination.
+     */
+    _maybeEliminateEntity(entityId) {
+        try {
+            const liveEntity = this.stateEntityController.getEntity(entityId);
+            if (liveEntity && (!liveEntity.components || liveEntity.components.length === 0)) {
+                Logger.info(`[removeBrokenComponent] Entity ${entityId} has zero components after cascade — despawning (entity elimination).`);
+                this.despawnEntity(entityId);
+            }
+        } catch (error) {
+            Logger.error(`[removeBrokenComponent] entity elimination failed for ${entityId}: ${error.message}`, { entityId });
+            // Do NOT re-throw: a despawn failure must not abort the cascade
+            // unwind or mask the original break event in handler-level logs.
+            // The entity may remain in world state (logged above) — the
+            // system degrades gracefully rather than crashing mid-cascade.
+        }
+    }
+
+    /**
      * Phase (b): unequip + remove instance.
      * @private
      */
@@ -3014,7 +3076,9 @@ class WorldStateController {
     }
 
     /**
-     * Phase (c): cleanup — stats, internal components, selection, capabilities.
+     * Phase (c): cleanup — stats, internal components, selection, capabilities,
+     * + equipped items hosted on the broken host (component path) or the
+     * unequipped item's tracking/stats (equipped-item path).
      * @private
      */
     _cleanupAfterRemoval(entity, payload) {
@@ -3053,9 +3117,29 @@ class WorldStateController {
 
             // (6) releaseSelection of the component
             this.actionSelectController.releaseSelection(componentId);
+
+            // (7) Remove equipped items hosted on this broken component.
+            // When a host component is destroyed, any items equipped on it become
+            // orphaned — their tracking and stats would linger referencing a dead host.
+            // Mirrors the equipped-item cleanup path (kind === 'equipped-item').
+            const equippedOnHost = this.holdingCostController.getEquippedItems(entity.id)
+                .filter(eq => eq.componentId === componentId);
+            for (const eq of equippedOnHost) {
+                try {
+                    this.holdingCostController.cleanupEquippedItem(entity.id, eq.eqId);
+                    if (eq.itemId) {
+                        this.inventoryManager.removeItem(entity, eq.itemId);
+                    }
+                    this.equippedItemStats.removeStats(eq.eqId);
+                    this.actionSelectController.releaseSelection(eq.eqId);
+                    Logger.info(`[removeBrokenComponent] Removed equipped item ${eq.itemId} (${eq.itemType}) from broken host ${componentId}.`);
+                } catch (error) {
+                    Logger.error(`[removeBrokenComponent] Error removing equipped item ${eq.itemId} from broken host ${componentId}: ${error.message}`);
+                }
+            }
         } else if (kind === 'equipped-item') {
             // (3') cleanupEquippedItem wrapper from HoldingCostController (§3.5.2)
-            this.holdingCostController.cleanupEquippedItem?.(entity.id, eqId);
+            this.holdingCostController.cleanupEquippedItem(entity.id, eqId);
 
             // (5') re-evaluate capabilities — ONLY of host entity (not all) §3.5.2
             // Narrowed: same minimal-state approach as the component path above.

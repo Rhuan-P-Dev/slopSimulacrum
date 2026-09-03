@@ -83,6 +83,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-132](high/BUG-132-channel-damage-silently-never-applied.md) | Channel Damage Silently Never Applied (DAMAGE_CHANNELS Member Test on an Object) | ✅ Fixed | `pending` | `DamageConsequenceHandler.js` |
 | [BUG-133](high/BUG-133-multi-attacker-punch-drops-channel-damage.md) | Multi-Attacker Punch Drops Channel Damage (Zero Damage Dealt) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js` |
 | [BUG-134](high/BUG-134-two-fist-punch-drops-no-chunks.md) | Two-Fist Punch Drops No Chunks (D11 No-Propagation Blocked Intended Per-Fist Drops) | ✅ Fixed | `pending` | `ConsequenceDispatcher.js`, `MaterialChunkDropHandler.js`, `DamageConsequenceHandler.js`, `doublePunchChannelDamage.contract.test.js` |
+| [BUG-133](high/BUG-133-ghost-entity-persists-after-elimination.md) | Ghost Entity Persists After Elimination — AI Permanently Stuck Targeting a Dead Entity | ✅ Fixed | `pending` | `WorldStateController.js`, `npcAiUtils.js`, `NpcAIController.js`, `LlmContextController.js` |
 
 ### 🟡 Medium Severity
 
