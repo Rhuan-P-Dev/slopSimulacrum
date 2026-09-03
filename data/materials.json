@@ -24,5 +24,18 @@
       "wearResistance": 80,
       "heatConduction": 85
     }
+  },
+  "coal": {
+    "name": "Coal",
+    "density": 1.4,
+    "properties": {
+      "flammability": 95,
+      "electricalConduction": 30,
+      "moistureRetention": 0,
+      "cutResistance": 35,
+      "impactResistance": 25,
+      "wearResistance": 15,
+      "heatConduction": 55
+    }
   }
 }

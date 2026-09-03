@@ -3,6 +3,7 @@
   "minChunkVolume": 0.05,
   "materials": {
     "iron": { "dropRate": 1.0, "chunkFraction": 0.3 },
-    "wood": { "dropRate": 0.25, "chunkFraction": 0.5 }
+    "wood": { "dropRate": 0.25, "chunkFraction": 0.5 },
+    "coal": { "dropRate": 0.5, "chunkFraction": 0.4 }
   }
 }

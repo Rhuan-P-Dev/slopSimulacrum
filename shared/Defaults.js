@@ -21,7 +21,7 @@
  * `data/npcs.json`).
  * @type {string}
  */
-export const DEFAULT_PLAYER_BLUEPRINT = 'smallBallDroid';
+export const DEFAULT_PLAYER_BLUEPRINT = 'm1Droid';
 
 /**
  * Fallback volume for an item whose `volume` field is missing or undefined.

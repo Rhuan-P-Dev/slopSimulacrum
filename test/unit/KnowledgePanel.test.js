@@ -485,6 +485,7 @@ describe('shared/StatVocabulary pin (spec §5.2 / §3.2 canonical values)', () =
             'existence', 'cut_resistance', 'impact_resistance', 'wear_resistance',
             'heat_resistance', 'electricity_resistance', 'corrosion_resistance',
             'mass', 'sharpness', 'volume', 'strength', 'move', 'fine_controls', 'think_level',
+            'energy',
         ]);
         expect(EXISTENCE_GONE_AT).toBe(0);
         expect(EXISTENCE_USABLE_MIN).toBe(0);

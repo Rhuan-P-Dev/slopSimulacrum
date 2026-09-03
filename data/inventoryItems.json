@@ -31,6 +31,13 @@
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
     "internalComponents": []
   },
+  "coal": {
+    "name": "Coal",
+    "description": "A solid fuel chunk the M1's coal generator burns to charge its power stat — one unit of discrete, carryable fuel.",
+    "form": { "volume": 1 },
+    "materials": [ { "material": "coal", "fraction": 1.0 } ],
+    "internalComponents": []
+  },
   "testItem": {
     "name": "Test Item",
     "description": "Test item to verify inventory system functionality. Has volume=2.",

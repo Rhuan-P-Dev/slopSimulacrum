@@ -26,6 +26,10 @@ Some effects are meaningful only at TURN granularity, not wall-clock ticks: a co
 
 The `strengthCore` type illustrates the host-targeting semantic: its per-turn drain hits the host hand's `Physical.durability` (the droid's left hand), not the IC's own pool. When that host-hand durability reaches 0, the instance breaks and stops applying effects — the component is destroyed with its host limb. The IC's own `instanceStats` pool (the type's `traits`) is retained as a static trait for display/completeness but is not drained by this type.
 
+### Why does the coal generator burn discrete fuel items instead of emitting a continuous drain?
+
+The `consumeFuelGenerateStat` effect converts the droid's carried fuel items into a resource stat in whole, discrete units rather than draining a continuous amount. Discrete consumption ties generator output to the droid's actual inventory contents — it can never charge from fuel it does not carry — and keeps the charge an exact multiple of the per-fuel gain for the life of the droid, so the "1 fuel = N energy" balance lever stays exact and testable. It also makes runout an observable, loggable transition (a single warning on the way into the dry state) instead of a silent rate drop, and degrades gracefully: with no fuel aboard the generator simply idles without touching any other stat.
+
 ## Data Model
 
 Each entry in `data/internalComponents.json` describes one internal component type conceptually: what it does to a host (the traits it applies and the periodic effects it schedules) and where it may live (its volume cost and the eligibility filters that gate auto-installation).

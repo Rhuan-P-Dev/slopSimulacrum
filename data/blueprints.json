@@ -28,5 +28,25 @@
     ["crafterArm", "right"],
     ["crafterRollingBall", "left"],
     ["crafterRollingBall", "right"]
+  ],
+  "m1Droid": ["m1CentralBody"],
+  "m1CentralBody": [
+    "m1Head",
+    ["m1Leg", "frontal_left"],
+    ["m1Leg", "frontal_right"],
+    ["m1Leg", "back_left"],
+    ["m1Leg", "back_right"],
+    ["m1ArticulatedHand", "top_hand"],
+    ["m1Gun", "top_gun"]
+  ],
+  "m1Leg": [
+    ["m1Toe", "left"],
+    ["m1Toe", "middle"],
+    ["m1Toe", "right"]
+  ],
+  "m1ArticulatedHand": [
+    ["m1Finger", "left"],
+    ["m1Finger", "middle"],
+    ["m1Finger", "right"]
   ]
 }
