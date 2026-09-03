@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: [`DropItemHandler.js`](src/controllers/consequences/DropItemHandler.js), [`WorldStateController.js`](src/controllers/WorldStateController.js), [`PickUpItemHandler.js`](src/controllers/consequences/PickUpItemHandler.js), [`App.js`](public/js/App.js)
 
 ## Symptoms

@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/utils/idGenerator.js`, `src/utils/IdResolver.js`, `src/controllers/core/entityController.js`, `src/controllers/core/stateEntityController.js`, `src/utils/InventoryManager.js`, `src/controllers/core/HoldingCostController.js`, `src/controllers/core/EquippedItemStatsController.js`, `src/controllers/actions/ComponentResolver.js`, `src/controllers/actions/actionController.js`, `src/controllers/actions/actionSelectController.js`
 
 ## Symptoms

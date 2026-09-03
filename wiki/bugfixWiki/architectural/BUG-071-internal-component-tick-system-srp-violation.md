@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `InternalComponentController.js`, `data/internalComponents.json`
 
 ## Symptoms

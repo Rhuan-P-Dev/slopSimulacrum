@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/ConsequenceDispatcher.js`, `data/actions.json`, `src/controllers/consequences/DamageConsequenceHandler.js`, `src/controllers/consequences/StatConsequenceHandler.js`, `src/controllers/consequences/SpatialConsequenceHandler.js`, `src/controllers/consequences/LogConsequenceHandler.js`, `src/controllers/consequences/EventConsequenceHandler.js`
 
 ## Symptoms

@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/core/HoldingCostController.js`, `src/controllers/core/EquippedItemStatsController.js`, `test/contract/equippedKnifeCapability.contract.test.js`
 
 ## Symptoms

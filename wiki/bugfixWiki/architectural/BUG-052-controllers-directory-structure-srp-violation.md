@@ -4,7 +4,7 @@
 |-------|-------|
 | **Severity** | Architectural |
 | **Status** | ✅ Fixed |
-| **Fixed In** | `pending` |
+| **Fixed In** | `commit unknown` |
 | **Related Files** | `src/controllers/` (all 26 files) |
 
 ---

@@ -2,7 +2,7 @@
 
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `data/world.json`, `test/contract/playerInitialSpawns.contract.test.js`
 
 ## Symptoms

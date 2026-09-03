@@ -1,8 +1,8 @@
 # BUG-048: Dash with 1 Component Moves 4x and Falsely Triggers 2-Component Synergy
 
 - **Severity**: MEDIUM
-- **Status**: ✅ Fixed (Round 2)
-- **Fixed In**: `pending`
+- **Status**: ✅ Fixed
+- **Fixed In**: `commit unknown`
 - **Related Files**:
   - `src/controllers/SynergyComponentGatherer.js` (lines 34-101)
   - `src/controllers/synergyController.js` (lines 64-98, 158-210, 223-262)

@@ -1,8 +1,8 @@
 # BUG-067: Internal Components System — durabilityRepairSphere
 
 - **Severity**: MEDIUM (Feature addition)
-- **Status**: ✅ Implemented
-- **Fixed In**: `pending`
+- **Status**: ✅ Fixed
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/core/InternalComponentController.js`, `data/internalComponents.json`
 
 ## Summary

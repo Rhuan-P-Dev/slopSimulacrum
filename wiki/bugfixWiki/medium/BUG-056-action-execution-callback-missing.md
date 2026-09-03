@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `public/js/App.js`, `public/js/ConfigBarManager.js`, `public/js/NavActionsPanel.js`
 
 ## Symptoms

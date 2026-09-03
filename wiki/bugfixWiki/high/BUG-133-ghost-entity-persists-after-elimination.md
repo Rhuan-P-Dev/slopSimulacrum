@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/WorldStateController.js`, `src/utils/npcAiUtils.js`, `src/controllers/ai/NpcAIController.js`, `src/controllers/networking/LlmContextController.js`, `shared/StatVocabulary.js`
 
 ## Symptoms

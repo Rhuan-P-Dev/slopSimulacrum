@@ -1,7 +1,7 @@
 # BUG-011: ActionController SRP Violation
 
 - **Severity**: MEDIUM
-- **Status**: ✅ Refactored
+- **Status**: ✅ Fixed
 - **Fixed In**: — (architectural refactor)
 - **Related Files**: `src/controllers/actionController.js`, `src/controllers/componentCapabilityController.js`
 

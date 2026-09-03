@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `actionController.js`, `ConsequenceDispatcher.js`, `StatConsequenceHandler.js`
 
 ## Symptoms

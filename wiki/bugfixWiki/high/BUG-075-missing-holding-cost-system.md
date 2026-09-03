@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/core/HoldingCostController.js`, `data/holdingCost.json`, `src/controllers/WorldStateController.js`, `src/controllers/capabilities/componentCapabilityController.js`, `src/routes/inventoryRoutes.js`, `public/js/InventoryManager.js`, `public/js/NavActionsPanel.js`, `public/css/inventory.css`, `public/css/actions.css`
 
 ## Symptoms

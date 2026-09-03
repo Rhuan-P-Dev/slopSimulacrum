@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `src/controllers/actions/RequirementResolver.js`, `src/controllers/core/EquippedItemStatsController.js`, `src/controllers/WorldStateController.js`, `src/controllers/capabilities/componentCapabilityController.js`
 
 ## Symptoms

@@ -2,7 +2,7 @@
 
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
-- **Fixed In**: `pending`
+- **Fixed In**: `commit unknown`
 - **Related Files**: `OverlayManager.js`, `floating-windows.css`, `ConfigBarManager.js` (deleted), `App.js`, `index.html`
 
 ## Symptoms
