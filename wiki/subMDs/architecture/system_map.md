@@ -11,7 +11,8 @@ WorldStateController (Root Injector)
 │   ├── InternalComponentController
 │   ├── EquippedItemStatsController
 │   ├── CraftingController
-│   └── KnowledgeController
+│   ├── KnowledgeController
+│   └── WorldRulesController
 ├── Logic Controllers (dependency-injected, coordinated by root)
 │   ├── ComponentController → State controllers
 │   ├── EntityController
@@ -47,6 +48,7 @@ WorldStateController (Root Injector)
 | **CraftingController** | Recipe Registry | Data-driven crafting recipes (`data/crafting.json`) — pure "do these items satisfy this recipe" checks; no item/world state, no `getAll()` (stays out of the broadcast aggregation) |
 | **KnowledgeController** | Reference Codex | Read-only codex payload assembled once at boot from the static registries (trait/stat derivation chain, recipes, item types) — no cross-controller dependencies, no `getAll()` (stays out of the broadcast aggregation) |
 | **TurnSystemController** | Event-Driven Rounds & Barrier | Owns the round: the planning-completeness barrier (round-start roster, ready signals, the all-ready close decision — there is no deadline) and the per-entity action queues; resolution is gated on barrier close. Rounds are event-driven (roster snapshot at round start, next round on the tick after resolution), so the system no longer owns tick cadence |
+| **WorldRulesController** | World-Rules Layer | Receives the boot-loaded `data/world_rules.json` registry from the composition root (the controller itself performs no I/O) and validates it — stable key → small config objects governing cross-cutting laws; inspection-only on the facade, out of the broadcast aggregation, null-tolerant getter degrading to an empty rule set; the chunk-drop handler consults it for the torn-material percentage |
 
 ## 3. Key Operational Flows
 

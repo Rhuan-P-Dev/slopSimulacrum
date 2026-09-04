@@ -29,7 +29,7 @@ All handlers share one contract so the dispatcher can route uniformly without kn
 | `dropItem` | `DropItemHandler` | Item dropping on the world map |
 | `pickUpItem` | `PickUpItemHandler` | Item pickup from the world map |
 | `consumeItemAndDamage` | `ConsumeItemHandler` | T1 weapon ammo consumption — consumes an item from the T1's internal inventory, with the consumed item's volume determining the damage magnitude |
-| `dropMaterialChunk` | `MaterialChunkDropHandler` | Material chunk drop on punch — consumes the applied loss published by the damage step and writes a pickable chunk per dropped material (no item-registry entry) |
+| `dropMaterialChunk` | `MaterialChunkDropHandler` | Material chunk drop on punch — consumes the applied loss published by the damage step and writes a pickable chunk per dropped material (no item-registry entry); now also runs a deterministic torn-material step (world-rules layer) that mints X% of the applied loss as additional chunk tokens gated by the shared minChunkVolume floor. No new consequence type was added: the trigger set is exactly the actions that already declare the drop step (WR-6) |
 
 ### damageComponent Consequence Type
 
