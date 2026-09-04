@@ -34,6 +34,7 @@ class MaterialChunkDropHandler {
     constructor(deps = {}) {
         this.worldStateController = deps.worldStateController || null;
         this.materialController = deps.materialController || null;
+        this.worldRulesController = deps.worldRulesController || null;
     }
 
     /**
@@ -154,15 +155,57 @@ class MaterialChunkDropHandler {
             chunkVolumes[itemType] = chunkVolume;
         }
 
-        if (dropped > 0) {
-            // One batched write per punch (mirrors the spill flow; spec D6).
+        // 5. Torn-material step (WR-2): a deterministic stream that drops a fixed
+        //    percentage of the applied loss as torn material per composition fraction.
+        //    Unlike the chunk stream (probabilistic, per-material levers), this is
+        //    a "law of the world": same hit, same world, same tokens — always.
+        //    It reuses the SAME dynamic chunk_<material> item mechanism, the SAME
+        //    disk-sample placement, and is gated by the SAME minChunkVolume floor.
+        //    Null-tolerant: if the world-rules controller is unwired or the rule is
+        //    off (percent 0), this step is a no-op.
+        let tornDropped = 0;
+        const tornVolumes = {};
+        const tornPercent = this.worldRulesController?.getDamageTornMaterialPercent() ?? 0;
+        if (tornPercent > 0) {
+            for (const mat of materials) {
+                if (!mat || typeof mat !== 'object') continue;
+                const { material, fraction } = mat;
+                if (typeof fraction !== 'number' || fraction <= 0) continue;
+
+                // WR-2: tornVolume_i = (percent/100) × appliedLoss × fraction_i × recipeVolume.
+                const tornVolume = (tornPercent / 100) * appliedLoss * fraction * recipeVolume;
+
+                // Gate (WR-2): drop nothing below the shared minChunkVolume floor.
+                // This guarantees the rule never drops more matter than the declared
+                // X% of the damage (a floor would, on micro-loss hits).
+                if (tornVolume < minChunkVolume) continue;
+
+                const itemType = CHUNK_ITEM_TYPE_PREFIX + material;
+                const materialName = materialRegistry[material]?.name || material;
+                const point = sampleDiskPoint(cx, cy, DEFAULT_TRIGGER_RADIUS);
+                if (!point) continue;
+
+                const itemDef = {
+                    name: `${materialName} chunk`,
+                    description: `A chunk of ${materialName} chipped off a damaged component.`,
+                    volume: tornVolume
+                };
+                writeDroppedItem(narrowDeps, itemType, point.x, point.y, room, comp.entityId, itemDef, []);
+                tornDropped++;
+                tornVolumes[itemType] = tornVolume;
+            }
+        }
+
+        const totalDropped = dropped + tornDropped;
+        if (totalDropped > 0) {
+            // One batched write per punch for both streams (mirrors the spill flow; spec D6).
             world.setDroppedItems(batchDroppedItems);
-            Logger.info(`[MaterialChunkDropHandler] Dropped ${dropped} chunk(s) from ${targetId} (applied loss ${round4(appliedLoss)}): ${JSON.stringify(chunkVolumes)}`);
+            Logger.info(`[MaterialChunkDropHandler] Dropped ${dropped} chunk(s) + ${tornDropped} torn from ${targetId} (applied loss ${round4(appliedLoss)}): chunks ${JSON.stringify(chunkVolumes)}, torn ${JSON.stringify(tornVolumes)}`);
         }
         return {
             success: true,
-            message: `Dropped ${dropped} chunk(s).`,
-            data: { droppedChunks: dropped, chunkVolumes }
+            message: `Dropped ${dropped} chunk(s), ${tornDropped} torn.`,
+            data: { droppedChunks: dropped, chunkVolumes, tornDropped, tornVolumes }
         };
     }
 }

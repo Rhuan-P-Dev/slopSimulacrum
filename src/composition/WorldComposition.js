@@ -58,6 +58,7 @@ import InternalComponentController from '../controllers/core/InternalComponentCo
 import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
 import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
+import WorldRulesController from '../controllers/worldRules/WorldRulesController.js';
 
 // Logic controllers (depend on data stores)
 import ComponentController from '../controllers/core/componentController.js';
@@ -154,6 +155,12 @@ export function buildWorldState(tickSystem = null) {
     // it to the chunk-drop handler. Absent/empty file → feature off (graceful — no drops).
     const materialDropRatesRegistry = DataLoader.loadJsonSafe('data/materialDropRates.json', {});
     const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry, materialDamageTypesRegistry, materialDropRatesRegistry);
+    // World-rules layer (WR-4): a new Layer-0 data owner for world-level rules.
+    // Loaded here (one load, N readers) and injected into the WorldRulesController,
+    // which validates it (WR-1/WR-5: "off, never crash" degradation). Absent/empty
+    // file → all rules off (legacy behavior, bit-identical world).
+    const worldRulesRegistry = DataLoader.loadJsonSafe('data/world_rules.json', {});
+    const worldRulesController = new WorldRulesController(worldRulesRegistry);
 
     // =========================================================================
     // 0.5: FAIL-FAST STARTUP VALIDATION — validate all compositions now,
@@ -230,7 +237,7 @@ export function buildWorldState(tickSystem = null) {
     // feeds the LogConsequenceHandler sink (Feature B); facade injected later.
     // materialController is forwarded (feature 1) so the damage handler can apply the
     // attacker's per-material damage-type split at the single damage choke point.
-    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController });
+    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController, worldRulesController });
     // ActionController: needs its named collaborators; facade injected later.
     const actionController = new ActionController(
         consequenceHandlers,
@@ -301,7 +308,13 @@ export function buildWorldState(tickSystem = null) {
         // KnowledgeController: static knowledge codex (knowledge_viewer_spec.md
         // §4.2). Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
-        knowledgeController
+        knowledgeController,
+        // WorldRulesController: world-level rules registry (data/world_rules.json).
+        // Null-tolerant like craftingController/knowledgeController — a test may
+        // hand-build the facade without it. Deliberately NOT in the subControllers
+        // broadcast map: static config data must stay out of the full-state
+        // aggregation (same rule as craftingController / knowledgeController).
+        worldRulesController
     });
 
     // =========================================================================
@@ -397,7 +410,11 @@ export function buildWorldState(tickSystem = null) {
             // Surfaced here for tests/inspection only.
             knowledgeController,
             // Inspection-only (not in broadcast) — per spec §2.1 exclusion rule.
-            instincts: instinctController
+            instincts: instinctController,
+            // Inspection-only (not in broadcast) — the world-rules registry has no
+            // getAll() by design; static config data must stay out of the full-state
+            // broadcast aggregation (same rule as craftingController / knowledgeController).
+            worldRulesController
         }
     };
 }

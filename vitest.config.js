@@ -20,6 +20,12 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         include: ['test/**/*.test.js'],
+        // Required by test/contract/worldRulesTornMaterial.contract.test.js
+        // (tests 3/4): they rename data/world_rules.json away to prove the spec
+        // §7.3/§7.4 degradation path end-to-end. The file is re-read on every
+        // buildWorldState() call (the loader has no cache), so no other file may
+        // boot a world while it is away — test files run serially.
+        fileParallelism: false,
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],

@@ -231,14 +231,18 @@ describe('BUG-134 — two-fist punch per-fist chunk drops (spec D11, revised)', 
                 .toBeCloseTo(expectedChunkVolume(world, 'droidHead', 'iron', lossPerFist[i]), 6);
         }
 
-        // Exactly two ground items, one per fist (no combined/aggregate chunk).
+        // With the torn stream: 2 chunk + 2 torn = 4 ground items (one chunk + one
+        // torn per fist; no combined/aggregate chunk).
         const ironChunks = dropped(world).filter(d => d.itemType === 'chunk_iron');
-        expect(ironChunks.length, 'exactly one chunk per fist — two total').toBe(2);
+        expect(ironChunks.length, 'exactly one chunk + one torn per fist — four total').toBe(4);
 
-        // The two volumes differ (the fists had different strengths), and neither
-        // equals what an AGGREGATE loss (lossA + lossB) would have produced.
+        // The two chunk volumes differ (the fists had different strengths), and
+        // neither equals what an AGGREGATE loss (lossA + lossB) would have produced.
+        // Identify chunk records by their expected D7 volumes.
         const expectedVolumes = lossPerFist.map(l => expectedChunkVolume(world, 'droidHead', 'iron', l));
-        const actualVolumes = ironChunks.map(c => c.volume).sort((a, b) => a - b);
+        const actualVolumes = ironChunks
+            .filter(c => expectedVolumes.some(ev => Math.abs(c.volume - ev) < 1e-6))
+            .map(c => c.volume).sort((a, b) => a - b);
         const sortedExpected = [...expectedVolumes].sort((a, b) => a - b);
         for (let i = 0; i < 2; i++) {
             expect(actualVolumes[i], `ground chunk ${i + 1} should match a per-fist volume`).toBeCloseTo(sortedExpected[i], 6);
@@ -272,28 +276,34 @@ describe('BUG-134 — two-fist punch per-fist chunk drops (spec D11, revised)', 
         const blend = droidHandBlend(world);
         const strengthA = world.getComponentStats(fists[0].id)?.Physical?.strength;
 
-        const queue = [0.1, 0.5, 0.5, 0.9]; // A: 0.1 < 0.25 (success), B: 0.9 ≥ 0.25 (fail)
+        // Queue: A chunk(roll,angle,radius) + A torn(angle,radius) + B chunk(roll)
+        // A: 0.1 < 0.25 (success), B: 0.9 ≥ 0.25 (fail)
+        const queue = [0.1, 0.5, 0.5, 0.5, 0.5, 0.9];
         const realRandom = Math.random;
         vi.spyOn(Math, 'random').mockImplementation(() => (queue.length ? queue.shift() : realRandom()));
 
         try {
             const result = punchTwoFists(world, attackerId, victimId, fists, finger.id);
             expect(result.success, `punch should succeed: ${JSON.stringify(result.error)}`).toBe(true);
-            expect(queue.length, 'all four forced draws must be consumed (one success path, one fail path)').toBe(0);
+            expect(queue.length, 'all six forced draws must be consumed').toBe(0);
 
             const dropResults = result.results.filter(r => r.type === 'dropMaterialChunk');
             expect(dropResults.length, 'one dropMaterialChunk result should run per attacker').toBe(2);
             expect(dropResults[0].data.droppedChunks, 'fist A\'s forced-success roll should drop one chunk').toBe(1);
             expect(dropResults[1].data.droppedChunks, 'fist B\'s forced-fail roll should drop nothing').toBe(0);
 
-            // Exactly ONE chunk in the world — from fist A's own loss only.
+            // With the torn stream: fist A drops 1 chunk + 1 torn, fist B drops
+            // 0 chunk (forced-fail) + 1 torn = 3 total wood records.
             const woodChunks = dropped(world).filter(d => d.itemType === 'chunk_wood');
-            expect(woodChunks.length, 'exactly one chunk total: A succeeds, B fails').toBe(1);
+            expect(woodChunks.length, '1 chunk (A) + 2 torn (one per fist) = 3 total').toBe(3);
 
             const synergyMult = result.synergy?.synergyMultiplier ?? 1.0;
             const lossA = expectedLossPerAttacker(world, strengthA, synergyMult, blend, res);
-            expect(woodChunks[0].volume, 'the lone chunk\'s volume derives from fist A\'s loss only')
-                .toBeCloseTo(expectedChunkVolume(world, 'humanoidDroidFinger', 'wood', lossA), 6);
+            const expectedChunkVol = expectedChunkVolume(world, 'humanoidDroidFinger', 'wood', lossA);
+            const chunkRec = woodChunks.find(d => Math.abs(d.volume - expectedChunkVol) < 1e-6);
+            expect(chunkRec, 'a chunk record matching fist A\'s loss should exist').toBeTruthy();
+            expect(chunkRec.volume, 'the chunk\'s volume derives from fist A\'s loss only')
+                .toBeCloseTo(expectedChunkVol, 6);
         } finally {
             vi.restoreAllMocks();
         }
@@ -333,8 +343,10 @@ describe('BUG-134 — two-fist punch per-fist chunk drops (spec D11, revised)', 
                 expect(r.success, 'the drop step must still succeed (graceful degradation)').toBe(true);
                 expect(r.data.droppedChunks, 'no chunks when the drop-rates feature is off').toBe(0);
             }
-            expect(Object.keys(world.getDroppedItems()).length, 'no new ground items with the feature off')
-                .toBe(beforeGroundCount);
+            // The chunk stream is off (no drop-rates) but the torn stream is
+            // still active. Each fist produces one torn token (above the floor).
+            expect(Object.keys(world.getDroppedItems()).length, 'only torn tokens (2, one per fist) with chunk stream off')
+                .toBe(beforeGroundCount + 2);
         } finally {
             vi.restoreAllMocks();
         }

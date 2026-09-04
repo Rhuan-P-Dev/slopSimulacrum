@@ -258,6 +258,134 @@ describe('MaterialChunkDropHandler — guards (D10/D11)', () => {
     });
 });
 
+// =========================================================================
+// MaterialChunkDropHandler — torn-material step (WR-2): gate, null-tolerance, batched
+// =========================================================================
+
+function makeTornWorld({ materials: compMaterials, volume, droppedItems }) {
+    return {
+        getComponent: (id) => (id === 'comp-1' ? { id: 'comp-1', type: 'testComp', entityId: 'ent-1' } : null),
+        getEntity: (id) => (id === 'ent-1' ? { id: 'ent-1', location: 'room-1', spatial: { x: 0, y: 0 } } : null),
+        componentController: {
+            getComponentMaterialsByType: () => ({ testComp: compMaterials }),
+            getComponentDefinition: (type) => (type === 'testComp' ? { volume } : null)
+        },
+        getMaterialRegistry: () => ({ materials: { iron: { name: 'Iron' }, wood: { name: 'Wood' } } }),
+        getDroppedItems: () => droppedItems,
+        setDroppedItems: (items) => Object.assign(droppedItems, items)
+    };
+}
+
+/** Build a mock WorldRulesController stub that returns a fixed torn percent. */
+function makeMockWorldRules(percent) {
+    return {
+        getDamageTornMaterialPercent: () => percent
+    };
+}
+
+describe('MaterialChunkDropHandler — torn-material step (WR-2)', () => {
+    const reg = { minChunkVolume: 0.05, materials: { iron: { dropRate: 1.0, chunkFraction: 0.3 } } };
+    const compMats = [{ material: 'iron', fraction: 1.0 }];
+
+    it('torn volume >= minChunkVolume → torn token appears alongside chunk', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0); // chunk always drops
+        const dropped = {};
+        const world = makeTornWorld({ materials: compMats, volume: 10, droppedItems: dropped });
+        const h = new MaterialChunkDropHandler({
+            worldStateController: world,
+            materialController: new MaterialController(materials, propertyTraitMapping, {}, reg),
+            worldRulesController: makeMockWorldRules(10)
+        });
+        // appliedLoss=1, fraction=1.0, volume=10 → tornVolume = 0.10 × 1 × 1.0 × 10 = 1.0 >= 0.05
+        const res = h._handleDropMaterialChunk('comp-1', {}, {
+            actionParams: { lastChannelLoss: { targetId: 'comp-1', appliedLoss: 1 } }
+        });
+        expect(res.data.droppedChunks).toBe(1); // chunk
+        expect(res.data.tornDropped).toBe(1); // torn
+        expect(res.data.tornVolumes['chunk_iron']).toBeCloseTo(1.0, 6);
+    });
+
+    it('torn volume < minChunkVolume → no torn token (gate); chunk still appears', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const dropped = {};
+        // Small applied loss: tornVolume = 0.10 × 0.1 × 1.0 × 1 = 0.01 < 0.05 → gated out
+        const world = makeTornWorld({ materials: compMats, volume: 1, droppedItems: dropped });
+        const h = new MaterialChunkDropHandler({
+            worldStateController: world,
+            materialController: new MaterialController(materials, propertyTraitMapping, {}, reg),
+            worldRulesController: makeMockWorldRules(10)
+        });
+        const res = h._handleDropMaterialChunk('comp-1', {}, {
+            actionParams: { lastChannelLoss: { targetId: 'comp-1', appliedLoss: 0.1 } }
+        });
+        // The chunk volume is floored: max(0.05, 0.3 × 0.1 × 1.0 × 1) = max(0.05, 0.03) = 0.05
+        expect(res.data.droppedChunks).toBe(1);
+        expect(res.data.tornDropped).toBe(0, 'torn below minChunkVolume → gated out');
+    });
+
+    it('worldRulesController is null → no torn tokens, no throw (null-tolerance)', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const dropped = {};
+        const world = makeTornWorld({ materials: compMats, volume: 10, droppedItems: dropped });
+        const h = new MaterialChunkDropHandler({
+            worldStateController: world,
+            materialController: new MaterialController(materials, propertyTraitMapping, {}, reg)
+            // No worldRulesController — simulates a test that hand-builds the handler
+        });
+        const res = h._handleDropMaterialChunk('comp-1', {}, {
+            actionParams: { lastChannelLoss: { targetId: 'comp-1', appliedLoss: 1 } }
+        });
+        expect(res.data.droppedChunks).toBe(1);
+        expect(res.data.tornDropped).toBe(0);
+    });
+
+    it('torn percent = 0 (rule active but disabled) → no torn tokens', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const dropped = {};
+        const world = makeTornWorld({ materials: compMats, volume: 10, droppedItems: dropped });
+        const h = new MaterialChunkDropHandler({
+            worldStateController: world,
+            materialController: new MaterialController(materials, propertyTraitMapping, {}, reg),
+            worldRulesController: makeMockWorldRules(0)
+        });
+        const res = h._handleDropMaterialChunk('comp-1', {}, {
+            actionParams: { lastChannelLoss: { targetId: 'comp-1', appliedLoss: 1 } }
+        });
+        expect(res.data.droppedChunks).toBe(1);
+        expect(res.data.tornDropped).toBe(0);
+    });
+
+    it('batched write: chunk and torn land in the same setDroppedItems call', () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const writeCalls = [];
+        const dropped = {};
+        const world = {
+            getComponent: (id) => (id === 'comp-1' ? { id: 'comp-1', type: 'testComp', entityId: 'ent-1' } : null),
+            getEntity: (id) => (id === 'ent-1' ? { id: 'ent-1', location: 'room-1', spatial: { x: 0, y: 0 } } : null),
+            componentController: {
+                getComponentMaterialsByType: () => ({ testComp: compMats }),
+                getComponentDefinition: (type) => (type === 'testComp' ? { volume: 10 } : null)
+            },
+            getMaterialRegistry: () => ({ materials: { iron: { name: 'Iron' } } }),
+            getDroppedItems: () => dropped,
+            setDroppedItems: (items) => { writeCalls.push(items); Object.assign(dropped, items); }
+        };
+        const h = new MaterialChunkDropHandler({
+            worldStateController: world,
+            materialController: new MaterialController(materials, propertyTraitMapping, {}, reg),
+            worldRulesController: makeMockWorldRules(10)
+        });
+        h._handleDropMaterialChunk('comp-1', {}, {
+            actionParams: { lastChannelLoss: { targetId: 'comp-1', appliedLoss: 1 } }
+        });
+        // Exactly one setDroppedItems call — both chunk and torn are in the same batch.
+        expect(writeCalls.length).toBe(1);
+        // The batch contains both the chunk and the torn (2 items with chunk_iron type).
+        const batchIds = Object.keys(writeCalls[0]);
+        expect(batchIds.length).toBe(2, 'both chunk and torn should be in the same batched write');
+    });
+});
+
 describe('Constants — chunk-type helper (D8)', () => {
     it('CHUNK_ITEM_TYPE_PREFIX is "chunk_"', () => {
         expect(CHUNK_ITEM_TYPE_PREFIX).toBe('chunk_');

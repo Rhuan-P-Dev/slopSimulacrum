@@ -125,15 +125,21 @@ describe('Feature 2 — material chunk drop on punch (contract, full round-trip)
         expect(result.success, `punch should succeed: ${JSON.stringify(result.error)}`).toBe(true);
 
         const ironChunks = dropped(world).filter((d) => d.itemType === 'chunk_iron');
-        expect(ironChunks.length, 'iron (rate 1.0) should always shed exactly one chunk').toBe(1);
+        // With the world-rules torn stream active (data/world_rules.json), a
+        // single-material iron target produces 2 records: the probabilistic chunk
+        // + the deterministic torn token (both share the chunk_iron type family).
+        expect(ironChunks.length, 'iron (rate 1.0) should shed chunk + torn = 2 records').toBe(2);
 
-        const chunk = ironChunks[0];
+        // Identify the chunk record by its D7 volume (the torn record has a
+        // different volume: percent/100 × appliedLoss × fraction × volume).
+        const expected = expectedChunkVolume(world, 'droidHead', 'iron', appliedLoss);
+        const chunk = ironChunks.find((d) => Math.abs(d.volume - expected) < 1e-6);
+        expect(chunk, 'one record should match the D7 chunk volume').toBeTruthy();
         // Room: the target's room. Position: a disk sample around the target entity.
         expect(chunk.roomId).toBe(roomId);
         expect(dist(chunk.x, chunk.y, 50, 0)).toBeLessThanOrEqual(DEFAULT_TRIGGER_RADIUS + 1e-9);
 
         // D7 volume: max(min, chunkFraction × (appliedLoss × ironFraction(1.0) × headVolume)).
-        const expected = expectedChunkVolume(world, 'droidHead', 'iron', appliedLoss);
         expect(chunk.volume).toBeCloseTo(expected, 6);
 
         // The record is self-describing: its item identity carries an item- prefix id,
@@ -167,9 +173,10 @@ describe('Feature 2 — material chunk drop on punch (contract, full round-trip)
         const byType = {};
         for (const c of chunks) byType[c.itemType] = (byType[c.itemType] || 0) + 1;
 
-        // Iron (rate 1.0) always; wood (rate 0.25) at most one; nothing more than that.
-        expect(byType['chunk_iron'] ?? 0, 'iron should always drop').toBe(1);
-        expect(byType['chunk_wood'] ?? 0, 'wood should drop at most once').toBeLessThanOrEqual(1);
+        // Iron (rate 1.0) always produces a chunk + a torn token = 2.
+        // Wood (rate 0.25) produces at most 1 chunk + always 1 torn = at most 2.
+        expect(byType['chunk_iron'] ?? 0, 'iron should always drop chunk + torn = 2').toBe(2);
+        expect(byType['chunk_wood'] ?? 0, 'wood chunk at most 1 + torn 1 = at most 2').toBeLessThanOrEqual(2);
         // No other chunk types can originate from an iron+wood target.
         expect(Object.keys(byType).every((t) => t === 'chunk_iron' || t === 'chunk_wood')).toBe(true);
     });
@@ -259,8 +266,10 @@ describe('Feature 2 — material chunk drop on punch (contract, full round-trip)
         expect(drop.success, `dropItem should succeed: ${JSON.stringify(drop.error)}`).toBe(true);
 
         // A NEW ground record (fresh id) with the same dynamic volume + name.
-        const redropped = dropped(world).find((d) => d.itemType === 'chunk_iron' && d.id !== chunk.id);
-        expect(redropped, 'a new chunk_iron ground record should exist after re-drop').toBeTruthy();
+        // Filter by volume to distinguish the re-dropped chunk from the torn token
+        // (both share the chunk_iron type).
+        const redropped = dropped(world).find((d) => d.itemType === 'chunk_iron' && d.id !== chunk.id && Math.abs(d.volume - item.volume) < 1e-6);
+        expect(redropped, 'a new chunk_iron ground record with the same volume should exist after re-drop').toBeTruthy();
         expect(redropped.volume).toBeCloseTo(item.volume, 6);
         expect(redropped.name).toMatch(/iron chunk/i);
     });

@@ -126,19 +126,22 @@ describe('Feature 2 — material chunk drop on cut and shootT1 (contract, full r
         expect(appliedLossMeasured).toBeCloseTo(appliedLoss, 6);
 
         const ironChunks = dropped(world).filter((d) => d.itemType === 'chunk_iron');
-        expect(ironChunks.length, 'iron (rate 1.0) should always shed exactly one chunk').toBe(1);
+        // With the torn stream active: 2 records (chunk + torn), both chunk_iron type.
+        expect(ironChunks.length, 'iron (rate 1.0) should shed chunk + torn = 2 records').toBe(2);
         // The target is 100% iron: no other chunk type can originate from it.
         expect(dropped(world).every((d) => d.itemType === 'chunk_iron'),
             'only chunk_iron can drop from a 100%-iron target').toBe(true);
 
-        const chunk = ironChunks[0];
+        // Identify the chunk record by its D7 volume (the torn record differs).
+        const expected = expectedChunkVolume(world, 'droidHead', 'iron', appliedLoss);
+        const chunk = ironChunks.find((d) => Math.abs(d.volume - expected) < 1e-6);
+        expect(chunk, 'one record should match the D7 chunk volume').toBeTruthy();
         // Room: the target's room. Position: a disk sample around the target entity.
         expect(chunk.roomId).toBe(roomId);
         expect(dist(chunk.x, chunk.y, 40, 0)).toBeLessThanOrEqual(DEFAULT_TRIGGER_RADIUS + 1e-9);
 
         // D7 volume: max(min, chunkFraction × (appliedLoss × ironFraction(1.0) × headVolume)) —
         // every input read from the same data files the server uses.
-        const expected = expectedChunkVolume(world, 'droidHead', 'iron', appliedLoss);
         expect(chunk.volume).toBeCloseTo(expected, 6);
     });
 

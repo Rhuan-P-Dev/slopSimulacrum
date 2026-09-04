@@ -1,0 +1,8 @@
+{
+  "_comment": "World rules — a data-driven rule layer for world mechanics. Each rule is a stable key with a small config. Unknown keys are ignored, a malformed rule is disabled with a warning, and a missing or empty file means all rules off (legacy behavior).",
+  "rules": {
+    "damageTornMaterial": {
+      "percent": 10
+    }
+  }
+}
