@@ -624,3 +624,68 @@
     align-items: center;
     font-size: 0.85em;
 }
+
+/* =========================================================================
+   Inventory Filter Bar (InventoryManager)
+   Static controls between the overlay header and the rewritten content root.
+   Uses only `:root` variables defined in both `styles.css` and `base.css`;
+   this file's pre-existing `--panel-border`/`--bg-dark`/`--neon-cyan`
+   references are a separate, out-of-scope theme gap.
+   ========================================================================= */
+
+.inventory-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--dark-green);
+    background: var(--panel-bg);
+}
+
+.inventory-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.85em;
+    color: var(--text-main);
+}
+
+.inventory-filter-contains-item {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--neon-green);
+    cursor: pointer;
+    margin: 0;
+}
+
+.inventory-filter-search {
+    flex: 1 1 160px;
+    min-width: 0;
+    padding: 5px 8px;
+    background: var(--bg-black);
+    border: 1px solid var(--dark-green);
+    border-radius: 4px;
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 0.85em;
+}
+
+.inventory-filter-search::placeholder {
+    color: var(--text-dim);
+}
+
+.inventory-filter-search:focus {
+    outline: none;
+    border-color: var(--neon-green);
+    box-shadow: var(--glow);
+}
+
+.inventory-name-match {
+    color: var(--neon-green);
+    background: var(--dark-green);
+    border-radius: 3px;
+    padding: 0 2px;
+}

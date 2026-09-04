@@ -18,7 +18,7 @@ A modular vanilla JavaScript architecture using dependency injection. The main o
 | Component Viewer | Component detail overlay with internal component panel and a read-only carried-items list |
 | Navigation Actions Panel | Actions overlay with multi-component selection |
 | World Map View | Full-screen world map overlay with pan/zoom |
-| Inventory Manager | Inventory overlay with drag-and-drop items |
+| Inventory Manager | Inventory overlay with drag-and-drop items; client-local filter state (contains-item toggle + name search) applied as a pure derivation inside the render path — a view-only concern that never mutates, persists, or pushes state |
 | Drop Selector Controller | Drop component selection floating window |
 | Overlay Manager | Floating window coordination (exclusive visibility, keyboard shortcuts) |
 | Client Error Controller | Error resolution and formatting |

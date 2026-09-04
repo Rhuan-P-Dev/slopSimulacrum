@@ -91,6 +91,14 @@
             <h3 style="margin: 0;">🎒 Inventory</h3>
             <button class="overlay-close-btn">✕</button>
         </div>
+        <div class="inventory-filter-bar">
+            <label class="inventory-filter-toggle" for="inventory-filter-contains-item" title="Show only components that contain at least one item">
+                <input type="checkbox" id="inventory-filter-contains-item" class="inventory-filter-contains-item">
+                Contains item
+            </label>
+            <input type="text" id="inventory-filter-search" class="inventory-filter-search"
+                   placeholder="Search components and items" title="Filter by component or item name" autocomplete="off">
+        </div>
         <div id="inventory-content" class="inventory-root">
             <!-- Populated by JS -->
         </div>

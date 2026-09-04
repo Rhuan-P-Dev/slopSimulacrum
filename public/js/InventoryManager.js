@@ -4,6 +4,7 @@ import { AppConfig } from './Config.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { directChildrenOf } from '/utils/ItemTree.js';
+import { filterInventoryView } from '/utils/InventoryFilter.js';
 import { STAT_NAMES } from '../../shared/StatVocabulary.js';
 
 /**
@@ -59,6 +60,13 @@ export class InventoryManager {
         /** @private {Object<string, boolean>} */
         this._containerExpanded = {};  // { [containerItemId]: true/false }
 
+        /** @private {{ containsItemOnly: boolean, query: string }} UI-local filter state */
+        this._filters = { containsItemOnly: false, query: '' };
+        /** @private {Set<string>|null} matched component ids (null = no highlighting yet) */
+        this._matchedComponentIds = null;
+        /** @private {Set<string>|null} matched item ids (null = no highlighting yet) */
+        this._matchedItemIds = null;
+
         /** Bind methods */
         this._onDrop = this._onDrop.bind(this);
         this._onDragOver = this._onDragOver.bind(this);
@@ -99,8 +107,38 @@ export class InventoryManager {
         // InventoryManager stores reference to _btnInventory for potential future use
         // but does NOT attach a click listener to avoid double-toggle with ConfigBarManager.
 
+        // Client view filters (UI-local state, bound once). The filter bar is
+        // static markup outside the rewritten content root, so the input keeps
+        // focus across re-renders; each change re-applies the pure derivation.
+        const containsItemCheckbox = document.getElementById('inventory-filter-contains-item');
+        if (containsItemCheckbox) {
+            containsItemCheckbox.addEventListener('change', (event) => {
+                this._filters.containsItemOnly = event.target.checked;
+                this._renderIfVisible();
+            });
+        }
+
+        const searchInput = document.getElementById('inventory-filter-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', (event) => {
+                this._filters.query = event.target.value;
+                this._renderIfVisible();
+            });
+        }
+
         this._initialized = true;
         ClientLogger.info('InventoryManager', ' Initialized.');
+    }
+
+    /**
+     * Re-renders the inventory only while the overlay is displayed — the same
+     * visibility guard the world-state-change hook uses, so filter changes never
+     * render into a hidden panel.
+     * @private
+     */
+    _renderIfVisible() {
+        if (!this._overlay || this._overlay.style.display !== 'block') return;
+        this._renderInventory();
     }
 
     /**
@@ -275,7 +313,10 @@ export class InventoryManager {
     }
 
     /**
-     * Renders the full inventory view.
+     * Renders the full inventory view. The client view filters (contains-item
+     * toggle + search) are applied here as a pure derivation, inside the single
+     * method every refresh path converges on, so an active filter re-applies
+     * automatically on each refresh and can never be lost.
      * @private
      */
     _renderInventory() {
@@ -337,6 +378,23 @@ export class InventoryManager {
             }
         }
 
+        // Resolve each component's display name (a component has no name of its
+        // own — the searchable name is the formatted type) and apply the client
+        // view filters as a pure derivation. The matched-id sets are stored for
+        // the render helpers to highlight hits; null/empty sets mean no highlight.
+        const namedComponents = volumeComponents.map((c) => ({
+            ...c,
+            name: this._formatTypeName(c.type),
+        }));
+        const filteredView = filterInventoryView({
+            components: namedComponents,
+            itemsByHost: this._currentItems,
+            containsItemOnly: this._filters.containsItemOnly,
+            query: this._filters.query,
+        });
+        this._matchedComponentIds = filteredView.matchedComponentIds;
+        this._matchedItemIds = filteredView.matchedItemIds;
+
         // Check if there's anything to display
         const hasItems = Object.values(this._currentItems).some(
             (items) => Array.isArray(items) && items.length > 0
@@ -353,13 +411,25 @@ export class InventoryManager {
             return;
         }
 
+        // The filters hid every component that existed before filtering — a
+        // distinct empty state from the pre-filter "no volume" condition above.
+        if (volumeComponents.length > 0 && filteredView.components.length === 0) {
+            this._content.innerHTML = `
+                <div class="inventory-empty">
+                    <span class="inventory-empty-icon">🎒</span>
+                    <em>No components match the current filter</em>
+                </div>`;
+            this._overlay.style.display = 'block';
+            return;
+        }
+
         // Build tree from current items (attach children to parents)
         const tree = this._buildItemTree();
 
         let html = '';
 
-        // Render all volume components (even if empty)
-        for (const comp of volumeComponents) {
+        // Render the visible (filtered) components
+        for (const comp of filteredView.components) {
             const compItems = tree[comp.id] || [];
             const volumeInfo = this._calculateVolumeInfo(comp.id, comp.volume, compItems);
             html += this._renderComponentSlot(comp, volumeInfo, compItems);
@@ -453,12 +523,15 @@ export class InventoryManager {
         const itemsHtml = this._renderTreeItems(comp.id, items, 0);
         const hasItems = items.length > 0;
         const itemsContainerClass = `inventory-items-container${hasItems ? ' has-items' : ''}`;
+        const compMatchClass = this._matchedComponentIds && this._matchedComponentIds.has(comp.id)
+            ? ' inventory-name-match'
+            : '';
 
         return `
             <div class="inventory-component-slot" data-comp-id="${comp.id}" data-comp-volume="${comp.volume}">
                 <div class="inventory-component-header">
                     <span class="inventory-component-name">
-                        <span class="inventory-component-type-badge">${this._formatTypeName(comp.type)}</span>
+                        <span class="inventory-component-type-badge${compMatchClass}">${this._formatTypeName(comp.type)}</span>
                     </span>
                     <div class="inventory-component-meta">
                         <div class="inventory-volume-bar" title="${percentageStr}% volume used">
@@ -488,6 +561,9 @@ export class InventoryManager {
 
         let html = '';
         for (const item of items) {
+            const itemMatchClass = this._matchedItemIds && this._matchedItemIds.has(item.id)
+                ? ' inventory-name-match'
+                : '';
             const itemDef = this._itemRegistry ? this._itemRegistry[item.type] : null;
             // Use externalVolume for display on host component (footprint), volume for internal capacity
             const displayVolume = item.externalVolume ?? item.hostVolume ?? DEFAULT_ITEM_VOLUME;
@@ -546,7 +622,7 @@ export class InventoryManager {
                     <div class="inventory-container-slot" data-item-id="${item.id}" data-container-capacity="${capacity}">
                         <div class="inventory-container-header" data-container-header="${item.id}">
                             <button class="inventory-container-toggle" data-toggle-container="${item.id}" title="Expand/collapse">${chevron}</button>
-                            <span class="inventory-item-name">${item.name || item.type}</span>
+                            <span class="inventory-item-name${itemMatchClass}">${item.name || item.type}</span>
                             <span class="inventory-item-volume">${displayVolume}v</span>
                             <span class="inventory-container-capacity-text">${childrenVolume}/${capacity} (${usedPercent}%)</span>
                         </div>
@@ -575,7 +651,7 @@ export class InventoryManager {
                      title="${isContainer ? 'Click header to expand/collapse. Drag to move container to another component.' : 'Drag to move to another component'}">
                     <span class="drag-handle">${isContainer ? '📦' : '⠿'}</span>
                     ${materialBadges ? `<div class="inventory-materials-row">${materialBadges}</div>` : ''}
-                    <span class="inventory-item-name">${item.name || item.type}</span>
+                    <span class="inventory-item-name${itemMatchClass}">${item.name || item.type}</span>
                     <span class="inventory-item-volume">${displayVolume}v</span>
                     <button class="equip-btn stats-toggle"
                             data-item-id="${item.id}"

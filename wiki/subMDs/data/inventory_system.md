@@ -164,6 +164,22 @@ Some container items need to express two distinct volume concepts: the physical 
 
 This was introduced to support the T1 weapon system, where the weapon needs a small footprint on its host component but provides significant internal storage for ammunition. Without the distinction, the T1 would need to take up as much space as it can hold, which contradicts the design intent of a compact weapon that stores its own ammo.
 
+## Client-Side Filtering
+
+The inventory panel exposes two view filters — a "contains item" toggle and a name search. They are **client-local view state**: they change only what the panel renders, are never persisted or pushed upward, and are not reset when the panel is hidden (a view preference that is always one click or keystroke away). Filtering is applied as a pure derivation inside the render path, so it re-applies automatically on every refresh and can never be lost, while the world state remains the sole source of truth.
+
+### Why Direct Containment Is Equivalent To Transitive Here
+
+The "contains item" filter tests *direct* containment (the component's own bucket is non-empty) rather than walking the whole subtree. That is deliberate: containment is a forest rooted at components — the server rejects moving a container into its own descendant, so every item nested at any depth has a topmost ancestor held *directly* by the root component. "Has any descendant" therefore holds exactly when "has at least one direct child." Direct containment is also precisely what a component card renders as its top-level content, so the toggle maps 1:1 to visible content with no traversal, and the two readings can never disagree for this data model.
+
+### Why The Search Is Component-Scoped But Subtree-Matched
+
+The search filters *which components are shown*, never *which items a shown component displays*. A component passes when its own name matches **or** any item in its subtree (any depth) matches. Subtree (not direct-only) matching is required because a hit at depth N is only visible if its whole ancestor chain is rendered, so the top-level host must stay visible. Non-matching siblings are deliberately **not** pruned: doing so would remove container drop targets that visible items can legally move into (breaking the drag-and-drop contract) and would hide the carried context needed to locate a match. Matching names — component and item alike — receive a highlight class so hits stay findable within the full subtree.
+
+### Why The Filter Bar Is Static Outside The Rewritten Content Root
+
+The panel's content root is fully rewritten on every refresh. The filter bar (toggle + search input) therefore lives in **static** markup between the overlay header and the content root, outside the rewritten region. Had it been inside, the search input would be recreated on every keystroke and lose focus, making it unusable; placing it outside means the controls and their focus survive every re-render.
+
 ## Material Trait Derivation
 
 Inventory items with a material composition receive material-derived trait stats, mirroring the component-side derivation documented in the [Materials System](materials.md). Derivation happens when an item is first created, and missing derived traits are gap-filled when a persisted world state is restored.
