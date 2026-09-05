@@ -215,6 +215,9 @@ describe('WorldStateController public method surface', () => {
         'getRooms',
         'getSynergyConfig',
         'getWorldGraph',
+        // Added deliberately (world_rules_spec.md): the world-rules registry
+        // passthrough. Not an accidental addition — mirrors getKnowledge().
+        'getWorldRules',
         'hasInternalComponent',
         'initializeWorld',
         'moveEntity',

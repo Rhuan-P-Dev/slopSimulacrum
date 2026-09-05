@@ -18,3 +18,4 @@ The active droid is the entity the player is incarnated as. When no incarnation 
 - getActiveDroid() provides droid for rendering
 - State includes internal components for ComponentViewer
 - Internal components live on the entity objects that own them rather than in a top-level field, keeping component data scoped to its owner
+- The server-side facade holds a `WorldRulesController` as a named dependency (inspection-only, out of the broadcast aggregation, null-tolerant getter degrading to an empty rule set). This is the crafting/knowledge precedent applied once more: the client will not receive world-rules data in state broadcasts, so no client-side world-rules UI is expected

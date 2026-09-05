@@ -38,13 +38,16 @@ class ConsequenceHandlers {
      * and propagated to the focused handlers (which keep reading
      * `this.worldStateController` exactly as before — their class bodies are untouched).
      */
-    constructor({ equippedItemStats, worldEventLog = null, materialController = null } = {}) {
+    constructor({ equippedItemStats, worldEventLog = null, materialController = null, worldRulesController = null } = {}) {
         /** @type {WorldStateController|null} Injected post-construction. */
         this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
         // Feature 1: MaterialController owns the per-material damage-type split
         // (data/materialDamageTypes.json); forwarded to the damage handler below.
         this.materialController = materialController || null;
+        // World-rules layer (WR-6): forwarded to the chunk-drop handler so the
+        // torn-material step can read the active percentage. Null-tolerant.
+        this.worldRulesController = worldRulesController || null;
 
         // Initialize focused handlers. The `controllers` bag carries the facade
         // reference each handler stores; setWorldStateController() keeps it in sync.
@@ -59,7 +62,9 @@ class ConsequenceHandlers {
         // Feature 2: chunk drop on punch. Named deps only (the facade arrives via
         // setWorldStateController below); materialController is forwarded so the handler
         // can read the drop-rates registry (data/materialDropRates.json).
-        const chunkControllers = { worldStateController: this.worldStateController, materialController: this.materialController };
+        // World-rules layer (WR-6): worldRulesController is forwarded so the handler
+        // can read the active torn-material percentage.
+        const chunkControllers = { worldStateController: this.worldStateController, materialController: this.materialController, worldRulesController: this.worldRulesController };
         this.materialChunkDropHandler = new MaterialChunkDropHandler(chunkControllers);
         // Feature B: single choke point where "something happened in the world"
         // already produces a human sentence — forward it into the event buffer.

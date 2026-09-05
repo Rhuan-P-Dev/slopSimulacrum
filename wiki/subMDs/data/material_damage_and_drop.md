@@ -46,10 +46,20 @@ The two files deliberately distinguish **"absent"** from **"malformed"**:
 
 The "reproduces legacy" wording is accurate only in the *value-routing* sense: an absent file routes the whole value to the declared channel, which is what the pre-split design *intended*. It is **not** a no-op against the code that actually ran before this feature set — before Feature 1, channel damage raised an error the dispatcher silently swallowed, so a punch applied **zero** channel damage at all ([BUG-132](../../bugfixWiki/high/BUG-132-channel-damage-silently-never-applied.md)). That fix shipped *with* Feature 1, so "feature off" now means **one working declared channel, no split — not nothing happens.** The absent/malformed asymmetry is unchanged: tuning drift (percentages that don't sum to 100) is *normalized and warned*, never rejected, so a balance tweak is never a crash; only a genuinely broken file is.
 
+## The Torn-Material Stream (World-Rules Layer)
+
+The drop step now carries a **second, deterministic stream** alongside the probabilistic chunk stream. The handler consults **two data owners** for **two policy levers**:
+
+- `MaterialController` — the chunk stream's per-material drop rate, chunk fraction, and shared `minChunkVolume` (probabilistic, floor-based).
+- `WorldRulesController` — the torn-material percentage (deterministic, gate-based).
+
+The two streams share the same dynamic `chunk_<material>` item mechanism, the same disk-sample placement, and the same batched ground write. The torn stream applies a **gate** (drop nothing below the floor) rather than the chunk stream's **floor** (raise small drops to the minimum), so the torn rule never drops more than the declared X% of the damage. A designer guideline (not an enforced check) keeps the world from creating matter: `chunkFraction_i + percent/100 ≤ 1` per material. See [World Rules](world_rules.md) for the full semantics and the deliberate degradation divergence.
+
 ## Related Documentation
 
 - [Materials System](materials.md) — the composition/derivation model and the `MaterialController` that owns these registries
 - [Attack System](../architecture/attack_system.md) — the unified attack handler and the split at the choke point
 - [Inventory System](inventory_system.md) — the dynamic-item precedent (an item type with no registry entry)
-- [Consequence Handler Architecture](../controllers/consequence_handler_architecture.md) — the new drop handler and the loss-publication precedent between consequences
+- [Consequence Handler Architecture](../controllers/consequence_handler_architecture.md) — the drop handler and the loss-publication precedent between consequences
+- [World Rules](world_rules.md) — the world-rules layer and the torn-material rule's semantics
 - [Design spec](../../material_damage_and_drop_spec.md) — full rationale, data contracts, and open questions

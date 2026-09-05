@@ -126,6 +126,13 @@ class WorldStateController {
         // aggregation (static codex data — the route reads it via getKnowledge()).
         /** @private {import('./knowledge/KnowledgeController.js')|null} */
         this.knowledgeController = deps.knowledgeController ?? null;
+        // WorldRulesController: world-level rules registry (data/world_rules.json).
+        // Null-tolerant like craftingController/knowledgeController — a test may
+        // hand-build the facade without it. Deliberately NOT in the subControllers
+        // broadcast map: static config data must stay out of the full-state
+        // aggregation (same rule as craftingController / knowledgeController).
+        /** @private {import('./worldRules/WorldRulesController.js')|null} */
+        this.worldRulesController = deps.worldRulesController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -2368,6 +2375,25 @@ class WorldStateController {
             return emptyKnowledgePayload();
         }
         return this.knowledgeController.getKnowledge();
+    }
+
+    /**
+     * Returns a defensive copy of the active world-rules registry, or a total
+     * empty rule set (never null) when the controller is unwired — the
+     * "payload getters degrade to an empty shape" rule (controller_patterns §5).
+     * The route/tests read the rules through this facade getter; the route must
+     * never reach into sub-controllers (Public API Only, §2).
+     * @returns {Object} A fresh copy of the active rules map, or `{}` when
+     *   the controller is unwired or all rules are off.
+     */
+    getWorldRules() {
+        if (!this.worldRulesController) {
+            return {};
+        }
+        // Aggregated through the controller's public reader (Single Source of
+        // Truth, project_rules §2): active rules only, defensive copies,
+        // inactive keys omitted — the same shape the facade always returned.
+        return this.worldRulesController.getActiveRules();
     }
 
     // =========================================================================

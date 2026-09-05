@@ -41,6 +41,7 @@ graph TD
     MC[MaterialController]
     CFT[CraftingController]
     KC[KnowledgeController]
+    WRC[WorldRulesController]
 
     SVR --> LLMC
     SVR --> WSC
@@ -107,6 +108,8 @@ graph TD
 
     WSC --> CFT
     WSC --> KC
+    WSC -->|inspection only| WRC
+    MCH -->|torn percent| WRC
     ```
 
 ## 🤖 AI Controllers
@@ -135,6 +138,7 @@ graph TD
 | `data/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
 | `data/materialDamageTypes.json` | Per-material damage-type split — how a raw value dealt *by* a material is distributed across the six damage channels, so the attacker's material decides a hit's channel mix (wood blunts and shreds, iron is pure impact); a missing/empty file turns the feature off, exactly reproducing legacy combat |
 | `data/materialDropRates.json` | Per-material chunk-drop loot — the chance a material drops a chunk on a successful channel-damage hit (punch, cut, shootT1) and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
+| `data/world_rules.json` | World-rules layer — stable string key → small config objects governing cross-cutting laws (not loot tables); ships the `damageTornMaterial` rule (a deterministic X% of applied loss drops as torn matter per composition fraction); a missing/empty/malformed file means all rules off (legacy world, never crashes) |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
 
 ## 🧩 Shared Modules
