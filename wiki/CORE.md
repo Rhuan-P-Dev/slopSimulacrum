@@ -79,7 +79,7 @@ Additional reference documentation for specific systems and components, organize
 - [World State](subMDs/data/world_state.md) — World state data model
 - [Inventory System](subMDs/data/inventory_system.md) — Volume-based item storage on components
 - [Material Damage & Chunk Drop](subMDs/data/material_damage_and_drop.md) — Why the attacker's material decides a hit's channel split and why channel-damage hits (punch, cut, shootT1) yield dynamically-generated chunk items with no item-registry entry (safe, data-driven degradation to legacy combat)
-- [World Rules](subMDs/data/world_rules.md) — The world-rules layer (data/world_rules.json): stable keys → small config objects governing cross-cutting laws; the shipped torn-material rule is a deterministic complement to the probabilistic chunk stream, with a graceful-off degradation contract deliberately divergent from the material files' boot-fail rule
+- [World Rules](subMDs/data/world_rules.md) — The world-rules layer (data/world_rules.json): stable keys → small config objects governing cross-cutting laws; the shipped torn-material rule is a deterministic complement to the probabilistic chunk stream, and the shipped onDamage event rule adds a probabilistic chunk drop on any damage source (additive to the per-material drops); both degrade gracefully-off, a contract deliberately divergent from the material files' boot-fail rule
 
 ### 🖥️ Frontend & UI
 - [Client Architecture](subMDs/frontend/client_architecture.md) — Client-side architecture + UI overview

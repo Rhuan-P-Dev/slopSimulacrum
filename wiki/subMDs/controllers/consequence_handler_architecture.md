@@ -51,6 +51,10 @@ Stat changes on equipped items also trigger capability re-evaluation, so the UI 
 
 A consequence can publish a *result* into the shared dispatch context, and the dispatcher's parameter propagation carries it to later consequences in the same action. The damage step uses this to hand the **applied loss** to the `dropMaterialChunk` step that runs after it, so the drop derives its chunk volumes from the damage that actually left the target rather than recomputing it. This is the established way one consequence feeds another within a single action — a one-way hand-off of an already-computed result — and it is why the drop handler never re-derives damage. On the multi-attacker path, full parameter propagation is still disabled (no *other* handler-modified param ever crosses consequences there), but the reserved published-loss key is one deliberate exception: it is carried forward only inside each attacker's isolated context, so each fist's drop step consumes its own loss and drops its own chunks — never an aggregate (spec D11, revised).
 
+## Why the onDamage Drop Is Not a Consequence
+
+The third drop stream (the world-rules `onDamage` event law, see [Material Damage & Chunk Drop](../data/material_damage_and_drop.md)) is deliberately **not** a consequence type. Consequences are action-scoped: they run only when an action declares them, in the order the action declares them, inside that action's dispatch context. The onDamage law is source-agnostic — it must fire on a corrosion tick as on a punch, and a tick has no action, no dispatch context, and no consequence list to attach to. So the law observes the component's stat-update choke point (after the stat write, before the break cascade) instead of extending the consequence set; the drop handler and its published-loss contract are untouched, and the new stream simply never participates in the consequence pipeline.
+
 ## Benefits
 
 1. **SRP Compliance**: Each module has one reason to change

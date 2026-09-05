@@ -22,7 +22,8 @@ WorldStateController (Root Injector)
 │   ├── ActionController
 │   ├── HoldingCostController → EquippedItemStatsController
 │   ├── StatConsequenceHandler → EquippedItemStatsController
-│   └── RangeValidator → WorldStateController (range checks)
+│   ├── RangeValidator → WorldStateController (range checks)
+│   └── OnDamageDropListener → WorldRulesController, MaterialController (observes ComponentController damage events)
 └── Consequence Dispatchers
 ```
 
@@ -48,7 +49,8 @@ WorldStateController (Root Injector)
 | **CraftingController** | Recipe Registry | Data-driven crafting recipes (`data/crafting.json`) — pure "do these items satisfy this recipe" checks; no item/world state, no `getAll()` (stays out of the broadcast aggregation) |
 | **KnowledgeController** | Reference Codex | Read-only codex payload assembled once at boot from the static registries (trait/stat derivation chain, recipes, item types) — no cross-controller dependencies, no `getAll()` (stays out of the broadcast aggregation) |
 | **TurnSystemController** | Event-Driven Rounds & Barrier | Owns the round: the planning-completeness barrier (round-start roster, ready signals, the all-ready close decision — there is no deadline) and the per-entity action queues; resolution is gated on barrier close. Rounds are event-driven (roster snapshot at round start, next round on the tick after resolution), so the system no longer owns tick cadence |
-| **WorldRulesController** | World-Rules Layer | Receives the boot-loaded `data/world_rules.json` registry from the composition root (the controller itself performs no I/O) and validates it — stable key → small config objects governing cross-cutting laws; inspection-only on the facade, out of the broadcast aggregation, null-tolerant getter degrading to an empty rule set; the chunk-drop handler consults it for the torn-material percentage |
+| **WorldRulesController** | World-Rules Layer | Receives the boot-loaded `data/world_rules.json` registry from the composition root (the controller itself performs no I/O) and validates it — stable key → small config objects governing cross-cutting laws (deterministic config laws plus the probabilistic `onDamage` event table, stored separately from the rule keys so the rule map's shape stays untouched); inspection-only on the facade, out of the broadcast aggregation, null-tolerant getter degrading to an empty rule set; the chunk-drop handler consults it for the torn-material percentage, and the onDamage drop listener consults it for the damage-event table |
+| **OnDamageDropListener** | World-Rules Event Enforcement | Observer of the component stat choke point — the one place every damage source converges — so the `onDamage` law fires on *any* damage (action channel, direct stat delta, IC tick), not only on actions; consults the world-rules event table and the material levers, and may mint a self-describing chunk token of the damaged component's primary material into the ground-item store through the facade; per-listener fault isolation keeps it from ever touching the break/broadcast pipeline |
 
 ## 3. Key Operational Flows
 

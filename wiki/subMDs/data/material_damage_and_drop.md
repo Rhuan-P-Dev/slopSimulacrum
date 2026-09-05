@@ -55,6 +55,18 @@ The drop step now carries a **second, deterministic stream** alongside the proba
 
 The two streams share the same dynamic `chunk_<material>` item mechanism, the same disk-sample placement, and the same batched ground write. The torn stream applies a **gate** (drop nothing below the floor) rather than the chunk stream's **floor** (raise small drops to the minimum), so the torn rule never drops more than the declared X% of the damage. A designer guideline (not an enforced check) keeps the world from creating matter: `chunkFraction_i + percent/100 ≤ 1` per material. See [World Rules](world_rules.md) for the full semantics and the deliberate degradation divergence.
 
+## The onDamage Event Stream (World-Rules Layer)
+
+A **third drop stream** now joins the two above: on *any* damage event to a component — action-channel damage, a direct stat delta, an internal-component tick — the world may, at a small probability, mint a chunk of the component's material on the ground. It is governed by the **world-rules layer**, not by the material files: the event law says *when and how often* a chip may fly off, while the material files keep their levers for the *loot* stream (how often each material drops, how much matter a drop carries). Two files, two owners, two independent rolls per event — additive, never competing.
+
+### Why it dispatches at the stat choke point instead of as a consequence
+
+Consequences are **action-scoped**: they run only when an action declares them, in the order the action declares them. The onDamage law is **source-agnostic** — it must fire on a corrosion tick as on a punch — and a tick is not an action and has no dispatch context a consequence could attach to. The component's stat-update choke point is the one place every damage source converges, so the stream hooks there (after the stat write, before the break cascade) instead of adding a new consequence type. The drop handler's published-loss contract is untouched; the legacy streams read exactly what they read before.
+
+### Why all three streams share one item identity
+
+"A chip of matter" is one concept in this world, and it now has exactly **one source of item identity**: the self-describing dynamic chunk item, minted from one shared helper so that the legacy chunk stream, the torn stream, and the onDamage stream all produce *that* item — same mechanics, same matter-math lever, indistinguishable on the ground. No stream can drift into looking like a different kind of object when it is the same world matter, and no client, recipe, or ground record has to learn a new item type. The torn stream keeps its own **volume** formula (a gate, not the chunk floor), but even there the item it mints is the same item.
+
 ## Related Documentation
 
 - [Materials System](materials.md) — the composition/derivation model and the `MaterialController` that owns these registries
