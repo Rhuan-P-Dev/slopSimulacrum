@@ -22,6 +22,8 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
+| [BUG-137](high/BUG-137-ic-emit-channel-damage-spatial-shape-mismatch.md) | IC emitChannelDamage Dead in Production — spatial.position Shape Mismatch | ✅ Fixed | `e0cb1f2` | `InternalComponentController.js`, `worldRulesOnDamage.contract.test.js` |
+| [BUG-138](high/BUG-138-ic-emit-channel-damage-non-iterable-store.md) | IC emitChannelDamage Target Loop Iterated the Entity Store as an Array | ✅ Fixed | `e0cb1f2` | `InternalComponentController.js` |
 | [BUG-134](high/BUG-134-equipped-knife-absent-from-capability-list-writer-side-stats-seeding.md) | Equipped Knife Absent from the Capability List — Per-Instance Stats Never Seeded from Matter (writer-side) | ✅ Fixed | `commit unknown` | `HoldingCostController.js`, `EquippedItemStatsController.js`, `equippedKnifeCapability.contract.test.js` |
 | [BUG-133](high/BUG-133-knife-cannot-be-equipped-massburden-contract-drift.md) | Knife Cannot Be Equipped — massBurden Contract Drift Left Consumers Gating on the Removed itemDef.traits | ✅ Fixed | `commit unknown` | `InventoryManager.js` (client), `ComponentCapabilityController.js`, `RequirementResolver.js` |
 | [BUG-118](high/BUG-118-entity-spawns-at-room-center-instead-of-door.md) | Entity Spawns at Room Center Instead of Door Position on World Map Navigation | ✅ Fixed | — | `RoomConnectionRenderer.js` |
