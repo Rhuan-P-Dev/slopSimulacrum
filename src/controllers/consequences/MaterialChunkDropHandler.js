@@ -23,6 +23,7 @@ import { writeDroppedItem } from './DropItemHandler.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
 import { CHUNK_ITEM_TYPE_PREFIX, PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
 import { getDefinitionVolume } from '../../utils/definitionVolume.js';
+import { computeChunkVolume, buildChunkItemDef } from '../../utils/materialChunkToken.js';
 
 class MaterialChunkDropHandler {
     /**
@@ -138,18 +139,17 @@ class MaterialChunkDropHandler {
             // 1.0 therefore always drops (deterministic for contract tests).
             if (!(Math.random() < dropConfig.dropRate)) continue;
 
-            const lost = appliedLoss * fraction * recipeVolume;
-            const chunkVolume = Math.max(minChunkVolume, dropConfig.chunkFraction * lost);
+            // Shared chunk-item mechanics (design §3.6): the D7 volume lever + the
+            // self-describing item def, now the single source used by both the chunk
+            // stream and the onDamage stream. Line-for-line equivalent to the
+            // former inline formula (dropConfig is non-null here — guarded above).
+            const chunkVolume = computeChunkVolume(dropConfig, appliedLoss, fraction, recipeVolume, minChunkVolume);
             const itemType = CHUNK_ITEM_TYPE_PREFIX + material;
             const materialName = materialRegistry[material]?.name || material;
             const point = sampleDiskPoint(cx, cy, DEFAULT_TRIGGER_RADIUS);
             if (!point) continue;
 
-            const itemDef = {
-                name: `${materialName} chunk`,
-                description: `A chunk of ${materialName} chipped off a damaged component.`,
-                volume: chunkVolume
-            };
+            const itemDef = buildChunkItemDef(materialName, chunkVolume);
             writeDroppedItem(narrowDeps, itemType, point.x, point.y, room, comp.entityId, itemDef, []);
             dropped++;
             chunkVolumes[itemType] = chunkVolume;
@@ -185,11 +185,10 @@ class MaterialChunkDropHandler {
                 const point = sampleDiskPoint(cx, cy, DEFAULT_TRIGGER_RADIUS);
                 if (!point) continue;
 
-                const itemDef = {
-                    name: `${materialName} chunk`,
-                    description: `A chunk of ${materialName} chipped off a damaged component.`,
-                    volume: tornVolume
-                };
+                // Shared chunk item identity (design §3.6): one item definition
+                // source for all three drop streams; the torn stream keeps its
+                // own distinct volume formula (not routed through computeChunkVolume).
+                const itemDef = buildChunkItemDef(materialName, tornVolume);
                 writeDroppedItem(narrowDeps, itemType, point.x, point.y, room, comp.entityId, itemDef, []);
                 tornDropped++;
                 tornVolumes[itemType] = tornVolume;
