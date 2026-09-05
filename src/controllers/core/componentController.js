@@ -19,6 +19,12 @@ class ComponentController {
         
         // Stat change subscribers (observer pattern for action capability re-evaluation)
         this._statChangeListeners = [];
+        // Damage-event subscribers: the onDamage world-event rule observes any
+        // component stat weakening (a strict decrease) regardless of the damage
+        // source (punch, corrosion IC tick, holding cost, stat effect). Mirrors the
+        // stat-change observer list above; a separate list so the two concerns
+        // (capability re-evaluation vs. world-law drops) stay decoupled.
+        this._damageListeners = [];
     }
 
     /**
@@ -57,6 +63,50 @@ class ComponentController {
                 listener(componentId, traitId, statName, newValue, oldValue);
             } catch (error) {
                 Logger.error(`Error in stat change listener for ${componentId}: ${error.message}`, { componentId, traitId: traitId, statName: statName });
+            }
+        }
+    }
+
+    /**
+     * Registers a listener to be notified whenever a component stat WEAKENS (a
+     * strict decrease). Mirrors registerStatChangeListener but fires only on
+     * decreases, so "damage" is a first-class, source-agnostic event.
+     * @param {Function} listener - A function called with (componentId, traitId, statName, oldValue, newValue).
+     */
+    registerDamageListener(listener) {
+        if (typeof listener === 'function' && !this._damageListeners.includes(listener)) {
+            this._damageListeners.push(listener);
+        }
+    }
+
+    /**
+     * Unregisters a previously registered damage listener.
+     * @param {Function} listener - The function to remove.
+     */
+    unregisterDamageListener(listener) {
+        const index = this._damageListeners.indexOf(listener);
+        if (index !== -1) {
+            this._damageListeners.splice(index, 1);
+        }
+    }
+
+    /**
+     * Notifies all registered damage listeners. Each listener runs in its own
+     * try/catch so a consumer failure can never disturb the stat pipeline or the
+     * (separately-registered) stat-change listeners.
+     * @param {string} componentId - The component instance ID.
+     * @param {string} traitId - The trait category.
+     * @param {string} statName - The stat name that decreased.
+     * @param {any} oldValue - The stat value before the change.
+     * @param {any} newValue - The stat value after the change.
+     * @private
+     */
+    _notifyDamageListeners(componentId, traitId, statName, oldValue, newValue) {
+        for (const listener of this._damageListeners) {
+            try {
+                listener(componentId, traitId, statName, oldValue, newValue);
+            } catch (error) {
+                Logger.error(`Error in damage listener for ${componentId}: ${error.message}`, { componentId, traitId: traitId, statName: statName });
             }
         }
     }
@@ -121,6 +171,13 @@ class ComponentController {
         const stats = this.statsController.getStats(instanceId);
         const oldValue = (stats && stats[traitId]) ? stats[traitId][statName] : undefined;
         this.statsController.setStats(instanceId, { [traitId]: { [statName]: value } });
+        // Damage event hook (strict decrease only): a SET may lower a stat. Fired
+        // AFTER the write (the value is committed) but BEFORE the stat-change
+        // notification, so the damaged component is still resolvable when the
+        // consumer runs and the consumer's own total-loss skip decides lethal hits.
+        if (typeof oldValue === 'number' && typeof value === 'number' && value < oldValue) {
+            this._notifyDamageListeners(instanceId, traitId, statName, oldValue, value);
+        }
         this._notifyStatChangeListeners(instanceId, traitId, statName, value, oldValue);
         return true;
     }
@@ -141,6 +198,11 @@ class ComponentController {
             const newValue = oldValue + delta;
             // Apply the delta via setStats with just the changed trait/stat
             this.statsController.setStats(instanceId, { [traitId]: { [statName]: newValue } });
+            // Damage event hook (strict decrease only). The numeric guard above
+            // already guarantees a numeric oldValue; a negative delta is a weakening.
+            if (delta < 0) {
+                this._notifyDamageListeners(instanceId, traitId, statName, oldValue, newValue);
+            }
             // Notify listeners of the stat change
             this._notifyStatChangeListeners(instanceId, traitId, statName, newValue, oldValue);
             return true;

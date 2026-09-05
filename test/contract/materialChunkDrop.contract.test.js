@@ -47,7 +47,14 @@ const inventoryItems = readJson('data/inventoryItems.json');
 /** A fresh, not-started world (the drop feature's drop-rates registry is on by default). */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-    return buildWorldState(tick).worldStateController;
+    const world = buildWorldState(tick).worldStateController;
+    // Pin the onDamage Bernoulli stream (design §7.4): this suite asserts exact
+    // ground-record counts and per-material independence, and the shipped 5% onDamage
+    // rule would otherwise add a real probabilistic stream to the same worlds.
+    // Always-fail → the world is identical to the pre-feature world; no assertion
+    // is modified.
+    world.onDamageDropListener._randomFn = () => 1;
+    return world;
 }
 
 /** The attacker's strongest strength-bearing droidHand (the punch's value source). */

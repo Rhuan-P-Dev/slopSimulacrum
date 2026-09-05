@@ -412,3 +412,75 @@ describe('Constants — chunk-type helper (D8)', () => {
         expect(recoverChunkMaterial(undefined)).toBeNull();
     });
 });
+
+describe('MaterialController.getPrimaryMaterial — host_material resolution (onDamage R3)', () => {
+    it('single-material composition → that material', () => {
+        const c = mc({});
+        expect(c.getPrimaryMaterial([{ material: 'iron', fraction: 1.0 }])).toEqual({ material: 'iron', fraction: 1.0 });
+    });
+
+    it('multi-material with a clear max → the max-fraction material', () => {
+        const c = mc({});
+        expect(c.getPrimaryMaterial([
+            { material: 'iron', fraction: 0.7 },
+            { material: 'wood', fraction: 0.3 }
+        ])).toEqual({ material: 'iron', fraction: 0.7 });
+        // Order must not matter: the max is found regardless of array position.
+        expect(c.getPrimaryMaterial([
+            { material: 'wood', fraction: 0.3 },
+            { material: 'iron', fraction: 0.7 }
+        ])).toEqual({ material: 'iron', fraction: 0.7 });
+    });
+
+    it('exact tie (0.5/0.5) → first in array order', () => {
+        const c = mc({});
+        expect(c.getPrimaryMaterial([
+            { material: 'iron', fraction: 0.5 },
+            { material: 'wood', fraction: 0.5 }
+        ])).toEqual({ material: 'iron', fraction: 0.5 });
+        expect(c.getPrimaryMaterial([
+            { material: 'wood', fraction: 0.5 },
+            { material: 'iron', fraction: 0.5 }
+        ])).toEqual({ material: 'wood', fraction: 0.5 });
+    });
+
+    it('non-array / empty → null (strict contract)', () => {
+        const c = mc({});
+        expect(c.getPrimaryMaterial(null)).toBeNull();
+        expect(c.getPrimaryMaterial(undefined)).toBeNull();
+        expect(c.getPrimaryMaterial('nope')).toBeNull();
+        expect(c.getPrimaryMaterial(42)).toBeNull();
+        expect(c.getPrimaryMaterial({})).toBeNull();
+        expect(c.getPrimaryMaterial([])).toBeNull();
+    });
+
+    it('malformed entries → null (any bad entry poisons the composition)', () => {
+        const c = mc({});
+        const good = [{ material: 'iron', fraction: 1.0 }];
+        const badEntries = [
+            [{ material: 'iron', fraction: 0.5 }, null],
+            [{ material: 'iron', fraction: 0.5 }, { material: 'iron', fraction: 'x' }],
+            [{ material: 'iron', fraction: 0.5 }, { material: '', fraction: 0.5 }],
+            [{ material: 'iron', fraction: 0.5 }, { material: 42, fraction: 0.5 }],
+            [{ material: 'iron', fraction: 0.5 }, { material: 'iron' }],
+            [{ material: 'iron', fraction: 0.5 }, { material: 'iron', fraction: NaN }],
+            [{ material: 'iron', fraction: 0.5 }, { material: 'iron', fraction: -1 }],
+            [null]
+        ];
+        for (const entry of badEntries) {
+            expect(c.getPrimaryMaterial([good[0], entry]), `entry ${JSON.stringify(entry)} must yield null`).toBeNull();
+        }
+    });
+
+    it('result is a defensive copy (mutating it does not affect the input)', () => {
+        const c = mc({});
+        const input = [{ material: 'iron', fraction: 1.0 }];
+        const out = c.getPrimaryMaterial(input);
+        out.material = 'wood';
+        out.fraction = 0;
+        expect(input).toEqual([{ material: 'iron', fraction: 1.0 }], 'the input composition is untouched');
+        const out2 = c.getPrimaryMaterial(input);
+        expect(out2).not.toBe(out, 'each call returns a fresh object');
+        expect(out2).toEqual({ material: 'iron', fraction: 1.0 });
+    });
+});

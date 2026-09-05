@@ -54,6 +54,8 @@ function buildWorldWithBroadcastSpy() {
         }
     });
     
+    // Seam pin: the shipped onDamage rule (5%) must not perturb exact ground counts here.
+    world.onDamageDropListener._randomFn = () => 1;
     return { world, tick, subControllers: result.subControllers, bc };
 }
 
@@ -68,6 +70,8 @@ function buildWorld(mockBroadcastFn = null) {
         world.setBroadcastService({ broadcast: mockBroadcastFn });
     }
     
+    // Seam pin: the shipped onDamage rule (5%) must not perturb exact ground counts here.
+    world.onDamageDropListener._randomFn = () => 1;
     return { world: world, tick, subControllers: result.subControllers };
 }
 

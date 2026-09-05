@@ -44,6 +44,29 @@ const DAMAGE_TORN_MATERIAL_RULE = 'damageTornMaterial';
 
 const KNOWN_RULE_KEYS = new Set([DAMAGE_TORN_MATERIAL_RULE]);
 
+/**
+ * The stable key of the shipped onDamage event table, defined once so the key cannot
+ * drift between the known-events set and the event reader.
+ * @type {string}
+ */
+const ON_DAMAGE_EVENT = 'onDamage';
+
+/**
+ * The known EVENT-table keys this server version can act on. Deliberately a separate
+ * set from KNOWN_RULE_KEYS: a key in this set under `rules` is an event table (an
+ * array of per-entry Bernoulli trials), not a scalar rule, so it is validated and
+ * stored separately (this._events) and never enters KNOWN_RULE_KEYS / getActiveRules().
+ * @type {ReadonlySet<string>}
+ */
+const KNOWN_EVENT_KEYS = new Set([ON_DAMAGE_EVENT]);
+
+/**
+ * The drop tokens a damage-event entry may declare (what to drop on a successful
+ * trial). A future token is added here plus one resolution branch in the consumer.
+ * @type {ReadonlySet<string>}
+ */
+const KNOWN_DROP_TOKENS = new Set(['host_material']);
+
 class WorldRulesController {
     /**
      * @param {Object|null} rawRegistry - Raw data from data/world_rules.json
@@ -51,6 +74,10 @@ class WorldRulesController {
      */
     constructor(rawRegistry) {
         this._rules = {};
+        // Validated ACTIVE event entries (e.g. onDamage). Stored separately from
+        // _rules: an event table is an array-of-trials, not a scalar rule, and must
+        // stay out of getActiveRules()/KNOWN_RULE_KEYS (design §4.1).
+        this._events = {};
         this._validateWorldRules(rawRegistry);
     }
 
@@ -113,6 +140,15 @@ class WorldRulesController {
         for (const [key, config] of Object.entries(rules)) {
             // Skip metadata keys (house convention from the material files).
             if (key.startsWith('_')) continue;
+
+            // Event-table keys (e.g. onDamage): a separate registry validated as an
+            // array of per-entry trials, stored under _events. Checked BEFORE the
+            // unknown-rule branch so onDamage never reaches it; onDamage is NOT in
+            // KNOWN_RULE_KEYS, so the scalar-rule readers stay bit-identical.
+            if (KNOWN_EVENT_KEYS.has(key)) {
+                this._events[key] = this._validateEventConfig(key, config);
+                continue;
+            }
 
             // Unknown rule key → ignore with a warn (forward compatibility, WR-1).
             if (!KNOWN_RULE_KEYS.has(key)) {
@@ -181,6 +217,59 @@ class WorldRulesController {
     }
 
     /**
+     * Validates a single event-table key (e.g. onDamage). Section-level and per-entry
+     * validation only; the degradation contract is "off, never crash" (R6): no throw
+     * at any level.
+     *
+     *   - not an array → the whole event is off: warn + store [] (every other key,
+     *     including damageTornMaterial, is unaffected).
+     *   - array (possibly empty) → per-entry validation; store the surviving entries.
+     *     An empty array is valid (rule present, zero entries → nothing to roll,
+     *     no warning).
+     *
+     * Per-entry rejection (warn + skip, never fatal; the entry index is named):
+     *   E1 — entry is null, not an object, or an array;
+     *   E2 — `drop` missing, not a string, or not in KNOWN_DROP_TOKENS;
+     *   E3 — `percentage` missing, not a finite number, or outside [0, 1]
+     *        (0 and 1 are valid boundary values).
+     * Unknown extra fields on a valid entry are ignored; survivors are stored
+     * normalized to { drop, percentage }.
+     *
+     * @param {string} key - The event key (for logging context).
+     * @param {*} config - The raw config value from the file.
+     * @returns {Array<{drop: string, percentage: number}>} The surviving entries.
+     * @private
+     */
+    _validateEventConfig(key, config) {
+        if (!Array.isArray(config)) {
+            Logger.warn(`[WorldRulesController] Event "${key}": not an array — event disabled (no entries).`);
+            return [];
+        }
+        const survivors = [];
+        for (let i = 0; i < config.length; i++) {
+            const entry = config[i];
+            // E1: must be a plain object.
+            if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+                Logger.warn(`[WorldRulesController] Event "${key}"[${i}]: entry is not a plain object — skipped.`);
+                continue;
+            }
+            // E2: drop required, a known token.
+            if (typeof entry.drop !== 'string' || !KNOWN_DROP_TOKENS.has(entry.drop)) {
+                Logger.warn(`[WorldRulesController] Event "${key}"[${i}]: "drop" missing or unknown — skipped.`);
+                continue;
+            }
+            // E3: percentage required, a finite number in [0, 1].
+            if (typeof entry.percentage !== 'number' || !Number.isFinite(entry.percentage)
+                || entry.percentage < 0 || entry.percentage > 1) {
+                Logger.warn(`[WorldRulesController] Event "${key}"[${i}]: "percentage" missing or out of range [0,1] — skipped.`);
+                continue;
+            }
+            survivors.push({ drop: entry.drop, percentage: entry.percentage });
+        }
+        return survivors;
+    }
+
+    /**
      * Logs the initialization summary: how many rules are active vs off.
      * (project rule §5.2: always log initialization count via Logger.info()).
      * @private
@@ -191,7 +280,13 @@ class WorldRulesController {
         // (none) list below already filters those out).
         const active = Object.values(this._rules).filter(Boolean).length;
         const known = KNOWN_RULE_KEYS.size;
-        Logger.info(`[WorldRulesController] initialized: ${active}/${known} rule(s) active (${[...KNOWN_RULE_KEYS].filter(k => this._rules[k]).join(', ') || 'none'}).`);
+        const ruleList = [...KNOWN_RULE_KEYS].filter(k => this._rules[k]).join(', ') || 'none';
+        // Event clause (design §5.4): appended AFTER the rule clause, keeping the
+        // "X/Y rule(s) active (...)" prefix verbatim (an unanchored unit test depends
+        // on that exact substring).
+        const onDamageEntries = this._events[ON_DAMAGE_EVENT];
+        const entryCount = Array.isArray(onDamageEntries) ? onDamageEntries.length : 0;
+        Logger.info(`[WorldRulesController] initialized: ${active}/${known} rule(s) active (${ruleList}); events: ${ON_DAMAGE_EVENT} ${entryCount} entr(y/ies) active.`);
     }
 
     /**
@@ -243,6 +338,24 @@ class WorldRulesController {
     getDamageTornMaterialPercent() {
         const rule = this._rules[DAMAGE_TORN_MATERIAL_RULE];
         return rule ? rule.percent : 0;
+    }
+
+    /**
+     * Returns a defensive deep copy of the active `onDamage` event entries.
+     *
+     * Each entry is `{ drop: string, percentage: number }`. NOTE the scale:
+     * `percentage` is a raw Bernoulli probability in [0, 1] (0 = never, 1 = always)
+     * — deliberately NOT the 0–100 scale of damageTornMaterial.percent. Returns `[]`
+     * when the file is missing/degraded, onDamage is absent/malformed/empty, or the
+     * controller is unwired. No I/O, no mutation.
+     *
+     * @returns {Array<{drop: string, percentage: number}>} A fresh copy of the
+     *   active entries; `[]` when there are none.
+     */
+    getOnDamageRules() {
+        const entries = this._events[ON_DAMAGE_EVENT];
+        if (!Array.isArray(entries)) return [];
+        return entries.map((e) => ({ ...e }));
     }
 }
 

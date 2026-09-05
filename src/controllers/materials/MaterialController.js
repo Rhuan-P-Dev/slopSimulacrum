@@ -362,6 +362,43 @@ class MaterialController {
     }
 
     /**
+     * Resolves the "primary" material of a composition: the entry with the largest
+     * numeric fraction. This is the composition-selection math that belongs to the
+     * material owner (the same home as the blended damage-type split), used by the
+     * onDamage `host_material` rule to decide which material a damage chip is made of.
+     *
+     * Tie-break: the FIRST entry in array order wins (a later equal fraction never
+     * replaces an earlier best). The composition order in data/components.json is the
+     * stable canonical order, so the result is deterministic.
+     *
+     * Returns null when the input is not a valid non-empty composition: a non-array,
+     * an empty array, or any entry that is not a plain object with a non-empty string
+     * `material` and a finite numeric `fraction` >= 0. Pure function of its input —
+     * no I/O, no other state; returns a defensive copy of the chosen entry.
+     *
+     * @param {Array<{material: string, fraction: number}>} materials - The component
+     *   type's composition array (the same array the chunk handler reads via
+     *   getComponentMaterialsByType()).
+     * @returns {{material: string, fraction: number}|null} A defensive copy of the
+     *   chosen entry, or null when the input is not a valid non-empty composition.
+     */
+    getPrimaryMaterial(materials) {
+        if (!Array.isArray(materials) || materials.length === 0) return null;
+        for (const mat of materials) {
+            if (!mat || typeof mat !== 'object' || Array.isArray(mat)
+                || typeof mat.material !== 'string' || mat.material.length === 0
+                || typeof mat.fraction !== 'number' || !Number.isFinite(mat.fraction) || mat.fraction < 0) {
+                return null;
+            }
+        }
+        let best = materials[0];
+        for (let i = 1; i < materials.length; i++) {
+            if (materials[i].fraction > best.fraction) best = materials[i];
+        }
+        return { material: best.material, fraction: best.fraction };
+    }
+
+    /**
      * Validates the mapping registry: each key must match the shared
      * TRAIT_STAT_KEY_PATTERN (shared/StatVocabulary.js — the same constant the
      * KnowledgeController validator uses, so the two cannot disagree on key

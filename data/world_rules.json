@@ -3,6 +3,9 @@
   "rules": {
     "damageTornMaterial": {
       "percent": 10
-    }
+    },
+    "onDamage": [
+      { "drop": "host_material", "percentage": 0.05 }
+    ]
   }
 }

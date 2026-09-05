@@ -228,4 +228,152 @@ describe('WorldRulesController — validator matrix', () => {
             expect(controller.getDamageTornMaterialPercent()).toBe(0);
         });
     });
+
+    describe('onDamage event rule (validator matrix)', () => {
+        it('valid entry: getOnDamageRules() returns a deep copy; mutating the copy does not affect the registry', () => {
+            const registry = {
+                rules: {
+                    onDamage: [{ drop: 'host_material', percentage: 0.05 }]
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            const entries = controller.getOnDamageRules();
+            expect(entries).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+            // Mutate the returned copy: the registry must be unaffected.
+            entries[0].percentage = 0.99;
+            expect(controller.getOnDamageRules()).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+        });
+
+        it('file without onDamage → [] (backward compat with pre-onDamage files)', () => {
+            const registry = {
+                rules: {
+                    damageTornMaterial: { percent: 10, enabled: true }
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            expect(controller.getOnDamageRules()).toEqual([]);
+        });
+
+        it('onDamage not an array (object / string / number / null) → [], no throw', () => {
+            for (const bad of [{ drop: 'host_material', percentage: 0.5 }, 'oops', 42, null]) {
+                const controller = new WorldRulesController({ rules: { onDamage: bad } });
+                expect(controller.getOnDamageRules()).toEqual([]);
+            }
+        });
+
+        it('non-object entries (string / number / null / array) are skipped, valid siblings kept (E1)', () => {
+            const registry = {
+                rules: {
+                    onDamage: [
+                        'junk',
+                        7,
+                        null,
+                        [1, 2, 3],
+                        { drop: 'host_material', percentage: 0.05 }
+                    ]
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            expect(controller.getOnDamageRules()).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+        });
+
+        it('entry drop missing / non-string / unknown token → skipped (E2), valid siblings kept', () => {
+            const registry = {
+                rules: {
+                    onDamage: [
+                        { percentage: 0.5 },
+                        { drop: 42, percentage: 0.5 },
+                        { drop: 'acid', percentage: 0.5 },
+                        { drop: 'host_material', percentage: 0.05 }
+                    ]
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            expect(controller.getOnDamageRules()).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+        });
+
+        it('entry percentage missing / non-numeric / NaN / 1.5 / -0.1 → skipped (E3); 0 and 1 accepted (boundary)', () => {
+            const registry = {
+                rules: {
+                    onDamage: [
+                        { drop: 'host_material' },
+                        { drop: 'host_material', percentage: '0.5' },
+                        { drop: 'host_material', percentage: NaN },
+                        { drop: 'host_material', percentage: 1.5 },
+                        { drop: 'host_material', percentage: -0.1 },
+                        { drop: 'host_material', percentage: 0 },
+                        { drop: 'host_material', percentage: 1 }
+                    ]
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            expect(controller.getOnDamageRules()).toEqual([
+                { drop: 'host_material', percentage: 0 },
+                { drop: 'host_material', percentage: 1 }
+            ]);
+        });
+
+        it('unknown extra field on a valid entry → ignored (stored normalized)', () => {
+            const registry = {
+                rules: {
+                    onDamage: [{ drop: 'host_material', percentage: 0.05, futureField: true }]
+                }
+            };
+            const controller = new WorldRulesController(registry);
+            expect(controller.getOnDamageRules()).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+        });
+
+        it('malformed onDamage leaves getDamageTornMaterialPercent() intact — and vice versa (key independence)', () => {
+            // Malformed onDamage must not hurt the torn rule.
+            const c1 = new WorldRulesController({
+                rules: {
+                    damageTornMaterial: { percent: 10, enabled: true },
+                    onDamage: { drop: 'host_material', percentage: 0.05 } // not an array
+                }
+            });
+            expect(c1.getDamageTornMaterialPercent()).toBe(10);
+            expect(c1.getOnDamageRules()).toEqual([]);
+
+            // Malformed torn rule must not hurt onDamage.
+            const c2 = new WorldRulesController({
+                rules: {
+                    damageTornMaterial: { percent: 'bad' },
+                    onDamage: [{ drop: 'host_material', percentage: 0.05 }]
+                }
+            });
+            expect(c2.getDamageTornMaterialPercent()).toBe(0);
+            expect(c2.getOnDamageRules()).toEqual([{ drop: 'host_material', percentage: 0.05 }]);
+        });
+
+        it('degradation: null registry / rules missing / rules empty → onDamage [] AND torn percent 0, no throw', () => {
+            const cases = [null, undefined, { someKey: true }, { rules: null }, { rules: {} }];
+            for (const raw of cases) {
+                const controller = new WorldRulesController(raw);
+                expect(controller.getOnDamageRules()).toEqual([]);
+                expect(controller.getDamageTornMaterialPercent()).toBe(0);
+            }
+        });
+
+        it('summary line keeps the unanchored "X/Y rule(s) active" prefix and reports the event clause', () => {
+            const infoSpy = vi.spyOn(Logger, 'info');
+            try {
+                new WorldRulesController({
+                    rules: {
+                        damageTornMaterial: { percent: 10, enabled: true },
+                        onDamage: [{ drop: 'host_material', percentage: 0.05 }]
+                    }
+                });
+                const summary = infoSpy.mock.calls
+                    .map((call) => call[0])
+                    .find((line) => typeof line === 'string' && line.includes('rule(s) active'));
+                expect(summary, 'the init summary line should be logged at construction').toBeDefined();
+                // The scalar-rule prefix must remain verbatim (existing tests depend on it).
+                expect(summary).toMatch(/1\/1 rule\(s\) active \(damageTornMaterial\)/);
+                // The event clause is appended after the rule clause.
+                expect(summary).toMatch(/events: onDamage 1 entr\(y\/ies\) active/);
+            } finally {
+                infoSpy.mockRestore();
+            }
+        });
+    });
 });

@@ -59,6 +59,7 @@ import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
 import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
 import WorldRulesController from '../controllers/worldRules/WorldRulesController.js';
+import OnDamageDropListener from '../controllers/worldRules/OnDamageDropListener.js';
 
 // Logic controllers (depend on data stores)
 import ComponentController from '../controllers/core/componentController.js';
@@ -238,6 +239,11 @@ export function buildWorldState(tickSystem = null) {
     // materialController is forwarded (feature 1) so the damage handler can apply the
     // attacker's per-material damage-type split at the single damage choke point.
     const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController, worldRulesController });
+    // onDamage world-event rule (Layer 3): the enforcement arm of the world-rules
+    // layer. Constructed before the facade (like the other logic controllers) with
+    // only its named deps (both already in scope — no new file I/O). The facade
+    // reference is injected post-construction below.
+    const onDamageDropListener = new OnDamageDropListener({ materialController, worldRulesController });
     // ActionController: needs its named collaborators; facade injected later.
     const actionController = new ActionController(
         consequenceHandlers,
@@ -314,7 +320,11 @@ export function buildWorldState(tickSystem = null) {
         // hand-build the facade without it. Deliberately NOT in the subControllers
         // broadcast map: static config data must stay out of the full-state
         // aggregation (same rule as craftingController / knowledgeController).
-        worldRulesController
+        worldRulesController,
+        // OnDamageDropListener: enforcement arm of the onDamage world-event rule.
+        // Null-tolerant like worldRulesController — a test may hand-build the facade
+        // without it. Deliberately NOT in the subControllers broadcast map (same rule).
+        onDamageDropListener
     });
 
     // =========================================================================
@@ -331,6 +341,9 @@ export function buildWorldState(tickSystem = null) {
     synergyController.setWorldStateController(worldStateController);
     actionController.setWorldStateController(worldStateController);
     consequenceHandlers.setWorldStateController(worldStateController);
+    // onDamage listener: inject the facade (post-construction) so handleDamage can
+    // read component/entity/material state via the public API.
+    onDamageDropListener.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
     // Turn-driven ICs: fire internal-component turn effects at ROUND START.
@@ -414,7 +427,11 @@ export function buildWorldState(tickSystem = null) {
             // Inspection-only (not in broadcast) — the world-rules registry has no
             // getAll() by design; static config data must stay out of the full-state
             // broadcast aggregation (same rule as craftingController / knowledgeController).
-            worldRulesController
+            worldRulesController,
+            // Inspection-only (not in broadcast) — the onDamage enforcement arm is a
+            // null-tolerant actor with no getAll(); it must stay out of the full-state
+            // broadcast aggregation (same rule as worldRulesController).
+            onDamageDropListener
         }
     };
 }

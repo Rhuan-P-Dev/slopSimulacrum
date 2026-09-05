@@ -133,6 +133,13 @@ class WorldStateController {
         // aggregation (same rule as craftingController / knowledgeController).
         /** @private {import('./worldRules/WorldRulesController.js')|null} */
         this.worldRulesController = deps.worldRulesController ?? null;
+        // OnDamageDropListener: enforcement arm of the onDamage world-event rule.
+        // A null-tolerant actor (no getAll()) — deliberately NOT in the subControllers
+        // broadcast map (same rule as worldRulesController). The facade registers it
+        // on the component damage-listener list below; the listener's OWN facade
+        // reference is injected post-construction by the composition root.
+        /** @private {import('./worldRules/OnDamageDropListener.js')|null} */
+        this.onDamageDropListener = deps.onDamageDropListener ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -241,6 +248,15 @@ class WorldStateController {
             if (this._broadcastService && this._cascadeReentrancyCount === 0) {
                 this._broadcastService.broadcast();
             }
+        });
+
+        // onDamage world-event rule: subscribe the consumer to the component
+        // damage-listener list (source-agnostic weakening events). Null-tolerant —
+        // a hand-built facade without the listener is a no-op. The listener's OWN
+        // facade reference is injected by the composition root (post-construction),
+        // so by the time any real damage event fires it is already wired.
+        this.componentController.registerDamageListener((componentId, traitId, statName, oldValue, newValue) => {
+            this.onDamageDropListener?.handleDamage(componentId, traitId, statName, oldValue, newValue);
         });
 
         // Initialize Internal Component Controller with the global tick system

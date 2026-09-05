@@ -51,7 +51,15 @@ const WORLD_RULES_PATH = path.join(projectRoot, 'data/world_rules.json');
 /** A fresh, not-started world. */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-    return buildWorldState(tick).worldStateController;
+    const world = buildWorldState(tick).worldStateController;
+    // Pin the onDamage Bernoulli stream (design §7.4): this suite asserts exact
+    // torn/chunk ground-record counts, and the shipped 5% onDamage rule would
+    // otherwise add a real probabilistic stream to the same worlds. Always-fail →
+    // the world is identical to the pre-feature world; no assertion is modified.
+    // (Tests that hide/empty the world_rules file are unaffected: the rule is off
+    // there anyway, and the pin is harmless.)
+    world.onDamageDropListener._randomFn = () => 1;
+    return world;
 }
 
 /** The attacker's strongest strength-bearing droidHand. */
