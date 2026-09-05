@@ -955,16 +955,22 @@ class InternalComponentController {
 
         const hostEntity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!hostEntity) return false;
-        const hostPos = hostEntity.spatial?.position;
+        const hostPos = hostEntity.spatial;
         if (!hostPos) return false;
         const range = typeof effect.range === 'number' ? effect.range : 0;
         const resistanceStat = this._channelResistanceStat(effect.channel);
 
         let damaged = 0;
-        const allEntities = this.worldStateController.stateEntityController.getAll ? this.worldStateController.stateEntityController.getAll() : [];
+        // getAll() returns a deep clone of the entity STORE (a plain object keyed
+        // by entity id), not an array — iterate its values.
+        const entityStore = this.worldStateController.stateEntityController;
+        const allEntities = typeof entityStore?.getAll === 'function' ? Object.values(entityStore.getAll()) : [];
         for (const other of allEntities) {
             if (!other || other.id === entityId) continue;
-            const otherPos = other.spatial?.position;
+            // Range is in room-relative coordinates (room center = origin): never
+            // damage across room boundaries with local coordinates.
+            if (other.location !== hostEntity.location) continue;
+            const otherPos = other.spatial;
             if (!otherPos) continue;
             const dx = otherPos.x - hostPos.x;
             const dy = otherPos.y - hostPos.y;
