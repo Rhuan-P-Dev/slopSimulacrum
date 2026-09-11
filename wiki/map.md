@@ -116,7 +116,8 @@ graph TD
     ODL -->|event table| WRC
     ODL -->|chunk levers| MC
     CC -.->|damage event| ODL
-    WSC -->|holds; initializes tick job| EFC
+    WSC -->|holds| EFC
+    TSC -->|turn-start hook| EFC
     EFC -->|energyFlow rule| WRC
     EFC -->|entity census| SEC
     EFC -.->|stat writes; damage suppressed| CC
@@ -148,7 +149,7 @@ graph TD
 | `data/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
 | `data/materialDamageTypes.json` | Per-material damage-type split — how a raw value dealt *by* a material is distributed across the six damage channels, so the attacker's material decides a hit's channel mix (wood blunts and shreds, iron is pure impact); a missing/empty file turns the feature off, exactly reproducing legacy combat |
 | `data/materialDropRates.json` | Per-material chunk-drop loot — the chance a material drops a chunk on a successful channel-damage hit (punch, cut, shootT1) and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
-| `data/world_rules.json` | World-rules layer — stable string key → small config objects governing cross-cutting laws (not loot tables); ships the `damageTornMaterial` rule (a deterministic X% of applied loss drops as torn matter per composition fraction), the `onDamage` event law (a small per-event chance to drop a chunk of the damaged component's material, additive to the per-material chunk drops), and the `energyFlow` rule (the cross-component energy circulation law: per-tick share of tick-start energy plus the default per-component capacity bound — see [Energy Flow](subMDs/systems/energy_flow.md)); a missing/empty/malformed file means all rules and event laws off (legacy world, never crashes) |
+| `data/world_rules.json` | World-rules layer — stable string key → small config objects governing cross-cutting laws (not loot tables); ships the `damageTornMaterial` rule (a deterministic X% of applied loss drops as torn matter per composition fraction), the `onDamage` event law (a small per-event chance to drop a chunk of the damaged component's material, additive to the per-material chunk drops), and the `energyFlow` rule (the cross-component energy circulation law: per-turn share of turn-start energy plus the default per-component capacity bound — see [Energy Flow](subMDs/systems/energy_flow.md)); a missing/empty/malformed file means all rules and event laws off (legacy world, never crashes) |
 | `data/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types) |
 
 ## 🧩 Shared Modules

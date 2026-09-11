@@ -74,7 +74,7 @@ Additional reference documentation for specific systems and components, organize
 ### 💾 Data Models
 - [Components & Entities](subMDs/data/components_and_entities.md) — Entity system + internal components
 - [Holding Cost](subMDs/data/holding_cost.md) — Equipped item physical burden system
-- [Internal Components](subMDs/data/internal_components.md) — Passive data-driven augmentations, tick-based effects
+- [Internal Components](subMDs/data/internal_components.md) — Passive data-driven augmentations, turn-based effects
 - [Traits](subMDs/data/traits.md) — Trait system
 - [World State](subMDs/data/world_state.md) — World state data model
 - [Inventory System](subMDs/data/inventory_system.md) — Volume-based item storage on components
@@ -99,7 +99,7 @@ Additional reference documentation for specific systems and components, organize
 - [Item Drop & Pickup System](subMDs/systems/item_drop_pickup.md) — Item drop range calculation and pickup
 - [Unique ID System](subMDs/systems/unique_id_system.md) — Self-describing typed IDs (ent-, comp-, item-, eq-) for unambiguous client-server resolution
 - [Crafting System](subMDs/systems/crafting_system.md) — Data-driven recipes, UI-panel crafting on a component's inventory, no turn cost
-- [Energy Flow System](subMDs/systems/energy_flow.md) — Why the M1 droid circulates energy as one fully-interconnected network (simultaneous tick-start redistribution, capacity bounds with lost overflow, drains that are not damage, total degradation via one world-rule key, silent steady state, one broadcast per tick)
+- [Energy Flow System](subMDs/systems/energy_flow.md) — Why the M1 droid circulates energy as one fully-interconnected network (simultaneous turn-start redistribution, capacity bounds with lost overflow, drains that are not damage, total degradation via one world-rule key, silent steady state, one broadcast per turn)
 
 ### 🐛 Bug Tracking
 - [Bugfix Wiki](bugfixWiki/README.md) — Centralized bug database with severity classifications and resolution tracking

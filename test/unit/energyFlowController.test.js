@@ -3,9 +3,10 @@
  *
  * Stub-based: a hand-built stub facade (entity store + stat reader + a
  * recording `componentController.updateComponentStat` + the begin/end flow
- * scope pair), a stub tick system (records the registered job), a stub rule
- * controller (returns a chosen rule or null), and Logger mocked (house unit
- * pattern). These tests pin exactly what the shipped data files CANNOT
+ * scope pair), a stub rule controller (returns a chosen rule or null), and
+ * Logger mocked (house unit pattern). The flow registers no tick job: its
+ * per-turn step is processFlowTurn(round), driven directly here. These tests
+ * pin exactly what the shipped data files CANNOT
  * express:
  *
  *   - N = 1 no-op (a one-component entity cannot circulate: no writes, no
@@ -20,7 +21,7 @@
  *   - The skip-damage flag (every flow write suppresses the damage event).
  *   - No-op suppression at unit scale (the FLOW_NOOP_EPSILON: a uniform
  *     entity whose per-pair recompute is ulp-off performs zero writes).
- *   - Disabled at boot (stub rule controller returns null: the tick callback
+ *   - Disabled at boot (stub rule controller returns null: the turn step
  *     does not touch the facade at all).
  *   - Zero-energy skip (all stats absent: zero writes, no scope broadcast).
  *
@@ -74,24 +75,23 @@ function makeFacade(entities, statsByComp) {
                 return true;
             }
         },
-        beginEnergyFlowTick: () => { scope.begin++; },
-        endEnergyFlowTick: (shouldBroadcast) => { scope.end++; scope.endArgs.push(shouldBroadcast); }
+        beginEnergyFlowTurn: () => { scope.begin++; },
+        endEnergyFlowTurn: (shouldBroadcast) => { scope.end++; scope.endArgs.push(shouldBroadcast); }
     };
 }
 
 /**
- * Builds the controller under test with a stub tick system (job recorder),
- * the given recipe registry, and a stub rule controller. Wires the stub
- * facade post-construction (the composition root's wiring step).
+ * Builds the controller under test with the given recipe registry and a stub
+ * rule controller. Wires the stub facade post-construction (the composition
+ * root's wiring step). The flow registers no tick job: its per-turn step is
+ * processFlowTurn(round), driven directly by tickOnce below.
  */
 function makeController(facade, registry, rule) {
-    const jobs = [];
-    const tickStub = { register: (job) => jobs.push(job) };
     const rulesStub = { getRule: (key) => (key === 'energyFlow' ? rule : null) };
-    const controller = new EnergyFlowController(tickStub, registry, rulesStub);
+    const controller = new EnergyFlowController(registry, rulesStub);
     controller.initialize();
     controller.setWorldStateController(facade);
-    return { controller, jobs };
+    return controller;
 }
 
 /** The shipped rule shape (a defensive copy of the validated config). */
@@ -99,11 +99,9 @@ function rule(overrides = {}) {
     return { sharePerTick: 0.1, defaultEnergyCapacity: 100, enabled: true, ...overrides };
 }
 
-/** Drives one flow step via the registered job's callback (the loop's path). */
-function tickOnce(controller, jobs) {
-    expect(jobs, 'the job must be registered at initialize()').toHaveLength(1);
-    expect(jobs[0].id).toBe('energy-flow');
-    jobs[0].callback();
+/** Drives one flow turn directly (the round-start hook's path). */
+function tickOnce(controller) {
+    controller.processFlowTurn(1);
 }
 
 // =========================================================================
@@ -115,9 +113,9 @@ describe('EnergyFlowController — N=1 no-op', () => {
         const stats = { c1: { Physical: { energy: 50 } } };
         const entities = { e1: { components: [{ id: 'c1', type: 'a' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {} }, rule());
+        const controller = makeController(facade, { a: {} }, rule());
 
-        expect(() => tickOnce(controller, jobs)).not.toThrow();
+        expect(() => tickOnce(controller)).not.toThrow();
 
         expect(facade.writes).toHaveLength(0);
         expect(facade.scope.begin).toBe(1);
@@ -142,13 +140,13 @@ describe('EnergyFlowController — heterogeneous-capacity hard clamp', () => {
         // declares energyCapacity at launch), so this case is unit-level only.
         // b starts BELOW its cap so the clamp engages on an actual write
         // (a start at cap would clamp to its unchanged value → silent no-op).
-        const { controller, jobs } = makeController(
+        const controller = makeController(
             facade,
             { a: { energyCapacity: 10 }, b: { energyCapacity: 1 } },
             rule()
         );
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         const writeOf = (id) => facade.writes.find((w) => w.componentId === id);
         expect(facade.writes).toHaveLength(2);
@@ -181,13 +179,13 @@ describe('EnergyFlowController — energyCapacity: 0', () => {
         };
         const entities = { e1: { components: [{ id: 'a', type: 'a' }, { id: 'b', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(
+        const controller = makeController(
             facade,
             { a: {}, b: { energyCapacity: 0 } },
             rule()
         );
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         const writeOf = (id) => facade.writes.find((w) => w.componentId === id);
         // b: start 5, inflow = 5 (a's send, N−1=1), send = 0.5 → raw 9.5,
@@ -210,9 +208,9 @@ describe('EnergyFlowController — skip-damage flag', () => {
         };
         const entities = { e1: { components: [{ id: 'a', type: 'a' }, { id: 'b', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {}, b: {} }, rule());
+        const controller = makeController(facade, { a: {}, b: {} }, rule());
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         expect(facade.writes.length).toBeGreaterThan(0);
         for (const w of facade.writes) {
@@ -247,9 +245,9 @@ describe('EnergyFlowController — no-op suppression', () => {
         const stats = { a: { Physical: { energy: x } }, b: { Physical: { energy: x } } };
         const entities = { e1: { components: [{ id: 'a', type: 'a' }, { id: 'b', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {}, b: {} }, rule());
+        const controller = makeController(facade, { a: {}, b: {} }, rule());
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         expect(facade.writes).toHaveLength(0);
         expect(facade.scope.endArgs).toEqual([false]);
@@ -265,11 +263,9 @@ describe('EnergyFlowController — disabled at boot', () => {
         const stats = { c1: { Physical: { energy: 50 } }, c2: { Physical: { energy: 50 } } };
         const entities = { e1: { components: [{ id: 'c1', type: 'a' }, { id: 'c2', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {}, b: {} }, null); // rule OFF
+        const controller = makeController(facade, { a: {}, b: {} }, null); // rule OFF
 
-        expect(jobs, 'the job stays registered even when the rule is off').toHaveLength(1);
-
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         // No enumeration, no reads, no writes, no scope activity at all.
         expect(facade.stateEntityController.getAll).not.toHaveBeenCalled();
@@ -288,9 +284,9 @@ describe('EnergyFlowController — zero-energy skip', () => {
         const stats = {}; // no component carries the energy stat
         const entities = { e1: { components: [{ id: 'c1', type: 'a' }, { id: 'c2', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {}, b: {} }, rule());
+        const controller = makeController(facade, { a: {}, b: {} }, rule());
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         expect(facade.writes).toHaveLength(0);
         // The scope still opened and closed (the step ran, found no energy):
@@ -332,9 +328,9 @@ describe('EnergyFlowController — broadcast scope positive path', () => {
         const stats = { a: { Physical: { energy: 10 } }, b: { Physical: { energy: 1 } } };
         const entities = { e1: { components: [{ id: 'a', type: 'a' }, { id: 'b', type: 'b' }] } };
         const facade = makeFacade(entities, stats);
-        const { controller, jobs } = makeController(facade, { a: {}, b: {} }, rule());
+        const controller = makeController(facade, { a: {}, b: {} }, rule());
 
-        tickOnce(controller, jobs);
+        tickOnce(controller);
 
         // a: 10 + 0.1 - 1 ≠ 10 and b: 1 + 1 - 0.1 ≠ 1 → two real writes.
         expect(facade.writes.length).toBe(2);

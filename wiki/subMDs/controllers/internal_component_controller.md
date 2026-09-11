@@ -18,6 +18,8 @@ Internal components are stored nested per host component and per entity. This mi
 
 ## 2. Unified Tick System
 
+> **SUPERSEDED by [turn_driven_ic_and_flow_spec.md](wiki/turn_driven_ic_and_flow_spec.md)** — the per-tick IC job is retired; overTime effects now run once per ROUND START via the turn-start hook, gated on the round number. The text below describes the retired unified-tick design.
+
 ### Why a Single Unified Tick
 
 Instead of spawning a separate `setInterval` per internal component type, the controller uses a **single 1-second interval** that drives all effects. This design was chosen because:
@@ -32,18 +34,13 @@ Each component type declares its own cadence and effects in the data registry, a
 
 The effect system supports three operations: increment, assign, and scale. This covers the full range of stat modification intents without requiring custom effect logic per component type.
 
-### Turn-Driven Effects (round-start channel)
+### OverTime Effects (round-start channel)
 
-Besides the tick channel, a type may opt into a **turn-driven** channel with `turnDriven: true`. Its `turnEffects` fire exactly ONCE PER ROUND, invoked by the turn system's round-start hook (wired in the composition root), rather than by the unified tick. This exists because some effects are only meaningful at round granularity: a "maintained" host stat (a `set` that overwrites rather than adds, so the bonus never stacks) or a self-durability spend of 1 per round. Driving those from the tick channel would double-apply them many times per round.
+The unified `overTime` channel is the single channel for all periodic effects, and it fires at **round start** through the turn system's round-start hook (wired in the composition root) — not on a wall-clock tick. Each `overTime` entry carries its own `intervalTurns` (a positive integer, unit: rounds) and is gated globally: it fires only when `round > 0 && round % intervalTurns === 0`. This gives round-granular pacing with no coupling to a tick rate, and expresses "every N rounds" directly in the data (no per-instance state).
 
-Each `turnEffects` entry carries a `target` field:
+Each `overTime` entry is one of three effect types — `restoreExistence` (reconstitute the host's existence from salvage), `emitChannelDamage` (degrade nearby components through a damage channel), or `consumeFuelGenerateStat` (burn carried fuel to charge a stat) — and the controller dispatches to the matching handler. A broken instance or broken host stops its effects. After any change the controller syncs the entity store.
 
-- `self` - mutate the instance's OWN stat pool (a defensive copy of the type's `traits` stored on the instance). When a `self` durability drain reaches 0, the instance is marked broken and STOPS applying effects until removed/re-installed.
-- `host` - mutate the host component's stat via the world-state facade's public stat API (`set` = absolute overwrite for the maintained semantic; `add`/`multiply` = computed delta).
-
-The tick channel and the turn channel are mutually exclusive: `_processTick` skips `turnDriven` types, and `processTurnEffects` skips non-turnDriven types, so an effect is never applied twice.
-
-**Fail-fast validation.** Structurally invalid registry entries — a missing `targetTrait`/`targetStat`, an unknown `effect` vocabulary value, a non-numeric `amount`, or an unknown `target` — throw `TypeError` at load time so corrupted data never enters the internal state. Only genuinely optional/soft conditions (e.g. a passive no-op type with neither channel, or a missing optional volume) are surfaced as warnings. This mirrors the project rule that state controllers validate loaded data before trusting it.
+**Fail-fast validation.** Structurally invalid registry entries — a missing or non-positive-integer `intervalTurns`, an unknown effect type, a missing field required by the effect type, or a non-numeric amount — throw `TypeError` at load time so corrupted data never enters the internal state. Only genuinely optional/soft conditions (e.g. a passive type with an empty `overTime` list, or a missing optional volume) are surfaced as warnings. This mirrors the project rule that state controllers validate loaded data before trusting it.
 
 ## 3. Auto-Installation Design
 
@@ -81,7 +78,7 @@ Passively heals host durability over time. Represents a self-repair nanite clust
 
 ### `transcendentSpeedCore` (Minor Transcendence of the God of Speed)
 
-Increases `Movement.move` over time, auto-installs only on `smallBallDroid` entities. Demonstrates the generic tick system's extensibility.
+Increases `Movement.move` over time, auto-installs only on `smallBallDroid` entities. Demonstrates the per-turn overTime channel's extensibility (a new effect type is a registry entry plus one handler — no new job needed).
 
 ### `strengthCore`
 
@@ -89,7 +86,7 @@ Turn-driven: each round it drains 1 from the HOST HAND's `Physical.durability` (
 
 ## 6. Dependency Injection
 
-The controller is self-instantiated. The world state controller is injected after initialization, enabling the tick system to modify component stats through the public API. This delayed injection prevents circular dependencies while maintaining access to the stat mutation pipeline.
+The controller is self-instantiated. The world state controller is injected after initialization, enabling the round-start hook to modify component stats through the public API. This delayed injection prevents circular dependencies while maintaining access to the stat mutation pipeline.
 
 ## 7. Integration Points
 

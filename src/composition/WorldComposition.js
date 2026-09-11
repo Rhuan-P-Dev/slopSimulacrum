@@ -273,14 +273,14 @@ export function buildWorldState(tickSystem = null) {
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
     // Energy flow (wiki/energy_flow_spec.md): the "blood system". Logic
-    // controller with named deps only — tickSystem (job registration), the
-    // already-loaded componentRegistry (data/components.json — used ONLY to
-    // resolve the optional per-recipe `energyCapacity` bound), and the
-    // worldRulesController (the flow reads the validated rule via
-    // getRule('energyFlow'), never the file). Deliberately NOT passed into
-    // the facade's broadcast subControllers map: it has no getAll().
+    // controller with named deps only — the already-loaded componentRegistry
+    // (data/components.json — used ONLY to resolve the optional per-recipe
+    // `energyCapacity` bound) and the worldRulesController (the flow reads the
+    // validated rule via getRule('energyFlow'), never the file). No tick-system
+    // dependency: the flow runs once per turn, driven from the turn system's
+    // round-start hook below. Deliberately NOT passed into the facade's
+    // broadcast subControllers map: it has no getAll().
     const energyFlowController = new EnergyFlowController(
-        tickSystem,
         componentRegistry,
         worldRulesController
     );
@@ -369,14 +369,35 @@ export function buildWorldState(tickSystem = null) {
     onDamageDropListener.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
-    // Turn-driven ICs: fire internal-component turn effects at ROUND START.
-    // Wired here (composition root) because the turn system and the IC
-    // controller are siblings - neither owns the other.
-    turnSystemController.setTurnStartHook(() => internalComponentController.processTurnEffects());
+    // Per-turn subsystem steps at ROUND START (wiki/turn_driven_ic_and_flow_spec.md).
+    // Wired here (composition root) because the turn system, the IC controller
+    // and the flow controller are siblings — none owns another. The hook
+    // receives the round number that just started.
+    //
+    // 3-layer isolation contract:
+    //   L1 — inside processTurnEffects, each overTime effect is guarded by its
+    //        own try/catch (per-effect isolation).
+    //   L2 — HERE: each subsystem step runs in its own guarded block, so an IC-
+    //        step failure can never skip the flow step, and a flow-step failure
+    //        can never skip the NPC agents that fire after this hook.
+    //   L3 — the turn system's own round-start hook invocation is wrapped in a
+    //        try/catch (the hook can never take down the round).
+    turnSystemController.setTurnStartHook((round) => {
+        try {
+            internalComponentController.processTurnEffects(round);
+        } catch (err) {
+            Logger.warn(`[WorldComposition] Round ${round}: IC turn step failed: ${err && err.message ? err.message : err}`);
+        }
+        try {
+            energyFlowController.processFlowTurn(round);
+        } catch (err) {
+            Logger.warn(`[WorldComposition] Round ${round}: flow turn step failed: ${err && err.message ? err.message : err}`);
+        }
+    });
     // Energy flow: inject the facade (post-construction) so the flow step can
     // enumerate entities, read stats, and write through the public API. By the
-    // time its tick job can run, the tick system is started — i.e. after this
-    // wiring step — so the reference is always resolved before first use.
+    // time a round starts (i.e. after this wiring step), the reference is
+    // always resolved before first use.
     energyFlowController.setWorldStateController(worldStateController);
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);

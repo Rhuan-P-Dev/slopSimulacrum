@@ -12,12 +12,16 @@
  * round start fires the turn-start hook exactly once.
  *
  * Covers:
- *   - the HOST HAND's Physical.existence drains by 1 per turn (the IC's own
- *     instanceStats pool stays static at 20 — it no longer self-drains);
- *   - host strength is MAINTAINED (set, non-additive) at 50 across turns
- *     (snapshot after each round-start hook: 50, then still 50, never 100);
- *   - the unified tick channel SKIPS turn-driven types (no double-apply);
- *   - a broken instance (host hand existence 0) stops applying effects;
+ *   - strengthCore is a pure FUNCTION organ: it grants the host's
+ *     Physical.strength on install (a static, non-additive set — 50, never
+ *     stacking to 100) and has an EMPTY overTime list, so the per-turn channel
+ *     is a no-op for it (no drain, no periodic set);
+ *   - the per-turn overTime channel's round gate: an effect fires only when the
+ *     round is a positive multiple of its intervalTurns — repairSphere
+ *     (intervalTurns 5) restores the host's existence on the round-5 start and
+ *     does nothing on off-interval rounds;
+ *   - the overTime channel is wired: repairSphere declares restoreExistence,
+ *     corrosiveGland declares emitChannelDamage + the corrosive flag grant;
  *   - hostComponentType / hostSlot auto-install filtering (left droidHand only);
  *   - processTurnEffects is a no-op with zero installed instances (wiring
  *     safety — it must never throw in a world without any ICs).
@@ -29,6 +33,7 @@ import { describe, it, expect } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
+import { channelLossFromResistance } from '../../src/utils/channelLoss.js';
 
 /**
  * Builds a fresh world wired to a (non-started) tick system, spawns a test
@@ -84,6 +89,13 @@ function leftHandId(world, entityId) {
 function allHandIds(world, entityId) {
     const entity = world.stateEntityController.getEntity(entityId);
     return entity.components.filter(c => c.type === 'droidHand').map(c => c.id);
+}
+
+/** Spawns a smallBallDroid in the given room at the given position. */
+function walkIn(world, roomId, x = 0, y = 0) {
+    const id = world.stateEntityController.spawnEntity('smallBallDroid', roomId);
+    world.stateEntityController.updateEntitySpatial(id, { x, y });
+    return id;
 }
 
 describe('internal components — organ grants + unified overTime (strengthCore)', () => {
@@ -178,6 +190,47 @@ describe('internal components — organ grants + unified overTime (strengthCore)
         expect(flags).toContain('corrosive');
     });
 
+    it('repairSphere restores the host existence on its intervalTurns cadence (rounds 5, 10) and not off-interval', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        const handId = leftHandId(world, entityId);
+        expect(handId, 'test droid must have a left droidHand').toBeTruthy();
+        const ic = world.internalComponentController;
+        world.addInternalComponent(entityId, handId, 'repairSphere');
+
+        // Bring the host below whole so the restore has something to repair.
+        world.componentController.updateComponentStat(handId, 'Physical', 'existence', 0.9, true);
+        expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.9, 12);
+
+        // Round-0 start: gate closed, no restore.
+        stepTo(world, tick, turns, 0);
+        expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.9, 12);
+        closeRound(turns, world, entityId);
+
+        // Rounds 1–4: off-cadence, no restore.
+        for (let round = 1; round <= 4; round++) {
+            stepTo(world, tick, turns, round);
+            expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.9, 12);
+            closeRound(turns, world, entityId);
+        }
+
+        // Round-5 start (5 > 0 and 5 % 5 === 0): the restore fires, adding
+        // existenceGainPerInterval (0.02) — 0.9 → 0.92 (still below the clamp).
+        stepTo(world, tick, turns, 5);
+        expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.92, 12);
+        closeRound(turns, world, entityId);
+
+        // Rounds 6–9: off-cadence, no restore.
+        for (let round = 6; round <= 9; round++) {
+            stepTo(world, tick, turns, round);
+            expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.92, 12);
+            closeRound(turns, world, entityId);
+        }
+
+        // Round-10 start (10 % 5 === 0): the second restore fires — 0.92 → 0.94.
+        stepTo(world, tick, turns, 10);
+        expect(world.getComponentStats(handId).Physical.existence).toBeCloseTo(0.94, 12);
+    });
+
     it('hostComponentType auto-install targets a droidHand (left hand receives the organ)', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const ic = world.internalComponentController;
@@ -212,5 +265,49 @@ describe('internal components — organ grants + unified overTime (strengthCore)
         // And a full round with no ICs installed still runs cleanly.
         stepTo(world, tick, turns, 0);
         expect(turns.getRoundState().phase).toBe('planning');
+    });
+
+    it('corrosiveGland emits corrosion damage on its intervalTurns cadence (round 10) and not off-interval', () => {
+        const { world, tick, turns } = buildWorld();
+        const startRoomId = world.roomsController.getUidByLogicalId('start_room');
+
+        // Despawn ALL NPCs (range-50 nearest-target nondeterminism).
+        const npcs = Object.values(world.stateEntityController.entities).filter((e) => e.isNPC === true);
+        for (const npc of npcs) world.despawnEntity(npc.id);
+
+        // Spawn host and victim in the same room.
+        const hostId = walkIn(world, startRoomId, 0, 0);
+        const victimId = walkIn(world, startRoomId, 10, 0);
+
+        const hostEnt = world.stateEntityController.getEntity(hostId);
+        const victimEnt = world.stateEntityController.getEntity(victimId);
+
+        // Install the corrosiveGland on the host's first component.
+        world.addInternalComponent(hostId, hostEnt.components[0].id, 'corrosiveGland');
+
+        // Compute expected loss from the victim's first-component corrosion resistance.
+        const targetComp = victimEnt.components[0];
+        const res = world.getComponentStats(targetComp.id)?.Physical?.corrosion_resistance ?? 0;
+        const expectedLoss = channelLossFromResistance(1, res);
+        expect(expectedLoss, 'the corrosion tick is a small non-lethal loss').toBeGreaterThan(0);
+        expect(expectedLoss).toBeLessThan(1);
+
+        const existenceBefore = world.getComponentStats(targetComp.id).Physical.existence;
+
+        // Round-0 start: gate closed, no corrosion.
+        stepTo(world, tick, turns, 0);
+        expect(world.getComponentStats(targetComp.id).Physical.existence).toBe(existenceBefore);
+        closeRound(turns, world, hostId);
+
+        // Rounds 1–9: off-cadence (interval is 10; 5 is not a multiple of 10).
+        for (let round = 1; round <= 9; round++) {
+            stepTo(world, tick, turns, round);
+            expect(world.getComponentStats(targetComp.id).Physical.existence).toBe(existenceBefore);
+            closeRound(turns, world, hostId);
+        }
+
+        // Round-10 start (10 % 10 === 0): the corrosion fires.
+        stepTo(world, tick, turns, 10);
+        expect(world.getComponentStats(targetComp.id).Physical.existence, 'the corrosion tick dealt damage to the victim').toBeCloseTo(existenceBefore - expectedLoss, 12);
     });
 });

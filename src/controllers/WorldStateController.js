@@ -168,7 +168,7 @@ class WorldStateController {
         // broadcast gate suppresses per-write broadcasts; the step itself closes
         // the scope with at most one full-state broadcast (only if something
         // moved). The counter is incremented/decremented in lockstep by
-        // beginEnergyFlowTick() / endEnergyFlowTick() — always balanced by the
+        // beginEnergyFlowTurn() / endEnergyFlowTurn() — always balanced by the
         // flow controller's begin → work → finally close.
         /** @private {number} */
         this._energyFlowScopeCount = 0;
@@ -268,7 +268,7 @@ class WorldStateController {
             
             // Trigger broadcast if broadcastService is available and not in middle of cascade,
             // AND not in the middle of an energy-flow step (the flow closes its scope with at
-            // most one full-state broadcast — see endEnergyFlowTick; energy flow spec §6.2).
+            // most one full-state broadcast — see endEnergyFlowTurn; energy flow spec §6.2).
             if (this._broadcastService && this._cascadeReentrancyCount === 0 && this._energyFlowScopeCount === 0) {
                 this._broadcastService.broadcast();
             }
@@ -283,22 +283,18 @@ class WorldStateController {
             this.onDamageDropListener?.handleDamage(componentId, traitId, statName, oldValue, newValue);
         });
 
-        // Initialize Internal Component Controller with the global tick system
-        // (registers its tick job; the facade reference itself is injected by the
-        // composition root via setWorldStateController() AFTER this constructor).
-        this.internalComponentController.initialize();
-
         // Initialize the Turn System (Feature A) with the global tick system —
         // same pattern as internal components: the job registration is
         // side-effect-free until tickSystem.start(). The facade reference is
         // injected by the composition root AFTER this constructor.
         this.turnSystemController?.initialize();
 
-        // Initialize the Energy Flow (energy flow spec §3.3) with the global tick
-        // system — right after the turn system's initialize(): its job registers
-        // at interval 1, order 2 (strictly after internal-components order 0 and
-        // turn-system order 1). Same lifecycle as both peers: registration is
-        // side-effect-free until tickSystem.start(), and the facade reference is
+        // Initialize the Energy Flow (energy flow spec §3.3) — right after the
+        // turn system's initialize(): it resolves the `energyFlow` rule once and
+        // fail-soft-validates the per-recipe capacity fields. The per-turn flow
+        // step itself is driven from the turn system's round-start hook (after
+        // the IC turn step), not a tick job. Same lifecycle as its peers:
+        // side-effect-free until a round starts, and the facade reference is
         // injected by the composition root AFTER this constructor.
         this.energyFlowController?.initialize();
 
@@ -1326,17 +1322,17 @@ class WorldStateController {
     /**
      * Opens an energy-flow broadcast scope (energy flow spec §6.2).
      *
-     * Called by the EnergyFlowController at the start of one flow step. While
+     * Called by the EnergyFlowController at the start of one flow turn. While
      * the scope count is > 0, the component stat-change broadcast gate
-     * suppresses its per-write broadcasts, so a flow tick that changes many
+     * suppresses its per-write broadcasts, so a flow turn that changes many
      * components does not fire one broadcast per component. The scope is
      * closed (and, if requested, the single full-state broadcast fires) by the
-     * matching endEnergyFlowTick() — always via the controller's
+     * matching endEnergyFlowTurn() — always via the controller's
      * begin → work → finally close, so the two calls are balanced.
      * Mirrors the documented _cascadeReentrancyCount pattern.
      * @returns {void}
      */
-    beginEnergyFlowTick() {
+    beginEnergyFlowTurn() {
         this._energyFlowScopeCount++;
     }
 
@@ -1344,14 +1340,14 @@ class WorldStateController {
      * Closes an energy-flow broadcast scope (energy flow spec §6.2).
      *
      * When the scope count returns to zero, exactly one full-state broadcast is
-     * emitted if — and only if — `shouldBroadcast` is true (the flow step
+     * emitted if — and only if — `shouldBroadcast` is true (the flow turn
      * wrote at least one stat) and a broadcast service is wired. When nothing
      * moved, the step is silent: zero broadcasts (steady-state and zero-energy
      * worlds produce no client traffic from the flow).
-     * @param {boolean} shouldBroadcast - True when the flow step wrote any stat.
+     * @param {boolean} shouldBroadcast - True when the flow turn wrote any stat.
      * @returns {void}
      */
-    endEnergyFlowTick(shouldBroadcast) {
+    endEnergyFlowTurn(shouldBroadcast) {
         this._energyFlowScopeCount--;
         if (this._energyFlowScopeCount === 0 && shouldBroadcast && this._broadcastService) {
             this._broadcastService.broadcast();

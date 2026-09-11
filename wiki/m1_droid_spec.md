@@ -18,7 +18,7 @@ The **M1** is the new **player droid** — the entity spawned and controlled by 
 | 4 | Blueprint expansion | [`src/controllers/core/entityController.js`](src/controllers/core/entityController.js:39) (`expandBlueprint`) | Blueprints are recursive arrays: entry `"type"` → instance identifier `default`; entry `["type", "identifier"]` → named identifier; nested child identifiers are suffixed with the parent's; `dependsOn` = parent instance id. **Fingers-as-children precedent:** `droidHand` declares 3 × `humanoidDroidFinger` ([`data/blueprints.json`](data/blueprints.json:11)) — the exact model for M1 toes/fingers. |
 | 5 | Component recipe model | [`data/components.json`](data/components.json:2) (`_comment`) | A recipe declares exactly three things — FORM (volume + position offset), COMPOSITION (material fractions summing to 1.0), and pre-installed ICs — and **no stat values**. Existence, the six channel resistances, mass and sharpness derive from matter; volume from form; `strength`/`move`/`fine_controls`/`think_level` from organs. An organ entry is either a type string (type-default grants) or an object `{ type, grants? }` whose grants override the defaults for that recipe's instances — precedent: `droidRollingBall`'s `strengthCore` override of 120 ([`data/components.json`](data/components.json:40)). |
 | 6 | IC organ registry + install filter | [`data/internalComponents.json`](data/internalComponents.json:1), [`src/controllers/core/InternalComponentController.js`](src/controllers/core/InternalComponentController.js:276) (`autoInstallOnEntitySpawn`) | Organs define `name`, `description`, `volume`, `weight`, `grants`, `overTime`, `excludedComponentTypes`, `autoInstallOnSpawn`, `targetBlueprintTypes`. **Critical:** the `targetBlueprintTypes` filter is applied to **declared (recipe-installed) organs too** — a new entity blueprint type must be listed there or its organs silently fail to install. Grants are applied as an absolute SET at install ([`_applyGrants`](src/controllers/core/InternalComponentController.js:528)). Per-IC (not cumulative) volume check against host `form.volume`. |
-| 7 | IC unified tick system | [`src/controllers/core/InternalComponentController.js`](src/controllers/core/InternalComponentController.js:702) (`_processTick`) | One 1-second tick job is the single channel for all `overTime` effects; each effect fires when the absolute tick is a positive multiple of its `intervalTicks`; a broken instance or broken host stops its effects; the entity store is synced after any change. Effects dispatch in [`_applyOverTimeEffect`](src/controllers/core/InternalComponentController.js:754) — today exactly two types, `restoreExistence` and `emitChannelDamage`, and the registry **fail-fast validates** the effect vocabulary at boot (unknown type → `TypeError`). The controller holds a `WorldStateController` facade set via [`setWorldStateController`](src/controllers/core/InternalComponentController.js:962), through which it reads stats (`getComponentStats`), mutates them (`componentController.updateComponentStatDelta`) and reaches the entity store. |
+| 7 | IC per-turn channel | [`src/controllers/core/InternalComponentController.js`](src/controllers/core/InternalComponentController.js) (`processTurnEffects`) | **Superseded by [`wiki/turn_driven_ic_and_flow_spec.md`](turn_driven_ic_and_flow_spec.md)** (this row's "unified tick system" framing is the architecture that spec retires). The `overTime` channel now fires at **round start** through the turn-start hook under the global round gate `round > 0 && round % intervalTurns === 0`; a broken instance or broken host stops its effects; the entity store is synced after any change. Effects dispatch to the three handlers (`restoreExistence`, `emitChannelDamage`, `consumeFuelGenerateStat`), and the registry **fail-fast validates** the effect vocabulary and `intervalTurns` at boot (unknown type, or missing/non-positive `intervalTurns` → `TypeError`). The controller holds a `WorldStateController` facade set via [`setWorldStateController`](src/controllers/core/InternalComponentController.js), through which it reads stats, mutates them, and reaches the entity store. |
 | 8 | Stat vocabulary | [`shared/StatVocabulary.js`](shared/StatVocabulary.js:75) (`STAT_NAMES`) | Exactly one source per stat: MATTER (existence, six resistances, mass, sharpness), FORM (volume), FUNCTION (organ grants: strength, move, fine_controls, think_level). **No `energy` stat exists anywhere** (verified across `data/`, `src/`, `shared/`, `public/`). Scale convention: 0–100 for all stats except `existence` (0–1). `shared/` is the only import path available to both layers — a new stat name belongs here, defined once. |
 | 9 | Coal does not exist | [`data/materials.json`](data/materials.json:1), [`data/inventoryItems.json`](data/inventoryItems.json:1), [`data/materialDropRates.json`](data/materialDropRates.json:1) | Materials are only `wood` and `iron`; there is no `coal` item (nearest: `powerCell`, `fuelCell`); there is no coal drop entry. Coal must be introduced as a material + item + drop-rate entry. |
 | 10 | Entity-level stat aggregation | [`wiki/subMDs/controllers/requirement_resolver.md`](wiki/subMDs/controllers/requirement_resolver.md:40) (`resolveEntityRequirementValues`) | Action requirements see an entity-level `"trait.stat"` aggregate built across the entity's whole component set — M1's action capabilities are the combination of its components' grants. |
@@ -186,24 +186,24 @@ Effect definition (all values named data in the `overTime` entry — **this is w
 | Field | Value | Meaning |
 |---|---|---|
 | `type` | `consumeFuelGenerateStat` | New vocabulary entry (see §5.3 for the code-side change). |
-| `intervalTicks` | 5 | Burns once every 5 ticks (same cadence as `repairSphere`). |
+| `intervalTurns` | 5 | Burns once every 5 turns (same cadence as `repairSphere`). |
 | `fuelItem` | `coal` | The exact registry item type consumed. Fuel is a discrete item, not raw composition: item instances do not carry raw material composition, and matching dynamic chunk types would require extra machinery — the item is the fuel unit. |
 | `fuelConsumedPerInterval` | 1 | Whole units per burn. |
 | `targetStat` | `Physical.energy` | Flat `"Group.stat"` wire form, identical to the `grants` key form. |
 | `energyGainPerInterval` | 10 | Energy per burned coal. |
 | `energyCapacity` | 100 | Battery ceiling, on the standard 0–100 scale. |
 
-**Charge math (derived from the data above):** one coal = 10 energy; a full tank is 10 coal = 50 ticks (50 seconds at the 1-second cadence); empty → full takes exactly the droid's starting loadout.
+**Charge math (derived from the data above):** one coal = 10 energy; a full tank is 10 coal = 50 turns; empty → full takes exactly the droid's starting loadout.
 
 ### 5.2 Effect behavior, in priority order (evaluated each interval)
 
 1. **Full battery — skip.** Read the host's current `Physical.energy` (the stat the organ seeded, §1.7 facade read). If it is ≥ `energyCapacity`, do nothing: coal is never burned for a full battery. This is the same "skip when already whole" discipline as `restoreExistence` at existence 1.
-2. **No fuel — graceful degradation.** Search the entity's items for `fuelItem` via the facade's public inventory API ([`getEntityItems`](src/controllers/WorldStateController.js:1649)). If fewer than `fuelConsumedPerInterval` are available: consume **nothing**, charge **nothing**, and log a fuel-exhaustion entry **on the transition only** (the effect tracks whether it was already dry, so a droid sitting at zero coal logs once, not every 5 ticks). The droid keeps every other stat and continues playing — energy simply stops being produced. No error, no broken state.
-3. **Burn.** Consume exactly `fuelConsumedPerInterval` fuel items through the public removal API ([`removeItemFromEntity`](src/controllers/WorldStateController.js:1691)), then apply a **clamped** delta to `targetStat` on the host component via the same stat-delta path `restoreExistence` uses (`componentController.updateComponentStatDelta`): gain = min(`energyGainPerInterval`, `energyCapacity` − current). Clamping at the margin (e.g. 95 → 100, not 105) means the last burn can waste up to `energyGainPerInterval` − 1 energy — accepted as the simpler rule versus refusing near-full burns, which would stall the last tick of every charge.
+2. **No fuel — graceful degradation.** Search the entity's items for `fuelItem` via the facade's public inventory API ([`getEntityItems`](src/controllers/WorldStateController.js:1649)). If fewer than `fuelConsumedPerInterval` are available: consume **nothing**, charge **nothing**, and log a fuel-exhaustion entry **on the transition only** (the effect tracks whether it was already dry, so a droid sitting at zero coal logs once, not every 5 turns). The droid keeps every other stat and continues playing — energy simply stops being produced. No error, no broken state.
+3. **Burn.** Consume exactly `fuelConsumedPerInterval` fuel items through the public removal API ([`removeItemFromEntity`](src/controllers/WorldStateController.js:1691)), then apply a **clamped** delta to `targetStat` on the host component via the same stat-delta path `restoreExistence` uses (`componentController.updateComponentStatDelta`): gain = min(`energyGainPerInterval`, `energyCapacity` − current). Clamping at the margin (e.g. 95 → 100, not 105) means the last burn can waste up to `energyGainPerInterval` − 1 energy — accepted as the simpler rule versus refusing near-full burns, which would stall the last turn of every charge.
 
 ```mermaid
 flowchart TD
-    A[tick fires and tick mod intervalTicks is 0] --> B{instance or host broken}
+    A[round starts and round mod intervalTurns is 0] --> B{instance or host broken}
     B -->|yes| Z[no effect - existing gating]
     B -->|no| C{energy at or above capacity}
     C -->|yes| Z
@@ -211,7 +211,7 @@ flowchart TD
     D -->|no| E[log fuel exhaustion on transition only]
     D -->|yes| F[consume whole fuel units]
     F --> G[add energy clamped to capacity]
-    G --> H[entity store synced by existing post-tick sync]
+    G --> H[entity store synced by the post-turn sync]
 ```
 
 **Why whole units only (no partial burns):** energy remains an exact multiple of 10 per coal for the entire life of the droid, so the balance lever "1 coal = 10 energy" is always true and testable; a partial burn would make the stat depend on fractional consumption and blur that lever.
@@ -224,7 +224,7 @@ The effect system validates its vocabulary fail-fast at boot and dispatches on `
 2. one `case` in the `_applyOverTimeEffect` dispatch;
 3. one handler method implementing §5.2 using only APIs the controller already holds: the facade for entity/item access, `getComponentStats` for the capacity read, `updateComponentStatDelta` for the charge — the same three the two existing effects use.
 
-The unified tick channel, cadence arithmetic, broken-host gating, and post-tick entity-store sync are **untouched**. This is an extension of the overTime **vocabulary**, deliberately categorized as such (and only) against the "no IC tick architecture changes" constraint: the two existing effect types cannot express item consumption at all, and a second channel or a new controller would be a far larger violation of the same constraint.
+**Superseded by [`wiki/turn_driven_ic_and_flow_spec.md`](turn_driven_ic_and_flow_spec.md)** — the "no IC tick architecture changes" constraint below was lifted: the IC channel moved from a 1-second tick job to the turn-start hook (round-driven), and `consumeFuelGenerateStat` now rides the per-turn channel. Historical context: when this effect was introduced, the unified tick channel, cadence arithmetic, broken-host gating, and post-tick entity-store sync were **untouched**; the change was categorized as an overTime **vocabulary** extension (and only) against that constraint, since the two existing effect types could not express item consumption at all and a second channel or new controller would have been a far larger violation.
 
 ---
 
@@ -262,7 +262,7 @@ Replace the current `initialSpawns` array with the M1 kit (entries applied in or
 
 | # | Entry fields | Resolves to | Why |
 |---|---|---|---|
-| 1 | `item: "coal"`, `slot: "m1CentralBody"`, `count: 10` | the body (first of type, always exists) | **The coal loadout: 10.** Exactly one full charge (10 × 10 energy = 100 = `energyCapacity`), so the droid boots, burns its loadout over 50 ticks, and arrives at a full battery. 10 × volume 1 = 10 also fits the body's 12-volume form even if the generator's 2-volume footprint is subtracted from available volume — robust under either accounting. |
+| 1 | `item: "coal"`, `slot: "m1CentralBody"`, `count: 10` | the body (first of type, always exists) | **The coal loadout: 10.** Exactly one full charge (10 × 10 energy = 100 = `energyCapacity`), so the droid boots, burns its loadout over 50 turns, and arrives at a full battery. 10 × volume 1 = 10 also fits the body's 12-volume form even if the generator's 2-volume footprint is subtracted from available volume — robust under either accounting. |
 | 2 | `item: "t1"`, `slot: "bestAvailable:hand"`, `ammo: 1` | `m1ArticulatedHand` (substring `"hand"` matches `m1articulatedhand`, verified §1.3) | Unchanged from today's entry — a proven pattern. `ammo: 1` loads one knife projectile into the T1 (the hardcoded-ammo path, line 714). The hand's 120 strength (override, §3) legally hosts the T1's 117 gate. |
 | 3 | `item: "knife"`, `slot: "m1Leg"`, `count: 5` | `frontal_left` leg (first of type) | Five spare knives, matching today's five knives-in-the-box — the crafting/reload stock (2 knives → 1 T1). Leg capacity: 5 × footprint 1 ≤ 8 volume ✓. |
 
@@ -296,14 +296,14 @@ Top-level `initialSpawns` entries currently add exactly one item; the multiplici
 
 ## 10. Test plan
 
-Every new feature ships a unit test (project rule). Tests live with the existing suites; the IC controller's tick-driven tests already have a tick-driver pattern to reuse.
+Every new feature ships a unit test (project rule). Tests live with the existing suites; the IC controller's per-turn tests already have a round-driver pattern to reuse.
 
 1. **Blueprint expansion** — `m1Droid` expands to exactly 23 instances: correct types, identifiers (`frontal_left` … `top_gun`; toe/finger `left/middle/right` with parent-suffixed identifiers per the expansion rule), and `dependsOn` chains.
 2. **Recipe derivation** — each recipe instance bootstraps with derived stats only: existence 1, six channel resistances, mass, volume; organ grants land on the right hosts (body: `Physical.energy` = 0; each leg: `Movement.move` 20; hand: `Physical.strength` 120 + `Manipulation.fine_controls` 50; head: `Mind.think_level` 10). Entity-level aggregate (move 80) is visible through the requirement-resolution path.
 3. **Install-filter regression** — M1's legs receive `moveCore` and the hand receives `strengthCore` despite the filter (this is the silent-failure trap of §1.6; a test exists precisely so it cannot regress silently).
-4. **Generator burn** — with ≥1 coal aboard, an interval tick consumes 1 coal and adds exactly 10 `Physical.energy` on the body; state is synced to the entity store (client-visible).
-5. **Generator runout** — with 0 coal: energy unchanged, no items removed, exhaustion logged **once** (assert log/transition state, not per-tick spam), subsequent dry ticks stay quiet.
-6. **Generator full-battery skip** — at energy 100, ticks pass without consuming coal.
+4. **Generator burn** — with ≥1 coal aboard, every interval turn consumes 1 coal and adds exactly 10 `Physical.energy` on the body; state is synced to the entity store (client-visible).
+5. **Generator runout** — with 0 coal: energy unchanged, no items removed, exhaustion logged **once** (assert log/transition state, not per-turn spam), subsequent dry turns stay quiet.
+6. **Generator full-battery skip** — at energy 100, turns pass without consuming coal.
 7. **Generator clamp** — at 95 with 1 coal: energy lands at exactly 100 (5 wasted, per §5.2 rule 3), coal consumed once.
 8. **`initialSpawns` count** — an M1-shaped entity receives 10 coal in the body, the T1 (with 1 knife ammo) in the hand, 5 knives in `frontal_left`; and an entry **without** `count` still adds exactly one item (backward-compat regression).
 9. **Shared vocabulary** — `'energy'` is in `STAT_NAMES` (Physical), importable from both layers.
@@ -314,7 +314,7 @@ Every new feature ships a unit test (project rule). Tests live with the existing
 ## 11. Out of scope (explicit)
 
 - **No new controllers.** The generator lives inside the existing IC controller as one overTime effect.
-- **No IC tick-architecture change.** The unified 1-second channel, interval arithmetic, broken-instance/host gating, and post-tick entity-store sync are untouched; only the effect *vocabulary* gains one case (§5.3), which is the minimal extension the requirement implies.
+- ~~**No IC tick-architecture change.**~~ **Superseded by [`wiki/turn_driven_ic_and_flow_spec.md`](turn_driven_ic_and_flow_spec.md).** That spec moves the IC channel from the unified 1-second tick job to the turn-start hook (round-driven). Historically: the 1-second channel, interval arithmetic, broken-instance/host gating, and post-tick entity-store sync were untouched and only the effect *vocabulary* gained one case (§5.3) — the minimal extension the requirement then implied.
 - **No UI redesign.** Bars, component views and map markers render dynamically from state; nothing in `public/` changes.
 - **No new actions.** `m1Gun` is an inert mount; the weapon remains the `t1` item through the existing equip/`shootT1` system.
 - **No chunk → coal reforge crafting.** Coal chunks are salvage; a reforge recipe, when wanted, is a data-only `data/crafting.json` addition.
@@ -323,7 +323,7 @@ Every new feature ships a unit test (project rule). Tests live with the existing
 - **No movement-system change.** Legs grant `move`; the `move` action's delta-spatial behavior is unchanged.
 - **No new damage channels.** The `conductive` flag M1 components derive is inert — no heat/electricity damage exists today.
 
-**Known consequence (by design, flagged for reviewers):** with no consumer yet, a freshly spawned M1 burns its 10 coal over 50 ticks, lands at 100 energy, and holds it. Its fuel economy (refueling, consumers) is the explicit future work this spec paves.
+**Known consequence (by design, flagged for reviewers):** with no consumer yet, a freshly spawned M1 burns its 10 coal over 50 turns, lands at 100 energy, and holds it. Its fuel economy (refueling, consumers) is the explicit future work this spec paves.
 
 ---
 
@@ -332,7 +332,7 @@ Every new feature ships a unit test (project rule). Tests live with the existing
 | # | Decision | Chosen value | Notes / alternatives |
 |---|---|---|---|
 | 1 | Default coal quantity | **10** | One full charge; fits the body under either volume accounting. Any other value must keep "n coal = n×10 energy ≤ 100" integer-exact. |
-| 2 | Charge math | 1 coal → 10 energy, every 5 ticks, capacity 100 | All in the `overTime` data entry; tune together to keep the ratio. |
+| 2 | Charge math | 1 coal → 10 energy, every 5 turns, capacity 100 | All in the `overTime` data entry; tune together to keep the ratio. |
 | 3 | Coal material properties | density 1.4; flammability 95; conduction 30; moisture 0; cut/impact/wear 35/25/15; heat 55 | Balance data, tunable in one file; the brittle + fuel profile is the intent. |
 | 4 | Body composition | iron 0.8 / coal 0.2 | Gives the conductive (inert) / non-flammable flag profile and the ≈6.5 density; any other mix re-derives flags in §3. |
 | 5 | Knife stock | 5 on `frontal_left` | Parity with today's boxed five; today's seventh knife (loose, hand) is absorbed by the T1's ammo slot. |

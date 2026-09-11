@@ -20,8 +20,8 @@
  *   4. Largest-fraction selection on the two-material droidHand: the token is
  *      chunk_iron at the 0.7-fraction D7 volume — never wood.
  *   5. Non-channel source: a direct stat delta (no punch) drops a floor token.
- *   6. IC-tick source: a corrosiveGland corrosion tick drops a token with no
- *      punch/cut/shoot in between. The tick resolves the canonical flat
+ *   6. IC-turn source: a corrosiveGland corrosion turn drops a token with no
+ *      punch/cut/shoot in between. The turn resolves the canonical flat
  *      `spatial.{x,y}` position straight from the entity store — no seeding.
  *   7. Lethal punch: the hook is silent on the total-loss hit (D10 mirror).
  *   8. Torn-rule regression: with the onDamage rule active the torn volume is
@@ -54,7 +54,6 @@ const projectRoot = path.join(__dirname, '..', '..');
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(projectRoot, rel), 'utf-8'));
 
 const RESISTANCE_SCALE = 100;
-const IC_JOB_ID = 'internal-components';
 
 const dropRates = readJson('data/materialDropRates.json');
 const worldRules = readJson('data/world_rules.json');
@@ -68,7 +67,8 @@ const WORLD_RULES_PATH = path.join(projectRoot, 'data/world_rules.json');
  *  itself (the legacy streams' Math.random is untouched either way). */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
-    return { world: buildWorldState(tick).worldStateController, tick };
+    const { worldStateController: world, subControllers } = buildWorldState(tick);
+    return { world, tick, turns: subControllers.turnSystemController };
 }
 
 /** The attacker's strongest strength-bearing droidHand. */
@@ -142,12 +142,23 @@ function walkIn(world, roomId, x = 0, y = 0) {
     return id;
 }
 
-/** Drives the unified IC tick job at an absolute tick (no real timers). */
-function driveIC(tick, targetTick) {
-    const job = tick.jobs.find((j) => j.id === IC_JOB_ID);
-    expect(job, `the '${IC_JOB_ID}' tick job must be registered`).toBeTruthy();
+/** Advances the turn machine to an absolute tick and returns the round state. */
+function stepTo(world, tick, turns, targetTick) {
     tick.currentTick = targetTick;
-    job.callback();
+    turns.onTick();
+    return turns.getRoundState();
+}
+
+/**
+ * Closes the current round (all planners signal) so the NEXT stepTo() opens a
+ * fresh round — and therefore fires the turn-start hook again.
+ */
+function closeRound(turns, world, entityId) {
+    const state = turns.getRoundState();
+    for (const pendingId of state.barrier.pendingEntityIds) {
+        turns.signalPlanComplete(pendingId, 'player');
+    }
+    expect(turns.getRoundState().phase).toBe('resolution');
 }
 
 // =========================================================================
@@ -358,8 +369,8 @@ describe('World Rules — onDamage event rule (contract, full round-trip)', () =
         expect(dist(rec.x, rec.y, entity.spatial.x, entity.spatial.y)).toBeLessThanOrEqual(DEFAULT_TRIGGER_RADIUS + 1e-9);
     });
 
-    it('6. IC-tick source: a corrosiveGland corrosion tick drops a token with no punch/cut/shoot in between', () => {
-        const { world, tick } = buildWorld();
+    it('6. IC-turn source: a corrosiveGland corrosion turn drops a token with no punch/cut/shoot in between', () => {
+        const { world, tick, turns } = buildWorld();
         world.onDamageDropListener._randomFn = () => 0.01;
 
         const roomId = world.roomsController.getUidByLogicalId('start_room');
@@ -394,9 +405,22 @@ describe('World Rules — onDamage event rule (contract, full round-trip)', () =
         const existenceBefore = world.getComponentStats(targetComp.id).Physical.existence;
         const before = dropped(world).length;
 
-        // Advance past one intervalTicks (10) — the same drive pattern the
-        // coalGenerator contract uses (no real timers).
-        driveIC(tick, 10);
+        // Round-0 start: gate closed, no corrosion, no drops.
+        stepTo(world, tick, turns, 0);
+        expect(world.getComponentStats(targetComp.id).Physical.existence).toBe(existenceBefore);
+        expect(dropped(world).length).toBe(before);
+        closeRound(turns, world, hostId);
+
+        // Rounds 1–9: off-cadence (10 % interval), no corrosion, no drops.
+        for (let round = 1; round <= 9; round++) {
+            stepTo(world, tick, turns, round);
+            expect(world.getComponentStats(targetComp.id).Physical.existence).toBe(existenceBefore);
+            expect(dropped(world).length).toBe(before);
+            closeRound(turns, world, hostId);
+        }
+
+        // Round-10 start: the corrosiveGland's intervalTurns cadence fires.
+        stepTo(world, tick, turns, 10);
 
         const existenceAfter = world.getComponentStats(targetComp.id).Physical.existence;
         expect(existenceAfter, 'the corrosion tick dealt damage to the victim').toBeCloseTo(existenceBefore - expectedLoss, 12);
@@ -420,8 +444,8 @@ describe('World Rules — onDamage event rule (contract, full round-trip)', () =
         expect(dist(rec.x, rec.y, 10, 0)).toBeLessThanOrEqual(DEFAULT_TRIGGER_RADIUS + 1e-9);
     });
 
-    it('6b. IC-tick range is room-bound: a victim in another room takes no corrosion damage', () => {
-        const { world, tick } = buildWorld();
+    it('6b. IC-turn range is room-bound: a victim in another room takes no corrosion damage', () => {
+        const { world, tick, turns } = buildWorld();
         world.onDamageDropListener._randomFn = () => 0.01;
         const startRoom = world.roomsController.getUidByLogicalId('start_room');
         const otherRoom = world.roomsController.getUidByLogicalId('right_room');
@@ -432,9 +456,18 @@ describe('World Rules — onDamage event rule (contract, full round-trip)', () =
         world.addInternalComponent(hostId, world.stateEntityController.getEntity(hostId).components[0].id, 'corrosiveGland');
         const victimEnt = world.stateEntityController.getEntity(victimId);
         const targetComp = victimEnt.components[0];
-        const before = world.getComponentStats(targetComp.id).Physical.existence;
-        driveIC(tick, 10);
-        expect(world.getComponentStats(targetComp.id).Physical.existence).toBe(before);
+        const existenceBefore = world.getComponentStats(targetComp.id).Physical.existence;
+
+        // Drive 11 real round starts (rounds 0–10) through the round-10 start:
+        // the other-room victim is undamaged and sheds nothing.
+        stepTo(world, tick, turns, 0);
+        closeRound(turns, world, hostId);
+        for (let round = 1; round <= 10; round++) {
+            stepTo(world, tick, turns, round);
+            closeRound(turns, world, hostId);
+        }
+
+        expect(world.getComponentStats(targetComp.id).Physical.existence, 'the other-room victim is undamaged at the round-10 start').toBe(existenceBefore);
         expect(dropped(world).length).toBe(0);
     });
 

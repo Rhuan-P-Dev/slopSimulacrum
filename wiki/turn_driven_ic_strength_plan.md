@@ -1,5 +1,7 @@
 # Turn-Driven Internal Component: Strength Core Plan
 
+> **⚠️ Superseded by [`wiki/turn_driven_ic_and_flow_spec.md`](turn_driven_ic_and_flow_spec.md).** This is a historical plan. The `turnDriven` flag / `turnEffects` channel it designs **do not exist** in the data or code. The shipped model uses a single `overTime` channel with a per-effect `intervalTurns` (unit: rounds) fired at round start through the turn-start hook under the gate `round > 0 && round % intervalTurns === 0`. Do not implement from this document; read the spec instead.
+
 ## Overview
 
 This plan introduces a new internal component type, **`strengthCore`**, that the droid's left hand carries. It is **turn-driven** (not tick-driven): on each turn it (1) drains 1 of its own durability, and (2) maintains a non-additive (overwritten) `+50` to the droid's `Physical.strength`. The system must fire on turn events, not ticks.

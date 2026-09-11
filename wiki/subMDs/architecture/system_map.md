@@ -24,7 +24,7 @@ WorldStateController (Root Injector)
 │   ├── StatConsequenceHandler → EquippedItemStatsController
 │   ├── RangeValidator → WorldStateController (range checks)
 │   ├── OnDamageDropListener → WorldRulesController, MaterialController (observes ComponentController damage events)
-│   └── EnergyFlowController → WorldRulesController (energyFlow rule), stateEntityController (census), ComponentController (stat writes, damage suppressed) — tick job, order 2
+│   └── EnergyFlowController → WorldRulesController (energyFlow rule), stateEntityController (census), ComponentController (stat writes, damage suppressed) — per-turn step (round start, after the IC step)
 └── Consequence Dispatchers
 ```
 
@@ -52,7 +52,7 @@ WorldStateController (Root Injector)
 | **TurnSystemController** | Event-Driven Rounds & Barrier | Owns the round: the planning-completeness barrier (round-start roster, ready signals, the all-ready close decision — there is no deadline) and the per-entity action queues; resolution is gated on barrier close. Rounds are event-driven (roster snapshot at round start, next round on the tick after resolution), so the system no longer owns tick cadence |
 | **WorldRulesController** | World-Rules Layer | Receives the boot-loaded `data/world_rules.json` registry from the composition root (the controller itself performs no I/O) and validates it — stable key → small config objects governing cross-cutting laws (deterministic config laws plus the probabilistic `onDamage` event table, stored separately from the rule keys so the rule map's shape stays untouched); inspection-only on the facade, out of the broadcast aggregation, null-tolerant getter degrading to an empty rule set; the chunk-drop handler consults it for the torn-material percentage, and the onDamage drop listener consults it for the damage-event table |
 | **OnDamageDropListener** | World-Rules Event Enforcement | Observer of the component stat choke point — the one place every damage source converges — so the `onDamage` law fires on *any* damage (action channel, direct stat delta, IC tick), not only on actions; consults the world-rules event table and the material levers, and may mint a self-describing chunk token of the damaged component's primary material into the ground-item store through the facade; per-listener fault isolation keeps it from ever touching the break/broadcast pipeline |
-| **EnergyFlowController** | Cross-Component Energy Circulation | The `energyFlow` world law as a tick job (interval 1, order 2 — after internal-components and the turn system): one fully-interconnected network per entity, simultaneous tick-start read/compute/write, per-part capacity bound from the recipe or the rule default, overflow lost, strict decreases written with the damage event suppressed, writes skipped below the no-op epsilon, and a flow-scoped broadcast window (exactly one full-state broadcast per tick when anything moved). Registered even when the rule is off, in which case the job no-ops; no `getAll()` (stays out of the broadcast aggregation) |
+| **EnergyFlowController** | Cross-Component Energy Circulation | The `energyFlow` world law as a per-turn step on the round-start hook (after the IC per-turn step, wired in the composition root): one fully-interconnected network per entity, simultaneous turn-start read/compute/write, per-part capacity bound from the recipe or the rule default, overflow lost, strict decreases written with the damage event suppressed, writes skipped below the no-op epsilon, and a flow-scoped broadcast window (exactly one full-state broadcast per turn when anything moved). No-op when the rule is off; no `getAll()` (stays out of the broadcast aggregation) |
 
 ## 3. Key Operational Flows
 
@@ -81,8 +81,8 @@ a stat changes, and the updated state reaches the client.
 ### Crafting
 Resolve recipe → verify item possession on the component → pre-check capacity before any mutation → consume inputs → produce outputs on the same component → broadcast to all clients
 
-### Energy Flow (per tick, after internal-components and the turn system)
-Read all components' tick-start energies → skip the entity when nothing holds any → for each entity, compute the simultaneous redistribution (each component sends a fixed share of its tick-start energy, divided equally among the others; inflow minus send, clamped at the per-component capacity, overflow lost) → skip no-change writes below the epsilon → write changed stats with the damage event suppressed → close the flow broadcast scope (one full-state broadcast iff anything changed)
+### Energy Flow (per round, after the IC per-turn step)
+Read all components' turn-start energies → skip the entity when nothing holds any → for each entity, compute the simultaneous redistribution (each component sends a fixed share of its turn-start energy, divided equally among the others; inflow minus send, clamped at the per-component capacity, overflow lost) → skip no-change writes below the epsilon → write changed stats with the damage event suppressed → close the flow broadcast scope (one full-state broadcast iff anything changed)
 
 ## 4. Client-Side Architecture
 

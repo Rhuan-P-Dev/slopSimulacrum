@@ -16,15 +16,17 @@ Internal components encapsulate stats-over-time behavior entirely in data rather
 
 Internal components modify **component-level** stats (e.g., `Physical.durability` on a specific component). Attaching them to entities would apply effects globally, which is too coarse-grained. Component-level attachment enables effects that target specific parts of a multi-component entity.
 
-### Why tick-based rather than event-based?
+### Why round-driven (per-turn) rather than event-based?
 
-A unified tick system provides predictable, synchronized periodic effects across all internal components, avoiding race conditions from event-driven timing and simplifying reasoning about effect scheduling.
+> **SUPERSEDED by [turn_driven_ic_and_flow_spec.md](wiki/turn_driven_ic_and_flow_spec.md)** — effects now fire at round start via the turn-start hook, not on a wall-clock tick.
 
-### Why a turn-driven channel exists alongside the tick channel?
+A round-driven (per-turn) channel provides predictable, synchronized periodic effects across all internal components, avoiding race conditions from event-driven timing and simplifying reasoning about effect scheduling. The cadence is per-round (gated on the round number), decoupled from any tick rate.
 
-Some effects are meaningful only at TURN granularity, not wall-clock ticks: a component that "maintains" a host stat to a fixed value each round, or one that drains the HOST HAND's durability once per round. Driving those from the tick channel would double-apply them (the tick fires many times per round) and would couple round-level game pacing to the wall-clock tick rate. The `turnDriven` flag opts a type into the ROUND-START channel instead: its `turnEffects` fire exactly once per round, via the turn-start hook, so a "maintained" bonus is naturally non-additive and a host-hand durability drain is exactly 1 per round. A type is either tick-driven or turn-driven, never both.
+### Why a round-start (per-turn) channel rather than a wall-clock tick?
 
-The `strengthCore` type illustrates the host-targeting semantic: its per-turn drain hits the host hand's `Physical.durability` (the droid's left hand), not the IC's own pool. When that host-hand durability reaches 0, the instance breaks and stops applying effects — the component is destroyed with its host limb. The IC's own `instanceStats` pool (the type's `traits`) is retained as a static trait for display/completeness but is not drained by this type.
+The periodic effects live in the `overTime` channel and fire at **round start** (the turn-start hook), not on a wall-clock tick. This keeps round-level game pacing decoupled from the tick rate: an effect that should happen "every N rounds" is expressed directly by its `intervalTurns` (the round gate is `round > 0 && round % intervalTurns === 0`), with no per-instance state and no double-application. A type is either periodic (a non-empty `overTime` list) or passive (an empty list — e.g. `strengthCore`), and the cadence is per-round, not per-tick.
+
+The `repairSphere`, `corrosiveGland`, and `coalGenerator` organs are the shipped periodic cases: the repair organ closes the salvage→existence loop, the corrosive organ degrades neighbors through the corrosion channel, and the coal generator burns carried coal to charge `Physical.energy`. A broken instance or broken host stops its effects for the duration.
 
 ### Why does the coal generator burn discrete fuel items instead of emitting a continuous drain?
 

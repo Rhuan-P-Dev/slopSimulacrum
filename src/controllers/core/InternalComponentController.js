@@ -1,23 +1,16 @@
 /**
  * InternalComponentController
- * Manages the lifecycle, installation, and tick-based effects of internal components.
- * Integrates with the UniversalTickSystem for deterministic simulation updates.
+ * Manages the lifecycle, installation, and over-time effects of internal components.
+ * overTime effects run on the per-turn channel: the turn system's round-start hook
+ * drives processTurnEffects(round) once per round (the old per-tick job is retired).
  */
 
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
-import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateUID } from '../../utils/idGenerator.js';
 import { DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
 import { channelLossFromResistance } from '../../utils/channelLoss.js';
 import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
-
-// Internal components fire their overTime effects on the unified tick system.
-// The job runs every tick (interval 1); each effect then checks its own
-// `intervalTicks` against the absolute tick counter, so an effect fires exactly
-// on the ticks that are multiples of its interval. Running the job every tick
-// lets effects with different intervals (e.g. 5 and 10) share a single channel.
-const IC_TICK_JOB_INTERVAL = 1;
 
 class InternalComponentController {
     /**
@@ -52,29 +45,6 @@ class InternalComponentController {
     }
 
     /**
-     * Initializes the controller with the global tick system.
-     * Registers the unified tick job to process internal component effects.
-     */
-    initialize() {
-        if (!this.tickSystem) {
-            Logger.warn('[InternalComponentController] No tickSystem provided. Internal component effects will not run.');
-            return;
-        }
-
-        // Register the overTime job. It runs every tick (interval 1); each
-        // effect checks its own intervalTicks against the absolute tick counter.
-        // Order 0 = highest priority so stat effects land before other jobs.
-        this.tickSystem.register(new TickJob(
-            'internal-components',
-            () => this._processTick(),
-            IC_TICK_JOB_INTERVAL, // interval in ticks
-            0  // Order: 0 (Highest Priority)
-        ));
-
-        Logger.info('[InternalComponentController] Registered with UniversalTickSystem');
-    }
-
-    /**
      * Validates the internal component registry structure.
      * Structurally invalid entries (missing required fields, unknown effect
      * vocabulary, wrong types) throw TypeError so corrupted data never enters
@@ -101,7 +71,7 @@ class InternalComponentController {
 
             // Validate the unified overTime channel: a structurally valid array
             // of effect definitions (restoreExistence / emitChannelDamage /
-            // consumeFuelGenerateStat), each with a positive intervalTicks cadence.
+            // consumeFuelGenerateStat), each with a positive intervalTurns cadence.
             if (definition.overTime !== undefined) {
                 if (!Array.isArray(definition.overTime)) {
                     throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime must be an array`);
@@ -110,8 +80,8 @@ class InternalComponentController {
                     if (!effect.type || !['restoreExistence', 'emitChannelDamage', 'consumeFuelGenerateStat'].includes(effect.type)) {
                         throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime has invalid type: ${effect.type}`);
                     }
-                    if (typeof effect.intervalTicks !== 'number' || effect.intervalTicks <= 0) {
-                        throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime effect "${effect.type}" needs a positive intervalTicks`);
+                    if (typeof effect.intervalTurns !== 'number' || effect.intervalTurns <= 0) {
+                        throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime effect "${effect.type}" needs a positive intervalTurns`);
                     }
                     if (effect.type === 'restoreExistence' && (typeof effect.existenceGainPerInterval !== 'number' || effect.existenceGainPerInterval <= 0)) {
                         throw new TypeError(`[InternalComponentController] Internal component "${type}" restoreExistence needs a positive existenceGainPerInterval`);
@@ -722,25 +692,32 @@ class InternalComponentController {
         return true;
     }
     // =========================================================================
-    // UNIFIED OVERTIME PROCESSING (single channel for all overTime effects)
+    // PER-TURN OVERTIME PROCESSING (single channel for all overTime effects)
     // =========================================================================
 
     /**
-     * Called every tick by the unified tick system. This is the SINGLE channel
-     * for all internal-component overTime effects (the old turn-driven and
-     * tick-driven channels have been unified here). For each installed instance
-     * that is not broken and whose host is not broken, each `overTime` effect
-     * fires when the absolute tick counter is a positive multiple of the
-     * effect's `intervalTicks`. Supported effect types: `restoreExistence`
-     * (the organ repairs the host, closing the salvage→existence loop),
-     * `emitChannelDamage` (the organ radiates a damage channel to components
-     * in range) and `consumeFuelGenerateStat` (the organ burns carried fuel
-     * items to charge a host resource stat, degrading gracefully on runout).
+     * The single per-turn channel for ALL internal-component overTime effects,
+     * invoked once per round at ROUND START (via the turn system's turn-start
+     * hook) with the round number that just started. For each installed
+     * instance that is not broken and whose host is not broken, each `overTime`
+     * effect fires when the round number is a positive multiple of the effect's
+     * `intervalTurns` (the global round gate — no per-instance state, so a v3
+     * save stays valid). Supported effect types: `restoreExistence` (the organ
+     * repairs the host, closing the salvage→existence loop),
+     * `emitChannelDamage` (the organ radiates a damage channel to components in
+     * range) and `consumeFuelGenerateStat` (the organ burns carried fuel items
+     * to charge a host resource stat, degrading gracefully on runout).
      *
-     * @private
+     * Defensive contract: a non-numeric or non-positive `round` fires no
+     * effects and never throws (zero-arg / malformed wiring stays a safe no-op).
+     *
+     * @param {number} [round] - The round number that just started (from the hook).
+     * @returns {void}
      */
-    _processTick() {
-        const currentTick = this.tickSystem?.currentTick ?? 0;
+    processTurnEffects(round) {
+        // Defensive: a missing/non-numeric or non-positive round fires nothing.
+        const r = typeof round === 'number' && Number.isFinite(round) ? round : 0;
+        if (r <= 0) return;
         let totalEffects = 0;
         let anyChanged = false;
 
@@ -753,9 +730,9 @@ class InternalComponentController {
                     if (internalComp.broken || this._hostIsBroken(hostComponentId)) continue;
 
                     for (const effect of compDef.overTime) {
-                        if (typeof effect.intervalTicks !== 'number' || effect.intervalTicks <= 0) continue;
-                        // Fire only on ticks that are positive multiples of the interval.
-                        if (currentTick <= 0 || currentTick % effect.intervalTicks !== 0) continue;
+                        if (typeof effect.intervalTurns !== 'number' || effect.intervalTurns <= 0) continue;
+                        // Fire only when the round is a positive multiple of the interval.
+                        if (r % effect.intervalTurns !== 0) continue;
                         try {
                             const changed = this._applyOverTimeEffect(entityId, internalComp, compDef, effect, hostComponentId);
                             if (changed) {
@@ -1072,17 +1049,6 @@ class InternalComponentController {
      */
     _buildInstanceStats(compDef) {
         return compDef && compDef.traits ? structuredClone(compDef.traits) : {};
-    }
-
-    /**
-     * Legacy no-op retained so the composition-root turn-start hook (wired
-     * before the overTime unification) stays a safe call. All overTime effects
-     * now run on the unified tick channel (`_processTick`), so this method
-     * intentionally does nothing.
-     * @returns {void}
-     */
-    processTurnEffects() {
-        // no-op: overTime is driven by the unified tick channel (_processTick).
     }
 
     /**

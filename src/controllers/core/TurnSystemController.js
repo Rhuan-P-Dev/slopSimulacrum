@@ -192,10 +192,12 @@ class TurnSystemController {
     }
 
     /**
-     * Injects the turn-start hook (turn-driven internal components).
+     * Injects the turn-start hook (the per-turn subsystem steps).
      * Called at ROUND START after barrier reset and before NPC agents fire,
-     * so IC stat effects are visible to agent planning and initiative math.
-     * @param {Function|null} fn
+     * receiving the round number that just started, so the IC turn effects
+     * (and the per-turn energy-flow redistribution that follows them) are
+     * visible to agent planning and initiative math.
+     * @param {Function|null} fn - The hook, invoked as fn(round).
      */
     setTurnStartHook(fn) {
         if (fn !== null && typeof fn !== 'function') {
@@ -206,10 +208,12 @@ class TurnSystemController {
 
     /**
      * Registers the tick job. No-op (with a warning) when no tickSystem was
-     * provided (test mode — tests drive onTick() directly). Job order 1 so
-     * it runs after internal-components (order 0): stat effects from this
-     * tick are visible before initiative math. The job itself is geometry-
-     * free: it only starts lazy rounds and sweeps the barrier (spec v2 §3).
+     * provided (test mode — tests drive onTick() directly). Job order 1:
+     * the slot after the **retired** internal-components job is reserved —
+     * the per-turn IC effects now run at ROUND START via the turn-start hook
+     * (not as a tick job), so their stat effects are still visible before
+     * initiative math. The job itself is geometry-free: it only starts lazy
+     * rounds and sweeps the barrier (spec v2 §3).
      */
     initialize() {
         if (!this.tickSystem) {
@@ -220,7 +224,7 @@ class TurnSystemController {
             'turn-system',
             () => this.onTick(),
             1, // Interval: every tick (rounds are event-driven — the tick only observes)
-            1  // Order: after internal-components (order 0)
+            1  // Order: 1 — slot reserved after the retired internal-components job
         ));
         Logger.info('[TurnSystem] Registered with UniversalTickSystem (event-driven rounds: lazy round 0, all-ready close, next round on the tick after resolution)');
     }
@@ -582,11 +586,11 @@ class TurnSystemController {
         const round = this._beginRoundBookkeeping();
         this._resetBarrierForNewRound();
         // Turn-driven IC effects fire at ROUND START, before agents plan
-        // (spec: turn_driven_ic_strength_plan). Guarded: a hook failure
+        // (spec: wiki/turn_driven_ic_and_flow_spec.md). Guarded: a hook failure
         // must never break the round machine.
         if (this._turnStartHook) {
             try {
-                this._turnStartHook();
+                this._turnStartHook(round);
             } catch (err) {
                 Logger.warn(`[TurnSystem] Round ${round}: turn-start hook failed: ` + (err && err.message ? err.message : err));
             }

@@ -164,8 +164,8 @@ describe('WorldStateController public method surface', () => {
         'addItemToEntity',
         // Added deliberately (energy_flow_spec.md §6.2): the flow-scoped
         // broadcast-scope pair. Not an accidental addition — the energy-flow
-        // step opens/closes it exactly once per tick.
-        'beginEnergyFlowTick',
+        // turn step opens/closes it exactly once per turn.
+        'beginEnergyFlowTurn',
         'canEntityExecuteAction',
         'cleanupInternalComponents',
         'computeSynergy',
@@ -173,7 +173,7 @@ describe('WorldStateController public method surface', () => {
         'despawnEntity',
         // Added deliberately (energy_flow_spec.md §6.2): closes the flow
         // broadcast scope with at most one full-state broadcast.
-        'endEnergyFlowTick',
+        'endEnergyFlowTurn',
         'equipItem',
         'executeAction',
         'executePickUpItem',

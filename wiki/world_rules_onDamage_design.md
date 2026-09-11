@@ -614,7 +614,7 @@ Full round-trip with the shipped 5% rule (real facade, real data files), seam-dr
 | **Independence from the legacy drop:** seam success with iron `dropRate 1.0` → all three streams present simultaneously; legacy volumes remain formula-exact (the onDamage stream did not perturb them) | R4 |
 | **Largest-fraction selection:** punch a multi-material component (`droidHand`: iron 0.7 / wood 0.3, V=6) → the onDamage token is `chunk_iron` at `max(0.05, 0.3 × L × 0.7 × 6)` — never wood | R3 resolution rule |
 | **Non-channel source (direct stat delta):** seam success; `world.componentController.updateComponentStatDelta(handId, 'Physical', 'strength', -5)` → a floor-volume token appears (no punch involved) | R1 (stat effects) |
-| **IC-tick source:** install the real `corrosiveGland` organ (corrosion, `intervalTicks 10`, [`data/internalComponents.json`](data/internalComponents.json:64)) on a nearby component via the internal-component controller's public install API, advance ticks past one interval → an onDamage token appears with no punch/cut/shoot in between | R1 (IC ticks) |
+| **IC-turn source:** install the real `corrosiveGland` organ (corrosion, `intervalTurns 10`, [`data/internalComponents.json`](data/internalComponents.json:64)) on a nearby component via the internal-component controller's public install API, advance to the round-10 start → an onDamage token appears with no punch/cut/shoot in between | R1 (IC turns) |
 | **Lethal punch:** seam success; punch to `existence <= 0` → **no** onDamage token from the hook (break/spill cascade runs instead) | §3.5 (D10 mirror) |
 | **Torn-rule regression (in-world):** with the onDamage rule active, the torn token's volume is still `(10/100) × L × fraction × V` and the chunk stream still rolls per `materialDropRates.json` | R5 |
 | **File degradation (missing):** hide the file (copy the rename-swap helper from the torn contract test) → world builds, `getOnDamageRules()` → `[]`, a punch behaves bit-identically to legacy (only the legacy streams' records) | R6 |
@@ -655,7 +655,7 @@ schemas, no step-by-step flows.
 6. `percentage` (0..1 probability) vs `percent` (0..100 share) is an intentional
    scale difference; keep the JSDoc on `getOnDamageRules()` explicit so the drift never
    happens silently.
-7. The IC-tick contract test (§7.5) depends on the internal-component controller's
-   public install API and on advancing the unified tick system past
-   `intervalTicks: 10` — the code subtask should reuse whatever tick-advance pattern the
+7. The IC-turn contract test (§7.5) depends on the internal-component controller's
+   public install API and on driving the per-turn channel to the round-10 start
+   (`intervalTurns: 10`) — the code subtask reuses the round-driven pattern the
    internal-component tests already use (do not invent a new one).
