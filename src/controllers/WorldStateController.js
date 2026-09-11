@@ -66,6 +66,11 @@ class WorldStateController {
      * @param {import('./materials/MaterialController.js')} [deps.materialController]
      * @param {import('./crafting/CraftingController.js')} [deps.craftingController]
      * @param {import('./knowledge/KnowledgeController.js')} [deps.knowledgeController]
+     * @param {import('./core/EnergyFlowController.js')} [deps.energyFlowController] - The
+     *   energy flow logic controller (constructed by the composition root). Its
+     *   initialize() is called from this constructor right after the turn system's
+     *   (same lifecycle as both peers); its OWN facade reference is injected
+     *   post-construction by the composition root.
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -140,6 +145,14 @@ class WorldStateController {
         // reference is injected post-construction by the composition root.
         /** @private {import('./worldRules/OnDamageDropListener.js')|null} */
         this.onDamageDropListener = deps.onDamageDropListener ?? null;
+        // EnergyFlowController: cross-component Physical.energy redistribution
+        // (wiki/energy_flow_spec.md). Logic controller — owns no persistent
+        // world data, null-tolerant like worldRulesController (tests may build
+        // the facade without it). Deliberately NOT in the subControllers
+        // broadcast map: it has no getAll() and must stay out of the full-state
+        // aggregation (same rule as worldRulesController / onDamageDropListener).
+        /** @private {import('./core/EnergyFlowController.js').default|null} */
+        this.energyFlowController = deps.energyFlowController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -150,6 +163,15 @@ class WorldStateController {
         // Listeners only broadcast when counter === 0 → exactly 1 broadcast per cascade chain.
         /** @private {number} */
         this._cascadeReentrancyCount = 0;
+        // Flow-scope counter (mirrors _cascadeReentrancyCount, energy flow
+        // spec §6.2): while > 0 the energy flow is mid-step, so the stat-change
+        // broadcast gate suppresses per-write broadcasts; the step itself closes
+        // the scope with at most one full-state broadcast (only if something
+        // moved). The counter is incremented/decremented in lockstep by
+        // beginEnergyFlowTick() / endEnergyFlowTick() — always balanced by the
+        // flow controller's begin → work → finally close.
+        /** @private {number} */
+        this._energyFlowScopeCount = 0;
         /**
          * @private {Set<string>|null} — shared visited-set across recursive cascade (§3.6.4).
          * One logical cascade chain per re-entrant break event; the shared set prevents
@@ -244,8 +266,10 @@ class WorldStateController {
                 }
             }
             
-            // Trigger broadcast if broadcastService is available and not in middle of cascade
-            if (this._broadcastService && this._cascadeReentrancyCount === 0) {
+            // Trigger broadcast if broadcastService is available and not in middle of cascade,
+            // AND not in the middle of an energy-flow step (the flow closes its scope with at
+            // most one full-state broadcast — see endEnergyFlowTick; energy flow spec §6.2).
+            if (this._broadcastService && this._cascadeReentrancyCount === 0 && this._energyFlowScopeCount === 0) {
                 this._broadcastService.broadcast();
             }
         });
@@ -269,6 +293,14 @@ class WorldStateController {
         // side-effect-free until tickSystem.start(). The facade reference is
         // injected by the composition root AFTER this constructor.
         this.turnSystemController?.initialize();
+
+        // Initialize the Energy Flow (energy flow spec §3.3) with the global tick
+        // system — right after the turn system's initialize(): its job registers
+        // at interval 1, order 2 (strictly after internal-components order 0 and
+        // turn-system order 1). Same lifecycle as both peers: registration is
+        // side-effect-free until tickSystem.start(), and the facade reference is
+        // injected by the composition root AFTER this constructor.
+        this.energyFlowController?.initialize();
 
         // Wire equippedItemStats stat change callback to trigger capability
         // re-evaluation. When an equipped item's stats change (e.g., sharpness
@@ -1289,6 +1321,41 @@ class WorldStateController {
      */
     getComponentStats(componentId) {
         return this.componentController.getComponentStats(componentId);
+    }
+
+    /**
+     * Opens an energy-flow broadcast scope (energy flow spec §6.2).
+     *
+     * Called by the EnergyFlowController at the start of one flow step. While
+     * the scope count is > 0, the component stat-change broadcast gate
+     * suppresses its per-write broadcasts, so a flow tick that changes many
+     * components does not fire one broadcast per component. The scope is
+     * closed (and, if requested, the single full-state broadcast fires) by the
+     * matching endEnergyFlowTick() — always via the controller's
+     * begin → work → finally close, so the two calls are balanced.
+     * Mirrors the documented _cascadeReentrancyCount pattern.
+     * @returns {void}
+     */
+    beginEnergyFlowTick() {
+        this._energyFlowScopeCount++;
+    }
+
+    /**
+     * Closes an energy-flow broadcast scope (energy flow spec §6.2).
+     *
+     * When the scope count returns to zero, exactly one full-state broadcast is
+     * emitted if — and only if — `shouldBroadcast` is true (the flow step
+     * wrote at least one stat) and a broadcast service is wired. When nothing
+     * moved, the step is silent: zero broadcasts (steady-state and zero-energy
+     * worlds produce no client traffic from the flow).
+     * @param {boolean} shouldBroadcast - True when the flow step wrote any stat.
+     * @returns {void}
+     */
+    endEnergyFlowTick(shouldBroadcast) {
+        this._energyFlowScopeCount--;
+        if (this._energyFlowScopeCount === 0 && shouldBroadcast && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
     }
 
     /**

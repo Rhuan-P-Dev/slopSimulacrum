@@ -99,6 +99,7 @@ Additional reference documentation for specific systems and components, organize
 - [Item Drop & Pickup System](subMDs/systems/item_drop_pickup.md) — Item drop range calculation and pickup
 - [Unique ID System](subMDs/systems/unique_id_system.md) — Self-describing typed IDs (ent-, comp-, item-, eq-) for unambiguous client-server resolution
 - [Crafting System](subMDs/systems/crafting_system.md) — Data-driven recipes, UI-panel crafting on a component's inventory, no turn cost
+- [Energy Flow System](subMDs/systems/energy_flow.md) — Why the M1 droid circulates energy as one fully-interconnected network (simultaneous tick-start redistribution, capacity bounds with lost overflow, drains that are not damage, total degradation via one world-rule key, silent steady state, one broadcast per tick)
 
 ### 🐛 Bug Tracking
 - [Bugfix Wiki](bugfixWiki/README.md) — Centralized bug database with severity classifications and resolution tracking

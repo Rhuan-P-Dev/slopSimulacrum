@@ -159,9 +159,15 @@ class ComponentController {
      * @param {string} traitId - The trait category (e.g., "Physical").
      * @param {string} statName - The stat to modify.
      * @param {any} value - The new value.
+     * @param {boolean} [skipDamageEvent=false] - When true, a strict decrease via
+     *   this SET does NOT fire the damage-listener list. The damage event's
+     *   contract describes a *harmful weakening*; a strict decrease caused by a
+     *   physiological transfer (the energy-flow redistribution) is not damage, so
+     *   such writers opt out. Additive public API: the default keeps every
+     *   existing call site bit-identical.
      * @returns {boolean}
      */
-    updateComponentStat(instanceId, traitId, statName, value) {
+    updateComponentStat(instanceId, traitId, statName, value, skipDamageEvent = false) {
         // Read current stats to get the old value.
         // A semantic SET may introduce a brand-new trait group (e.g. an organ
         // granting Movement.move to a component that had no Movement stats yet —
@@ -175,7 +181,9 @@ class ComponentController {
         // AFTER the write (the value is committed) but BEFORE the stat-change
         // notification, so the damaged component is still resolvable when the
         // consumer runs and the consumer's own total-loss skip decides lethal hits.
-        if (typeof oldValue === 'number' && typeof value === 'number' && value < oldValue) {
+        // Skipped entirely when the writer declares the decrease is not damage
+        // (skipDamageEvent) — the stat-change notification below still fires.
+        if (!skipDamageEvent && typeof oldValue === 'number' && typeof value === 'number' && value < oldValue) {
             this._notifyDamageListeners(instanceId, traitId, statName, oldValue, value);
         }
         this._notifyStatChangeListeners(instanceId, traitId, statName, value, oldValue);

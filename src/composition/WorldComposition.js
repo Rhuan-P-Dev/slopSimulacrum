@@ -79,6 +79,11 @@ import LlmAgentFeedbackController from '../controllers/networking/LlmAgentFeedba
 // Feature A: deterministic round/turn system (state owner; needs only the
 // tick system at construction — the facade is injected via setter below).
 import TurnSystemController from '../controllers/core/TurnSystemController.js';
+// Energy flow (wiki/energy_flow_spec.md): cross-component Physical.energy
+// redistribution. Logic controller; constructed with its three named deps
+// (all already in scope — no new file I/O); the facade reference is injected
+// via setter below (same pattern as the IC / turn-system peers).
+import EnergyFlowController from '../controllers/core/EnergyFlowController.js';
 import LlmContextController from '../controllers/networking/LlmContextController.js';
 import ComponentCapabilityController from '../controllers/capabilities/componentCapabilityController.js';
 import ActionSelectController from '../controllers/actions/actionSelectController.js';
@@ -267,6 +272,18 @@ export function buildWorldState(tickSystem = null) {
     // Feature A: turn system (state owner; needs only the tick system here —
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
+    // Energy flow (wiki/energy_flow_spec.md): the "blood system". Logic
+    // controller with named deps only — tickSystem (job registration), the
+    // already-loaded componentRegistry (data/components.json — used ONLY to
+    // resolve the optional per-recipe `energyCapacity` bound), and the
+    // worldRulesController (the flow reads the validated rule via
+    // getRule('energyFlow'), never the file). Deliberately NOT passed into
+    // the facade's broadcast subControllers map: it has no getAll().
+    const energyFlowController = new EnergyFlowController(
+        tickSystem,
+        componentRegistry,
+        worldRulesController
+    );
 
     // §3.2: TriggerController — constructed before facade, facade injected later.
     const triggerController = new TriggerController();
@@ -324,7 +341,13 @@ export function buildWorldState(tickSystem = null) {
         // OnDamageDropListener: enforcement arm of the onDamage world-event rule.
         // Null-tolerant like worldRulesController — a test may hand-build the facade
         // without it. Deliberately NOT in the subControllers broadcast map (same rule).
-        onDamageDropListener
+        onDamageDropListener,
+        // EnergyFlowController: cross-component energy redistribution (logic
+        // controller, no getAll() → stays out of the broadcast aggregation,
+        // same rule as worldRulesController). The facade calls its
+        // initialize() in its own constructor (right after the turn system's);
+        // the flow's OWN facade reference is injected below, post-construction.
+        energyFlowController
     });
 
     // =========================================================================
@@ -350,6 +373,11 @@ export function buildWorldState(tickSystem = null) {
     // Wired here (composition root) because the turn system and the IC
     // controller are siblings - neither owns the other.
     turnSystemController.setTurnStartHook(() => internalComponentController.processTurnEffects());
+    // Energy flow: inject the facade (post-construction) so the flow step can
+    // enumerate entities, read stats, and write through the public API. By the
+    // time its tick job can run, the tick system is started — i.e. after this
+    // wiring step — so the reference is always resolved before first use.
+    energyFlowController.setWorldStateController(worldStateController);
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);
     // InstinctController: reads world state for generation/expansion.
@@ -431,7 +459,12 @@ export function buildWorldState(tickSystem = null) {
             // Inspection-only (not in broadcast) — the onDamage enforcement arm is a
             // null-tolerant actor with no getAll(); it must stay out of the full-state
             // broadcast aggregation (same rule as worldRulesController).
-            onDamageDropListener
+            onDamageDropListener,
+            // Inspection-only (not in broadcast) — the energy flow is a logic
+            // controller with no getAll(); static-ish config + a tick job must
+            // stay out of the full-state broadcast aggregation (same rule as
+            // worldRulesController / onDamageDropListener).
+            energyFlowController
         }
     };
 }

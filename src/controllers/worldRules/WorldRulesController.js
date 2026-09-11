@@ -42,7 +42,14 @@ import Logger from '../../utils/Logger.js';
  */
 const DAMAGE_TORN_MATERIAL_RULE = 'damageTornMaterial';
 
-const KNOWN_RULE_KEYS = new Set([DAMAGE_TORN_MATERIAL_RULE]);
+/**
+ * The stable key of the energy-flow rule, defined once so the key cannot
+ * drift between the known-keys set and the rule reader.
+ * @type {string}
+ */
+export const ENERGY_FLOW_RULE = 'energyFlow';
+
+const KNOWN_RULE_KEYS = new Set([DAMAGE_TORN_MATERIAL_RULE, ENERGY_FLOW_RULE]);
 
 /**
  * The stable key of the shipped onDamage event table, defined once so the key cannot
@@ -156,11 +163,91 @@ class WorldRulesController {
                 continue;
             }
 
-            // Known key: validate the config object.
-            this._rules[key] = this._validateRuleConfig(key, config);
+            // Known key: validate the config object. Per-key dispatch — each rule
+            // key has its own field shape and its own validator branch (the
+            // damageTornMaterial validator must not be stretched over a different
+            // shape; the event-table keys already established this branch pattern).
+            if (key === ENERGY_FLOW_RULE) {
+                this._rules[key] = this._validateEnergyFlowConfig(config);
+            } else {
+                this._rules[key] = this._validateRuleConfig(key, config);
+            }
         }
 
         this._logSummary();
+    }
+
+    /**
+     * Validates the `energyFlow` rule config object.
+     *
+     * Field contract (energy flow spec §4):
+     *   - config must be a plain object (not array/null/wrong type) → else rule off.
+     *   - `sharePerTick` (required): finite number in [0, 1]; 0 is a VALID value
+     *     meaning "flow off by design" (no warning), mirroring `percent: 0`.
+     *   - `defaultEnergyCapacity` (required): finite number ≥ 0 — the capacity
+     *     bound for components whose recipe declares no `energyCapacity`.
+     *   - `enabled` (optional, default true): must be a boolean if present.
+     *   - Any other field is ignored (forward compatibility).
+     *
+     * Malformed → the flow rule is off with a single warn naming the field;
+     * every other rule is unaffected. Off-by-design (enabled: false or
+     * sharePerTick: 0) → off with NO warn (valid values).
+     *
+     * @param {*} config - The raw config value from the file.
+     * @returns {Object|null} The validated config, or null when the rule is off.
+     * @private
+     */
+    _validateEnergyFlowConfig(config) {
+        const key = ENERGY_FLOW_RULE;
+        if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": config is not a plain object — rule disabled.`);
+            return null;
+        }
+
+        // `sharePerTick` is required: a finite number in [0, 1] (0 = off by design).
+        if (config.sharePerTick === undefined || config.sharePerTick === null) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": missing required field "sharePerTick" — rule disabled.`);
+            return null;
+        }
+        if (typeof config.sharePerTick !== 'number' || !Number.isFinite(config.sharePerTick)) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": "sharePerTick" is not a finite number — rule disabled.`);
+            return null;
+        }
+        if (config.sharePerTick < 0 || config.sharePerTick > 1) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": "sharePerTick" ${config.sharePerTick} is out of range [0, 1] — rule disabled.`);
+            return null;
+        }
+
+        // `defaultEnergyCapacity` is required: a finite number ≥ 0.
+        if (config.defaultEnergyCapacity === undefined || config.defaultEnergyCapacity === null) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": missing required field "defaultEnergyCapacity" — rule disabled.`);
+            return null;
+        }
+        if (typeof config.defaultEnergyCapacity !== 'number' || !Number.isFinite(config.defaultEnergyCapacity)) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": "defaultEnergyCapacity" is not a finite number — rule disabled.`);
+            return null;
+        }
+        if (config.defaultEnergyCapacity < 0) {
+            Logger.warn(`[WorldRulesController] Rule "${key}": "defaultEnergyCapacity" ${config.defaultEnergyCapacity} is negative — rule disabled.`);
+            return null;
+        }
+
+        // `enabled` is optional (default true); if present must be a boolean.
+        let enabled = true;
+        if (config.enabled !== undefined) {
+            if (typeof config.enabled !== 'boolean') {
+                Logger.warn(`[WorldRulesController] Rule "${key}": "enabled" is not a boolean — rule disabled.`);
+                return null;
+            }
+            enabled = config.enabled;
+        }
+
+        // Rule off by design (valid values, no warning).
+        if (enabled === false || config.sharePerTick === 0) {
+            return null;
+        }
+
+        return { sharePerTick: config.sharePerTick, defaultEnergyCapacity: config.defaultEnergyCapacity, enabled: true };
     }
 
     /**

@@ -145,7 +145,8 @@ describe('WorldRulesController — validator matrix', () => {
                     .map((call) => call[0])
                     .find((line) => typeof line === 'string' && line.includes('rule(s) active'));
                 expect(summary, 'the init summary line should be logged at construction').toBeDefined();
-                expect(summary).toMatch(/0\/1 rule\(s\) active \(none\)/);
+                // 2 known keys since energyFlow shipped (the count is the known-key set size).
+                expect(summary).toMatch(/0\/2 rule\(s\) active \(none\)/);
             } finally {
                 infoSpy.mockRestore();
             }
@@ -368,12 +369,181 @@ describe('WorldRulesController — validator matrix', () => {
                     .find((line) => typeof line === 'string' && line.includes('rule(s) active'));
                 expect(summary, 'the init summary line should be logged at construction').toBeDefined();
                 // The scalar-rule prefix must remain verbatim (existing tests depend on it).
-                expect(summary).toMatch(/1\/1 rule\(s\) active \(damageTornMaterial\)/);
+                // 2 known keys since energyFlow shipped (the count is the known-key set size).
+                expect(summary).toMatch(/1\/2 rule\(s\) active \(damageTornMaterial\)/);
                 // The event clause is appended after the rule clause.
                 expect(summary).toMatch(/events: onDamage 1 entr\(y\/ies\) active/);
             } finally {
                 infoSpy.mockRestore();
             }
+        });
+    });
+
+    // =========================================================================
+    // energyFlow rule (validator matrix) — energy flow spec §4/§10.3
+    // =========================================================================
+
+    describe('energyFlow rule (validator matrix)', () => {
+        /** Installs a warn spy that stays silent and returns the spy. */
+        function warnSpy() {
+            return vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        }
+
+        /** The warn calls mentioning the energyFlow key (there must be at most one per rule). */
+        function energyFlowWarns(spy) {
+            return spy.mock.calls
+                .map((call) => call[0])
+                .filter((line) => typeof line === 'string' && line.includes('energyFlow'));
+        }
+
+        it('key absent (other rules only): energyFlow off, no warn, the other rules untouched', () => {
+            const spy = warnSpy();
+            const controller = new WorldRulesController({
+                rules: { damageTornMaterial: { percent: 10, enabled: true } }
+            });
+            expect(controller.getRule('energyFlow')).toBeNull();
+            expect(energyFlowWarns(spy)).toHaveLength(0);
+            expect(controller.getDamageTornMaterialPercent()).toBe(10);
+            spy.mockRestore();
+        });
+
+        it('non-object config (string / number / null / array / boolean) → off with a single warn', () => {
+            for (const bad of ['flow', 42, null, [0.1, 100], true]) {
+                const spy = warnSpy();
+                const controller = new WorldRulesController({ rules: { energyFlow: bad } });
+                expect(controller.getRule('energyFlow')).toBeNull();
+                expect(energyFlowWarns(spy)).toHaveLength(1);
+                spy.mockRestore();
+            }
+        });
+
+        it('missing sharePerTick → off with a warn', () => {
+            const spy = warnSpy();
+            const controller = new WorldRulesController({
+                rules: { energyFlow: { defaultEnergyCapacity: 100 } }
+            });
+            expect(controller.getRule('energyFlow')).toBeNull();
+            expect(energyFlowWarns(spy)).toHaveLength(1);
+            spy.mockRestore();
+        });
+
+        it('sharePerTick non-finite (string / NaN / Infinity) → off with a warn', () => {
+            for (const bad of ['ten', NaN, Infinity]) {
+                const spy = warnSpy();
+                const controller = new WorldRulesController({
+                    rules: { energyFlow: { sharePerTick: bad, defaultEnergyCapacity: 100 } }
+                });
+                expect(controller.getRule('energyFlow')).toBeNull();
+                expect(energyFlowWarns(spy)).toHaveLength(1);
+                spy.mockRestore();
+            }
+        });
+
+        it('sharePerTick out of range (>1, <0) → off with a warn; 0 and 1 are boundaries (0 = off by design)', () => {
+            for (const bad of [1.0001, -0.1]) {
+                const spy = warnSpy();
+                const controller = new WorldRulesController({
+                    rules: { energyFlow: { sharePerTick: bad, defaultEnergyCapacity: 100 } }
+                });
+                expect(controller.getRule('energyFlow')).toBeNull();
+                expect(energyFlowWarns(spy)).toHaveLength(1);
+                spy.mockRestore();
+            }
+            // sharePerTick: 0 — VALID value meaning "flow off by design" (no warn).
+            const spy0 = warnSpy();
+            const c0 = new WorldRulesController({
+                rules: { energyFlow: { sharePerTick: 0, defaultEnergyCapacity: 100 } }
+            });
+            expect(c0.getRule('energyFlow')).toBeNull();
+            expect(energyFlowWarns(spy0)).toHaveLength(0);
+            spy0.mockRestore();
+            // sharePerTick: 1 — valid boundary (the whole pool circulates).
+            const c1 = new WorldRulesController({
+                rules: { energyFlow: { sharePerTick: 1, defaultEnergyCapacity: 100 } }
+            });
+            expect(c1.getRule('energyFlow')).toEqual({ sharePerTick: 1, defaultEnergyCapacity: 100, enabled: true });
+        });
+
+        it('missing / non-finite / negative defaultEnergyCapacity → off with a warn', () => {
+            const cases = [
+                { sharePerTick: 0.1 },
+                { sharePerTick: 0.1, defaultEnergyCapacity: '100' },
+                { sharePerTick: 0.1, defaultEnergyCapacity: NaN },
+                { sharePerTick: 0.1, defaultEnergyCapacity: Infinity },
+                { sharePerTick: 0.1, defaultEnergyCapacity: -1 }
+            ];
+            for (const config of cases) {
+                const spy = warnSpy();
+                const controller = new WorldRulesController({ rules: { energyFlow: config } });
+                expect(controller.getRule('energyFlow')).toBeNull();
+                expect(energyFlowWarns(spy)).toHaveLength(1);
+                spy.mockRestore();
+            }
+        });
+
+        it('enabled: non-boolean → off with a warn; enabled: false → off by design (no warn)', () => {
+            const spyBad = warnSpy();
+            const cBad = new WorldRulesController({
+                rules: { energyFlow: { sharePerTick: 0.1, defaultEnergyCapacity: 100, enabled: 'yes' } }
+            });
+            expect(cBad.getRule('energyFlow')).toBeNull();
+            expect(energyFlowWarns(spyBad)).toHaveLength(1);
+            spyBad.mockRestore();
+
+            const spyOff = warnSpy();
+            const cOff = new WorldRulesController({
+                rules: { energyFlow: { sharePerTick: 0.1, defaultEnergyCapacity: 100, enabled: false } }
+            });
+            expect(cOff.getRule('energyFlow')).toBeNull();
+            expect(energyFlowWarns(spyOff)).toHaveLength(0);
+            spyOff.mockRestore();
+        });
+
+        it('valid config round-trips via getRule as a defensive copy, and is counted in the boot summary', () => {
+            const registry = {
+                rules: { energyFlow: { sharePerTick: 0.1, defaultEnergyCapacity: 100 } }
+            };
+            const controller = new WorldRulesController(registry);
+            const rule1 = controller.getRule('energyFlow');
+            expect(rule1).toEqual({ sharePerTick: 0.1, defaultEnergyCapacity: 100, enabled: true });
+            // Defensive copy: mutating the returned copy must not corrupt the registry.
+            rule1.sharePerTick = 0.99;
+            expect(controller.getRule('energyFlow').sharePerTick).toBe(0.1);
+
+            // The new key is counted automatically once registered (2 known keys now).
+            const infoSpy = vi.spyOn(Logger, 'info');
+            try {
+                new WorldRulesController(registry);
+                const summary = infoSpy.mock.calls
+                    .map((call) => call[0])
+                    .find((line) => typeof line === 'string' && line.includes('rule(s) active'));
+                expect(summary, 'the init summary line should be logged at construction').toBeDefined();
+                expect(summary).toMatch(/1\/2 rule\(s\) active \(energyFlow\)/);
+            } finally {
+                infoSpy.mockRestore();
+            }
+        });
+
+        it('key independence: a malformed energyFlow leaves the torn rule intact — and vice versa', () => {
+            const spy = warnSpy();
+            const c1 = new WorldRulesController({
+                rules: {
+                    damageTornMaterial: { percent: 10, enabled: true },
+                    energyFlow: { sharePerTick: 'bad', defaultEnergyCapacity: 100 }
+                }
+            });
+            expect(c1.getRule('energyFlow')).toBeNull();
+            expect(c1.getDamageTornMaterialPercent()).toBe(10);
+            spy.mockRestore();
+
+            const c2 = new WorldRulesController({
+                rules: {
+                    damageTornMaterial: { percent: 'bad' },
+                    energyFlow: { sharePerTick: 0.1, defaultEnergyCapacity: 100 }
+                }
+            });
+            expect(c2.getRule('energyFlow')).toEqual({ sharePerTick: 0.1, defaultEnergyCapacity: 100, enabled: true });
+            expect(c2.getDamageTornMaterialPercent()).toBe(0);
         });
     });
 });
