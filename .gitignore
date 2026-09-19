@@ -6,3 +6,8 @@ arquitetura.png~
 docs/
 plans/
 coverage/
+# local env files — never track
+.env
+.env.backup
+.env.*
+!.env.example
