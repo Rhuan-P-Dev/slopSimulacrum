@@ -17,33 +17,49 @@
     margin-bottom: 15px;
 }
 
-.action-name {
-    color: var(--neon-green);
-    font-weight: bold;
-    text-transform: uppercase;
-    font-size: 0.9em;
-}
-
-/* Locked/Grayed Component Row */
-.component-locked {
-    opacity: 0.35;
-    pointer-events: auto;
-    cursor: not-allowed;
-}
-
-.component-locked:hover {
-    opacity: 0.6;
-    background-color: rgba(255, 68, 68, 0.15);
-}
-
-.lock-icon {
-    margin-right: 4px;
-    font-size: 12px;
-    cursor: help;
-}
 /* =========================================================================
    NavActionsPanel Multi-Component Selection Styles
    ========================================================================= */
+
+/* Nav panel filter input */
+.nav-actions-filter {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+    padding: 5px 8px;
+    font-size: 0.85em;
+    background: var(--bg-black);
+    color: var(--text-main);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 3px;
+    outline: none;
+}
+
+.nav-actions-filter:focus {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 0, 0.3);
+}
+
+.nav-actions-filter::placeholder {
+    color: var(--text-dim);
+}
+
+/* Action name caret (expand/collapse indicator) */
+.nav-action-caret {
+    display: inline-block;
+    width: 1em;
+    color: var(--neon-green);
+    font-size: 0.8em;
+}
+
+/* Component list wrapper — hidden by default, shown when action is expanded */
+.nav-action-components {
+    display: none;
+}
+
+.nav-action-components.nav-expanded {
+    display: block;
+}
 
 /* Nav panel action items */
 .nav-action-item {
@@ -117,7 +133,7 @@
     background: rgba(255, 68, 68, 0.15);
 }
 
-.nav-component-row.nav-locked .lock-icon {
+.nav-component-row.nav-locked .nav-lock-icon {
     opacity: 1;
 }
 

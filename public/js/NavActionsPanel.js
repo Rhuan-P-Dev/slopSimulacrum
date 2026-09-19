@@ -4,8 +4,8 @@
  * Displays the action registry with multi-component selection support.
  *
  * Supports multi-component selection with visual highlighting:
- * - Selected components get green highlight (action-selected)
- * - Locked components get grayed out with lock icon (component-locked)
+ * - Selected components get green highlight (nav-selected)
+ * - Locked components get grayed out with lock icon (nav-locked)
  * - Active action gets yellow border highlight
  *
  * @module NavActionsPanel
@@ -42,6 +42,10 @@ export class NavActionsPanel {
         this._actionCallback = null;
         /** @private {Function|null} Callback for grayed component click (replaces _onGrayedComponentClick after delegation) */
         this._grayedComponentCallback = null;
+        /** @private {Set<string>} Action names currently expanded (component list visible) */
+        this._expandedActions = new Set();
+        /** @private {string} Current filter query for action/component search */
+        this._filterQuery = '';
     }
 
     /**
@@ -80,31 +84,27 @@ export class NavActionsPanel {
      * Shows the actions panel.
      * Renders the available actions with component selection state.
      *
-     * @param {Object} [data] - Data object with keys: actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick.
+     * @param {Object|null} [data] - Data object with keys: actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick.
      */
     show(data) {
         if (!this.overlay) return;
 
-        // Support both { ...data } object and legacy positional arguments
-        const actions = data?.actions || (arguments[0] && !arguments[0].actions ? arguments[0] : null);
-        const entityId = data?.entityId || arguments[1];
-        const onActionClick = data?.onActionClick || arguments[2];
-        const activeActionName = data?.activeActionName || arguments[3];
-        const selectedComponentIds = data?.selectedComponentIds || arguments[4];
-        const crossActionSelections = data?.crossActionSelections || arguments[5];
-        const onGrayedComponentClick = data?.onGrayedComponentClick || arguments[6];
+        const actions = data?.actions || null;
+        const entityId = data?.entityId || null;
+        const onActionClick = data?.onActionClick || null;
+        const activeActionName = data?.activeActionName || null;
+        const selectedComponentIds = data?.selectedComponentIds || null;
+        const crossActionSelections = data?.crossActionSelections || null;
+        const onGrayedComponentClick = data?.onGrayedComponentClick || null;
 
-        // If data is provided, use it; otherwise fall back to legacy positional args
-        if (data && data.actions) {
-            this._entityId = data.entityId || null;
-            this._onActionClick = data.onActionClick || null;
-            this._onGrayedComponentClick = data.onGrayedComponentClick || null;
-            this._crossActionSelections = data.crossActionSelections || null;
-        } else if (actions !== null) {
-            this._entityId = entityId || null;
-            this._onActionClick = onActionClick || null;
-            this._onGrayedComponentClick = onGrayedComponentClick || null;
-            this._crossActionSelections = crossActionSelections || null;
+        this._entityId = entityId;
+        this._onActionClick = onActionClick;
+        this._onGrayedComponentClick = onGrayedComponentClick;
+        this._crossActionSelections = crossActionSelections;
+
+        // Keep the active action visible so the user can continue selecting into it
+        if (activeActionName) {
+            this._expandedActions.add(activeActionName);
         }
 
         let html = '';
@@ -123,16 +123,6 @@ export class NavActionsPanel {
     }
 
     /**
-     * Updates the stored callbacks and cross-action selections.
-     * @private
-     */
-    _updateCallbacks(onActionClick, onGrayedComponentClick, crossActionSelections) {
-        if (onActionClick) this._onActionClick = onActionClick;
-        if (onGrayedComponentClick) this._onGrayedComponentClick = onGrayedComponentClick;
-        if (crossActionSelections) this._crossActionSelections = crossActionSelections;
-    }
-
-    /**
      * Updates the actions panel content without re-showing it.
      * Used when the panel is already open and data needs refreshing.
      *
@@ -144,7 +134,7 @@ export class NavActionsPanel {
      * @param {Map<string, Set<string>>} [crossActionSelections] - Map of actionName → Set of selected component IDs.
      * @param {Function} [onGrayedComponentClick] - Callback when a grayed (locked) component is clicked.
      */
-            updateRoom(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
+        updateRoom(actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick) {
         if (!this.overlay || !this._content) return;
 
         // Preserve scroll position of the actual scrollable containers
@@ -154,6 +144,8 @@ export class NavActionsPanel {
 
         // Update stored references if provided
         if (entityId) this._entityId = entityId;
+        // Keep the active action visible so the user can continue selecting into it
+        if (activeActionName) this._expandedActions.add(activeActionName);
         if (onActionClick) this._onActionClick = onActionClick;
         if (onGrayedComponentClick) this._onGrayedComponentClick = onGrayedComponentClick;
         if (crossActionSelections) this._crossActionSelections = crossActionSelections;
@@ -238,10 +230,18 @@ export class NavActionsPanel {
             }
         }
 
+        const esc = (value) => this._escapeHtmlAttribute(value);
+
         let html = '<div class="action-list" id="action-list">';
+
+        // Filter input — matches action names and component names/identifiers
+        html += `<input type="text" id="nav-actions-filter" class="nav-actions-filter"
+            placeholder="🔍 Filter by action or component..."
+            value="${this._escapeHtmlAttribute(this._filterQuery)}">`;
 
         for (const [actionName, actionData] of Object.entries(actions)) {
             const isThisActive = actionName === activeActionName;
+            const isExpanded = this._expandedActions.has(actionName);
             const capableCount = (actionData.canExecute || []).length;
             const incapableCount = (actionData.cannotExecute || []).length;
 
@@ -249,11 +249,14 @@ export class NavActionsPanel {
             const actionItemClass = isThisActive ? 'nav-action-item nav-active' : 'nav-action-item';
 
             html += `
-                <div class="${actionItemClass}" data-action-name="${actionName}">
-                    <div class="nav-action-name">${actionName}</div>
+                <div class="${actionItemClass}" data-action-name="${esc(actionName)}">
+                    <div class="nav-action-name" title="Click to ${isExpanded ? 'hide' : 'show'} components">
+                        <span class="nav-action-caret">${isExpanded ? '▾' : '▸'}</span> ${esc(actionName)}
+                    </div>
                     <div class="nav-capable-count">
                         ${capableCount} capable${capableCount !== 1 ? 's' : ''} · ${incapableCount} incapable${incapableCount !== 1 ? 's' : ''}
-                    </div>`;
+                    </div>
+                    <div class="nav-action-components${isExpanded ? ' nav-expanded' : ''}">`;
 
             // Render capable components as interactive rows
             if (capableCount > 0) {
@@ -275,7 +278,7 @@ export class NavActionsPanel {
 
                     // Lock icon with tooltip showing which action it's locked to
                     const lockIcon = grayedByAction
-                        ? `<span class="nav-lock-icon" title="Selected in '${grayedByAction}'">🔒</span>`
+                        ? `<span class="nav-lock-icon" title="Selected in '${esc(grayedByAction)}'">🔒</span>`
                         : '';
 
                     // Equipped item indicator (knife icon)
@@ -283,26 +286,113 @@ export class NavActionsPanel {
 
                     html += `
                         <div class="${rowClass}"
-                             data-action="${actionName}"
-                             data-entity="${entry.entityId}"
-                             data-comp-id="${entry.componentId}"
-                             data-comp-name="${entry.componentType}"
-                             data-comp-identifier="${entry.componentIdentifier}"
+                             data-action="${esc(actionName)}"
+                             data-entity="${esc(entry.entityId)}"
+                             data-comp-id="${esc(entry.componentId)}"
+                             data-comp-name="${esc(entry.componentType)}"
+                             data-comp-identifier="${esc(entry.componentIdentifier)}"
                              data-can-execute="${canExecute}"
                              data-equipped-type="${isEquipped ? entry.componentType : ''}">
                             ${lockIcon}
                             ${equippedIcon}
-                            <span class="nav-comp-type">${entry.componentType}</span>
-                            <span class="nav-comp-identifier">(${entry.componentIdentifier})</span>
+                            <span class="nav-comp-type">${esc(entry.componentType)}</span>
+                            <span class="nav-comp-identifier">(${esc(entry.componentIdentifier)})</span>
                         </div>`;
                 }
             }
 
-            html += '</div>';
+            // Close components wrapper and item
+            html += '</div></div>';
         }
 
         html += '</div>';
         return html;
+    }
+
+    /**
+     * Escapes a string for safe embedding in an HTML attribute value.
+     * @param {string} value - Raw string.
+     * @returns {string} Escaped string.
+     * @private
+     */
+    _escapeHtmlAttribute(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    /**
+     * Toggles the component list visibility for an action and syncs the caret.
+     * @param {string} actionName - The action to toggle.
+     * @private
+     */
+    _toggleActionExpanded(actionName) {
+        const item = this._content?.querySelector(`.nav-action-item[data-action-name="${this._escapeCssIdentifier(actionName)}"]`);
+        if (!item) return;
+
+        const comps = item.querySelector('.nav-action-components');
+        const expanded = comps ? comps.classList.toggle('nav-expanded') : false;
+
+        if (expanded) {
+            this._expandedActions.add(actionName);
+        } else {
+            this._expandedActions.delete(actionName);
+        }
+
+        const caret = item.querySelector('.nav-action-caret');
+        if (caret) caret.textContent = expanded ? '▾' : '▸';
+    }
+
+    /**
+     * Escapes an action name for safe use inside a CSS attribute selector.
+     * @param {string} value - Action name.
+     * @returns {string} Escaped value.
+     * @private
+     */
+    _escapeCssIdentifier(value) {
+        return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch}`);
+    }
+
+    /**
+     * Applies the current filter query to the rendered action list.
+     * An action is visible when its name matches or any of its components match.
+     * When only components match, the action auto-expands and shows just the matching rows.
+     * @private
+     */
+    _applyFilter() {
+        if (!this._content) return;
+        const input = this._content.querySelector('#nav-actions-filter');
+        const query = (input ? input.value : this._filterQuery || '').trim().toLowerCase();
+
+        this._content.querySelectorAll('.nav-action-item').forEach((item) => {
+            const actionName = (item.dataset.actionName || '').toLowerCase();
+            const actionMatches = !query || actionName.includes(query);
+
+            let anyComponentMatches = false;
+            item.querySelectorAll('.nav-component-row').forEach((row) => {
+                const compText = `${row.dataset.compName || ''} ${row.dataset.compIdentifier || ''}`.toLowerCase();
+                const rowVisible = !query || actionMatches || compText.includes(query);
+                row.style.display = rowVisible ? '' : 'none';
+                if (query && !actionMatches && compText.includes(query)) {
+                    anyComponentMatches = true;
+                }
+            });
+
+            item.style.display = !query || actionMatches || anyComponentMatches ? '' : 'none';
+
+            // Auto-expand collapsed actions whose components matched
+            if (query && !actionMatches && anyComponentMatches) {
+                const comps = item.querySelector('.nav-action-components');
+                if (comps && !comps.classList.contains('nav-expanded')) {
+                    comps.classList.add('nav-expanded');
+                    this._expandedActions.add(item.dataset.actionName);
+                    const caret = item.querySelector('.nav-action-caret');
+                    if (caret) caret.textContent = '▾';
+                }
+            }
+        });
     }
 
     /**
@@ -313,7 +403,28 @@ export class NavActionsPanel {
      * @private
      */
     _attachActionListeners() {
-        if (!this._onActionClick || !this._content) return;
+        if (!this._content) return;
+
+        // Action name click — toggle component list (accordion behavior)
+        this._content.querySelectorAll('.nav-action-name').forEach((nameEl) => {
+            const item = nameEl.closest('.nav-action-item');
+            if (item) {
+                nameEl.onclick = () => this._toggleActionExpanded(item.dataset.actionName);
+            }
+        });
+
+        // Filter input — live search by action name or component name/identifier
+        const filterInput = this._content.querySelector('#nav-actions-filter');
+        if (filterInput) {
+            filterInput.value = this._filterQuery || '';
+            filterInput.addEventListener('input', () => {
+                this._filterQuery = filterInput.value;
+                this._applyFilter();
+            });
+            this._applyFilter();
+        }
+
+        if (!this._onActionClick) return;
 
         // Build component-to-action map for detecting grayed components
         // Defensive: ensure _crossActionSelections is a Map
@@ -341,8 +452,9 @@ export class NavActionsPanel {
             const grayedByAction = componentToActionMap.get(componentId);
 
             // If grayed (locked to another action), handle conflict resolution
-            if (grayedByAction && this._onGrayedComponentClick) {
-                this._onGrayedComponentClick(grayedByAction, componentId);
+            const grayedCallback = this._grayedComponentCallback || this._onGrayedComponentClick;
+            if (grayedByAction && grayedCallback) {
+                grayedCallback(grayedByAction, componentId);
                 return;
             }
 
