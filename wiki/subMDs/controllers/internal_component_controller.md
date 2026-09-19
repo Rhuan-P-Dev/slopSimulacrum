@@ -82,7 +82,7 @@ Increases `Movement.move` over time, auto-installs only on `smallBallDroid` enti
 
 ### `strengthCore`
 
-Turn-driven: each round it drains 1 from the HOST HAND's `Physical.durability` (`host`, `add -1`) and MAINTAINS the host hand's `Physical.strength` to 50 (`host`, a non-additive `set`). Auto-installs only on the `smallBallDroid` left `droidHand` (via `hostComponentType`/`hostSlot`). When the host hand's durability reaches 0 (driven by the per-turn drain), the instance breaks and stops applying effects. The IC's own `instanceStats` pool (the type's `traits`, e.g. `Physical.durability: 20`) is kept as a static trait for display/completeness but is NOT drained by this type — the per-turn drain targets the host hand, not the IC's own pool. Demonstrates the turn-driven channel.
+A pure *function* organ: it *maintains* the host limb's `Physical.strength` at a granted level — a static, non-additive set, so installing (or re-installing) it keeps strength at the granted value rather than stacking it. It carries **no** over-time behavior (no per-round drain, no break condition), because its only role is to hold one static capability. That capability is a data-driven grant: the type default, or a per-recipe override (a heavier rolling ball ships a stronger `strengthCore`). It is a declared organ (its host types list it in their `internalComponents`), so the *recipe* — not the code — decides which value is granted on each build.
 
 ## 6. Dependency Injection
 

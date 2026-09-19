@@ -3,39 +3,137 @@
  */
 class InternalComponentUtils {
     /**
-     * Generates a human-readable description for an internal component
-     * from its definition. The definition is passed in (rather than re-reading
-     * the data file on every call) so the caller can reuse the already-loaded
-     * registry — this avoids a disk read per broadcast per component.
+     * Formats a flat "Group.stat" wire key into a readable label
+     * ("Physical.strength" → "Physical strength").
+     * @param {string} statKey - The flat key (must contain a dot).
+     * @returns {string} The human-readable stat label.
+     * @private
+     */
+    static _formatStatKey(statKey) {
+        return String(statKey).replace(/\./g, ' ');
+    }
+
+    /**
+     * Renders a single overTime effect definition into a clause, built only
+     * from the effect's own declared fields (no hardcoded effect prose).
+     * Returns null for an unrecognized effect type so callers can skip it
+     * instead of rendering a generic sentence.
+     * @param {Object} effect - One entry of the definition's overTime array.
+     * @returns {string|null} The clause, or null.
+     * @private
+     */
+    static _describeOverTimeEffect(effect) {
+        if (!effect || typeof effect !== 'object') return null;
+        const cadence = typeof effect.intervalTurns === 'number'
+            ? `Every ${effect.intervalTurns} turn${effect.intervalTurns === 1 ? '' : 's'}, `
+            : '';
+
+        switch (effect.type) {
+            case 'restoreExistence': {
+                const gain = typeof effect.existenceGainPerInterval === 'number' ? effect.existenceGainPerInterval : 0;
+                return `${cadence}restores ${gain} existence to the host`;
+            }
+            case 'emitChannelDamage': {
+                const damage = typeof effect.damagePerInterval === 'number' ? effect.damagePerInterval : 0;
+                const range = typeof effect.range === 'number' ? effect.range : 0;
+                return `${cadence}emits ${damage} ${effect.channel ?? 'channel'} damage to components within ${range}`;
+            }
+            case 'consumeFuelGenerateStat': {
+                const fuel = Number.isInteger(effect.fuelConsumedPerInterval) ? effect.fuelConsumedPerInterval : 0;
+                const gain = typeof effect.energyGainPerInterval === 'number' ? effect.energyGainPerInterval : 0;
+                const capacity = typeof effect.energyCapacity === 'number' ? effect.energyCapacity : 0;
+                const target = typeof effect.targetStat === 'string' ? InternalComponentUtils._formatStatKey(effect.targetStat) : 'a stat';
+                return `${cadence}burns ${fuel} ${effect.fuelItem ?? 'fuel'} to charge the host ${gain} ${target} (capacity ${capacity})`;
+            }
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Generates a human-readable description of what an internal component
+     * does, derived entirely from its definition data:
+     *   - `grants`      → the function stats it maintains on the host
+     *   - `grantsFlags` → the flags it marks the host with
+     *   - `overTime`    → the periodic effects (per effect type, cadence and
+     *                     parameters)
+     * Nothing is hardcoded per type: the same renderer covers every organ,
+     * so a new organ type gets a correct description just by shipping data.
+     * The definition (and the effective grants) are passed in (rather than
+     * re-reading any data file on every call) so the caller can reuse already
+     * loaded state — this avoids a disk read per broadcast per component.
      * @param {Object} definition - The internal component definition (the value at registry[type]).
+     * @param {Object|null} [effectiveGrants=null] - The grants this specific
+     *   instance applies on its host (type default merged with the recipe
+     *   override, stored on the instance at install). When a plain object is
+     *   provided it is authoritative for the grant clauses; `definition.grants`
+     *   is used when absent (e.g. an old save without a stored `grants`).
      * @returns {string} The generated description.
      */
-    static generateDescription(definition) {
-        if (!definition) return 'Unknown internal component.';
-        if (definition.turnDriven) {
-            if (!definition.turnEffects?.length) return 'Turn-driven internal component.';
-            const effectDescriptions = definition.turnEffects.map(eff => {
-                const { targetTrait, targetStat, effect, amount, target } = eff;
-                const who = target === 'host' ? 'host' : 'itself';
-                if (effect === 'add') return `adds ${amount} ${targetStat} to ${targetTrait} of ${who}`;
-                if (effect === 'multiply') return `multiplies ${targetStat} by ${amount} for ${targetTrait} of ${who}`;
-                if (effect === 'set') return `sets ${targetTrait} ${targetStat} to ${amount} on ${who}`;
-                return `${targetStat} affected for ${targetTrait} of ${who}`;
-            });
-            return `Each turn, ${effectDescriptions.join(', and ')}.`;
+    static generateDescription(definition, effectiveGrants = null) {
+        if (!definition || typeof definition !== 'object') return 'Unknown internal component.';
+
+        const clauses = [];
+
+        // Grants to render: the type's declared grants, with the per-instance
+        // effective grants (the runtime value, stored on the instance at install)
+        // applied on top as an override (numeric values only). When no per-instance
+        // grants are provided (e.g. an old save), the type defaults stand alone.
+        const baseGrants = (definition.grants && typeof definition.grants === 'object'
+            && !Array.isArray(definition.grants)) ? definition.grants : {};
+        const grants = { ...baseGrants };
+        if (effectiveGrants && typeof effectiveGrants === 'object' && !Array.isArray(effectiveGrants)) {
+            for (const [key, value] of Object.entries(effectiveGrants)) {
+                if (typeof value === 'number') grants[key] = value;
+            }
         }
 
-        if (!definition?.tickEffects?.length) return 'Passive internal component.';
+        for (const [statKey, value] of Object.entries(grants)) {
+            if (typeof value !== 'number') continue;
+            clauses.push(`maintains the host's ${InternalComponentUtils._formatStatKey(statKey)} at ${value}`);
+        }
 
-        const tickInterval = definition.tickInterval || 1;
-        const effectDescriptions = definition.tickEffects.map(eff => {
-            const { targetTrait, targetStat, effect, amount } = eff;
-            if (effect === 'add') return `adds ${amount} ${targetStat} to ${targetTrait}`;
-            if (effect === 'multiply') return `multiplies ${targetStat} by ${amount} for ${targetTrait}`;
-            return `${targetStat} affected for ${targetTrait}`;
-        });
+        if (Array.isArray(definition.grantsFlags)) {
+            for (const flag of definition.grantsFlags) {
+                if (typeof flag !== 'string' || flag.trim() === '') continue;
+                clauses.push(`marks the host as ${flag}`);
+            }
+        }
 
-        return `Passively ${effectDescriptions.join(' and ')} every ${tickInterval} ticks.`;
+        if (Array.isArray(definition.overTime)) {
+            for (const effect of definition.overTime) {
+                const clause = InternalComponentUtils._describeOverTimeEffect(effect);
+                if (clause) clauses.push(clause);
+            }
+        }
+
+        if (clauses.length === 0) return 'No measurable effects declared.';
+        return clauses.map(clause => `${clause[0].toUpperCase()}${clause.slice(1)}.`).join(' ');
+    }
+
+    /**
+     * Attaches a generated `description` to every internal component instance
+     * of an array, resolved through the shared registry. This is the single
+     * enrichment step every server surface (world-state broadcast,
+     * internal-component routes) runs before an instance crosses the wire, so
+     * the frontend never renders a missing or stale description.
+     * Mutates and returns the same array for chaining convenience. When an
+     * instance carries the per-instance `grants` stored at install, those
+     * grants take precedence so the text matches the runtime value the organ
+     * applies on the host.
+     * @param {Array} instances - Internal component instance array (each item
+     *   may carry the per-instance `grants` recorded at install).
+     * @param {Object} registry - The internal component type registry.
+     * @returns {Array} The same array, enriched in place.
+     */
+    static enrichWithDescriptions(instances, registry) {
+        if (!Array.isArray(instances)) return instances;
+        for (const ic of instances) {
+            if (ic && typeof ic === 'object' && ic.type) {
+                ic.description = InternalComponentUtils.generateDescription(registry?.[ic.type], ic.grants);
+            }
+        }
+        return instances;
     }
 }
 

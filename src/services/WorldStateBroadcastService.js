@@ -113,15 +113,12 @@ class WorldStateBroadcastService {
 					}
 				}
 
-				// Transform internal components — enrich with descriptions
+				// Transform internal components — enrich with programmatic descriptions
+				const icRegistry = this._worldStateController.internalComponentController?.registry;
 				if (entity.internalComponents && typeof entity.internalComponents === 'object') {
 					for (const [hostId, comps] of Object.entries(entity.internalComponents)) {
 						if (Array.isArray(comps)) {
-							for (const ic of comps) {
-								if (ic && ic.type) {
-									ic.description = InternalComponentUtils.generateDescription(this._worldStateController.internalComponentController.registry[ic.type]);
-								}
-							}
+							InternalComponentUtils.enrichWithDescriptions(comps, icRegistry);
 						}
 					}
 				}
