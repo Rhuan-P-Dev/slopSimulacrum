@@ -204,6 +204,35 @@ class InternalComponentController {
     }
 
     /**
+     * Merges an organ type's static `grants` with the per-instance override map
+     * (from the host recipe's object-form declaration) into the *effective* grants
+     * this specific organ instance applies on its host. A key present in the
+     * override replaces the type default for that key; all other keys keep the
+     * type defaults. Returns a fresh plain object (empty object when the type
+     * grants nothing). This mirrors exactly what `_applyGrants` writes to the
+     * host, so it is the runtime grant — recorded on the instance so the viewer
+     * can display it without re-reading the component recipe.
+     * @param {Object} compDef - The organ type definition (its `grants` map).
+     * @param {Object|null} [instanceOverrides=null] - Per-instance grants
+     *   override from the host recipe's object-form declaration.
+     * @returns {Object} Effective grants map (keyed in "Group.stat" wire form).
+     * @private
+     */
+    _getEffectiveGrants(compDef, instanceOverrides = null) {
+        const base = compDef?.grants;
+        if (!base || typeof base !== 'object' || Array.isArray(base)) return {};
+        const effective = {};
+        for (const [key, value] of Object.entries(base)) {
+            if (typeof value !== 'number') continue;
+            const overridden = (instanceOverrides && typeof instanceOverrides[key] === 'number')
+                ? instanceOverrides[key]
+                : value;
+            effective[key] = overridden;
+        }
+        return effective;
+    }
+
+    /**
      * Validates every component recipe's `internalComponents` declaration
      * entries at construction (fail-fast, same philosophy as the registry
      * validation): each entry must be an organ type string known to this
@@ -312,6 +341,7 @@ class InternalComponentController {
 
             for (const component of components) {
                 const declaration = this._getDeclaration(component.type, compType);
+                const instanceOverrides = this._declarationOverrides(declaration);
 
                 // Per-component gate + host filters. Two installation modes:
                 //  - Auto-install ICs (autoInstallOnSpawn): land only where the
@@ -378,6 +408,12 @@ class InternalComponentController {
                     hostComponentType: component.type,
                     hostComponentIdentifier: component.identifier,
                     installedAt: Date.now(),
+                    // The grants this specific organ instance applies on its host:
+                    // the type default merged with any per-instance recipe override
+                    // (object-form declaration). Recorded here so the viewer shows
+                    // exactly the runtime grant (e.g. 120 on a rolling ball) — no
+                    // re-read of the component recipe at enrichment time.
+                    grants: this._getEffectiveGrants(compDef, instanceOverrides),
                     // The instance's own stat pool (deep copy of the type's traits),
                     // used by `target: "self"` turn effects when a type has a
                     // self-existence pool. The strengthCore type drains the HOST
@@ -396,7 +432,7 @@ class InternalComponentController {
                 // (set, non-additive) — the recipe-model source of capability.
                 // An object-form declaration on the host recipe may override
                 // those grants for this recipe's instances.
-                this._applyGrants(component.id, compDef, this._declarationOverrides(declaration));
+                this._applyGrants(component.id, compDef, instanceOverrides);
 
                 Logger.info(`[InternalComponentController] Auto-installed ${compType} in ${component.type} (${component.identifier}) of entity ${entityId}`);
             }
@@ -470,15 +506,16 @@ class InternalComponentController {
 
         this.internalComponents[entityId][hostComponentId].push(instance);
 
-        // The organ's static grants become the host's function stats (set,
-        // non-additive) — applied here so a manually added organ is immediately
-        // effective, matching the auto-install path. A host recipe may also
-        // override those grants for its own instances (object-form
-        // declaration), so the manual path honors the same semantics as the
-        // spawn-time path.
+        // Resolve the host recipe declaration so the recorded grants match what
+        // _applyGrants below sets on the host — the manual path honors the same
+        // recipe-level override semantics as the spawn path. The grants are
+        // recorded on the instance so the viewer shows the runtime grant, with
+        // no re-read of the component recipe at enrichment time.
         const hostType = this._resolveHostComponentType(entityId, hostComponentId);
         const declaration = hostType ? this._getDeclaration(hostType, internalComponentType) : null;
-        this._applyGrants(hostComponentId, compDef, this._declarationOverrides(declaration));
+        const instanceOverrides = this._declarationOverrides(declaration);
+        instance.grants = this._getEffectiveGrants(compDef, instanceOverrides);
+        this._applyGrants(hostComponentId, compDef, instanceOverrides);
 
         Logger.info(`[InternalComponentController] Added ${internalComponentType} to ${hostComponentId} of entity ${entityId}`);
 

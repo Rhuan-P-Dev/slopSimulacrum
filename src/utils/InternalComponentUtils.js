@@ -59,18 +59,36 @@ class InternalComponentUtils {
      *                     parameters)
      * Nothing is hardcoded per type: the same renderer covers every organ,
      * so a new organ type gets a correct description just by shipping data.
-     * The definition is passed in (rather than re-reading the data file on
-     * every call) so the caller can reuse the already-loaded registry —
-     * this avoids a disk read per broadcast per component.
+     * The definition (and the effective grants) are passed in (rather than
+     * re-reading any data file on every call) so the caller can reuse already
+     * loaded state — this avoids a disk read per broadcast per component.
      * @param {Object} definition - The internal component definition (the value at registry[type]).
+     * @param {Object|null} [effectiveGrants=null] - The grants this specific
+     *   instance applies on its host (type default merged with the recipe
+     *   override, stored on the instance at install). When a plain object is
+     *   provided it is authoritative for the grant clauses; `definition.grants`
+     *   is used when absent (e.g. an old save without a stored `grants`).
      * @returns {string} The generated description.
      */
-    static generateDescription(definition) {
+    static generateDescription(definition, effectiveGrants = null) {
         if (!definition || typeof definition !== 'object') return 'Unknown internal component.';
 
         const clauses = [];
 
-        for (const [statKey, value] of Object.entries(definition.grants ?? {})) {
+        // Grants to render: the type's declared grants, with the per-instance
+        // effective grants (the runtime value, stored on the instance at install)
+        // applied on top as an override (numeric values only). When no per-instance
+        // grants are provided (e.g. an old save), the type defaults stand alone.
+        const baseGrants = (definition.grants && typeof definition.grants === 'object'
+            && !Array.isArray(definition.grants)) ? definition.grants : {};
+        const grants = { ...baseGrants };
+        if (effectiveGrants && typeof effectiveGrants === 'object' && !Array.isArray(effectiveGrants)) {
+            for (const [key, value] of Object.entries(effectiveGrants)) {
+                if (typeof value === 'number') grants[key] = value;
+            }
+        }
+
+        for (const [statKey, value] of Object.entries(grants)) {
             if (typeof value !== 'number') continue;
             clauses.push(`maintains the host's ${InternalComponentUtils._formatStatKey(statKey)} at ${value}`);
         }
@@ -99,8 +117,12 @@ class InternalComponentUtils {
      * enrichment step every server surface (world-state broadcast,
      * internal-component routes) runs before an instance crosses the wire, so
      * the frontend never renders a missing or stale description.
-     * Mutates and returns the same array for chaining convenience.
-     * @param {Array} instances - Internal component instance array.
+     * Mutates and returns the same array for chaining convenience. When an
+     * instance carries the per-instance `grants` stored at install, those
+     * grants take precedence so the text matches the runtime value the organ
+     * applies on the host.
+     * @param {Array} instances - Internal component instance array (each item
+     *   may carry the per-instance `grants` recorded at install).
      * @param {Object} registry - The internal component type registry.
      * @returns {Array} The same array, enriched in place.
      */
@@ -108,7 +130,7 @@ class InternalComponentUtils {
         if (!Array.isArray(instances)) return instances;
         for (const ic of instances) {
             if (ic && typeof ic === 'object' && ic.type) {
-                ic.description = InternalComponentUtils.generateDescription(registry?.[ic.type]);
+                ic.description = InternalComponentUtils.generateDescription(registry?.[ic.type], ic.grants);
             }
         }
         return instances;
