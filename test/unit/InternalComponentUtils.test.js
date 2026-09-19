@@ -68,9 +68,11 @@ describe('generateDescription — shipped organ data', () => {
             .toBe('Marks the host as corrosive. Every 10 turns, emits 1 corrosion damage to components within 50.');
     });
 
-    it('renders coalGenerator (static grant + fuel-burn cadence)', () => {
+    it('renders coalGenerator (inert — energy mechanic removed off-by-data)', () => {
+        // The energy mechanic was removed from the shipped data (empty grants
+        // + overTime): the organ stays installable but describes no effects.
         expect(util.generateDescription(REGISTRY.coalGenerator))
-            .toBe("Maintains the host's Physical energy at 0. Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).");
+            .toBe('No measurable effects declared.');
     });
 });
 
@@ -169,8 +171,14 @@ describe('generateDescription — effective per-instance grants', () => {
     });
 
     it('keeps overTime from the type def even when a grant is overridden', () => {
-        expect(util.generateDescription(REGISTRY.coalGenerator, { 'Physical.energy': 7 }))
-            .toBe("Maintains the host's Physical energy at 7. Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).");
+        // No shipped organ carries both grants and overTime (coalGenerator was
+        // made inert off-by-data), so pin the contract with a fixture.
+        const def = {
+            grants: { 'Physical.energy': 0 },
+            overTime: [{ type: 'restoreExistence', intervalTurns: 5, existenceGainPerInterval: 0.02 }],
+        };
+        expect(util.generateDescription(def, { 'Physical.energy': 7 }))
+            .toBe("Maintains the host's Physical energy at 7. Every 5 turns, restores 0.02 existence to the host.");
     });
 
     it('keeps type grant keys that are not in the per-instance override', () => {
@@ -219,7 +227,7 @@ describe('enrichWithDescriptions', () => {
         util.enrichWithDescriptions(instances, REGISTRY);
         expect(instances.map(i => i.description)).toStrictEqual([
             "Maintains the host's Physical strength at 50.",
-            "Maintains the host's Physical energy at 0. Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).",
+            'No measurable effects declared.', // coalGenerator is inert off-by-data
             'Marks the host as corrosive. Every 10 turns, emits 1 corrosion damage to components within 50.',
         ]);
     });
@@ -236,12 +244,10 @@ describe('enrichWithDescriptions', () => {
         ]);
     });
 
-    it("uses the instance's grants for a fuel-burn organ (grant + type overTime)", () => {
+    it("uses the instance's grants for an organ whose type def is inert", () => {
         const instances = [{ type: 'coalGenerator', grants: { 'Physical.energy': 7 } }];
         util.enrichWithDescriptions(instances, REGISTRY);
-        expect(instances[0].description).toBe(
-            "Maintains the host's Physical energy at 7. Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100)."
-        );
+        expect(instances[0].description).toBe("Maintains the host's Physical energy at 7.");
     });
 
     it('renders the unknown-string for types not present in the registry', () => {

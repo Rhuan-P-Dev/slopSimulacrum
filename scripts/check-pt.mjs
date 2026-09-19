@@ -10,15 +10,13 @@
  *   node scripts/check-pt.mjs src/ test/       # scan specific paths
  */
 
-import { readdir, stat, readFile, open as openFile } from 'node:fs/promises';
-import { join, relative, sep, dirname } from 'node:path';
+import { readdir, readFile, open as openFile } from 'node:fs/promises';
+import { join, relative, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SELF_PATH = fileURLToPath(import.meta.url);
-
 /** Extensions considered binary (skip these files). */
 const BINARY_EXTS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'kra', 'ico', 'woff', 'woff2', 'ttf',
@@ -26,7 +24,7 @@ const BINARY_EXTS = new Set([
 ]);
 
 /** Directories to skip entirely. */
-const SKIP_DIRS = new Set(['node_modules', '.git']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'coverage']);
 
 /** Files (by basename) to skip — self-exclusion for scanner + test files. */
 const SKIP_FILES = new Set(['check-pt.mjs', 'ptLanguageRegression.test.js']);
@@ -239,7 +237,7 @@ export async function scanForPT(scanDirs = ['.']) {
     // Determine the actual directory to walk (absolute)
     const dirPath = isAbsolutePath(scanDir) ? scanDir : join(PROJECT_ROOT, scanDir);
 
-    for await (const { absPath, relPath } of walkDir(dirPath, dirPath)) {
+    for await (const { absPath } of walkDir(dirPath, dirPath)) {
       // Compute relative path from the scan base
       const relativeFromScan = relative(dirPath, absPath);
 
