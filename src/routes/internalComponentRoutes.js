@@ -1,5 +1,6 @@
 import Logger from '../utils/Logger.js';
 import DataLoader from '../utils/DataLoader.js';
+import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 
 /**
  * Registers the internal-component routes on the shared API router.
@@ -38,10 +39,15 @@ export function register(router, { worldStateController }) {
      */
     router.get('/internal-components/:entityId/:hostComponentId', (req, res) => {
         try {
-            const internalComponents = worldStateController.internalComponentController.getInternalComponents(
+            const icController = worldStateController.internalComponentController;
+            const internalComponents = icController.getInternalComponents(
                 req.params.entityId,
                 req.params.hostComponentId
             );
+            // Enrich with the programmatic description so the component
+            // viewer's on-demand fetch renders the same text the world-state
+            // broadcast carries.
+            InternalComponentUtils.enrichWithDescriptions(internalComponents, icController.registry);
             return res.json(internalComponents);
         } catch (error) {
             Logger.error(`[InternalComponentRoutes] GET /:entityId/:hostComponentId error: ${error.message}`);
@@ -55,7 +61,11 @@ export function register(router, { worldStateController }) {
      */
     router.get('/internal-components/:entityId', (req, res) => {
         try {
+            const icController = worldStateController.internalComponentController;
             const internalComponents = worldStateController.getInternalComponentsForEntity(req.params.entityId);
+            for (const comps of Object.values(internalComponents)) {
+                InternalComponentUtils.enrichWithDescriptions(comps, icController.registry);
+            }
             return res.json({ success: true, data: internalComponents });
         } catch (error) {
             Logger.error(`[InternalComponentRoutes] GET /:entityId error: ${error.message}`);
