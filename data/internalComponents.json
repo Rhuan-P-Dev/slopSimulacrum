@@ -2,7 +2,6 @@
   "_comment": "Organ type definitions. An internal component (IC) is an atomic organ that gives a host component its FUNCTION stats (strength, move, fine_controls, think_level) — a component with matter but no organs is inert. 'grants' is the organ's static contribution to the host's function stats, keyed by the group.stat wire form. 'weight' is the organ's own mass (the physical cost of ambition). 'overTime' declares periodic effects on the per-turn round-start channel — each effect fires when the global round number is a positive multiple of its intervalTurns (no per-instance state); the repair organ closes the world's salvage->existence loop, and the corrosive organ both marks its host and degrades neighbors. ICs do not carry their own material composition in the basic set. A component recipe (data/components.json) may declare an organ either as a type string (type-default grants apply) or as an object { type, grants? } — the object form overrides the type's default grants for that organ instance, letting a recipe tune an organ to its host (e.g. a stronger strengthCore on a heavy-lifting rolling ball).",
   "strengthCore": {
     "name": "Strength Core",
-    "description": "A dense force organ: grants the host strength — the force behind impact damage and the mass it can bear. Function stat, so a component carrying it can act; without it the same matter is inert.",
     "volume": 1,
     "weight": 2,
     "grants": { "Physical.strength": 50 },
@@ -15,7 +14,6 @@
   },
   "moveCore": {
     "name": "Locomotion Core",
-    "description": "A drive organ: grants the host move — how fast it travels and its initiative order. Function stat, so a component carrying it can move; without it the same matter is inert.",
     "volume": 1,
     "weight": 3,
     "grants": { "Movement.move": 20 },
@@ -26,7 +24,6 @@
   },
   "precisionCore": {
     "name": "Precision Servo",
-    "description": "A fine-motor organ: grants the host fine_controls — precision for fine handling and crafting quality. A component is precise because it carries this organ, not because of where it sits on the entity.",
     "volume": 1,
     "weight": 1,
     "grants": { "Manipulation.fine_controls": 50 },
@@ -36,7 +33,6 @@
   },
   "thinkCore": {
     "name": "Cognition Core",
-    "description": "A cognition organ: grants the host think_level — how much the NPC's AI can hold. Function stat, so a component carrying it can think; without it the entity has no deterministic brain.",
     "volume": 1,
     "weight": 2,
     "grants": { "Mind.think_level": 10 },
@@ -46,7 +42,6 @@
   },
   "repairSphere": {
     "name": "Repair Sphere",
-    "description": "Closes the world's salvage loop: over time it reconstitutes the host's existence from salvage — the matter a component shed as it was damaged — restoring the matter store (existence) rather than an opaque health bar.",
     "volume": 2,
     "weight": 5,
     "grants": {},
@@ -63,7 +58,6 @@
   },
   "corrosiveGland": {
     "name": "Corrosive Gland",
-    "description": "Leaks corrosive matter: grants the host the corrosive flag and, over time, degrades nearby components through the corrosion channel — an interaction that exists only because the organ marks its host corrosive.",
     "volume": 1,
     "weight": 3,
     "grants": {},
@@ -82,7 +76,6 @@
   },
   "coalGenerator": {
     "name": "Coal Generator",
-    "description": "Burns the coal the droid carries to charge its power stat — the fuel → energy loop: each interval consumes whole fuel units and adds a fixed burst of Physical.energy, clamped at the battery capacity. The organ seeds the stat at 0 (an empty battery) and is its single source.",
     "volume": 2,
     "weight": 4,
     "grants": { "Physical.energy": 0 },
