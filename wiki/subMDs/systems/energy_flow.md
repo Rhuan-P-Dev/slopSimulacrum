@@ -1,5 +1,9 @@
 # Energy Flow System
 
+## Current state
+
+**Off by data.** The `energyFlow` rule was removed from `data/world_rules.json`, and the `coalGenerator` organ no longer charges energy (inert `overTime`/grants in `data/internalComponents.json`). In every shipped world the per-turn flow step therefore no-ops: no entity enumeration, no stat writes, no broadcast, no log — exactly the "missing key" degradation path the design calls for. Nothing below the this section changes: every "why" here documents a code path that is still intact and still runs every round start; the entire mechanic can be re-activated by editing one data key back into `data/world_rules.json` (`test/contract/energyFlow.contract.test.js` scenario (e) pins the off state and that re-activation).
+
 ## 1. Overview
 
 The M1 droid is not a collection of independent batteries. Some of its parts generate energy (the fuel loop), none of the others have a source of their own, and a droid that can move is one organism, not twenty-three silos. The energy flow gives the entity a circulatory system: every round, each component that holds energy shares a fixed fraction of what it *started* the round with with its peers, until the pool has spread evenly through the whole network. Energy is a substance that circulates, not a number each part owns forever.

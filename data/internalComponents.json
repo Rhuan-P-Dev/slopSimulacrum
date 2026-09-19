@@ -82,21 +82,11 @@
   },
   "coalGenerator": {
     "name": "Coal Generator",
-    "description": "Burns the coal the droid carries to charge its power stat — the fuel → energy loop: each interval consumes whole fuel units and adds a fixed burst of Physical.energy, clamped at the battery capacity. The organ seeds the stat at 0 (an empty battery) and is its single source.",
+    "description": "Legacy power organ — the energy mechanic was removed by data: it no longer seeds Physical.energy, consumes no coal, and grants nothing. Retained (inert) so recipes that still install it (m1CentralBody) remain valid.",
     "volume": 2,
     "weight": 4,
-    "grants": { "Physical.energy": 0 },
-    "overTime": [
-      {
-        "type": "consumeFuelGenerateStat",
-        "intervalTurns": 5,
-        "fuelItem": "coal",
-        "fuelConsumedPerInterval": 1,
-        "targetStat": "Physical.energy",
-        "energyGainPerInterval": 10,
-        "energyCapacity": 100
-      }
-    ],
+    "grants": {},
+    "overTime": [],
     "excludedComponentTypes": ["m1Toe", "m1Finger"],
     "autoInstallOnSpawn": false,
     "targetBlueprintTypes": ["m1Droid"]

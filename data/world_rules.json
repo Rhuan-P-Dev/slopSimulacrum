@@ -1,15 +1,11 @@
 {
-  "_comment": "World rules — a data-driven rule layer for world mechanics. Each rule is a stable key with a small config. Unknown keys are ignored, a malformed rule is disabled with a warning, and a missing or empty file means all rules off (legacy behavior). Shipped rules: damageTornMaterial (torn-material chunk percent), onDamage (event table: probabilistic chunk drop on any weakening), energyFlow (energy redistribution: sharePerTick = the per-tick pump fraction in [0,1]; defaultEnergyCapacity = the Physical.energy bound for components whose recipe declares no energyCapacity).",
+  "_comment": "World rules — a data-driven rule layer for world mechanics. Each rule is a stable key with a small config. Unknown keys are ignored, a malformed rule is disabled with a warning, and a missing or empty file means all rules off (legacy behavior). Shipped rules: damageTornMaterial (torn-material chunk percent), onDamage (event table: probabilistic chunk drop on any weakening). The energyFlow rule was removed from the data (energy redistribution is off by configuration; the controller degrades to a silent no-op without it).",
   "rules": {
     "damageTornMaterial": {
       "percent": 10
     },
     "onDamage": [
       { "drop": "host_material", "percentage": 0.05 }
-    ],
-    "energyFlow": {
-      "sharePerTick": 0.1,
-      "defaultEnergyCapacity": 100
-    }
+    ]
   }
 }

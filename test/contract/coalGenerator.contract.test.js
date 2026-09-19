@@ -1,27 +1,31 @@
 /**
- * CONTRACT TEST — the M1 coal generator (overTime: consumeFuelGenerateStat).
+ * CONTRACT TEST — the M1 coal generator organ (now INERT).
  *
- * Verifies the effect on the PER-TURN channel, driven WITHOUT real timers:
- * build the world via buildWorldState(tickSystem) (tick not started), then
- * invoke the IC controller's processTurnEffects(round) directly with the
- * round number — the same per-turn method the round-start hook calls — the
- * hook's own wiring is pinned by the hook scenarios in
- * test/contract/energyFlow.contract.test.js.
+ * The energy mechanic was removed from the shipped data:
+ *   - data/internalComponents.json — `coalGenerator` has an empty `overTime`
+ *     list and empty `grants`: it consumes no coal and grants no energy;
+ *   - data/world_rules.json — no `energyFlow` rule, so nothing redistributes
+ *     energy between components.
  *
- * Covers the effect's documented priority order (spec §5.2):
- *   - cadence: nothing happens off-interval rounds; a burn fires on every
- *     multiple of intervalTurns (5) — 1 coal → +10 Physical.energy;
- *   - full battery: charge ≥ energyCapacity skips the round without
- *     burning fuel (coal is never burned for a full tank);
- *   - clamping: the last partial charge clamps at the capacity margin
- *     (95 + one burn of 10 lands exactly on 100, fuel still consumed);
- *   - graceful runout: with fewer than fuelConsumedPerInterval units of
- *     coal aboard, nothing is consumed and nothing is charged, and the
- *     exhaustion is logged exactly ONCE on the dry transition — a droid
- *     sitting at zero fuel must not spam the log every interval.
+ * This contract pins the INERT state against the REAL per-turn channel,
+ * driven WITHOUT real timers (the same house pattern the old coal contract
+ * used): build the world via buildWorldState(tickSystem) (tick not started),
+ * spawn the m1Droid, and call the IC controller's `processTurnEffects(round)`
+ * directly with the round number — the same per-turn method the round-start
+ * hook calls.
  *
- * All balance numbers (interval 5, 1 coal, +10 energy, capacity 100) come
- * from data/internalComponents.json — the test pins them as the contract.
+ * Pins:
+ *   - spawn state: the organ is still auto-installed (recipe compatibility —
+ *     m1CentralBody still declares it), 10 coal aboard from the world.json
+ *     loadout, and NO `Physical.energy` stat (the old organ seed-at-0 is gone);
+ *   - the old cadence rounds (5, 10, 15, ...) are no-ops: coal untouched, no
+ *     energy stat ever created, and no "exhausted on" warning ever logged
+ *     — not even when the tank is drained (nothing can run out — nothing
+ *     can burn);
+ *   - a manually SET energy stat is untouched by the IC channel: nothing
+ *     charges it, nothing clamps it, nothing drains it (the old full-battery
+ *     skip and clamp-at-margin semantics simply do not exist);
+ *   - the internal dry-transition marker map never receives a key.
  *
  * @module test/contract/coalGenerator
  */
@@ -48,9 +52,10 @@ function driveIC(world, round) {
     world.internalComponentController.processTurnEffects(round);
 }
 
-/** Energy charge currently on the M1 body (the coal generator's host). */
+/** Raw body energy value — undefined while the stat is unseeded. */
 function energyOf(world, bodyId) {
-    return world.getComponentStats(bodyId)?.Physical?.energy ?? 0;
+    const stats = world.getComponentStats(bodyId);
+    return stats?.Physical?.energy;
 }
 
 /** Coal units aboard the whole entity (across every host component). */
@@ -73,7 +78,7 @@ function drainCoal(world, entityId) {
     }
 }
 
-describe('coal generator — consumeFuelGenerateStat over the per-turn channel', () => {
+describe('coal generator — inert organ over the per-turn channel', () => {
     let warnSpy;
 
     afterEach(() => {
@@ -81,115 +86,71 @@ describe('coal generator — consumeFuelGenerateStat over the per-turn channel',
         warnSpy = undefined;
     });
 
-    it('burns 1 coal per interval (every 5 rounds) and charges +10 energy; off-interval rounds do nothing', () => {
+    it('auto-installs (recipe compatibility) but seeds no energy stat at spawn', () => {
         const { world, entityId, bodyId } = buildWorld();
-        expect(coalUnits(world, entityId)).toBe(10); // world.json loadout
-        expect(energyOf(world, bodyId)).toBe(0);     // organ grant seeds 0
+        const body = world.stateEntityController
+            .getEntity(entityId)
+            .components.find(c => c.type === 'm1CentralBody');
 
-        // Round-0 gate closed: nothing fires.
-        driveIC(world, 0);
+        expect(world.internalComponentController.getInternalComponents(entityId, body.id).some(i => i.type === 'coalGenerator')).toBe(true);
+        expect(coalUnits(world, entityId)).toBe(10); // world.json loadout intact
+        expect(energyOf(world, bodyId), 'no energy stat (grant removed from the data)').toBeUndefined();
+    });
+
+    it('the old cadence rounds are no-ops: coal untouched, no energy stat, no exhaustion log', () => {
+        const { world, entityId, bodyId } = buildWorld();
         expect(coalUnits(world, entityId)).toBe(10);
-        expect(energyOf(world, bodyId)).toBe(0);
+        expect(energyOf(world, bodyId)).toBeUndefined();
 
-        // Off-cadence rounds 1–4: no burn each round.
-        for (let round = 1; round <= 4; round++) {
+        // Round-0 gate closed (as before) and, with no effect to fire,
+        // rounds 0–15 are structurally no-ops.
+        for (let round = 0; round <= 15; round++) {
             driveIC(world, round);
-            expect(coalUnits(world, entityId)).toBe(10);
-            expect(energyOf(world, bodyId)).toBe(0);
+            expect(coalUnits(world, entityId), `coal unchanged at round ${round}`).toBe(10);
+            expect(energyOf(world, bodyId), `no energy stat at round ${round}`).toBeUndefined();
         }
 
-        driveIC(world, 5);
-        expect(coalUnits(world, entityId)).toBe(9);
-        expect(energyOf(world, bodyId)).toBe(10);
-
-        driveIC(world, 10);
-        expect(coalUnits(world, entityId)).toBe(8);
-        expect(energyOf(world, bodyId)).toBe(20);
+        // Even an empty tank never triggers the old dry-transition log —
+        // there is no effect to go dry.
+        const exhaustionWarn = (arg) =>
+            typeof arg === 'string' && arg.includes('exhausted on');
+        warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        drainCoal(world, entityId);
+        for (const round of [5, 10, 15]) driveIC(world, round);
+        expect(coalUnits(world, entityId)).toBe(0);
+        expect(energyOf(world, bodyId)).toBeUndefined();
+        expect(warnSpy.mock.calls.filter(c => exhaustionWarn(c[0])), 'no dry transition can occur without an effect').toEqual([]);
     });
 
-    it('a full battery skips the round without burning fuel', () => {
+    it('a manually-set energy stat is untouched: nothing charges, clamps, or drains it', () => {
         const { world, entityId, bodyId } = buildWorld();
-        world.componentController.updateComponentStat(bodyId, 'Physical', 'energy', 100);
-        expect(energyOf(world, bodyId)).toBe(100);
 
-        driveIC(world, 5);
-        expect(coalUnits(world, entityId)).toBe(10); // no coal burned
-        expect(energyOf(world, bodyId)).toBe(100);
-    });
-
-    it('clamps the charge at the capacity margin (95 + one burn lands exactly on 100, fuel still consumed)', () => {
-        const { world, entityId, bodyId } = buildWorld();
+        // Old test pinned: 95 + one burn lands exactly on 100. Now 95 simply
+        // stays 95 — the IC channel has no business with energy at all.
         world.componentController.updateComponentStat(bodyId, 'Physical', 'energy', 95);
-
         driveIC(world, 5);
-        expect(coalUnits(world, entityId)).toBe(9); // fuel consumed
-        expect(energyOf(world, bodyId)).toBe(100); // +5, not +10
+        expect(energyOf(world, bodyId), 'not charged (no effect to fire)').toBe(95);
+        expect(coalUnits(world, entityId)).toBe(10);
 
-        // Now full: the next interval must skip (rule 1 takes priority).
+        world.componentController.updateComponentStat(bodyId, 'Physical', 'energy', 100);
         driveIC(world, 10);
-        expect(coalUnits(world, entityId)).toBe(9);
         expect(energyOf(world, bodyId)).toBe(100);
-    });
 
-    it('runs out gracefully: nothing consumed, nothing charged, exhaustion logged once and only once', () => {
-        const { world, entityId, bodyId } = buildWorld();
-        drainCoal(world, entityId);
-        expect(coalUnits(world, entityId)).toBe(0);
-        expect(energyOf(world, bodyId)).toBe(0);
-
-        const exhaustionWarn = (arg) =>
-            typeof arg === 'string' && arg.includes('exhausted on');
-        warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
-
-        driveIC(world, 5);
-        expect(energyOf(world, bodyId)).toBe(0); // not charged
-        const dryLogsAfterFirst = warnSpy.mock.calls.filter(c => exhaustionWarn(c[0])).length;
-        expect(dryLogsAfterFirst).toBe(1); // logged on the transition into the dry state
-
-        driveIC(world, 10);
+        // The organ's capacity clamp (100) was the old organ-owned bound; with
+        // the effect gone the stat is an ordinary, uncapped number.
+        world.componentController.updateComponentStat(bodyId, 'Physical', 'energy', 150);
         driveIC(world, 15);
-        const dryLogsAfterMore = warnSpy.mock.calls.filter(c => exhaustionWarn(c[0])).length;
-        expect(dryLogsAfterMore).toBe(1); // no spam on subsequent dry intervals
+        expect(energyOf(world, bodyId), 'no capacity clamp remains').toBe(150);
     });
 
-    it('sweeps the dry-transition marker on despawn so a respawned droid re-logs its first exhaustion', () => {
-        const { world, entityId, bodyId, startRoomId } = buildWorld();
+    it('the fuel-exhaustion marker map never receives a key (nothing can go dry)', () => {
+        const { world, entityId, bodyId } = buildWorld();
         const ic = world.internalComponentController;
-        const exhaustionWarn = (arg) =>
-            typeof arg === 'string' && arg.includes('exhausted on');
-        warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
-        // 1. Drain the tank and drive a dry round: exactly ONE exhaustion log.
-        drainCoal(world, entityId);
-        expect(coalUnits(world, entityId)).toBe(0);
-        expect(energyOf(world, bodyId)).toBe(0);
-
-        driveIC(world, 5);
-        expect(energyOf(world, bodyId)).toBe(0); // not charged
-        expect(warnSpy.mock.calls.filter(c => exhaustionWarn(c[0])).length).toBe(1);
-
-        // 2. Despawn (reaches InternalComponentController.cleanupEntity):
-        //    leak guard — no dry-transition marker may survive for the removed
-        //    entity id. Observed through the fixture's controller handle, the
-        //    same surface the M1 contract test already uses.
-        expect([...ic._fuelExhaustionLogged.keys()].some(k => k.startsWith(`${entityId}:`))).toBe(true);
-        expect(world.despawnEntity(entityId)).toBe(true);
-        expect([...ic._fuelExhaustionLogged.keys()].filter(k => k.startsWith(`${entityId}:`))).toEqual([]);
-
-        // 3. Respawn the M1 (new entity id, fresh 10-coal kit from world.json)
-        //    and drive another dry round: a SECOND exhaustion log must appear —
-        //    proof the despawn sweep reset the marker — and energy stays 0.
-        const newEntityId = world.stateEntityController.spawnEntity('m1Droid', startRoomId);
-        expect(newEntityId).not.toBe(entityId);
-        const newEntity = world.stateEntityController.getEntity(newEntityId);
-        const newBodyId = newEntity.components.find(c => c.type === 'm1CentralBody').id;
-        expect(coalUnits(world, newEntityId)).toBe(10); // fresh loadout on respawn
-
-        drainCoal(world, newEntityId);
-        expect(coalUnits(world, newEntityId)).toBe(0);
-
-        driveIC(world, 10);
-        expect(energyOf(world, newBodyId)).toBe(0); // not charged
-        expect(warnSpy.mock.calls.filter(c => exhaustionWarn(c[0])).length).toBe(2);
+        for (const round of [5, 10, 15]) driveIC(world, round);
+        expect([
+            ...ic._fuelExhaustionLogged.keys()
+        ], 'no IC effect can log a dry transition; the marker stays empty').toEqual([]);
+        expect(energyOf(world, bodyId)).toBeUndefined();
     });
 });

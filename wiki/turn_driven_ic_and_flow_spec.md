@@ -1,6 +1,6 @@
 # Turn-Driven IC Effects & Per-Turn Energy Flow — Design Spec
 
-Status: **Approved design, pending implementation.** This spec is decision-complete: the code phase makes zero design calls.
+Status: **Implemented, then partially superseded by a data change.** The code phase landed (per-turn `overTime` effects + one redistribution per turn on the round-start hook). Since then the energy mechanic was **removed from the shipped data**: no `energyFlow` rule in `data/world_rules.json`, and `coalGenerator` is inert (empty `overTime`). Decision #3 (1 coal every 5 turns) and the energy test pins (§6.1–§6.2) are therefore historical; the current contract is `test/contract/coalGenerator.contract.test.js` (inert organ) + `test/contract/energyFlow.contract.test.js` (off-by-data, with one-line re-activation) + the wiki amendments in `wiki/subMDs/`. The design decisions and their rationale below remain the reference for the flow's code path, which is intact and re-activatable by data.
 
 Supersedes, where they conflict:
 - the per-tick IC job decisions in [`wiki/m1_droid_spec.md`](wiki/m1_droid_spec.md) (§1.6 row 7, §5.1–§5.3 cadence) — see §8 of this spec for the doc amendments,

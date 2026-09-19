@@ -4,6 +4,8 @@
 **Scope:** Design only. This document specifies exactly what changes (data + minimal code); every M1-specific value is a named data entry in `data/*.json` or `shared/` — no magic numbers in source.
 **Deliverable of this subtask:** this file only. No source or data files are modified here.
 
+**Status update — energy mechanic removed from the data.** The shipped world no longer has an energy mechanic: the `coalGenerator` organ is inert (empty `overTime` + empty `grants` in `data/internalComponents.json`) and `data/world_rules.json` no longer carries the `energyFlow` rule — so the M1 seeds no energy stat, consumes no coal, and nothing circulates. The energy references in §5 and §8 describe the pre-removal design; the current off-by-data contract, and the one-line path to switch it back on, are pinned by `test/contract/coalGenerator.contract.test.js` and `test/contract/energyFlow.contract.test.js` (scenario e).
+
 The **M1** is the new **player droid** — the entity spawned and controlled by the client when it connects. It replaces `smallBallDroid` as the default player blueprint. It is a legged, articulated droid with a **central body, a head, four legs (three toes each), a top articulated hand (three fingers), and a top gun mount**. Its defining system is an **internal coal generator**: it burns `coal` items stored inside the droid to charge a new resource stat, `Physical.energy` — the droid's power, fed by fuel it carries.
 
 ---

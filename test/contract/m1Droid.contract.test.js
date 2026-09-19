@@ -110,8 +110,9 @@ describe('M1 droid — organ install filters + grants', () => {
         const hand = entity.components.find(c => c.type === 'm1ArticulatedHand');
         const legFL = entity.components.find(c => c.type === 'm1Leg' && c.identifier === 'frontal_left');
 
-        // The coal generator seeds the body's energy resource at 0 (it fills via overTime).
-        expect(world.getComponentStats(body.id).Physical.energy).toBe(0);
+        // Energy mechanic removed from the data: the (now inert) coalGenerator
+        // grants nothing, so the body carries no energy stat at all.
+        expect(world.getComponentStats(body.id).Physical?.energy).toBeUndefined();
         expect(world.getComponentStats(head.id).Mind.think_level).toBe(10);
         expect(world.getComponentStats(legFL.id).Movement.move).toBe(20);
         expect(world.getComponentStats(hand.id).Manipulation.fine_controls).toBe(50);

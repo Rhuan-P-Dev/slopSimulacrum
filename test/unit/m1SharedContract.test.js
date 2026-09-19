@@ -53,9 +53,11 @@ describe('M1 shared contract', () => {
 
         const icRegistry = readData('internalComponents.json');
         expect(icRegistry['coalGenerator']).toBeDefined();
-        const effect = icRegistry['coalGenerator'].overTime[0];
-        expect(effect.type).toBe('consumeFuelGenerateStat');
-        expect(effect.fuelItem).toBe('coal');
-        expect(effect.targetStat).toBe('Physical.energy');
+        // Energy mechanic removed from the data: coalGenerator is inert —
+        // no overTime effect (consumes nothing, charges nothing) and no
+        // grants. The type is retained so recipes that still install it
+        // (m1CentralBody) remain valid.
+        expect(icRegistry['coalGenerator'].overTime).toEqual([]);
+        expect(icRegistry['coalGenerator'].grants).toEqual({});
     });
 });
