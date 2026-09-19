@@ -36,7 +36,7 @@ The hover indicator uses different visual styling (lower opacity, thinner stroke
 
 ## Coordinate Systems (Why Two Exist)
 
-The world map uses **room-space coordinates** — absolute values that match the room definitions in the data files — while the main game canvas uses **center-relative coordinates** (offset from the view center). The two systems coexist because each view optimizes for a different thing: the map aligns markers directly with room geometry without a transform, while the canvas renders entities relative to the view center. The pick-up click handler therefore reads raw SVG coordinates so the point it reports matches the room-space system the map already uses. (A mismatch between these two coordinate systems was the root cause of [BUG-082](../bugfixWiki/high/BUG-082-dropped-items-render-off-screen.md).)
+The world map uses **room-space coordinates** — absolute values that match the room definitions in the data files — while the main game canvas uses **center-relative coordinates** (offset from the view center). The two systems coexist because each view optimizes for a different thing: the map aligns markers directly with room geometry without a transform, while the canvas renders entities relative to the view center. The pick-up click handler therefore reads raw SVG coordinates so the point it reports matches the room-space system the map already uses. (A mismatch between these two coordinate systems was the root cause of [BUG-082](../../bugfixWiki/high/BUG-082-dropped-items-render-off-screen.md).)
 
 ## Related Files
 

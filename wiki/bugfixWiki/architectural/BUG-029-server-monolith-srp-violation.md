@@ -38,6 +38,6 @@ When adding new endpoints or server features:
 4. Route handlers belong in `src/routes/`, not in the entry point
 
 ## References
-- [Server Splitting Architecture](../../../subMDs/server_splitting.md)
-- [Controller Patterns](../../../subMDs/controller_patterns.md)
-- [Code Quality and Best Practices](../../../code_quality_and_best_practices.md)
+- [Server Splitting Architecture](../../subMDs/architecture/server_splitting.md)
+- [Controller Patterns](../../subMDs/controllers/controller_patterns.md)
+- [Code Quality and Best Practices](../../code_quality_and_best_practices.md)

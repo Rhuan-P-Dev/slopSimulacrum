@@ -124,7 +124,7 @@ class WorldStateController {
         // See test/contract/crafting.contract.test.js for the seam usage.
         /** @private {import('./crafting/CraftingController.js')|null} */
         this.craftingController = deps.craftingController ?? null;
-        // KnowledgeController: static "Knowledge" codex (knowledge_viewer_spec.md
+ // KnowledgeController: static "Knowledge" codex (wiki/subMDs/frontend/knowledge_viewer.md
         // §4.2). State controller; null-tolerant like craftingController (tests may
         // build the facade without it). Deliberately NOT in the subControllers map
         // below: it has no getAll() and must stay out of the getAll()/broadcast
@@ -146,7 +146,7 @@ class WorldStateController {
         /** @private {import('./worldRules/OnDamageDropListener.js')|null} */
         this.onDamageDropListener = deps.onDamageDropListener ?? null;
         // EnergyFlowController: cross-component Physical.energy redistribution
-        // (wiki/energy_flow_spec.md). Logic controller — owns no persistent
+ // (wiki/subMDs/systems/energy_flow.md). Logic controller — owns no persistent
         // world data, null-tolerant like worldRulesController (tests may build
         // the facade without it). Deliberately NOT in the subControllers
         // broadcast map: it has no getAll() and must stay out of the full-state
@@ -2437,7 +2437,7 @@ class WorldStateController {
     }
 
     /**
-     * Returns the full knowledge codex payload (knowledge_viewer_spec.md §3):
+ * Returns the full knowledge codex payload (wiki/subMDs/frontend/knowledge_viewer.md):
      * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
      * Static reference data — served via GET /knowledge (not embedded in the
      * mutable world state or the broadcast; same static-vs-mutable separation as

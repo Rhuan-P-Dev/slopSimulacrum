@@ -21,7 +21,7 @@ A behavior is a registered strategy that receives the entity, the round, and the
 | Name | Description |
 |------|-------------|
 | `chase_attack` | Pursues the closest entity in the same room; attacks when within `attackRange`. The attack targets a component that can receive damage; if the preferred component is destroyed, the AI deterministically selects an alternative viable component so the action stays effective. When no viable component exists, the attack is skipped. |
-| `craft_loop` | The Crafter Drone's forage loop: finds its target item (the first input of its recipe — currently `knife`) dropped in its own room, forges it into the recipe's output via a zero-cost craft call, and leaves the finished item on the ground at its own position; moves toward the nearest in-room item while out of reach. Deterministic and stateless; own-room only (no door traversal); fixed action names (`move`/`dropItem`) with no ai-configurable overrides, by design (spec: [crafter_drone_spec.md](../../crafter_drone_spec.md)). |
+| `craft_loop` | The Crafter Drone's forage loop: finds its target item (the first input of its recipe — currently `knife`) dropped in its own room, forges it into the recipe's output via a zero-cost craft call, and leaves the finished item on the ground at its own position; moves toward the nearest in-room item while out of reach. Deterministic and stateless; own-room only (no door traversal); fixed action names (`move`/`dropItem`) with no ai-configurable overrides, by design. |
 
 ## Dispatch Contract
 
@@ -36,7 +36,7 @@ The dispatch path mirrors the LLM agent's dispatch contract, so deterministic de
 
 The entry point is invoked by the turn-system agent hook at round start (fire-and-forget — the agent is the slowest planner, so its plan begins the moment the round opens); it accepts an optional pre-fetched entity so the dispatcher can avoid a duplicate state fetch. Behavior registration is the extension point for new deterministic behaviors.
 
-The brain-vs-LLM routing predicate is a static helper extracted to a shared utility ([`src/utils/npcAiUtils.js`](../../src/utils/npcAiUtils.js)) so that every caller routes on the same implementation.
+The brain-vs-LLM routing predicate is a static helper extracted to a shared utility ([`src/utils/npcAiUtils.js`](../../../src/utils/npcAiUtils.js)) so that every caller routes on the same implementation.
 
 ## Integration Points
 

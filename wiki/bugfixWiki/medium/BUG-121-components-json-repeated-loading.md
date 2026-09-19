@@ -23,5 +23,5 @@ Stateless utility methods that need repeated data access should cache data at th
 
 ## References
 
-- Related wiki: `wiki/nested_inventory_design.md`
+- Related wiki: `wiki/subMDs/data/inventory_system.md`
 - Related controller: `InventoryManager`

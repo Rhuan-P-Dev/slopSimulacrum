@@ -1,4 +1,4 @@
-# BUG-134: Two-Fist Punch Drops No Chunks (D11 No-Propagation Blocked Intended Per-Fist Drops)
+# BUG-134: Two-Fist Punch Drops No Chunks (No-Propagation Blocked the Intended Per-Fist Drops)
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
@@ -11,7 +11,7 @@ A droid punching with **both** fists selected dealt its full synergy-scaled dama
 
 ## Root Cause
 
-Two deliberate designs met at the drop step and cancelled the feature's intent. The chunk-drop handler consumes exactly one input — the applied loss that the damage step publishes into the dispatch context — and the multi-attacker path deliberately keeps full parameter propagation off, because its per-attacker consequences run in isolated contexts that must never merge one attacker's output into another's. With propagation off, the loss each fist's own damage step published stayed trapped in that fist's isolated context and never reached that same fist's own drop step — so every per-fist drop saw "no loss" and did nothing. The spec had codified that as an intentional "multi-attacker never drops" rule (D11), but the rule conflated two different things: the legitimate no-*aggregation* principle (never form one number out of two attackers' outputs) and the accidental consequence that even a *per-attacker* publication — one that never crosses attacker boundaries — was blocked. The no-aggregation principle is correct and was never what caused the silence; what was blocked was a publication that stays local to each attacker.
+Two deliberate designs met at the drop step and cancelled the feature's intent. The chunk-drop handler consumes exactly one input — the applied loss that the damage step publishes into the dispatch context — and the multi-attacker path deliberately keeps full parameter propagation off, because its per-attacker consequences run in isolated contexts that must never merge one attacker's output into another's. With propagation off, the loss each fist's own damage step published stayed trapped in that fist's isolated context and never reached that same fist's own drop step — so every per-fist drop saw "no loss" and did nothing. The spec had codified that as an intentional "multi-attacker never drops" rule, but that rule conflated two different things: the legitimate no-*aggregation* principle (never form one number out of two attackers' outputs) and the accidental consequence that even a *per-attacker* publication — one that never crosses attacker boundaries — was blocked. The no-aggregation principle is correct and was never what caused the silence; what was blocked was a publication that stays local to each attacker.
 
 ## Fix
 
@@ -20,13 +20,12 @@ The publication rule on the multi-attacker path was refined from "propagate noth
 ## Prevention
 
 - The two-fist contract test now covers the full per-fist drop behavior with deterministic rolls: an always-drop material taken from the data file, a forced per-roll outcome sequence proving that one fist's success is independent of the other fist's failure, formula-exact per-fist volumes that differ between the two fists (and differ from what a combined loss would have produced), and the empty-data-file degradation case; together with the unchanged single-attacker contract test, the two pin both sides of the publish→drop contract.
-- The spec (D11) and the two related sub-wikis now state the refined rule — per-attacker publication is not aggregation — so a future reader of "the multi-attacker path never propagates" cannot re-derive the old no-drop conclusion.
+- The related sub-wikis now state the refined rule — per-attacker publication is not aggregation — so a future reader of "the multi-attacker path never propagates" cannot re-derive the old no-drop conclusion.
 - The dispatcher documents the one-key exception next to the no-propagation rule, so any future per-attacker need (for example a per-attacker event log) extends the reserved-key mechanism instead of re-enabling full propagation.
 
 ## References
 
 - Related wiki: `wiki/subMDs/data/material_damage_and_drop.md`
 - Related wiki: `wiki/subMDs/controllers/consequence_handler_architecture.md`
-- Related wiki: `wiki/material_damage_and_drop_spec.md` (D5, D11)
 - Related controller: `ConsequenceDispatcher`
 - Related bug: [BUG-133](BUG-133-multi-attacker-punch-drops-channel-damage.md) — the multi-attacker damage fix this one completes

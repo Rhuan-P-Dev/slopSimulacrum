@@ -10,7 +10,7 @@
  * circulates through the whole body and equalizes toward a uniform
  * distribution bounded by capacities.
  *
- * Cadence (supersedes the per-tick job — wiki/turn_driven_ic_and_flow_spec.md):
+ * Cadence (supersedes the per-tick job — wiki/subMDs/systems/energy_flow.md):
  * the flow performs ONE redistribution per turn, driven from the turn system's
  * round-start hook as the second step, strictly AFTER the internal-component
  * turn step (charge-then-flow). The old per-tick `energy-flow` TickJob is

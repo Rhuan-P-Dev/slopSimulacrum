@@ -23,7 +23,7 @@ Two complementary layers were introduced:
 
 2. **Shared targetability predicate** (`src/utils/npcAiUtils.js`): A set of pure predicates (`isComponentUsable`, `filterUsableComponents`, `hasUsableComponent`) defines the single rule for whether an entity is a valid target: a component is usable iff its existence is unknown or above the `EXISTENCE_GONE_AT` threshold (sourced from `shared/StatVocabulary.js`). Both the deterministic brain (`NpcAIController._isViableTarget`) and the LLM context path (`LlmContextController._isViableTarget`) delegate to this shared predicate, ensuring identical viability logic across both AI paths. This is defense-in-depth: even if a ghost were somehow created by an unforeseen path, neither AI system would target it.
 
-The fix is documented in [`wiki/trigger_system_design.md`](../../trigger_system_design.md) §3.5.4, which records the accepted consequence: a full droid-body destruction yields 39 knife drops rather than 42, because the three knives nested in the root component are lost with the body.
+The fix records an accepted consequence: a full droid-body destruction yields 39 knife drops rather than 42, because the three knives nested in the root component are lost with the body (see the trigger cascade resolution in this entry).
 
 ## Prevention
 
@@ -34,7 +34,6 @@ The fix is documented in [`wiki/trigger_system_design.md`](../../trigger_system_
 
 ## References
 
-- Trigger system design: [`wiki/trigger_system_design.md`](../../trigger_system_design.md) (§3.5.4 — Entity Elimination)
 - NPC AI controller: [`wiki/subMDs/controllers/npc_ai_controller.md`](../../subMDs/controllers/npc_ai_controller.md)
 - Components & entities data model: [`wiki/subMDs/data/components_and_entities.md`](../../subMDs/data/components_and_entities.md)
 - Related tests: [`test/unit/WorldStateController.entityElimination.test.js`](../../../test/unit/WorldStateController.entityElimination.test.js), [`test/unit/NpcAIController.ghostTargeting.test.js`](../../../test/unit/NpcAIController.ghostTargeting.test.js), [`test/contract/targetabilityParity.contract.test.js`](../../../test/contract/targetabilityParity.contract.test.js), [`test/contract/turnBarrier.contract.test.js`](../../../test/contract/turnBarrier.contract.test.js)

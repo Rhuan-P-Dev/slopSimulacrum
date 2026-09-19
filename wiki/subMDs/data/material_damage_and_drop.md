@@ -1,6 +1,6 @@
 # Material Damage & Chunk Drop
 
-Two data-driven features that make matter consequential in combat and salvage: a **per-material damage-type split** (the attacking material decides how a hit's raw value is distributed across the damage channels) and a **material chunk drop on channel-damage hits** (a successful punch, cut, or shootT1 may leave a small, pickable chunk of the target's material on the ground). Both are pure **data + thin read paths** — no new world-state categories, no new stat vocabulary, no new client protocol — and both degrade to exactly today's behavior if their data files are absent. The full rationale, data contracts, and open questions live in the [design spec](../../material_damage_and_drop_spec.md).
+Two data-driven features that make matter consequential in combat and salvage: a **per-material damage-type split** (the attacking material decides how a hit's raw value is distributed across the damage channels) and a **material chunk drop on channel-damage hits** (a successful punch, cut, or shootT1 may leave a small, pickable chunk of the target's material on the ground). Both are pure **data + thin read paths** — no new world-state categories, no new stat vocabulary, no new client protocol — and both degrade to exactly today's behavior if their data files are absent.
 
 ## Why the Attacker's Material Decides the Channel Split
 
@@ -35,7 +35,7 @@ Chunks represent **partial** loss on a component that still exists — the repea
 
 The chunk's volume has to be tied to the damage that **actually left** the target. The damage step computes that applied (clamped) loss and publishes it into the shared dispatch context, and the dispatcher's existing parameter propagation carries it forward to the drop step that runs after it. The drop handler's entire damage input is therefore that one published number plus the target's own recipe — it never re-derives the split, the resistance, or the clamping.
 
-This matters for two reasons. **It cannot diverge:** recomputing in the drop handler would duplicate the damage math, and the two copies would silently drift the moment either changed. **It preserves one-way flow:** the drop is a *consequence of* the punch result, computed from that result, never feeding back into it. The same contract scales to the multi-attacker path without any re-derivation: the dispatcher carries only the reserved published-loss key forward, and only inside each attacker's own isolated context, so each fist's drop step consumes that fist's *own* applied loss — two independent rolls, two independent chunks, never one combined over an aggregate (spec D11, revised).
+This matters for two reasons. **It cannot diverge:** recomputing in the drop handler would duplicate the damage math, and the two copies would silently drift the moment either changed. **It preserves one-way flow:** the drop is a *consequence of* the punch result, computed from that result, never feeding back into it. The same contract scales to the multi-attacker path without any re-derivation: the dispatcher carries only the reserved published-loss key forward, and only inside each attacker's own isolated context, so each fist's drop step consumes that fist's *own* applied loss — two independent rolls, two independent chunks, never one combined over an aggregate (the refined no-aggregation contract).
 
 ## Why Deleting Either Data File Disables the Split (Not a No-Op)
 
@@ -73,5 +73,4 @@ Consequences are **action-scoped**: they run only when an action declares them, 
 - [Attack System](../architecture/attack_system.md) — the unified attack handler and the split at the choke point
 - [Inventory System](inventory_system.md) — the dynamic-item precedent (an item type with no registry entry)
 - [Consequence Handler Architecture](../controllers/consequence_handler_architecture.md) — the drop handler and the loss-publication precedent between consequences
-- [World Rules](world_rules.md) — the world-rules layer and the torn-material rule's semantics
-- [Design spec](../../material_damage_and_drop_spec.md) — full rationale, data contracts, and open questions
+- [World Rules](world_rules.md) — the world-rules layer: the torn-material rule's semantics and the optional onDamage overlay (probabilistic chunk drops on any damage)

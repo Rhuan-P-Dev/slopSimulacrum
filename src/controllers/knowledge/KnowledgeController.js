@@ -1,6 +1,6 @@
 /**
  * KnowledgeController — state controller owning the read-only "Knowledge"
- * codex payload (knowledge_viewer_spec.md §4.2).
+ * codex payload (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * Per the State Controller pattern (wiki/subMDs/controllers/controller_patterns.md §4),
  * this controller holds the raw registries and has NO cross-controller
@@ -17,7 +17,7 @@
  * its fields. The result is a pure function of the data files: the viewer
  * deliberately does NOT compute blended/per-instance stats (that is the
  * runtime, instance-scoped job of MaterialController.derive / the trait merge,
- * knowledge_viewer_spec.md §1 scope decision).
+ * wiki/subMDs/frontend/knowledge_viewer.md scope decision).
  *
  * Deliberately has NO `getAll()`: the static codex must stay out of the
  * world-state broadcast aggregation (same exclusion rule as CraftingController
@@ -71,7 +71,7 @@ export function emptyKnowledgePayload() {
 /**
  * Locale-independent, deterministic string comparator (code-unit order) so the
  * wire contract is independent of the runtime locale — sorting happens on the
- * server, not the client (knowledge_viewer_spec.md §3.2 "Ordering").
+ * server, not the client (wiki/subMDs/frontend/knowledge_viewer.md "Ordering").
  * @param {string} a
  * @param {string} b
  * @returns {number}
@@ -124,7 +124,7 @@ class KnowledgeController {
 
         // Assemble once and cache: assembly is pure and idempotent, so the
         // getter stays O(clone) on a hot path, never O(re-assembly)
-        // (knowledge_viewer_spec.md §4.2).
+ // (wiki/subMDs/frontend/knowledge_viewer.md).
         this._assembled = this._assembleKnowledge();
 
         Logger.info(
@@ -137,7 +137,7 @@ class KnowledgeController {
     }
 
     /**
-     * Returns the full knowledge codex payload of knowledge_viewer_spec.md §3:
+ * Returns the full knowledge codex payload of wiki/subMDs/frontend/knowledge_viewer.md:
      * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
      *
      * A FRESH DEEP COPY is returned on every call (defensive-copy rule): callers
@@ -330,7 +330,7 @@ class KnowledgeController {
      * `externalVolume`, and `materials` are optional (they fall back at
      * assembly time). The required `name` is validated elsewhere at boot by the
      * inventory startup validation, so it is intentionally NOT re-checked here
-     * (knowledge_viewer_spec.md §4.2 / §3.4).
+ * (wiki/subMDs/frontend/knowledge_viewer.md).
      * @private
      */
     _validateItemEntries() {
@@ -375,7 +375,7 @@ class KnowledgeController {
     /**
      * The "stat" end of the derivation chain: the global trait molds from
      * data/traits.json, deep-copied verbatim and preserving the data file's
-     * group order (knowledge_viewer_spec.md §3.2).
+ * group order (wiki/subMDs/frontend/knowledge_viewer.md).
      * @returns {Object<string, Object<string, number>>}
      * @private
      */
@@ -397,7 +397,7 @@ class KnowledgeController {
      * side: a single-filled row passes through unchanged (a formula row has
      * `sources: []`, a source row has `formula: null`); a both-filled row is
      * NORMALIZED at assembly — the formula wins and its `sources` are dropped.
-     * `sources` are expanded to a property-sorted array (knowledge_viewer_spec.md
+ * `sources` are expanded to a property-sorted array (wiki/subMDs/frontend/knowledge_viewer.md
      * §3.2 MappingRow).
      * @returns {Array<Object>}
      * @private
@@ -427,7 +427,7 @@ class KnowledgeController {
     /**
      * Expands a mapping entry's `sources` object to a property-sorted array of
      * `{ property, weight }`; returns [] when the entry has no valid sources
-     * object (a formula-based row, or a malformed/missing one) (knowledge_viewer_spec.md §3.2 MappingRow).
+ * object (a formula-based row, or a malformed/missing one) (wiki/subMDs/frontend/knowledge_viewer.md MappingRow).
      * @param {*} sources - The entry's raw `sources` value.
      * @returns {Array<{property: string, weight: number}>}
      * @private
@@ -444,7 +444,7 @@ class KnowledgeController {
     /**
      * The "material property" end of the chain: per-material property values as
      * a sorted array, so a reader can trace property value → mapping → stat.
-     * `properties` is deep-copied verbatim (knowledge_viewer_spec.md §3.2
+ * `properties` is deep-copied verbatim (wiki/subMDs/frontend/knowledge_viewer.md
      * MaterialRow).
      * @returns {Array<Object>}
      * @private
@@ -467,7 +467,7 @@ class KnowledgeController {
      * data file) — the one place both layers' names meet. The existence store is
      * a single 0–1 matter ratio: goneAt/usableMin are both 0 (there is no
      * "broken-but-usable" gap, unlike the old two-boundary existence model).
-     * (knowledge_viewer_spec.md §3.2 Vocabulary).
+ * (wiki/subMDs/frontend/knowledge_viewer.md Vocabulary).
      * @returns {{traitGroups: string[], stats: string[], existence: {goneAt: number, usableMin: number}}}
      * @private
      */
@@ -485,7 +485,7 @@ class KnowledgeController {
     /**
      * Every recipe as a row, sorted by `id`, with input/output display names
      * resolved against the item registry (the server resolves names; the client
-     * never re-resolves them) (knowledge_viewer_spec.md §3.3).
+ * never re-resolves them) (wiki/subMDs/frontend/knowledge_viewer.md).
      * @returns {Array<Object>}
      * @private
      */
@@ -507,7 +507,7 @@ class KnowledgeController {
      * Maps a recipe's item list (order preserved as in the data file) to
      * `{ type, quantity, name }` rows, resolving each `name` against the item
      * registry. The defensive fallback for an unresolvable type is the raw
-     * `type` string — never a raw ID-shaped label (knowledge_viewer_spec.md §3.3
+ * `type` string — never a raw ID-shaped label (wiki/subMDs/frontend/knowledge_viewer.md
      * RecipeItemRef).
      * @param {Array<Object>|undefined} entries - The recipe's input or output list.
      * @returns {Array<{type: string, quantity: number, name: string}>}
@@ -530,7 +530,7 @@ class KnowledgeController {
 
     /**
      * Every item type as a row, sorted by `type`, with null/fallback
-     * normalization per knowledge_viewer_spec.md §3.4: missing `description` →
+ * normalization per wiki/subMDs/frontend/knowledge_viewer.md: missing `description` →
      * null, missing `volume` → DEFAULT_ITEM_VOLUME (0), missing `externalVolume`
      * → null, missing `materials` → null (with `role` → null when the entry
      * omits it), and `traits` → a deep copy ({ } when missing — the
@@ -558,7 +558,7 @@ class KnowledgeController {
     /**
      * Normalizes an item's composition list to `{ material, fraction, role }`
      * rows with `role` → null when the entry omits it; returns null when the
-     * item has no composition (no derived layer) (knowledge_viewer_spec.md §3.4).
+ * item has no composition (no derived layer) (wiki/subMDs/frontend/knowledge_viewer.md).
      * @param {Array<Object>|undefined} materials - The item's material composition.
      * @returns {Array<{material: string, fraction: number, role: string|null}>|null}
      * @private

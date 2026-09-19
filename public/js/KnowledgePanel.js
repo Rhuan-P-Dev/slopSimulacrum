@@ -1,6 +1,6 @@
 /**
  * KnowledgePanel
- * Client-side Knowledge overlay panel (knowledge_viewer_spec.md §5): a
+ * Client-side Knowledge overlay panel (wiki/subMDs/frontend/knowledge_viewer.md): a
  * read-only reference codex of the game's static data files. Three sub-tabs
  * share one content area:
  *   1. "Traits & Stats" — the material-property → trait → stat derivation
@@ -13,7 +13,7 @@
  *      badges grouped by trait group, and the material composition list
  *      when present.
  *
- * Data flow (knowledge_viewer_spec.md §5.4/§5.8): the payload is fetched
+ * Data flow (wiki/subMDs/frontend/knowledge_viewer.md): the payload is fetched
  * ONCE per session from GET /knowledge and cached — the data is immutable
  * at runtime (registries are validated once at boot), so per-open refetches
  * would be pure waste. Every failure class (network error, non-2xx status,
@@ -44,7 +44,7 @@ import {
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 
 // =============================================================================
-// Presentation constants (knowledge_viewer_spec.md §5/§6)
+// Presentation constants (wiki/subMDs/frontend/knowledge_viewer.md)
 // =============================================================================
 
 /** Multiplication sign used in "qty × name" / "property × weight" labels. */
@@ -54,7 +54,7 @@ const MULTIPLICATION_SIGN = '×';
 const ARROW = '→';
 
 /**
- * The one formula the spec annotates inline (knowledge_viewer_spec.md §5.6.2):
+ * The one formula the spec annotates inline (wiki/subMDs/frontend/knowledge_viewer.md):
  * the densityVolume formula badge gets the human-readable expansion.
  */
 const DENSITY_VOLUME_FORMULA = 'densityVolume';
@@ -72,7 +72,7 @@ const FALLBACK_NUMBER = 0;
 const MIN_QUANTITY = 1;
 
 /**
- * The EXACT English label contract of knowledge_viewer_spec.md §6. These
+ * The EXACT English label contract of wiki/subMDs/frontend/knowledge_viewer.md. These
  * strings are the visible UI text and are pinned character-for-character by
  * test/unit/KnowledgePanel.test.js (and indirectly guarded by the
  * ptLanguageRegression scanner, which rejects Portuguese words / accented
@@ -83,7 +83,7 @@ export const KNOWLEDGE_LABELS = {
     BUTTON_TITLE: 'Knowledge',
     /** Config-bar button glyph. */
     BUTTON_GLYPH: '📚',
-    /** Overlay panel header (emoji + title, per spec §4). */
+    /** Overlay panel header (emoji + title). */
     PANEL_HEADER: '🧠 Knowledge',
     /** Sub-tab 1 (default). */
     TAB_TRAITS: 'Traits & Stats',
@@ -103,7 +103,7 @@ export const KNOWLEDGE_LABELS = {
     EMPTY_ITEMS: 'No items defined',
 };
 
-/** Section block titles (knowledge_viewer_spec.md §5.6 block names). */
+/** Section block titles (wiki/subMDs/frontend/knowledge_viewer.md block names). */
 const BLOCK_TITLES = {
     TRAIT_MOLDS: 'Global trait molds',
     MAPPINGS: 'Property to stat mappings',
@@ -111,7 +111,7 @@ const BLOCK_TITLES = {
     VOCABULARY: 'Shared vocabulary',
 };
 
-/** Shared-vocabulary block labels (knowledge_viewer_spec.md §5.6.4). */
+/** Shared-vocabulary block labels (wiki/subMDs/frontend/knowledge_viewer.md). */
 const VOCAB_LABELS = {
     PINNED_TRAIT_GROUPS: 'Pinned trait groups',
     PINNED_STATS: 'Pinned stats',
@@ -121,13 +121,13 @@ const VOCAB_LABELS = {
     PINNED_SUBSET_NOTE: 'Pinned subset frozen by the shared module; not an exhaustive list of the data.',
 };
 
-/** Item volume line labels (knowledge_viewer_spec.md §5.6.6). */
+/** Item volume line labels (wiki/subMDs/frontend/knowledge_viewer.md). */
 const VOLUME_LABELS = {
     VOLUME: 'volume',
     EXTERNAL: 'external volume',
 };
 
-/** Field labels for the material cards (knowledge_viewer_spec.md §5.6.3). */
+/** Field labels for the material cards (wiki/subMDs/frontend/knowledge_viewer.md). */
 const FIELD_LABELS = {
     DENSITY: 'density',
 };
@@ -139,7 +139,7 @@ const FIELD_LABELS = {
 /**
  * The three sub-tab section ids. Tab buttons carry these in their
  * `data-section` attribute; lookups compare against these constants
- * (dataset comparison, never selector interpolation — project rule §4).
+ * (dataset comparison, never selector interpolation).
  */
 export const SECTION_IDS = {
     TRAITS: 'traitStats',
@@ -149,12 +149,12 @@ export const SECTION_IDS = {
 
 /**
  * The default (initial) active section: the traits section — the first tab
- * (knowledge_viewer_spec.md §5.5).
+ * (wiki/subMDs/frontend/knowledge_viewer.md).
  */
 export const DEFAULT_SECTION = SECTION_IDS.TRAITS;
 
 /**
- * The total empty-shape payload (knowledge_viewer_spec.md §3.5 invariant 1,
+ * The total empty-shape payload (wiki/subMDs/frontend/knowledge_viewer.md invariant 1,
  * client side): the shape a malformed envelope falls back to, and the
  * fallback vocabulary the server assembles from the same shared constants.
  * Never mutated by the panel (shapers always return fresh structures).
@@ -196,7 +196,7 @@ function compareStrings(a, b) {
 }
 
 /**
- * Unwraps the GET /knowledge response envelope (knowledge_viewer_spec.md §3):
+ * Unwraps the GET /knowledge response envelope (wiki/subMDs/frontend/knowledge_viewer.md):
  * a 200 body is `{ knowledge: <payload> }`; a bare object without that key,
  * an array, null, or any non-object body is NOT a valid envelope and yields
  * the fallback (default: EMPTY_KNOWLEDGE, the total empty shape).
@@ -224,7 +224,7 @@ export function unwrapKnowledgeEnvelope(body, fallback = EMPTY_KNOWLEDGE) {
 
 /**
  * HTML-escapes a value for interpolation into innerHTML
- * (knowledge_viewer_spec.md §5.4: escapeHtml-only rendering). Local helper —
+ * (wiki/subMDs/frontend/knowledge_viewer.md: escapeHtml-only rendering). Local helper —
  * the same five-character behavior as the CraftingPanel's private helper,
  * extended with backtick and equals-sign for completeness (helpers are per
  * module; no cross-panel imports).
@@ -255,7 +255,7 @@ export function escapeHtml(value) {
  */
 
 /**
- * Property-to-stat mapping rows (knowledge_viewer_spec.md §3.2 MappingRow):
+ * Property-to-stat mapping rows (wiki/subMDs/frontend/knowledge_viewer.md MappingRow):
  * `{ statKey, trait, stat, formula: string|null, sources: [{property, weight}] }`,
  * sorted by statKey; `sources` sorted by property.
  * @param {*} raw - Raw `traitStats.mappings` (array or anything malformed).
@@ -279,7 +279,7 @@ export function shapeMappings(raw) {
             trait: dotIndex > 0 ? statKey.slice(0, dotIndex) : '',
             stat: dotIndex > 0 ? statKey.slice(dotIndex + 1) : '',
             formula,
-            // Contract exclusivity (§3.2 MappingRow): exactly one of formula /
+            // Contract exclusivity: exactly one of formula /
             // sources is populated. A formula wins (renderer precedence); the
             // other side collapses to its empty default.
             sources: formula !== null ? [] : shapeSources(entry.sources),
@@ -313,7 +313,7 @@ function shapeSources(raw) {
 }
 
 /**
- * Per-material property rows (knowledge_viewer_spec.md §3.2 MaterialRow):
+ * Per-material property rows (wiki/subMDs/frontend/knowledge_viewer.md MaterialRow):
  * `{ type, name, density, properties }` sorted by type; `name` falls back to
  * the type key, `density` to 0, and `properties` to a filtered numeric map.
  * @param {*} raw - Raw `traitStats.materials`.
@@ -356,7 +356,7 @@ function shapePropertyMap(raw) {
 }
 
 /**
- * The cross-layer pinned vocabulary block (knowledge_viewer_spec.md §3.2
+ * The cross-layer pinned vocabulary block (wiki/subMDs/frontend/knowledge_viewer.md
  * Vocabulary): `{ traitGroups: string[], stats: string[], existence: { goneAt, usableMin } }`.
  * Falls back to the shared-module constants when any part is malformed —
  * the client never invents names the server did not send.
@@ -403,7 +403,7 @@ function toNonEmptyStringArray(raw) {
 }
 
 /**
- * Recipe rows (knowledge_viewer_spec.md §3.3): `{ id, name, description,
+ * Recipe rows (wiki/subMDs/frontend/knowledge_viewer.md): `{ id, name, description,
  * inputs, outputs }` sorted by id. `description` falls back to null;
  * item-ref names fall back to the raw `type` string (the defensive
  * fallback of the label contract — never a raw ID-shaped label).
@@ -463,7 +463,7 @@ function shapeRecipeItemRefs(raw) {
 }
 
 /**
- * Item rows (knowledge_viewer_spec.md §3.4): `{ type, name, description,
+ * Item rows (wiki/subMDs/frontend/knowledge_viewer.md): `{ type, name, description,
  * volume, externalVolume, materials, traits }` sorted by type, with the
  * spec nullability rules: `description` -> null, `volume` ->
  * DEFAULT_ITEM_VOLUME, `externalVolume` -> null, `materials` -> null when
@@ -614,7 +614,7 @@ export class KnowledgePanel {
     /**
      * Hides the overlay. The session payload cache is intentionally kept
      * (the data is static; a later re-open re-renders from cache without a
-     * refetch — knowledge_viewer_spec.md §5.4).
+ * refetch — wiki/subMDs/frontend/knowledge_viewer.md).
      * @public
      */
     hide() {
@@ -644,7 +644,7 @@ export class KnowledgePanel {
 
     /**
      * The active sub-tab section id (read-only view of _activeSection;
-     * public seam for spec §7.3.20 default-section verification).
+     * public seam for default-section verification).
      * @returns {string} One of SECTION_IDS.
      * @public
      */
@@ -661,7 +661,7 @@ export class KnowledgePanel {
      * GET /knowledge exactly once per session; every failure class (network,
      * non-2xx, JSON parse, malformed envelope) is caught, logged through
      * ClientLogger, and rendered as the in-panel error state with a Retry
-     * action (the panel stays open — knowledge_viewer_spec.md §5.4).
+ * action (the panel stays open — wiki/subMDs/frontend/knowledge_viewer.md).
      * @private
      */
     async _ensureLoaded() {
@@ -768,7 +768,7 @@ export class KnowledgePanel {
 
     /**
      * Tab 1: Traits & Stats — the four derivation-chain blocks of
-     * knowledge_viewer_spec.md §5.6.1-4. Section empty state fires when the
+ * wiki/subMDs/frontend/knowledge_viewer.md. Section empty state fires when the
      * mappings array is empty (the section's identity array).
      * @param {*} traitStats - Raw `traitStats` section.
      * @returns {string} HTML.
@@ -790,7 +790,7 @@ export class KnowledgePanel {
     }
 
     /**
-     * §5.6.1: one table per trait group (caption = group name; rows are
+     * One table per trait group (caption = group name; rows are
      * stat and value).
      * @param {*} groups - Raw `traitStats.groups` ({ group: { stat: number } }).
      * @returns {string} HTML (empty string when no groups).
@@ -815,7 +815,7 @@ export class KnowledgePanel {
     }
 
     /**
-     * §5.6.2: one row per mapping — stat key, then the formula badge (with
+     * One row per mapping — stat key, then the formula badge (with
      * the inline annotation for densityVolume) OR the property source list.
      * Widest content of the panel; the row wraps on narrow panels.
      * @param {Array<Object>} mappings - Shaped mapping rows.
@@ -843,7 +843,7 @@ export class KnowledgePanel {
     }
 
     /**
-     * §5.6.3: one card per material — name, density, property values.
+     * One card per material — name, density, property values.
      * @param {Array<Object>} materials - Shaped material rows.
      * @returns {string} HTML (empty string when no materials).
      * @private
@@ -864,7 +864,7 @@ export class KnowledgePanel {
     }
 
     /**
-     * §5.6.4: the pinned vocabulary — trait groups, stats, the two
+     * Pinned vocabulary — trait groups, stats, the two
      * existence boundaries, and the pinned-subset note.
      * @param {{traitGroups: string[], stats: string[], existence: Object}} vocabulary - Shaped vocabulary.
      * @returns {string} HTML.
@@ -889,7 +889,7 @@ export class KnowledgePanel {
     /**
      * Tab 2: Crafting & Items — one card per recipe (grid, like the
      * crafting panel's recipe cards): name, description, input refs, arrow,
-     * output refs (§5.6.5).
+     * output refs.
      * @param {*} rawRecipes - Raw `recipes` section.
      * @returns {string} HTML.
      * @private
@@ -920,7 +920,7 @@ export class KnowledgePanel {
      * Tab 3: Items — one card per item type: name, description, volume line
      * (external volume shown when it differs), static trait badges grouped
      * by trait group (no hover-to-hide), and the material composition list
-     * when present (§5.6.6).
+     * when present.
      * @param {*} rawItems - Raw `items` section.
      * @returns {string} HTML.
      * @private

@@ -79,7 +79,7 @@ import LlmAgentFeedbackController from '../controllers/networking/LlmAgentFeedba
 // Feature A: deterministic round/turn system (state owner; needs only the
 // tick system at construction — the facade is injected via setter below).
 import TurnSystemController from '../controllers/core/TurnSystemController.js';
-// Energy flow (wiki/energy_flow_spec.md): cross-component Physical.energy
+// Energy flow (wiki/subMDs/systems/energy_flow.md): cross-component Physical.energy
 // redistribution. Logic controller; constructed with its three named deps
 // (all already in scope — no new file I/O); the facade reference is injected
 // via setter below (same pattern as the IC / turn-system peers).
@@ -196,7 +196,7 @@ export function buildWorldState(tickSystem = null) {
         inventoryItemRegistry
     );
     // KnowledgeController: state controller owning the static "Knowledge" codex
-    // (knowledge_viewer_spec.md §4.2). Layer 0 data store — the same layer as the
+ // (wiki/subMDs/frontend/knowledge_viewer.md). Layer 0 data store — the same layer as the
     // other state controllers it reads (traits / materials / property mapping /
     // crafting / inventory items). Receives the already-loaded registries (zero
     // new file I/O) and validates them at boot (fail-fast). No controller deps and
@@ -272,7 +272,7 @@ export function buildWorldState(tickSystem = null) {
     // Feature A: turn system (state owner; needs only the tick system here —
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
-    // Energy flow (wiki/energy_flow_spec.md): the "blood system". Logic
+ // Energy flow (wiki/subMDs/systems/energy_flow.md): the "blood system". Logic
     // controller with named deps only — the already-loaded componentRegistry
     // (data/components.json — used ONLY to resolve the optional per-recipe
     // `energyCapacity` bound) and the worldRulesController (the flow reads the
@@ -328,7 +328,7 @@ export function buildWorldState(tickSystem = null) {
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
         craftingController,
-        // KnowledgeController: static knowledge codex (knowledge_viewer_spec.md
+ // KnowledgeController: static knowledge codex (wiki/subMDs/frontend/knowledge_viewer.md
         // §4.2). Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
         knowledgeController,
@@ -369,7 +369,7 @@ export function buildWorldState(tickSystem = null) {
     onDamageDropListener.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
-    // Per-turn subsystem steps at ROUND START (wiki/turn_driven_ic_and_flow_spec.md).
+ // Per-turn subsystem steps at ROUND START (wiki/subMDs/systems/energy_flow.md).
     // Wired here (composition root) because the turn system, the IC controller
     // and the flow controller are siblings — none owns another. The hook
     // receives the round number that just started.

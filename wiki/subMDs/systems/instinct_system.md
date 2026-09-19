@@ -1,8 +1,8 @@
 # Instincts — Runtime-Generated Behavior Primitives for the LLM Agent
 
 > **Status:** Approved-for-implementation specification (architect deliverable — design only, no code in this doc)
-> **Scope:** LLM agent path only ([`LLMAgentController.js`](../../src/controllers/networking/LLMAgentController.js) + [`LlmContextController.js`](../../src/controllers/networking/LlmContextController.js) + [`LlmAgentFeedbackController.js`](../../src/controllers/networking/LlmAgentFeedbackController.js) integration). The deterministic brain ([`NpcAIController.js`](../../src/controllers/ai/NpcAIController.js)) is **not** touched.
-> **Conventions this spec follows:** [`project_rules.md`](../project_rules.md) (data-driven registries, structured errors, public-API-only facade access), [`controller_patterns.md`](../controllers/controller_patterns.md) (logic-controller DI, state-owner vs logic-controller split), [`system_map.md`](../architecture/system_map.md) (hierarchy placement), [`llm_turns_npc_spec.md`](../llm_turns_npc_spec.md) §6 (agent architecture, tool strategy, limits), [`llm_agent_action_feedback_plan.md`](../llm_agent_action_feedback_plan.md) (feedback capture/injection), and the "why over how" wiki principle (BUG-072) — this doc explains design intent; method internals live in JSDoc.
+> **Scope:** LLM agent path only ([`LLMAgentController.js`](../../../src/controllers/networking/LLMAgentController.js) + [`LlmContextController.js`](../../../src/controllers/networking/LlmContextController.js) + [`LlmAgentFeedbackController.js`](../../../src/controllers/networking/LlmAgentFeedbackController.js) integration). The deterministic brain ([`NpcAIController.js`](../../../src/controllers/ai/NpcAIController.js)) is **not** touched.
+> **Conventions this spec follows:** [`project_rules.md`](../../project_rules.md) (data-driven registries, structured errors, public-API-only facade access), [`controller_patterns.md`](../controllers/controller_patterns.md) (logic-controller DI, state-owner vs logic-controller split), [`system_map.md`](../architecture/system_map.md) (hierarchy placement), [`llm_turns_npc_spec.md`](../../llm_turns_npc_spec.md) §6 (agent architecture, tool strategy, limits, action-result feedback), and the "why over how" wiki principle (BUG-072) — this doc explains design intent; method internals live in JSDoc.
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1.1 The problem the flat action list creates
 
-The LLM agent today receives a **flat vocabulary of atomic actions** and must plan multi-step behavior itself: to fight, a weak local model (tight per-call time budget, small `max_tokens`, one retry — llm_turns_npc_spec §6.5) must emit two correctly-parameterized tool calls in the right order, recovering every parameter from the raw context. Each extra tool call is another chance for a malformed argument, a wrong id, or a wasted retry. The existing chase-then-attack behavior in the deterministic brain ([`NpcAIController.js`](../../src/controllers/ai/NpcAIController.js)) proves the *behavior* is valuable; the LLM path just cannot express it compactly.
+The LLM agent today receives a **flat vocabulary of atomic actions** and must plan multi-step behavior itself: to fight, a weak local model (tight per-call time budget, small `max_tokens`, one retry — llm_turns_npc_spec §6.5) must emit two correctly-parameterized tool calls in the right order, recovering every parameter from the raw context. Each extra tool call is another chance for a malformed argument, a wrong id, or a wasted retry. The existing chase-then-attack behavior in the deterministic brain ([`NpcAIController.js`](../../../src/controllers/ai/NpcAIController.js)) proves the *behavior* is valuable; the LLM path just cannot express it compactly.
 
 ### 1.2 What an instinct is
 
@@ -60,7 +60,7 @@ The instinct *name* is the vocabulary the model learns, so it is designed to chu
 
 - **One call, full sequence, same round.** An instinct call expands to the complete ordered sequence at dispatch time, and each step is queued as its own entry so the turn system executes the actor's entries in FIFO order — the move lands before the attack in the same resolution pass.
 - **The turn system stays semantically ignorant of chains.** It owns timing and ordering only. If a move fails at resolution, the queued attack still runs and fails its own range check rather than being cascade-cancelled — both failures reach the LLM as separate tagged feedback entries, which is exactly the signal it needs to adapt next round (dash instead of move, or attack directly when in range).
-- **Feedback is tagged per instinct.** The queued steps are separate outcomes; a small per-outcome tag is what tells the model *why* they happened together ("my chase-attack closed with the punch out of range") — the information that breaks action loops (llm_agent_action_feedback_plan root symptom).
+- **Feedback is tagged per instinct.** The queued steps are separate outcomes; a small per-outcome tag is what tells the model *why* they happened together ("my chase-attack closed with the punch out of range") — the information that breaks action loops (an agent repeating the same failing action forever).
 - **Explicit targets fail loudly.** Only an *absent* target defaults to "nearest entity in room"; an explicitly supplied target that is invalid fails with a matching error code, so the model's mistake is not silently papered over.
 - **Parameters are frozen at expansion; positions are live at resolution.** A target that drifts between planning and resolution can legitimately take an attack out of range — documented and accepted, because the LLM re-decides next round with fresh context.
 

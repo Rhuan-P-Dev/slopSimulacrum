@@ -21,7 +21,7 @@ The controller never throws during load. This is intentional: world rules are an
 
 ## The torn-material rule (`damageTornMaterial`)
 
-The shipped rule's config is two levers readable directly in the 8-line data file — `percent` (the share of the applied loss minted as torn matter) and `enabled` (a soft-off switch); per project rules §8.1 the wiki does not duplicate the schema, and the *why* of each lever (applied-loss basis, gate-not-floor semantics, the shipped default) is covered in the Semantics below and in [world_rules_spec.md](../../world_rules_spec.md) §4.
+The shipped rule's config is two levers readable directly in the 8-line data file — `percent` (the share of the applied loss minted as torn matter) and `enabled` (a soft-off switch); per project rules §8.1 the wiki does not duplicate the schema, and the *why* of each lever (applied-loss basis, gate-not-floor semantics, the shipped default) is covered in the Semantics below.
 
 ### Semantics
 

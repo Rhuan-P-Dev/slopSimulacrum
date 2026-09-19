@@ -11,7 +11,7 @@
  *   - `chase_attack`: chase and attack the nearest VIABLE entity in the same room
  *     (a component-less "ghost" is never targeted — see _isViableTarget).
  *   - `craft_loop`: Crafter Drone — forage a dropped item, forge it into the
- *     recipe output, and drop it on the ground (wiki/crafter_drone_spec.md).
+ * recipe output, and drop it on the ground (wiki/subMDs/controllers/npc_ai_controller.md).
  *
  * @module NpcAIController
  */

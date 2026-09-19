@@ -1,5 +1,5 @@
 /**
- * KnowledgePanel (CLIENT) unit tests — knowledge_viewer_spec.md §7.3.
+ * KnowledgePanel (CLIENT) unit tests — wiki/subMDs/frontend/knowledge_viewer.md
  *
  * Per the client-testing convention (pattern:
  * test/unit/CraftingPanel.test.js, test/unit/EventLogPanel.client.test.js),

@@ -1,5 +1,5 @@
 /**
- * knowledgeRoutes unit tests (knowledge_viewer_spec.md §7.2).
+ * knowledgeRoutes unit tests (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * Covers:
  *   - GET /knowledge → 200 with the exact `{ knowledge: <payload> }` envelope,
