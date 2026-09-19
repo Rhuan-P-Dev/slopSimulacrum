@@ -1,5 +1,3 @@
-import ComponentStatsController from './componentStatsController.js';
-import TraitsController from '../traits/TraitsController.js';
 import Logger from '../../utils/Logger.js';
 
 /**

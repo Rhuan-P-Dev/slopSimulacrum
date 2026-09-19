@@ -8,7 +8,7 @@
  * @module test/unit/KnifeDropTriggerHandler
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import KnifeDropTriggerHandler from '../../src/controllers/triggers/KnifeDropTriggerHandler.js';
 import Logger from '../../src/utils/Logger.js';
 
@@ -34,7 +34,7 @@ function buildWSCStub(options = {}) {
     const droppedItemsMap = {};
 
     return {
-        getEntity: vi.fn((id) => {
+        getEntity: vi.fn(() => {
             if (returnEntity) return entity;
             return undefined;
         }),

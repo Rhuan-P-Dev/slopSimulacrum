@@ -144,7 +144,7 @@ describe('coal generator — inert organ over the per-turn channel', () => {
     });
 
     it('the fuel-exhaustion marker map never receives a key (nothing can go dry)', () => {
-        const { world, entityId, bodyId } = buildWorld();
+        const { world, bodyId } = buildWorld();
         const ic = world.internalComponentController;
 
         for (const round of [5, 10, 15]) driveIC(world, round);

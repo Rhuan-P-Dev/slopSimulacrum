@@ -1,4 +1,3 @@
-import ComponentController from './componentController.js';
 import { generateCompId } from '../../utils/idGenerator.js';
 import DataLoader from '../../utils/DataLoader.js';
 

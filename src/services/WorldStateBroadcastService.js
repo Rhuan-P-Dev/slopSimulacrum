@@ -1,7 +1,7 @@
 import Logger from '../utils/Logger.js';
 import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 // TYPED ID MIGRATION: Import typed ID generators for items and equipped items
-import { generateItemId, generateEquippedId } from '../utils/idGenerator.js';
+import { generateEquippedId } from '../utils/idGenerator.js';
 import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
@@ -96,7 +96,7 @@ class WorldStateBroadcastService {
 
 		// Transform entities — component IDs are already typed from entityController.generateCompId()
 		if (transformed.entities && typeof transformed.entities === 'object') {
-			for (const [entityId, entity] of Object.entries(transformed.entities)) {
+			for (const [, entity] of Object.entries(transformed.entities)) {
 				if (!entity) continue;
 
 				// Ensure entity ID is typed
@@ -116,7 +116,7 @@ class WorldStateBroadcastService {
 				// Transform internal components — enrich with programmatic descriptions
 				const icRegistry = this._worldStateController.internalComponentController?.registry;
 				if (entity.internalComponents && typeof entity.internalComponents === 'object') {
-					for (const [hostId, comps] of Object.entries(entity.internalComponents)) {
+					for (const [, comps] of Object.entries(entity.internalComponents)) {
 						if (Array.isArray(comps)) {
 							InternalComponentUtils.enrichWithDescriptions(comps, icRegistry);
 						}

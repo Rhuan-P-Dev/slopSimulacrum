@@ -40,9 +40,7 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(projectRoot, rel)
 
 const RESISTANCE_SCALE = 100;
 
-const materials = readJson('data/materials.json');
 const dropRates = readJson('data/materialDropRates.json');
-const components = readJson('data/components.json');
 const worldRules = readJson('data/world_rules.json');
 const tornPercent = worldRules.rules.damageTornMaterial.percent;
 

@@ -28,8 +28,8 @@
  * @module test/unit/InstinctController
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import InstinctController, { ROLE_WORDS, TEMPLATES, MAX_INSTINCT_STEPS } from '../../src/controllers/ai/InstinctController.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import InstinctController, { ROLE_WORDS, MAX_INSTINCT_STEPS } from '../../src/controllers/ai/InstinctController.js';
 
 // =========================================================================
 // Helpers / Fixtures

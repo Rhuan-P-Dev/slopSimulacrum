@@ -109,7 +109,7 @@ class ConsequenceDispatcher {
 
         for (const attackerId of attackerComponentIds) {
             // Resolve equipment IDs (eq-*) to host component IDs (comp-*) for stats lookup
-            let resolvedAttackerId = attackerId;
+            let resolvedAttackerId;
             let attackerStats = null;
 
             if (IdResolver.isEquippedId(attackerId)) {
@@ -410,7 +410,7 @@ class ConsequenceDispatcher {
                     ...result
                 });
             } catch (error) {
-                const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+                const errorMsg = error?.message ?? String(error);
                 results.push({
                     success: false,
                     error: this._resolveError({

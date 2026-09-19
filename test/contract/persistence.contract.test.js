@@ -24,7 +24,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import WorldStateController from '../../src/controllers/WorldStateController.js';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 
 /**

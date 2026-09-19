@@ -31,7 +31,7 @@
  * @module test/unit/NpcAIController
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import NpcAIController from '../../src/controllers/ai/NpcAIController.js';
 
 // =========================================================================
@@ -549,7 +549,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     // L3: Lacunas de teste nos ramos de dispatch
-    it('L3a. queueAction {success:false, code:\"PLANNING_CLOSED\"} → {acted:false, reason:\"queue_rejected\"}', () => {
+    it('L3a. queueAction {success:false, code:"PLANNING_CLOSED"} → {acted:false, reason:"queue_rejected"}', () => {
         const entities = { [NPC_ID]: NPC_ENTITY, [TARGET_ID]: TARGET_ENTITY };
         const facade = makeFacade({
             entities,
@@ -584,7 +584,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     // L2: NaN guards em _chaseAttackBehavior
-    it('L2a. entity com spatial {x: NaN, y: 0} → {acted:false, reason:\"idle\"}, nada enfileirado', () => {
+    it('L2a. entity com spatial {x: NaN, y: 0} → {acted:false, reason:"idle"}, nada enfileirado', () => {
         const npcWithNaN = { ...NPC_ENTITY, spatial: { x: NaN, y: 0 } };
         const entities = { [NPC_ID]: npcWithNaN, [TARGET_ID]: TARGET_ENTITY };
         const facade = makeFacade({
@@ -599,7 +599,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
         expect(turns.queued).toHaveLength(0);
     });
 
-    it('L2b. alvo com spatial {x: Infinity, y: 0} → {acted:false, reason:\"idle\"}', () => {
+    it('L2b. alvo com spatial {x: Infinity, y: 0} → {acted:false, reason:"idle"}', () => {
         const targetWithInf = { ...TARGET_ENTITY, spatial: { x: Infinity, y: 0 } };
         const entities = { [NPC_ID]: NPC_ENTITY, [TARGET_ID]: targetWithInf };
         const facade = makeFacade({
@@ -614,7 +614,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
         expect(turns.queued).toHaveLength(0);
     });
 
-    it('L3c. alvo em alcance sem components[0] → {acted:false, reason:\"idle\"}', () => {
+    it('L3c. alvo em alcance sem components[0] → {acted:false, reason:"idle"}', () => {
         const targetNoCore = { ...TARGET_ENTITY, components: [] };
         const entities = { [NPC_ID]: NPC_ENTITY, [TARGET_ID]: targetNoCore };
         const facade = makeFacade({
@@ -629,12 +629,12 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
     });
 
     // M3: hasDeterministicBrain static predicate tests
-    it('M3. hasDeterministicBrain → true para {npcConfig:{ai:{behavior:\"chase_attack\"}}}', () => {
+    it('M3. hasDeterministicBrain → true para {npcConfig:{ai:{behavior:"chase_attack"}}}', () => {
         const entity = { npcConfig: { ai: { behavior: 'chase_attack' } } };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(true);
     });
 
-    it('M3. hasDeterministicBrain → false para behavior:\"\"', () => {
+    it('M3. hasDeterministicBrain → false para behavior:""', () => {
         const entity = { npcConfig: { ai: { behavior: '' } } };
         expect(NpcAIController.hasDeterministicBrain(entity)).toBe(false);
     });

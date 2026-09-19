@@ -108,7 +108,6 @@ function entrySpawnableInCurrentEnv(entry) {
 // =========================================================================
 
 let wsc;
-let entityIds;
 let firstEntityId;
 
 beforeAll(() => {
@@ -146,8 +145,6 @@ beforeAll(() => {
     const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
     const testEntityId = wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-    const state = wsc.getAll();
-    entityIds = Object.keys(state.entities);
     firstEntityId = testEntityId;
 });
 

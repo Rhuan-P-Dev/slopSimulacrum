@@ -280,7 +280,7 @@ class ComponentResolver {
      * @param {Object} component - The component object.
      * @returns {string|null}
      */
-    _resolveComponentRole(action, component) {
+    _resolveComponentRole() {
         // This is handled by ComponentCapabilityController
         return null;
     }

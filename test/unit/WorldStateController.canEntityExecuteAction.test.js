@@ -25,7 +25,6 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
 let tickSystem;
 let wsController;
-let subControllers;
 let npcEntityId;
 
 beforeAll(() => {
@@ -33,8 +32,7 @@ beforeAll(() => {
     tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const result = buildWorldState(tickSystem);
     wsController = result.worldStateController;
-    subControllers = result.subControllers;
-
+    
     // Find an NPC entity that was spawned during initializeWorld().
     const state = wsController.getAll();
     const entities = state.entities || {};

@@ -215,7 +215,7 @@ class WorldStateController {
         // Register spawn observer — applies the declarative initial spawns from
         // data/world.json to every spawned entity (data-driven replacement of the
         // former hardcoded spawn items).
-        this.stateEntityController.registerSpawnObserver((entityId, entityData) => {
+        this.stateEntityController.registerSpawnObserver((entityId) => {
             this._applyInitialSpawns(entityId);
         });
 
@@ -230,7 +230,7 @@ class WorldStateController {
             // §3.2: delegate to TriggerController for crossing detection
             if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
                 // Find which entity owns this component via public API
-                let owningEntity = null;
+                let owningEntity;
                 owningEntity = this.stateEntityController.findEntityByComponent(componentId);
                 // Spec §6 (Edge cases): when owning entity is despawned, the component:broke
                 // event must STILL be logged; only removal/spill/drop side-effects are skipped.
@@ -2367,7 +2367,7 @@ class WorldStateController {
         const entityItems = allEquipped[entityId];
         if (!entityItems || typeof entityItems !== 'object') return null;
 
-        for (const [eqId, item] of Object.entries(entityItems)) {
+        for (const [_eqId, item] of Object.entries(entityItems)) {
             if (item.itemId === itemId) {
                 return { ...item };
             }
@@ -2390,7 +2390,7 @@ class WorldStateController {
         const entityItems = allEquipped[entityId];
         if (!entityItems || typeof entityItems !== 'object') return null;
 
-        for (const [eqId, item] of Object.entries(entityItems)) {
+        for (const [_eqId, item] of Object.entries(entityItems)) {
             if (item.componentId === componentId) {
                 return { ...item };
             }
@@ -2835,7 +2835,7 @@ class WorldStateController {
         const droppedItems = this.getDroppedItems();
         const nearby = [];
 
-        for (const [id, item] of Object.entries(droppedItems)) {
+        for (const [_id, item] of Object.entries(droppedItems)) {
             const dx = item.x - x;
             const dy = item.y - y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -2859,7 +2859,7 @@ class WorldStateController {
      * @param {Object} payload - Payload of the component:broke event (§3.3).
      */
     removeBrokenComponent(payload) {
-        const { entityId, componentId, kind, position, roomId } = payload;
+        const { entityId, componentId, kind } = payload;
 
         // Increment re-entrancy counter (§3.5.3)
         this._cascadeReentrancyCount++;

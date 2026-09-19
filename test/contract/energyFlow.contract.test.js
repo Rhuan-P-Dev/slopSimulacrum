@@ -45,7 +45,6 @@ import { fileURLToPath } from 'url';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
-import Logger from '../../src/utils/Logger.js';
 import WorldStateController from '../../src/controllers/WorldStateController.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -199,7 +198,7 @@ describe('energy flow — (b) no circulation when the rule is off', () => {
 
 describe('energy flow — (c) zero-energy spawn', () => {
     it('a freshly spawned M1 (no organ grant anymore — no energy stat at all): zero stat writes', () => {
-        const { world, entityId, entity } = buildWorld();
+        const { world, entity } = buildWorld();
         // Nothing seeds energy now: the body itself carries no stat (the old
         // seed-at-0 grant is gone) — and the same is true of every other
         // component. The flow's zero-total skip applies with room to spare.

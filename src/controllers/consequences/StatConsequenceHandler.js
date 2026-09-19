@@ -13,7 +13,6 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import IdResolver from '../../utils/IdResolver.js';
 
 class StatConsequenceHandler {
     /**
@@ -110,7 +109,7 @@ class StatConsequenceHandler {
      * @param {Object} context - Context containing action parameters (unused, kept for signature normalization).
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateStat(entityId, updateParams, context) {
+    _handleUpdateStat(entityId, updateParams) {
         const { trait, stat, value } = updateParams;
         const entity = this.worldStateController.stateEntityController.getEntity(entityId);
         if (!entity) return { success: false, message: `Entity "${entityId}" not found`, data: null };

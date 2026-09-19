@@ -252,7 +252,7 @@ class SynergyController {
 
         // Second pass: filter by roleFilter and same type
         const validComponents = providedComponentIds
-            .filter(({ componentId, role }) => {
+            .filter(({ componentId }) => {
                 if (lockedComponentIds.has(componentId)) return false;
 
                 // Resolve equipment IDs to component IDs for lookup

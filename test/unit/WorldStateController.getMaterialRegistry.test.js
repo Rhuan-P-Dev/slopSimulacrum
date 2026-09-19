@@ -121,7 +121,6 @@ describe('WorldStateController.getMaterialRegistry', () => {
 
     it('returns empty materials/compositions when materialController is absent', () => {
         // Build world without materialController by passing undefined
-        const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 
         // We need to test the case where materialController is null.
         // Looking at WorldComposition.js, materialController is always passed.

@@ -304,7 +304,6 @@ class ComponentCapabilityController {
             // New entry — create with equipped item metadata
             const allEquipped = this.worldStateController.getAllEquippedItems() || [];
             const equipped = allEquipped.find(eq => eq.componentId === componentId);
-            const itemRegistry = this.worldStateController.getItemRegistry() || {};
             const itemType = equipped?.itemType || 'unknown';
 
             newEntry = {
@@ -506,7 +505,7 @@ class ComponentCapabilityController {
      */
     getCapabilitiesForEntity(entityId) {
         const result = [];
-        for (const [actionName, entries] of Object.entries(this._capabilityCache)) {
+        for (const [_actionName, entries] of Object.entries(this._capabilityCache)) {
             for (const entry of entries) {
                 if (entry.entityId === entityId) {
                     result.push(entry);
@@ -1274,8 +1273,7 @@ class ComponentCapabilityController {
             return BINDING_ROLES.SOURCE;
         }
 
-        const componentType = component?.type;
-        const componentStats = this.worldStateController?.componentController?.getComponentStats(component?.id);
+                const componentStats = this.worldStateController?.componentController?.getComponentStats(component?.id);
 
         // Check source role: matches sourceRole components
         if (binding.sourceRole && binding.roles?.includes(BINDING_ROLES.SOURCE)) {
@@ -1318,7 +1316,7 @@ class ComponentCapabilityController {
      * @param {string} role - The role to check against.
      * @returns {boolean}
      */
-    _componentMatchesRoleTraits(componentStats, actionData, role) {
+    _componentMatchesRoleTraits(componentStats, actionData) {
         if (!componentStats || !actionData?.requirements) return false;
 
         // A component matches a role if it possesses the traits required by the action

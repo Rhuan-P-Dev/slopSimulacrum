@@ -8,7 +8,6 @@
  * @module RequirementChecker
  */
 
-import Logger from './Logger.js';
 
 /**
  * Error codes for requirement checking failures.

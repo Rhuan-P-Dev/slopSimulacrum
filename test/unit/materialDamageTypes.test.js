@@ -94,7 +94,6 @@ function makeMockWorld() {
     };
 }
 
-const approx = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 const droidHandMaterials = () => components.droidHand.materials;
 const knifeMaterials = () => inventoryItems.knife.materials;
 const t1Materials = () => inventoryItems.t1.materials;
@@ -289,8 +288,7 @@ describe('DamageConsequenceHandler._computeSplitLoss()', () => {
 
 describe('DamageConsequenceHandler._resolveAttackerMaterials()', () => {
     const handler = makeHandler();
-    const world = makeMockWorld();
-
+    
     it('comp- ID via fulfillingComponents → the component TYPE recipe materials (droidHand)', () => {
         const result = handler._resolveAttackerMaterials({
             fulfillingComponents: { 'Physical.strength': 'comp-hand-1' }

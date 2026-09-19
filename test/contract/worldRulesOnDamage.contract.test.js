@@ -153,7 +153,7 @@ function stepTo(world, tick, turns, targetTick) {
  * Closes the current round (all planners signal) so the NEXT stepTo() opens a
  * fresh round — and therefore fires the turn-start hook again.
  */
-function closeRound(turns, world, entityId) {
+function closeRound(turns) {
     const state = turns.getRoundState();
     for (const pendingId of state.barrier.pendingEntityIds) {
         turns.signalPlanComplete(pendingId, 'player');

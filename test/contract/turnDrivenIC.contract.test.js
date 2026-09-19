@@ -62,7 +62,7 @@ function stepTo(world, tick, turns, targetTick) {
  * Closes the current round (all planners signal) so the NEXT stepTo() opens a
  * fresh round — and therefore fires the turn-start hook again.
  */
-function closeRound(turns, world, entityId) {
+function closeRound(turns) {
     const state = turns.getRoundState();
     for (const pendingId of state.barrier.pendingEntityIds) {
         turns.signalPlanComplete(pendingId, 'player');
@@ -172,7 +172,7 @@ describe('internal components — organ grants + unified overTime (strengthCore)
     });
 
     it('the overTime channel is wired: repairSphere restores host existence, corrosiveGland grants the corrosive flag', () => {
-        const { world, tick, turns, entityId } = buildWorld();
+        const { world, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         expect(handId, 'test droid must have a left droidHand').toBeTruthy();
         const ic = world.internalComponentController;
@@ -194,7 +194,6 @@ describe('internal components — organ grants + unified overTime (strengthCore)
         const { world, tick, turns, entityId } = buildWorld();
         const handId = leftHandId(world, entityId);
         expect(handId, 'test droid must have a left droidHand').toBeTruthy();
-        const ic = world.internalComponentController;
         world.addInternalComponent(entityId, handId, 'repairSphere');
 
         // Bring the host below whole so the restore has something to repair.
@@ -232,7 +231,7 @@ describe('internal components — organ grants + unified overTime (strengthCore)
     });
 
     it('hostComponentType auto-install targets a droidHand (left hand receives the organ)', () => {
-        const { world, tick, turns, entityId } = buildWorld();
+        const { world } = buildWorld();
         const ic = world.internalComponentController;
 
         // Flip the strengthCore registry entry to auto-install on spawn.
@@ -259,7 +258,7 @@ describe('internal components — organ grants + unified overTime (strengthCore)
     });
 
     it('processTurnEffects is a safe no-op with zero installed instances (wiring safety)', () => {
-        const { world, tick, turns, entityId } = buildWorld();
+        const { world, tick, turns } = buildWorld();
         const ic = world.internalComponentController;
         expect(() => ic.processTurnEffects()).not.toThrow();
         // And a full round with no ICs installed still runs cleanly.

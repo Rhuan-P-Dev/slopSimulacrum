@@ -86,7 +86,7 @@ class InventoryManager {
         for (const entityId of Object.keys(this._inventory)) {
             const entityInv = this._inventory[entityId];
             if (!entityInv) continue;
-            for (const [itemId, item] of Object.entries(entityInv)) {
+            for (const [, item] of Object.entries(entityInv)) {
                 if (!item.type) continue;
                 const itemDef = this._itemDefinitions[item.type];
                 if (!itemDef || !Array.isArray(itemDef.materials) || itemDef.materials.length === 0) continue;
@@ -157,8 +157,7 @@ class InventoryManager {
      * @returns {{ success: boolean, message?: string, item?: Object }}
      */
     addItem(entity, itemType, hostComponentId, options = {}) {
-        const { componentController } = options;
-        // Explicit definition override (feature 2, D8 site 2): a dynamically-generated
+                // Explicit definition override (feature 2, D8 site 2): a dynamically-generated
         // chunk type has no registry entry, so callers pass the synthesized definition
         // (self-describing name/volume + a 100% single-material composition). When absent,
         // this resolves to the normal registry lookup (behavior unchanged).
@@ -266,7 +265,7 @@ class InventoryManager {
      * @param {Object} [options] - Optional parameters.
      * @returns {{ success: boolean, message?: string }}
      */
-    moveItem(entity, itemId, targetComponentId, options = {}) {
+    moveItem(entity, itemId, targetComponentId) {
         if (!entity.items || !Array.isArray(entity.items)) {
             return { success: false, message: 'Entity has no items.' };
         }
@@ -327,7 +326,6 @@ class InventoryManager {
      * @returns {Array} Array of { componentId, componentName, componentMaxVolume, items[] } objects.
      */
     getEntityItems(entity) {
-        const entityId = entity.id;
         const items = entity.items || [];
 
         // Group by component
@@ -679,7 +677,6 @@ class InventoryManager {
      * @returns {{ success: boolean, message?: string }}
      */
     removeItemFromContainer(entity, containerItemId, itemId) {
-        const entityId = entity.id;
 
         const containerItem = this._findItem(entity, containerItemId);
         if (!containerItem) {
@@ -710,7 +707,6 @@ class InventoryManager {
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemIntoContainer(entity, containerItemId, itemId) {
-        const entityId = entity.id;
 
         const containerItem = this._findItem(entity, containerItemId);
         if (!containerItem) {
@@ -751,7 +747,6 @@ class InventoryManager {
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemOutOfContainer(entity, containerItemId, itemId, targetComponentId) {
-        const entityId = entity.id;
 
         const containerItem = this._findItem(entity, containerItemId);
         if (!containerItem) {

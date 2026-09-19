@@ -491,7 +491,7 @@ class KnowledgeController {
      */
     _buildRecipes() {
         const rows = [];
-        for (const [key, recipe] of Object.entries(this._recipes)) {
+        for (const [_key, recipe] of Object.entries(this._recipes)) {
             rows.push({
                 id: recipe.id,
                 name: recipe.name,

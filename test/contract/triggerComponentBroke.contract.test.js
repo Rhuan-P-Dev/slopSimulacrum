@@ -75,17 +75,6 @@ function buildWorld(mockBroadcastFn = null) {
     return { world: world, tick, subControllers: result.subControllers };
 }
 
-/**
- * Helper to equip an item through the proper pipeline.
- * This ensures both holdingCostController and equippedItemStats are properly initialized.
- */
-function equipItemThroughPipeline(world, entityId, componentId, itemType) {
-    // Use the world's equipItem method which handles all initialization
-    const itemId = 'item-' + itemType + '-' + Math.random().toString(36).substr(2, 9);
-    world.equipItem(entityId, itemId, itemType, componentId);
-    return itemId;
-}
-
 function spawnDroid(world) {
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
@@ -148,7 +137,7 @@ function countBrokeEvents(world) {
 describe('Trigger system — crossing semantics (tests 1–3)', () => {
     it('Test 1: old=10, delta −15 → exactly 1 component:broke event + event log entry', () => {
         const { world } = buildWorld();
-        const { entityId, entity } = spawnDroid(world);
+        const { entity } = spawnDroid(world);
         const comp = entity.components.find(c => c.type === 'centralBall');
 
         world.componentController.updateComponentStat(comp.id, 'Physical', 'existence', 10);
@@ -449,7 +438,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
 
     it('Test 19: Dependente faltando → skip seguro', () => {
         const { world } = buildWorld();
-        const { entityId, entity } = spawnDroid(world);
+        const { entity } = spawnDroid(world);
 
         const compParent = entity.components[0];
         const compChild = entity.components[1];

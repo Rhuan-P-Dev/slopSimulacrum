@@ -12,7 +12,6 @@
  * @module SpatialConsequenceHandler
  */
 
-import Logger from '../../utils/Logger.js';
 import { MIN_MOVEMENT_DISTANCE } from '../../utils/Constants.js';
 
 class SpatialConsequenceHandler {
@@ -33,7 +32,7 @@ class SpatialConsequenceHandler {
      * @param {Object} context - Context containing action parameters (unused, kept for signature normalization).
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleUpdateSpatial(targetId, spatialUpdate, context) {
+    _handleUpdateSpatial(targetId, spatialUpdate) {
         const success = this.worldStateController.stateEntityController.updateEntitySpatial(targetId, spatialUpdate);
         if (success) {
             const updatedEntity = this.worldStateController.stateEntityController.getEntity(targetId);

@@ -283,7 +283,7 @@ class InstinctController {
      * @param {string} entityId
      * @returns {Array<Object>}
      */
-    _resolveCollisions(instincts, entityId) {
+    _resolveCollisions(instincts) {
         const seen = new Set();
         const registryNames = new Set(Object.keys(this._actionRegistry));
         const result = [];

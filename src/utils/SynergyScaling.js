@@ -14,7 +14,6 @@
  * Base multiplier applied regardless of unit count.
  * @type {number}
  */
-const BASE_MULTIPLIER = 1.0;
 
 /**
  * Decay rate for diminishing returns curve.

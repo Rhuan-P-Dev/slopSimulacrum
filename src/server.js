@@ -121,7 +121,7 @@ function gracefulShutdown(signal) {
             Logger.info(`[Server] Force disconnecting ${socketCount} connected client(s)...`);
             // Iterate over connected sockets and call disconnect(true) on each.
             // Socket.IO 4.x stores connected sockets in the 'sockets' Map.
-            for (const [socketId, socket] of io.sockets.sockets) {
+            for (const [, socket] of io.sockets.sockets) {
                 socket.disconnect(true); // true = force immediate disconnect, no close packet
             }
         }

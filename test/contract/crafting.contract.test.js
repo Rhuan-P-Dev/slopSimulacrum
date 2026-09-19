@@ -423,7 +423,7 @@ describe('crafting contract — data-driven registry & no-turn decision', () => 
 
     it("queueAction('knife_to_t1') → ACTION_NOT_FOUND (crafting does not consume a turn)", () => {
         const world = buildWorld();
-        const { worldStateController: wsc, subControllers, tickSystem } = world;
+        const { subControllers, tickSystem } = world;
         const { entityId } = spawnDroid(world);
         const turns = subControllers.turnSystemController;
 

@@ -173,7 +173,7 @@ class EnergyFlowController {
      * @param {number} round - The round number this step serves (log consistency).
      * @returns {void}
      */
-    processFlowTurn(round) {
+    processFlowTurn() {
         // Rule resolved once at boot: inactive → the step returns
         // immediately (no enumeration, no writes, no per-turn log).
         if (!this._rule) return;

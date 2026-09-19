@@ -593,7 +593,7 @@ describe('NpcAIController.craft_loop — multi-round convergence simulation', ()
             canEntityExecuteAction: () => true
         };
 
-        const queueAction = (entityId, actionName, params, source) => {
+        const queueAction = (entityId, actionName, params) => {
             apply(actionName, params);
             return { success: true };
         };

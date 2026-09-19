@@ -452,10 +452,10 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
         // Controllable agent: fires at round start (round 0) and stays
         // pending — the in-flight plan is what restore must survive.
         const agentCalls1 = [];
-        let resolveAgent1 = null;
+        let _resolveAgent1;
         turns.setNpcAgent((npcEntityId, round) => {
             agentCalls1.push({ npcEntityId, round });
-            return new Promise(resolve => { resolveAgent1 = resolve; });
+            return new Promise(resolve => { _resolveAgent1 = resolve; });
         });
         stepTo(world, tick, turns, 50);
         expect(agentCalls1).toEqual([{ npcEntityId: npcId, round: 0 }]);
@@ -901,7 +901,6 @@ describe('Two-phase barrier turns (spec v2 — event-driven rounds)', () => {
 
     it('23. restore with an empty agent slot — un-signaled roster NPC auto-signaled vacuously, no re-fire (L1)', () => {
         const { world, tick, turns, entityId } = buildWorld();
-        const npcId = aNpcEntityId(world);
         // Never-settling agent: at snapshot time the NPC is mid-plan (no
         // signal yet) with its promise in flight.
         turns.setNpcAgent(() => new Promise(() => {}));

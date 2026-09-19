@@ -1,7 +1,5 @@
 import Logger from '../../utils/Logger.js';
 import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
-import { componentSatisfiesRequirements } from '../../utils/RequirementChecker.js';
-import { SYNERGY_BONUS_THRESHOLD } from '../../utils/Constants.js';
 import RangeValidator from './RangeValidator.js';
 import ComponentResolver from './ComponentResolver.js';
 import RequirementResolver from './RequirementResolver.js';
@@ -487,7 +485,7 @@ class ActionController {
                 ...consequenceResult
             };
         } catch (error) {
-            const errorMsg = error?.message ?? String(error) ?? 'Unknown error';
+            const errorMsg = error?.message ?? String(error);
             return {
                 success: false,
                 error: this._resolveError({ code: 'SYSTEM_RUNTIME_ERROR', details: { error: errorMsg } })
@@ -601,7 +599,7 @@ class ActionController {
      * @param {string} entityId - The entity ID (for error context).
      * @returns {Object} Object mapping consequence types to their resolved values.
      */
-    resolveActionValues(actionName, componentId, entityId) {
+    resolveActionValues(actionName, componentId) {
         const action = this.actionRegistry[actionName];
         if (!action || !action.consequences) return {};
 
@@ -658,7 +656,7 @@ class ActionController {
         }
 
         // Resolve the equipped item record from the component/equipped-item ID
-        let current = null;
+        let current;
         if (IdResolver.isEquippedId(componentId)) {
             current = this.worldStateController.getEquippedItem(entityId, componentId);
         } else {

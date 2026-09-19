@@ -13,7 +13,7 @@
  * @module test/contract/equippedItemDurabilityNoTriggerController.contract
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import WorldStateController from '../../src/controllers/WorldStateController.js';
 import ComponentStatsController from '../../src/controllers/core/componentStatsController.js';
 import TraitsController from '../../src/controllers/traits/TraitsController.js';
@@ -155,9 +155,6 @@ describe('Equipped-item existence without triggerController (regression)', () =>
     it('should NOT throw when existence (0–1) crosses zero without triggerController', () => {
         const deps = buildMinimalDeps();
         const { equippedItemStats, holdingCostController } = deps;
-
-        // Construct the facade WITHOUT triggerController
-        const controller = new WorldStateController(deps);
 
         const eqId = 'eq-test-2';
         const entityId = 'entity-test-2';

@@ -1,4 +1,3 @@
-import EntityController from './entityController.js';
 import { generateEntityId } from '../../utils/idGenerator.js';
 import Logger from '../../utils/Logger.js';
 

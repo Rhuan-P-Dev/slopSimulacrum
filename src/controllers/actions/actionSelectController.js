@@ -569,7 +569,7 @@ class ActionSelectController {
 
         // Check if any component is already locked to a DIFFERENT action
         const conflicts = [];
-        for (const { componentId, role } of resolvedComponents) {
+        for (const { componentId } of resolvedComponents) {
             const existing = this._selectionRegistry.get(componentId);
             if (existing && existing.actionName !== actionName) {
                 conflicts.push({ componentId, lockedAction: existing.actionName, lockedEntity: existing.entityId });

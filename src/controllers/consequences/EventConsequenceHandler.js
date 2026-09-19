@@ -23,7 +23,7 @@ class EventConsequenceHandler {
      * @param {Object} context - Context containing action parameters.
      * @returns {Object} { success: boolean, message: string, data: any }
      */
-    _handleTriggerEvent(targetId, eventParams, context) {
+    _handleTriggerEvent(targetId, eventParams) {
         const { eventType, data } = eventParams;
         Logger.info(`Event triggered: ${eventType} for target ${targetId}`, data || {});
         return { success: true, message: `Event "${eventType}" triggered`, data: { eventType, targetId } };

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import MaterialController from '../../src/controllers/materials/MaterialController.js';
 import TraitsController from '../../src/controllers/traits/TraitsController.js';
 import { TRAIT_STAT_KEY_PATTERN } from '../../shared/StatVocabulary.js';
@@ -7,8 +7,8 @@ let capturedInfo = [];
 vi.mock('../../src/utils/Logger.js', () => ({
     default: {
         info: (msg) => { capturedInfo.push(msg); },
-        warn: (msg) => {},
-        error: (msg) => {}
+        warn: () => {},
+        error: () => {}
     }
 }));
 

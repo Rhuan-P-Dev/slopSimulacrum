@@ -37,11 +37,7 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 
 
 const RESISTANCE_SCALE = 100; // mirrors the per-channel formula's base absorption
 
-const materials = readJson('data/materials.json');
-const propertyTraitMapping = readJson('data/propertyTraitMapping.json');
-const damageTypes = readJson('data/materialDamageTypes.json');
 const dropRates = readJson('data/materialDropRates.json');
-const components = readJson('data/components.json');
 const inventoryItems = readJson('data/inventoryItems.json');
 
 /** A fresh, not-started world (the drop feature's drop-rates registry is on by default). */

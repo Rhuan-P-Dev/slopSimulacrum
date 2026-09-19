@@ -24,7 +24,7 @@
  * @module test/unit/LLMAgentController
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
 
 // =========================================================================
@@ -251,8 +251,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         // Use varied text to avoid triggering the degeneration check.
         const longText = 'The quick brown fox jumps over the lazy dog. '.repeat(5).trim();
         // Ensure it's over 200 chars and not degenerate.
-        const text = longText.length > 200 ? longText : longText + 'x'.repeat(50);
-        const { agent } = makeAgent({
+                const { agent } = makeAgent({
             roomChat,
             chatFullImpl: () => ({
                 content: longText,
@@ -915,7 +914,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
             turns,
             instincts,
             instinctController,
-            chatFullImpl: (messages) => {
+            chatFullImpl: () => {
                 callCount += 1;
                 if (callCount === 1) {
                     return {

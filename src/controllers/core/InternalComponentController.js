@@ -374,7 +374,7 @@ class InternalComponentController {
                 }
 
                 // Check volume capacity
-                let hostVolume = 0;
+                let hostVolume;
                 if (componentVolumeProvider) {
                     hostVolume = componentVolumeProvider(component.type);
                 } else {

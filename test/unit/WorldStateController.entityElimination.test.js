@@ -76,8 +76,7 @@ describe('Entity-level elimination — cascade despawn', () => {
         const before = world.stateEntityController.getEntity(entityId);
         expect(before).not.toBeNull();
         expect(before.components.length).toBeGreaterThan(0);
-        const initialComponentCount = before.components.length;
-
+        
         // Break the root component — cascade should remove all dependents
         breakAllComponents(world, entityId);
 

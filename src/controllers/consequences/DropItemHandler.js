@@ -84,7 +84,7 @@ function writeDroppedItem(worldStateController, itemType, x, y, roomId, ownerId,
  * @param {Object} context.entityId - The entity executing the action
  * @returns {{ success: boolean, message?: string }}
  */
-function handleDropItem(deps, params, context) {
+function handleDropItem(deps, params) {
     const { worldStateController } = deps;
 
     if (!worldStateController) {

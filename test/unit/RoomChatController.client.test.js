@@ -106,7 +106,7 @@ function makeController({ getState } = {}) {
 let fetchCalls;
 let fetchResponses;
 
-function stubFetch(handler) {
+function stubFetch(_handler) {
     fetchCalls = [];
     fetchResponses = [];
     globalThis.fetch = vi.fn(async (url, options) => {

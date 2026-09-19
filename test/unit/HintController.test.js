@@ -157,7 +157,7 @@ describe('ReachabilityRule — Spec §7 Test Matrix', () => {
 
     // --- Test 1: In-range target → hints: [] ---
     it('Test 1: In-range target should return no hints', () => {
-        const { facade, items } = makeContext({
+        const { facade } = makeContext({
             playerX: 0,
             playerY: 0,
             maxMove: 10,
@@ -203,8 +203,7 @@ describe('ReachabilityRule — Spec §7 Test Matrix', () => {
 
         // Suggested position should be on the line between player and target.
         // Check that the direction is preserved: sx/tx ≈ sy/ty.
-        const ratio = distToSuggested / distPlayerToTarget;
-        const expectedSx = px + ((tx - px) / distPlayerToTarget) * distToSuggested;
+                const expectedSx = px + ((tx - px) / distPlayerToTarget) * distToSuggested;
         const expectedSy = py + ((ty - py) / distPlayerToTarget) * distToSuggested;
         expect(sx).toBeCloseTo(expectedSx, 1);
         expect(sy).toBeCloseTo(expectedSy, 1);

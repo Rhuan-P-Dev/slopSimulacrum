@@ -221,8 +221,7 @@ class LlmContextController {
             .slice(0, 2);
 
         // Key stats aggregated across components.
-        const stats = {};
-        const sum = (trait, stat) => components.reduce((acc, comp) => {
+                const sum = (trait, stat) => components.reduce((acc, comp) => {
             const v = facade.getComponentStats(comp.id)?.[trait]?.[stat];
             return acc + (typeof v === 'number' ? v : 0);
         }, 0);

@@ -147,7 +147,7 @@ describe('NPC AI validation — REAL production code path (MEDIUM #3)', () => {
     afterEach(() => {
         warnSpy.mockRestore();
         if (tickSystem) {
-            try { tickSystem.stop(); } catch (_) {}
+            try { tickSystem.stop(); } catch (_) { /* ignore */ }
         }
         resetFixture();
     });

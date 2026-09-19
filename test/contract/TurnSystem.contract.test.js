@@ -205,7 +205,6 @@ describe('TurnSystemController (Feature A)', () => {
         const startRoomId = world.roomsController.getUidByLogicalId('start_room');
         const targetEntityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-        const entity = world.stateEntityController.getEntity(entityId);
         const head = aHeadComponentId(world, entityId);
 
         // Push the target droid far away so the punch (range 100) is out of range.
@@ -346,7 +345,7 @@ describe('TurnSystemController (Feature A)', () => {
         expect(snapshot.state.turns.barrier.roster).toEqual(expect.arrayContaining([entityId, npcId]));
 
         // Restore onto a FRESH instance.
-        const { world: world2, tick: tick2, turns: turns2 } = buildWorld();
+        const { world: world2, turns: turns2 } = buildWorld();
         const restored = world2.restore(snapshot);
         expect(restored.success).toBe(true);
 

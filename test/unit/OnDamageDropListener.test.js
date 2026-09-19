@@ -75,7 +75,7 @@ function makeListener({
     const stubMat = {
         getMinChunkVolume: () => minChunkVolume,
         getDropRate: (m) => (m === 'iron' || m === 'wood' ? { ...dropRate } : null),
-        getPrimaryMaterial: (mats) => (primaryMaterial ? { ...primaryMaterial } : null)
+        getPrimaryMaterial: () => (primaryMaterial ? { ...primaryMaterial } : null)
     };
     const listener = new OnDamageDropListener({
         materialController: materialController === undefined ? stubMat : materialController,

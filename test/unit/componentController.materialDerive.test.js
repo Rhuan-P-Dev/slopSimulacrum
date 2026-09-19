@@ -13,7 +13,7 @@ vi.mock('../../src/utils/Logger.js', () => ({
     default: {
         warn: (msg) => { mockLoggerState.warnCalls.push(msg); },
         info: (msg) => { mockLoggerState.infoCalls.push(msg); },
-        error: (msg) => {}
+        error: () => {}
     }
 }));
 
@@ -31,31 +31,6 @@ const componentRegistry = {
         traits: {
             Physical: { existence: 50, mass: 5 }
         }
-    }
-};
-
-// Materials registry
-const materialsRegistry = {
-    iron: {
-        name: 'Iron',
-        density: 7.8,
-        properties: {
-            flammability: 5,
-            electricalConduction: 90,
-            moistureRetention: 0,
-            cutResistance: 85,
-            impactResistance: 45,
-            wearResistance: 80,
-            heatConduction: 85
-        }
-    }
-};
-
-// Mapping registry
-const mappingRegistry = {
-    'Physical.mass': { formula: 'densityVolume' },
-    'Physical.existence': {
-        sources: { wearResistance: 0.5, impactResistance: 0.3, cutResistance: 0.2 }
     }
 };
 
@@ -131,7 +106,7 @@ describe('ComponentController material derivation fail-safe', () => {
         it('derives normally when materialController.derive succeeds', () => {
             // Create a working materialController stub
             const workingMaterialController = {
-                derive: (blueprint) => {
+                derive: () => {
                     return {
                         Physical: { mass: 7.8, flammability: 5 }
                     };

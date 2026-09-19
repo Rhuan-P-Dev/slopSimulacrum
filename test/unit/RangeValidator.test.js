@@ -70,7 +70,7 @@ function createMockRequirementResolver(worldStateController) {
 
 function createMockActionController() {
     // Normalized handler signature, matching the real handlers map.
-    const noopHandler = (targetId, params, context) => ({ success: true });
+    const noopHandler = () => ({ success: true });
 
     const consequenceHandlers = {
         get handlers() {

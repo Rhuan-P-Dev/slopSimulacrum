@@ -15,28 +15,6 @@ function validateEntityId(id, context) {
 }
 
 /**
- * Validates that an ID is a typed component ID (comp-uuid).
- * Returns { valid: true } or { valid: false, error: string }.
- */
-function validateCompId(id, context) {
-    if (!IdResolver.isCompId(id)) {
-        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
-    }
-    return { valid: true };
-}
-
-/**
- * Validates that an ID is a typed item ID (item-uuid).
- * Returns { valid: true } or { valid: false, error: string }.
- */
-function validateItemId(id, context) {
-    if (!IdResolver.isItemId(id)) {
-        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
-    }
-    return { valid: true };
-}
-
-/**
  * Registers component selection routes with the given Express router.
  * @param {import('express').Router} router - Express router instance
  * @param {Object} deps - Dependencies

@@ -29,7 +29,7 @@ import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
  * @param {Object} context.entityId - The entity executing the action
  * @returns {{ success: boolean, message?: string, pickedUpItem?: Object }}
  */
-function handlePickUpItem(deps, params, context) {
+function handlePickUpItem(deps, params) {
     const { worldStateController } = deps;
 
     if (!worldStateController) {
@@ -192,8 +192,7 @@ function handlePickUpItem(deps, params, context) {
     let nestedItemsFailed = 0;
 
     if (droppedNestedItems.length > 0) {
-        const entityForNested = worldStateController.getEntity(entityId);
-
+        
         for (const nestedItem of droppedNestedItems) {
             const nestedResult = worldStateController.addItemToContainer(
                 entityId,

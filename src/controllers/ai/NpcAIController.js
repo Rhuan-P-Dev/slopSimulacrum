@@ -595,7 +595,7 @@ class NpcAIController {
      * @returns {{ actionName: string, params: Object }|null}
      * @private
      */
-    _craftLoopCraftStage({ entity, round, facade, targetItemType, heldItems, heldTarget }) {
+    _craftLoopCraftStage({ entity, round, facade, heldItems, heldTarget }) {
         const outputIdsBefore = new Set(
             heldItems
                 .filter(item => item && item.type === CRAFT_OUTPUT_TYPE)
