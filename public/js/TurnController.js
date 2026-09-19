@@ -2,7 +2,10 @@
  * TurnController
  * Client-side controller for the turn system (Feature A, spec §5).
  * Owns: the HUD in the config-bar center slot, the active targeting mode
- * (🕒 Turn | ⚡ Immediate), and queue list/cancel for the active entity.
+ * (🕒 Turn | ⚡ Immediate), queue list/cancel for the active entity, and the
+ * Space (␣) lock-in: pressing the Space key on the keyboard signals plan-complete,
+ * identical to the ✅ Lock in button (same injected onReady callback, same
+ * server-derived rules).
  *
  * Data flow (single source of truth — the server):
  *   - state.turns arrives inside every `world-state-update` (full state) and
@@ -33,7 +36,9 @@ export class TurnController {
      * @param {Function} [deps.getMyEntityId] - Returns the client's own entity ID (from WorldStateManager).
      * @param {Function} [deps.onModeChange] - Called with the new mode ('turn'|'immediate') when the toggle flips.
      * @param {Function} [deps.onCancelQueued] - Called with (entityId, queueId) when a queue entry is cancelled.
-     * @param {Function} [deps.onReady] - Called with (entityId) when the player signals plan-complete.
+     * @param {Function} [deps.onReady] - Called with (entityId) when the player
+     *   signals plan-complete. Used by the ✅ Lock in button and the Space (␣)
+     *   keyboard shortcut — both fire the same request.
      */
     constructor({ worldState, getMyEntityId = null, onModeChange = null, onCancelQueued = null, onReady = null } = {}) {
         /** @private */
@@ -66,6 +71,7 @@ export class TurnController {
         this._root.innerHTML = this._buildHtml();
         this._bindModeToggle();
         this._bindReadyButton();
+        this._bindSpaceKey();
     }
 
     /**
@@ -138,7 +144,10 @@ export class TurnController {
                 <span class="turn-hud-barrier" id="turn-hud-barrier"></span>
                 <div class="turn-hud-queue" id="turn-hud-queue"></div>
                 <div class="turn-hud-ready">
-                    <!-- Default hidden: only _renderBarrier() opts it in, while planning is open. -->
+                    <!-- Default hidden: only _renderBarrier() opts it in, while
+                         planning is open (and only for the player's own entity).
+                         Space on the keyboard does the same action — see
+                         _bindSpaceKey(). -->
                     <button class="turn-ready-btn" id="turn-ready-btn" style="display: none;"></button>
                 </div>
                 <div class="turn-hud-mode">
@@ -162,6 +171,60 @@ export class TurnController {
             ClientLogger.info('TurnController', `Signaling plan-complete for ${myEntityId}`);
             this._onReady(myEntityId);
         });
+    }
+
+    /**
+     * Wires the Space (␣) keyboard shortcut — the same lock-in the ✅ button
+     * does. Fires ONLY when the server state would show the lock-in button
+     * (planning open AND the player is still the pending planner): the guard
+     * re-derives from the latest full state on every press, so it agrees with
+     * the HUD on every render cycle (no local flag). While typing (input/
+     * textarea/select/content-editable) or on a focusable widget (button,
+     * select, tabindex, role=button — e.g. crafting cards, stat selects), the
+     * key does nothing, so Space in chat, a card or a dropdown never commits a
+     * plan. ClientLogger ONLY, same as everywhere else.
+     * @private
+     */
+    _bindSpaceKey() {
+        document.addEventListener('keydown', (event) => {
+            // Anything that isn't a bare Space gesture is page scrolling or a
+            // widget shortcut (card select, form focus) — let it happen.
+            if (event.code !== 'Space') return;
+            if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+            const target = event.target;
+            if (target instanceof HTMLElement && (target.isContentEditable ||
+                    target.closest('input, textarea, select, button, [tabindex], [role="button"]'))) {
+                return;
+            }
+            if (!this._canLockInNow()) return;
+            if (!this._onReady) return; // parity with the ✅ button handler (onReady is optional)
+            event.preventDefault(); // commit press must not scroll the page
+            const myEntityId = this._myEntityId();
+            ClientLogger.info('TurnController', `Space key: signaling plan-complete for ${myEntityId}`);
+            this._onReady(myEntityId);
+        });
+    }
+
+    /**
+     * True when lock-in is available right now: planning phase open and this
+     * client's entity is still listed as a pending planner in the barrier. Same
+     * derivation the HUD uses to show the ✅ Lock in button, so the Space key
+     * and the ✅ button never disagree. No local state.
+     * @private
+     * @returns {boolean}
+     */
+    _canLockInNow() {
+        try {
+            const turns = this._worldState()?.turns;
+            if (!turns || turns.phase !== TURN_PHASES.PLANNING) return false;
+            const barrier = turns.barrier;
+            if (!barrier || typeof barrier !== 'object') return false;
+            const myEntityId = this._myEntityId();
+            const pending = Array.isArray(barrier.pendingEntityIds) ? barrier.pendingEntityIds : [];
+            return !!myEntityId && pending.includes(myEntityId);
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -202,8 +265,8 @@ export class TurnController {
      * Renders the two-phase barrier status line + the ready/lock-in button.
      * The button state is derived PURELY from the server barrier (is my
      * entity still pending? already signaled? planning closed?) — there is no
-     * local flag, so it resets itself every round when the server rebuilds
-     * the roster. An absent barrier (older server) hides both elements.
+     * local flag, so it resets itself every round when the server rebuilds the
+     * roster. An absent barrier (older server) hides the button.
      *
      * Spec v2 status line: while planning — the ready count plus the NAMES
      * of the pending planners (the wait is unbounded by design, so the HUD
@@ -227,7 +290,7 @@ export class TurnController {
         const pending = Array.isArray(barrier.pendingEntityIds) ? barrier.pendingEntityIds : [];
         const total = (barrier.readyCount ?? 0) + pending.length;
         const iAmPending = !!myEntityId && pending.includes(myEntityId);
-        const isPlanning = turns.phase === 'planning';
+        const isPlanning = turns.phase === TURN_PHASES.PLANNING;
 
         statusEl.textContent = barrier.closed
             ? `Planning closed (${barrier.closeReason ?? 'unknown'}) @ tick ${barrier.closedAtTick ?? '?'}`
