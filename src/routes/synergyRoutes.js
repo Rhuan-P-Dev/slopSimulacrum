@@ -29,8 +29,8 @@ export function register(router, { worldStateController }) {
 	 * Returns the synergy configuration for a specific action.
 	 */
 	router.get('/synergy/config/:actionName', (req, res) => {
+		const { actionName } = req.params;
 		try {
-			const { actionName } = req.params;
 			const config = worldStateController.getSynergyConfig(actionName);
 			res.json({ actionName, synergyConfig: config });
 		} catch (error) {

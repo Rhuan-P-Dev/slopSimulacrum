@@ -391,7 +391,7 @@ class HoldingCostController {
              Logger.warn(`[HoldingCostController] ID "${lookupId}" is not equipped on entity "${entityId}".`);
              return { success: false, message: `Not equipped: ${lookupId}` };
          }
-         const { eqId } = equippedEntry;
+         const { eqId, itemId } = equippedEntry;
         const equippedItem = equippedEntry;
 
         const { itemType, componentId } = equippedItem;
@@ -483,7 +483,7 @@ class HoldingCostController {
      */
     getEquippedItems(entityId) {
         const items = this._equippedItems[entityId] || {};
-        return Object.entries(items).map(([eqId, data]) => ({
+        return Object.entries(items).map(([, data]) => ({
             eqId: data.eqId,
             itemId: data.itemId,
             itemType: data.itemType,

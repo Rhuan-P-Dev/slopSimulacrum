@@ -15,28 +15,6 @@ function validateEntityId(id, context) {
 }
 
 /**
- * Validates that an ID is a typed component ID (comp-uuid).
- * Returns { valid: true } or { valid: false, error: string }.
- */
-function validateCompId(id, context) {
-    if (!IdResolver.isCompId(id)) {
-        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
-    }
-    return { valid: true };
-}
-
-/**
- * Validates that an ID is a typed item ID (item-uuid).
- * Returns { valid: true } or { valid: false, error: string }.
- */
-function validateItemId(id, context) {
-    if (!IdResolver.isItemId(id)) {
-        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
-    }
-    return { valid: true };
-}
-
-/**
  * Registers action capability routes with the given Express router.
  * @param {import('express').Router} router - Express router instance
  * @param {Object} deps - Dependencies
@@ -65,8 +43,8 @@ export function register(router, { worldStateController }) {
 	 * Returns the best component for a specific action across all entities.
 	 */
 	router.get('/action-capabilities/:actionName', (req, res) => {
+		const { actionName } = req.params;
 		try {
-			const { actionName } = req.params;
 			const bestComponent = worldStateController.getBestComponentForAction(actionName);
 
 			if (!bestComponent) {
@@ -94,8 +72,8 @@ export function register(router, { worldStateController }) {
 	 * Returns all capability entries for a specific entity across all actions.
 	 */
 	router.get('/action-capabilities/entity/:entityId', (req, res) => {
+		const { entityId } = req.params;
 		try {
-			const { entityId } = req.params;
 
 			// TYPED ID MIGRATION: Validate entityId format
 			const entityIdValidation = validateEntityId(entityId, 'GET /action-capabilities/entity/:entityId params');
