@@ -10,7 +10,7 @@ The Action System executes game actions on entities through a registry-based, co
 - A consequence dispatcher resolves targets and dispatches to handlers
 - Delegated utilities handle range validation, component resolution, and requirement resolution
 
-Room-related actions interact with rooms via a room lookup service. Spatial movement applies delta-translation consequences. See [movement_system.md](./movement_system.md).
+Room-related actions interact with rooms via a room lookup service. Spatial movement applies delta-translation consequences. See [movement_system.md](../systems/movement_system.md).
 
 ---
 
@@ -74,7 +74,7 @@ single owner keeps action execution decoupled from cache management.
 
 ## 6. Built-in Consequence Handlers
 
-See [consequence_handler_architecture.md](./consequence_handler_architecture.md) for handler details.
+See [consequence_handler_architecture.md](../controllers/consequence_handler_architecture.md) for handler details.
 
 | Handler | Responsibility |
 |---------|---------------|

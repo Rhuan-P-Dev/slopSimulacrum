@@ -150,7 +150,7 @@ export const PUBLISHED_CHANNEL_LOSS_KEY = 'lastChannelLoss';
 // =========================================================================
 // TURN SYSTEM CONSTANTS (Feature A + two-phase barrier turns, spec v2)
 //
-// Rounds are EVENT-DRIVEN rendezvous (wiki/two_phase_turns_design.md v2), not
+// Rounds are EVENT-DRIVEN rendezvous (wiki/subMDs/controllers/npc_ai_controller.md v2), not
 // tick spans: round 0 starts lazily on the first tick, planning closes only
 // when every roster planner has signaled plan-complete (no deadline), and the
 // next round starts on the tick after resolution. The turn system therefore

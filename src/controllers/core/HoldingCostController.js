@@ -626,7 +626,7 @@ class HoldingCostController {
     }
 
     /**
-     * Public wrapper for _cleanupTracking (§3.5.2).
+     * Public wrapper for _cleanupTracking.
      * @param {string} entityId - The entity ID.
      * @param {string} eqId - The equipped item ID.
      */

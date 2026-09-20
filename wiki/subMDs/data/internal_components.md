@@ -18,7 +18,7 @@ Internal components modify **component-level** stats (e.g., `Physical.durability
 
 ### Why round-driven (per-turn) rather than event-based?
 
-> **SUPERSEDED by [turn_driven_ic_and_flow_spec.md](wiki/turn_driven_ic_and_flow_spec.md)** — effects now fire at round start via the turn-start hook, not on a wall-clock tick.
+> The original per-tick cadence is retired: effects now fire at round start via the turn-start hook, not on a wall-clock tick.
 
 A round-driven (per-turn) channel provides predictable, synchronized periodic effects across all internal components, avoiding race conditions from event-driven timing and simplifying reasoning about effect scheduling. The cadence is per-round (gated on the round number), decoupled from any tick rate.
 

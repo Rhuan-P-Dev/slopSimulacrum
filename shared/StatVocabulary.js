@@ -180,7 +180,7 @@ export const EXISTENCE_USABLE_MIN = 0;
 
 /**
  * Canonical mapping-key form for trait→stat derivation entries
- * (knowledge_viewer_spec.md §2, risk R3): "<TraitGroup>.<stat>".
+ * (wiki/subMDs/frontend/knowledge_viewer.md): "<TraitGroup>.<stat>".
  * Single definition shared by KnowledgeController._validateMappingEntries()
  * and MaterialController._validateMappingRegistry() so the two boot
  * validators can never disagree on key form.

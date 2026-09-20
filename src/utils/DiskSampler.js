@@ -1,5 +1,5 @@
 /**
- * DiskSampler — pure utility for uniform disk sampling (§4.2).
+ * DiskSampler — pure utility for uniform disk sampling.
  *
  * Uses uniform angle in 0..2π and radius via square root of the uniform
  * to avoid bias toward the center. Shared by the knife trigger
@@ -10,7 +10,7 @@
 
 import Logger from '../utils/Logger.js';
 
-/** Default radius for triggers (5 units) — exported for shared use (§3.5.1, §4.6). */
+/** Default radius for triggers (5 units) — exported for shared use. */
 export const DEFAULT_TRIGGER_RADIUS = 5;
 
 /**

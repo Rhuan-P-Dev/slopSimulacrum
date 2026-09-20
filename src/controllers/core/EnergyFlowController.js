@@ -10,7 +10,7 @@
  * circulates through the whole body and equalizes toward a uniform
  * distribution bounded by capacities.
  *
- * Cadence (supersedes the per-tick job — wiki/turn_driven_ic_and_flow_spec.md):
+ * Cadence (supersedes the per-tick job — wiki/subMDs/systems/energy_flow.md):
  * the flow performs ONE redistribution per turn, driven from the turn system's
  * round-start hook as the second step, strictly AFTER the internal-component
  * turn step (charge-then-flow). The old per-tick `energy-flow` TickJob is
@@ -58,7 +58,7 @@ import { TRAIT_GROUPS, STAT_NAMES } from '../../../shared/StatVocabulary.js';
 import { ENERGY_FLOW_RULE } from '../worldRules/WorldRulesController.js';
 
 /**
- * The no-op write epsilon (energy flow spec §2.4): a component is written only
+ * The no-op write epsilon (wiki/subMDs/systems/energy_flow.md): a component is written only
  * when its clamped new value differs from its turn-start value by MORE than
  * this. Scale-relative: on the 0–100 energy scale 1e-9 is far above
  * accumulated floating-point error but below any visible change — what makes
@@ -260,7 +260,7 @@ class EnergyFlowController {
 
     /**
      * Computes every component's clamped next value for ONE entity from the
-     * turn-start energies only (the simultaneous step, spec §2.2): send(c) =
+     * turn-start energies only (the simultaneous step, wiki/subMDs/systems/energy_flow.md): send(c) =
      * share × start(c), split equally among the other N−1 components; each
      * next value clamped to [0, its capacity] — overflow is LOST for the turn,
      * never re-routed. Extracted from processFlowTurn for readability; the
@@ -312,7 +312,7 @@ class EnergyFlowController {
 
     /**
      * Fail-soft-validates the optional per-recipe `energyCapacity` fields in
-     * the injected component registry (energy flow spec §4: present-but-
+     * the injected component registry (wiki/subMDs/systems/energy_flow.md — present-but-
      * malformed → warn once per recipe and ignore the field, falling back to
      * the rule default — never a boot failure, matching the world-rules
      * degradation discipline). Absence everywhere → no log beyond the init

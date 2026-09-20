@@ -13,11 +13,11 @@
  * corrosion tick, a holding-cost drain, a stat effect), not only on an action in
  * flight. The only place every such weakening funnels through is the component stat
  * choke point (ComponentController.updateComponentStat / updateComponentStatDelta),
- * so this listener subscribes to the new damage-listener list there (design §3.1/§3.3).
+ * so this listener subscribes to the new damage-listener list there (wiki/subMDs/data/material_damage_and_drop.md).
  *
  * The token it drops is the SAME kind of item the chunk system produces: a
  * self-describing `chunk_<material>` ground record built by the shared
- * materialChunkToken helpers (design §3.6), so no client/recipe changes are needed.
+ * materialChunkToken helpers (wiki/subMDs/data/material_damage_and_drop.md), so no client/recipe changes are needed.
  *
  * @module OnDamageDropListener
  */
@@ -52,7 +52,7 @@ class OnDamageDropListener {
          * () => 0.01 to force success, () => 1 to force failure) to pin the new roll.
          * Never set this in production.
          * @public (test seam) — the underscore prefix is intentional legacy; this
-         *   property is the documented cross-suite pin point (design §7.3/§7.5).
+         *   property is the documented cross-suite pin point.
          * @type {() => number}
          */
         this._randomFn = Math.random;
@@ -71,7 +71,7 @@ class OnDamageDropListener {
      * choke point whenever a component stat weakens. Every step is null-tolerant: a
      * failed pre-condition returns silently (or with a single warn) and never throws,
      * never leaves a partial write (the batch is written once, at the end, only if
-     * non-empty). See design §3.3 for the numbered steps.
+     * non-empty). See wiki/subMDs/data/material_damage_and_drop.md for the numbered steps.
      *
      * @param {string} componentId - The damaged component instance id.
      * @param {string} traitId - The trait group of the weakened stat.
@@ -92,7 +92,7 @@ class OnDamageDropListener {
         const comp = world.getComponent?.(componentId);
         if (!comp || !comp.type) return;
 
-        // Total-loss skip (D10 mirror, design §3.5): when existence is driven to <= 0
+        // Total-loss skip: when existence is driven to <= 0
         // the break/removal cascade already owns the total loss of that component, so
         // the hook is silent for lethal hits (there is no partial-matter source left).
         if (traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE
@@ -169,7 +169,7 @@ class OnDamageDropListener {
     /**
      * Writes one `host_material` token for a successfully-rolled entry into the
      * caller's batch. Resolves the largest-fraction (primary) material, computes
-     * the token volume (D7 matter math for existence damage; the nominal floor
+     * the token volume (matter math for existence damage; the nominal floor
      * for non-existence stat damage), samples a ground point in the trigger disk,
      * and writes the self-describing chunk record (the shared materialChunkToken
      * mechanics — one item identity for all three drop streams).

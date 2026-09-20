@@ -1,5 +1,5 @@
 /**
- * KnifeDropTriggerHandler — test trigger, always active (§4.6, §3.5.3).
+ * KnifeDropTriggerHandler — test trigger, always active.
  *
  * Upon receiving `component:broke`, drops 3× `knife` items at independent
  * positions via the SAME disk sampler (radius 5, center `payload.position`,
@@ -34,12 +34,12 @@ class KnifeDropTriggerHandler {
 
     /**
      * Handler for `component:broke` event.
-     * @param {Object} payload - Event payload (§3.3).
+     * @param {Object} payload - Event payload.
      */
     handle(payload) {
         const { position, roomId, entityId } = payload;
         
-        // Check if entity exists before dropping knives (§3.5: skip if despawned)
+        // Check if entity exists before dropping knives (skip if despawned)
         const entity = this._wsc.getEntity(entityId);
         if (!entity) {
             Logger.info(`[KnifeDropTrigger] Entity ${entityId} not found — skipping knife drop (despawned).`);
@@ -60,7 +60,7 @@ class KnifeDropTriggerHandler {
         }
 
         for (let i = 0; i < KNIFE_COUNT; i++) {
-            // Item isolation (§3.5: failure logged + continues)
+            // Item isolation (failure logged + continues)
             try {
                 const point = sampleDiskPoint(position.x, position.y, RADIUS);
                 writeDroppedItem(

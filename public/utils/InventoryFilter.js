@@ -138,10 +138,10 @@ export function collectSubtreeItemIds(itemsByHost, rootId) {
  * inactive filter lets everything through.
  *
  * - **Contains item** (`containsItemOnly`): keep only components with at least
- *   one direct item (D1).
+ *   one direct item.
  * - **Search** (`query`): keep a component when its own display name matches,
  *   OR any item in its subtree (any depth) matches — subtree matching (not
- *   direct-only) keeps a deep hit's whole ancestor chain visible (D2).
+ *   direct-only) keeps a deep hit's whole ancestor chain visible.
  *
  * Component display names are supplied pre-resolved by the caller (the panel
  * formats them); an item's display name is `item.name || item.type` —
@@ -189,12 +189,12 @@ export function filterInventoryView({
     for (const comp of safeComponents) {
         if (!comp || typeof comp.id !== 'string') continue;
 
-        // Contains-item filter (D1): direct containment.
+        // Contains-item filter: direct containment.
         if (toggleActive && !hasDirectItems(safeItemsByHost, comp.id)) {
             continue;
         }
 
-        // Search filter (D2): own name OR any subtree item name.
+        // Search filter: own name OR any subtree item name.
         if (searchActive) {
             const compMatches = matchesQuery(comp.name, query);
             let anyItemMatch = false;

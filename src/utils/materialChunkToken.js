@@ -4,7 +4,7 @@
  * (MaterialChunkDropHandler) and the onDamage world-event rule (OnDamageDropListener).
  *
  * Extracting these two computations here keeps "the same kind of item the chunk system
- * produces" true BY CONSTRUCTION rather than by copy-paste (design §3.6): the onDamage
+ * produces" true BY CONSTRUCTION rather than by copy-paste (wiki/subMDs/data/material_damage_and_drop.md): the onDamage
  * token is deliberately indistinguishable from a chunk-stream token on the ground (the
  * same chunk_<material> item identity and the same self-describing name/description
  * strings — an accepted tradeoff the torn stream already documents).
@@ -18,7 +18,7 @@
  * The chunk-fraction fallback used when a material has no drop-rates entry (the
  * drop-rates file is absent or the feature is off). 1.0 means "the token represents
  * the full matter share actually lost" rather than a partial chip: the world law must
- * not depend on the presence of a balance file (design §9.4). Named to keep the
+ * not depend on the presence of a balance file (wiki/subMDs/data/material_damage_and_drop.md). Named to keep the
  * fallback out of the call sites as a magic number.
  * @type {number}
  */
@@ -56,7 +56,7 @@ export function computeChunkVolume(dropConfig, appliedLoss, fraction, recipeVolu
  *
  * Reproduces the exact name/description strings the chunk stream has always emitted, so
  * an onDamage token is indistinguishable from a chunk-stream token on the ground
- * (design §9.3). `volume` is passed in because the two streams use different volume
+ * (wiki/subMDs/data/material_damage_and_drop.md). `volume` is passed in because the two streams use different volume
  * levers (the D7 chunk fraction vs. the torn percentage) but share one item identity.
  *
  * @param {string} materialName - The display name of the material.

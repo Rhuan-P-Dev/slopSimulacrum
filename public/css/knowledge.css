@@ -1,5 +1,5 @@
 /* =============================================================================
- * Knowledge Panel (knowledge_viewer_spec.md §5.7)
+ * Knowledge Panel (wiki/subMDs/frontend/knowledge_viewer.md)
  * Single-responsibility CSS module: owns ALL `knowledge-` selectors — the
  * sub-tab bar, the three section renderers (trait-mold tables, the wide
  * mapping rows, material cards, the pinned-vocabulary block, recipe cards,
@@ -22,7 +22,7 @@
 }
 
 /* ---- Sub-tab bar -------------------------------------------------------------
- * Three tabs share one content area (spec §5.5). The active tab is the only
+ * Three tabs share one content area. The active tab is the only
  * one with the neon treatment; inactive tabs stay dim. */
 
 .knowledge-tabs {
@@ -82,7 +82,7 @@
     margin-bottom: 8px;
 }
 
-/* ---- Tab 1: trait mold tables (spec §5.6.1) ---------------------------------- */
+/* ---- Tab 1: trait mold tables ------------------------------------------------ */
 
 .knowledge-mold-table {
     width: 100%;
@@ -111,7 +111,7 @@
     color: var(--text-main);
 }
 
-/* ---- Tab 1: mapping rows (spec §5.6.2 — widest content) -----------------------
+/* ---- Tab 1: mapping rows (widest content) ---------------------------------- */
  * One row per "Group.stat" mapping: the flat key, then either the formula
  * badge (with the inline densityVolume annotation) or the property source
  * list. Rows wrap on narrow panels. */
@@ -161,7 +161,7 @@
     color: var(--text-main);
 }
 
-/* ---- Tab 1: material cards (spec §5.6.3) -------------------------------------- */
+/* ---- Tab 1: material cards ---------------------------------------------------- */
 
 .knowledge-card-grid {
     display: grid;
@@ -176,7 +176,7 @@
     padding: 6px 8px;
 }
 
-/* ---- Tab 1: pinned vocabulary (spec §5.6.4) ----------------------------------- */
+/* ---- Tab 1: pinned vocabulary ------------------------------------------------- */
 
 .knowledge-vocab-block {
     display: flex;
@@ -220,7 +220,7 @@
     font-size: 1em;
 }
 
-/* ---- Tab 2: recipe cards (spec §5.6.5 — grid like the crafting panel) ---------- */
+/* ---- Tab 2: recipe cards ------------------------------------------------------- */
 
 .knowledge-recipe-card {
     border: 1px solid #333;
@@ -262,7 +262,7 @@
     color: var(--neon-green);
 }
 
-/* ---- Tab 3: item cards (spec §5.6.6) ------------------------------------------- */
+/* ---- Tab 3: item cards --------------------------------------------------------- */
 
 .knowledge-item-card {
     border: 1px solid #333;
@@ -286,7 +286,7 @@
     color: var(--text-dim);
 }
 
-/* Static trait badges grouped by trait group (no hover-to-hide — §5.6.6). */
+/* Static trait badges grouped by trait group (no hover-to-hide). */
 .knowledge-trait-group {
     display: flex;
     flex-wrap: wrap;
@@ -313,7 +313,7 @@
     padding: 1px 0;
 }
 
-/* ---- Whole-section states (spec §5.4) ------------------------------------------ */
+/* ---- Whole-section states ------------------------------------------------------ */
 
 .knowledge-empty {
     padding: 20px;

@@ -1,5 +1,5 @@
 /**
- * Knowledge API Routes — GET /knowledge (knowledge_viewer_spec.md §5).
+ * Knowledge API Routes — GET /knowledge (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * The only injected dependency is the ROOT world-state controller (facade);
  * the route calls the facade's getKnowledge() and never reaches into a
@@ -19,7 +19,7 @@ import Logger from '../utils/Logger.js';
 export function register(router, { worldStateController }) {
 	/**
 	 * GET /knowledge
-	 * Returns the full knowledge codex (knowledge_viewer_spec.md §3).
+ * Returns the full knowledge codex (wiki/subMDs/frontend/knowledge_viewer.md).
 	 * 200 envelope: `{ knowledge: <payload> }`.
 	 * 500 envelope: `{ error: 'Internal Server Error', details: <message> }`
 	 * (same shape as the other read-only routes, for client consistency).

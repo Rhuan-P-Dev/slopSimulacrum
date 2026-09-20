@@ -23,6 +23,6 @@ Contract tests for **periodic / tick-driven effects** must run against the **sto
 ## References
 - Related bug (companion defect, same method): [BUG-138](BUG-138-ic-emit-channel-damage-non-iterable-store.md)
 - Related bug (same family, different defect): [BUG-132](BUG-132-channel-damage-silently-never-applied.md)
-- Related design: `wiki/world_rules_onDamage_design.md` (R1, §7.5)
+- Related wiki: `wiki/subMDs/data/world_rules.md` (onDamage rule)
 - Related controller: `InternalComponentController`
 - Related test: `test/contract/worldRulesOnDamage.contract.test.js`

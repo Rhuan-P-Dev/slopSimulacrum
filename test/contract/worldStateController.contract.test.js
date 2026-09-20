@@ -159,7 +159,7 @@ describe('WorldStateController public method surface', () => {
         'addInternalComponent',
         'addItemToContainer',
         'addItemToEntity',
-        // Added deliberately (energy_flow_spec.md §6.2): the flow-scoped
+ // Added deliberately (wiki/subMDs/systems/energy_flow.md): the flow-scoped
         // broadcast-scope pair. Not an accidental addition — the energy-flow
         // turn step opens/closes it exactly once per turn.
         'beginEnergyFlowTurn',
@@ -168,7 +168,7 @@ describe('WorldStateController public method surface', () => {
         'computeSynergy',
         'craftItems',
         'despawnEntity',
-        // Added deliberately (energy_flow_spec.md §6.2): closes the flow
+ // Added deliberately (wiki/subMDs/systems/energy_flow.md): closes the flow
         // broadcast scope with at most one full-state broadcast.
         'endEnergyFlowTurn',
         'equipItem',
@@ -207,7 +207,7 @@ describe('WorldStateController public method surface', () => {
         'getItem',
         'getItemRegistry',
         'getItemStats',
-        // Added deliberately (knowledge_viewer_spec.md §4.2): the static knowledge
+ // Added deliberately (wiki/subMDs/frontend/knowledge_viewer.md): the static knowledge
         // codex passthrough. Not an accidental addition — the route reads it via
         // the facade only (facade-only-dependency rule).
         'getKnowledge',
@@ -219,7 +219,7 @@ describe('WorldStateController public method surface', () => {
         'getRooms',
         'getSynergyConfig',
         'getWorldGraph',
-        // Added deliberately (world_rules_spec.md): the world-rules registry
+ // Added deliberately (wiki/subMDs/data/world_rules.md): the world-rules registry
         // passthrough. Not an accidental addition — mirrors getKnowledge().
         'getWorldRules',
         'hasInternalComponent',

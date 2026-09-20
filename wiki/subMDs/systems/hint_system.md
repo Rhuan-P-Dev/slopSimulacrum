@@ -50,7 +50,7 @@ The first hint answers the most common dead-end in the game: an entity wants to 
 
 ### Why the reach check agrees with the client's range gate
 
-The hint must agree with the gate that produced the error, or it will be absent exactly when the player is frustrated. The client resolves an action's range from the player's stats with a documented fallback, and the server rule uses the **same shared range resolver** — the project's single source of truth for range expressions — so both sides classify reach identically. Duplicating a different range rule on the server would reintroduce exactly the desynchronization the hints are meant to prevent (cf. [BUG-083](../bugfixWiki/high/BUG-083-dropped-item-distance-check-coord-mismatch.md)).
+The hint must agree with the gate that produced the error, or it will be absent exactly when the player is frustrated. The client resolves an action's range from the player's stats with a documented fallback, and the server rule uses the **same shared range resolver** — the project's single source of truth for range expressions — so both sides classify reach identically. Duplicating a different range rule on the server would reintroduce exactly the desynchronization the hints are meant to prevent (cf. [BUG-083](../../bugfixWiki/high/BUG-083-dropped-item-distance-check-coord-mismatch.md)).
 
 ### Why continuous room-centered coordinates
 
@@ -60,7 +60,7 @@ The hint must agree with the gate that produced the error, or it will be absent 
 
 ## 4. Architecture
 
-Read-only, pull-based, and stateless per request: each consumer asks the hint controller, which asks the facade for world data, evaluates the registered rules, and returns whatever the rules produced. No world state is mutated and no new broadcast payload is added (so there is no state-desync surface, cf. [BUG-008](../bugfixWiki/high/BUG-008-state-desync.md)).
+Read-only, pull-based, and stateless per request: each consumer asks the hint controller, which asks the facade for world data, evaluates the registered rules, and returns whatever the rules produced. No world state is mutated and no new broadcast payload is added (so there is no state-desync surface, cf. [BUG-008](../../bugfixWiki/high/BUG-008-state-desync.md)).
 
 Controller placement follows [Controller Patterns](../controllers/controller_patterns.md): the hint controller is a **logic controller** (computation, no owned game data) constructed in the composition root and wired to the facade through a setter after the facade is built — the same late-facade-injection pattern used by [RangeValidator](src/controllers/actions/RangeValidator.js). The rules are stateless modules instantiated by the controller (utility-class rule, Controller Patterns §8).
 

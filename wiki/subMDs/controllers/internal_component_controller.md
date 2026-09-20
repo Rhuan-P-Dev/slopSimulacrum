@@ -18,11 +18,11 @@ Internal components are stored nested per host component and per entity. This mi
 
 ## 2. Unified Tick System
 
-> **SUPERSEDED by [turn_driven_ic_and_flow_spec.md](wiki/turn_driven_ic_and_flow_spec.md)** — the per-tick IC job is retired; overTime effects now run once per ROUND START via the turn-start hook, gated on the round number. The text below describes the retired unified-tick design.
+> The per-tick IC job is retired; overTime effects now run once per **ROUND START** via the turn-start hook, gated on the round number. The text below describes the retired unified-tick design.
 
-### Why a Single Unified Tick
+### Why a Single Unified Tick (retired)
 
-Instead of spawning a separate `setInterval` per internal component type, the controller uses a **single 1-second interval** that drives all effects. This design was chosen because:
+Instead of spawning a separate `setInterval` per internal component type, the controller used a **single 1-second interval** that drove all effects. That design was chosen because:
 
 - **Resource efficiency**: One timer instead of N timers reduces GC pressure and scheduling overhead
 - **Deterministic ordering**: All effects fire in a known, consistent sequence each second, preventing timing-dependent bugs

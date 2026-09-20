@@ -1,5 +1,5 @@
 /**
- * EnergyFlowController — unit tests (spec wiki/energy_flow_spec.md §10.2).
+ * EnergyFlowController — unit tests (spec wiki/subMDs/systems/energy_flow.md).
  *
  * Stub-based: a hand-built stub facade (entity store + stat reader + a
  * recording `componentController.updateComponentStat` + the begin/end flow

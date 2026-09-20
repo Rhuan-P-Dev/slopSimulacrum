@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The Knowledge Viewer is a read-only "codex" tab in the main UI: a full, always-true reference of the game's static data. It shows the material property → trait → stat derivation chain (the global trait molds, the property-to-stat mapping table, the per-material property values, and the cross-layer pinned vocabulary), every recipe with display names resolved, and every item type with its fields. It is the read-only mirror of the [crafting panel](../systems/crafting_system.md): the same registries, but with no mutation, no turn cost, and no entity requirement. The complete design contract (data shapes, the single pull endpoint, tests, risks) lives in the [Knowledge Viewer specification](../knowledge_viewer_spec.md).
+The Knowledge Viewer is a read-only "codex" tab in the main UI: a full, always-true reference of the game's static data. It shows the material property → trait → stat derivation chain (the global trait molds, the property-to-stat mapping table, the per-material property values, and the cross-layer pinned vocabulary), every recipe with display names resolved, and every item type with its fields. It is the read-only mirror of the [crafting panel](../systems/crafting_system.md): the same registries, but with no mutation, no turn cost, and no entity requirement.
 
 ## 2. Why a dedicated read-only codex tab
 
@@ -30,7 +30,7 @@ Which side wins is not a coin flip: the derivation pipeline already treats a for
 
 ## 5. Why the mapping-key form is a shared definition
 
-The mapping table is keyed by the flat "trait group + stat" form, and two independent boot validators key off it: the knowledge controller's (for the codex) and the material controller's (for the derivation pipeline). A key pattern hand-typed into both would have to be changed in lockstep forever, and a missed one would fail one validator while the other silently accepted keys the other layer could not read — the exact silent-drift class of bug the `shared/` modules exist to prevent (see the shared-modules section of the [Controller Relationship Map](../map.md)). The form is therefore defined once — the `TRAIT_STAT_KEY_PATTERN` export in `shared/StatVocabulary.js` — and imported by both validators, so the two can never disagree on what a key is.
+The mapping table is keyed by the flat "trait group + stat" form, and two independent boot validators key off it: the knowledge controller's (for the codex) and the material controller's (for the derivation pipeline). A key pattern hand-typed into both would have to be changed in lockstep forever, and a missed one would fail one validator while the other silently accepted keys the other layer could not read — the exact silent-drift class of bug the `shared/` modules exist to prevent (see the shared-modules section of the [Controller Relationship Map](../../map.md)). The form is therefore defined once — the `TRAIT_STAT_KEY_PATTERN` export in `shared/StatVocabulary.js` — and imported by both validators, so the two can never disagree on what a key is.
 
 The codex is also the one place in the project where the shared vocabulary meets the full data. The shared module pins a *subset* of trait/stat names (a deliberate, drift-safe subset, not an exhaustive list), and the viewer presents that subset next to the complete registries, labeled as pinned — so a reader can see at a glance which names are frozen across the two layers and which are still free to grow in the data.
 
@@ -46,12 +46,11 @@ The payload is immutable at runtime, so refetching it on every open would be pur
 
 ## 8. Related Documentation
 
-- [Knowledge Viewer specification](../knowledge_viewer_spec.md) — the full design contract: data shapes, the single pull endpoint, tests, and the risk register
-- [Crafting System](../systems/crafting_system.md) — the mutation twin; the knowledge viewer is its read-only mirror over the same registries
+- [Crafting System](../systems/crafting_system.md) — the mutation twin whose registries the viewer renders (the knowledge viewer is its read-only mirror)
 - [Material System](../data/materials.md) — the derivation pipeline whose priority semantics and key form the codex mirrors
 - [Traits System](../data/traits.md) — the 4-layer merge the codex deliberately does not compute (it shows the declared layer, not merged runtime values)
 - [Controller Patterns](../controllers/controller_patterns.md) — the state-controller pattern and the facade-degradation rule the knowledge controller follows
 - [Client Architecture](client_architecture.md) — the panel's place in the client module inventory
 - [Overlay Manager](overlay_manager.md) — how the panel joins floating-window coordination (exclusive visibility, no numeric shortcut)
 - [CSS Architecture](css_architecture.md) — the one-file-per-panel rule the knowledge stylesheet follows
-- [Controller Relationship Map](../map.md) — the dependency graph (the knowledge controller node) and the shared-module drift rationale
+- [Controller Relationship Map](../../map.md) — the dependency graph (the knowledge controller node) and the shared-module drift rationale

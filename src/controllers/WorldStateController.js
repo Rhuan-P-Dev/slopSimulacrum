@@ -124,8 +124,8 @@ class WorldStateController {
         // See test/contract/crafting.contract.test.js for the seam usage.
         /** @private {import('./crafting/CraftingController.js')|null} */
         this.craftingController = deps.craftingController ?? null;
-        // KnowledgeController: static "Knowledge" codex (knowledge_viewer_spec.md
-        // §4.2). State controller; null-tolerant like craftingController (tests may
+ // KnowledgeController: static "Knowledge" codex (wiki/subMDs/frontend/knowledge_viewer.md).
+        // State controller; null-tolerant like craftingController (tests may
         // build the facade without it). Deliberately NOT in the subControllers map
         // below: it has no getAll() and must stay out of the getAll()/broadcast
         // aggregation (static codex data — the route reads it via getKnowledge()).
@@ -146,7 +146,7 @@ class WorldStateController {
         /** @private {import('./worldRules/OnDamageDropListener.js')|null} */
         this.onDamageDropListener = deps.onDamageDropListener ?? null;
         // EnergyFlowController: cross-component Physical.energy redistribution
-        // (wiki/energy_flow_spec.md). Logic controller — owns no persistent
+ // (wiki/subMDs/systems/energy_flow.md). Logic controller — owns no persistent
         // world data, null-tolerant like worldRulesController (tests may build
         // the facade without it). Deliberately NOT in the subControllers
         // broadcast map: it has no getAll() and must stay out of the full-state
@@ -158,13 +158,13 @@ class WorldStateController {
         /** @private {WorldStateBroadcastService|null} */
         this._broadcastService = null;
 
-        // §3.5.3: re-entrancy counter for stat-change listeners.
+        // Re-entrancy counter for stat-change listeners.
         // Incremented at entry of removeBrokenComponent, decremented in finally.
         // Listeners only broadcast when counter === 0 → exactly 1 broadcast per cascade chain.
         /** @private {number} */
         this._cascadeReentrancyCount = 0;
-        // Flow-scope counter (mirrors _cascadeReentrancyCount, energy flow
-        // spec §6.2): while > 0 the energy flow is mid-step, so the stat-change
+        // Flow-scope counter (mirrors _cascadeReentrancyCount, wiki/subMDs/systems/energy_flow.md):
+        // the energy flow is mid-step, so the stat-change
         // broadcast gate suppresses per-write broadcasts; the step itself closes
         // the scope with at most one full-state broadcast (only if something
         // moved). The counter is incremented/decremented in lockstep by
@@ -222,23 +222,23 @@ class WorldStateController {
         // Wire up stat change notifications from ComponentController to
         // ComponentCapabilityController — enables automatic capability
         // re-evaluation when component stats change (+ broadcast).
-        // §3.2/§3.5.3: also delegate to TriggerController for component:broke detection.
+        // Also delegate to TriggerController for component:broke detection.
         // Broadcast only when cascadeReentrancyCount === 0 (exactly 1 broadcast per chain).
         this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
             this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
             
-            // §3.2: delegate to TriggerController for crossing detection
+            // Delegate to TriggerController for crossing detection
             if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
                 // Find which entity owns this component via public API
                 let owningEntity;
                 owningEntity = this.stateEntityController.findEntityByComponent(componentId);
-                // Spec §6 (Edge cases): when owning entity is despawned, the component:broke
+                // Edge cases: when owning entity is despawned, the component:broke
                 // event must STILL be logged; only removal/spill/drop side-effects are skipped.
                 // We always call onComponentBrokeCheck so the event is emitted per spec.
                 // When the entity or its anchors are missing we pass honest fallbacks.
                 if (!owningEntity || !owningEntity.location || !owningEntity.spatial) {
                     Logger.warn(
-                        `[WorldStateController] Component ${componentId} broke but owning entity/anchors missing — event still logged per spec §6; removal/spill/drop skipped.`
+                        `[WorldStateController] Component ${componentId} broke but owning entity/anchors missing — event still logged; removal/spill/drop skipped.`
                     );
                     this.triggerController.onComponentBrokeCheck(
                         componentId,
@@ -268,7 +268,7 @@ class WorldStateController {
             
             // Trigger broadcast if broadcastService is available and not in middle of cascade,
             // AND not in the middle of an energy-flow step (the flow closes its scope with at
-            // most one full-state broadcast — see endEnergyFlowTurn; energy flow spec §6.2).
+            // most one full-state broadcast — see endEnergyFlowTurn; wiki/subMDs/systems/energy_flow.md).
             if (this._broadcastService && this._cascadeReentrancyCount === 0 && this._energyFlowScopeCount === 0) {
                 this._broadcastService.broadcast();
             }
@@ -289,7 +289,7 @@ class WorldStateController {
         // injected by the composition root AFTER this constructor.
         this.turnSystemController?.initialize();
 
-        // Initialize the Energy Flow (energy flow spec §3.3) — right after the
+        // Initialize the Energy Flow (wiki/subMDs/systems/energy_flow.md) — right after the
         // turn system's initialize(): it resolves the `energyFlow` rule once and
         // fail-soft-validates the per-recipe capacity fields. The per-turn flow
         // step itself is driven from the turn system's round-start hook (after
@@ -302,7 +302,7 @@ class WorldStateController {
         // re-evaluation. When an equipped item's stats change (e.g., sharpness
         // drain from cut), the capability cache re-scans with CURRENT stats, not
         // stale base stats.
-        // §3.2/§3.5: also delegate to TriggerController.onEquippedItemBrokeCheck
+        // Also delegate to TriggerController.onEquippedItemBrokeCheck
         // when traitId==='Physical' && statName==='existence' (P8 path).
         this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
             // P8 delegate: delegate to TriggerController BEFORE the broadcast
@@ -338,7 +338,7 @@ class WorldStateController {
                     // Entity found — re-evaluate its capabilities with current stats
                     const state = this.getAll();
                     this.actionController.reEvaluateEntityCapabilities(state, entityId);
-                    // §3.5.3: broadcast only when cascadeReentrancyCount === 0
+                    // Broadcast only when cascadeReentrancyCount === 0
                     if (this._broadcastService && this._cascadeReentrancyCount === 0) {
                         this._broadcastService.broadcast();
                     }
@@ -1320,7 +1320,7 @@ class WorldStateController {
     }
 
     /**
-     * Opens an energy-flow broadcast scope (energy flow spec §6.2).
+     * Opens an energy-flow broadcast scope (wiki/subMDs/systems/energy_flow.md)
      *
      * Called by the EnergyFlowController at the start of one flow turn. While
      * the scope count is > 0, the component stat-change broadcast gate
@@ -1337,7 +1337,7 @@ class WorldStateController {
     }
 
     /**
-     * Closes an energy-flow broadcast scope (energy flow spec §6.2).
+     * Closes an energy-flow broadcast scope (wiki/subMDs/systems/energy_flow.md)
      *
      * When the scope count returns to zero, exactly one full-state broadcast is
      * emitted if — and only if — `shouldBroadcast` is true (the flow turn
@@ -2198,7 +2198,7 @@ class WorldStateController {
      */
     setBroadcastService(broadcastService) {
         this._broadcastService = broadcastService;
-        // §3.2: also inject broadcaster into TriggerController (fallback defensivo).
+        // Also inject broadcaster into TriggerController (fallback defensivo).
         if (this.triggerController) {
             this.triggerController.setBroadcaster(() => broadcastService.broadcast());
         }
@@ -2437,7 +2437,7 @@ class WorldStateController {
     }
 
     /**
-     * Returns the full knowledge codex payload (knowledge_viewer_spec.md §3):
+ * Returns the full knowledge codex payload (wiki/subMDs/frontend/knowledge_viewer.md):
      * `{ traitStats: { groups, mappings, materials, vocabulary }, recipes, items }`.
      * Static reference data — served via GET /knowledge (not embedded in the
      * mutable world state or the broadcast; same static-vs-mutable separation as
@@ -2445,7 +2445,7 @@ class WorldStateController {
      * the route must never reach into sub-controllers (Public API Only, §2).
      * @returns {Object} A fresh deep copy of the codex payload, or the total
      *   empty-shape payload (never null) when the controller is unwired —
-     *   spec §4.3: the client renders per-section empty states, not an error,
+     *   wiki/subMDs/frontend/knowledge_viewer.md: the client renders per-section empty states, not an error,
      *   on a wiring miss.
      */
     getKnowledge() {
@@ -2519,7 +2519,7 @@ class WorldStateController {
     setDroppedItems(droppedItems) {
         this._droppedItems = droppedItems;
 
-        // §3.5.3: gate broadcasts by cascade — only when _cascadeReentrancyCount === 0
+        // Gate broadcasts by cascade — only when _cascadeReentrancyCount === 0
         // The caller removeDroppedItem (and writeDroppedItem via facade) continues broadcasting
         // normally; during cascade, the gate suppresses intermediate broadcasts.
         if (this._broadcastService && this._cascadeReentrancyCount === 0) {
@@ -2848,20 +2848,20 @@ class WorldStateController {
     }
 
     // =========================================================================
-    // TRIGGER SYSTEM — removeBrokenComponent (§3.5, §3.6)
+    // TRIGGER SYSTEM — removeBrokenComponent
     // =========================================================================
 
     /**
      * Facade orchestrator for complete broken component/item removal.
-     * §3.5.2: order (a)→(a½)→(b)→(c).
-     * §3.5.3: re-entrancy counter for single broadcast.
+     * Order (a)→(a½)→(b)→(c).
+     * Re-entrancy counter for single broadcast.
      *
-     * @param {Object} payload - Payload of the component:broke event (§3.3).
+     * @param {Object} payload - Payload of the component:broke event.
      */
     removeBrokenComponent(payload) {
         const { entityId, componentId, kind } = payload;
 
-        // Increment re-entrancy counter (§3.5.3)
+        // Increment re-entrancy counter
         this._cascadeReentrancyCount++;
         // Initialize shared visited-set + affected-entity set at root call
         if (this._cascadeReentrancyCount === 1) {
@@ -2888,7 +2888,7 @@ class WorldStateController {
                 // Continue to next phase — a failed spill must not block removal or cleanup
             }
 
-            // === (a½) Dependency cascade (§3.6) ===
+            // === (a½) Dependency cascade ===
             if (kind === 'component') {
                 try {
                     this._cascadeDependents(entity, componentId);
@@ -2913,7 +2913,7 @@ class WorldStateController {
             this._cascadeReentrancyCount--;
             // Clear visited-set + affected-entity set on exit from root chain
             if (this._cascadeReentrancyCount === 0) {
-                // Entity-level elimination (§3.5.4): after the full root cascade
+                // Entity-level elimination: after the full root cascade
                 // completes (re-entrancy count returns to 0), check every entity
                 // affected during this cascade chain. This handles cross-entity
                 // cascades where a break on entity A forces a break on entity B.
@@ -2955,9 +2955,9 @@ class WorldStateController {
         const batchDroppedItems = this.getDroppedItems() || {};
 
         for (const item of items) {
-            // Item isolation (§3.5.1: failure logged + continues)
+            // Item isolation (failure logged + continues)
             try {
-                // Snapshot of grandchildren — use public wrapper (§3.5.1)
+                // Snapshot of grandchildren — use public wrapper
                 let nestedItems = [];
                 try {
                     nestedItems = this.inventoryManager.collectNestedItems(entity, item.id);
@@ -2999,7 +2999,7 @@ class WorldStateController {
                 Logger.info(`[removeBrokenComponent] Spilled item ${item.id} (${item.type}) from broken ${kind}.`);
             } catch (error) {
                 Logger.error(`[removeBrokenComponent] Error spilling item ${item.id}: ${error.message}`);
-                // Skip this item, continue with cascade (§3.5: isolation per item)
+                // Skip this item, continue with cascade (isolation per item)
             }
         }
 
@@ -3017,14 +3017,14 @@ class WorldStateController {
     }
 
     /**
-     * Phase (a½): dependency cascade (§3.6.4).
+     * Phase (a½): dependency cascade (visited-set prevents loops).
      * Pre-order DFS with visited-set.
      * @private
      */
     _cascadeDependents(entity, originId) {
         const components = entity.components || [];
         const reverseIndex = buildReverseIndex(components);
-        // Use shared visited-set across recursive cascade (§3.6.4: visited-set prevents loops)
+        // Use shared visited-set across recursive cascade (visited-set prevents loops)
         const visited = this._cascadeVisitedSet || new Set([originId]);
         const queue = [originId];
 
@@ -3076,7 +3076,7 @@ class WorldStateController {
             Logger.info(`[removeBrokenComponent] Component ${curId} has existence ${dur}`);
 
             if (dur <= EXISTENCE_GONE_AT) {
-                // §3.6: defensive — direct removal WITHOUT event (already broken)
+                // Defensive — direct removal WITHOUT event (already broken)
                 Logger.warn(`[removeBrokenComponent] Dependent ${curId} already broken (dur=${dur}) — direct removal without event.`);
                 this._forceDirectRemoval(curId, entity);
                 continue;
@@ -3122,7 +3122,7 @@ class WorldStateController {
     }
 
     /**
-     * Entity-level elimination check (§3.5.4).
+     * Entity-level elimination check.
      *
      * Re-reads the live entity via the public API and, if its component array
      * is missing or empty, despawns it to prevent a "ghost" record from
@@ -3169,7 +3169,7 @@ class WorldStateController {
             if (eqId) {
                 this.holdingCostController.unequipItem(entity.id, eqId);
             }
-            // Remove item instance from inventory — use payload.itemId (not eqId) §3.5.2
+            // Remove item instance from inventory — use payload.itemId (not eqId)
             const removeId = itemId || eqId;
             if (removeId) {
                 this.inventoryManager.removeItem(entity, removeId);
@@ -3243,10 +3243,10 @@ class WorldStateController {
                 }
             }
         } else if (kind === 'equipped-item') {
-            // (3') cleanupEquippedItem wrapper from HoldingCostController (§3.5.2)
+            // (3') cleanupEquippedItem wrapper from HoldingCostController
             this.holdingCostController.cleanupEquippedItem(entity.id, eqId);
 
-            // (5') re-evaluate capabilities — ONLY of host entity (not all) §3.5.2
+            // (5') re-evaluate capabilities — ONLY of host entity (not all)
             // Narrowed: same minimal-state approach as the component path above.
             if (this.actionController) {
                 const liveEntity = this.getEntity(entity.id);

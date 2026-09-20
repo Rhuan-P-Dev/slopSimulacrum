@@ -21,4 +21,4 @@ ID generation and parsing are centralized (one module generates, one module reso
 ## References
 
 - Related wiki: [Unique ID System](unique_id_system.md)
-- Related bugs: [BUG-106](../bugfixWiki/architectural/BUG-106-missing-typed-id-system.md), [BUG-107](../bugfixWiki/architectural/BUG-107-typed-id-system-partial-adoption.md), [BUG-108](../bugfixWiki/architectural/BUG-108-synthetic-equipped-id-format.md)
+- Related bugs: [BUG-106](../../bugfixWiki/architectural/BUG-106-missing-typed-id-system.md), [BUG-107](../../bugfixWiki/architectural/BUG-107-typed-id-system-partial-adoption.md), [BUG-108](../../bugfixWiki/architectural/BUG-108-synthetic-equipped-id-format.md)

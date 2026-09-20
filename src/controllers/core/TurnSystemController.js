@@ -1,7 +1,7 @@
 /**
  * TurnSystemController — State owner of the event-driven round/turn system.
  *
- * Spec v2 (wiki/two_phase_turns_design.md): planning has NO end time. A round
+ * Spec v2 (wiki/subMDs/controllers/npc_ai_controller.md): planning has NO end time. A round
  * is a REDEZVOUS, not a time span: the round number is STORED state
  * (incremented when a round starts), nothing is derived from the tick clock,
  * and the tick job owns no round geometry.
@@ -443,7 +443,7 @@ class TurnSystemController {
     }
 
     // =========================================================================
-    // BARRIER API (two-phase turns — design spec §1.5/§2.4)
+    // BARRIER API (two-phase turns — wiki/subMDs/controllers/npc_ai_controller.md)
     // =========================================================================
 
     /**
@@ -495,7 +495,7 @@ class TurnSystemController {
     }
 
     // =========================================================================
-    // PERSISTENCE (spec §5.9 + design spec §8) — schema STAYS v3
+    // PERSISTENCE (spec §5.9  — schema STAYS v3
     // =========================================================================
 
     /**
@@ -586,7 +586,7 @@ class TurnSystemController {
         const round = this._beginRoundBookkeeping();
         this._resetBarrierForNewRound();
         // Turn-driven IC effects fire at ROUND START, before agents plan
-        // (spec: wiki/turn_driven_ic_and_flow_spec.md). Guarded: a hook failure
+ // (spec: wiki/subMDs/systems/energy_flow.md). Guarded: a hook failure
         // must never break the round machine.
         if (this._turnStartHook) {
             try {

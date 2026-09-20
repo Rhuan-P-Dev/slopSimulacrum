@@ -23,5 +23,5 @@ Data validation should be added to detect and reject circular references during 
 
 ## References
 
-- Related wiki: `wiki/nested_inventory_design.md`
+- Related wiki: `wiki/subMDs/data/inventory_system.md`
 - Related controller: `InventoryManager`

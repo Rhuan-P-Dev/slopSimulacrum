@@ -30,7 +30,7 @@ At the time of this fix the path's no-propagation rule meant the chunk-drop step
 ## Prevention
 
 - A **unit** test pins the builder's contract for both models: the channel is preserved, the value resolves to the attacker's declared stat (not unconditionally to strength), and the legacy trait/stat form keeps its signed-delta shape. A dedicated case covers a channel action whose value is a **non-strength** stat — the exact shape the old rebuild would have silently mis-scaled.
-- A **contract** test drives a real two-fist punch through the whole pipeline and asserts formula-exact synergy-scaled loss, the per-attacker result shape, and — with real, non-vacuous checks — the per-fist drop behavior that D11 now specifies: one chunk per successful roll, volume derived from that fist's own loss, forced per-roll independence, and a clean feature-off degradation (D11, revised; see BUG-134).
+- A **contract** test drives a real two-fist punch through the whole pipeline and asserts formula-exact synergy-scaled loss, the per-attacker result shape, and — with real, non-vacuous checks — the per-fist drop behavior that the refined no-aggregation rule now specifies: one chunk per successful roll, volume derived from that fist's own loss, forced per-roll independence, and a clean feature-off degradation (revised rule; see BUG-134).
 - Two related gaps are known and intentionally left for separate work (neither blocks this fix): the punch's **log message** still prints its raw strength placeholder, because log text is stored outside the consequence's parameters and is not placeholder-resolved on this path; and the punch's **synergy configuration** declares a damage-cap requirement key that no code currently reads.
 
 ## References

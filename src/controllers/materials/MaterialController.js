@@ -103,7 +103,7 @@ class MaterialController {
      *   - Present but the wrong type (array / string / number / boolean) → a
      *     TypeError (structural malformation → boot failure).
      *   - Present and a non-empty object → validated: every material key must exist
-     *     in the materials registry (cross-validation, D2), each value must be an
+     *     in the materials registry (cross-validation), each value must be an
      *     object of channel → number, each channel must be a known DAMAGE_CHANNELS
      *     entry, and each percentage must be a finite number ≥ 0. If a material's
      *     percentages don't sum to 100 (beyond tolerance) they are proportionally
@@ -139,7 +139,7 @@ class MaterialController {
             // Skip comment / metadata keys (JSON has no native comments; a "_"-prefixed
             // key is a human note, not a material — e.g. the file's _comment header).
             if (material.startsWith('_')) continue;
-            // Cross-validation (D2): every damage-file material must be a known material.
+            // Cross-validation: every damage-file material must be a known material.
             if (!this.materialsRegistry[material]) {
                 throw new TypeError(`Material damage-types: unknown material "${material}" (not in data/materials.json).`);
             }
@@ -161,7 +161,7 @@ class MaterialController {
                 normalized[channel] = pct;
                 sum += pct;
             }
-            // Normalization (tuning drift, D9): rescale to 100 only when off beyond
+            // Normalization (tuning drift): rescale to 100 only when off beyond
             // tolerance; otherwise store as-is (avoids needless float churn).
             if (Math.abs(sum - 100) > DAMAGE_TYPE_SUM_TOLERANCE) {
                 Logger.warn(`[MaterialController] Material damage-types: percentages for "${material}" sum to ${Math.round(sum * STAT_PRECISION) / STAT_PRECISION}, not 100 — proportionally rescaled to 100.`);
@@ -314,7 +314,7 @@ class MaterialController {
             for (const [material, entry] of Object.entries(rawMaterials)) {
                 // Skip comment / metadata keys (a "_"-prefixed key is a human note).
                 if (material.startsWith('_')) continue;
-                // Cross-validation (D2/D9): every drop-file material must be a known material.
+                // Cross-validation: every drop-file material must be a known material.
                 if (!this.materialsRegistry[material]) {
                     throw new TypeError(`Material drop-rates: unknown material "${material}" (not in data/materials.json).`);
                 }
@@ -352,7 +352,7 @@ class MaterialController {
     }
 
     /**
-     * Returns the global floor applied to any dropped chunk volume (feature 2, D7).
+     * Returns the global floor applied to any dropped chunk volume (feature 2).
      * @returns {number} The minimum chunk volume (0 when the feature is off or no floor
      *   is declared — a 0 floor makes max(min, fraction×lost) a no-op).
      */
@@ -402,7 +402,7 @@ class MaterialController {
      * Validates the mapping registry: each key must match the shared
      * TRAIT_STAT_KEY_PATTERN (shared/StatVocabulary.js — the same constant the
      * KnowledgeController validator uses, so the two cannot disagree on key
-     * form; spec §2 risk R3); each entry must have either a `formula` string or
+     * form); each entry must have either a `formula` string or
      * a non-empty `sources` object ("at least one" — deliberately lax).
      * @param {Object} registry
      * @returns {Object}

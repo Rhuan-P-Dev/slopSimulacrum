@@ -25,7 +25,6 @@ The membership test now runs against the object's **values** (the actual channel
 
 ## References
 
-- Feature spec: [`wiki/material_damage_and_drop_spec.md`](../../material_damage_and_drop_spec.md) (§D3)
 - Related wiki: [`wiki/subMDs/data/material_damage_and_drop.md`](../../subMDs/data/material_damage_and_drop.md)
 - Related tests: [`test/contract/materialDamageSplit.contract.test.js`](../../../test/contract/materialDamageSplit.contract.test.js), [`test/unit/materialDamageTypes.test.js`](../../../test/unit/materialDamageTypes.test.js)
 - Related controller: `DamageConsequenceHandler`

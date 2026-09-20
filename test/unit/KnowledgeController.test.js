@@ -1,5 +1,5 @@
 /**
- * KnowledgeController unit tests (knowledge_viewer_spec.md §7.1).
+ * KnowledgeController unit tests (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * Covers:
  *   - Validation (fail-fast): the 7 TypeError cases (7.1.1–7.1.7).
@@ -140,7 +140,7 @@ function build(overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// VALIDATION — fail-fast at boot (knowledge_viewer_spec.md §7.1.1–7.1.7)
+// VALIDATION — fail-fast at boot (wiki/subMDs/frontend/knowledge_viewer.md)
 // ---------------------------------------------------------------------------
 
 describe('KnowledgeController — validation (fail-fast)', () => {
@@ -210,7 +210,7 @@ describe('KnowledgeController — validation (fail-fast)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// CONSTRUCTION — empty / fallback registries (knowledge_viewer_spec.md §7.1.8)
+// CONSTRUCTION — empty / fallback registries (wiki/subMDs/frontend/knowledge_viewer.md)
 // ---------------------------------------------------------------------------
 
 describe('KnowledgeController — empty fallback construction', () => {
@@ -242,7 +242,7 @@ describe('KnowledgeController — empty fallback construction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getKnowledge() CONTRACT (knowledge_viewer_spec.md §7.1.9–7.1.12)
+// getKnowledge() CONTRACT (wiki/subMDs/frontend/knowledge_viewer.md)
 // ---------------------------------------------------------------------------
 
 describe('KnowledgeController — getKnowledge() contract', () => {

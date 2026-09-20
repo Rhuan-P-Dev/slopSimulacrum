@@ -18,11 +18,11 @@ The project lacked a stable, enforced contract for the internal connection stora
 - **main (HEAD)** used a flat string format: `connections[door] = "uid"` — optimized for simple room-to-room lookups without metadata.
 - **map-door-click-range** used an object format: `connections[door] = { target: "uid" }` — aligned with the wiki's extensible design and the actual `data/rooms.json` structure.
 
-Both formats were functionally correct within their own branch but incompatible when combined. The absence of a single source of truth for the connection format meant each branch evolved in isolation, assuming their format was the canonical one. This violated the project's "Single Source of Truth" constraint from [Project Rules](../project_rules.md) Section 2, where state format should be determined by the root controller's public API contract.
+Both formats were functionally correct within their own branch but incompatible when combined. The absence of a single source of truth for the connection format meant each branch evolved in isolation, assuming their format was the canonical one. This violated the project's "Single Source of Truth" constraint from [Project Rules](../../project_rules.md) Section 2, where state format should be determined by the root controller's public API contract.
 
 The deeper issue is that `WorldGraphBuilder` — as a consumer of room connection data — had no defense against receiving either format. It blindly passed through whatever `connData` it received from the rooms controller, trusting a single format without validation. This is why the mismatch went undetected: the builder acted as a pass-through rather than a normalizer, propagating the format inconsistency to every downstream consumer (the World Map view, room connection renderer, etc.).
 
-Additionally, the wiki's [`rooms_controller.md`](../subMDs/controllers/rooms_controller.md) had already specified the object format as the target design with `getConnectionTarget()` as the designated accessor — but main's implementation skipped this accessor and read connections directly, creating a divergence from documented architecture.
+Additionally, the wiki's [`rooms_controller.md`](../../subMDs/controllers/rooms_controller.md) had already specified the object format as the target design with `getConnectionTarget()` as the designated accessor — but main's implementation skipped this accessor and read connections directly, creating a divergence from documented architecture.
 
 ## Fix
 

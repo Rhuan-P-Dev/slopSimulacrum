@@ -1,5 +1,5 @@
 /**
- * WorldStateController.getKnowledge — unit tests (knowledge_viewer_spec.md §4.3).
+ * WorldStateController.getKnowledge — unit tests (wiki/subMDs/frontend/knowledge_viewer.md).
  *
  * Covers the facade's knowledge passthrough in both wiring states:
  *   - wired: getKnowledge() returns the knowledge controller's payload

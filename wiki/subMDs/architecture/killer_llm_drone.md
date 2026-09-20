@@ -52,4 +52,4 @@ The drone is a "killer" in intent, not in reliability guarantees: with the backe
 
 - [Communication and Error Handling](../networking/communication.md) — why LLM output is treated as untrusted external data and validated at one centralized boundary
 - [NPC AI Controller](../controllers/npc_ai_controller.md) — the deterministic-brain counterpart, and the shared routing predicate that separates the two decision systems
-- [Nested Inventory Design](../../nested_inventory_design.md) — the flat, polymorphic container model that the pre-filled `contents` mechanism nests into
+- [Inventory System](../data/inventory_system.md) — the flat, polymorphic container model that the pre-filled `contents` mechanism nests into

@@ -216,7 +216,7 @@ class stateEntityController {
 
     /**
      * Removes a component from an entity's components array via filter (substitution, never in-place).
-     * §3.5.2(b): concurrent-safe removal — loop over old array is safe because we return new reference.
+     * Concurrent-safe removal — loop over old array is safe because we return new reference.
      * @param {string} entityId - The entity ID.
      * @param {string} componentId - The component instance ID to remove.
      * @returns {boolean} True if the component was found and removed.
