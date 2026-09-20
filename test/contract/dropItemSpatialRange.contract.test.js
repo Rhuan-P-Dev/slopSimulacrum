@@ -52,9 +52,10 @@ function createWorldWithDroid() {
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-    // Find the client droid (not an NPC — data/npcs.json spawns a Rogue Droid).
+    // Find the client droid (not an NPC — data/npcs.json spawns a Rogue Droid —
+    // and not a static world object/prop, which has no holding component).
     const allEntities = Object.values(world.stateEntityController.entities);
-    const entity = allEntities.find(e => e.isNPC !== true) || allEntities[0];
+    const entity = allEntities.find(e => e.isNPC !== true && e.isStatic !== true) || allEntities[0];
     expect(entity, 'a client droid must be spawned').toBeTruthy();
 
     // The dropItem action requires the host component to possess strength

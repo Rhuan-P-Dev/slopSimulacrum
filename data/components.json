@@ -146,5 +146,11 @@
     "form": { "volume": 6, "position": { "x": 12, "y": -8 } },
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
     "internalComponents": []
+  },
+  "tree": {
+    "name": "Tree",
+    "form": { "volume": 40, "position": { "x": 0, "y": 0 } },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": []
   }
 }

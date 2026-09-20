@@ -33,11 +33,24 @@ export const AppConfig = {
             REPAIR_SPHERE_FILL: '#00ccff',
             REPAIR_SPHERE_STROKE: '#0099cc',
         },
+        // Static world objects (props) — rendered on the objects-layer, behind
+        // entities. Distinct from the entity/interaction palette: these are
+        // inert scenery, not actors.
+        WORLD_OBJECT: {
+            CANOPY: '#2e7d32',
+            CANOPY_HURT: '#a1742b',
+            CANOPY_STROKE: '#1b5e20',
+            TRUNK: '#6d4c41',
+            LABEL: '#a5d6a7',
+        },
     },
     MARKER_SIZES: {
         ENTITY_RADIUS: 12,
         COMPONENT_RADIUS: 5,
         INTERNAL_COMPONENT_RADIUS: 3,
+        OBJECT_CANOPY_RADIUS: 10,
+        OBJECT_TRUNK_WIDTH: 5,
+        OBJECT_TRUNK_HEIGHT: 12,
     },
     TARGETING: {
         // Phase 4: renamed from PUNCH_TOLERANCE — the constant is the generic

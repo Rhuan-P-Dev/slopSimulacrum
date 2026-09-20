@@ -100,6 +100,7 @@ Additional reference documentation for specific systems and components, organize
 - [Unique ID System](subMDs/systems/unique_id_system.md) — Self-describing typed IDs (ent-, comp-, item-, eq-) for unambiguous client-server resolution
 - [Crafting System](subMDs/systems/crafting_system.md) — Data-driven recipes, UI-panel crafting on a component's inventory, no turn cost
 - [Energy Flow System](subMDs/systems/energy_flow.md) — Why the flow is designed as one fully-interconnected entity network (simultaneous turn-start redistribution, capacity bounds with lost overflow, drains that are not damage, total degradation via one world-rule key, silent steady state, one broadcast per turn) — **currently off by data**: the `energyFlow` rule was removed from `data/world_rules.json`; the code path stays intact and is re-activatable by data
+- [World Objects (Static Props)](subMDs/systems/world_objects.md) — Why props are **static entities** (so they can be hit, broken, and harvested through the normal combat pipeline), why the `isStatic` flag is the one thing that keeps them out of the turn roster (or the all-ready planning barrier would never close), why their matter comes from a blueprint (one source of truth for "100% wood"), and why they serialize/restore like any other entity
 
 ### 🐛 Bug Tracking
 - [Bugfix Wiki](bugfixWiki/README.md) — Centralized bug database with severity classifications and resolution tracking

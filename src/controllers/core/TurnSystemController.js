@@ -927,7 +927,12 @@ class TurnSystemController {
     _computeActorOrder() {
         const entities = this._getEntities();
         return Object.values(entities)
-            .filter(entity => entity && entity.id)
+            // Static world objects (props) are real entities but NEVER planners:
+            // they are excluded from the actor order (and thus from the barrier
+            // roster, which is a snapshot of it). A prop never signals, so if it
+            // were in the roster the all-ready planning barrier could never
+            // close and the world would stall. (wiki/subMDs/systems/world_objects.md)
+            .filter(entity => entity && entity.id && entity.isStatic !== true)
             .map(entity => ({
                 entityId: entity.id,
                 name: entity.name || entity.blueprint || entity.id,

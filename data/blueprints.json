@@ -48,5 +48,8 @@
     ["m1Finger", "left"],
     ["m1Finger", "middle"],
     ["m1Finger", "right"]
+  ],
+  "tree": [
+    "tree"
   ]
 }
