@@ -380,11 +380,15 @@ export function buildWorldState(tickSystem = null) {
     synergyController.setWorldStateController(worldStateController);
     actionController.setWorldStateController(worldStateController);
     consequenceHandlers.setWorldStateController(worldStateController);
-    // onDamage listener: inject the facade (post-construction) so handleDamage can
-    // read component/entity/material state via the public API.
-    onDamageDropListener.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
+    // onDamage listener: injected AFTER world init (below) so that the INIT
+    // damage events fired by initializeWorld() / scanAllCapabilities() reach the
+    // listener with its worldStateController still null (a no-op per the listener's
+    // null-guard). Once init is complete, the listener has a valid facade for all
+    // real damage (equip-cost, cut, shoot, removal cascades). This also lets the
+    // test suite pin the Bernoulli stream via buildWorldState before the first
+    // post-init damage event can draw.
  // Per-turn subsystem steps at ROUND START (wiki/subMDs/systems/energy_flow.md).
     // Wired here (composition root) because the turn system, the IC controller
     // and the flow controller are siblings — none owns another. The hook
@@ -460,6 +464,17 @@ export function buildWorldState(tickSystem = null) {
     // =========================================================================
     worldStateController.initializeWorld();
     worldStateController.actionController.scanAllCapabilities(worldStateController.getAll());
+
+    // onDamage listener: inject the facade (post-construction) so handleDamage can
+    // read component/entity/material state via the public API. Wired HERE — after
+    // world init — so that the INIT damage events fired by initializeWorld() and
+    // scanAllCapabilities() reach the listener with its worldStateController still
+    // null (a no-op per the listener's null-guard). Once init is complete, the
+    // listener has a valid facade for all real damage (equip-cost, cut, shoot, and
+    // removal cascades). Deferring this injection also lets the test suite pin the
+    // Bernoulli stream via buildWorldState() before the first post-init damage
+    // event can draw with the production Math.random.
+    onDamageDropListener.setWorldStateController(worldStateController);
 
     // =========================================================================
     // 6. RETURN the assembled facade + a named sub-controller map.
