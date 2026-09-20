@@ -58,7 +58,11 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
     // `isNPC` field (already merged into the record before this
     // observer runs): no separate boot-time flag is stored anywhere, so
     // nothing can leak into persistence snapshots or broadcasts.
-    if (facade.stateEntityController.getEntity(entityId)?.isNPC === true) {
+    // Static world objects (props) opt out too: a decorative tree is not a
+    // droid and must never receive the player's world.json loadout (see
+    // wiki/subMDs/systems/world_objects.md).
+    const _spawnEntity = facade.stateEntityController.getEntity(entityId);
+    if (_spawnEntity?.isNPC === true || _spawnEntity?.isStatic === true) {
         return { applied: 0, failed: 0 };
     }
 

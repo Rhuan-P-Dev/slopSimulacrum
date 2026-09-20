@@ -1,0 +1,9 @@
+{
+  "_comment": "World objects (props) placed in rooms at boot. Each entry is materialized as a STATIC ENTITY: a real entity built from the named blueprint (data/blueprints.json), tagged isStatic, in the declared room (logical id from data/rooms.json) at a room-relative position (room center is {0,0}; negative y is toward the top edge). Because it is a real entity, an object's matter is real, validated data and it can be TARGETED and damaged by the normal combat pipeline (a punch drains its component's existence; at 0 it breaks, drops material chunks and despawns). Because it is isStatic it is excluded from the turn roster, so it never plans, never signals, and never gates the all-ready planning barrier (a prop must never be a planner, or the world would stall). See wiki/subMDs/systems/world_objects.md.",
+  "tree": {
+    "name": "Tree",
+    "blueprint": "tree",
+    "room": "start_room",
+    "position": { "x": 0, "y": -80 }
+  }
+}

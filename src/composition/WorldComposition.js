@@ -214,6 +214,9 @@ export function buildWorldState(tickSystem = null) {
     });
     const internalComponentController = new InternalComponentController(null, tickSystem);
     const roomsController = new RoomsController();
+    // World objects (props) are spawned as isStatic entities by the facade's
+    // initializeWorld() → _spawnStaticProps() (see
+    // wiki/subMDs/systems/world_objects.md); no separate controller is needed.
     const inventoryManager = new InventoryManager({ materialController });
     // Feature B: world event ring buffer (state owner; capacity WORLD_EVENTS_MAX_LIMIT per spec §4.1)
     const worldEventLogController = new WorldEventLogController(WORLD_EVENTS_MAX_LIMIT);

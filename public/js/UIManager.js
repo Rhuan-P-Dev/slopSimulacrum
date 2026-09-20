@@ -19,6 +19,7 @@ export class UIManager {
             roomCoords: document.getElementById('current-room-coords'),
             // SVG layers
             roomLayer: document.getElementById('room-layer'),
+            objectsLayer: document.getElementById('objects-layer'),
             entitiesLayer: document.getElementById('entities-layer'),
             componentsLayer: document.getElementById('components-layer'),
             // Detail overlay
@@ -80,6 +81,13 @@ export class UIManager {
 
         // Render map layers
         this._renderRoom(room);
+        // Static world objects (props) are isStatic entities; draw them on their
+        // own objects-layer (behind the droids). _renderEntities skips isStatic
+        // below, so a prop is drawn exactly once, here, never as a droid marker.
+        const props = Object.values(state.entities || {}).filter(
+            e => e && e.isStatic === true && e.location === room.id
+        );
+        this._renderWorldObjects(room, props, state);
         this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id, onDoorHover, onDoorLeave);
         this._renderEntities(room, state.entities, droid.id, onEntityClick);
         this._renderDroidComponents(droid, state);
@@ -90,6 +98,7 @@ export class UIManager {
         this.elements.roomDesc.textContent = "The simulation is empty.";
         this.elements.roomCoords.textContent = "";
         this.elements.roomLayer.innerHTML = '';
+        this.elements.objectsLayer.innerHTML = '';
         this.elements.entitiesLayer.innerHTML = '';
         this.elements.componentsLayer.innerHTML = '';
     }
@@ -363,7 +372,11 @@ export class UIManager {
         const entitiesLayer = this.elements.entitiesLayer;
         entitiesLayer.innerHTML = '';
 
-        const roomEntities = Object.values(entities || {}).filter(e => e.location === room.id);
+        // isStatic world objects (props) are drawn on the objects-layer by
+        // _renderWorldObjects — never as droid markers (a prop is not a droid).
+        const roomEntities = Object.values(entities || {}).filter(
+            e => e.location === room.id && e.isStatic !== true
+        );
 
         roomEntities.forEach(entity => {
             const entityX = AppConfig.VIEW.CENTER_X + (entity.spatial?.x || 0);
@@ -406,6 +419,98 @@ export class UIManager {
             label.textContent = entity.name || 'Droid';
 
             entitiesLayer.appendChild(label);
+        });
+    }
+
+    /**
+     * Renders the static world objects (props) that live in the given room onto
+     * the objects-layer. A prop is an isStatic entity (see
+     * wiki/subMDs/systems/world_objects.md); it is drawn as a simple trunk +
+     * canopy whose size and color track the surviving existence of its
+     * component — so a prop visibly degrades as it is hit and vanishes once
+     * broken.
+     *
+     * Rendered on a dedicated objects-layer (NOT the entities-layer): the
+     * entities-layer is wiped + re-drawn inside _renderEntities() on the
+     * updateEntityAndComponentViews() pass, which would otherwise destroy the
+     * props within the same update that drew them. The objects-layer is
+     * re-rendered by _renderWorldObjects on every full updateWorldView(), which
+     * runs on every world-state-update broadcast — so prop HP and
+     * break-then-despawn stay in sync with the server.
+     * @param {Object} room - The current room (props are pre-filtered to it).
+     * @param {Array} [props] - The isStatic entities in this room.
+     * @param {Object} [state] - The full world state (used to read each prop's
+     *   component existence from state.components.instances).
+     * @private
+     */
+    _renderWorldObjects(room, props, state) {
+        const objectsLayer = this.elements.objectsLayer;
+        objectsLayer.innerHTML = '';
+
+        if (!objectsLayer || !room || !Array.isArray(props) || props.length === 0) return;
+
+        const instances = (state && state.components && state.components.instances) || {};
+        const colors = AppConfig.COLORS.WORLD_OBJECT;
+
+        props.forEach(obj => {
+            const x = AppConfig.VIEW.CENTER_X + (obj.spatial?.x || 0);
+            const y = AppConfig.VIEW.CENTER_Y + (obj.spatial?.y || 0);
+
+            // A prop's existence is the existence of its (first) component —
+            // the live 0-1 matter store a punch/cut drains.
+            const cid = Array.isArray(obj.components) && obj.components[0] && obj.components[0].id;
+            const existence = cid && instances[cid] && instances[cid].Physical
+                ? (typeof instances[cid].Physical.existence === 'number' ? instances[cid].Physical.existence : 1)
+                : 1;
+            const frac = Math.max(0, Math.min(1, existence));
+
+            const canopyR = AppConfig.MARKER_SIZES.OBJECT_CANOPY_RADIUS;
+            const trunkW = AppConfig.MARKER_SIZES.OBJECT_TRUNK_WIDTH;
+            const trunkH = AppConfig.MARKER_SIZES.OBJECT_TRUNK_HEIGHT;
+
+            // Group so the hover <title> applies to the whole object.
+            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            group.setAttribute("class", "world-object");
+
+            // Hover tooltip: name + surviving existence percentage.
+            const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            title.textContent = `${obj.name || 'Object'} — ${Math.round(frac * 100)}%`;
+
+            // Trunk (added first so the canopy paints over it).
+            const trunk = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            trunk.setAttribute("x", x - trunkW / 2);
+            trunk.setAttribute("y", y);
+            trunk.setAttribute("width", trunkW);
+            trunk.setAttribute("height", trunkH);
+            trunk.setAttribute("fill", colors.TRUNK);
+
+            // Canopy: shrinks + browns as the prop's existence drops (HP
+            // feedback without an extra panel). A near-zero prop is a stub.
+            const liveCanopyR = canopyR * (0.55 + 0.45 * frac);
+            const canopy = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            canopy.setAttribute("cx", x);
+            canopy.setAttribute("cy", y - liveCanopyR);
+            canopy.setAttribute("r", liveCanopyR);
+            canopy.setAttribute("fill", frac > 0.5 ? colors.CANOPY : colors.CANOPY_HURT);
+            canopy.setAttribute("stroke", colors.CANOPY_STROKE);
+            canopy.setAttribute("stroke-width", "1.5");
+
+            group.appendChild(title);
+            group.appendChild(trunk);
+            group.appendChild(canopy);
+
+            // Name label
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            label.setAttribute("x", x);
+            label.setAttribute("y", y + trunkH + 12);
+            label.setAttribute("text-anchor", "middle");
+            label.setAttribute("fill", colors.LABEL);
+            label.setAttribute("font-size", "9");
+            label.style.pointerEvents = 'none';
+            label.textContent = obj.name || 'Object';
+
+            objectsLayer.appendChild(group);
+            objectsLayer.appendChild(label);
         });
     }
 

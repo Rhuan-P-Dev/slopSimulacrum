@@ -135,9 +135,20 @@ beforeAll(() => {
         .filter(([, entry]) => entrySpawnableInCurrentEnv(entry))
         .length;
 
+    // World objects (static props) from data/worldObjects.json — counted the
+    // same data-driven way _spawnStaticProps() materializes them (one isStatic
+    // entity per non-underscore entry whose blueprint resolves). Mirrors
+    // production so the expected entity total tracks whatever the data file
+    // actually declares (see wiki/subMDs/systems/world_objects.md).
+    const rawProps = DataLoader.loadJsonSafe('data/worldObjects.json', {});
+    const rawBlueprints = DataLoader.loadJsonSafe('data/blueprints.json', {});
+    const staticPropCount = Object.entries(rawProps || {})
+        .filter(([k, p]) => !k.startsWith('_') && p && typeof p.blueprint === 'string' && rawBlueprints[p.blueprint])
+        .length;
+
     // Stored for use in tests (1 test-spawned droid + the gate-aware spawnable
-    // count + the raw registry for per-entry checks).
-    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, registry: npcRegistry };
+    // count + the static-prop count + the raw registry for per-entry checks).
+    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, staticPropCount, registry: npcRegistry };
 
     // Spawn a test droid (the default world has zero pre-spawned droids after
     // removing the client/vault guardian spawns). This gives the contract tests
@@ -328,11 +339,16 @@ describe('WorldStateController.getAll() shape', () => {
         // (data-driven and gate-aware — e.g. the killer LLM drone is excluded
         // by default and included in a gate-ON run).
         const expectedNpcCount = wsc._npcTestData?.spawnableNpcCount ?? 0;
-        expect(ids.length).toBe(1 + expectedNpcCount);
+        // + the static world objects (props) materialized by _spawnStaticProps:
+        // they are real entities (isStatic) but never actors, so they count
+        // toward the entity total but not the turn roster.
+        const expectedPropCount = wsc._npcTestData?.staticPropCount ?? 0;
+        expect(ids.length).toBe(1 + expectedNpcCount + expectedPropCount);
 
         for (const id of ids) {
             const entity = state.entities[id];
             expect(typeOf(entity)).toBe('object');
+            const isStaticProp = entity.isStatic === true;
 
             // Exact per-entity key set (broadcast adds `equipped` later, not here).
             // Feature D: NPC entities (data/npcs.json) carry the extra spawn
@@ -346,6 +362,31 @@ describe('WorldStateController.getAll() shape', () => {
             // in-memory _npcSpawnFlags set and must NEVER appear on the entity
             // record (audit: it used to leak into serialize() snapshots).
             const isNpc = entity.isNPC === true;
+            // A static world object (prop) is neither an NPC nor a player
+            // droid: it carries the base shape PLUS isStatic + name (its
+            // display name) and NO items key (the spawn observer opts static
+            // props out of the world.json loadout before the items slot is ever
+            // created, so a prop never carries an inventory).
+            if (isStaticProp) {
+                // No `items` key: the spawn observer opts static props out of
+                // the world.json loadout BEFORE the items slot is ever created,
+                // so a prop never carries an inventory.
+                expect(keysOf(entity)).toEqual([
+                    'blueprint',
+                    'components',
+                    'id',
+                    'internalComponents',
+                    'isStatic',
+                    'location',
+                    'name',
+                    'spatial',
+                    'status',
+                ]);
+                expect(entity.isStatic).toBe(true);
+                expect(typeOf(entity.name)).toBe('string');
+                expect(entity).not.toHaveProperty('items');
+                continue;
+            }
             const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
             const npcHasInitialItems = Boolean(
                 npcRegistryEntry

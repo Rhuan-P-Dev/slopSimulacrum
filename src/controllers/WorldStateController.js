@@ -1,3 +1,4 @@
+import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
@@ -361,12 +362,96 @@ class WorldStateController {
      * player droids are incarnated only via socket connection.
      */
     initializeWorld() {
+        // Static world objects (props) declared in data/worldObjects.json are
+        // materialized as isStatic entities (see _spawnStaticProps). Spawned
+        // first so they are settled scenery before the actors arrive.
+        this._spawnStaticProps();
         // Feature D (spec §7.2): spawn the data-driven NPCs from data/npcs.json
         // (e.g. "Bolt the Merchant" in the start room). NPCs are NOT in
         // world.json initialSpawns — their goods come from initialItems.
         this._spawnNpcs();
     }
 
+    /**
+     * Spawns every world object (prop) declared in data/worldObjects.json as a
+     * STATIC entity.
+     *
+     * A prop is a real entity built from a blueprint — not a parallel, non-entity
+     * store — so it reuses the entire combat pipeline for free: its component
+     * carries a live existence stat that a punch/cut can drain, and when it
+     * breaks it drops material chunks and despawns via the normal broken-
+     * component cascade. It is tagged `isStatic: true`, which the turn system
+     * uses to exclude it from the planner roster (a prop never plans, signals,
+     * or gates the all-ready barrier — the load-bearing invariant that keeps a
+     * decorative object from stalling the world). See
+     * wiki/subMDs/systems/world_objects.md.
+     *
+     * Registry shape (key = stable registry key; the key is cosmetic here — the
+     * runtime identity is the spawned entity's id):
+     *   { [key]: { name, blueprint, room, position?: { x, y } } }
+     *
+     * Per entry (each concern fails independently — one malformed entry never
+     * aborts the others, the same tolerance as _spawnNpcs): missing/non-object
+     * entry warn-skip → name/blueprint check → blueprint-known check → room
+     * logical→uid resolution → spawnEntity({ isStatic: true, name }) → position.
+     * Tolerant of a missing/malformed file — a boot-time warning, never a crash.
+     * @private
+     */
+    _spawnStaticProps() {
+        const raw = DataLoader.loadJsonSafe('data/worldObjects.json', {});
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            return; // no world-object registry configured — not an error
+        }
+        const blueprints = this.entityController.getBlueprints?.() || {};
+
+        let count = 0;
+        for (const [key, entry] of Object.entries(raw)) {
+            if (key.startsWith('_')) continue; // documentation keys
+            try {
+                if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                    Logger.warn(`[WorldStateController] worldObjects.json: entry "${key}" is malformed — skipped.`);
+                    continue;
+                }
+                const name = typeof entry.name === 'string' && entry.name.trim() !== '' ? entry.name : key;
+                const blueprint = entry.blueprint;
+                if (typeof blueprint !== 'string' || !blueprints[blueprint]) {
+                    Logger.warn(`[WorldStateController] worldObjects.json: "${name}" has unknown blueprint "${blueprint}" — skipped.`);
+                    continue;
+                }
+                const roomLogicalId = typeof entry.room === 'string' ? entry.room : 'start_room';
+                const roomUid = this.roomsController.getUidByLogicalId(roomLogicalId);
+                if (!roomUid) {
+                    Logger.warn(`[WorldStateController] worldObjects.json: "${name}" has unknown room "${roomLogicalId}" — skipped.`);
+                    continue;
+                }
+
+                const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
+                    isStatic: true,
+                    name
+                });
+                if (!entityId) {
+                    Logger.warn(`[WorldStateController] World object spawn failed for blueprint "${blueprint}".`);
+                    continue;
+                }
+
+                // Room-relative position (room center is {0,0}). Absent → center.
+                const pos = entry.position && typeof entry.position === 'object'
+                    ? { x: Number(entry.position.x) || 0, y: Number(entry.position.y) || 0 }
+                    : { x: 0, y: 0 };
+                this.stateEntityController.updateEntitySpatial(entityId, pos);
+
+                count++;
+                Logger.info(`[WorldStateController] World object spawned: "${name}" (${blueprint}) in room "${roomLogicalId}" as static entity ${entityId} at (${pos.x}, ${pos.y}).`);
+            } catch (error) {
+                Logger.error(`[WorldStateController] World object spawn failed for "${key}": ${error.message}`);
+            }
+        }
+        if (count > 0) {
+            Logger.info(`[WorldStateController] ${count} world object(s) spawned from data/worldObjects.json.`);
+        }
+    }
+
+    /**
     /**
      * FASE 6 (facade logic extraction): Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`spawnDataDrivenNpcs`). This thin
@@ -874,6 +959,10 @@ class WorldStateController {
             for (const [roomId, room] of Object.entries(restoredRooms)) {
                 this.roomsController.rooms[roomId] = room;
             }
+
+            // (World objects are ordinary entities now — isStatic entities
+            //  restored in the entities step carry their own room/spatial, so
+            //  no separate re-sync is required.)
 
             // 8. Dropped items
             this._droppedItems = structuredClone(s.droppedItems);
