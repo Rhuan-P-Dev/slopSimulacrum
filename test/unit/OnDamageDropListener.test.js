@@ -220,6 +220,108 @@ describe('OnDamageDropListener — stub-deps unit tests (§7.3)', () => {
         expect(facadeCalls.setDroppedItems).toBe(1);
     });
 
+    /**
+     * Builds a facade that mirrors the REAL WorldStateController drop-map semantics:
+     * getDroppedItems() returns a defensive clone; setDroppedItems() REPLACES the
+     * whole map (this._droppedItems = items) — it does NOT merge. This is the shape
+     * under which the bug (a near-empty `batch` replacing the floor) was observable:
+     * the existing unit stubs merge, so they masked the wipe. `dropRef.current` is
+     * a mutable reference so the test can assert the floor after each write.
+     */
+    function makeReplaceFacade(dropRef) {
+        return {
+            getComponent: (id) => (id === COMP_ID ? { id, type: COMP_TYPE, entityId: ENT_ID } : null),
+            getEntity: (id) => (id === ENT_ID ? { id, location: ROOM, spatial: { x: 0, y: 0 } } : null),
+            componentController: {
+                getComponentMaterialsByType: () => ({ [COMP_TYPE]: [{ material: 'iron', fraction: 1.0 }] }),
+                getComponentDefinition: (type) => (type === COMP_TYPE ? { volume: 10 } : null)
+            },
+            getMaterialRegistry: () => ({ materials: { iron: { name: 'Iron' }, wood: { name: 'Wood' } } }),
+            getDroppedItems: () => structuredClone(dropRef.current),
+            setDroppedItems: (items) => { dropRef.writes++; dropRef.current = items; }
+        };
+    }
+
+    it('pre-existing floor items survive a drop on a later damage event (replace-semantics facade) — no silent wipe', () => {
+        const dropRef = {
+            writes: 0,
+            current: {
+                'pre-existing-1': {
+                    id: 'pre-existing-1',
+                    roomId: ROOM,
+                    x: 12.5,
+                    y: 4.25,
+                    itemType: 'chunk_iron',
+                    ownerId: 'ent-9'
+                }
+            }
+        };
+
+        const { listener } = makeListener({
+            entries: [{ drop: 'host_material', percentage: 1.0 }],
+            facade: makeReplaceFacade(dropRef)
+        });
+
+        // 0.01 < 1.0 → a guaranteed drop on this damage event.
+        listener._randomFn = () => 0.01;
+        listener.handleDamage(COMP_ID, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, 10, 8);
+
+        // The pre-existing floor item must STILL be on the ground (not wiped).
+        expect(dropRef.current['pre-existing-1'], 'pre-existing drop must survive the damage drop').toBeDefined();
+        expect(dropRef.current['pre-existing-1'].roomId).toBe(ROOM);
+        expect(dropRef.current['pre-existing-1'].x).toBeCloseTo(12.5, 6);
+        expect(dropRef.current['pre-existing-1'].y).toBeCloseTo(4.25, 6);
+        // The new token landed ALONGSIDE it (add, not replace).
+        expect(Object.keys(dropRef.current)).toHaveLength(2);
+        // One batched write.
+        expect(dropRef.writes).toBe(1);
+    });
+
+    it('rogue killing-blow: pre-existing items survive across multiple hits where one roll a drop (chance)', () => {
+        const dropRef = {
+            writes: 0,
+            current: {
+                'survivor-1': {
+                    id: 'survivor-1',
+                    roomId: ROOM,
+                    x: 7.0,
+                    y: 3.0,
+                    itemType: 'chunk_wood',
+                    ownerId: 'ent-7'
+                }
+            }
+        };
+
+        const { listener } = makeListener({
+            // the shipped world-rule (data/world_rules.json: percentage 0.05)
+            entries: [{ drop: 'host_material', percentage: 0.05 }],
+            facade: makeReplaceFacade(dropRef)
+        });
+
+        // Scripted Bernoulli draws across the rogue's successive hits — this is the
+        // "chance" in the report: without a successful roll the floor is untouched;
+        // with one, the pre-existing drop used to be clobbered.
+        //   hit 1: 0.90 → no drop
+        //   hit 2: 0.90 → no drop
+        //   hit 3: 0.01 → DROP  (the hit that would clobber in the buggy code)
+        //   hit 4: 0.90 → no drop
+        let roll = 0;
+        listener._randomFn = () => ([0.90, 0.90, 0.01, 0.90][roll++] ?? 0.90);
+
+        for (let i = 0; i < 4; i += 1) {
+            const oldV = 15 - i;
+            listener.handleDamage(COMP_ID, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, oldV, oldV - 1);
+        }
+
+        // The survivor must still be on the ground after the rogue's killing blow.
+        expect(dropRef.current['survivor-1'], 'floor item must survive the rogue kill').toBeDefined();
+        expect(dropRef.current['survivor-1'].roomId).toBe(ROOM);
+        expect(dropRef.current['survivor-1'].x).toBeCloseTo(7.0, 6);
+        expect(dropRef.current['survivor-1'].y).toBeCloseTo(3.0, 6);
+        // The 5% roll on hit 3 added a token, so the floor now holds 2 entries.
+        expect(Object.keys(dropRef.current)).toHaveLength(2);
+    });
+
     it('unwired facade / unwired controllers → silent return (no throw, no write)', () => {
         // Unwired facade (never setWorldStateController):
         const noFacade = makeListener({
