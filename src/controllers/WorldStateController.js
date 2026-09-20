@@ -1,18 +1,16 @@
-import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
-import { getDefinitionFootprint } from '../utils/definitionVolume.js';
-import { isEnvFlagOn } from '../utils/Constants.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import IdResolver from '../utils/IdResolver.js';
-import { buildReverseIndex } from '../utils/ComponentDependents.js';
-import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
-import { writeDroppedItem } from '../controllers/consequences/DropItemHandler.js';
+import { DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
 import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
-import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
-import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
+import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
 import { getAttributes } from '../utils/EntityAttributeData.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
+import { spawnDataDrivenNpcs, checkNpcSpawnGate, normalizeNpcAiConfig, buildNpcConfig, applyInitialItems, resolveEquippableHostComponent } from './logic/NpcSpawnLogic.js';
+import { applyInitialSpawns, resolveInitialSpawnSlot } from './logic/InitialSpawnLogic.js';
+import { executeCraftTransaction, resolveCraftTarget, validateCraftInputs, precheckCraftVolume, consumeCraftInputs, produceCraftOutputs, isRecipeInputType } from './logic/CraftingLogic.js';
+import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDirectRemoval, maybeEliminateEntity, removeComponentOrItem, cleanupAfterRemoval, spillAllEntityItems } from './logic/RemovalCascadeLogic.js';
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -370,543 +368,104 @@ class WorldStateController {
     }
 
     /**
-     * Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
-     *
-     * Registry shape (key = blueprint name; the same registry LLMAgentController
-     * validates in its constructor):
-     *   { [blueprint]: { displayName, room, personality, objective?,
-     *                    initialItems? ({ item, count, equip?,
-     *                                     contents? ({ item, count })[] }),
-     *                    maxWorldActionsPerRound?, maxChatMessagesPerRound?,
-     *                    envGate? } }
-     *
-     * Per entry (each concern delegated to a single-purpose helper):
-     *   - `_checkNpcSpawnGate(entry, blueprint)` — the data-driven spawn
-     *     gate: the optional envGate names an env var that must be ON per
-     *     isEnvFlagOn (string equal to "true" after trim and case-folding;
-     *     unset/other values are OFF) for the entry to spawn. The gate is
-     *     read once at bootstrap (spawn time, not a runtime toggle). A
-     *     missing/malformed envGate means "no gate" (the entry spawns
-     *     normally, as before); a gated-out entry is skipped with an info
-     *     log;
-     *   - `_normalizeNpcAiConfig(entry)` — validates the optional ai block
-     *     at boot (behavior/attackRange/attackAction/moveAction), warning
-     *     per invalid field and falling back to the registry defaults;
-     *   - `_buildNpcConfig(entry, normalizedAi)` — assembles the persisted
-     *     npcConfig: personality, the per-round action/chat caps, and the
-     *     normalized ai block; the optional objective is persisted
-     *     alongside personality only when present (non-empty), so existing
-     *     entries keep their exact stored shape;
-     *   - `_applyInitialItems(entityId, entry)` — places each initialItems
-     *     entry on a merchantArm (fallback: first arm-like component, then
-     *     any component) via the existing addItemToEntity() API, nests any
-     *     declared contents into the just-added instance via the public
-     *     addItemToContainer() API, and equips equip: true items on a
-     *     holding-capable component via the public equipItem() API; a
-     *     failed add/equip/nest is a warning only (the item stays held and
-     *     the entity keeps its unequipped baseline — spawn never fails).
-     *
-     * The outer loop (per entry, inside a try/catch): malformed-entry warn
-     * → gate check → displayName/personality check → room logical→UID
-     * resolution → npcConfig build → spawnEntity with extra = { isNPC: true,
-     * name: displayName, npcConfig: {…} } → room-center positioning →
-     * _applyInitialItems. The persisted isNPC field is what makes the
-     * world.json spawn observer bypass the NPC (the declarative spawns
-     * target player-droid component types and would spam warn-logs on an
-     * NPC); no separate opt-out flag is stored — nothing to leak into
-     * serialize() snapshots or broadcasts.
-     *
-     * Tolerant of a missing/malformed registry — a boot-time warning only,
-     * never a crash (the same tolerance as LLMAgentController._loadNpcRegistry).
-     * @private
+     * FASE 6 (facade logic extraction): Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`spawnDataDrivenNpcs`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
      */
     _spawnNpcs() {
-        const raw = DataLoader.loadJsonSafe('data/npcs.json', {});
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            return; // no NPC registry configured — not an error
-        }
-
-        let count = 0;
-        for (const [blueprint, entry] of Object.entries(raw)) {
-            try {
-                if (!entry || typeof entry !== 'object') {
-                    Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" is malformed — skipped.`);
-                    continue;
-                }
-                if (!this._checkNpcSpawnGate(entry, blueprint)) continue;
-                if (typeof entry.displayName !== 'string' || typeof entry.personality !== 'string') {
-                    Logger.warn(`[WorldStateController] npcs.json: entry "${blueprint}" lacks displayName/personality — skipped.`);
-                    continue;
-                }
-                const roomLogicalId = typeof entry.room === 'string' ? entry.room : 'start_room';
-                const roomUid = this.roomsController.getUidByLogicalId(roomLogicalId);
-                if (!roomUid) {
-                    Logger.warn(`[WorldStateController] npcs.json: "${entry.displayName}" has unknown room "${roomLogicalId}" — skipped.`);
-                    continue;
-                }
-                const room = Object.values(this.roomsController.rooms || {}).find(r => r.id === roomUid) || null;
-
-                const normalizedAi = this._normalizeNpcAiConfig(entry);
-
-                const npcConfig = this._buildNpcConfig(entry, normalizedAi);
-
-                const entityId = this.stateEntityController.spawnEntity(blueprint, roomUid, {
-                    isNPC: true,
-                    name: entry.displayName,
-                    npcConfig
-                });
-                if (!entityId) {
-                    Logger.warn(`[WorldStateController] NPC spawn failed for blueprint "${blueprint}".`);
-                    continue;
-                }
-
-                // Position at the room center (spec §7.2).
-                if (room && typeof room.width === 'number' && typeof room.height === 'number') {
-                    this.stateEntityController.updateEntitySpatial(entityId, { x: room.width / 2, y: room.height / 2 });
-                }
-
-                // Apply initialItems (e.g. Bolt's wares) to an arm component.
-                this._applyInitialItems(entityId, entry);
-
-                count++;
-                Logger.info(`[WorldStateController] NPC spawned: "${entry.displayName}" (${blueprint}) in room "${roomLogicalId}" as ${entityId}.`);
-            } catch (error) {
-                Logger.error(`[WorldStateController] NPC spawn failed for "${entry?.displayName || blueprint}": ${error.message}`);
-            }
-        }
-        if (count > 0) {
-            Logger.info(`[WorldStateController] ${count} NPC(s) spawned from data/npcs.json.`);
-        }
+        return spawnDataDrivenNpcs(this);
     }
 
     /**
-     * Data-driven spawn gate for a single registry entry: the optional
-     * `envGate` names an environment variable that must be ON (per
-     * isEnvFlagOn: a string equal to "true" after trim and case-folding) for
-     * the entry to spawn. Unset/empty/malformed envGate means "no gate"
-     * (spawn normally); any other value skips the entry with an info log.
-     * The variable is read once at bootstrap (spawn time), not a runtime
-     * toggle — restarting the server applies changes to it.
-     * @private
-     * @param {Object} entry - The registry entry being checked (known to be
-     *   an object at this point).
-     * @param {string} blueprint - The registry key; used as the display-name
-     *   fallback in the skip log when the entry's displayName is not a string.
-     * @returns {boolean} true = spawn the entry, false = skip it.
+     * FASE 6 (facade logic extraction): Data-driven spawn gate for a single registry entry.
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`checkNpcSpawnGate`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entry
+ * @param {*} blueprint
      */
     _checkNpcSpawnGate(entry, blueprint) {
-        const gateVar = typeof entry.envGate === 'string' ? entry.envGate.trim() : '';
-        if (gateVar === '') return true;
-        if (isEnvFlagOn(process.env[gateVar])) return true;
-        Logger.info(`[WorldStateController] npcs.json: "${typeof entry.displayName === 'string' ? entry.displayName : blueprint}" is gated by ${gateVar} (not "true") — skipped.`);
-        return false;
+        return checkNpcSpawnGate(this, entry, blueprint);
     }
 
     /**
-     * M1 + M4: Validates the optional ai block at boot (behavior,
-     * attackRange, attackAction, moveAction), warning per invalid field and
-     * ignoring the offending value (the registry defaults apply downstream).
-     * @private
-     * @param {Object} entry - The registry entry (used for the displayName in
-     *   the warn logs and for entry.ai).
-     * @returns {Object|null} The normalized `{ behavior[, attackAction,
-     *   moveAction, attackRange] }`, or null when the entry has no usable
-     *   ai block (an LLM-routed NPC).
+     * FASE 6 (facade logic extraction): Validates the optional ai block at boot (M1 + M4).
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`normalizeNpcAiConfig`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entry
      */
     _normalizeNpcAiConfig(entry) {
-        const rawAi = entry.ai;
-        let normalizedAi = null;
-
-        if (rawAi && typeof rawAi === 'object') {
-            const hasValidBehavior = typeof rawAi.behavior === 'string' && rawAi.behavior !== '';
-
-            let hasValidAttackRange = true;
-            if (rawAi.attackRange !== undefined && rawAi.attackRange !== null) {
-                if (typeof rawAi.attackRange === 'number') {
-                    hasValidAttackRange = isFinite(rawAi.attackRange) && rawAi.attackRange > 0;
-                    if (!hasValidAttackRange) {
-                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${rawAi.attackRange} is invalid (must be finite and > 0) — ignoring config value, will use registry fallback.`);
-                    }
-                } else {
-                    Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackRange=${JSON.stringify(rawAi.attackRange)} is present but has type ${typeof rawAi.attackRange}, expected number — ignoring config value, will use registry fallback.`);
-                    hasValidAttackRange = false;
-                }
-            }
-
-            if (hasValidBehavior && hasValidAttackRange) {
-                normalizedAi = { behavior: rawAi.behavior };
-                if (rawAi.attackAction !== undefined && rawAi.attackAction !== null) {
-                    if (typeof rawAi.attackAction === 'string' && rawAi.attackAction !== '') {
-                        normalizedAi.attackAction = rawAi.attackAction;
-                    } else {
-                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.attackAction=${JSON.stringify(rawAi.attackAction)} is present but has type ${typeof rawAi.attackAction}, expected non-empty string — ignoring config value.`);
-                    }
-                }
-                if (rawAi.moveAction !== undefined && rawAi.moveAction !== null) {
-                    if (typeof rawAi.moveAction === 'string' && rawAi.moveAction !== '') {
-                        normalizedAi.moveAction = rawAi.moveAction;
-                    } else {
-                        Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.moveAction=${JSON.stringify(rawAi.moveAction)} is present but has type ${typeof rawAi.moveAction}, expected non-empty string — ignoring config value.`);
-                    }
-                }
-                if (hasValidAttackRange) normalizedAi.attackRange = rawAi.attackRange;
-            } else if (!hasValidBehavior) {
-                Logger.warn(`[WorldStateController] NPC "${entry.displayName}": ai.behavior is missing or empty — AI disabled for this entity.`);
-            }
-        }
-
-        return normalizedAi;
+        return normalizeNpcAiConfig(this, entry);
     }
 
     /**
-     * Assembles the persisted npcConfig for a registry entry: personality,
-     * the per-round action/chat caps (undefined passes through — the agent
-     * applies its own defaults), and the normalized ai block. The optional
-     * objective is added only when present (non-empty string) so existing
-     * entries keep the exact npcConfig shape they stored before the
-     * objective feature.
-     *
-     * Note: the LLM prompt is rendered from the agent's in-memory registry
-     * (LLMAgentController._loadNpcRegistry re-reads data/npcs.json), NOT
-     * from this persisted npcConfig copy — that one exists for
-     * serialization and inspection only; the two stay in sync via the
-     * data file.
-     * @private
-     * @param {Object} entry - The registry entry (displayName and personality
-     *   known to be non-empty-able strings by the caller's checks).
-     * @param {Object|null} normalizedAi - Result of _normalizeNpcAiConfig(entry).
-     * @returns {Object} The npcConfig object stored on the spawned entity.
+     * FASE 6 (facade logic extraction): Assembles the persisted npcConfig for a registry entry.
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`buildNpcConfig`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entry
+ * @param {*} normalizedAi
      */
     _buildNpcConfig(entry, normalizedAi) {
-        const npcConfig = {
-            personality: entry.personality,
-            maxWorldActionsPerRound: entry.maxWorldActionsPerRound,
-            maxChatMessagesPerRound: entry.maxChatMessagesPerRound,
-            ai: normalizedAi
-        };
-        if (typeof entry.objective === 'string' && entry.objective.trim() !== '') {
-            npcConfig.objective = entry.objective;
-        }
-        return npcConfig;
+        return buildNpcConfig(this, entry, normalizedAi);
     }
 
     /**
-     * Applies the entry's initialItems to a just-spawned entity. Each
-     * `{ item, count, equip?, contents? }` is added `count` times via the
-     * existing addItemToEntity() API: unequipped entries go to a merchantArm
-     * (fallback: first arm-like component, then any component); equip: true
-     * entries go to a component that can meet the item's holding-cost
-     * requirements (see _resolveEquippableHostComponent). Any declared
-     * `contents` ({ item, count }[]) are nested into the just-added instance
-     * through the public addItemToContainer() facade (never InventoryManager
-     * directly). equip: true items are then equipped on the same host
-     * component. A failed add/equip/nest is a warning only — the item stays
-     * held (or absent) and the entity keeps its unequipped baseline; spawn
-     * never fails.
-     * @private
-     * @param {string} entityId - The just-spawned entity.
-     * @param {Object} entry - The registry entry (displayName is a string).
+     * FASE 6 (facade logic extraction): Applies the entry's initialItems to a just-spawned entity.
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`applyInitialItems`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entityId
+ * @param {*} entry
      */
     _applyInitialItems(entityId, entry) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
-        for (const { item, count: n, equip, contents } of items) {
-            const times = Math.max(0, Number(n) || 0);
-            // equip: true entries are placed on a component that can
-            // actually meet the item's holding-cost requirements, so
-            // the equip below can succeed (e.g. a droidHand with
-            // strength, not a bare droidArm). Unequipped entries keep
-            // the historical arm-first placement.
-            const hostComponent = equip === true
-                ? this._resolveEquippableHostComponent(entity, item)
-                : entity?.components?.find(c => c.type === 'merchantArm')
-                    || entity?.components?.find(c => /arm|hand/i.test(c.type || ''))
-                    || entity?.components?.[0]
-                    || null;
-            if (!hostComponent) {
-                Logger.warn(`[WorldStateController] NPC "${entry.displayName}" has no component to hold item "${item}".`);
-                continue;
-            }
-            for (let i = 0; i < times; i++) {
-                const result = this.addItemToEntity(entityId, item, hostComponent.id);
-                if (!result.success) {
-                    Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} failed on ${hostComponent.type}: ${result.message}`);
-                    continue;
-                }
-                // Nest the entry's declared contents into the just-added
-                // instance (public facade only; the instance's own
-                // internal volume bounds how many fit).
-                const declaredContents = Array.isArray(contents) ? contents : [];
-                for (const c of declaredContents) {
-                    const type = typeof c?.item === 'string' ? c.item.trim() : '';
-                    const nestTimes = Math.max(0, Number(c?.count) || 0);
-                    if (!type || !result?.item?.id || nestTimes === 0) continue;
-                    for (let j = 0; j < nestTimes; j++) {
-                        const nest = this.addItemToContainer(entityId, result.item.id, type);
-                        if (!nest?.success) Logger.warn(`[WorldStateController] NPC "${entry.displayName}" contents "${type}" #${j + 1} into "${item}" failed: ${nest?.message}`);
-                    }
-                }
-                if (equip === true && result.item?.id) {
-                    // Equip on the same host component the item was
-                    // added to (spec §3.3). A failed equip (volume,
-                    // insufficient stats) is a warning only: the item
-                    // stays held and the entity keeps its unequipped
-                    // baseline — spawn never fails.
-                    const equipResult = this.equipItem(entityId, result.item.id, item, hostComponent.id);
-                    if (!equipResult.success) {
-                        Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} added but equip failed on ${hostComponent.type}: ${equipResult.message}`);
-                    }
-                }
-            }
-        }
+        return applyInitialItems(this, entityId, entry);
     }
 
     /**
-     * Resolves the host component for an initialItems entry flagged
-     * `equip: true`: the first component whose current stats satisfy the item
-     * type's holding-cost requirements (data/holdingCost.json), so the
-     * subsequent equipItem() call can actually succeed (e.g. a droidHand with
-     * strength, not a bare droidArm). Falls back to the standard
-     * arm/hand/first-component chain when no component qualifies — in that
-     * case the item is still added, the equip fails with a warning, and the
-     * entity keeps its unequipped baseline (spawn never fails).
-     * @private
-     * @param {Object} entity - The spawned entity.
-     * @param {string} itemType - The item type to be equipped.
-     * @returns {Object|null} The resolved component, or null if the entity has none.
+     * FASE 6 (facade logic extraction): Resolves the host component for an initialItems entry flagged `equip: true`.
+     * Implementation: src/controllers/logic/NpcSpawnLogic.js (`resolveEquippableHostComponent`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} itemType
      */
     _resolveEquippableHostComponent(entity, itemType) {
-        const components = entity?.components;
-        if (Array.isArray(components)) {
-            for (const component of components) {
-                const stats = this.componentController.getComponentStats(component.id);
-                if (stats && this.holdingCostController.canHoldItem(itemType, stats).success) {
-                    return component;
-                }
-            }
-        }
-        return components?.find(c => c.type === 'merchantArm')
-            || components?.find(c => /arm|hand/i.test(c.type || ''))
-            || components?.[0]
-            || null;
+        return resolveEquippableHostComponent(this, entity, itemType);
     }
 
     /**
-     * Applies the declarative initial spawns from data/world.json to a spawned entity.
-     * Generic replacement of the former hardcoded spawn methods (_spawnMetalBoxWithKnives,
-     * _addKnifeToClientEntity, _addTestItemToClientEntity, _addT1WeaponToEntity): the exact
-     * item composition is now declared in data/world.json (initialSpawns) and this method
-     * only interprets it.
-     *
-     * Supported entry fields:
-     * - { item, slot, count?: number, children?: [{ item, count }], ammo?: number,
-     *   fallback?: "<type>" }: add `item` to a component resolved by `slot`, then add each
-     *   child item `count` times inside the created container item. `count` is an optional
-     *   top-level multiplicity (default 1) — the item is added that many times to the same
-     *   resolved slot, mirroring the children count loop one level up (children and ammo
-     *   apply to each added instance). Entries without `count` add exactly one item,
-     *   identical to the pre-count behavior. slot forms: "<type>" (first component of that
-     *   type), "firstFit:<type>[,<type>...]" (first of the listed types with enough
-     *   available volume).
-     * - { item, slot, fallback?: "<type>" }: like above, plus a fallback component type tried
-     *   when the primary slot has no capacity.
-     * - { item, slot: "bestAvailable[:<preferredType>...]", ammo?: number }: add `item`
-     *   to the first component (in component order) whose available volume is the highest
-     *   among all fitting components; an optional "bestAvailable:hand" list of preferred
-     *   types is tried first (first preferred type with enough capacity wins), mirroring
-     *   the legacy "hand component first, then best available" weapon placement. Then
-     *   load `ammo` knife projectile(s) into the item for weapons that fire stored items.
-     *
-     * @param {string} entityId - The entity ID to apply initial spawns to.
-     * @param {Object} [spawnConfig] - Optional spawn config; defaults to data/world.json.
-     * @returns {{ applied: number, failed: number }} Summary of applied/failed spawn entries.
-     * @private
+     * FASE 6 (facade logic extraction): Applies the declarative initial spawns from data/world.json to a spawned entity.
+     * Implementation: src/controllers/logic/InitialSpawnLogic.js (`applyInitialSpawns`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entityId
+ * @param {*} spawnConfig
      */
     _applyInitialSpawns(entityId, spawnConfig) {
-        // Feature D (spec §7.2): NPC entities opt out of the declarative
-        // world.json spawns — their goods come from the npcs.json
-        // initialItems list instead. The opt-out keys off the persisted
-        // `isNPC` field (already merged into the record before this
-        // observer runs): no separate boot-time flag is stored anywhere, so
-        // nothing can leak into persistence snapshots or broadcasts.
-        if (this.stateEntityController.getEntity(entityId)?.isNPC === true) {
-            return { applied: 0, failed: 0 };
-        }
-
-        let config = spawnConfig;
-        if (!config) {
-            config = DataLoader.loadJsonSafe('data/world.json', {});
-        }
-
-        const entries = config?.initialSpawns;
-        if (!Array.isArray(entries) || entries.length === 0) {
-            return { applied: 0, failed: 0 };
-        }
-
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity || !entity.components || !Array.isArray(entity.components)) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found or has no components for initial spawns.`);
-            return { applied: 0, failed: entries.length };
-        }
-
-        let applied = 0;
-        let failed = 0;
-
-        for (const entry of entries) {
-            try {
-                const target = this._resolveInitialSpawnSlot(entity, entry);
-                if (!target) {
-                    Logger.warn(`[WorldStateController] Initial spawn "${entry.item}" has no valid slot ("${entry.slot}") on entity "${entityId}".`);
-                    failed++;
-                    continue;
-                }
-
-                // Optional top-level multiplicity (data/world.json `count`, default
-                // 1): mirrors the children count loop one level up so a loadout
-                // entry can add the same item several times (e.g. the M1 coal
-                // loadout). Entries without `count` add exactly one item —
-                // identical to the pre-count behavior.
-                const spawnCount = Math.max(1, Math.floor(Number(entry.count) || 1));
-                let addedAny = false;
-                for (let i = 0; i < spawnCount; i++) {
-                    const addResult = this.inventoryManager.addItem(entity, entry.item, target.component.id, {
-                        componentController: this.componentController
-                    });
-                    if (!addResult.success) {
-                        Logger.warn(`[WorldStateController] Initial spawn "${entry.item}"${spawnCount > 1 ? ` #${i + 1}` : ''} failed on ${target.component.type} (entity ${entityId}): ${addResult.message}`);
-                        continue;
-                    }
-
-                    // Container children (e.g., metalBox pre-filled with knives)
-                    if (Array.isArray(entry.children)) {
-                        for (const child of entry.children) {
-                            const count = Math.max(0, Number(child?.count) || 0);
-                            for (let j = 0; j < count; j++) {
-                                const childResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, child.item);
-                                if (!childResult.success) {
-                                    Logger.warn(`[WorldStateController] Initial spawn child "${child.item}" #${j + 1} into "${entry.item}" failed (entity ${entityId}): ${childResult.message}`);
-                                }
-                            }
-                        }
-                    }
-
-                    // Weapon ammo (e.g., t1 pre-loaded with knife projectiles)
-                    if (typeof entry.ammo === 'number' && entry.ammo > 0) {
-                        for (let j = 0; j < entry.ammo; j++) {
-                            const ammoResult = this.inventoryManager.addItemToContainer(entity, addResult.item?.id, 'knife');
-                            if (!ammoResult.success) {
-                                Logger.warn(`[WorldStateController] Initial spawn ammo #${j + 1} into "${entry.item}" failed (entity ${entityId}): ${ammoResult.message}`);
-                            }
-                        }
-                    }
-
-                    addedAny = true;
-                }
-
-                if (!addedAny) {
-                    failed++;
-                    continue;
-                }
-
-                applied++;
-                Logger.info(`[WorldStateController] Initial spawn "${entry.item}" applied to ${target.component.type} (component: ${target.component.id}) on entity ${entityId}`);
-            } catch (error) {
-                Logger.error(`[WorldStateController] Error applying initial spawn "${entry?.item}" to entity "${entityId}": ${error.message}`);
-                failed++;
-            }
-        }
-
-        return { applied, failed };
+        return applyInitialSpawns(this, entityId, spawnConfig);
     }
 
     /**
-     * Resolves the target component for an initial-spawn entry (data/world.json).
-     *
-     * Slot forms:
-     * - "<type>": the first component of that type.
-     * - "firstFit:<type>[,<type>...]" in that order: the first component (in order) with
-     *   enough available volume for the item's host footprint.
-     * - "bestAvailable" / "bestAvailable:<preferredType>[,...]": the first listed
-     *   preferred component type (substring match, e.g., "hand") with enough available
-     *   volume; without a preference, the component with the highest available volume
-     *   (first one wins ties).
-     *
-     * @param {Object} entity - The entity object.
-     * @param {Object} entry - The initial spawn entry ({ item, slot, fallback? }).
-     * @returns {{ component: Object }|null} The resolved component, or null if no slot matches.
-     * @private
+     * FASE 6 (facade logic extraction): Resolves the target component for an initial-spawn entry.
+     * Implementation: src/controllers/logic/InitialSpawnLogic.js (`resolveInitialSpawnSlot`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} entry
      */
     _resolveInitialSpawnSlot(entity, entry) {
-        const itemDef = this.inventoryManager.getItemDefinitions()[entry.item];
-        if (!itemDef) {
-            Logger.warn(`[WorldStateController] Unknown item type "${entry.item}" in initial spawn config.`);
-            return null;
-        }
-        // Items like T1 occupy their externalVolume footprint on the host component.
-        // Single source of truth: the shared footprint helper (definitionVolume.js),
-        // so the initial-spawn resolver and InventoryManager.addItem agree.
-        const hostFootprint = getDefinitionFootprint(itemDef);
-
-        const slot = entry.slot;
-        if (typeof slot !== 'string' || slot === '') {
-            return null;
-        }
-
-        const firstOfType = (type) => entity.components.find(c => c.type === type) || null;
-
-        if (slot === 'bestAvailable' || slot.startsWith('bestAvailable:')) {
-            // Optional preferred types (e.g., "bestAvailable:hand" → types containing "hand"):
-            // the first preferred component with enough available volume wins, matching the
-            // legacy hand-first weapon placement.
-            let preferredTypes = [];
-            if (slot.startsWith('bestAvailable:')) {
-                preferredTypes = slot.slice('bestAvailable:'.length).split(',').map(t => t.trim()).filter(Boolean);
-            }
-            if (preferredTypes.length > 0) {
-                for (const component of entity.components) {
-                    const matchesPreference = preferredTypes.some(p => (component.type || '').toLowerCase().includes(p));
-                    if (matchesPreference && this.inventoryManager.getAvailableVolume(entity, component.id) >= hostFootprint) {
-                        return { component };
-                    }
-                }
-            }
-            // Fallback: the component with the highest available volume (first one wins ties,
-            // identical to the legacy strict-greater selection).
-            let bestComponent = null;
-            let bestAvailableVolume = 0;
-            for (const component of entity.components) {
-                const availableVolume = this.inventoryManager.getAvailableVolume(entity, component.id);
-                if (availableVolume >= hostFootprint && availableVolume > bestAvailableVolume) {
-                    bestAvailableVolume = availableVolume;
-                    bestComponent = component;
-                }
-            }
-            return bestComponent ? { component: bestComponent } : null;
-        }
-
-        if (slot.startsWith('firstFit:')) {
-            const types = slot.slice('firstFit:'.length).split(',').map(t => t.trim()).filter(Boolean);
-            for (const type of types) {
-                const candidate = firstOfType(type);
-                if (candidate && this.inventoryManager.getAvailableVolume(entity, candidate.id) >= hostFootprint) {
-                    return { component: candidate };
-                }
-            }
-            return null;
-        }
-
-        // Plain type slot, with optional fallback type
-        const primary = firstOfType(slot);
-        if (primary && this.inventoryManager.getAvailableVolume(entity, primary.id) >= hostFootprint) {
-            return { component: primary };
-        }
-        if (entry.fallback) {
-            const fallback = firstOfType(entry.fallback);
-            if (fallback && this.inventoryManager.getAvailableVolume(entity, fallback.id) >= hostFootprint) {
-                return { component: fallback };
-            }
-        }
-        return null;
+        return resolveInitialSpawnSlot(this, entity, entry);
     }
 
     /**
@@ -1012,74 +571,15 @@ class WorldStateController {
     }
 
     /**
-     * Spills the live contents of an entity to the floor (drop handler) and
-     * removes them from its inventory. This is the death path for an
-     * energy-exhausted entity: nothing is carried past death. Batched — reads
-     * the current dropped-items map, accumulates each spilled item via the
-     * narrow-deps stub pattern (see removeBrokenComponent), writes once, then
-     * clears the inventory.
-     * @private
+     * FASE 6 (facade logic extraction): Death path for an energy-exhausted entity: spill live contents to the floor, then clear inventory.
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`spillAllEntityItems`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entityId
      */
     _spillAllEntityItems(entityId) {
-        try {
-            const entity = this.stateEntityController.getEntity(entityId);
-            if (!entity) return;
-            // Entities carry the room as a STRING `location` and the 2D coords
-            // as a `spatial` object (see component-broke reference at getEquippedItems callback). Read them the same way.
-            const position = entity.spatial && typeof entity.spatial === 'object' ? entity.spatial : { x: 0, y: 0 };
-            const roomId = entity.location ?? null;
-            const itemRegistry = typeof this.getItemRegistry === 'function' ? this.getItemRegistry() : {};
-            const batchItems = this.getDroppedItems() || {};
-
-            // Snapshot the live carried items (entity.items mirrors _inventory[entityId]).
-            const items = (entity.items || []);
-            const seenItemIds = new Set();
-            const uniqueItems = [];
-            for (const item of items) {
-                if (!item || typeof item !== 'object' || !item.id) continue;
-                if (seenItemIds.has(item.id)) continue;
-                seenItemIds.add(item.id);
-                uniqueItems.push(item);
-            }
-
-            for (const item of uniqueItems) {
-                try {
-                    const point = sampleDiskPoint(position.x, position.y, DEFAULT_TRIGGER_RADIUS) || position;
-                    const itemDef = itemRegistry[item.type] || itemRegistry[item.itemType] || {};
-                    // Accumulate in local batch map and write once (avoids
-                    // read-modify-write O(n) on the droppedItems map).
-                    writeDroppedItem(
-                        {
-                            getDroppedItems: () => batchItems,
-                            setDroppedItems: (droppedItems) => { Object.assign(batchItems, droppedItems); }
-                        },
-                        item.type || item.itemType || item.name || 'unknown',
-                        point.x,
-                        point.y,
-                        roomId,
-                        entity.id,
-                        itemDef
-                    );
-                    // Remove from the entity inventory (cascade + _inventory map).
-                    this.inventoryManager.removeItem(entity, item.id);
-                } catch (error) {
-                    Logger.error(`[WorldStateController] Failed to spill item ${item.id} on energy death: ${error.message}`, {
-                        itemId: item.id,
-                        error: error.message
-                    });
-                }
-            }
-
-            // Batch write (single broadcast) of all newly dropped items.
-            if (batchItems && Object.keys(batchItems).length > 0) {
-                this.setDroppedItems(batchItems);
-            }
-        } catch (error) {
-            Logger.error(`[WorldStateController] Failed to spill contents for entity ${entityId} on energy death: ${error.message}`, {
-                entityId: entityId,
-                error: error.message
-            });
-        }
+        return spillAllEntityItems(this, entityId);
     }
 
     /**
@@ -2030,317 +1530,88 @@ class WorldStateController {
     }
 
     /**
-     * Crafts a recipe: consumes the given item instances from a component and
-     * produces the recipe's outputs on the SAME component. Pure UI-panel
-     * feature: no world effect, no range, no room requirement, no turn
-     * (crafting is deliberately NOT a registry action — it executes
-     * synchronously outside the round system, like the other inventory ops).
-     *
-     * Volume is pre-checked BEFORE consumption (free + freed ≥ needed) so a
-     * full component can never destroy inputs; with that guarantee and
-     * single-threaded execution the consume→add sequence is atomic in effect
-     * (item-loss prevention — the data-corruption class of BUG-008).
-     *
-     * Every item mutation goes through InventoryManager (single source of
-     * truth); this method only orchestrates. Never throws — every failure
-     * returns a `code` the route maps to a status:
-     *   1. resolve recipe (_resolveCraftTarget)
-     *                                           → RECIPE_NOT_FOUND
-     *   2. resolve entity (_resolveCraftTarget)
-     *                                           → ENTITY_NOT_FOUND
-     *   3. component on the entity (_resolveCraftTarget)
-     *                                           → COMPONENT_NOT_FOUND
-     *   4. resolve each requested item (_validateCraftInputs: must exist,
-     *      be typed `item-*`, be hosted on `componentId`, not appear twice
-     *      in `itemIds`, and hold no nested items)
-     *                                           → INVALID_ITEM
-     *   5. item multiset exactly matches the recipe inputs
-     *      (CraftingController.checkExactInputs)
-     *                                           → INPUTS_MISMATCH
-     *   6. volume pre-check (_precheckCraftVolume, before any mutation)
-     *                                           → INSUFFICIENT_VOLUME
-     *   7. remove each input item (_consumeCraftInputs, in order)
-     *   8. add each output item (_produceCraftOutputs) on the same component
-     *   9. broadcast (null-guarded, mirrors addItemToEntity)
-     *  10. return { success, recipeId, consumed, produced }
-     *
-     * @param {string} entityId - Typed entity ID (ent-<uuid>).
-     * @param {string} recipeId - Recipe ID from data/crafting.json.
-     * @param {string} componentId - Typed component ID (comp-<uuid>) hosting the inputs AND receiving the outputs.
-     * @param {string[]} itemIds - Exact item instance IDs (item-<uuid>) to consume; must exactly satisfy the recipe inputs.
-     * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}
+     * FASE 6 (facade logic extraction): Crafts a recipe: consumes inputs and produces outputs on the same component.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`executeCraftTransaction`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @param {*} entityId
+ * @param {*} recipeId
+ * @param {*} componentId
+ * @param {*} itemIds
      */
     craftItems(entityId, recipeId, componentId, itemIds) {
-        // DELIBERATELY SYNCHRONOUS: no await anywhere in this chain (steps
-        // 1–10, including the helpers). Concurrent identical POSTs serialize
-        // safely because each craft is a synchronous transaction; do NOT
-        // introduce an await without re-evaluating that invariant.
-
-        // 1–3. Resolve recipe, entity, and component.
-        const target = this._resolveCraftTarget(entityId, recipeId, componentId);
-        if (!target.ok) {
-            return { success: false, code: target.code, message: target.message };
-        }
-        const { recipe, entity } = target;
-
-        // 4. Validate every requested item instance.
-        const validated = this._validateCraftInputs(recipe, entity, componentId, itemIds);
-        if (!validated.ok) {
-            return { success: false, code: validated.code, message: validated.message };
-        }
-
-        // 5. The multiset of item types must exactly match the recipe inputs.
-        //    The controller is non-null here because the recipe was resolved
-        //    from it in step 1.
-        const { satisfied, missing } = this.craftingController.checkExactInputs(validated.items, recipe);
-        if (!satisfied) {
-            // missing[0] is the first differing type (same order as the old
-            // inline check) — the message text is unchanged.
-            const first = missing[0];
-            return { success: false, code: 'INPUTS_MISMATCH', message: `Craft inputs do not exactly match recipe "${recipeId}": ${first.type}: have ${first.have}, need ${first.need}.` };
-        }
-
-        // 6. Volume pre-check BEFORE any mutation (item-loss guard).
-        const volume = this._precheckCraftVolume(recipe, entity, componentId, validated.items);
-        if (!volume.ok) {
-            return { success: false, code: 'INSUFFICIENT_VOLUME', message: volume.message };
-        }
-
-        // 7. Consume the inputs (in the given order).
-        const consumed = this._consumeCraftInputs(entity, itemIds);
-        if (!consumed.ok) {
-            return { success: false, code: 'CRAFT_FAILED', message: consumed.message };
-        }
-
-        // 8. Produce the outputs on the SAME component.
-        const produced = this._produceCraftOutputs(recipe, entity, componentId);
-        if (!produced.ok) {
-            return { success: false, code: 'CRAFT_FAILED', message: produced.message };
-        }
-
-        // 9. Broadcast on success (null-guarded, exactly like addItemToEntity).
-        if (this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        // 10.
-        return { success: true, recipeId, consumed: [...itemIds], produced: produced.produced };
+        return executeCraftTransaction(this, entityId, recipeId, componentId, itemIds);
     }
 
     /**
-     * Craft steps 1–3: resolve the recipe (from the injected
-     * CraftingController), the entity, and the component on that entity.
-     * @param {string} entityId
-     * @param {string} recipeId
-     * @param {string} componentId
-     * @returns {{ok: true, recipe: Object, entity: Object, componentId: string} | {ok: false, code: string, message: string}}
-     * @private
+     * FASE 6 (facade logic extraction): Craft steps 1–3: resolve recipe, entity, and component.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`resolveCraftTarget`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entityId
+ * @param {*} recipeId
+ * @param {*} componentId
      */
     _resolveCraftTarget(entityId, recipeId, componentId) {
-        // 1. Resolve the recipe (defensive copy; null when unknown). An
-        //    unwired controller is a composition-root miswiring, not a
-        //    normal runtime state — warn per call so it is never silent
-        //    (same warn style as the not-found paths above).
-        let recipe = null;
-        if (this.craftingController) {
-            recipe = this.craftingController.getRecipe(recipeId);
-        } else {
-            Logger.warn('[WorldStateController] craftingController is not wired (null); recipe lookups will fail — check the composition root (WorldComposition.js:158).');
-        }
-        if (!recipe) {
-            return { ok: false, code: 'RECIPE_NOT_FOUND', message: `Recipe "${recipeId}" not found.` };
-        }
-
-        // 2. Resolve the entity (live reference — InventoryManager mutates it).
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for crafting.`);
-            return { ok: false, code: 'ENTITY_NOT_FOUND', message: `Entity "${entityId}" not found.` };
-        }
-
-        // 3. The component must belong to this entity.
-        const component = Array.isArray(entity.components)
-            ? entity.components.find(c => c.id === componentId)
-            : null;
-        if (!component) {
-            return { ok: false, code: 'COMPONENT_NOT_FOUND', message: `Component "${componentId}" not found on entity "${entityId}".` };
-        }
-
-        return { ok: true, recipe, entity, componentId };
+        return resolveCraftTarget(this, entityId, recipeId, componentId);
     }
 
     /**
-     * Craft step 4: validate every requested item instance. Early rejects,
-     * in order: duplicate ID → existence → recipe-input type → host
-     * component → nested contents.
-     * @param {Object} recipe - The recipe (deep copy from CraftingController).
-     * @param {Object} entity - The live entity.
-     * @param {string} componentId
-     * @param {string[]} itemIds
-     * @returns {{ok: true, items: Array<Object>} | {ok: false, code: 'INVALID_ITEM', message: string}}
-     * @private
+     * FASE 6 (facade logic extraction): Craft step 4: validate every requested item instance.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`validateCraftInputs`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} recipe
+ * @param {*} entity
+ * @param {*} componentId
+ * @param {*} itemIds
      */
     _validateCraftInputs(recipe, entity, componentId, itemIds) {
-        const entityId = entity.id;
-
-        // Reject a duplicated ID BEFORE the per-item resolution loop: a
-        // repeated ID cannot be consumed twice — the multiset check below
-        // would count it once per occurrence, so a "satisfied" craft would
-        // still remove only one instance while the caller believes both
-        // were consumed. That is the item-loss class
-        // wiki/subMDs/systems/crafting_system.md §7 exists to prevent.
-        // Server-side by design: the route intentionally does not dedupe
-        // itemIds (the explicit list stays the auditable request).
-        const seenItemIds = new Set();
-        for (const itemId of itemIds) {
-            if (seenItemIds.has(itemId)) {
-                return { ok: false, code: 'INVALID_ITEM', message: `Item ID "${itemId}" is listed more than once in itemIds; each item instance can only be consumed once.` };
-            }
-            seenItemIds.add(itemId);
-        }
-
-        // (per item) Each requested item must exist, be a recipe input
-        // type, and be hosted on the crafting component (nested container
-        // items are excluded naturally: their hostComponentId is a
-        // container item ID).
-        const items = [];
-        for (const itemId of itemIds) {
-            const item = this.inventoryManager.getItem(entity, itemId);
-            if (!item) {
-                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" not found on entity "${entityId}".` };
-            }
-            if (!this._isRecipeInputType(recipe, item.type)) {
-                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" (type "${item.type}") is not an input of recipe "${recipe.id}".` };
-            }
-            if (item.hostComponentId !== componentId) {
-                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
-            }
-            // A recipe input is consumed as a whole unit: removeItem cascades
-            // to all descendants, so crafting an item that currently contains
-            // nested items would silently destroy what it holds — the
-            // item-loss class crafting_system.md §7 exists to prevent.
-            // Containers with contents are rejected (the player must empty
-            // them first). Public API only: collectNestedItems.
-            if (this.inventoryManager.collectNestedItems(entity, itemId).length > 0) {
-                return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" contains nested items; empty it before crafting.` };
-            }
-            items.push(item);
-        }
-
-        return { ok: true, items };
+        return validateCraftInputs(this, recipe, entity, componentId, itemIds);
     }
 
     /**
-     * Craft step 6: volume pre-check BEFORE any mutation (item-loss guard).
-     * The two sides measure different things, deliberately: `freed` is
-     * INSTANCE-based (item.hostVolume ?? item.volume, the same unit
-     * InventoryManager.getComponentVolume sums) because an item keeps the
-     * footprint it was created with — data re-tuning never retro-changes
-     * persisted items (cf. InventoryManager.resyncItemTraits) — so only the
-     * stored footprints are what removal will actually free; `needed` is
-     * DEFINITION-based via hostVolumeOf because NEW outputs pick up the
-     * current definition footprint in InventoryManager.addItem. Computing
-     * `freed` from the current definition would let a re-tuned definition
-     * overstate the space a craft frees, admitting a consume that cannot
-     * actually fit — the no-item-loss guarantee (crafting_system.md §7)
-     * must hold under definition drift, so only `freed` is instance-based.
-     * @param {Object} recipe - The recipe (deep copy from CraftingController).
-     * @param {Object} entity - The live entity.
-     * @param {string} componentId
-     * @param {Array<Object>} items - The resolved input instances (step 4).
-     * @returns {{ok: true} | {ok: false, message: string}}
-     * @private
+     * FASE 6 (facade logic extraction): Craft step 6: volume pre-check BEFORE any mutation (item-loss guard).
+     * Implementation: src/controllers/logic/CraftingLogic.js (`precheckCraftVolume`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} recipe
+ * @param {*} entity
+ * @param {*} componentId
+ * @param {*} items
      */
     _precheckCraftVolume(recipe, entity, componentId, items) {
-        const itemDefs = this.inventoryManager.getItemDefinitions();
-        const hostVolumeOf = (type) => {
-            const def = itemDefs[type] || {};
-            // recipe→derivation: the external footprint lives under form.externalVolume
-            // (legacy top-level externalVolume is a fallback); the full volume lives under
-            // form.volume. The footprint (what counts against a component's capacity) is the
-            // external footprint when declared, else the full volume.
-            // Deliberately NOT unified with getDefinitionFootprint (utils/definitionVolume.js):
-            // its first two chain steps match, but its declared-volume fallback is the
-            // DEFAULT_ITEM_VOLUME no-item-loss floor (an undeclared output must never read as a
-            // zero-footprint item in a craft), while the helper falls back to
-            // getDefinitionVolume (0 when undeclared). TODO: Refactor — revisit unifying the
-            // external-footprint prefix once that fallback difference is reconciled.
-            const external = (typeof def.form?.externalVolume === 'number')
-                ? def.form.externalVolume
-                : (typeof def.externalVolume === 'number' ? def.externalVolume : undefined);
-            if (typeof external === 'number') return external;
-            return (typeof def.form?.volume === 'number')
-                ? def.form.volume
-                : (typeof def.volume === 'number' ? def.volume : DEFAULT_ITEM_VOLUME);
-        };
-        const freed = items.reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
-        const needed = recipe.outputs.reduce((sum, output) => sum + hostVolumeOf(output.type) * output.quantity, 0);
-        // Self-contained available-volume computation (does not rely on the InventoryManager
-        // capacity check, which is intentionally non-enforcing). maxVolume comes from the
-        // component definition's form.volume; usedVolume sums the items on the component.
-        const componentDefs = DataLoader.loadJsonSafe('data/components.json', {});
-        const comp = entity.components?.find(c => c.id === componentId);
-        const compDef = comp ? (componentDefs[comp.type] || {}) : {};
-        const maxVolume = (typeof compDef.form?.volume === 'number')
-            ? compDef.form.volume
-            : (typeof compDef.volume === 'number' ? compDef.volume : 0);
-        const usedVolume = (entity.items || [])
-            .filter(item => item.hostComponentId === componentId)
-            .reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
-        const free = Math.max(0, maxVolume - usedVolume);
-        if (free + freed < needed) {
-            return { ok: false, message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
-        }
-        return { ok: true };
+        return precheckCraftVolume(this, recipe, entity, componentId, items);
     }
 
     /**
-     * Craft step 7: remove each input item (in the given order). A failure
-     * here cannot be a volume issue (validated in step 6); any other
-     * failure is a hard error and stops BEFORE producing anything.
-     * @param {Object} entity - The live entity.
-     * @param {string[]} itemIds
-     * @returns {{ok: true} | {ok: false, message: string}}
-     * @private
+     * FASE 6 (facade logic extraction): Craft step 7: remove each input item.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`consumeCraftInputs`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} itemIds
      */
     _consumeCraftInputs(entity, itemIds) {
-        for (const itemId of itemIds) {
-            const removed = this.inventoryManager.removeItem(entity, itemId);
-            if (!removed.success) {
-                Logger.error(`[WorldStateController] Unexpected removal failure while crafting: ${removed.message}`);
-                return { ok: false, message: removed.message };
-            }
-        }
-        return { ok: true };
+        return consumeCraftInputs(this, entity, itemIds);
     }
 
     /**
-     * Craft step 8: add each output item on the SAME component. Cannot fail
-     * on volume: step 6 proved the final footprint fits, and prefixes of a
-     * fitting total always fit. Output footprints come from the CURRENT
-     * definitions (InventoryManager.addItem), not from persisted instances
-     * — the outputs are brand-new items.
-     * @param {Object} recipe - The recipe (deep copy from CraftingController).
-     * @param {Object} entity - The live entity.
-     * @param {string} componentId
-     * @returns {{ok: true, produced: Array<Object>} | {ok: false, message: string}}
-     * @private
+     * FASE 6 (facade logic extraction): Craft step 8: add each output item on the same component.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`produceCraftOutputs`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} recipe
+ * @param {*} entity
+ * @param {*} componentId
      */
     _produceCraftOutputs(recipe, entity, componentId) {
-        const produced = [];
-        for (const output of recipe.outputs) {
-            for (let i = 0; i < output.quantity; i++) {
-                const added = this.inventoryManager.addItem(entity, output.type, componentId, {
-                    componentController: this.componentController
-                });
-                if (!added.success) {
-                    Logger.error(`[WorldStateController] Unexpected addition failure while crafting "${recipe.id}": ${added.message}`);
-                    return { ok: false, message: added.message };
-                }
-                produced.push(added.item);
-            }
-        }
-        return { ok: true, produced };
+        return produceCraftOutputs(this, recipe, entity, componentId);
     }
 
     /**
@@ -2359,14 +1630,16 @@ class WorldStateController {
     }
 
     /**
-     * Checks whether an item type is one of the recipe's input types.
-     * @param {Object} recipe - The recipe (deep copy from CraftingController).
-     * @param {string} itemType - The item's type ID.
-     * @returns {boolean}
-     * @private
+     * FASE 6 (facade logic extraction): Checks whether an item type is one of the recipe's input types.
+     * Implementation: src/controllers/logic/CraftingLogic.js (`isRecipeInputType`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} recipe
+ * @param {*} itemType
      */
     _isRecipeInputType(recipe, itemType) {
-        return recipe.inputs.some(input => input.type === itemType);
+        return isRecipeInputType(this, recipe, itemType);
     }
 
     // =========================================================================
@@ -3034,411 +2307,91 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * Facade orchestrator for complete broken component/item removal.
-     * Order (a)→(a½)→(b)→(c).
-     * Re-entrancy counter for single broadcast.
-     *
-     * @param {Object} payload - Payload of the component:broke event.
+     * FASE 6 (facade logic extraction): Removes a broken component/equipped-item instance: (a) spill → (a½) dependency cascade → (b) remove → (c) cleanup → root-exit elimination.
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`removeBrokenComponentCascade`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @param {*} payload
      */
     removeBrokenComponent(payload) {
-        const { entityId, componentId, kind } = payload;
-
-        // Increment re-entrancy counter
-        this._cascadeReentrancyCount++;
-        // Initialize shared visited-set + affected-entity set at root call
-        if (this._cascadeReentrancyCount === 1) {
-            this._cascadeVisitedSet = new Set();
-            this._cascadeAffectedEntityIds = new Set();
-        }
-        // Track every entity touched by this cascade chain (root or re-entry) so
-        // the root-exit elimination check covers all affected entities, not just
-        // the outermost call's entity (cross-entity cascade robustness — M3).
-        this._cascadeAffectedEntityIds.add(entityId);
-        try {
-            // Look up the entity
-            const entity = this.stateEntityController.getEntity(entityId);
-            if (!entity) {
-                Logger.warn(`[removeBrokenComponent] Entity "${entityId}" not found — skipping removal.`);
-                return;
-            }
-
-            // === (a) Spill: drain content from component/container ===
-            try {
-                this._spillContent(entity, payload);
-            } catch (error) {
-                Logger.error(`[removeBrokenComponent] Phase (a) _spillContent failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
-                // Continue to next phase — a failed spill must not block removal or cleanup
-            }
-
-            // === (a½) Dependency cascade ===
-            if (kind === 'component') {
-                try {
-                    this._cascadeDependents(entity, componentId);
-                } catch (error) {
-                    Logger.error(`[removeBrokenComponent] Phase (a½) _cascadeDependents failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
-                    // Continue to next phase — a failed cascade must not block removal or cleanup
-                }
-            }
-
-            // === (b) Desequip + remove instance — UNGUARDED (primary path) ===
-            this._removeComponentOrItem(entity, payload);
-
-            // === (c) Cleanup ===
-            try {
-                this._cleanupAfterRemoval(entity, payload);
-            } catch (error) {
-                Logger.error(`[removeBrokenComponent] Phase (c) _cleanupAfterRemoval failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
-                // Continue — cleanup failure must not block the result
-            }
-        } finally {
-            // Decrement counter — broadcast only occurs when it reaches 0
-            this._cascadeReentrancyCount--;
-            // Clear visited-set + affected-entity set on exit from root chain
-            if (this._cascadeReentrancyCount === 0) {
-                // Entity-level elimination: after the full root cascade
-                // completes (re-entrancy count returns to 0), check every entity
-                // affected during this cascade chain. This handles cross-entity
-                // cascades where a break on entity A forces a break on entity B.
-                const affectedIds = this._cascadeAffectedEntityIds;
-                if (affectedIds && affectedIds.size > 1) {
-                    Logger.warn(`[removeBrokenComponent] Cross-entity cascade detected — affected entities: [${[...affectedIds].join(', ')}]. Each entity will receive the elimination check.`);
-                }
-                for (const affectedId of affectedIds) {
-                    this._maybeEliminateEntity(affectedId);
-                }
-                this._cascadeVisitedSet = null;
-                this._cascadeAffectedEntityIds = null;
-            }
-        }
+        return removeBrokenComponentCascade(this, payload);
     }
 
     /**
-     * Phase (a): spill of content from destroyed component/container.
-     * @private
+     * FASE 6 (facade logic extraction): Phase (a): spill of content from destroyed component/container.
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`spillContent`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} payload
      */
     _spillContent(entity, payload) {
-        const { componentId, kind, position, roomId, entityId } = payload;
-        let hostId = componentId;
-        if (kind === 'equipped-item') {
-            // For equipped items, the host is the itemId from the payload (container)
-            hostId = payload.itemId || componentId;
-        }
-
-        // Get items stored in the destroyed host
-        const inventory = this.inventoryManager.getEntityItems(entity);
-        const items = inventory[hostId] || [];
-
-        if (items.length === 0) return;
-
-        // Fetch item registry for definitions
-        const itemRegistry = this.getItemRegistry();
-
-        // PHASE 9: batch — accumulate items in local map and write once (avoids read-modify-write O(n))
-        const batchDroppedItems = this.getDroppedItems() || {};
-
-        for (const item of items) {
-            // Item isolation (failure logged + continues)
-            try {
-                // Snapshot of grandchildren — use public wrapper
-                let nestedItems = [];
-                try {
-                    nestedItems = this.inventoryManager.collectNestedItems(entity, item.id);
-                } catch (error) {
-                    Logger.error(`[removeBrokenComponent] Error collecting nested items for ${item.id}: ${error.message}`);
-                }
-
-                // Disk sampling with radius DEFAULT_TRIGGER_RADIUS, center position, no clamp
-                // No-magic-numbers rule: use shared constant from DiskSampler for spill radius
-                // Defensively skip null results (should never happen with DEFAULT_TRIGGER_RADIUS=5)
-                const point = sampleDiskPoint(position.x, position.y, DEFAULT_TRIGGER_RADIUS);
-                if (point === null) {
-                    Logger.warn(`[removeBrokenComponent] sampleDiskPoint returned null for item ${item.id}; skipping spill.`);
-                    continue;
-                }
-
-                // Look up item definition (use passed itemDef to avoid re-fetch)
-                const itemDef = itemRegistry[item.type] || itemRegistry[item.itemType] || {};
-
-                // Accumulate in local batch map
-                // writeDroppedItem receives a narrow-deps stub (not the full facade), implementing only:
-                //   getDroppedItems()  → returns the dropped-items map
-                //   setDroppedItems(items) → merges `items` into the map via Object.assign (batch accumulation)
-                // The handler must not assume other WorldStateController methods exist on this dependency.
-                writeDroppedItem(
-                    {
-                        getDroppedItems: () => batchDroppedItems,
-                        setDroppedItems: (items) => { Object.assign(batchDroppedItems, items); }
-                    },
-                    item.type || item.itemType,
-                    point.x,
-                    point.y,
-                    roomId,
-                    entityId,
-                    itemDef,
-                    nestedItems
-                );
-
-                Logger.info(`[removeBrokenComponent] Spilled item ${item.id} (${item.type}) from broken ${kind}.`);
-            } catch (error) {
-                Logger.error(`[removeBrokenComponent] Error spilling item ${item.id}: ${error.message}`);
-                // Skip this item, continue with cascade (isolation per item)
-            }
-        }
-
-        // Write once at the end (batch write)
-        this.setDroppedItems(batchDroppedItems);
-
-        // Remove all items from entity inventory — isolation per item
-        for (const item of items) {
-            try {
-                this.inventoryManager.removeItem(entity, item.id);
-            } catch (error) {
-                Logger.error(`[removeBrokenComponent] Error removing item ${item.id} from inventory: ${error.message}`);
-            }
-        }
+        return spillContent(this, entity, payload);
     }
 
     /**
-     * Phase (a½): dependency cascade (visited-set prevents loops).
-     * Pre-order DFS with visited-set.
-     * @private
+     * FASE 6 (facade logic extraction): Phase (a½): dependency cascade (visited-set prevents loops).
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`cascadeDependents`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} originId
      */
     _cascadeDependents(entity, originId) {
-        const components = entity.components || [];
-        const reverseIndex = buildReverseIndex(components);
-        // Use shared visited-set across recursive cascade (visited-set prevents loops)
-        const visited = this._cascadeVisitedSet || new Set([originId]);
-        const queue = [originId];
-
-        Logger.debug(`[removeBrokenComponent] _cascadeDependents starting for origin ${originId}, components count: ${components.length}`);
-        
-        // Log reverse index for debugging (trace → debug)
-        for (const [parentId, children] of reverseIndex) {
-            if (children.length > 0) {
-                Logger.debug(`[removeBrokenComponent] Reverse index: ${parentId} → [${children.join(', ')}]`);
-            }
-        }
-
-        while (queue.length > 0) {
-            const curId = queue.shift();
-            Logger.info(`[removeBrokenComponent] Processing from queue: ${curId}`);
-            
-            // origin is skipped (already broke — it was the event that started the cascade)
-            if (curId === originId) {
-                // Add origin's children to queue to continue cascade
-                const children = reverseIndex.get(curId) || [];
-                Logger.info(`[removeBrokenComponent] Origin ${originId} has ${children.length} children: [${children.join(', ')}]`);
-                for (const childId of children) {
-                    if (!visited.has(childId)) {
-                        visited.add(childId);
-                        queue.push(childId);
-                        Logger.info(`[removeBrokenComponent] Enqueued child ${childId}`);
-                    } else {
-                        Logger.info(`[removeBrokenComponent] Child ${childId} already visited, skipping`);
-                    }
-                }
-                continue;
-            }
-
-            // Liveness on pop: id already removed?
-            const comp = components.find(c => c.id === curId);
-            if (!comp) {
-                Logger.warn(`[removeBrokenComponent] Component ${curId} not found in entity.components (may have been removed)`);
-                continue;
-            }
-
-            // Check if it still has existence stats
-            const stats = this.statsController.getStats(curId);
-            if (!stats || !stats[TRAIT_GROUPS.PHYSICAL] || stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.EXISTENCE] === undefined) {
-                Logger.warn(`[removeBrokenComponent] Dependent ${curId} has no existence stat — skipping.`);
-                continue;
-            }
-
-            const dur = stats[TRAIT_GROUPS.PHYSICAL][STAT_NAMES.EXISTENCE];
-            Logger.info(`[removeBrokenComponent] Component ${curId} has existence ${dur}`);
-
-            if (dur <= EXISTENCE_GONE_AT) {
-                // Defensive — direct removal WITHOUT event (already broken)
-                Logger.warn(`[removeBrokenComponent] Dependent ${curId} already broken (dur=${dur}) — direct removal without event.`);
-                this._forceDirectRemoval(curId, entity);
-                continue;
-            }
-
-            // Force break: write 0 to existing mutator → re-enters the funnel
-            Logger.info(`[removeBrokenComponent] Forcing break of dependent ${curId} (dur=${dur} → 0).`);
-            this.componentController.updateComponentStat(curId, TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE, EXISTENCE_GONE_AT);
-            
-            // Add this dependent's children to queue to continue cascade
-            const children = reverseIndex.get(curId) || [];
-            Logger.info(`[removeBrokenComponent] Dependent ${curId} has ${children.length} children: [${children.join(', ')}]`);
-            for (const childId of children) {
-                if (!visited.has(childId)) {
-                    visited.add(childId);
-                    queue.push(childId);
-                    Logger.info(`[removeBrokenComponent] Enqueued child ${childId}`);
-                } else {
-                    Logger.info(`[removeBrokenComponent] Child ${childId} already visited, skipping`);
-                }
-            }
-        }
-        
-        Logger.info(`[removeBrokenComponent] _cascadeDependents finished. Visited: [${[...visited].join(', ')}]`);
+        return cascadeDependents(this, entity, originId);
     }
 
     /**
-     * Direct removal WITHOUT event (for dependents already ≤ 0).
-     * @private
+     * FASE 6 (facade logic extraction): Direct removal WITHOUT event (for dependents already ≤ 0).
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`forceDirectRemoval`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} compId
+ * @param {*} entity
      */
     _forceDirectRemoval(compId, entity) {
-        try {
-            // Spill content
-            this._spillContent(entity, { componentId: compId, kind: 'component', position: entity.spatial, roomId: entity.location });
-            // Unequip + remove
-            const payload = { componentId: compId, kind: 'component', entityId: entity.id };
-            this._removeComponentOrItem(entity, payload);
-            // Cleanup
-            this._cleanupAfterRemoval(entity, payload);
-        } catch (error) {
-            Logger.error(`[removeBrokenComponent] Error in _forceDirectRemoval for ${compId}: ${error.message}`);
-        }
+        return forceDirectRemoval(this, compId, entity);
     }
 
     /**
-     * Entity-level elimination check.
-     *
-     * Re-reads the live entity via the public API and, if its component array
-     * is missing or empty, despawns it to prevent a "ghost" record from
-     * lingering in world state. This is the single choke-point where an
-     * entity is truly removed after a damage cascade strips all its components.
-     *
-     * Why isolated in try/catch (L3): a throw here must not poison the whole
-     * cascade chain or mask the real phase in handler-level logs. If despawn
-     * fails, the entity may remain (logged, not silent) but the cascade
-     * completes — graceful degradation.
-     *
-     * Re-entrancy invariant: this method is called ONLY from the root-exit
-     * finally block of removeBrokenComponent (when _cascadeReentrancyCount
-     * returns to 0), so it never re-enters the cascade funnel.
-     *
-     * @private
-     * @param {string} entityId - The entity to check for elimination.
+     * FASE 6 (facade logic extraction): Entity-level elimination check (root-exit choke-point).
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`maybeEliminateEntity`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entityId
      */
     _maybeEliminateEntity(entityId) {
-        try {
-            const liveEntity = this.stateEntityController.getEntity(entityId);
-            if (liveEntity && (!liveEntity.components || liveEntity.components.length === 0)) {
-                Logger.info(`[removeBrokenComponent] Entity ${entityId} has zero components after cascade — despawning (entity elimination).`);
-                this.despawnEntity(entityId);
-            }
-        } catch (error) {
-            Logger.error(`[removeBrokenComponent] entity elimination failed for ${entityId}: ${error.message}`, { entityId });
-            // Do NOT re-throw: a despawn failure must not abort the cascade
-            // unwind or mask the original break event in handler-level logs.
-            // The entity may remain in world state (logged above) — the
-            // system degrades gracefully rather than crashing mid-cascade.
-        }
+        return maybeEliminateEntity(this, entityId);
     }
 
     /**
-     * Phase (b): unequip + remove instance.
-     * @private
+     * FASE 6 (facade logic extraction): Phase (b): unequip + remove instance.
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`removeComponentOrItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} payload
      */
     _removeComponentOrItem(entity, payload) {
-        const { componentId, kind, eqId, itemId } = payload;
-
-        if (kind === 'equipped-item') {
-            // Desequip (restores holding cost on host)
-            if (eqId) {
-                this.holdingCostController.unequipItem(entity.id, eqId);
-            }
-            // Remove item instance from inventory — use payload.itemId (not eqId)
-            const removeId = itemId || eqId;
-            if (removeId) {
-                this.inventoryManager.removeItem(entity, removeId);
-            }
-        } else {
-            // removeComponent via stateEntityController (replacement by filter)
-            this.stateEntityController.removeComponent(entity.id, componentId);
-        }
+        return removeComponentOrItem(this, entity, payload);
     }
 
     /**
-     * Phase (c): cleanup — stats, internal components, selection, capabilities,
-     * + equipped items hosted on the broken host (component path) or the
-     * unequipped item's tracking/stats (equipped-item path).
-     * @private
+     * FASE 6 (facade logic extraction): Phase (c): cleanup — stats, internal components, selection, capabilities, equipped items.
+     * Implementation: src/controllers/logic/RemovalCascadeLogic.js (`cleanupAfterRemoval`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+ * @private
+ * @param {*} entity
+ * @param {*} payload
      */
     _cleanupAfterRemoval(entity, payload) {
-        const { componentId, kind, eqId } = payload;
-
-        if (kind === 'component') {
-            // (3) removeStats
-            this.statsController.removeStats(componentId);
-
-            // (4) Clean up internal components of host (the broken component is the host)
-            // InternalComponentController.removeInternalComponent(entityId, hostComponentId, internalCompId)
-            // But here we want to clean ALL internals of this component — iterate
-            const internalComps = this.internalComponentController.getInternalComponents(entity.id, componentId);
-            for (const ic of internalComps) {
-                this.internalComponentController.removeInternalComponent(entity.id, componentId, ic.id);
-            }
-
-            // Resync entity's internalComponents snapshot with the authoritative source
-            // from InternalComponentController — prevents stale ids after cascade removal
-            const liveEntity = this.getEntity(entity.id);
-            if (liveEntity) {
-                liveEntity.internalComponents = this.internalComponentController.getInternalComponentsForEntity(entity.id);
-            }
-
-            // (5) removeEntityFromCache + reEvaluateEntityCapabilities
-            // Narrowed: build a minimal state with only the affected entity —
-            // reEvaluateEntityCapabilities reads state.entities[entityId] and then
-            // fetches component stats directly from the controller, so a full-world
-            // getAll() is unnecessary here.
-            if (this.actionController) {
-                this.actionController.removeEntityFromCache(entity.id);
-                const liveEntity = this.getEntity(entity.id);
-                const narrowState = liveEntity ? { entities: { [liveEntity.id]: liveEntity } } : { entities: {} };
-                this.actionController.reEvaluateEntityCapabilities(narrowState, entity.id);
-            }
-
-            // (6) releaseSelection of the component
-            this.actionSelectController.releaseSelection(componentId);
-
-            // (7) Remove equipped items hosted on this broken component.
-            // When a host component is destroyed, any items equipped on it become
-            // orphaned — their tracking and stats would linger referencing a dead host.
-            // Mirrors the equipped-item cleanup path (kind === 'equipped-item').
-            const equippedOnHost = this.holdingCostController.getEquippedItems(entity.id)
-                .filter(eq => eq.componentId === componentId);
-            for (const eq of equippedOnHost) {
-                try {
-                    this.holdingCostController.cleanupEquippedItem(entity.id, eq.eqId);
-                    if (eq.itemId) {
-                        this.inventoryManager.removeItem(entity, eq.itemId);
-                    }
-                    this.equippedItemStats.removeStats(eq.eqId);
-                    this.actionSelectController.releaseSelection(eq.eqId);
-                    Logger.info(`[removeBrokenComponent] Removed equipped item ${eq.itemId} (${eq.itemType}) from broken host ${componentId}.`);
-                } catch (error) {
-                    Logger.error(`[removeBrokenComponent] Error removing equipped item ${eq.itemId} from broken host ${componentId}: ${error.message}`);
-                }
-            }
-        } else if (kind === 'equipped-item') {
-            // (3') cleanupEquippedItem wrapper from HoldingCostController
-            this.holdingCostController.cleanupEquippedItem(entity.id, eqId);
-
-            // (5') re-evaluate capabilities — ONLY of host entity (not all)
-            // Narrowed: same minimal-state approach as the component path above.
-            if (this.actionController) {
-                const liveEntity = this.getEntity(entity.id);
-                const narrowState = liveEntity ? { entities: { [liveEntity.id]: liveEntity } } : { entities: {} };
-                this.actionController.reEvaluateEntityCapabilities(narrowState, entity.id);
-            }
-
-            // (6') release selection for eqId
-            this.actionSelectController.releaseSelection(eqId);
-        }
+        return cleanupAfterRemoval(this, entity, payload);
     }
 
 }
