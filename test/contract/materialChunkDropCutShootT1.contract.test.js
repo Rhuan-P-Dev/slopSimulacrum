@@ -54,6 +54,13 @@ function buildWorld() {
     // would otherwise add a real probabilistic stream to the same worlds.
     // Always-fail → the world is identical to the pre-feature world; no assertion
     // is modified.
+    //
+    // This also pins the world-init damage path: world-init damage
+    // (`initializeWorld()` + `scanAllCapabilities()`, run inside buildWorldState)
+    // fires after the listener is wired to the facade, so it draws with the
+    // production `Math.random` and may add a stray `chunk_iron` record.
+    // `buildWorldState` is called AFTER the world init completes, so the pin
+    // covers all post-init damage (equip cost, cut, shoot).
     world.onDamageDropListener._randomFn = () => 1;
     return world;
 }

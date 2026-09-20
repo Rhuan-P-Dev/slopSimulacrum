@@ -99,7 +99,7 @@ class LLMAgentController {
 
     /**
      * Discovers the live NPCs: entities with `isNPC: true` joined with their
-     * `data/npcs.json` config (by blueprint).
+     * resolved per-entity config (see `_resolveNpcConfig`).
      * @returns {Array<{ entityId: string, entity: Object, config: Object }>}
      */
     getNpcs() {
@@ -107,7 +107,7 @@ class LLMAgentController {
         const npcs = [];
         for (const entity of Object.values(entities)) {
             if (!entity || entity.isNPC !== true) continue;
-            const config = this._npcRegistry[entity.blueprint] || null;
+            const config = this._resolveNpcConfig(entity);
             npcs.push({ entityId: entity.id, entity, config });
         }
         return npcs;
@@ -196,7 +196,7 @@ class LLMAgentController {
                 result.error = 'DETERMINISTIC_AI';
                 return result; // never call the LLM, no transcript
             }
-            const npc = { entity, config: this._npcRegistry[entity.blueprint] || null };
+            const npc = { entity, config: this._resolveNpcConfig(entity) };
             const displayName = npc.config?.displayName || entity.name || 'NPC';
             const maxActions = this._asPositiveInt(npc.config?.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
             const rawMaxChat = npc.config?.maxChatMessagesPerRound;
@@ -570,10 +570,15 @@ class LLMAgentController {
      * advance-instead-of-stay-silent rule; entries without one render the
      * historical template byte-identically.
      * @private
-     * @param {Object} npc - The NPC record: `npc.config` (the registry entry:
+     * @param {Object} npc - The NPC record: `npc.config` (the resolved per-entity
+     *   config — the live entity `npcConfig` merged over the static registry
+     *   by blueprint, live values taking precedence, see `_resolveNpcConfig` —
      *   displayName, personality, objective?, maxWorldActionsPerRound?,
      *   maxChatMessagesPerRound?) and `npc.entity` (the spawned entity, used
-     *   as the display-name fallback).
+     *   as the display-name fallback when the config has no display name).
+     *   The live-config precedence is what lets dynamically-spawned cards (no
+     *   registry entry) render their own name/personality, while registry
+     *   NPCs stay byte-identical (their live `npcConfig` mirrors the registry).
      * @param {string} roomName - The display name of the NPC's current room,
      *   rendered into the prompt's first line.
      * @returns {string} The full system prompt text issued to the LLM for
@@ -1215,6 +1220,44 @@ class LLMAgentController {
             }
         }
         return false;
+    }
+
+    /**
+     * Resolves the LLM config for one live NPC entity: the entity's own
+     * `npcConfig` (set at spawn, carrying per-entity personality/caps for
+     * dynamically-spawned cards) merged over the static `data/npcs.json`
+     * registry entry for its blueprint, with the live values taking
+     * precedence.
+     *
+     * WHY live-config precedence: the static registry is keyed by *blueprint*,
+     * so N entities of the same blueprint (the card droids, all `m1Droid`)
+     * would share one entry and lose their per-card personality. Merging the
+     * live `npcConfig` over it is what gives each card its own identity.
+     * For registry NPCs the merge is a no-op: their live `npcConfig` (built
+     * from the same registry entry at spawn) mirrors the registry, so every
+     * existing prompt renders byte-identically — the regression the test suite
+     * pins.
+     * `ai` is handled separately by `hasDeterministicBrain` (which reads
+     * `entity.npcConfig.ai` directly) and is never part of the prompt config.
+     * @private
+     * @param {Object|undefined} entity
+     * @returns {Object}
+     */
+    _resolveNpcConfig(entity) {
+        const npcConfig = (entity && typeof entity.npcConfig === 'object' && entity.npcConfig !== null)
+            ? entity.npcConfig
+            : {};
+        const registry = this._npcRegistry || {};
+        const byBlueprint = (registry && typeof registry[entity?.blueprint] === 'object' && registry[entity.blueprint] !== null)
+            ? registry[entity.blueprint]
+            : {};
+        const out = { ...byBlueprint };
+        for (const [key, value] of Object.entries(npcConfig)) {
+            if (value !== undefined && value !== null) {
+                out[key] = value;
+            }
+        }
+        return out;
     }
 
     /**

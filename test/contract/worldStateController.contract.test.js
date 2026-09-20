@@ -27,6 +27,34 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import DataLoader from '../../src/utils/DataLoader.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { readCharaCard } from '../../src/utils/PngCharaReader.js';
+
+// Card image extensions accepted by WorldStateController._readCardFiles().
+const CARD_IMAGE_EXTS = new Set(['.png', '.webp', '.jpg', '.jpeg', '.jpe', '.bmp', '.gif', '.apng']);
+
+/**
+ * Counts the card files in `data/cards/` that would actually spawn as M1 LLM
+ * NPCs — mirroring WorldStateController._readCardFiles() + _spawnSingleCard()
+ * (accepted image extensions, dotfiles ignored, embedded payload must yield a
+ * non-empty name). This is the test-side twin of `CARD_CARD_COUNT` so contract
+ * expectations stay data-driven (gate/dir aware) instead of hard-coded.
+ */
+function countSpawnableCards() {
+    const dir = path.resolve('data/cards');
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return 0;
+    let count = 0;
+    for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith('.')) continue;
+        const ext = path.extname(f).toLowerCase();
+        if (!CARD_IMAGE_EXTS.has(ext)) continue;
+        const res = readCharaCard(path.join(dir, f));
+        if (res.success && typeof res.card?.name === 'string' && res.card.name.trim() !== '') count += 1;
+    }
+    return count;
+}
+
 
 // =========================================================================
 // Public-method extraction (mirrors the documented public surface)
@@ -135,9 +163,14 @@ beforeAll(() => {
         .filter(([, entry]) => entrySpawnableInCurrentEnv(entry))
         .length;
 
+    // Card count: every accepted image in data/cards/ whose embedded payload
+    // yields a non-empty name (the test-side twin of WorldStateController.
+    // _readCardFiles() + _spawnSingleCard()). Default runs have one card.
+    const cardCount = countSpawnableCards();
+
     // Stored for use in tests (1 test-spawned droid + the gate-aware spawnable
-    // count + the raw registry for per-entry checks).
-    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, registry: npcRegistry };
+    // count + the card count + the raw registry for per-entry checks).
+    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, cardCount, registry: npcRegistry };
 
     // Spawn a test droid (the default world has zero pre-spawned droids after
     // removing the client/vault guardian spawns). This gives the contract tests
@@ -323,29 +356,33 @@ describe('WorldStateController.getAll() shape', () => {
         expect(typeOf(state.entities)).toBe('object');
         const ids = Object.keys(state.entities);
         // The beforeAll spawns exactly 1 smallBallDroid for testing + the NPCs
-        // that the ambient environment allows to spawn: every entry in
-        // data/npcs.json except those whose envGate variable is not "true"
-        // (data-driven and gate-aware — e.g. the killer LLM drone is excluded
-        // by default and included in a gate-ON run).
+        // the ambient environment allows to spawn: every data/npcs.json entry
+        // whose envGate var is "true" (gate-aware — e.g. the killer LLM drone
+        // is excluded by default, included in a gate-ON run) PLUS the cards
+        // that data/cards/ yields (data-driven via countSpawnableCards).
         const expectedNpcCount = wsc._npcTestData?.spawnableNpcCount ?? 0;
-        expect(ids.length).toBe(1 + expectedNpcCount);
+        const cardCount = wsc._npcTestData?.cardCount ?? 0;
+        expect(ids.length).toBe(1 + expectedNpcCount + cardCount);
 
         for (const id of ids) {
             const entity = state.entities[id];
             expect(typeOf(entity)).toBe('object');
 
             // Exact per-entity key set (broadcast adds `equipped` later, not here).
-            // Feature D: NPC entities (data/npcs.json) carry the extra spawn
-            // fields (isNPC, name, npcConfig) — player droids keep the base shape
-            // PLUS the `items` key: the spawn observer applies the data/world.json
-            // initialSpawns loadout to the incarnated player (non-NPC
-            // smallBallDroid), so it carries its items on a component. NPCs whose
-            // registry entry declares initialItems ALSO carry the `items` key
-            // (their loadout is placed on a component at spawn); NPCs without
-            // initialItems do not. The world.json opt-out flag lives in the
-            // in-memory _npcSpawnFlags set and must NEVER appear on the entity
-            // record (audit: it used to leak into serialize() snapshots).
+            // Feature D: NPC entities carry the extra spawn fields (isNPC, name,
+            // npcConfig). Three distinct shapes exist:
+            //   (1) player droids (non-NPC smallBallDroid) keep the base shape
+            //       PLUS `items` (world.json initialSpawns loadout on a component).
+            //   (2) registry NPCs (data/npcs.json): base NPC shape, PLUS `items`
+            //       only when the registry entry declares initialItems.
+            //   (3) card NPCs (data/cards/): they are m1Droid, which (a) seeds an
+            //       energy attribute -> `attributes` + `attributesConfig`, and (b)
+            //       always spawns with a per-card loadout -> `items`.
             const isNpc = entity.isNPC === true;
+            // Cards are exactly the m1Droid NPCs (the registry has no m1Droid
+            // entry); they are the only spawned entities carrying both a loadout
+            // and the m1Droid energy attribute.
+            const isCard = isNpc && entity.blueprint === 'm1Droid';
             const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
             const npcHasInitialItems = Boolean(
                 npcRegistryEntry
@@ -353,42 +390,18 @@ describe('WorldStateController.getAll() shape', () => {
                 && npcRegistryEntry.initialItems.length > 0
             );
             expect(entity).not.toHaveProperty('_skipInitialSpawns');
-            expect(keysOf(entity)).toEqual(isNpc
-                ? (npcHasInitialItems
-                    ? [
-                        'blueprint',
-                        'components',
-                        'id',
-                        'internalComponents',
-                        'isNPC',
-                        'location',
-                        'name',
-                        'npcConfig',
-                        'spatial',
-                        'status',
-                    ]
-                    : [
-                        'blueprint',
-                        'components',
-                        'id',
-                        'internalComponents',
-                        'isNPC',
-                        'location',
-                        'name',
-                        'npcConfig',
-                        'spatial',
-                        'status',
-                    ])
-                : [
-                    'blueprint',
-                    'components',
-                    'id',
-                    'internalComponents',
-                    'items',
-                    'location',
-                    'spatial',
-                    'status',
-                ]);
+            // Sorted key sets (keysOf() returns Object.keys(value).sort()).
+            const NPC_BASE = [
+                'blueprint', 'components', 'id', 'internalComponents', 'isNPC',
+                'location', 'name', 'npcConfig', 'spatial', 'status',
+            ];
+            const NPC_WITH_ITEMS = [...NPC_BASE, 'items'].sort();
+            const CARD_SHAPE = [...NPC_BASE, 'attributes', 'attributesConfig', 'items'].sort();
+            expect(keysOf(entity)).toEqual(isCard
+                ? CARD_SHAPE
+                : isNpc
+                    ? (npcHasInitialItems ? NPC_WITH_ITEMS : NPC_BASE)
+                    : ['blueprint', 'components', 'id', 'internalComponents', 'items', 'location', 'spatial', 'status']);
             if (isNpc) {
                 expect(typeOf(entity.name)).toBe('string');
                 expect(typeOf(entity.npcConfig)).toBe('object');
@@ -440,13 +453,15 @@ describe('WorldStateController.getAll() shape', () => {
     });
 
     // Additional data-driven NPC shape assertions (robust to content changes).
-    it('asserts the spawned NPC count matches the gate-aware data/npcs.json entries and spawned brains are preserved', () => {
+    it('asserts the spawned NPC count matches the gate-aware registry + card counts and spawned brains are preserved', () => {
         const state = wsc.getAll();
         const npcEntries = Object.values(state.entities).filter((e) => e.isNPC === true);
-        // Gate-aware: only entries whose envGate (if any) is "true" in this
-        // environment are expected to have spawned.
+        // Gate-aware: registry entries whose envGate (if any) is "true" spawn,
+        // PLUS the data/cards/ cards (they are also isNPC LLM entities). Both
+        // counts are data-driven (gate- and dir-aware).
         const expectedNpcCount = wsc._npcTestData?.spawnableNpcCount ?? 0;
-        expect(npcEntries.length).toBe(expectedNpcCount);
+        const cardCount = wsc._npcTestData?.cardCount ?? 0;
+        expect(npcEntries.length).toBe(expectedNpcCount + cardCount);
 
         // Guard: if a spawnable entry in the data declares a deterministic
         // brain (ai.behavior), at least one spawned NPC must expose it (catches

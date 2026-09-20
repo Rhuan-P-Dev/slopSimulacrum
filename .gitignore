@@ -11,3 +11,4 @@ coverage/
 .env.backup
 .env.*
 !.env.example
+data/cards/*
