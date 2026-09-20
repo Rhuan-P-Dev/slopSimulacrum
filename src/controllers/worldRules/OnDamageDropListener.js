@@ -126,7 +126,13 @@ class OnDamageDropListener {
 
         // Batched ground write (narrow-deps stub, the chunk handler's own pattern):
         // accumulate into a local batch and write once, at the end.
-        const batch = {};
+        // Seed the batch from the CURRENT floor so a drop only ADDS tokens to the
+        // ground and never clobbers items that are already lying there. The real
+        // WorldStateController.setDroppedItems REPLACES _droppedItems (it does not
+        // merge), so a bare `const batch = {}` would — on the probabilistic roll —
+        // silently wipe every pre-existing drop (rogue kills wiping an already-dropped
+        // item). Match the spill / chunk handlers: read the live floor first.
+        const batch = world.getDroppedItems() || {};
         const narrowDeps = {
             getDroppedItems: () => batch,
             setDroppedItems: (items) => { Object.assign(batch, items); }

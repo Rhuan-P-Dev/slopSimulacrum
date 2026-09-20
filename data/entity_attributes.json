@@ -1,0 +1,12 @@
+{
+  "_comment": "Per-entity-type attribute seeds and caps. Entity attributes are whole-entity stats, OWNED BY THE ENTITY (distinct from per-component stats, which live on component instances). Each attribute is keyed in the flat \"Group.stat\" wire form (identical to the organ-grant key form) and declares three things: the initial `value`, the hard `max` (capacity the value is clamped into, and the full-battery ceiling for fuel burners), and the per-turn `drainPerTurn` the global per-turn energy step subtracts from the value. Energy is a life pool: it is charged by a coal burner (the M1 central body's coalGenerator, consumeFuelGenerateStat) and drained every turn; when an entity's energy attribute reaches 0 it is eliminated — its contents spill to the floor and the entity is despawned. The M1 droid's 100-unit energy battery is the only seeded attribute today. Balance levers (initial charge, cap, per-turn draw) are deliberately data-driven, not magic numbers in a controller.",
+  "attributes": {
+    "m1Droid": {
+      "Physical.energy": {
+        "value": 100,
+        "max": 100,
+        "drainPerTurn": 1
+      }
+    }
+  }
+}

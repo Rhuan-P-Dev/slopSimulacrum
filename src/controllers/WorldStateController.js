@@ -11,6 +11,7 @@ import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
+import { getAttributes } from '../utils/EntityAttributeData.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 
 /**
@@ -153,6 +154,14 @@ class WorldStateController {
         // aggregation (same rule as worldRulesController / onDamageDropListener).
         /** @private {import('./core/EnergyFlowController.js').default|null} */
         this.energyFlowController = deps.energyFlowController ?? null;
+
+        // EntityEnergyController: the whole-entity energy-life system (wiki/entity_attributes).
+        // Per-turn drain of an entity's energy attribute; elimination (spill +
+        // despawn) when the attribute reaches 0. Logic controller — no persistent
+        // world data (reads the entity record via the facade's public API). Not in
+        // the subControllers broadcast map: it has no getAll().
+        /** @private {import('./core/EntityEnergyController.js').default|null} */
+        this.entityEnergyController = deps.entityEnergyController ?? null;
 
         // --- Broadcast service (injected later via setBroadcastService()) --------
         /** @private {WorldStateBroadcastService|null} */
@@ -898,6 +907,179 @@ class WorldStateController {
             }
         }
         return null;
+    }
+
+    /**
+     * Returns the per-entity-type attribute declaration registry as seen by a
+     * given blueprint name. Lets the client (stat-bar panel) and any backend
+     * consumer read the full ceiling/drain of a blueprint's whole-entity
+     * attributes without reaching into the raw data file.
+     * @param {string|null|undefined} [blueprintName]
+     * @returns {Object<string, { value: number, max: number, drainPerTurn: number }>}
+     */
+    getEntityAttributeDeclarations(blueprintName) {
+        return getAttributes(blueprintName);
+    }
+
+    /**
+     * Returns the current (live) value of one entity attribute (whole-entity stat,
+     * e.g. Physical.energy). Returns null when the entity, trait or stat is
+     * missing.
+     * @param {string} entityId - The entity id.
+     * @param {string} traitId - The trait group key (e.g. "Physical").
+     * @param {string} statName - The stat name (e.g. "energy").
+     * @returns {number|null}
+     */
+    getEntityAttribute(entityId, traitId, statName) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity || !entity.attributes) return null;
+        const group = entity.attributes[traitId];
+        if (!group) return null;
+        return group[statName] == null ? null : Number(group[statName]) || 0;
+    }
+
+    /**
+     * Returns the declaration ({ value, max, drainPerTurn }) for one entity
+     * attribute, or null when the entity/stat is missing.
+     * @param {string} entityId
+     * @param {string} traitId
+     * @param {string} statName
+     * @returns {Object|null}
+     */
+    getEntityAttributeConfig(entityId, traitId, statName) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity || !entity.attributesConfig) return null;
+        const group = entity.attributesConfig[traitId];
+        if (!group) return null;
+        return group[statName] ?? null;
+    }
+
+    /**
+     * Adjusts one entity attribute by a delta, clamping it into [0, max].
+     * Returns true when the value actually changed (broadcasting on change,
+     * gated by cascade reentrancy like other stat changes). The max is read
+     * from the attribute declaration so a mis-tuned cap can never exceed the
+     * declared ceiling.
+     * @param {string} entityId
+     * @param {string} traitId - The trait group key (e.g. "Physical").
+     * @param {string} statName - The stat name (e.g. "energy").
+     * @param {number} delta - The amount to add (positive = charge, negative = drain).
+     * @param {boolean} [broadcast=true] - Broadcast the change after writing it.
+     * @returns {boolean} Whether the value changed.
+     */
+    setEntityAttributeDelta(entityId, traitId, statName, delta, broadcast = true) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity || !entity.attributes) return false;
+        const group = entity.attributes[traitId];
+        if (!group || !(statName in group)) return false;
+        const config = entity.attributesConfig && entity.attributesConfig[traitId] ?
+            entity.attributesConfig[traitId][statName] : null;
+        const max = config && typeof config.max === 'number' ? Math.max(0, config.max) : 0;
+        const previousValue = Number(group[statName]) || 0;
+        const newValue = Math.max(0, Math.min(max, previousValue + (Number(delta) || 0)));
+        if (newValue === previousValue) return false;
+        group[statName] = newValue;
+        if (broadcast && this._broadcastService && this._cascadeReentrancyCount === 0) {
+            this._broadcastService.broadcast();
+        }
+        return true;
+    }
+
+    /**
+     * Eliminates an entity by energy death: spills ALL of its items (its own
+     * inventory, which holds every item it carries — each tagged with the
+     * component that holds it) to the floor, then despawns the entity.
+     * Called by EntityEnergyController when the entity's energy attribute hits 0.
+     * No-op when the entity is absent/inactive (double-elimination is safe).
+     * @param {string} entityId
+     * @returns {boolean} Whether this call actually eliminated (removed) an entity.
+     */
+    eliminateEntityByEnergy(entityId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity || entity.status !== 'active') return false;
+        try {
+            this._spillAllEntityItems(entityId);
+            this.stateEntityController.despawnEntity(entityId);
+            Logger.warn(`[WorldStateController] Entity ${entityId} eliminated (energy exhausted).`);
+            return true;
+        } catch (error) {
+            Logger.error(`[WorldStateController] Failed to eliminate entity ${entityId} by energy: ${error.message}`, {
+                entityId: entityId,
+                error: error.message
+            });
+            return false;
+        }
+    }
+
+    /**
+     * Spills the live contents of an entity to the floor (drop handler) and
+     * removes them from its inventory. This is the death path for an
+     * energy-exhausted entity: nothing is carried past death. Batched — reads
+     * the current dropped-items map, accumulates each spilled item via the
+     * narrow-deps stub pattern (see removeBrokenComponent), writes once, then
+     * clears the inventory.
+     * @private
+     */
+    _spillAllEntityItems(entityId) {
+        try {
+            const entity = this.stateEntityController.getEntity(entityId);
+            if (!entity) return;
+            // Entities carry the room as a STRING `location` and the 2D coords
+            // as a `spatial` object (see component-broke reference at getEquippedItems callback). Read them the same way.
+            const position = entity.spatial && typeof entity.spatial === 'object' ? entity.spatial : { x: 0, y: 0 };
+            const roomId = entity.location ?? null;
+            const itemRegistry = typeof this.getItemRegistry === 'function' ? this.getItemRegistry() : {};
+            const batchItems = this.getDroppedItems() || {};
+
+            // Snapshot the live carried items (entity.items mirrors _inventory[entityId]).
+            const items = (entity.items || []);
+            const seenItemIds = new Set();
+            const uniqueItems = [];
+            for (const item of items) {
+                if (!item || typeof item !== 'object' || !item.id) continue;
+                if (seenItemIds.has(item.id)) continue;
+                seenItemIds.add(item.id);
+                uniqueItems.push(item);
+            }
+
+            for (const item of uniqueItems) {
+                try {
+                    const point = sampleDiskPoint(position.x, position.y, DEFAULT_TRIGGER_RADIUS) || position;
+                    const itemDef = itemRegistry[item.type] || itemRegistry[item.itemType] || {};
+                    // Accumulate in local batch map and write once (avoids
+                    // read-modify-write O(n) on the droppedItems map).
+                    writeDroppedItem(
+                        {
+                            getDroppedItems: () => batchItems,
+                            setDroppedItems: (droppedItems) => { Object.assign(batchItems, droppedItems); }
+                        },
+                        item.type || item.itemType || item.name || 'unknown',
+                        point.x,
+                        point.y,
+                        roomId,
+                        entity.id,
+                        itemDef
+                    );
+                    // Remove from the entity inventory (cascade + _inventory map).
+                    this.inventoryManager.removeItem(entity, item.id);
+                } catch (error) {
+                    Logger.error(`[WorldStateController] Failed to spill item ${item.id} on energy death: ${error.message}`, {
+                        itemId: item.id,
+                        error: error.message
+                    });
+                }
+            }
+
+            // Batch write (single broadcast) of all newly dropped items.
+            if (batchItems && Object.keys(batchItems).length > 0) {
+                this.setDroppedItems(batchItems);
+            }
+        } catch (error) {
+            Logger.error(`[WorldStateController] Failed to spill contents for entity ${entityId} on energy death: ${error.message}`, {
+                entityId: entityId,
+                error: error.message
+            });
+        }
     }
 
     /**

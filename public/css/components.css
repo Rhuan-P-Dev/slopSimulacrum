@@ -186,6 +186,72 @@
     font-weight: bold;
 }
 
+/* ---------------------------------------------------------------------
+   Whole-entity attribute bars (EntityAttributeBars) — e.g. the M1 droid's
+   energy. Mirrors the per-component stat-bar look but is AUTO-rendered for
+   the active droid from the entity's attributes/attributesConfig (seeded at
+   spawn from data/entity_attributes.json). Distinct from StatBarsManager.
+   --------------------------------------------------------------------- */
+#entity-attributes-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.entity-attribute-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-top: 1px solid #333;
+    min-height: var(--stat-bar-height);
+}
+
+.entity-attribute-icon {
+    width: 20px;
+    text-align: center;
+    font-size: 1em;
+}
+
+.entity-attribute-label {
+    min-width: 120px;
+    font-weight: bold;
+    font-size: 0.85em;
+}
+
+.entity-attribute-track {
+    flex-grow: 1;
+    height: var(--stat-bar-height);
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+
+.entity-attribute-fill {
+    height: 100%;
+    transition: width 0.3s ease-out;
+}
+
+.entity-attribute-value {
+    min-width: 50px;
+    text-align: right;
+    font-size: 0.85em;
+    font-weight: bold;
+}
+
+/* Low-energy warning: pulse the track border when <= 20% (entity near death). */
+.entity-attribute-bar--low .entity-attribute-track {
+    animation: entity-attribute-pulse 1s ease-in-out infinite;
+}
+
+@keyframes entity-attribute-pulse {
+    0%, 100% { border-color: #444; }
+    50% { border-color: #ef4444; }
+}
+
 .stat-bar-controls {
     display: flex;
     gap: 5px;

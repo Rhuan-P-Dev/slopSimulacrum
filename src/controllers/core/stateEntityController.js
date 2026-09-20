@@ -1,5 +1,6 @@
 import { generateEntityId } from '../../utils/idGenerator.js';
 import Logger from '../../utils/Logger.js';
+import { getAttributes } from '../../utils/EntityAttributeData.js';
 
 /**
  * stateEntityController is a subcontroller of WorldStateController.
@@ -84,6 +85,27 @@ class stateEntityController {
             status: 'active',
             ...extra
         };
+
+        // Seed whole-entity attributes from the blueprint's entry in
+        // data/entity_attributes.json. An empty/missing file or blueprint yields
+        // {} — nothing is seeded (legacy invariant: no data → no attributes).
+        // `attributes` holds the live per-stat values; `attributesConfig` holds
+        // the declaration ({ value, max, drainPerTurn }) so consumers can tell
+        // a live value from its ceiling and its per-turn drain.
+        const attrsDecl = getAttributes(blueprintName);
+        if (Object.keys(attrsDecl).length > 0) {
+            const attributes = {};
+            const attributesConfig = {};
+            for (const [keyDecl, decl] of Object.entries(attrsDecl)) {
+                const [group, stat] = keyDecl.split('.');
+                attributes[group] = attributes[group] || {};
+                attributesConfig[group] = attributesConfig[group] || {};
+                attributes[group][stat] = decl.value;
+                attributesConfig[group][stat] = { value: decl.value, max: decl.max, drainPerTurn: decl.drainPerTurn };
+            }
+            this.entities[entityId].attributes = attributes;
+            this.entities[entityId].attributesConfig = attributesConfig;
+        }
 
         // Auto-install internal components (e.g., repairSpheres, moveCores)
         if (this.internalComponentController) {

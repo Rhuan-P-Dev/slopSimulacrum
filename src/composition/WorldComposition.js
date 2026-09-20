@@ -84,6 +84,7 @@ import TurnSystemController from '../controllers/core/TurnSystemController.js';
 // (all already in scope — no new file I/O); the facade reference is injected
 // via setter below (same pattern as the IC / turn-system peers).
 import EnergyFlowController from '../controllers/core/EnergyFlowController.js';
+import EntityEnergyController from '../controllers/core/EntityEnergyController.js';
 import LlmContextController from '../controllers/networking/LlmContextController.js';
 import ComponentCapabilityController from '../controllers/capabilities/componentCapabilityController.js';
 import ActionSelectController from '../controllers/actions/actionSelectController.js';
@@ -285,7 +286,15 @@ export function buildWorldState(tickSystem = null) {
         worldRulesController
     );
 
-    // TriggerController — constructed before facade, facade injected later.
+    // §3.2: EntityEnergyController — the whole-entity energy-life system (wiki/entity_attributes).
+    // Per-turn drain of each entity's energy attribute; elimination (spill +
+    // despawn) when the attribute hits 0. Logic controller — no persistent
+    // world data (reads the entity record via the facade's public API). Deliberately
+    // NOT passed into the facade's broadcast subControllers map: it has no
+    // getAll(). The facade reference is injected below, post-construction.
+    const entityEnergyController = new EntityEnergyController();
+
+    // §3.3: TriggerController — constructed before facade, facade injected later.
     const triggerController = new TriggerController();
 
     // =========================================================================
@@ -347,7 +356,11 @@ export function buildWorldState(tickSystem = null) {
         // same rule as worldRulesController). The facade calls its
         // initialize() in its own constructor (right after the turn system's);
         // the flow's OWN facade reference is injected below, post-construction.
-        energyFlowController
+        energyFlowController,
+        // EntityEnergyController: whole-entity energy-life system (per-turn
+        // energy-attribute drain + death). Logic controller — no persistent
+        // world data; no getAll() → stays out of the broadcast aggregation.
+        entityEnergyController
     });
 
     // =========================================================================
@@ -393,12 +406,22 @@ export function buildWorldState(tickSystem = null) {
         } catch (err) {
             Logger.warn(`[WorldComposition] Round ${round}: flow turn step failed: ${err && err.message ? err.message : err}`);
         }
+        try {
+            // Entity energy lifecycle: per-turn drain of each entity's energy
+            // attribute, then death (spill + despawn) when the attribute hits 0.
+            // Runs after the internal component effects so the entity's charge
+            // is final for this turn before the life check.
+            entityEnergyController.processEnergyTurn(round);
+        } catch (err) {
+            Logger.warn(`[WorldComposition] Round ${round}: entity-energy turn step failed: ${err && err.message ? err.message : err}`);
+        }
     });
     // Energy flow: inject the facade (post-construction) so the flow step can
     // enumerate entities, read stats, and write through the public API. By the
     // time a round starts (i.e. after this wiring step), the reference is
     // always resolved before first use.
     energyFlowController.setWorldStateController(worldStateController);
+    entityEnergyController.setWorldStateController(worldStateController);
     // Hint system: reads world state; does not mutate it.
     hintController.setWorldStateController(worldStateController);
     // InstinctController: reads world state for generation/expansion.
