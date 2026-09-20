@@ -59,9 +59,7 @@ const CRAFT_DROP_ACTION = 'dropItem';
  * The drone's own core component type — the pickup target for craft_loop
  * (foraged items land on the 12-volume core, keeping the 6-volume arms free).
  * Keep in sync with data/blueprints.json / data/components.json.
- * Spec §4.3 mandates this hardcode; a data-driven resolution would add a
- * fragile volume heuristic, so the sync risk is pinned by contract test 1's
- * blueprint assertions.
+ * A data-driven resolution would add a fragile volume heuristic, so the sync risk is pinned by contract test 1's blueprint assertions.
  * @constant
  */
 const CRAFT_CORE_COMPONENT_TYPE = 'crafterCore';
@@ -548,7 +546,7 @@ class NpcAIController {
      * @param {Object} ctx.entity
      * @param {number} ctx.round
      * @param {Object} [ctx.ai] — accepted for signature symmetry; craft_loop has
-     *   no ai-configurable overrides (fixed action names, spec §3.1).
+     *   no ai-configurable overrides (fixed action names, wiki/subMDs/controllers/npc_ai_controller.md).
      * @param {Object} ctx.facade — world state facade (public API only)
      * @returns {{ actionName: string, params: Object }|null} single turn action or null (idle)
      */

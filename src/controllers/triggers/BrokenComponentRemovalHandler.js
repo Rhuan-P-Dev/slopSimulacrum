@@ -1,9 +1,9 @@
 /**
- * BrokenComponentRemovalHandler — built-in handler, registered first (§3.5, §3.5.2).
+ * BrokenComponentRemovalHandler — built-in handler, registered first.
  *
  * Thin delegate to the facade's orchestrator `removeBrokenComponent(payload)`.
  * The full cascade (a)→(a½)→(b)→(c) lives in the facade's orchestrator
- * (§3.6.4); this handler only invokes the method and lets the facade do all
+ * (this handler only invokes the method and lets the facade do all
  * the heavy lifting.
  *
  * Why thin delegate: SRP (mirroring the consequence handlers).
@@ -26,15 +26,15 @@ class BrokenComponentRemovalHandler {
 
     /**
      * Handler for `component:broke` event.
-     * §3.5: delegates to facade removeBrokenComponent(payload).
-     * @param {Object} payload - Event payload (§3.3).
+     * Delegates to facade removeBrokenComponent(payload).
+     * @param {Object} payload - Event payload.
      */
     handle(payload) {
         try {
             this._wsc.removeBrokenComponent(payload);
         } catch (error) {
             Logger.error(`[BrokenComponentRemovalHandler] Error in removeBrokenComponent: ${error.message}`, { payload });
-            // Does not re-throw: isolation per handler (§3.2)
+            // Does not re-throw: isolation per handler
         }
     }
 }

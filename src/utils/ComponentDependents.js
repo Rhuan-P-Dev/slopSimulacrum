@@ -1,5 +1,5 @@
 /**
- * ComponentDependents — pure, stateless (§3.6.4).
+ * ComponentDependents — pure, stateless.
  *
  * Builds the reverse index: parentId → childIds[] from
  * `dependsOn` of component instances (entity.components[]).
@@ -9,7 +9,7 @@
  *
  * Safe for orphan edges (parentId that doesn't resolve to any component)
  * and for self-dependency (A.dependsOn contains A.id): the cascade's
- * visited-set prevents loops (§3.6.4).
+ * visited-set prevents loops.
  *
  * @module ComponentDependents
  */

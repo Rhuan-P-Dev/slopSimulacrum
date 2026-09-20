@@ -83,7 +83,7 @@ class WorldRulesController {
         this._rules = {};
         // Validated ACTIVE event entries (e.g. onDamage). Stored separately from
         // _rules: an event table is an array-of-trials, not a scalar rule, and must
-        // stay out of getActiveRules()/KNOWN_RULE_KEYS (design §4.1).
+        // stay out of getActiveRules()/KNOWN_RULE_KEYS (wiki/subMDs/data/world_rules.md).
         this._events = {};
         this._validateWorldRules(rawRegistry);
     }
@@ -180,7 +180,7 @@ class WorldRulesController {
     /**
      * Validates the `energyFlow` rule config object.
      *
-     * Field contract (energy flow spec §4):
+     * Field contract (wiki/subMDs/systems/energy_flow.md):
      *   - config must be a plain object (not array/null/wrong type) → else rule off.
      *   - `sharePerTick` (required): finite number in [0, 1]; 0 is a VALID value
      *     meaning "flow off by design" (no warning), mirroring `percent: 0`.
@@ -305,7 +305,7 @@ class WorldRulesController {
 
     /**
      * Validates a single event-table key (e.g. onDamage). Section-level and per-entry
-     * validation only; the degradation contract is "off, never crash" (R6): no throw
+     * validation only; the degradation contract is "off, never crash": no throw
      * at any level.
      *
      *   - not an array → the whole event is off: warn + store [] (every other key,
@@ -368,7 +368,7 @@ class WorldRulesController {
         const active = Object.values(this._rules).filter(Boolean).length;
         const known = KNOWN_RULE_KEYS.size;
         const ruleList = [...KNOWN_RULE_KEYS].filter(k => this._rules[k]).join(', ') || 'none';
-        // Event clause (design §5.4): appended AFTER the rule clause, keeping the
+        // Event clause (wiki/subMDs/data/world_rules.md): appended AFTER the rule clause, keeping the
         // "X/Y rule(s) active (...)" prefix verbatim (an unanchored unit test depends
         // on that exact substring).
         const onDamageEntries = this._events[ON_DAMAGE_EVENT];

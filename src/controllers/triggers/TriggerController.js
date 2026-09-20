@@ -1,10 +1,9 @@
 /**
- * TriggerController — core of the engine's event system (§3.2).
+ * TriggerController — core of the engine's event system.
  *
  * Consumer of existing stat notifications (ComponentController +
  * EquippedItemStatsController, delegated via the WorldStateController facade).
- * Detects crossing `old > 0 → new <= 0` in Physical.existence (threshold 0,
- * spec §3.1) and emits `component:broke` with payload from §3.3.
+ * Detects crossing `old > 0 → new <= 0` in Physical.existence (threshold 0) and emits `component:broke` with payload.
  *
  * DI pattern: on/off for handler registration, emit for execution with
  * isolation per handler (try/catch). Built at the composition root, with
@@ -78,7 +77,7 @@ class TriggerController {
     emit(event, payload) {
         const handlers = this._handlers.get(event);
         if (!handlers || handlers.length === 0) {
-            // §4.5 fallback defensivo: sem handlers → invocar _broadcaster (se injetado)
+            // fallback defensivo: sem handlers → invocar _broadcaster (se injetado)
             if (this._broadcaster && typeof this._broadcaster === 'function') {
                 try {
                     this._broadcaster();
@@ -100,7 +99,7 @@ class TriggerController {
 
     /**
      * Checks for existence crossing and emits `component:broke` if applicable.
-     * §3.1: old > 0 → new <= 0 only triggers.
+     * old > 0 → new <= 0 only triggers.
      *
      * @param {string} componentId - ID of the component instance.
      * @param {string} entityId - Entity owning the component.
@@ -109,11 +108,11 @@ class TriggerController {
      * @param {Object} extra - Additional data (roomId, position, tick).
      */
     onComponentBrokeCheck(componentId, entityId, oldValue, newValue, extra = {}) {
-        // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
+        // Crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
         if (oldValue > EXISTENCE_GONE_AT && newValue <= EXISTENCE_GONE_AT) {
             const payload = this._buildPayload(componentId, entityId, oldValue, newValue, extra);
             
-            // Registra no event log (§3.2)
+            // Registra no event log
             if (this._worldStateController && this._worldStateController.worldEventLogController) {
                 this._worldStateController.worldEventLogController.record({
                     action: 'component:broke',
@@ -129,7 +128,7 @@ class TriggerController {
     }
 
     /**
-     * Constructs the `component:broke` event payload (§3.3).
+     * Constructs the `component:broke` event payload.
      * @private
      */
     _buildPayload(componentId, entityId, oldValue, newValue, extra) {
@@ -160,7 +159,7 @@ class TriggerController {
     }
 
     /**
-     * Version for equipped item (§3.3 kind = 'equipped-item').
+     * Version for equipped item (kind = 'equipped-item').
      * @param {string} eqId - ID of the equipped item.
      * @param {string} entityId - Owning entity.
      * @param {string} hostComponentId - Host component.
@@ -169,7 +168,7 @@ class TriggerController {
      * @param {Object} extra - Additional data.
      */
     onEquippedItemBrokeCheck(eqId, entityId, hostComponentId, oldValue, newValue, extra = {}) {
-        // Spec §3.1: crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
+        // Crossing = strictly-positive-old → zero-or-below-new (purely stat-based)
         if (oldValue > EXISTENCE_GONE_AT && newValue <= EXISTENCE_GONE_AT) {
             // Use nullish coalescing (??) so defined falsy values (e.g. roomId: '') survive.
             const roomId = extra.roomId ?? (() => {

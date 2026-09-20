@@ -8,7 +8,7 @@ import DataLoader from '../../utils/DataLoader.js';
  * Blueprints are data-driven: loaded from data/blueprints.json at runtime
  * via the DataLoader utility, following the data-driven design principle.
  * 
- * §3.6.2 dependsOn: expandBlueprint builds a tree structure with parent
+ * dependsOn: expandBlueprint builds a tree structure with parent
  * references; createEntityFromBlueprint flattens it and resolves
  * `dependsOn: [parentInstanceId]` after ids are generated.
  */
@@ -25,7 +25,7 @@ class EntityController {
      * Recursively expands a blueprint into a flat list of component definitions.
      * Uses a per-branch visited set to prevent infinite recursion.
      * 
-     * §3.6.2: returns array of [compName, identifier, parentFlatIndex] where
+     * Returns array of [compName, identifier, parentFlatIndex] where
      * parentFlatIndex is -1 for roots or the absolute index of the parent
      * in the resulting flat list.
      * 
@@ -96,7 +96,7 @@ class EntityController {
 
     /**
      * Creates a new entity instance based on a blueprint.
-     * §3.6.2: resolves parent-index propagation to `dependsOn: [parentInstanceId]`.
+     * Resolves parent-index propagation to `dependsOn: [parentInstanceId]`.
      * @param {string} blueprintName - The blueprint to use.
      * @returns {Object} The created entity structure with instance IDs and dependsOn.
      */

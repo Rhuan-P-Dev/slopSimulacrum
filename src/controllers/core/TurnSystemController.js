@@ -443,7 +443,7 @@ class TurnSystemController {
     }
 
     // =========================================================================
-    // BARRIER API (two-phase turns — design spec §1.5/§2.4)
+    // BARRIER API (two-phase turns — wiki/subMDs/controllers/npc_ai_controller.md)
     // =========================================================================
 
     /**
@@ -495,7 +495,7 @@ class TurnSystemController {
     }
 
     // =========================================================================
-    // PERSISTENCE (spec §5.9 + design spec §8) — schema STAYS v3
+    // PERSISTENCE (spec §5.9  — schema STAYS v3
     // =========================================================================
 
     /**

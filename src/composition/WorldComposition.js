@@ -93,7 +93,7 @@ import ActionController from '../controllers/actions/actionController.js';
 import stateEntityController from '../controllers/core/stateEntityController.js';
 import HoldingCostController from '../controllers/core/HoldingCostController.js';
 
-// Trigger system (§3.2 — component:broke event pipeline).
+// Trigger system (component:broke event pipeline).
 import TriggerController from '../controllers/triggers/TriggerController.js';
 import BrokenComponentRemovalHandler from '../controllers/triggers/BrokenComponentRemovalHandler.js';
 import KnifeDropTriggerHandler from '../controllers/triggers/KnifeDropTriggerHandler.js';
@@ -189,7 +189,7 @@ export function buildWorldState(tickSystem = null) {
     // CraftingController: state controller owning the recipe registry
     // (data/crafting.json). Receives the already-loaded item registry so every
     // recipe input/output type is cross-validated against inventoryItems.json
-    // right here (fail-fast at boot, per §0.5 above). No controller deps —
+    // right here (fail-fast at boot). No controller deps —
     // no setWorldStateController() needed (it never reads world state).
     const craftingController = new CraftingController(
         craftingRegistry,
@@ -285,7 +285,7 @@ export function buildWorldState(tickSystem = null) {
         worldRulesController
     );
 
-    // §3.2: TriggerController — constructed before facade, facade injected later.
+    // TriggerController — constructed before facade, facade injected later.
     const triggerController = new TriggerController();
 
     // =========================================================================
@@ -317,7 +317,7 @@ export function buildWorldState(tickSystem = null) {
         // built instance is referenced explicitly by its local name here.
         stateEntityController: stateEntityControllerInstance,
         holdingCostController,
-        // §5: trigger controller for component:broke events
+        // trigger controller for component:broke events
         triggerController,
         // InstinctController: stateless behavior-primitive generator (null-tolerant).
         instinctController,
@@ -328,8 +328,8 @@ export function buildWorldState(tickSystem = null) {
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
         craftingController,
- // KnowledgeController: static knowledge codex (wiki/subMDs/frontend/knowledge_viewer.md
-        // §4.2). Null-tolerant like craftingController — a test may hand-build
+ // KnowledgeController: static knowledge codex (wiki/subMDs/frontend/knowledge_viewer.md).
+        // Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
         knowledgeController,
         // WorldRulesController: world-level rules registry (data/world_rules.json).
@@ -404,7 +404,7 @@ export function buildWorldState(tickSystem = null) {
     // InstinctController: reads world state for generation/expansion.
     instinctController.setWorldStateController(worldStateController);
     
-    // §3.2/§5: TriggerController — inject facade + broadcaster, register handlers.
+    // TriggerController — inject facade + broadcaster, register handlers.
     // Handler order matters: BrokenComponentRemovalHandler 1º, KnifeDropTriggerHandler 2º.
     triggerController.setWorldStateController(worldStateController);
     // Broadcaster will be injected after setBroadcastService is called on the facade.

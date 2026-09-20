@@ -157,7 +157,7 @@ class InventoryManager {
      * @returns {{ success: boolean, message?: string, item?: Object }}
      */
     addItem(entity, itemType, hostComponentId, options = {}) {
-                // Explicit definition override (feature 2, D8 site 2): a dynamically-generated
+                // Explicit definition override (feature 2): a dynamically-generated
         // chunk type has no registry entry, so callers pass the synthesized definition
         // (self-describing name/volume + a 100% single-material composition). When absent,
         // this resolves to the normal registry lookup (behavior unchanged).
@@ -582,7 +582,7 @@ class InventoryManager {
     }
 
     /**
-     * Public wrapper for _collectNestedItems (§3.5.1).
+     * Public wrapper for _collectNestedItems.
      * @param {Object} entity - The entity object.
      * @param {string} parentId - The parent item ID to collect from.
      * @returns {Array} Deep copy of nested items.

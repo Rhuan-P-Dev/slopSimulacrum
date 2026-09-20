@@ -38,12 +38,11 @@ import {
 } from '../../../shared/StatVocabulary.js';
 
 // The flat "Group.stat" mapping-key pattern is the shared constant
-// TRAIT_STAT_KEY_PATTERN, imported from shared/StatVocabulary.js (spec §2, risk
-// R3). MaterialController._validateMappingRegistry() imports the very same
+// TRAIT_STAT_KEY_PATTERN, imported from shared/StatVocabulary.js. MaterialController._validateMappingRegistry() imports the very same
 // constant, so the two boot validators can never disagree on key form.
 
 /**
- * The total empty-shape knowledge payload (spec §3.5 invariant 1 / §4.3):
+ * The total empty-shape knowledge payload:
  * all three sections present, all arrays/objects empty, vocabulary filled
  * from the shared module. Used by WorldStateController.getKnowledge() when
  * the controller is unwired — the facade must never emit a null envelope
@@ -214,7 +213,7 @@ class KnowledgeController {
      * flat "Group.stat" pattern; each entry must have AT LEAST ONE of a non-empty
      * `formula` string or a non-empty `sources` object. This "at least one" rule
      * is deliberately lax — identical to MaterialController._validateMappingRegistry()
-     * by design (a both-filled entry is legal at boot). The §3.2 wire exclusivity
+     * by design (a both-filled entry is legal at boot). The wire exclusivity
      * (exactly one populated side) is enforced LATER, by _buildMappings()
      * normalization (formula wins); this validator stays unchanged.
      * @private
@@ -353,7 +352,7 @@ class KnowledgeController {
     // =========================================================================
 
     /**
-     * Assembles the full codex payload (§3) from the validated registries.
+     * Assembles the full codex payload from the validated registries.
      * Pure and idempotent; the result is cached by the constructor and cloned
      * by getKnowledge().
      * @returns {Object} The assembled codex payload.
@@ -393,7 +392,7 @@ class KnowledgeController {
     /**
      * The property→stat mapping table as an array of rows, sorted by `statKey`
      * for stable rendering. Each row carries the flat key split into
-     * `trait`/`stat` and, per the §3.2 wire contract, exactly one populated
+     * `trait`/`stat` and, per the wire contract, exactly one populated
      * side: a single-filled row passes through unchanged (a formula row has
      * `sources: []`, a source row has `formula: null`); a both-filled row is
      * NORMALIZED at assembly — the formula wins and its `sources` are dropped.
@@ -407,7 +406,7 @@ class KnowledgeController {
         for (const [statKey, entry] of Object.entries(this._mappingBody)) {
             const [trait, stat] = statKey.split('.');
 
-            // Normalization enforces the §3.2 wire contract (exactly one of
+            // Normalization enforces the wire contract (exactly one of
             // formula/sources): the formula wins, mirroring the priority
             // MaterialController._deriveTraits() already applies to a
             // densityVolume formula (a formula row never also carries sources).

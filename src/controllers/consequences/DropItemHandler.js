@@ -6,7 +6,7 @@
  *
  * Extracted from ConsequenceDispatcher to adhere to the Single Responsibility Principle.
  *
- * §4.4: `writeDroppedItem` helper exported for reuse by handleDropItem,
+ * `writeDroppedItem` helper exported for reuse by handleDropItem,
  * KnifeDropTriggerHandler, and BrokenComponentRemovalHandler spill.
  *
  * @module DropItemHandler
@@ -18,7 +18,7 @@ import { recoverChunkMaterial } from '../../utils/Constants.js';
 
 /**
  * Writes a dropped item record to the droppedItems map.
- * §4.4: extracted from handleDropItem, parameterized by nestedItems (default []).
+ * Extracted from handleDropItem, parameterized by nestedItems (default [])..
  *
  * @param {Object} worldState - Narrow-deps stub (not the full facade), implementing only:
  *   `getDroppedItems(): object` — returns the dropped-items map;
@@ -64,7 +64,7 @@ function writeDroppedItem(worldStateController, itemType, x, y, roomId, ownerId,
         nestedItems: nestedItems
     };
 
-    // §3.5.3: gatear broadcast por cascata — setDroppedItems gatinga internamente
+    // Gate broadcast por cascata — setDroppedItems gatinga internamente
     worldStateController.setDroppedItems(droppedItems);
     return { id: itemId, droppedItemId };
 }
@@ -118,7 +118,7 @@ function handleDropItem(deps, params) {
     // If equipped, unequip it first
     let usedItemType = itemType;
     // The item instance (name/volume) captured before removal, so a re-dropped chunk can
-    // keep its dynamic volume + derived name (feature 2, D8 site 3). Chunks are not
+    // keep its dynamic volume + derived name (feature 2, site 3). Chunks are not
     // equipable, so this is only ever set on the inventory branch.
     let sourceInstance = null;
     if (equippedItem) {
@@ -159,7 +159,7 @@ function handleDropItem(deps, params) {
     // Fetch item definition for fallback
     const itemRegistry = worldStateController.getItemRegistry();
     let itemDef = itemRegistry[usedItemType] || {};
-    // Feature 2 (D8 site 3): a re-dropped chunk has no registry entry. Build the ground
+    // Feature 2 (site 3): a re-dropped chunk has no registry entry. Build the ground
     // record from the item instance's own (dynamic) name/volume instead of the empty
     // fallback — otherwise the chunk would silently reset to the default volume (1).
     const chunkMaterial = recoverChunkMaterial(usedItemType);

@@ -1,5 +1,5 @@
 /**
- * DiskSampler — unit tests (§4.2, PHASE 7).
+ * DiskSampler — unit tests (PHASE 7).
  *
  * Verifies: constant DEFAULT_TRIGGER_RADIUS === 5; property r = radius·√u
  * for sampled points with seeded/injected rand; uniform distribution.

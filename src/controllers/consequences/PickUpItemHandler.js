@@ -125,7 +125,7 @@ function handlePickUpItem(deps, params) {
     }
 
     // Get the item definition from inventoryItems.json — OR synthesize it for a
-    // dynamically-generated chunk type (feature 2, D8 site 1): chunks have NO registry
+    // dynamically-generated chunk type (feature 2, site 1): chunks have NO registry
     // entry. The ground record is self-describing (name/volume) and the material is
     // recovered from the type string (`chunk_<material>`). A chunk's composition is 100%
     // the recovered material, so its traits derive through the existing material pipeline
@@ -178,7 +178,7 @@ function handlePickUpItem(deps, params) {
 
     // Add item to entity inventory (attached to the target component). For a chunk, pass
     // the synthesized definition through so InventoryManager bypasses the (empty-for-
-    // chunks) registry and uses the self-describing ground-record fields (D8 site 2).
+    // chunks) registry and uses the self-describing ground-record fields (site 2).
     const addOptions = chunkMaterial ? { itemDef } : {};
     const addResult = worldStateController.addItemToEntity(entityId, droppedItem.itemType, componentId, addOptions);
     if (!addResult.success) {

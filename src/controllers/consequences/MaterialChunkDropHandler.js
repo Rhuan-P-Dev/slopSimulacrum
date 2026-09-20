@@ -53,7 +53,7 @@ class MaterialChunkDropHandler {
      *     materials (nothing to chip from);
      *   - the target is gone (a lethal punch's break/removal cascade already ran inside the
      *     damage consequence) or is an equipped item / whole entity rather than a single
-     *     component — there is no partial-matter source to chip from (D10);
+     *     component — there is no partial-matter source to chip from;
      *   - a material with no drop-rates entry (equivalent to rate 0).
      *
      * @param {string} targetId - The resolved target (component) ID from the dispatcher.
@@ -99,7 +99,7 @@ class MaterialChunkDropHandler {
             return { success: true, message: 'Target entity not found.', data: { droppedChunks: 0, chunkVolumes: {} } };
         }
 
-        // 3. The target's recipe: per-material fractions + total recipe volume (D7).
+        // 3. The target's recipe: per-material fractions + total recipe volume.
         const byType = world.componentController?.getComponentMaterialsByType?.() || {};
         const materials = byType[comp.type];
         if (!Array.isArray(materials) || materials.length === 0) {
@@ -107,7 +107,7 @@ class MaterialChunkDropHandler {
         }
         const recipeVolume = getDefinitionVolume(world.componentController?.getComponentDefinition?.(comp.type));
 
-        // 4. Per-material independent roll + volume (D7/D12), batched into one write.
+        // 4. Per-material independent roll + volume, batched into one write.
         const minChunkVolume = this.materialController.getMinChunkVolume();
         const room = entity.location || null;
         const cx = entity.spatial?.x ?? 0;
@@ -129,17 +129,17 @@ class MaterialChunkDropHandler {
         for (const mat of materials) {
             if (!mat || typeof mat !== 'object') continue;
             const { material, fraction } = mat;
-            // Missing drop-rates entry → no drop for this material (D9). A null result
+            // Missing drop-rates entry → no drop for this material. A null result
             // also means the feature is off, so this single check covers both.
             const dropConfig = this.materialController.getDropRate(material);
             if (!dropConfig || dropConfig.dropRate <= 0) continue;
             if (typeof fraction !== 'number' || fraction <= 0) continue;
 
-            // Independent roll per material (D12). Math.random() ∈ [0,1): a dropRate of
+            // Independent roll per material. Math.random() ∈ [0,1): a dropRate of
             // 1.0 therefore always drops (deterministic for contract tests).
             if (!(Math.random() < dropConfig.dropRate)) continue;
 
-            // Shared chunk-item mechanics (design §3.6): the D7 volume lever + the
+            // Shared chunk-item mechanics (wiki/subMDs/data/material_damage_and_drop.md): the volume lever + the
             // self-describing item def, now the single source used by both the chunk
             // stream and the onDamage stream. Line-for-line equivalent to the
             // former inline formula (dropConfig is non-null here — guarded above).
@@ -185,7 +185,7 @@ class MaterialChunkDropHandler {
                 const point = sampleDiskPoint(cx, cy, DEFAULT_TRIGGER_RADIUS);
                 if (!point) continue;
 
-                // Shared chunk item identity (design §3.6): one item definition
+                // Shared chunk item identity (wiki/subMDs/data/material_damage_and_drop.md): one item definition
                 // source for all three drop streams; the torn stream keeps its
                 // own distinct volume formula (not routed through computeChunkVolume).
                 const itemDef = buildChunkItemDef(materialName, tornVolume);
