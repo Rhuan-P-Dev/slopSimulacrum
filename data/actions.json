@@ -313,7 +313,7 @@
         "params": {
           "channel": "impact",
           "value": ":Manipulation.fine_controls*2",
-          "count": 3
+          "count": "3"
         }
       },
       {
