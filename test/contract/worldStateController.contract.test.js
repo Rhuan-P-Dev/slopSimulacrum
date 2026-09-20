@@ -647,6 +647,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'dash',
             'droid punch',
             'dropItem',
+            'hand shotgun',
             'move',
             'pickUpItem',
             'selfHeal',
