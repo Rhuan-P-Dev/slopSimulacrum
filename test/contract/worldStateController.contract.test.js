@@ -170,6 +170,10 @@ describe('WorldStateController public method surface', () => {
         'despawnEntity',
         // Added deliberately (energy_flow_spec.md §6.2): closes the flow
         // broadcast scope with at most one full-state broadcast.
+        // Added deliberately (entity_attributes): whole-entity energy-life
+        // elimination — spills the entity's contents to the floor and
+        // despawns it when its energy attribute hits 0.
+        'eliminateEntityByEnergy',
         'endEnergyFlowTurn',
         'equipItem',
         'executeAction',
@@ -196,6 +200,12 @@ describe('WorldStateController public method surface', () => {
         'getDroppedItemsByRoom',
         'getEntities',
         'getEntity',
+        // Added deliberately (entity_attributes): whole-entity attribute
+        // accessors. The entity (not a component) owns these; they are read
+        // and mutated through the facade only (facade-only-dependency rule).
+        'getEntityAttribute',
+        'getEntityAttributeConfig',
+        'getEntityAttributeDeclarations',
         'getEntityItems',
         'getEquippedItem',
         'getEquippedItemByItemId',
@@ -243,6 +253,10 @@ describe('WorldStateController public method surface', () => {
         'serialize',
         'setBroadcastService',
         'setDroppedItems',
+        // Added deliberately (entity_attributes): clamp-bounded mutation of a
+        // whole-entity attribute (charge or drain). Mirrors the per-component
+        // updateComponentStatDelta facade API.
+        'setEntityAttributeDelta',
         'spawnEntity',
         'transferEquip',
         'triggerInitialBroadcast',

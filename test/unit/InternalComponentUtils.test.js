@@ -68,11 +68,13 @@ describe('generateDescription — shipped organ data', () => {
             .toBe('Marks the host as corrosive. Every 10 turns, emits 1 corrosion damage to components within 50.');
     });
 
-    it('renders coalGenerator (inert — energy mechanic removed off-by-data)', () => {
-        // The energy mechanic was removed from the shipped data (empty grants
-        // + overTime): the organ stays installable but describes no effects.
+    it('renders coalGenerator (burns coal to charge the host entity\'s energy)', () => {
+        // The energy mechanic is data-driven (data/entity_attributes.json):
+        // the organ stays installable and describes its fuel -> energy overTime
+        // effect. It charges the HOST ENTITY's energy attribute (a whole-entity
+        // stat), not a per-component stat, so no grant clause is declared.
         expect(util.generateDescription(REGISTRY.coalGenerator))
-            .toBe('No measurable effects declared.');
+            .toBe('Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).');
     });
 });
 
@@ -227,7 +229,7 @@ describe('enrichWithDescriptions', () => {
         util.enrichWithDescriptions(instances, REGISTRY);
         expect(instances.map(i => i.description)).toStrictEqual([
             "Maintains the host's Physical strength at 50.",
-            'No measurable effects declared.', // coalGenerator is inert off-by-data
+            'Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).', // coalGenerator: fuel -> host entity energy
             'Marks the host as corrosive. Every 10 turns, emits 1 corrosion damage to components within 50.',
         ]);
     });
@@ -244,10 +246,12 @@ describe('enrichWithDescriptions', () => {
         ]);
     });
 
-    it("uses the instance's grants for an organ whose type def is inert", () => {
+    it("uses the instance's grants for an organ whose type def declares no grants", () => {
         const instances = [{ type: 'coalGenerator', grants: { 'Physical.energy': 7 } }];
         util.enrichWithDescriptions(instances, REGISTRY);
-        expect(instances[0].description).toBe("Maintains the host's Physical energy at 7.");
+        // The instance grant overrides the (empty) type-level grant for the
+        // grant clause; the type's overTime fuel -> energy effect still renders.
+        expect(instances[0].description).toBe("Maintains the host's Physical energy at 7. Every 5 turns, burns 1 coal to charge the host 10 Physical energy (capacity 100).");
     });
 
     it('renders the unknown-string for types not present in the registry', () => {

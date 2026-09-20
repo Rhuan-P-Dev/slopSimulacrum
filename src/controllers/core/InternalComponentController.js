@@ -850,8 +850,8 @@ class InternalComponentController {
 
     /**
      * `consumeFuelGenerateStat`: the fuel → energy loop. Every interval the
-     * organ reads the host's current charge on `targetStat` and then, in
-     * priority order: (1) a full battery (charge ≥ `energyCapacity`) skips
+     * organ reads the host ENTITY's current charge on `targetStat` (a whole-entity attribute) and then, in
+     * priority order: (1) a full battery (charge ≥ the entity attribute's `max`) skips
      * without burning fuel — coal is never burned for a full tank; (2) with
      * fewer than `fuelConsumedPerInterval` units of `fuelItem` aboard, it
      * degrades gracefully — nothing is consumed, nothing is charged, and the
@@ -859,15 +859,17 @@ class InternalComponentController {
      * `_fuelExhaustionLogged` map marks that it already happened, so a droid
      * sitting at zero fuel does not spam the log every interval); (3)
      * otherwise it consumes whole fuel units through the facade's public
-     * removal API and charges the stat by
-     * `min(energyGainPerInterval, energyCapacity − current)` — clamped at the
+     * removal API and charges the host entity's attribute by
+     * `min(energyGainPerInterval, entityAttribute.max − current)` — clamped at the
      * margin, so the last burn can waste partial energy rather than stall the
      * final tick of a charge.
      *
      * Whole units only: energy stays an exact multiple of the per-fuel gain
      * for the life of the droid, keeping the "1 fuel = N energy" balance lever
-     * exact and testable. All balance numbers come from the effect definition
-     * (data/internalComponents.json) — nothing here is a magic number.
+     * exact and testable. Cadence, gain and fuel-need come from the effect
+     * definition (data/internalComponents.json); the charging CEILING is the
+     * entity attribute's `max` (data/entity_attributes.json) — the single
+     * source of truth, enforced by setEntityAttributeDelta on every write.
      *
      * Invariant: the fuel snapshot (getEntityItems) and the removals
      * (removeItemFromEntity) share the `entity.items` source within one
@@ -889,12 +891,11 @@ class InternalComponentController {
         const wsc = this.worldStateController;
         if (!wsc) return false;
 
-        const capacity = typeof effect.energyCapacity === 'number' ? effect.energyCapacity : 0;
         const gain = typeof effect.energyGainPerInterval === 'number' ? effect.energyGainPerInterval : 0;
         const fuelNeeded = Number.isInteger(effect.fuelConsumedPerInterval) && effect.fuelConsumedPerInterval > 0
             ? effect.fuelConsumedPerInterval
             : 0;
-        if (capacity <= 0 || gain <= 0 || fuelNeeded <= 0) return false;
+        if (gain <= 0 || fuelNeeded <= 0) return false;
 
         // The target stat is declared in the flat "Group.stat" wire form
         // (identical to the grants key form) — split it for the (trait, stat)
@@ -904,9 +905,26 @@ class InternalComponentController {
         const traitId = effect.targetStat.slice(0, dot);
         const statName = effect.targetStat.slice(dot + 1);
 
-        // Rule 1 — full battery: never burn fuel for a full tank.
-        const stats = wsc.getComponentStats(hostComponentId);
-        const current = stats?.[traitId]?.[statName] ?? 0;
+        // Rule 0 — single source of truth for the ceiling: the whole-entity
+        // energy cap is the entity attribute's `max` (data/entity_attributes.json),
+        // NOT the organ's `energyCapacity` (data/internalComponents.json). The
+        // two files must not silently diverge — the attribute `max` is what
+        // setEntityAttributeDelta enforces on every write, so it is the true
+        // ceiling. If the entity carries no such attribute declaration (the data
+        // file is missing/empty for this blueprint), the generator has nothing
+        // to charge: burn no fuel (a silent coal drain with no effect, no
+        // charge and no death). `energyCapacity` remains only a boot-time
+        // config validation (positive) elsewhere in this controller.
+        const attrConfig = wsc.getEntityAttributeConfig(entityId, traitId, statName);
+        if (!attrConfig || typeof attrConfig.max !== 'number' || !Number.isFinite(attrConfig.max) || attrConfig.max <= 0) {
+            return false;
+        }
+        const capacity = attrConfig.max;
+
+        // Rule 1 — full battery: never burn fuel for a full tank. The
+        // "current" is the host ENTITY's live attribute value (whole-entity
+        // energy), read through the facade's attribute API.
+        const current = wsc.getEntityAttribute(entityId, traitId, statName) ?? 0;
         if (current >= capacity) return false;
 
         // Rule 2 — fuel search across the entity's items (public facade only;
@@ -942,10 +960,15 @@ class InternalComponentController {
         }
         this._fuelExhaustionLogged.delete(`${entityId}:${hostComponentId}`);
 
-        // Charge, clamped at the capacity margin.
+        // Charge the host ENTITY's attribute, clamped at the capacity margin
+        // (setEntityAttributeDelta also clamps into [0, max]; the explicit
+        // clamp here keeps the waste-partial-energy semantics of the last burn).
         const charge = Math.min(gain, capacity - current);
-        wsc.componentController.updateComponentStatDelta(hostComponentId, traitId, statName, charge);
-        Logger.info(`[InternalComponentController] overTime(consumeFuelGenerateStat): consumed ${fuelNeeded} ${effect.fuelItem}, +${charge} ${traitId}.${statName} on ${hostComponentId}`);
+        // Round-start attribute writes are coalesced into the turn's single
+        // full-state broadcast; suppressing this avoids a redundant full emit
+        // per cadence round.
+        wsc.setEntityAttributeDelta(entityId, traitId, statName, charge, false);
+        Logger.info(`[InternalComponentController] overTime(consumeFuelGenerateStat): consumed ${fuelNeeded} ${effect.fuelItem}, +${charge} ${traitId}.${statName} on entity ${entityId} (generator ${hostComponentId})`);
         return true;
     }
 

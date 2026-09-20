@@ -23,6 +23,7 @@ import { SynergyPreviewController } from './SynergyPreviewController.js';
 import { ActionExecutor } from './ActionExecutor.js';
 import { EventDispatcher } from './EventDispatcher.js';
 import { StatBarsManager } from './StatBarsManager.js';
+import { EntityAttributeBars } from './EntityAttributeBars.js';
 import { ComponentViewer } from './ComponentViewer.js';
 import { NavActionsPanel } from './NavActionsPanel.js';
 import { WorldMapView } from './WorldMapView.js';
@@ -86,6 +87,7 @@ export class ClientApp {
 
         // 4. UI modules
         this.statBars = new StatBarsManager(this.ui, this.worldState);
+        this.entityAttributeBars = new EntityAttributeBars(this.worldState);
         this.componentViewer = new ComponentViewer(this.ui, this.statBars);
         this.navActions = new NavActionsPanel(this.ui);
         // Phase 4: the onRoomClick wiring was removed — _handleWorldMapRoomClick()
@@ -120,6 +122,7 @@ export class ClientApp {
             onStatBarsUpdate: (state) => {
                 this.worldState.state = state;
                 this.statBars.updateAll(state);
+                this.entityAttributeBars.updateAll(state);
             },
             moveToTarget: (actionName, entityId, targetX, targetY, pending) =>
                 this.actions.moveToTarget(actionName, entityId, targetX, targetY, pending),
@@ -661,6 +664,7 @@ export class ClientApp {
         try {
             // Initialize modules
             this.statBars.init();
+            this.entityAttributeBars.init();
             this.componentViewer.init();
             // The inspection stash is one-shot: clearing it when the panel hides keeps
             // the "1" config-bar button meaning "my droid" (historical behavior);
@@ -809,8 +813,9 @@ export class ClientApp {
                     (id, item) => this._handleDroppedItemLeave(id, item)
                 );
 
-                // Update stat bars
+                // Update stat bars (per-component) + whole-entity attribute bars
                 this.statBars.updateAll(state);
+                this.entityAttributeBars.updateAll(state);
             }
 
             await this.updateActionList();

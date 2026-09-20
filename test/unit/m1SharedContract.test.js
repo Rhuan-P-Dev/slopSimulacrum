@@ -53,11 +53,25 @@ describe('M1 shared contract', () => {
 
         const icRegistry = readData('internalComponents.json');
         expect(icRegistry['coalGenerator']).toBeDefined();
-        // Energy mechanic removed from the data: coalGenerator is inert —
-        // no overTime effect (consumes nothing, charges nothing) and no
-        // grants. The type is retained so recipes that still install it
-        // (m1CentralBody) remain valid.
-        expect(icRegistry['coalGenerator'].overTime).toEqual([]);
+        // Energy mechanic is data-driven: coalGenerator is a fuel burner that
+        // charges the HOST ENTITY's energy attribute (a whole-entity stat, not a
+        // per-component stat — so it carries no grants of its own).
         expect(icRegistry['coalGenerator'].grants).toEqual({});
+        const effect = icRegistry['coalGenerator'].overTime[0];
+        expect(effect).toBeDefined();
+        expect(effect.type).toBe('consumeFuelGenerateStat');
+        expect(effect.fuelItem).toBe('coal');
+        expect(effect.targetStat).toBe('Physical.energy');
+
+        // And the M1 droid actually carries the whole-entity energy attribute it
+        // is being charged by (data/entity_attributes.json), with the same cap
+        // as the generator's energyCapacity (a single value in the data, not a
+        // magic number in a controller).
+        const entityAttrs = readData('entity_attributes.json');
+        const energyAttr = entityAttrs.attributes['m1Droid']['Physical.energy'];
+        expect(energyAttr).toBeDefined();
+        expect(energyAttr.value).toBeGreaterThan(0);
+        expect(energyAttr.max).toBe(effect.energyCapacity);
+        expect(energyAttr.drainPerTurn).toBeGreaterThan(0);
     });
 });
