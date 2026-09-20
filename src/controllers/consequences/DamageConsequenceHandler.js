@@ -46,6 +46,10 @@ class DamageConsequenceHandler {
        // distributions (data/materialDamageTypes.json). Null-tolerant so the
        // feature degrades gracefully (declared channel keeps 100%) when absent.
        this.materialController = controllers.materialController || null;
+       // Public test seam for the random-component spread handler:_sampleRandomComponents
+       // draws via this fn so tests can pin which components a spread hits.
+       // Production always uses Math.random; it is never replaced in the shipped flow.
+       this._randomFn = Math.random;
    }
 
     /**
@@ -394,6 +398,160 @@ class DamageConsequenceHandler {
             message: `Dealt ${totalDamage} total damage across ${updatedCount} component(s) of entity "${entityId}"`,
             data: { entityId, trait, stat, value, updatedCount, totalDamage }
         };
+    }
+
+    /**
+     * Applies channel damage to `count` RANDOM distinct living components of the
+     * target entity — the random-spread pattern (hand shotgun). Each pellet deals
+     * its own hit, and each hit independently rolls the material/chunk-drop
+     * pipeline (onDamage world rule) through the published channel loss.
+     *
+     * The same channel math as the single-target path is reused (`_computeSplitLoss`,
+     * the blended attacker split, and the per-channel resistance formula), so the
+     * shotgun behaves consistently with punch/cut/shootT1. The raw `value` is the
+     * PER-PELLET damage (a resolved positive number, e.g. ":Manipulation.fine_controls*2"
+     * → 100 for a standard hand).
+     *
+     * Target resolution: accepts a component ID (resolved to its owning entity) or an
+     * entity ID. The entity's living components (existence > 0) form the candidate
+     * pool; `count` of them are drawn uniformly at random without replacement.
+     *
+     * @param {string} targetId - Resolved target ID: a component ID or an entity ID.
+     * @param {Object} resolvedParams - { channel, value (already resolved), count }.
+     * @param {Object} context - Dispatch context (carries the attacker for the split).
+     * @returns {{success: boolean, message: string, data: Object|null}}
+     * @private
+     */
+    _handleRandomComponentDamage(targetId, resolvedParams, context) {
+        const { channel, value, count } = resolvedParams;
+
+        // Channel must be a valid DAMAGE_CHANNELS name (mirrors _handleChannelDamage).
+        if (!Object.values(DAMAGE_CHANNELS).includes(channel)) {
+            return { success: false, message: `Random component damage: unknown channel "${channel}".`, data: null };
+        }
+
+        // The per-pellet value must be a resolved, finite number >= 0.
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+            return { success: false, message: `Random component damage: value must be a positive number (got ${value}).`, data: null };
+        }
+
+        const world = this.worldStateController;
+        if (!world) {
+            return { success: false, message: 'WorldStateController not available.', data: null };
+        }
+
+        // Resolve the target to an entity (handles both entity ID and component ID).
+        const entity = this._resolveTargetEntity(targetId);
+        if (!entity) {
+            return { success: false, message: `Random component damage: cannot resolve target "${targetId}" to an entity with components.`, data: null };
+        }
+
+        // Living candidates: components with a Physical.existence stat > 0.
+        const candidates = (entity.components || []).filter((c) => {
+            const stats = world.componentController.getComponentStats(c.id);
+            const existence = stats?.Physical?.existence;
+            return typeof existence === 'number' && existence > 0;
+        });
+        if (candidates.length === 0) {
+            return { success: false, message: `Random component damage: target entity "${entity.id}" has no living components to hit.`, data: null };
+        }
+
+        const hitCount = this._resolveHitCount(count, candidates.length);
+        const hitComponents = this._sampleRandomComponents(candidates, hitCount);
+
+        // The blended attacker split (feature 1); null → legacy single-channel math.
+        const split = this._resolveAttackerSplit(context, channel);
+        let totalLoss = 0;
+        let updatedCount = 0;
+        const hitIds = [];
+
+        for (const comp of hitComponents) {
+            const stats = world.componentController.getComponentStats(comp.id);
+            if (!stats) continue;
+
+            // Same clamped-loss math as _handleChannelDamage's component path.
+            const priorExistence = stats.Physical?.existence ?? 0;
+            const loss = this._computeSplitLoss(stats, channel, value, split);
+            const appliedLoss = Math.min(Math.max(0, priorExistence), Math.max(0, loss));
+            const success = world.componentController.updateComponentStatDelta(comp.id, 'Physical', 'existence', -loss);
+            if (success && appliedLoss > 0) {
+                totalLoss += appliedLoss;
+                updatedCount++;
+                hitIds.push(comp.id);
+                this._publishChannelLoss(context, { targetId: comp.id, appliedLoss });
+            }
+        }
+
+        return {
+            success: updatedCount > 0,
+            message: updatedCount > 0
+                ? `The spread struck ${updatedCount} of ${candidates.length} random components of "${entity.id}", dealing ${round3(totalLoss)} total existence loss.`
+                : 'The spread struck no living components.',
+            data: {
+                targetEntityId: entity.id,
+                channel,
+                value,
+                count: hitCount,
+                candidates: candidates.length,
+                updatedCount,
+                hitIds,
+                totalLoss: round3(totalLoss)
+            }
+        };
+    }
+
+    /**
+     * Resolves a target ID (entity ID or component ID) to its entity, so the spread
+     * can pick random living components of the whole target. Returns null when the
+     * target cannot be mapped to an entity with components.
+     * @private
+     */
+    _resolveTargetEntity(targetId) {
+        const world = this.worldStateController;
+        if (!targetId) return null;
+
+        // Direct entity lookup first (LLM path sends targetEntityId).
+        const entity = world.getEntity(targetId);
+        if (entity && Array.isArray(entity.components)) return entity;
+
+        // Component ID → its owning entity (frontend sends targetComponentId).
+        if (world.stateEntityController && typeof world.stateEntityController.findEntityByComponent === 'function') {
+            const owning = world.stateEntityController.findEntityByComponent(targetId);
+            if (owning && Array.isArray(owning.components)) return owning;
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolves the number of components to hit from the declared `count` param.
+     * Clamps to [1, candidate pool size]; returns 1 on a malformed / missing count.
+     * @private
+     */
+    _resolveHitCount(rawCount, poolSize) {
+        const n = Number(rawCount);
+        if (Number.isFinite(n) && n > 0 && poolSize > 0) {
+            return Math.min(Math.max(1, Math.floor(n)), poolSize);
+        }
+        return 1;
+    }
+
+    /**
+     * Samples `count` distinct candidates uniformly at random, without replacement
+     * (partial Fisher–Yates). Draws through `this._randomFn` (a documented test seam
+     * that defaults to Math.random) so tests can pin exactly which components a
+     * spread hits.
+     * @private
+     */
+    _sampleRandomComponents(candidates, count) {
+        const randomFn = this._randomFn ?? Math.random;
+        const remaining = [...candidates];
+        const hits = [];
+        while (hits.length < count && remaining.length > 0) {
+            const i = Math.floor(randomFn() * remaining.length);
+            hits.push(remaining.splice(i, 1)[0]);
+        }
+        return hits;
     }
 }
 

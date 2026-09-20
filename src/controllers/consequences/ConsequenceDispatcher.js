@@ -604,6 +604,25 @@ class ConsequenceDispatcher {
                     }
                 };
             }
+            if (consequence.type === 'damageRandomComponents') {
+                // Channel-model analog to damageComponent: preserve the declared params
+                // (channel, count) and resolve the declared `value` placeholder PER ATTACKER
+                // against this attacker's full stat context, so a multi-attacker (two-handed)
+                // shot fires for each hand using its own Manipulation.fine_controls. The
+                // `count` stays per-attacker, matching how multi-attacker doubles the damage
+                // of a single-attacker component action. Falls back to the attacker's
+                // strength so the model stays total (mirrors the damageComponent channel
+                // model).
+                const resolvedValue = resolvePlaceholders(consequence.params?.value, requirementValues);
+                const value = (typeof resolvedValue === 'number' && Number.isFinite(resolvedValue))
+                    ? resolvedValue
+                    : attackerStrength;
+                return {
+                    type: 'damageRandomComponents',
+                    target: consequence.target,
+                    params: { ...consequence.params, value }
+                };
+            }
             if (consequence.type === 'log' && consequence?.params?.message) {
                 return {
                     type: 'log',

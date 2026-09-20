@@ -122,6 +122,9 @@ class ConsequenceHandlers {
             updateComponentStatDelta: (targetId, params, context) => this.statHandler._handleUpdateComponentStatDelta(targetId, params, context),
             triggerEvent: (targetId, params, context) => this.eventHandler._handleTriggerEvent(targetId, params, context),
             damageComponent: (targetId, params, context) => this.damageHandler._handleDamageComponent(targetId, params, context),
+            // Random-spread channel damage (hand shotgun): N pellets, each hit
+            // landing on a random living component of the target entity.
+            damageRandomComponents: (targetId, params, context) => this.damageHandler._handleRandomComponentDamage(targetId, params, context),
             dropMaterialChunk: (targetId, params, context) => this.materialChunkDropHandler._handleDropMaterialChunk(targetId, params, context),
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),

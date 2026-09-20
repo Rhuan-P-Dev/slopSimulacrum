@@ -294,5 +294,42 @@
         "message": "T1 shoot failed - no ammunition in inventory"
       }
     ]
+  },
+  "hand shotgun": {
+    "description": "Fire a hand-mounted shotgun: three pellets, each dealing heavy impact damage to a different RANDOM component of the target. Damage scales with your Manipulation.fine_controls. Long range.",
+    "targetingType": "component",
+    "range": 400,
+    "requirements": [
+      {
+        "trait": "Manipulation",
+        "stat": "fine_controls",
+        "minValue": 2
+      }
+    ],
+    "consequences": [
+      {
+        "type": "damageRandomComponents",
+        "target": "target",
+        "params": {
+          "channel": "impact",
+          "value": ":Manipulation.fine_controls*2",
+          "count": 3
+        }
+      },
+      {
+        "type": "log",
+        "target": "self",
+        "level": "info",
+        "message": "The hand-mounted shotgun fires a spread of pellets across random components of the target."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Hand shotgun failed - fine_controls too low to aim the spread."
+      }
+    ]
   }
 }
