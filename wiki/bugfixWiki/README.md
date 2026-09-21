@@ -22,7 +22,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 
 | ID | Title | Status | Fixed In | Related Files |
 |----|-------|--------|----------|---------------|
-| [BUG-139](high/BUG-139-shotgun-two-handed-contract-flake-cascade-loss-unreported.md) | Hand Shotgun Two-Handed Contract Test Flaked ~20% — Clamped-Loss Report Excluded Cascade-Removed Existence (now reported as `cascadeLoss`) | ✅ Fixed | — | `DamageConsequenceHandler.js`, `handShotgunRandomSpread.contract.test.js` |
+| [BUG-139](high/BUG-139-shotgun-two-handed-contract-flake-cascade-loss-unreported.md) | Hand Shotgun Two-Handed Contract Test Flaked ~20% — Clamped-Loss Report Excluded Cascade-Removed Existence (now reported as `cascadeLoss`)  ✅ Fixed | `c4a64fb` | `DamageConsequenceHandler.js`, `handShotgunRandomSpread.contract.test.js` |
 | [BUG-137](high/BUG-137-ic-emit-channel-damage-spatial-shape-mismatch.md) | IC emitChannelDamage Dead in Production — spatial.position Shape Mismatch | ✅ Fixed | `e0cb1f2` | `InternalComponentController.js`, `worldRulesOnDamage.contract.test.js` |
 | [BUG-138](high/BUG-138-ic-emit-channel-damage-non-iterable-store.md) | IC emitChannelDamage Target Loop Iterated the Entity Store as an Array | ✅ Fixed | `e0cb1f2` | `InternalComponentController.js` |
 | [BUG-134](high/BUG-134-equipped-knife-absent-from-capability-list-writer-side-stats-seeding.md) | Equipped Knife Absent from the Capability List — Per-Instance Stats Never Seeded from Matter (writer-side) | ✅ Fixed | `commit unknown` | `HoldingCostController.js`, `EquippedItemStatsController.js`, `equippedKnifeCapability.contract.test.js` |

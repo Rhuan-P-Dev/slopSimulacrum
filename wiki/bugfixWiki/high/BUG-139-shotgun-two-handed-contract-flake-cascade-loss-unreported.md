@@ -2,7 +2,7 @@
 
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
-- **Fixed In**: `—`
+- **Fixed In**: `c4a64fb`
 - **Related Files**: `test/contract/handShotgunRandomSpread.contract.test.js`, `src/controllers/consequences/DamageConsequenceHandler.js`
 
 ## Symptoms
