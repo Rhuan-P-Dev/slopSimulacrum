@@ -34,6 +34,8 @@ import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
 import { PickUpOverlayController } from './PickUpOverlayController.js';
+import { GroupPickOverlayController } from './GroupPickOverlayController.js';
+import { clusterAround, resolveGroupPickConfig } from '../utils/GroupPick.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
 import { EventLogPanel } from './EventLogPanel.js';
@@ -182,6 +184,16 @@ export class ClientApp {
         // 12. Register pick-up overlay with overlay manager
         this.overlayManager.register('pick-up', this.pickUpOverlay, null, null);
 
+        // 12b. Group Pick overlay (cluster pickup window). Opened
+        // programmatically by a cluster click on the spatial map — it has no
+        // config-bar button and no keyboard shortcut, so both register args
+        // are null (same shape as the pick-up overlay).
+        this.groupPickOverlay = new GroupPickOverlayController({
+            onExecute: (items) => this._handleGroupPickExecute(items),
+            onClose: () => {}
+        });
+        this.overlayManager.register('group-pick', this.groupPickOverlay, null, null);
+
         // 13. Setup listeners
         this._setupListeners();
 
@@ -214,6 +226,14 @@ export class ClientApp {
         // 15. Pending pick-up selector state (pickup mode — mirrors drop flow)
         /** @type {Object|null} Pending pick-up selector { droppedItemId, itemType, name, volume, id, componentIds } */
         this._pendingPickUpSelector = null;
+
+        // 15b. Group pick state: the pending batch (selected instances) and
+        // the clicked anchor point (cluster origin, for rebuilding the
+        // window after the batch with the remaining items).
+        /** @type {Object|null} Pending group pick { items: Array<Object> } */
+        this._pendingGroupPickSelector = null;
+        /** @type {{x: number, y: number}|null} */
+        this._groupPickAnchor = null;
     }
 
     /**
@@ -643,6 +663,8 @@ export class ClientApp {
         // 3. Clear pending drop/pickup states
         this._pendingDropItem = null;
         this._pendingPickUpSelector = null;
+        this._pendingGroupPickSelector = null;
+        this._groupPickAnchor = null;
 
         // 4. Hide any active overlays (e.g., drop selector)
         if (this.dropSelector) {
@@ -676,6 +698,7 @@ export class ClientApp {
             this.crafting.init();
             this.dropSelector.init();
             this.pickUpOverlay.init();
+            this.groupPickOverlay.init();
 
             // Fire-and-forget: preload material registry for inventory badges
             MaterialRegistry.load();
@@ -1176,6 +1199,14 @@ export class ClientApp {
      * @private
      */
     _onPickUpSelectorExecute(detail) {
+        // Group pick batch: one component, sequential per-item pickup. The
+        // detail carries the batch sentinel, so route before the single-item
+        // path (which would interpret pendingPickUpItem as a real dropped item).
+        if (this._pendingGroupPickSelector) {
+            this._executeGroupPick(detail.componentIds);
+            return;
+        }
+
         const { pendingPickUpItem, componentIds } = detail;
         if (!pendingPickUpItem) return;
 
@@ -1230,6 +1261,17 @@ export class ClientApp {
             return;
         }
 
+        // Cluster detection (Group Pick): when the clicked item sits in a
+        // dense pile (>= minItems within the data-driven radius), open the
+        // Group Pick window instead of the single-item overlay. Single-item
+        // clicks (sparse floor) keep the historical overlay flow unchanged.
+        const { minItems } = this._resolveGroupPickConfig();
+        const cluster = this._buildGroupPickCluster(droppedItem);
+        if (cluster.length >= minItems) {
+            this._openGroupPick(cluster, droppedItem);
+            return;
+        }
+
         // Item is in range, show overlay and range indicator
         this.pickUpOverlay.show(droppedItem);
         
@@ -1242,6 +1284,156 @@ export class ClientApp {
             const pickUpRange = this._resolvePickupRange(droid, state);
             this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
         }
+    }
+
+    /**
+     * Resolves the data-driven group-pick config: the pickUpItem action entry
+     * delivered to the client carries the `groupPick` sub-object from
+     * data/actions.json (the capability projection spreads raw action data),
+     * with AppConfig.GROUP_PICK as the missing-data fallback.
+     * @returns {{ radius: number, minItems: number }}
+     * @private
+     */
+    _resolveGroupPickConfig() {
+        return resolveGroupPickConfig(this.availableActions['pickUpItem'], AppConfig.GROUP_PICK);
+    }
+
+    /**
+     * Builds the cluster around an anchor dropped item: every dropped item in
+     * the droid's room within the data-driven cluster radius, each annotated
+     * with `inRange` (Euclidean distance to the droid vs the resolved pickup
+     * range — the same math the server enforces, so the window's dimmed
+     * out-of-range rows are honest). Returns [] when there is no droid or the
+     * anchor has no coordinates.
+     * @param {Object} anchorItem - The clicked dropped item (needs x, y).
+     * @returns {Array<Object>}
+     * @private
+     */
+    _buildGroupPickCluster(anchorItem) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid || !anchorItem || !Number.isFinite(anchorItem.x) || !Number.isFinite(anchorItem.y)) return [];
+
+        const state = this.worldState.getState();
+        const { radius } = this._resolveGroupPickConfig();
+        const pickUpRange = this._resolvePickupRange(droid, state);
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+
+        const candidates = (state.droppedItems || {});
+        return Object.values(candidates)
+            .filter((item) => item && item.roomId === droid.location && Number.isFinite(item.x) && Number.isFinite(item.y))
+            .filter((item) => clusterAround([item], anchorItem.x, anchorItem.y, radius).length > 0)
+            .map((item) => {
+                const distance = Math.sqrt(Math.pow(item.x - droidX, 2) + Math.pow(item.y - droidY, 2));
+                return { ...item, inRange: distance <= pickUpRange };
+            });
+    }
+
+    /**
+     * Opens the Group Pick window for a cluster and shows the pickup range
+     * indicator (green) so the player sees which of the cluster's items are
+     * actually reachable.
+     * @param {Array<Object>} cluster - Annotated cluster items.
+     * @param {Object} anchorItem - The clicked item (cluster origin, kept for
+     *   rebuilding the window after a partial batch).
+     * @private
+     */
+    _openGroupPick(cluster, anchorItem) {
+        this._groupPickAnchor = { x: anchorItem.x, y: anchorItem.y };
+        this.groupPickOverlay.show(cluster);
+        const droid = this.worldState.getActiveDroid();
+        if (droid) {
+            const state = this.worldState.getState();
+            const pickUpRange = this._resolvePickupRange(droid, state);
+            this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
+        }
+    }
+
+    /**
+     * Handles the Group Pick window's "Pick Up" click: validates that the
+     * player has a component, stores the pending batch, and opens the shared
+     * component selector (DropSelector in pickup mode — the same single
+     * component the batch will fill, mirroring the single-pickup flow).
+     * @param {Array<Object>} items - The selected dropped items (in-range only).
+     * @private
+     */
+    _handleGroupPickExecute(items) {
+        if (!items || items.length === 0) return;
+        const entityId = this.worldState.getMyEntityId();
+        if (!entityId) return;
+
+        const state = this.worldState.getState();
+        const entity = state.entities?.[entityId];
+        if (!entity || !entity.components || entity.components.length === 0) {
+            this.errorController.handleError({
+                code: 'NO_COMPONENTS',
+                message: 'No components available to pick up these items.'
+            });
+            this.groupPickOverlay.hide();
+            return;
+        }
+
+        this.groupPickOverlay.hide();
+        this._pendingGroupPickSelector = { items };
+
+        this.dropSelector.showPickup({
+            pendingPickUpItem: {
+                id: 'group-pick-batch',
+                itemType: 'group-pick',
+                name: `Group Pick (${items.length} items)`
+            },
+            entityId
+        });
+    }
+
+    /**
+     * Executes the pending group pick batch through the shared executor: one
+     * POST /pick-up-item per item, sequential, same component (server is the
+     * authority per item). Best-effort partial success: after the batch the
+     * window re-opens for whatever cluster remains on the floor (with the
+     * outcome on its status line), or the failures surface as an error when
+     * the floor is now sparse.
+     * @param {Array<string>} componentIds - From the component selector (first = the receiving component).
+     * @private
+     */
+    async _executeGroupPick(componentIds) {
+        const selector = this._pendingGroupPickSelector;
+        this._pendingGroupPickSelector = null;
+        const droid = this.worldState.getActiveDroid();
+        if (!droid || !selector || !selector.items.length) return;
+
+        const componentId = Array.isArray(componentIds) ? componentIds[0] : null;
+        if (!componentId) {
+            this.errorController.handleError({
+                code: 'NO_COMPONENT_SELECTED',
+                message: 'No component selected for group pick-up.'
+            });
+            return;
+        }
+
+        const results = await this.executor.executePickUpBatch(selector.items, componentId, droid, this.worldState.getState());
+        const ok = results.filter((r) => r.ok);
+        const failed = results.filter((r) => r.ok === false);
+
+        // The batch executor refreshed world state; rebuild the cluster from
+        // the fresh ground truth around the original anchor point.
+        const { minItems } = this._resolveGroupPickConfig();
+        const remaining = this._groupPickAnchor
+            ? this._buildGroupPickCluster(this._groupPickAnchor)
+            : [];
+
+        if (remaining.length >= minItems) {
+            this.groupPickOverlay.show(remaining);
+            const firstError = failed.length ? ` — ${failed[0].error}` : '';
+            this.groupPickOverlay.setStatus(`Picked ${ok.length} · failed ${failed.length}${firstError}`);
+        } else if (failed.length > 0) {
+            this.errorController.handleError({
+                code: 'GROUP_PICK_PARTIAL',
+                message: `Group pick-up: ${ok.length} picked, ${failed.length} failed${failed[0] ? ` (${failed[0].error})` : ''}.`
+            });
+        }
+
+        this._groupPickAnchor = null;
     }
 
     /**

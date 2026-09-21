@@ -409,6 +409,84 @@ export class ActionExecutor {
     }
 
     /**
+     * Executes a GROUP pick-up batch: fires POST /pick-up-item once per chosen
+     * instance, sequentially, all bound to the SAME component.
+     *
+     * Why sequential per-item requests instead of a new batch endpoint:
+     * the server remains the single authority — every item passes the
+     * identical, independently re-checked pickUpItem pipeline (range from
+     * the live droid position, remaining component volume after each prior
+     * pickup, trait requirements). The single component fills in order, so a
+     * batch that outgrows the component degrades to a partial success: items
+     * picked until the capacity error, each failure carrying the server's
+     * own code and message. Best-effort by design — the window re-opens with
+     * the remaining cluster so nothing is silently lost.
+     *
+     * Mirrors executePickUpItem's success side-effects (range indicator,
+     * selection clear, single world-state refresh) but performs them once
+     * for the whole batch.
+     *
+     * @param {Array<Object>} items - Dropped items to pick up (id, x, y, volume, ...).
+     * @param {string|null} componentId - The single receiving component (player choice, same as single pickup).
+     * @param {Object} droid - The active droid entity.
+     * @param {Object} state - The current world state.
+     * @returns {Promise<Array<{ item: Object, ok: boolean, result?: Object, error?: string }>>}
+     */
+    async executePickUpBatch(items, componentId, droid, state) {
+        if (!droid || !state) {
+            ClientLogger.warn('ActionExecutor', 'executePickUpBatch: no active droid or state.');
+            return [];
+        }
+
+        if (!componentId) {
+            this.errorController.handleError({
+                code: 'NO_COMPONENT_SELECTED',
+                message: 'No component selected for group pick-up.'
+            });
+            return [];
+        }
+
+        const results = [];
+        for (const item of items) {
+            try {
+                const response = await fetch('/pick-up-item', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        entityId: droid.id,
+                        droppedItemId: item.id,
+                        componentId
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || 'Failed to pick up item.');
+                }
+
+                const result = await response.json();
+                results.push({ item, ok: true, result });
+            } catch (error) {
+                ClientLogger.error('ActionExecutor', 'Group pick-up failed for item:', item, error);
+                results.push({ item, ok: false, error: error.message });
+            }
+        }
+
+        // Success side-effects: once, for the batch (the refresh re-renders
+        // every marker; the range indicator and selection state reset).
+        const anyOk = results.some((r) => r.ok);
+        if (anyOk) {
+            this.ui.renderRangeIndicator(droid, 0, '#44ff44');
+            if (this.selectionController) {
+                this.selectionController.clearAllSelections();
+            }
+            await this.refreshCallback();
+        }
+
+        return results;
+    }
+
+    /**
      * Executes a drop item action at target coordinates.
      * Validates range, sends to server, refreshes world.
      *

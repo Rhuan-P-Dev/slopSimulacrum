@@ -76,6 +76,7 @@ Client-side architecture, UI components, and CSS organization.
 | [Client Action Execution](frontend/client_action_execution.md) | Asynchronous execution rationale, server authority principle, selection UI purpose |
 | [CSS Architecture](frontend/css_architecture.md) | Modular CSS philosophy, single-responsibility rationale, theme variable design |
 | [Overlay Manager](frontend/overlay_manager.md) | Floating window coordination — exclusive visibility, keyboard shortcuts, click-outside dismissal |
+| [Group Pick](frontend/group_pickup.md) | Cluster pickup window — per-type stacks + quantity steppers + search filter; data-driven trigger (pickUpItem.groupPick); reuses the single-item pickup pipeline per instance |
 
 ---
 

@@ -57,3 +57,7 @@ The green and red colors for the range indicator align with existing range-indic
 ## Turn-Based Play (Deliberate Boundary)
 
 Two deliberate boundaries with the turn system's planning barrier: in turn mode, the **drop** flow is routed through the turn queue (the client-side queue gate covers the drop path, so no action path silently bypasses the barrier), while **immediate pickup** remains an out-of-turn utility path by design — inventory manipulation is not round gameplay, and forcing it through the planning barrier would add latency with no fairness benefit.
+
+## Cluster Clicks (Group Pick)
+
+A click on a dropped item that sits in a **cluster** (>= `minItems` within the cluster `radius`, data-driven from `data/actions.json` `pickUpItem.groupPick`) opens the **Group Pick window** instead of the single-item overlay: the cluster stacked by type with quantity steppers and a search filter. Its Execute routes through the same component selection and fires one `POST /pick-up-item` per chosen instance on the selected component — each item still passing the full pickup pipeline, so the server remains the authority per item. Single-item clicks (sparse floor) keep the flow described above; see [Group Pick](../frontend/group_pickup.md).

@@ -10,6 +10,8 @@ Central coordinator for all floating window overlay panels. Replaces ConfigBarMa
 
 Each panel registers itself with the manager at application startup rather than managing its own visibility. Registration is the manager's single coordination point: it tells the manager which panels it coordinates, along with each panel's config bar entry point and keyboard shortcut, so the manager can own open/close behavior, z-index stacking, and dismissal without any panel knowing about the others.
 
+**Programmatic panels**: a panel may register with null config-bar and shortcut entries — the Group Pick window does exactly this, opening only when a cluster click occurs on the spatial map. The manager coordinates it identically (exclusive visibility, z-index, dismissal); it simply has no button or key to trigger it.
+
 ## Panel Contract
 
 Panels interact with the manager through a small uniform interface. The uniformity is what lets the manager coordinate any panel without knowing its internals — a new panel joins by implementing the same contract, not by extending the manager.

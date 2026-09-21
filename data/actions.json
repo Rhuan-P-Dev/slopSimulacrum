@@ -214,6 +214,10 @@
     "description": "Pick up an item that is lying on the map nearby, or take an item from another entity's hand.",
     "targetingType": "component",
     "range": 50,
+    "groupPick": {
+      "radius": 25,
+      "minItems": 2
+    },
     "requirements": [
       {
         "trait": "Physical",

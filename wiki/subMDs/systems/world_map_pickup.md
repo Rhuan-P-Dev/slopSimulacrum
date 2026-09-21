@@ -48,3 +48,7 @@ The world map uses **room-space coordinates** — absolute values that match the
 - [ActionExecutor](public/js/ActionExecutor.js)
 - [App](public/js/App.js)
 - [EventDispatcher](public/js/EventDispatcher.js)
+
+## Cluster Clicks (Group Pick)
+
+The click step above has one data-driven branch: when the clicked marker sits in a **cluster** (>= `minItems` dropped items within the cluster `radius`, both from `data/actions.json` `pickUpItem.groupPick`), the click opens the **Group Pick window** instead of the single-item overlay. The window stacks the cluster by type with quantity steppers and a search filter; its Execute re-enters the flow above at the component-selection step, and the batch then fires one `POST /pick-up-item` per chosen instance on the selected component. Single-item clicks (sparse floor) run the single-item flow exactly as described above. The server-side pipeline and authority are unchanged — see [Group Pick](../frontend/group_pickup.md).

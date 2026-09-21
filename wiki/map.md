@@ -134,7 +134,7 @@ graph TD
 
 | File | Purpose |
 |------|---------|
-| `data/actions.json` | Action definitions |
+| `data/actions.json` | Action definitions — `pickUpItem` also carries the client group-pick cluster config (`groupPick.radius`, `groupPick.minItems`), delivered to the browser through the capability projection and tunable data-only |
 | `data/components.json` | Component recipes: form, material composition, and pre-installed ICs — no stat values; stats are derived from matter, form, and organs; a recipe may additionally declare an optional `energyCapacity` bound for the energy-flow rule (absence falls back to the rule's default, an explicit 0 is valid — it bounds a physiological pool, it does not seed a stat) |
 | `data/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `m1Droid` player droid and the `killerLlmDrone` composition |
 | `data/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the sole entry — the env-gated, goal-bearing LLM-routed NPC (the historical `smallBallDroid` and `crafterDrone` entries were removed from the world) |

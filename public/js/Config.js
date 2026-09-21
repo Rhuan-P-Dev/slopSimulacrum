@@ -20,6 +20,15 @@ export const AppConfig = {
         DROP_ITEM: ACTION_NAMES.DROP_ITEM,
         PICK_UP_ITEM: ACTION_NAMES.PICK_UP_ITEM,
     },
+    // Group Pick window (cluster pickup). Data-driven from data/actions.json
+    // pickUpItem.groupPick (delivered to the client through the capability
+    // projection, GET /actions). These values are the missing-data fallback,
+    // mirroring the server's PICK_UP_RANGE_FALLBACK pattern: a valid server
+    // value always wins; these only guard a malformed/absent field.
+    GROUP_PICK: {
+        RADIUS: 25,
+        MIN_ITEMS: 2,
+    },
     COLORS: {
         ENTITY_ACTIVE: "#fff",
         ENTITY_DEFAULT: "#00ff00",
