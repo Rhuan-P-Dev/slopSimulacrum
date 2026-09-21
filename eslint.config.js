@@ -64,6 +64,19 @@ export default [
     },
   },
   {
+    files: ["editor/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        // browser globals (client-side UI)
+        document: "readonly",
+        window: "readonly",
+        confirm: "readonly",
+        alert: "readonly",
+        localStorage: "readonly",
+      },
+    },
+  },
+  {
     ignores: ["node_modules/", "coverage/", "public/", "data/", "wiki/", "plans/", "docs/"],
   },
 ];
