@@ -1,4 +1,0 @@
-# Runtime artifacts (local editable store + pre-apply backups).
-# The store is re-seeded from the game's data/actions.json on first run.
-data/
-node_modules/
