@@ -51,5 +51,8 @@
   ],
   "tree": [
     "tree"
+  ],
+  "knifeGenerator": [
+    "generatorCore"
   ]
 }
