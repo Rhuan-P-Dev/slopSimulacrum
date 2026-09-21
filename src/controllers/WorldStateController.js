@@ -1,12 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
-import IdResolver from '../utils/IdResolver.js';
 import { DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
-import { readCharaCard } from '../utils/PngCharaReader.js';
-import { DEFAULT_TURNS_SNAPSHOT } from './core/TurnSystemController.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
 import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
 import { getAttributes } from '../utils/EntityAttributeData.js';
@@ -15,43 +10,11 @@ import { spawnDataDrivenNpcs, checkNpcSpawnGate, normalizeNpcAiConfig, buildNpcC
 import { applyInitialSpawns, resolveInitialSpawnSlot } from './logic/InitialSpawnLogic.js';
 import { executeCraftTransaction, resolveCraftTarget, validateCraftInputs, precheckCraftVolume, consumeCraftInputs, produceCraftOutputs, isRecipeInputType } from './logic/CraftingLogic.js';
 import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDirectRemoval, maybeEliminateEntity, removeComponentOrItem, cleanupAfterRemoval, spillAllEntityItems } from './logic/RemovalCascadeLogic.js';
+import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
+import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRandomRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
+import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
+import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 
-/**
- * Card-droid (image-card) system (data-driven, see wiki/subMDs/data/cards.md).
- * 
- * Every image file dropped into `data/cards/` becomes a living LLM-routed M1
- * droid: the filesystem listing is the source of truth for which cards exist
- * (drop a PNG, get a droid). The character identity — name, personality,
- * backstory, per-round caps — is *embedded in the PNG's metadata side channel
- * as base64 JSON* (Chub.ai/botbooru `chara_card_v2` spec); it is pulled out of
- * the file at spawn time via `readCharaCard()`, not read from a static JSON
- * registry. Cards are spawned at a uniformly-random room and a uniformly-random
- * point inside that room — in contrast to `_spawnNpcs`, which pins each registry
- * NPC at its home-room center.
- */
-const CARD_BLUEPRINT = 'm1Droid';
-const CARD_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
-
-/**
- * Default profile applied to every card when the embedded payload is missing
- * or leaves a field blank (e.g. a blank `personality`). Combat-capable (t1 +
- * knife, matching the killer drone's LLM-combat loadout) and long-lived (coal
- * fuel so the M1's energy battery never drains to 0 before the coal does).
- * The payload's `name`/`personality`/`description` override these defaults
- * where present; otherwise the fallbacks apply. `ai` is deliberately absent,
- * so `hasDeterministicBrain` returns false and the per-round dispatcher hands
- * the card to the LLM agent.
- */
-const CARD_DEFAULT_PROFILE = {
-    personality: 'You are a friendly M1 field droid who wanders a scrap world. Observe, help when asked, and keep replies short and in character.',
-    maxWorldActionsPerRound: 2,
-    maxChatMessagesPerRound: 1,
-    initialItems: [
-        { item: 'coal', count: 20 },
-        { item: 't1', count: 1, equip: true, contents: [{ item: 'knife', count: 10 }] },
-        { item: 'knife', count: 2, equip: true }
-    ]
-};
 
 /**
  * WorldStateController — the world-state facade (thin root).
@@ -571,177 +534,78 @@ class WorldStateController {
     }
 
     /**
-     * Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid,
-     * at a uniformly-random room and a uniformly-random point inside it.
-     *
-     * WHY a dedicated path (not reusing the `data/npcs.json` registry):
-     * a card's identity is per-file — it lives embedded in each PNG's metadata
-     * (`readCharaCard`), so there is no static registry entry keyed by blueprint
-     * for it. Two cards share the `m1Droid` blueprint yet must keep distinct
-     * personalities; the per-entity `npcConfig` (set here) is what carries that
-     * identity into the LLM prompt (the LLM agent merges it over the registry,
-     * live values winning — see `LLMAgentController._resolveNpcConfig`).
-     * Hence each card is an `isNPC` entity with no deterministic `ai` block, so
-     * `hasDeterministicBrain` is false and the shared LLM agent loop drives it,
-     * exactly like the killer LLM drone but with a personality pulled from the
-     * file rather than a registry string.
-     *
-     * Graceful degradation: the filesystem listing is the source of truth for
-     * which cards exist; a file that is not a PNG or carries no character
-     * payload is logged and skipped, so one bad file never derails the whole
-     * population or fails boot.
+     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, at a uniformly-random room and a uniformly-random point inside it.
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnCards`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      */
     _spawnCards() {
-        const cardFiles = this._readCardFiles();
-        if (cardFiles.length === 0) {
-            Logger.info('[WorldStateController] No card files in data/cards/ — nothing to spawn.');
-            return;
-        }
-        let spawned = 0;
-        for (const cardFile of cardFiles) {
-            if (this._spawnSingleCard(cardFile) !== null) spawned++;
-        }
-        Logger.info(`[WorldStateController] ${spawned}/${cardFiles.length} card NPC(s) spawned from data/cards/ (blueprint ${CARD_BLUEPRINT}).`);
+        return spawnCards(this);
     }
 
     /**
-     * Lists the image files that are candidate cards, keyed by a stable stem
-     * (filename minus extension) used for logging and as the display-name
-     * fallback when a payload is missing.
+     * FASE 7 (facade logic extraction): Lists the image files that are candidate cards, keyed by a stable stem (filename minus extension) used for logging and as the display-name fallback when a payload is missing.
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`readCardFiles`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      * @returns {Array<{fullPath: string, cardId: string}>}
      */
     _readCardFiles() {
-        const dir = path.resolve('data/cards');
-        let names;
-        try {
-            names = fs.readdirSync(dir);
-        } catch {
-            Logger.info('[WorldStateController] data/cards/ not present — nothing to spawn.');
-            return [];
-        }
-        const files = [];
-        for (const name of names) {
-            if (!CARD_IMAGE_EXTS.has(path.extname(name).toLowerCase())) continue;
-            const cardId = path.basename(name, path.extname(name));
-            if (!cardId) continue;
-            files.push({ fullPath: path.resolve(dir, name), cardId });
-        }
-        return files;
+        return readCardFiles(this);
     }
 
     /**
-     * Reads a single card PNG and spawns it as an M1 LLM NPC. The embedded
-     * character payload defines the identity (name, personality, backstory,
-     * caps); a missing/corrupt payload degrades to the default profile and the
-     * file stem as the display name, so the entity still spawns (never fails).
+     * FASE 7 (facade logic extraction): Reads a single card PNG and spawns it as an M1 LLM NPC; a missing/corrupt payload degrades to the default profile and the file stem as display name, so the entity still spawns (never fails).
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnSingleCard`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      * @param {{fullPath: string, cardId: string}} cardFile
      * @returns {string|null} the spawned entity id, or null when nothing
      *     could be spawned from this file.
      */
     _spawnSingleCard(cardFile) {
-        const payload = readCharaCard(cardFile.fullPath);
-        const card = payload.success ? payload.card : null;
-        const displayName = (card && typeof card.name === 'string' && card.name.trim() !== '')
-            ? card.name.trim()
-            : cardFile.cardId;
-
-        const profile = this._buildCardProfile(card);
-        const room = this._pickRandomRoom();
-        if (!room) {
-            Logger.warn(`[WorldStateController] card "${displayName}" has no rooms to pick from — skipped.`);
-            return null;
-        }
-        const { x, y } = this._roomRandomPoint(room);
-        const npcConfig = {
-            personality: profile.personality,
-            maxWorldActionsPerRound: profile.maxWorldActionsPerRound,
-            maxChatMessagesPerRound: profile.maxChatMessagesPerRound
-            // No deterministic `ai` block: the entity is routed to the LLM
-            // agent (hasDeterministicBrain is false). The per-entity
-            // personality/caps above are what the LLM prompt renders.
-        };
-        try {
-            const entityId = this.stateEntityController.spawnEntity(CARD_BLUEPRINT, room.uid, {
-                isNPC: true,
-                name: displayName,
-                npcConfig
-            });
-            if (!entityId) {
-                Logger.warn(`[WorldStateController] card "${displayName}" spawnEntity returned no id — skipped.`);
-                return null;
-            }
-            this.stateEntityController.updateEntitySpatial(entityId, { x, y });
-            this._applyInitialItems(entityId, { ...profile, displayName });
-            Logger.info(`[WorldStateController] card "${displayName}" (${cardFile.cardId}) spawned as ${entityId} in room "${room.name}" (${x}, ${y}).`);
-            return entityId;
-        } catch (error) {
-            Logger.error(`[WorldStateController] card "${displayName}" spawn failed: ${error.message}`);
-            return null;
-        }
+        return spawnSingleCard(this, cardFile);
     }
 
     /**
-     * Merges the embedded card payload over the default card profile.
-     *
-     * The payload's `personality` field (a Chub.ai card field) is the primary
-     * personality. Many cards leave it blank and keep the character lore in
-     * `description` instead — in that case the full `description` is used as
-     * the personality so the LLM prompt still carries the character's identity
-     * and backstory (rather than the generic droid fallback). Caps and the
-     * loadout come from the default profile (cards have no per-round tuning
-     * data in their embedded payload).
+     * FASE 7 (facade logic extraction): Merges the embedded card payload over the default card profile (personality from the payload, else its description, else the droid fallback; caps/loadout from the default profile).
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`buildCardProfile`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      * @param {{name?: string, personality?: string, description?: string}|null} card
      * @returns {{personality: string, maxWorldActionsPerRound: number, maxChatMessagesPerRound: number, initialItems: Array}}
      */
     _buildCardProfile(card) {
-        const personality = (card && typeof card.personality === 'string' && card.personality.trim() !== '')
-            ? card.personality.trim()
-            : (card && typeof card.description === 'string' && card.description.trim() !== '')
-                ? card.description.trim()
-                : CARD_DEFAULT_PROFILE.personality;
-        return {
-            ...CARD_DEFAULT_PROFILE,
-            personality
-        };
+        return buildCardProfile(this, card);
     }
 
     /**
-     * Picks a uniformly-random, spawnable room (numeric width/height) from the
-     * live room set. Spawn position is a spawn-time property (not a runtime
-     * toggle), so the random pick happens once, at boot.
+     * FASE 7 (facade logic extraction): Picks a uniformly-random, spawnable room (numeric width/height) from the live room set. Spawn position is a spawn-time property (not a runtime toggle), so the random pick happens once, at boot.
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`pickRandomRoom`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      * @returns {{uid: string, name: string, width: number, height: number}|null}
      */
     _pickRandomRoom() {
-        const all = this.roomsController.getAll() || {};
-        const valid = Object.keys(all).filter((uid) => {
-            const room = all[uid];
-            return room && typeof room.width === 'number' && typeof room.height === 'number';
-        });
-        if (valid.length === 0) return null;
-        const uid = valid[Math.floor(Math.random() * valid.length)];
-        const room = all[uid];
-        return { uid, name: room.name, width: room.width, height: room.height };
+        return pickRandomRoom(this);
     }
 
     /**
-     * A uniformly-random in-room point, in the same room-local coordinate
-     * frame the deterministic NPC spawn uses (center = width/2, height/2).
+     * FASE 7 (facade logic extraction): A uniformly-random in-room point, in the same room-local coordinate frame the deterministic NPC spawn uses (center = width/2, height/2).
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`roomRandomPoint`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @private
      * @param {{uid: string, name: string, width: number, height: number}} room
      * @returns {{x: number, y: number}}
      */
     _roomRandomPoint(room) {
-        const width = Math.max(1, Math.floor(room.width));
-        const height = Math.max(1, Math.floor(room.height));
-        return {
-            x: Math.floor(Math.random() * width),
-            y: Math.floor(Math.random() * height)
-        };
+        return roomRandomPoint(this, room);
     }
 
     /**
@@ -941,291 +805,37 @@ class WorldStateController {
     /**
      * Snapshot schema version. Bump when the snapshot format changes;
      * restore() rejects any other version with SCHEMA_VERSION_MISMATCH.
+     *
+     * FASE 7 (facade logic extraction): the single source of truth for the
+     * value lives in src/controllers/logic/PersistenceLogic.js (the module
+     * that owns serialize()/restore()); this getter only re-exports it so
+     * the long-standing `WorldStateController.PERSISTENCE_SCHEMA_VERSION`
+     * reference (used by routes/tests) keeps working.
      */
     static get PERSISTENCE_SCHEMA_VERSION() {
-        // v2 (Feature B): snapshot gains the "events" section (world event
-        // ring buffer). v3 (two-phase barrier turns): the "turns" section
-        // gains the "barrier" sub-state (roster, signaled, close info) plus
-        // the stored phase. v1/v2 snapshots are rejected by restore() — the
-        // strict versioning contract is documented in the persistence tests.
-        return 3;
+        return PERSISTENCE_SCHEMA_VERSION;
     }
 
     /**
-     * Serializes the COMPLETE mutable world state into a JSON-serializable
-     * snapshot, for save/load, checkpoints, and test/debug snapshots.
-     *
-     * Coverage (every piece of mutable state a sub-controller owns — see the
-     * "IMPL DECISION" note on restore() for the ownership map):
-     *   - entities:  live entity instances (ids, components, spatial, status,
-     *                items with full nesting via hostComponentId, internalComponents)
-     *   - components: per-instance merged stats (ComponentStatsController)
-     *   - inventory: InventoryManager._inventory index (mirrors entity.items,
-     *                kept in sync so the manager's index matches on restore)
-     *   - equipped:  HoldingCostController._equippedItems + _preEquipStats
-     *                (pre-equip stats keep unequip-undo bookkeeping intact)
-     *   - equippedItemStats: EquippedItemStatsController._itemStats
-     *                        (mutable sharpness/existence per eqId)
-     *   - internalComponents: InternalComponentController.internalComponents
-     *                        (canonical store; entity.internalComponents mirrors it)
-     *   - rooms:     dynamic room state (entities/objects lists) — the room
-     *                structure itself (positions, connections, doorPositions)
-     *                is static data from data/rooms.json and is intentionally
-     *                NOT snapshotted
-     *   - droppedItems: WorldStateController._droppedItems
-     *   - selections: ActionSelectController._selectionRegistry (Map → array)
-     *
-     * Defensiveness: the snapshot is a JSON round-trip (same defensiveness
-     * pattern the project uses for broadcasts — WorldStateBroadcastService
-     * _transformForBroadcast does structuredClone; JSON.parse(JSON.stringify())
-     * is equivalent for this pure data and additionally guarantees no live
-     * references, Maps, or functions leak out).
-     *
-     * All IDs (ent-, comp-, item-, eq-, room UIDs, internal-component UIDs)
-     * are PRESERVED in the snapshot — a restored world is identical to the
-     * one that produced it (modulo serializedAtTick/serializedAt metadata).
-     *
-     * @returns {Object} JSON-serializable snapshot:
-     *   { schemaVersion: number, serializedAtTick: number|null,
-     *     serializedAt: number, state: { entities, components, inventory,
-     *     equipped, preEquipStats, equippedItemStats, internalComponents,
-     *     rooms, droppedItems, selections, events, turns, roomChat } }
+     * FASE 7 (facade logic extraction): Serializes the COMPLETE mutable world state into a JSON-serializable snapshot, for save/load, checkpoints, and test/debug snapshots.
+     * Implementation: src/controllers/logic/PersistenceLogic.js (`serialize`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      */
     serialize() {
-        const snapshot = {
-            schemaVersion: WorldStateController.PERSISTENCE_SCHEMA_VERSION,
-            serializedAtTick: this.internalComponentController?.tickSystem?.currentTick ?? null,
-            serializedAt: Date.now(),
-            state: {
-                // Entities (live instances; the spread in .map() creates new objects,
-                // and the final JSON round-trip at the method bottom guarantees no
-                // live references — so the intermediate structuredClone is redundant).
-                // Defense-in-depth: strip the legacy boot-time flag
-                // `_skipInitialSpawns` from any entity record so the snapshot
-                // can never carry it (new spawns no longer inject it, but
-                // records restored from older snapshots might).
-                entities: Object.fromEntries(
-                    Object.entries(this.stateEntityController.getAll())
-                        .map(([entityId, entity]) => [entityId, {
-                            ...entity,
-                            _skipInitialSpawns: undefined
-                        }])
-                ),
-                // Component instance stats (full merged stats per comp-* id)
-                components: this.componentController.statsController.getAll(),
-                // InventoryManager's per-entity item index
-                inventory: structuredClone(this.inventoryManager._inventory),
-                // Equipped items + pre-equip stat bookkeeping (undo data)
-                equipped: structuredClone(this.holdingCostController._equippedItems),
-                preEquipStats: structuredClone(this.holdingCostController._preEquipStats),
-                // Mutable per-equipped-item stats (sharpness, existence, ...)
-                equippedItemStats: this.equippedItemStats.getAll(),
-                // Canonical internal-component store
-                internalComponents: structuredClone(this.internalComponentController.internalComponents),
-                // Dynamic room state only (structure comes from data/rooms.json)
-                rooms: this.roomsController.getAll(),
-                // Dropped items on the map
-                droppedItems: this.getDroppedItems(),
-                // Active component→action selection locks (Map serialized to array)
-                selections: [...this.actionSelectController._selectionRegistry.entries()],
-                // World event ring buffer (Feature B, schema v2)
-                events: this.worldEventLogController.serialize(),
-                // Turn system bookkeeping (Feature A, schema v3).
-                // { roundNumber, phase, queues, resolvedRound, lastRound, barrier }
-                // Fallback when no turn system is injected: DEFAULT_TURNS_SNAPSHOT
-                // — the single shared definition (also used by _reset()), so the
-                // fallback can never drift from the real serialize() shape.
-                turns: this.turnSystemController?.serialize() ?? DEFAULT_TURNS_SNAPSHOT,
-                // Room chat store (Feature D backend, schema v2 — additive).
-                // { [roomId]: [ { id, roomId, speakerName, speakerEntityId, text, tick, ts } ] }
-                roomChat: this.roomChatController?.serialize() ?? {}
-            }
-        };
-
-        // JSON round-trip: guarantees the result is a pure JSON-serializable
-        // snapshot with zero references into the live world state.
-        return JSON.parse(JSON.stringify(snapshot));
+        return serialize(this);
     }
 
     /**
-     * Restores the complete world state from a snapshot produced by serialize().
-     *
-     * IMPL DECISION — option (a): per-sub-controller state injection.
-     * Each state-owning sub-controller exposes a plain data store
-     * (entities, componentStats, _inventory, _equippedItems/_preEquipStats,
-     * _itemStats, internalComponents, rooms, _droppedItems, _selectionRegistry)
-     * that has NO derived logic — the logic controllers (ActionController,
-     * ComponentCapabilityController, SynergyController, ...) derive everything
-     * on demand. Restoring therefore means:
-     *   1. validate the payload (shape + schemaVersion),
-     *   2. replace each owned store with a deep-cloned copy of the snapshot
-     *      section (no live references shared with the caller),
-     *   3. rebuild derived caches via the EXISTING public APIs:
-     *        - stateEntityController._restoreFromSnapshot() re-syncs each
-     *          entity's internalComponents mirror from the canonical internal
-     *          store (run AFTER the internal store itself is restored, so the
-     *          mirror matches the restored data). Spawn observers are NOT
-     *          fired: the snapshot already contains the final entity state,
-     *          and re-running the declarative initial-spawn path would
-     *          double-add items.
-     *        - actionController.scanAllCapabilities() rebuilds the capability
-     *          cache from the restored state (fresh cache, same as constructor).
-     *        - synergyController.clearCache() drops stale cached results.
-     *
-     * Why (a) over (b) (re-apply via public action APIs): re-applying would
-     * re-run the spawn logic (which generates NEW ids for entities,
-     * components, items — breaking id preservation, a round-trip requirement),
-     * re-generate eqIds, and cannot reconstruct _preEquipStats or
-     * selection locks at all. Direct store injection preserves every id and
-     * bookkeeping field, and it is the same primitive the constructor itself
-     * uses (fresh stores, then populate).
-     *
-     * Known limitation (documented): rooms.json door positions and the idMap
-     * are structural/static; restore() replaces the dynamic room entries
-     * (entities/objects) but keeps the constructor-built structure. Since
-     * room structure is data-driven and immutable at runtime, this is safe
-     * for the current game.
-     *
-     * NOTE: this is an explicit operator/test operation — it does NOT run on
-     * a tick and does NOT broadcast (callers broadcast after a successful
-     * restore, e.g. the /api/world/load route).
-     *
+     * FASE 7 (facade logic extraction): Restores the complete world state from a snapshot produced by serialize() — per-sub-controller state injection (the IMPL DECISION note moved to the module).
+     * Implementation: src/controllers/logic/PersistenceLogic.js (`restore`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {Object} payload - Snapshot as returned by serialize().
      * @returns {{ success: true } | { success: false, error: { code: string, message: string } }}
      */
     restore(payload) {
-        // --- Validation -----------------------------------------------------
-        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-            return {
-                success: false,
-                error: { code: 'INVALID_PAYLOAD', message: 'restore() requires a snapshot object (result of serialize()).' }
-            };
-        }
-        if (payload.schemaVersion !== WorldStateController.PERSISTENCE_SCHEMA_VERSION) {
-            return {
-                success: false,
-                error: {
-                    code: 'SCHEMA_VERSION_MISMATCH',
-                    message: `Unsupported schemaVersion ${JSON.stringify(payload.schemaVersion)} — expected ${WorldStateController.PERSISTENCE_SCHEMA_VERSION}.`
-                }
-            };
-        }
-        const s = payload.state;
-        if (!s || typeof s !== 'object') {
-            return {
-                success: false,
-                error: { code: 'INVALID_PAYLOAD', message: 'Snapshot is missing the "state" section.' }
-            };
-        }
-        for (const key of ['entities', 'components', 'inventory', 'equipped', 'preEquipStats', 'equippedItemStats', 'internalComponents', 'rooms', 'droppedItems', 'selections', 'events']) {
-            if (!(key in s)) {
-                return {
-                    success: false,
-                    error: { code: 'INVALID_PAYLOAD', message: `Snapshot "state" is missing required section "${key}".` }
-                };
-            }
-        }
-        // NOTE: "turns" (Feature A) and "roomChat" (Feature D) are intentionally
-        // OMITTED from the required list above — a well-formed v3 snapshot may
-        // lack either section (the turn bookkeeping simply resumes idle; the
-        // phase is stored state, so an absent section means round 0 starts
-        // lazily on the next onTick(); chat is ephemeral memory). Versioning
-        // is strict at schema v3: the schemaVersion check above rejects every
-        // other version outright.
-
-        try {
-            // 1. Canonical internal-component store FIRST — the entity
-            //    mirror re-sync in step 2 reads from this store, so the
-            //    restored values must be in place before entities are restored.
-            this.internalComponentController.internalComponents = structuredClone(s.internalComponents);
-
-            // 2. Entities (re-syncs each entity's internalComponents mirror
-            //    from the canonical store above — see stateEntityController).
-            //    Legacy snapshots may still carry the boot-time
-            //    `_skipInitialSpawns` flag on NPC records — strip it (it is
-            //    never persisted by serialize() anymore); the opt-out of the
-            //    declarative spawns keys off the persisted isNPC field.
-            const restoredEntities = structuredClone(s.entities);
-            for (const entity of Object.values(restoredEntities)) {
-                delete entity._skipInitialSpawns;
-            }
-            this.stateEntityController._restoreFromSnapshot(restoredEntities);
-
-            // 3. Component instance stats (plain store replacement)
-            this.componentController.statsController.componentStats = structuredClone(s.components);
-
-            // 4. InventoryManager item index (entity.items already restored
-            //    with the entities above; this re-syncs the manager's index).
-            //    Re-derive material traits for old-format snapshots that lack them.
-            this.inventoryManager._inventory = structuredClone(s.inventory);
-            this.inventoryManager.resyncItemTraits();
-
-            // 5. Equipped items + pre-equip undo bookkeeping
-            this.holdingCostController._equippedItems = structuredClone(s.equipped);
-            this.holdingCostController._preEquipStats = structuredClone(s.preEquipStats);
-
-            // 6. Mutable per-equipped-item stats
-            this.equippedItemStats._itemStats = structuredClone(s.equippedItemStats);
-
-            // 7. Dynamic room state (replace entries; keep constructor-built
-            //    structure: idMap + doorPositions come from data/rooms.json)
-            const restoredRooms = structuredClone(s.rooms);
-            for (const roomId of Object.keys(this.roomsController.rooms)) {
-                delete this.roomsController.rooms[roomId];
-            }
-            for (const [roomId, room] of Object.entries(restoredRooms)) {
-                this.roomsController.rooms[roomId] = room;
-            }
-
-            // (World objects are ordinary entities now — isStatic entities
-            //  restored in the entities step carry their own room/spatial, so
-            //  no separate re-sync is required.)
-
-            // 8. Dropped items
-            this._droppedItems = structuredClone(s.droppedItems);
-
-            // 9. Selection locks (array → Map)
-            const registry = new Map();
-            for (const [componentId, selection] of (Array.isArray(s.selections) ? s.selections : [])) {
-                if (typeof componentId === 'string' && selection && typeof selection === 'object') {
-                    registry.set(componentId, { ...selection });
-                }
-            }
-            this.actionSelectController._selectionRegistry = registry;
-
-            // 10. World event ring buffer (Feature B)
-            this.worldEventLogController.restore(structuredClone(s.events));
-
-            // 10b. Turn system bookkeeping (Feature A — optional section)
-            if (s.turns && typeof s.turns === 'object') {
-                this.turnSystemController?.restore(structuredClone(s.turns));
-            }
-
-            // 10c. Room chat store (Feature D backend — optional section:
-            //     early v2 snapshots predate it and are still accepted; chat
-            //     is ephemeral memory, its absence simply means "empty")
-            if (s.roomChat && typeof s.roomChat === 'object') {
-                this.roomChatController?.restore(structuredClone(s.roomChat));
-            }
-
-            // 11. Rebuild derived caches via existing public APIs
-            this.actionController.scanAllCapabilities(this.getAll());
-            if (this.synergyController?.clearCache) {
-                this.synergyController.clearCache();
-            }
-
-            Logger.info(
-                `[WorldStateController] World state restored from snapshot (schemaVersion ${WorldStateController.PERSISTENCE_SCHEMA_VERSION}, ` +
-                `${Object.keys(this.stateEntityController.getAll()).length} entities, ${Object.keys(this._droppedItems).length} dropped items).`
-            );
-            return { success: true };
-        } catch (error) {
-            Logger.error(`[WorldStateController] restore() failed: ${error.message}`, { error: error.stack });
-            return {
-                success: false,
-                error: { code: 'RESTORE_FAILED', message: `Failed to restore world state: ${error.message}` }
-            };
-        }
+        return restore(this, payload);
     }
 
     // =========================================================================
@@ -1984,53 +1594,38 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * Equips an item on a component (applies holding cost debuffs, triggers capability re-evaluation).
+     * FASE 7 (facade logic extraction): Equips an item on a component (applies holding cost debuffs, triggers capability re-evaluation).
+     * Implementation: src/controllers/logic/EquipLogic.js (`equipItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
-     * @param {string} itemId - The item ID being equipped.
+     * @param {string} itemId - The item ID to equip.
      * @param {string} itemType - The item type (e.g., "knife").
      * @param {string} componentId - The component ID to equip on.
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     equipItem(entityId, itemId, itemType, componentId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for equip.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.holdingCostController.equipItem(entityId, itemId, itemType, componentId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return equipItem(this, entityId, itemId, itemType, componentId);
     }
 
     /**
-     * Unequips an item from its component (reverses debuffs, triggers capability re-evaluation).
+     * FASE 7 (facade logic extraction): Unequips an item from its component (reverses debuffs, triggers capability re-evaluation).
+     * Implementation: src/controllers/logic/EquipLogic.js (`unequipItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} itemId - The item ID being unequipped.
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     unequipItem(entityId, itemId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for unequip.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.holdingCostController.unequipItem(entityId, itemId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return unequipItem(this, entityId, itemId);
     }
 
     /**
-     * Transfers an equipped item from one component to another (hand swap).
+     * FASE 7 (facade logic extraction): Transfers an equipped item from one component to another (hand swap).
+     * Implementation: src/controllers/logic/EquipLogic.js (`transferEquip`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} itemId - The item ID being transferred.
      * @param {string} itemType - The item type.
@@ -2039,136 +1634,82 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for equip transfer.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.holdingCostController.transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return transferEquip(this, entityId, itemId, itemType, fromComponentId, toComponentId);
     }
 
     /**
-     * Gets all equipped items for an entity.
+     * FASE 7 (facade logic extraction): Gets all equipped items for an entity.
+     * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItems`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @returns {Array<{ itemId: string, itemType: string, componentId: string }>}
      */
     getEquippedItems(entityId) {
-        return this.holdingCostController.getEquippedItems(entityId);
+        return getEquippedItems(this, entityId);
     }
 
     /**
-     * Gets all equipped items across all entities.
-     * Used by the capability controller to scan all equipped items for action resolution.
+     * FASE 7 (facade logic extraction): Gets all equipped items across all entities. Used by the capability controller to scan all equipped items for action resolution.
+     * Implementation: src/controllers/logic/EquipLogic.js (`getAllEquippedItems`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @returns {Array<{ entityId: string, itemId: string, itemType: string, componentId: string }>}
      */
     getAllEquippedItems() {
-        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-        if (!allEquipped || typeof allEquipped !== 'object') return [];
-        const allItems = [];
-        for (const [entityId, items] of Object.entries(allEquipped)) {
-            for (const [eqId, item] of Object.entries(items)) {
-                allItems.push({
-                    entityId,
-                    eqId,
-                    itemId: item.itemId,
-                    itemType: item.itemType,
-                    componentId: item.componentId
-                });
-            }
-        }
-        return allItems;
+        return getAllEquippedItems(this);
     }
 
-    // =========================================================================
-    // TYPED ID MIGRATION: GET EQUIPPED ITEM PUBLIC METHODS
-    // =========================================================================
-
     /**
-     * Gets a specific equipped item by its typed equipped-item ID.
-     * TYPED ID MIGRATION: Uses eq- prefixed IDs (e.g., "eq-uuid") for equipped items.
+     * FASE 7 (facade logic extraction): Gets a specific equipped item by its typed equipped-item ID. TYPED ID MIGRATION: Uses eq- prefixed IDs (e.g., "eq-uuid") for equipped items.
+     * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} eqId - The typed equipped-item ID (must start with "eq-").
      * @returns {Object|null} The equipped item data object, or null if not found/invalid.
      */
     getEquippedItem(entityId, eqId) {
-        // TYPED ID MIGRATION: Validate that eqId has the proper "eq-" prefix
-        if (!this._validateEquippedId(eqId)) {
-            Logger.warn(`[WorldStateController] Invalid equipped-item ID: "${eqId}" — must start with "eq-"`);
-            return null;
-        }
-
-        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-        if (!allEquipped || typeof allEquipped !== 'object') return null;
-
-        const entityItems = allEquipped[entityId];
-        if (!entityItems || typeof entityItems !== 'object') return null;
-
-        const item = entityItems[eqId];
-        return item ? { ...item } : null;
+        return getEquippedItem(this, entityId, eqId);
     }
 
     /**
-     * Gets a specific equipped item by its item ID (not typed eqId).
-     * TYPED ID MIGRATION: Internal use only — prefers eqId for lookups.
+     * FASE 7 (facade logic extraction): Gets a specific equipped item by its item ID (not typed eqId). TYPED ID MIGRATION: Internal use only — prefers eqId for lookups.
+     * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItemByItemId`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} itemId - The item ID to find.
      * @returns {Object|null} The equipped item data object, or null if not found.
      */
     getEquippedItemByItemId(entityId, itemId) {
-        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-        if (!allEquipped || typeof allEquipped !== 'object') return null;
-
-        const entityItems = allEquipped[entityId];
-        if (!entityItems || typeof entityItems !== 'object') return null;
-
-        for (const [_eqId, item] of Object.entries(entityItems)) {
-            if (item.itemId === itemId) {
-                return { ...item };
-            }
-        }
-
-        return null;
+        return getEquippedItemByItemId(this, entityId, itemId);
     }
 
     /**
-     * Gets an equipped item for a specific component.
-     * TYPED ID MIGRATION: Returns equipped item data keyed by eqId for the given component.
+     * FASE 7 (facade logic extraction): Gets an equipped item for a specific component. TYPED ID MIGRATION: Returns equipped item data keyed by eqId for the given component.
+     * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItemForComponent`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} componentId - The component ID to check.
      * @returns {Object|null} The equipped item data, or null if no item is equipped on this component.
      */
     getEquippedItemForComponent(entityId, componentId) {
-        const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-        if (!allEquipped || typeof allEquipped !== 'object') return null;
-
-        const entityItems = allEquipped[entityId];
-        if (!entityItems || typeof entityItems !== 'object') return null;
-
-        for (const [_eqId, item] of Object.entries(entityItems)) {
-            if (item.componentId === componentId) {
-                return { ...item };
-            }
-        }
-
-        return null;
+        return getEquippedItemForComponent(this, entityId, componentId);
     }
 
     /**
-     * Validates that an equipped-item ID has the proper "eq-" prefix.
-     * TYPED ID MIGRATION: Internal validation helper for typed ID enforcement.
+     * FASE 7 (facade logic extraction): Validates that an equipped-item ID has the proper "eq-" prefix. TYPED ID MIGRATION: Internal validation helper for typed ID enforcement.
+     * Implementation: src/controllers/logic/EquipLogic.js (`validateEquippedId`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+     * @private
      * @param {string} eqId - The equipped-item ID to validate.
      * @returns {boolean} True if the ID has the proper "eq-" prefix.
-     * @private
      */
     _validateEquippedId(eqId) {
-        return IdResolver.isEquippedId(eqId);
+        return validateEquippedId(this, eqId);
     }
 
     /**
@@ -2368,76 +1909,52 @@ class WorldStateController {
     // =========================================================================
 
     /**
-     * Adds an item to a container item within an entity's inventory.
+     * FASE 7 (facade logic extraction): Adds an item to a container item within an entity's inventory.
+     * Implementation: src/controllers/logic/ContainerItemLogic.js (`addItemToContainer`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} containerItemId - The container item ID.
      * @param {string} itemType - The item type to add.
      * @returns {{ success: boolean, message?: string, item?: Object }}
      */
     addItemToContainer(entityId, containerItemId, itemType) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container add.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.inventoryManager.addItemToContainer(entity, containerItemId, itemType);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return addItemToContainer(this, entityId, containerItemId, itemType);
     }
 
     /**
-     * Removes an item from a container item within an entity's inventory.
+     * FASE 7 (facade logic extraction): Removes an item from a container item within an entity's inventory.
+     * Implementation: src/controllers/logic/ContainerItemLogic.js (`removeItemFromContainer`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} containerItemId - The container item ID.
      * @param {string} itemId - The item ID to remove.
      * @returns {{ success: boolean, message?: string }}
      */
     removeItemFromContainer(entityId, containerItemId, itemId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container remove.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.inventoryManager.removeItemFromContainer(entity, containerItemId, itemId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return removeItemFromContainer(this, entityId, containerItemId, itemId);
     }
 
     /**
-     * Moves an item from component level (or another container) into a container.
+     * FASE 7 (facade logic extraction): Moves an item from component level (or another container) into a container.
+     * Implementation: src/controllers/logic/ContainerItemLogic.js (`moveItemIntoContainer`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} containerItemId - The container item ID.
      * @param {string} itemId - The item ID to move into container.
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemIntoContainer(entityId, containerItemId, itemId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container move-in.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.inventoryManager.moveItemIntoContainer(entity, containerItemId, itemId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return moveItemIntoContainer(this, entityId, containerItemId, itemId);
     }
 
     /**
-     * Moves an item out of a container back to the component level.
+     * FASE 7 (facade logic extraction): Moves an item out of a container back to the component level.
+     * Implementation: src/controllers/logic/ContainerItemLogic.js (`moveItemOutOfContainer`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} containerItemId - The container item ID.
      * @param {string} itemId - The item ID to move out of container.
@@ -2445,34 +1962,20 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemOutOfContainer(entityId, containerItemId, itemId, targetComponentId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container move-out.`);
-            return { success: false, message: `Entity "${entityId}" not found.` };
-        }
-
-        const result = this.inventoryManager.moveItemOutOfContainer(entity, containerItemId, itemId, targetComponentId);
-
-        if (result.success && this._broadcastService) {
-            this._broadcastService.broadcast();
-        }
-
-        return result;
+        return moveItemOutOfContainer(this, entityId, containerItemId, itemId, targetComponentId);
     }
 
     /**
-     * Gets direct children of a container item.
+     * FASE 7 (facade logic extraction): Gets direct children of a container item.
+     * Implementation: src/controllers/logic/ContainerItemLogic.js (`getContainerItems`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
      * @param {string} entityId - The entity ID.
      * @param {string} containerItemId - The container item ID.
      * @returns {Array} Array of contained item instances.
      */
     getContainerItems(entityId, containerItemId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) {
-            Logger.warn(`[WorldStateController] Entity "${entityId}" not found for container items query.`);
-            return [];
-        }
-        return this.inventoryManager.getContainerItems(entity, containerItemId);
+        return getContainerItems(this, entityId, containerItemId);
     }
 
     // =========================================================================

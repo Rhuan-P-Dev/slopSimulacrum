@@ -55,8 +55,10 @@ src/
                         constructs all sub-controllers in dependency order
   controllers/
     WorldStateController.js   the facade — the only thing routes talk to
-    logic/                    extracted business logic (FASE 6): NpcSpawnLogic,
-                              InitialSpawnLogic, CraftingLogic, RemovalCascadeLogic
+    logic/                    extracted business logic (FASE 6–7): NpcSpawnLogic,
+                              InitialSpawnLogic, CraftingLogic, RemovalCascadeLogic,
+                              PersistenceLogic, CardSpawnLogic, EquipLogic,
+                              ContainerItemLogic
     core/  networking/  consequences/  ...   sub-controllers (rooms, entities,
                         components, inventory, crafting, damage, turns, LLM, ...)
   services/             broadcast service (state → clients)
@@ -101,8 +103,10 @@ npm run check:lang     # fails if Portuguese (accents / PT words) leaks into the
 ```
 
 Long-running refactor work is tracked in the commit history as FASE stages
-(FASE 5 = dependency-injected composition root; FASE 6 = facade logic
-extraction into `src/controllers/logic/`). Architecture maps live in
+(FASE 5 = dependency-injected composition root; FASE 6–7 = facade logic
+extraction into `src/controllers/logic/` — FASE 7 moved the persistence
+codec, card-droid spawning, equip API and nested-inventory clusters).
+Architecture maps live in
 `wiki/map.md` and must be updated when the controller graph changes.
 
 ## License
