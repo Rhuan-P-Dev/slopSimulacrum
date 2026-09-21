@@ -6,13 +6,16 @@
  * each hitting a randomly-chosen living component of the target entity, with
  * per-pellet impact damage scaled by Manipulation.fine_controls*2, at long range.
  *
- * Full action round-trips (buildWorldState, tick NOT started) with the random
- * streams pinned so assertions are deterministic:
+ * Full action round-trips (buildWorldState, tick NOT started). Random streams:
  *   - world.onDamageDropListener._randomFn always-fails → no real onDamage drops
- *     (the same pin used by the materialChunkDropCutShootT1 suite).
- *   - DamageConsequenceHandler._randomFn = () => 0 → the spread deterministically
- *     picks the FIRST living candidate repeatedly (Fisher-Yates always index 0 =
- *     the first N components in entity.components order).
+ *     (the same pin used by the materialChunkDropCutShootT1 suite). Applied in
+ *     buildWorld() below for EVERY test in this file.
+ *   - Some tests additionally pin DamageConsequenceHandler._randomFn = () => 0
+ *     (Fisher-Yates always index 0 = the first N components in
+ *     entity.components order) where a fixed hit set is required. The
+ *     two-handed test deliberately does NOT pin the spread RNG: it must hold
+ *     for ANY sampling outcome, including lethal ones that trigger the
+ *     removeBrokenComponent cascade (see BUG-139).
  *
  * The dispatcher wraps each handler result in res.results (tagged by consequence
  * type + the handler's {success, message, data}), so the per-pellet data is read
@@ -216,18 +219,39 @@ describe('Hand shotgun — random-component spread (contract, full round-trip)',
         const sumReported = damageResults.reduce((s, r) => s + (r.data.totalLoss ?? 0), 0);
         expect(sumReported, 'both hands must have dealt damage (no silent no-op)').toBeGreaterThan(0);
 
-        // (5) The sum of per-hand losses equals the victim\'s actual existence loss,
-        //     across ALL its components (the spread may hit any of them).
-        //     Tolerance is 2 decimals (not 3): the per-channel split rounding in
-        //     the damage pipeline produces ~1e-4 float noise that made a
-        //     3-decimal comparison flaky on random values.
+        // (5) RECONCILED-LOSS INVARIANT (BUG-139): the victim's total existence
+        //     loss equals the sum over BOTH hands of (direct clamped loss +
+        //     cascade loss). A pellet that breaks a component triggers the
+        //     removeBrokenComponent cascade, which removes dependent components
+        //     WITHOUT billing them into totalLoss (documented clamped-loss
+        //     design — the over-shred test below asserts that exclusion). So
+        //     totalLoss alone can legitimately be LESS than the victim's actual
+        //     loss (this was the ~20% flake: a 6-pellet spread can break the
+        //     central body/head/leg twice and cascade-remove part — or all — of
+        //     the droid). The handler now reports that uncharged mass as
+        //     cascadeLoss, and direct + cascade must reconcile with reality.
         const after = new Map(victimComps.map((c) => [c.id, existence(world, c.id)]));
         const actualLoss = victimComps.reduce((s, c) => s + Math.max(0, before.get(c.id) - after.get(c.id)), 0);
-        expect(sumReported, 'sum of per-hand reported losses equals the victim\'s actual loss').toBeCloseTo(actualLoss, 2);
+        const sumReconciled = damageResults.reduce(
+            (s, r) => s + (r.data.totalLoss ?? 0) + (r.data.cascadeLoss ?? 0),
+            0
+        );
+        expect(sumReconciled, 'direct + cascade losses across both hands reconcile with the victim\'s actual loss').toBeCloseTo(actualLoss, 2);
+        // And the uncharged cascade mass is only ever non-negative bookkeeping:
+        // the direct-billed portion can never exceed what actually disappeared
+        // (modulo the per-hand round3() noise, ≤ 2 × 5e-4).
+        expect(sumReported, 'direct-billed loss never exceeds the victim\'s actual loss').toBeLessThanOrEqual(actualLoss + 0.002);
 
-        // (6) The victim is not fully shredded: it retains at least one living component.
+        // (6) Post-shot coherence: either the victim retains living components
+        //     (entity still present) or the cascade shredded it entirely
+        //     (entity despawned). Both are legitimate world outcomes.
         const livingAfter = victimComps.filter((c) => after.get(c.id) > 0).length;
-        expect(livingAfter, 'victim should retain living components after a 6-pellet shot').toBeGreaterThan(0);
+        const victimEntity = world.stateEntityController.getEntity(victimId);
+        if (livingAfter > 0) {
+            expect(victimEntity, 'victim with living components must still be a present entity').toBeTruthy();
+        } else {
+            expect(victimEntity?.components?.length ?? 0, 'a fully shredded victim must have no components (despawned or emptied)').toBe(0);
+        }
     });
 
     it('damage fires the onDamage drop stream (forced 100% Bernoulli → drop count rises, proving the shotgun triggers the rule)', () => {

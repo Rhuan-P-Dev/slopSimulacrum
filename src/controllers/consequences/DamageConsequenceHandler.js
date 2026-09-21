@@ -459,6 +459,14 @@ class DamageConsequenceHandler {
         const hitCount = this._resolveHitCount(count, candidates.length);
         const hitComponents = this._sampleRandomComponents(candidates, hitCount);
 
+        // Pre-shot existence of every component of the target (not just the
+        // candidates: the break cascade can remove dependents that were already
+        // dead or are never sampled). Needed for the cascadeLoss accounting below.
+        const preShot = new Map((entity.components || []).map((c) => [
+            c.id,
+            world.componentController.getComponentStats(c.id)?.Physical?.existence ?? 0,
+        ]));
+
         // The blended attacker split (feature 1); null → legacy single-channel math.
         const split = this._resolveAttackerSplit(context, channel);
         let totalLoss = 0;
@@ -482,6 +490,21 @@ class DamageConsequenceHandler {
             }
         }
 
+        // Cascade accounting: a pellet that breaks a component triggers the
+        // removeBrokenComponent cascade, which removes dependent components
+        // WITHOUT charging the shooter for them (documented clamped-loss design:
+        // the over-shred contract test bills only directly-struck components).
+        // cascadeLoss reports that uncharged mass — existence lost by components
+        // NOT in hitIds — so consumers can reconcile: direct loss (totalLoss) +
+        // cascade loss (cascadeLoss) = the victim's true existence delta.
+        const hitIdSet = new Set(hitIds);
+        let cascadeLoss = 0;
+        for (const [id, prior] of preShot) {
+            if (hitIdSet.has(id) || !(prior > 0)) continue;
+            const now = world.componentController.getComponentStats(id)?.Physical?.existence ?? 0;
+            if (prior - now > 0) cascadeLoss += prior - now;
+        }
+
         return {
             success: updatedCount > 0,
             message: updatedCount > 0
@@ -495,7 +518,8 @@ class DamageConsequenceHandler {
                 candidates: candidates.length,
                 updatedCount,
                 hitIds,
-                totalLoss: round3(totalLoss)
+                totalLoss: round3(totalLoss),
+                cascadeLoss: round3(cascadeLoss)
             }
         };
     }
