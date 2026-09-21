@@ -139,3 +139,26 @@ rendered by `UIManager._renderWorldObjects()`:
 - `updateWorldView()` runs on **every** world-state-update broadcast, so the
   objects-layer is re-drawn after each action — prop HP and break-then-despawn
   stay in sync with the server without any extra channel.
+
+## 10. A Functional Prop: the Knife Generator
+
+The tree is a prop that is *only matter*. A static prop can also be a **machine**:
+the knife generator — the second shipped prop, placed center-left of the Entrance
+Hall at `{-80, 0}` — is a 100%-iron prop whose `generatorCore` component carries
+the `knifeGeneratorIC` organ. It is still a static prop in every sense that
+matters — `isStatic: true`, excluded from the actor roster, loadout-opted-out,
+breakable and harvestable (it sheds `chunk_iron` and despawns when its host is
+destroyed) — but its host component is also a **bounded inventory** (10 slots,
+`traits.Physical.volume: 10`), and its organ makes it a self-sustaining item
+source.
+
+The organ's `generateItem` overTime effect (see `data/internal_components.md`)
+produces one knife per round into the host's inventory; when the host reaches its
+cap the addition fails and the overflow **sheds a knife onto the floor around the
+prop** (the shared `writeDroppedItem` drop-to-floor geometry). So the generator
+fills its own belly and then drips knives onto the ground beside it — a real
+in-world object (harvest the knives it sheds, or break the prop to spill the
+stored ones) rather than mere decoration. It reuses every existing pipeline — the
+organ channel, `addItemToEntity`, `writeDroppedItem`, and the broken-component
+cascade — adding no new systems. Its contract is pinned by
+`test/contract/knifeGenerator.contract.test.js`.

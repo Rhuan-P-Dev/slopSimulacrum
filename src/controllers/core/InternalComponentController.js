@@ -11,6 +11,8 @@ import { generateUID } from '../../utils/idGenerator.js';
 import { DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
 import { channelLossFromResistance } from '../../utils/channelLoss.js';
 import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
+import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
+import { writeDroppedItem } from '../consequences/DropItemHandler.js';
 
 class InternalComponentController {
     /**
@@ -77,7 +79,7 @@ class InternalComponentController {
                     throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime must be an array`);
                 }
                 for (const effect of definition.overTime) {
-                    if (!effect.type || !['restoreExistence', 'emitChannelDamage', 'consumeFuelGenerateStat'].includes(effect.type)) {
+                    if (!effect.type || !['restoreExistence', 'emitChannelDamage', 'consumeFuelGenerateStat', 'generateItem'].includes(effect.type)) {
                         throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime has invalid type: ${effect.type}`);
                     }
                     if (typeof effect.intervalTurns !== 'number' || effect.intervalTurns <= 0) {
@@ -112,6 +114,14 @@ class InternalComponentController {
                         }
                         if (typeof effect.energyCapacity !== 'number' || effect.energyCapacity <= 0) {
                             throw new TypeError(`[InternalComponentController] Internal component "${type}" consumeFuelGenerateStat needs a positive energyCapacity`);
+                        }
+                    }
+                    if (effect.type === 'generateItem') {
+                        if (typeof effect.itemKey !== 'string' || effect.itemKey.trim() === '') {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime generateItem needs a non-empty itemKey string`);
+                        }
+                        if (effect.itemsPerInterval !== undefined && (!Number.isInteger(effect.itemsPerInterval) || effect.itemsPerInterval <= 0)) {
+                            throw new TypeError(`[InternalComponentController] Internal component "${type}" overTime generateItem needs a positive integer itemsPerInterval`);
                         }
                     }
                 }
@@ -815,6 +825,8 @@ class InternalComponentController {
                 return this._applyEmitChannelDamage(entityId, effect, hostComponentId);
             case 'consumeFuelGenerateStat':
                 return this._applyConsumeFuelGenerateStat(entityId, effect, hostComponentId);
+            case 'generateItem':
+                return this._applyGenerateItem(entityId, effect, hostComponentId);
             default:
                 Logger.warn(`[InternalComponentController] Unknown overTime effect type: ${effect.type}`);
                 return false;
@@ -970,6 +982,79 @@ class InternalComponentController {
         wsc.setEntityAttributeDelta(entityId, traitId, statName, charge, false);
         Logger.info(`[InternalComponentController] overTime(consumeFuelGenerateStat): consumed ${fuelNeeded} ${effect.fuelItem}, +${charge} ${traitId}.${statName} on entity ${entityId} (generator ${hostComponentId})`);
         return true;
+    }
+
+    /**
+     * `generateItem`: the organ produces new item instances into its host component's
+     * inventory every `intervalTurns` round — a fuel-free, self-sustaining source (the
+     * mirror-image of `consumeFuelGenerateStat`, which burns carried fuel to charge a
+     * whole-entity stat, but here it produces items with no input). Each fire first
+     * attempts to occupy host volume through the facade's `addItemToEntity` (the same
+     * public API players use to drop an item into a host component). When the host
+     * is at capacity the addition fails, and the overflow lands on the floor around
+     * the host via `writeDroppedItem` + `sampleDiskPoint` — the same disk the
+     * knife-drop trigger and the material-chunk consequences use, so "around" means
+     * uniformly within `DEFAULT_TRIGGER_RADIUS` of the host's spatial origin, in the
+     * host's room. This closes the loop asked for in the design: an infinite
+     * knife generator that fills its own inventory and then sheds knives onto the
+     * ground it stands in.
+     *
+     * Invariant: the host entity is read fresh each fire through the facade's
+     * `getEntity` (which exposes its live `spatial` + `location`). A missing entity
+     * or a hostless/broken organ aborts with no write. Every per-instance addition
+     * shares the same `location` room id, so the client's per-room dropped-item
+     * filter renders the shed knives next to the generator (matching the room
+     * filter the other `writeDroppedItem` callers rely on).
+     *
+     * @param {string} entityId - The host entity ID.
+     * @param {Object} effect - The generateItem effect definition.
+     * @param {string} hostComponentId - The host component instance ID (the inventory host).
+     * @returns {boolean} True when at least one item was stored or shed.
+     * @private
+     */
+    _applyGenerateItem(entityId, effect, hostComponentId) {
+        const wsc = this.worldStateController;
+        if (!wsc) return false;
+
+        const itemKey = effect.itemKey;
+        if (typeof itemKey !== 'string' || itemKey.trim() === '') return false;
+        const perInterval = Number.isInteger(effect.itemsPerInterval) && effect.itemsPerInterval > 0
+            ? effect.itemsPerInterval
+            : 1;
+        if (perInterval <= 0) return false;
+
+        const entity = wsc.getEntity(entityId);
+        if (!entity) return false;
+
+        const itemDef = wsc.getItemRegistry?.()[itemKey] || {};
+        const pos = entity.spatial ?? { x: 0, y: 0 };
+        const roomId = entity.location ?? 'unassigned';
+        const formVolume = itemDef?.form?.volume;
+        const dropDef = {
+            name: itemDef?.name || itemKey,
+            description: itemDef?.description || '',
+            volume: typeof formVolume === 'number' && formVolume > 0 ? formVolume : (itemDef?.volume ?? 1),
+        };
+
+        let produced = 0;
+        for (let i = 0; i < perInterval; i++) {
+            const result = wsc.addItemToEntity(entityId, itemKey, hostComponentId);
+            if (result && result.success) {
+                produced += 1;
+                continue;
+            }
+            // Host at capacity (or host missing) -> shed the overflow onto the floor
+            // around the host's spatial origin, matching the knife-drop trigger idiom.
+            const point = sampleDiskPoint(pos.x, pos.y, DEFAULT_TRIGGER_RADIUS);
+            if (!point) continue;
+            const dropped = writeDroppedItem(wsc, itemKey, point.x, point.y, roomId, entityId, dropDef, []);
+            if (dropped) produced += 1;
+        }
+
+        if (produced > 0) {
+            Logger.info(`[InternalComponentController] overTime(generateItem): produced ${perInterval} ${itemKey} on ${entityId} (stored or shed around host ${hostComponentId})`);
+        }
+        return produced > 0;
     }
 
     /**

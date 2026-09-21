@@ -93,5 +93,22 @@
     "excludedComponentTypes": ["m1Toe", "m1Finger"],
     "autoInstallOnSpawn": false,
     "targetBlueprintTypes": ["m1Droid"]
+  },
+  "knifeGeneratorIC": {
+    "name": "Knife Generator Organ",
+    "volume": 4,
+    "weight": 5,
+    "grants": {},
+    "overTime": [
+      {
+        "type": "generateItem",
+        "intervalTurns": 1,
+        "itemKey": "knife",
+        "itemsPerInterval": 1
+      }
+    ],
+    "excludedComponentTypes": [],
+    "autoInstallOnSpawn": false,
+    "targetBlueprintTypes": ["knifeGenerator"]
   }
 }
