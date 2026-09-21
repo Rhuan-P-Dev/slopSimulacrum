@@ -856,14 +856,33 @@ export class ClientApp {
      * @private
      */
     /**
-     * Returns the range expression for the 'dropItem' action, or undefined when
-     * no drop action is currently available. Pickup reuses the same expression
-     * (symmetric reachability), so this centralizes a repeated idiom.
-     * @returns {string|undefined} The dropItem range expression.
+     * Returns the range value for the 'dropItem' action, or undefined when
+     * no drop action is currently available. (Pickup does NOT share this
+     * value — see _getPickUpRangeExpression().)
+     * @returns {string|number|undefined} The dropItem range (number or expression string).
      * @private
      */
     _getDropRangeExpression() {
         return this.availableActions['dropItem']?.range;
+    }
+
+    /**
+     * Returns the range value for the 'pickUpItem' action, or undefined when
+     * no pickup action is currently available.
+     *
+     * BUGFIX (UI showed items in range that the server rejected): pickup
+     * previously reused the dropItem range ("symmetric reachability"), but
+     * the server enforces the pickUpItem action's OWN range in
+     * PickUpItemHandler — data-driven from data/actions.json via the shared
+     * RangeResolver (currently 50, vs dropItem's 100). The client must mirror
+     * the enforced range exactly (single source of truth: the shared
+     * RangeResolver + the action definition), so every pickup display and
+     * pre-check resolves THIS action's value.
+     * @returns {string|number|undefined} The pickUpItem range (number or expression string).
+     * @private
+     */
+    _getPickUpRangeExpression() {
+        return this.availableActions['pickUpItem']?.range;
     }
 
     _reRenderPendingRangeIndicators() {
@@ -895,8 +914,9 @@ export class ClientApp {
 
     /**
      * Computes the maximum Physical.strength across the droid's components.
-     * The resolved value is fed into _resolveDropRange() so the displayed
-     * range matches the server-enforced range exactly.
+     * The resolved value is fed into _resolveDropRange() (also used by
+     * _resolvePickupRange) so the displayed range matches the server-enforced
+     * range exactly.
      * @param {Object} droid - The active droid entity.
      * @param {Object} state - The current world state.
      * @returns {number} The max Physical.strength value.
@@ -1213,13 +1233,13 @@ export class ClientApp {
         // Item is in range, show overlay and range indicator
         this.pickUpOverlay.show(droppedItem);
         
-        // Show range indicator to give visual feedback
+        // Show range indicator to give visual feedback — the pickUpItem
+        // action's own range (the value the server enforces), not the drop
+        // range.
         const droid = this.worldState.getActiveDroid();
         if (droid) {
             const state = this.worldState.getState();
-            const rangeExpression = this._getDropRangeExpression();
-            const maxStrength = this._getMaxPhysicalStrength(droid, state);
-            const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
+            const pickUpRange = this._resolvePickupRange(droid, state);
             this.ui.renderRangeIndicator(droid, pickUpRange, AppConfig.COLORS.RANGE.IN_RANGE, 'pickup');
         }
     }
@@ -1327,15 +1347,18 @@ export class ClientApp {
     }
 
     /**
-     * Resolves the pickup range from the dropItem action's range expression.
-     * Pickup uses the same range as drop (symmetric reachability).
+     * Resolves the pickup range from the pickUpItem action's range value —
+     * the same value the server enforces in PickUpItemHandler (data-driven
+     * from data/actions.json via the shared RangeResolver). The spatial map
+     * renders 1 world unit as 1 pixel, so the resolved value is the circle
+     * radius.
      * @param {Object} droid - The active droid entity.
      * @param {Object} state - The current world state.
-     * @returns {number} The resolved pickup range in pixels.
+     * @returns {number} The resolved pickup range (world units).
      * @private
      */
     _resolvePickupRange(droid, state) {
-        const rangeExpression = this._getDropRangeExpression();
+        const rangeExpression = this._getPickUpRangeExpression();
         const maxStrength = this._getMaxPhysicalStrength(droid, state);
 
         return this._resolveDropRange(rangeExpression, maxStrength);
@@ -1349,11 +1372,9 @@ export class ClientApp {
         const droid = this.worldState.getActiveDroid();
         if (!droid) return { inRange: false, message: 'No active droid.' };
 
-        const state = this.worldState.getState();
-        const rangeExpression = this._getDropRangeExpression();
-        const maxStrength = this._getMaxPhysicalStrength(droid, state);
-
-        const pickUpRange = this._resolveDropRange(rangeExpression, maxStrength);
+        // The pickUpItem action's own range — the same value the server
+        // enforces in PickUpItemHandler (see _getPickUpRangeExpression).
+        const pickUpRange = this._resolvePickupRange(droid, this.worldState.getState());
         const droidX = droid.spatial?.x || 0;
         const droidY = droid.spatial?.y || 0;
         const itemX = droppedItem.x || 0;
