@@ -91,7 +91,10 @@ const CARD_FILES = fs.existsSync(CARD_DIR)
 function readCardNames() {
     const dir = path.resolve('data/cards');
     const names = [];
-    for (const file of fs.readdirSync(dir)) {
+    // data/cards is gitignored — a fresh checkout has no directory at all,
+    // so guard the scan (same existsSync pattern as CARD_FILES above).
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    for (const file of files) {
         if (file.startsWith('.') || !CARD_IMAGE_EXT.test(path.extname(file))) continue;
         const res = readCharaCard(path.join(dir, file));
         if (res.success && typeof res.card.name === 'string' && res.card.name.trim() !== '') {
@@ -150,7 +153,7 @@ describe('data/cards → M1 LLM NPCs (random room, per-card identity)', () => {
         }
     });
 
-    it('lands every card in a real room, scattering them (random assignment, not one room)', () => {
+    it.skipIf(CARD_FILES.length === 0)('lands every card in a real room, scattering them (random assignment, not one room)', () => {
         const expectedNames = readCardNames();
         const cards = Object.values(world.stateEntityController.getAll() || {})
             .filter((e) => expectedNames.includes(e.name));
