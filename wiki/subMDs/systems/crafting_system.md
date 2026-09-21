@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The crafting system lets an entity combine items on one of its components into new items, following recipes defined in `data/crafting.json`. The initial recipe fuses two knives into one T1 container weapon (see [T1 Weapon System](t1_weapon_system.md)).
+The crafting system lets an entity combine items on one of its components into new items, following recipes defined in `data/crafting.json`. The shipped recipes fuse knives into T1 container weapons (see [T1 Weapon System](t1_weapon_system.md)) and convert matter into coal fuel: a T1 weapon (`t1_to_coal`) and the dynamic `chunk_wood` type — wood chunks shed by damaged wood components, see [Material Damage & Drop](../data/material_damage_and_drop.md) — into coal (`wood_chunk_to_coal`), the fuel the M1 droid's coal generator burns.
 
 Crafting is a **pure UI-panel concept**: it has no world entity, no range or spatial validation, no room requirement, and — decisively — it does not consume a turn. It is a sibling of the inventory system, not a member of the action pipeline.
 
@@ -25,7 +25,7 @@ This decoupling exists because:
 
 - **Item state has exactly one owner.** Every read and write of items goes through the inventory system, so crafting can never desynchronize or bypass it. The facade is the only place where recipe knowledge and item state meet.
 - **The registry is excluded from the broadcast on purpose.** Recipes are static and immutable at runtime, so shipping them in every world-state update would bloat all clients for zero benefit (the same exclusion rule the per-room chat ring follows). Clients fetch the registry once through a dedicated endpoint instead.
-- **Fail-fast data validation.** The controller receives the item registry at construction, so every recipe input/output type is cross-validated against it at boot: a broken data reference fails the server at startup, not a player mid-game.
+- **Fail-fast data validation.** The controller receives the item registry at construction, so every recipe input/output type is cross-validated against it at boot: a broken data reference fails the server at startup, not a player mid-game. The one exception is the input side, which may additionally name the self-describing dynamic `chunk_<material>` types (no registry entry by design); outputs must always be registry items, because crafting instantiates outputs from the registry.
 
 ## 4. Why Crafting Does Not Consume a Turn
 
@@ -47,7 +47,7 @@ Crafting has no spatial presence in the world: it is not a world object, so ther
 Recipes live in `data/crafting.json` — a plain registry keyed by recipe ID, the same convention as the action and item-type registries.
 
 - **New content is a data edit.** Adding a recipe means editing JSON only; the code is a generic interpreter of recipe definitions, so the feature grows without code changes.
-- **Item types stay canonical.** A recipe references item types by their registry IDs and never duplicates item definitions — the item registry remains the single source of truth for names, volumes, and traits, and the client resolves display names from the inventory registry.
+- **Item types stay canonical.** A recipe references item types by their registry IDs and never duplicates item definitions — the item registry remains the single source of truth for names, volumes, and traits, and the client resolves display names from the inventory registry. (The one exception is an input naming a dynamic `chunk_<material>` type — canonical in itself via its self-describing prefix, with no registry entry by design.)
 - **Static and read-only at runtime.** Recipes are validated once at boot and then immutable; the controller hands out defensive copies so no consumer can mutate the registry.
 
 ## 7. Why a Failed Craft Can Never Lose Items

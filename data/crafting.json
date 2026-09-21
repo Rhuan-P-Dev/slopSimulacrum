@@ -20,5 +20,27 @@
     "outputs": [
       { "type": "t1", "quantity": 1 }
     ]
+  },
+  "t1_to_coal": {
+    "id": "t1_to_coal",
+    "name": "T1 to Coal",
+    "description": "Salvage a T1 container weapon into a chunk of coal fuel.",
+    "inputs": [
+      { "type": "t1", "quantity": 1 }
+    ],
+    "outputs": [
+      { "type": "coal", "quantity": 1 }
+    ]
+  },
+  "wood_chunk_to_coal": {
+    "id": "wood_chunk_to_coal",
+    "name": "Wood Chunk to Coal",
+    "description": "Carbonize a raw wood chunk (chunk_wood) into a chunk of coal fuel.",
+    "inputs": [
+      { "type": "chunk_wood", "quantity": 1 }
+    ],
+    "outputs": [
+      { "type": "coal", "quantity": 1 }
+    ]
   }
 }

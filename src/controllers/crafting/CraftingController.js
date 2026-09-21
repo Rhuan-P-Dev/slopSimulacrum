@@ -7,7 +7,10 @@
  * the raw `data/crafting.json` content (loaded there via
  * `DataLoader.loadJsonSafe('data/crafting.json', {})` — project rule §5) plus the
  * item registry from `data/inventoryItems.json` for cross-validation of every
- * input/output item type (fail-fast at startup, never mid-game).
+ * input/output item type (fail-fast at startup, never mid-game). Input types
+ * may additionally be the self-describing dynamic `chunk_<material>` types
+ * (spec D8 — no registry entry by design); outputs must always be registry
+ * items, because crafting instantiates outputs from the registry.
  *
  * Responsibility split (crafting design spec §2.1): this controller owns recipe
  * definitions and pure "do these items satisfy this recipe?" checks only. It
@@ -21,6 +24,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { isChunkItemType } from '../../utils/Constants.js';
 
 class CraftingController {
     /**
@@ -28,6 +32,8 @@ class CraftingController {
      *   object keyed by recipe ID (same convention as data/actions.json).
      * @param {Object} itemRegistry - Raw data from data/inventoryItems.json, used
      *   to validate that every recipe input/output type exists (fail-fast).
+     *   Inputs may additionally name the dynamic `chunk_<material>` types
+     *   (no registry entry by design); outputs must be registry items.
      */
     constructor(recipeRegistry, itemRegistry) {
         this._recipeRegistry = recipeRegistry || {};
@@ -43,7 +49,9 @@ class CraftingController {
      * empty `id` or `name`; non-string `description`; empty or non-array
      * `inputs`/`outputs`; an entry that is not an object, with a missing or
      * non-string `type`, or a `quantity` that is not an integer ≥ 1; or a `type`
-     * that does not exist in the item registry.
+     * that does not exist in the item registry (input entries may additionally
+     * be the dynamic `chunk_<material>` types; output entries must be registry
+     * items).
      * @private
      */
     _validateRecipeDefinitions() {
@@ -75,7 +83,8 @@ class CraftingController {
 
     /**
      * Validates one of the recipe's item lists: must be a non-empty array whose
-     * entries are `{ type: string (known item type), quantity: integer ≥ 1 }`.
+     * entries are `{ type: string (known item type — or a dynamic
+     * chunk_<material> type for inputs), quantity: integer ≥ 1 }`.
      * @param {Object} recipe - The recipe being validated (for error context).
      * @param {'inputs'|'outputs'} field - Which list to validate.
      * @private
@@ -95,7 +104,15 @@ class CraftingController {
             if (!Number.isInteger(entry.quantity) || entry.quantity < 1) {
                 throw new TypeError(`Recipe "${recipe.id}" has a "${field}" entry with invalid "quantity" ${entry.quantity} (must be an integer ≥ 1).`);
             }
-            if (!this._itemRegistry[entry.type]) {
+            // Inputs may reference the dynamic chunk_<material> item types
+            // (feature 2 — no inventoryItems.json entry by design; the chunk
+            // drop handlers synthesize their definitions, and the type is
+            // self-describing). Outputs must always be registry items: crafting
+            // instantiates outputs from the item registry, and there is no
+            // output-side chunk synthesis.
+            const known = this._itemRegistry[entry.type]
+                || (field === 'inputs' && isChunkItemType(entry.type));
+            if (!known) {
                 throw new TypeError(`Recipe "${recipe.id}" references unknown item type "${entry.type}" in "${field}".`);
             }
         }

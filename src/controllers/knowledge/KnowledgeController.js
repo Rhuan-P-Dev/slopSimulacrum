@@ -28,6 +28,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { isChunkItemType } from '../../utils/Constants.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 import {
     TRAIT_GROUPS,
@@ -270,7 +271,9 @@ class KnowledgeController {
      * Validates the recipe registry with the SAME structural rules as
      * CraftingController._validateRecipeDefinitions, including the cross-check
      * that every input/output type exists in the item registry (a broken
-     * reference fails boot, never mid-game).
+     * reference fails boot, never mid-game). Input entries may additionally be
+     * the dynamic `chunk_<material>` types (no registry entry by design);
+     * output entries must be registry items.
      * @private
      */
     _validateRecipeEntries() {
@@ -297,7 +300,8 @@ class KnowledgeController {
 
     /**
      * Validates one of a recipe's item lists: must be a non-empty array whose
-     * entries are `{ type: string (a known item type), quantity: integer ≥ 1 }`.
+     * entries are `{ type: string (a known item type — or a dynamic
+     * chunk_<material> type for inputs), quantity: integer ≥ 1 }`.
      * @param {Object} recipe - The recipe being validated (for error context).
      * @param {'inputs'|'outputs'} field - Which list to validate.
      * @private
@@ -317,7 +321,12 @@ class KnowledgeController {
             if (!Number.isInteger(entry.quantity) || entry.quantity < 1) {
                 throw new TypeError(`Recipe "${recipe.id}" has a "${field}" entry with invalid "quantity" ${entry.quantity} (must be an integer ≥ 1).`);
             }
-            if (!this._items[entry.type]) {
+            // Mirrors CraftingController: inputs may reference the dynamic
+            // chunk_<material> item types (no registry entry by design);
+            // outputs must always be registry items.
+            const known = this._items[entry.type]
+                || (field === 'inputs' && isChunkItemType(entry.type));
+            if (!known) {
                 throw new TypeError(`Recipe "${recipe.id}" references unknown item type "${entry.type}" in "${field}".`);
             }
         }

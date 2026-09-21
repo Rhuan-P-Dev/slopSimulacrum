@@ -21,11 +21,14 @@ vi.mock('../../src/utils/Logger.js', () => ({
     }
 }));
 
-// Minimal item registry: the two types referenced by the test recipes.
+// Minimal item registry: the static types referenced by the test recipes.
+// (Dynamic chunk_<material> types are intentionally absent — they have no
+// registry entry by design; see the chunk-input tests below.)
 const ITEM_REGISTRY = {
     knife: { name: 'Knife', volume: 1 },
     t1: { name: 'T1', volume: 10, externalVolume: 1 },
-    powerCell: { name: 'Power Cell', volume: 2 }
+    powerCell: { name: 'Power Cell', volume: 2 },
+    coal: { name: 'Coal', volume: 1 }
 };
 
 // A valid registry in the data/crafting.json shape: keyed by recipe ID.
@@ -153,6 +156,32 @@ describe('CraftingController', () => {
         it('accepts a valid registry (2× knife → 1× t1)', () => {
             const controller = build(structuredClone(VALID_REGISTRY));
             expect(controller.getRecipe('knife_to_t1')).not.toBeNull();
+        });
+
+        it('accepts a dynamic chunk_<material> type as an INPUT (no registry entry by design)', () => {
+            const registry = {
+                wood_chunk_to_coal: {
+                    id: 'wood_chunk_to_coal',
+                    name: 'Wood Chunk to Coal',
+                    description: 'Carbonize a raw wood chunk into coal fuel.',
+                    inputs: [{ type: 'chunk_wood', quantity: 1 }],
+                    outputs: [{ type: 'coal', quantity: 1 }]
+                }
+            };
+            const controller = build(structuredClone(registry));
+            expect(controller.getRecipe('wood_chunk_to_coal')).not.toBeNull();
+        });
+
+        it('still rejects a dynamic chunk_<material> type as an OUTPUT (outputs instantiate from the registry)', () => {
+            const registry = {
+                r1: {
+                    id: 'r1',
+                    name: 'X',
+                    inputs: [{ type: 'knife', quantity: 1 }],
+                    outputs: [{ type: 'chunk_wood', quantity: 1 }]
+                }
+            };
+            expect(() => build(registry)).toThrow(/unknown item type "chunk_wood" in "outputs"/);
         });
 
         it('accepts an empty registry object (missing file fallback)', () => {

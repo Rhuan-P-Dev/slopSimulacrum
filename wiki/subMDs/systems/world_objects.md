@@ -87,8 +87,10 @@ special-casing:
   so the whole harvest comes from the non-lethal hits that got there.
 
 This closes the loop that makes the tree more than decoration: **hit the tree →
-wood chunks drop (on the non-lethal hits) → pick them up → craft with them.**
-The prop's entire "100% wood" identity is what determines what it drops.
+wood chunks drop (on the non-lethal hits) → pick them up → craft them into
+coal** (the `wood_chunk_to_coal` recipe: `chunk_wood` → coal, in
+`data/crafting.json`). The prop's entire "100% wood" identity is what
+determines what it drops.
 
 ## 6. The Loadout Opt-Out
 
