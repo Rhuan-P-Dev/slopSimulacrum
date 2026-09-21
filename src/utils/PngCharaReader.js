@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
-const BASE64_SAFE = /^[A-Za-z0-9+\/=\s]+$/;
+const BASE64_SAFE = /^[A-Za-z0-9+/=\s]+$/;
 
 /**
  * Walks the byte buffer, yielding each chunk's `{ type, data }`. The caller

@@ -1,0 +1,33 @@
+# Server-side CI — the un-bypassable half of the gate.
+# The local .githooks/pre-push gives fast feedback; this proves the same
+# contract on every push to the remote, so no worktree (human or agent)
+# can land a red build on main.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: lint + language guard + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Language guard (no Portuguese in code)
+        run: npm run check:lang
+
+      - name: Tests
+        run: npm test

@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check:lang": "node scripts/check-pt.mjs"
+    "check:lang": "node scripts/check-pt.mjs",
+    "check": "npm run lint && npm run check:lang && npm test"
   },
   "keywords": [],
   "author": "",

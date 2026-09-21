@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Local CI gate — the machine that enforces the repo's own rule
+# "violations → rejected changes" (see wiki/rules / CORE.md).
+#
+# Runs on every `git push` from any worktree of this repo, because
+# core.hooksPath is set to .githooks (shared repo config).
+#
+# The gate, in one command:
+#   npm run check  =  lint + language guard (no Portuguese in code) + full test suite
+#
+# Emergency bypass (use sparingly — GitHub Actions re-checks on the server side):
+#   git push --no-verify
+set -euo pipefail
+
+echo "▶ pre-push gate: lint + check:lang + tests"
+npm run check --silent
+echo "✓ pre-push gate passed — pushing."
