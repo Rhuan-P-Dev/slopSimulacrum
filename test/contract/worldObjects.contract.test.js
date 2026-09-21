@@ -61,8 +61,11 @@ describe('World objects (static props) — data/worldObjects.json', () => {
     it('is hittable: a punch drains its component existence', () => {
         const { worldStateController: wsc } = buildWorldState(null);
         const tree = findEntity(wsc, 'tree');
-        const rogue = Object.values(wsc.getAll().entities)
-            .find(e => e.blueprint === 'smallBallDroid'); // NPC puncher
+        // The registry no longer ships a puncher droid (the smallBallDroid
+        // "Rogue Droid" entry was removed from data/npcs.json): spawn one,
+        // the same way test 1 spawns its roster droid.
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        const rogue = wsc.getEntity(wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId));
         // Move the puncher next to the tree (tree at (0,-80); punch range 100).
         wsc.stateEntityController.updateEntitySpatial(rogue.id, { x: 0, y: -40 });
 
@@ -89,8 +92,9 @@ describe('World objects (static props) — data/worldObjects.json', () => {
         const { worldStateController: wsc } = buildWorldState(null);
         const tree = findEntity(wsc, 'tree');
         expect(tree, 'the tree should exist before we start breaking it').toBeTruthy();
-        const rogue = Object.values(wsc.getAll().entities)
-            .find(e => e.blueprint === 'smallBallDroid');
+        // Same test-spawned puncher as the hittable test (registry rogue removed).
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        const rogue = wsc.getEntity(wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId));
         wsc.stateEntityController.updateEntitySpatial(rogue.id, { x: 0, y: -40 });
 
         const instances = wsc.getAll().components.instances;

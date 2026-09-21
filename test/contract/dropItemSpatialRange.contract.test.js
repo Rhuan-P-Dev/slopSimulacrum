@@ -52,7 +52,7 @@ function createWorldWithDroid() {
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-    // Find the client droid (not an NPC — data/npcs.json spawns a Rogue Droid —
+    // Find the client droid (not a data/npcs.json registry NPC —
     // and not a static world object/prop, which has no holding component).
     const allEntities = Object.values(world.stateEntityController.entities);
     const entity = allEntities.find(e => e.isNPC !== true && e.isStatic !== true) || allEntities[0];

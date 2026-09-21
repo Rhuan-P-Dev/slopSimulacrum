@@ -37,11 +37,18 @@ beforeAll(() => {
     const state = wsController.getAll();
     const entities = state.entities || {};
 
-    // Find the smallBallDroid NPC ("Rogue Droid"). In the recipe→derivation model
-    // the only blueprint that receives organ function stats (move/strength/think)
-    // is the smallBallDroid — the other spawned NPCs (e.g. crafterDrone) have
-    // matter-only components and no function stats. We locate it by the presence
-    // of a move-capable component (a moveCore-granted rolling ball).
+    // Locate an entity with a move-capable component: the smallBallDroid is
+    // the blueprint with organ function stats (move/strength/think); the live
+    // registry no longer ships an un-gated NPC at all (crafterDrone removed;
+    // killerLlmDrone env-gated OFF in the test environment). We locate it by
+    // the presence of a move-capable component (a moveCore-granted rolling
+    // ball).
+    //
+    // Historically this was the registry's "Rogue Droid" NPC, then the
+    // crafterDrone world; both registry entries were removed from
+    // data/npcs.json, so when no move-capable NPC is registered we spawn a
+    // smallBallDroid through the public facade (the capability gate under
+    // test is blueprint-driven, not isNPC-driven).
     const npcEntry = Object.values(entities).find(e => {
         if (!e.isNPC) return false;
         return (e.components || []).some(c => {
@@ -51,6 +58,9 @@ beforeAll(() => {
     });
     if (npcEntry) {
         npcEntityId = npcEntry.id;
+    } else {
+        const startRoomId = wsController.getRoomUidByLogicalId('start_room');
+        npcEntityId = wsController.spawnEntity('smallBallDroid', startRoomId);
     }
 });
 

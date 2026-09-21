@@ -1,18 +1,4 @@
 {
-  "crafterDrone": {
-    "displayName": "Crafter Drone",
-    "personality": "A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.",
-    "room": "start_room",
-    "ai": {
-      "behavior": "craft_loop"
-    }
-  },
-  "smallBallDroid": {
-    "displayName": "Rogue Droid",
-    "room": "start_room",
-    "personality": "A rogue combat droid that hunts anything that moves in its room.",
-    "ai": { "behavior": "chase_attack" }
-  },
   "killerLlmDrone": {
     "displayName": "Killer LLM Drone",
     "room": "start_room",

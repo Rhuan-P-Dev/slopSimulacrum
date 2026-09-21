@@ -75,8 +75,8 @@ function createWorld() {
  * @returns {void}
  */
 function applyMutations(world, handles) {
-    // Find the test-spawned entity (not an NPC — data/npcs.json spawns Rogue Droid
-    // — and not a static world object/prop, which has no droidHead/droidHand).
+    // Find the test-spawned entity (not a data/npcs.json registry NPC —
+    // and not a static world object/prop, which has no droidHead/droidHand).
     const allEntities = Object.values(world.stateEntityController.entities);
     const entity = allEntities.find(e => e.isNPC !== true && e.isStatic !== true) || allEntities[0];
     handles.entityId = entity.id;

@@ -4,13 +4,16 @@
  * Driven WITHOUT real timers (same contract as TurnSystem.contract.test.js):
  * build the world, set tickSystem.currentTick = N, call turnSystem.onTick().
  *
- * World note: buildWorld() pins the roster to exactly ONE data-driven NPC
- * from data/npcs.json (all extras are despawned before the first tick) in
- * addition to the test droid, so a plain buildWorld() roster always has
- * 2 planners — deterministic against npcs.json growth (the crafterDrone
- * merge 7b54605 broke this invariant and drifted this suite).
- * `buildSoloWorld()` despawns that remaining NPC before the first tick so
- * the roster is exactly the test droid (single-entity world).
+ * World note: buildWorld() pins the roster to exactly ONE NPC in addition to
+ * the test droid, so a plain buildWorld() roster always has 2 planners —
+ * deterministic against data/npcs.json growth (the crafterDrone merge 7b54605
+ * broke this invariant and drifted this suite). The live registry no longer
+ * spawns an un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated
+ * OFF in tests), so the pin now spawns an explicit crafterDrone-blueprint
+ * entity (isNPC) — the same matter-only shape the tests were written
+ * against — instead of keeping one from the registry.
+ * `buildSoloWorld()` despawns that NPC before the first tick so the roster
+ * is exactly the test droid (single-entity world).
  *
  * v2 note: planning has NO deadline — the barrier closes only when every
  * roster planner has signaled plan-complete (a removal counts as vacuously
@@ -86,28 +89,36 @@ const KILL_EXISTENCE_DELTA = -175;
  * Builds a fresh world wired to a (non-started) tick system, spawns the test
  * droid, and returns the facade + tick system + turn system + droid id.
  *
- * The roster is kept DETERMINISTIC against data/npcs.json: all data-driven
- * NPCs are despawned before the first tick EXCEPT one, so the round-start
- * roster is always [one data-driven NPC, test droid] = 2 planners — the
- * invariant every test in this file was written against. Without this pin,
- * npcs.json growth (the crafterDrone merge 7b54605) silently added planners
- * and broke the all-ready barrier / single-NPC agent assertions.
+ * The roster is kept DETERMINISTIC against data/npcs.json: the round-start
+ * roster is always [one NPC, test droid] = 2 planners — the invariant every
+ * test in this file was written against. Since the live registry no longer
+ * spawns an un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated
+ * OFF in tests), the pin spawns an explicit crafterDrone-blueprint entity
+ * (isNPC) instead of keeping one from the registry; npcs.json growth (the
+ * crafterDrone merge 7b54605) can no longer silently add planners.
  */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
-    // Keep a single data-driven NPC (first in registry order); despawn the rest.
-    const npcs = Object.values(world.stateEntityController.entities).filter(e => e.isNPC === true);
-    for (let i = 1; i < npcs.length; i++) world.despawnEntity(npcs[i].id);
+    // Explicit roster NPC (documented exception): the turn machine only needs
+    // isNPC for the agent slot — the blueprint's matter-only components keep
+    // the entity inert, exactly like the old registry-spawned crafterDrone.
+    world.stateEntityController.spawnEntity('crafterDrone', startRoomId, {
+        isNPC: true,
+        name: 'Crafter Drone',
+        npcConfig: {
+            displayName: 'Crafter Drone',
+            personality: 'A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.'
+        }
+    });
     return { world, tick, turns: subControllers.turnSystemController, entityId };
 }
 
 /**
- * Same as buildWorld(), but despawns the data-driven NPC BEFORE the first
- * tick so the round-start roster is exactly the test droid (single-entity
- * world).
+ * Same as buildWorld(), but despawns the roster NPC before the first tick so
+ * the round-start roster is exactly the test droid (single-entity world).
  */
 function buildSoloWorld() {
     const ctx = buildWorld();

@@ -18,9 +18,11 @@
  *     config, and no card inherits a shared registry "personality" from another
  *     droid);
  *   - asserts the LLM prompt renders each card's name + its (fallback)
- *     personality; and that the static-registry NPCs (Crafter Drone / Rogue
- *     Droid, spawned from `data/npcs.json`) still render their *registry* name
- *     + personality — the no-regression guarantee.
+ *     personality; and that the static registry lookup (`_resolveNpcConfig`)
+ *     still falls back to a registry entry's name + personality for a
+ *     blueprint without a live config (the `killerLlmDrone` entry — env-gated,
+ *     so it is NOT spawned in this test world, but the registry lookup needs
+ *     no spawn) — the no-regression guarantee.
  *
  * Why no real LLM: `getNpcs()` and `_buildSystemPrompt` never touch the LLM
  * provider; only `runRound()` would. We verify routing + prompt construction
@@ -81,7 +83,7 @@ function buildLlmAgent({ world, subControllers }) {
 const CARD_IMAGE_EXT = /^\.(png|webp|jpe?g|bmp|gif)$/i;
 // The card PNGs are gitignored (data/cards/*) — a fresh checkout has an empty
 // directory, so the card-specific tests below skip when no card image is
-// present. The registry-NPC tests (Crafter Drone / Rogue Droid) run regardless.
+// present. The registry-lookup test (killerLlmDrone) runs regardless.
 const CARD_DIR = path.resolve('data/cards');
 const CARD_FILES = fs.existsSync(CARD_DIR)
     ? fs.readdirSync(CARD_DIR).filter((f) => !f.startsWith('.') && CARD_IMAGE_EXT.test(path.extname(f)))
@@ -208,41 +210,15 @@ describe('data/cards → M1 LLM NPCs (random room, per-card identity)', () => {
         expect(prompt).toContain('to stay silent: {"action":"none"}');
     });
 
-    it('does NOT regress registry NPCs: Crafter Drone keeps its registry identity', () => {
-        const npcs = agent.getNpcs();
-        const crafter = npcs.find((n) => n.entity?.name === 'Crafter Drone');
-        expect(crafter).toBeDefined();
-        expect(crafter.entity.blueprint).toBe('crafterDrone');
-        // The resolved config must still be the registry entry's identity (the
-        // merge must not have corrupted the deterministic registry NPC).
-        expect(crafter.config.personality).toBe('A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.');
-        expect(crafter.config.displayName).toBe('Crafter Drone');
-
-        const prompt = agent._buildSystemPrompt(crafter, roomNameOf(world, crafter.entity));
-        expect(prompt).toContain('You are Crafter Drone, an NPC droid');
-        expect(prompt).toContain('A tireless field-fabrication drone');
-        // No caps declared → defaults (2 world / 1 chat) still render.
-        expect(prompt).toContain('at most 2 world action');
-        expect(prompt).toContain('at most 1 chat message');
-    });
-
-    it('does NOT regress registry NPCs: Rogue Droid keeps its registry identity', () => {
-        const npcs = agent.getNpcs();
-        const rogue = npcs.find((n) => n.entity?.name === 'Rogue Droid');
-        expect(rogue).toBeDefined();
-        expect(rogue.config.personality).toBe('A rogue combat droid that hunts anything that moves in its room.');
-        expect(rogue.config.displayName).toBe('Rogue Droid');
-
-        const prompt = agent._buildSystemPrompt(rogue, roomNameOf(world, rogue.entity));
-        expect(prompt).toContain('You are Rogue Droid, an NPC droid');
-        expect(prompt).toContain('A rogue combat droid');
-    });
-
     describe('_resolveNpcConfig (live config over static registry)', () => {
         it('falls back to the static registry when the entity has no live config', () => {
-            const config = agent._resolveNpcConfig({ blueprint: 'crafterDrone' });
-            expect(config.personality).toBe('A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.');
-            expect(config.displayName).toBe('Crafter Drone');
+            // The live registry's only remaining entry (the crafterDrone
+            // "Crafter Drone" entry was removed from the world) is the
+            // env-gated killerLlmDrone — registry lookup has no env gate, so
+            // the fallback resolves it even though it is not spawned here.
+            const config = agent._resolveNpcConfig({ blueprint: 'killerLlmDrone' });
+            expect(config.personality).toBe('A cold, relentless hunter. It does not hesitate, does not warn, and does not stop.');
+            expect(config.displayName).toBe('Killer LLM Drone');
         });
 
         it('returns an empty config when the blueprint is unknown', () => {

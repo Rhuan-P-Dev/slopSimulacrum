@@ -1,6 +1,11 @@
 /**
  * Crafter Drone contract test — full real world (data files + composition
- * root), no network, no mocks.
+ * root), no network. ONE documented mock (same pattern as the KillerLlmDrone
+ * tests): the DataLoader is served a fixture `data/npcs.json` whose entries
+ * are verbatim copies of the registry this test was written against — the
+ * live registry no longer ships the `crafterDrone` entry (removed from the
+ * world), so the fixture keeps this pipeline contract independent of the
+ * live registry.
  *
  * Boots the world via buildWorldState and drives the turn machine manually
  * by advancing the tick clock (same pattern as
@@ -62,23 +67,74 @@
  *      CraftingController registry with the exact inputs/outputs, and the
  *      knife/t1 item types exist in the item registry; the 2-knife
  *      `knife_to_t1` recipe is untouched.
- *   5. Regression guard (spec §7.2.5): the smallBallDroid rogue still spawns
- *      (isNPC, displayName, chase_attack, start_room) and still pursues over
- *      one driven round (closes the gap by one move step; drone untouched).
  *
  * @module test/contract/crafterDrone.contract
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import NpcAIController from '../../src/controllers/ai/NpcAIController.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
+// =========================================================================
+// Fixture registry (verbatim copy of the data/npcs.json this test was
+// written against — the live file no longer carries the crafterDrone entry,
+// which was removed from the world)
+// =========================================================================
+
+const FIXTURE_NPCS = {
+    crafterDrone: {
+        displayName: 'Crafter Drone',
+        personality: 'A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.',
+        room: 'start_room',
+        ai: {
+            behavior: 'craft_loop'
+        }
+    },
+    killerLlmDrone: {
+        displayName: 'Killer LLM Drone',
+        room: 'start_room',
+        personality: 'A cold, relentless hunter. It does not hesitate, does not warn, and does not stop.',
+        objective: 'Attack all other entities: each round, strike the nearest entity you can reach; when nothing is in range, move toward the nearest one. Never help, never idle while a target is reachable.',
+        maxWorldActionsPerRound: 2,
+        maxChatMessagesPerRound: 0,
+        envGate: 'KILLER_LLM_DRONE_ENABLED',
+        initialItems: [
+            { item: 't1', count: 1, equip: true, contents: [{ item: 'knife', count: 10 }] },
+            { item: 'knife', count: 1, equip: true }
+        ]
+    }
+};
+
+// =========================================================================
+// Top-level DataLoader mock (hoisted by vitest)
+// =========================================================================
+
+vi.mock('../../src/utils/DataLoader.js', async () => {
+    const actual = await vi.importActual('../../src/utils/DataLoader.js');
+    const realDefault = actual.default || {};
+
+    return {
+        default: {
+            loadJsonSafe(path, defaultValue) {
+                if (path === 'data/npcs.json') {
+                    return FIXTURE_NPCS;
+                }
+                // Delegate all other paths to the real DataLoader
+                if (realDefault.loadJsonSafe) {
+                    return realDefault.loadJsonSafe(path, defaultValue);
+                }
+                return defaultValue;
+            }
+        }
+    };
+});
+
 describe('Crafter Drone contract (real world, data-driven)', () => {
 
     let tick, world, turns;
-    let drone, rogue;
+    let drone;
 
     beforeEach(() => {
         tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
@@ -88,7 +144,6 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
 
         const all = () => Object.values(world.getEntities());
         drone = all().find(e => e.blueprint === 'crafterDrone');
-        rogue = all().find(e => e.blueprint === 'smallBallDroid');
     });
 
     /** @returns {string} the UUID of the logical start room. */
@@ -204,10 +259,6 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
     });
 
     it('2. full cycle: dropped knife → approach → pick → craft → T1 dropped at the drone, owned by it', async () => {
-        // Deterministic world: remove the chase attacker (it would otherwise
-        // fight the drone and disturb the forage loop).
-        world.despawnEntity(rogue.id);
-
         // The knife is dropped 120 away — beyond the data-driven pickUpItem
         // range (50, data/actions.json: the same source the handler
         // validates) — to force the approach phase first.
@@ -257,9 +308,6 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
     });
 
     it('3. three rounds with no knife: spatial unchanged, no items, no drops', async () => {
-        // Same deterministic-world hygiene as test 2.
-        world.despawnEntity(rogue.id);
-
         const driveRound = registerBrainAndDrive();
         const before = { ...world.getEntity(drone.id).spatial };
 
@@ -291,83 +339,5 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
 
         // The pre-existing 2-knife recipe is untouched.
         expect(recipes.find(r => r.id === 'knife_to_t1')).toBeDefined();
-    });
-
-    it('5. regression guard (spec §7.2.5): the rogue droid still spawns with chase_attack and still pursues over a driven round', async () => {
-        // Spawn assertions — the boot path still produces the rogue in start_room.
-        expect(rogue).toBeDefined();
-        expect(rogue.isNPC).toBe(true);
-        expect(rogue.name).toBe('Rogue Droid');
-        expect(rogue.npcConfig.ai.behavior).toBe('chase_attack');
-        expect(rogue.location).toBe(startRoomId());
-
-        const room = world.roomsController.getRoom(startRoomId()); // documented exception (test 1)
-        const center = { x: room.x + room.width / 2, y: room.y + room.height / 2 };
-
-        // Displace the rogue 120 units from the (stationary) drone toward the
-        // room origin: same room, beyond the 100 attack range → chase_attack must
-        // decide MOVE, not attack. Absolute spatial positioning has no facade
-        // equivalent (documented exception, same as dropKnifeAt's helper).
-        const d0 = Math.hypot(center.x - 0, center.y - 0);
-        world.stateEntityController.updateEntitySpatial(rogue.id, {
-            x: center.x + (0 - center.x) / d0 * 120,
-            y: center.y + (0 - center.y) / d0 * 120
-        });
-
-        // One inline brain + agent slot (this test cannot reuse
-        // registerBrainAndDrive as-is: it must inspect the queue BETWEEN
-        // the agent firing and the settled resolution — v2 analogue of the
-        // old "between agent tick and resolution" window).
-        const brain = new NpcAIController({
-            worldStateController: world,
-            turnSystemController: turns
-        });
-        turns.setNpcAgent((npcId, round) => {
-            const ent = world.getEntity(npcId);
-            if (NpcAIController.hasDeterministicBrain(ent)) {
-                return brain.think(npcId, round, ent);
-            }
-            return { acted: false };
-        });
-
-        // Capture the pre-round gap, drive ONE round (v2: the onTick call
-        // starts the round, fires both roster brains, and — once they
-        // settle — closes and resolves it all inside that same call; there
-        // is no separate resolution tick).
-        const before = world.getEntity(rogue.id).spatial;
-        const distBefore = Math.hypot(center.x - before.x, center.y - before.y);
-        expect(distBefore).toBeCloseTo(120, 5);
-
-        tick.currentTick += 1;
-        turns.onTick();
-
-        // Synchronously after the call (before the settle window): the
-        // agents have queued, the all-ready close has not settled yet.
-        // The rogue queued a MOVE toward the drone's position (its nearest
-        // entity).
-        const queuedRogue = turns.getQueuedActions(rogue.id);
-        expect(queuedRogue).toHaveLength(1);
-        expect(queuedRogue[0].actionName).toBe('move');
-        expect(queuedRogue[0].params).toEqual({ targetX: center.x, targetY: center.y });
-        expect(queuedRogue[0].source).toBe('npc');
-
-        // The drone (no knife in this fresh world) stays idle — it does not
-        // react to the rogue.
-        expect(turns.getQueuedActions(drone.id)).toHaveLength(0);
-
-        // Settle the agent promises: close + resolution complete inside the
-        // window and apply the queued move — the rogue closes one 20-unit
-        // step (120 → 100).
-        await new Promise(res => setTimeout(res, 25));
-
-        const after = world.getEntity(rogue.id).spatial;
-        const distAfter = Math.hypot(center.x - after.x, center.y - after.y);
-        expect(distAfter).toBeLessThan(distBefore);
-        expect(distAfter).toBeCloseTo(100, 5);
-
-        // The drone never moved (nothing to forage).
-        const droneAfter = world.getEntity(drone.id).spatial;
-        expect(droneAfter.x).toBe(center.x);
-        expect(droneAfter.y).toBe(center.y);
     });
 });

@@ -5,12 +5,14 @@
  *
  * Convention (mirrors test/unit/LLMAgentController.test.js): everything external
  * is mocked (hand-built facade stubs + a scripted chatFull). The agent is
- * constructed WITHOUT a DataLoader mock, so its constructor loads the REAL
- * data/npcs.json registry — the prompts under test are therefore rendered from
- * the production registry entries (the killerLlmDrone entry WITH an objective;
- * the smallBallDroid entry WITHOUT one). The system prompt is captured from
- * the `options` object of the LLM call `runRound` issues — exactly what the
- * production model receives.
+ * constructed with a DataLoader mock serving a fixture data/npcs.json whose
+ * entries are verbatim copies of the production registry entries this test
+ * was written against (the killerLlmDrone entry WITH an objective; the
+ * historical smallBallDroid "Rogue Droid" entry WITHOUT one — that entry was
+ * later removed from the shipped data/npcs.json, so the fixture keeps the
+ * no-objective regression guard independent of the live registry). The system
+ * prompt is captured from the `options` object of the LLM call `runRound`
+ * issues — exactly what the production model receives.
  *
  * The scripted LLM answer is prose only (no tool calls), so each round
  * completes after a single iteration without dispatching anything.
@@ -18,7 +20,7 @@
  * @module test/unit/KillerLlmDronePrompt
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
 
 const DRONE_ID = 'ent-drone-0001';
@@ -33,11 +35,64 @@ const ROOM_NAME = 'Main Room';
  */
 const DRONE_OBJECTIVE = 'Attack all other entities: each round, strike the nearest entity you can reach; when nothing is in range, move toward the nearest one. Never help, never idle while a target is reachable.';
 
+// =========================================================================
+// Fixture registry (verbatim copies of the production data/npcs.json entries
+// this test was written against — the live file no longer carries the
+// smallBallDroid "Rogue Droid" entry, which was removed from the world)
+// =========================================================================
+
+const FIXTURE_NPCS = {
+    killerLlmDrone: {
+        displayName: 'Killer LLM Drone',
+        room: 'start_room',
+        personality: 'A cold, relentless hunter. It does not hesitate, does not warn, and does not stop.',
+        objective: DRONE_OBJECTIVE,
+        maxWorldActionsPerRound: 2,
+        maxChatMessagesPerRound: 0,
+        envGate: 'KILLER_LLM_DRONE_ENABLED',
+        initialItems: [
+            { item: 't1', count: 1, equip: true, contents: [{ item: 'knife', count: 10 }] },
+            { item: 'knife', count: 1, equip: true }
+        ]
+    },
+    smallBallDroid: {
+        displayName: 'Rogue Droid',
+        room: 'start_room',
+        personality: 'A rogue combat droid that hunts anything that moves in its room.',
+        ai: { behavior: 'chase_attack' }
+    }
+};
+
+// =========================================================================
+// Top-level DataLoader mock (hoisted by vitest)
+// =========================================================================
+
+vi.mock('../../src/utils/DataLoader.js', async () => {
+    const actual = await vi.importActual('../../src/utils/DataLoader.js');
+    const realDefault = actual.default || {};
+
+    return {
+        default: {
+            loadJsonSafe(path, defaultValue) {
+                if (path === 'data/npcs.json') {
+                    return FIXTURE_NPCS;
+                }
+                // Delegate all other paths to the real DataLoader
+                if (realDefault.loadJsonSafe) {
+                    return realDefault.loadJsonSafe(path, defaultValue);
+                }
+                return defaultValue;
+            }
+        }
+    };
+});
+
 /**
  * The historical (pre-objective) system prompt template, rendered for the
- * production smallBallDroid registry entry (no objective → default caps 2/1)
- * in room "Main Room". This is the byte-identical regression target: any
- * template change that affects objective-less NPCs must fail this test.
+ * fixture smallBallDroid registry entry (verbatim copy of the historical
+ * production entry — no objective → default caps 2/1) in room "Main Room".
+ * This is the byte-identical regression target: any template change that
+ * affects objective-less NPCs must fail this test.
  */
 const NO_OBJECTIVE_PROMPT = [
     `You are Rogue Droid, an NPC droid in the room "${ROOM_NAME}".`,
@@ -80,8 +135,8 @@ const DRONE_ENTITY = {
 /**
  * Test double for a LLM-routed NPC whose registry entry declares no objective:
  * the entity carries no deterministic brain (ai: null) so runRound takes the
- * LLM path, while the prompt itself is rendered from the registry entry
- * (smallBallDroid — no objective, default caps).
+ * LLM path, while the prompt itself is rendered from the (fixture) registry
+ * entry (smallBallDroid — no objective, default caps).
  */
 const ROGUE_ENTITY = {
     id: ROGUE_ID,

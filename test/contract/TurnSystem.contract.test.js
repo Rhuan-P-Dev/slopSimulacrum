@@ -37,13 +37,14 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
  * Builds a fresh world wired to a (non-started) tick system. Returns the
  * facade, the tick system, the turn system controller, and spawns a test droid.
  *
- * The roster is kept DETERMINISTIC against data/npcs.json: all data-driven
- * NPCs are despawned before the first tick EXCEPT one, so the round-start
- * roster is always [one data-driven NPC, test droid] = 2 planners — the
- * invariant the barrier assertions below rely on (readyCount, the signaled
- * set in the serialize/restore round-trip). Without this pin, npcs.json
- * growth (the crafterDrone merge 7b54605) silently added planners and broke
- * those assertions.
+ * The roster is kept DETERMINISTIC against data/npcs.json: the round-start
+ * roster is always [one NPC, test droid] = 2 planners — the invariant the
+ * barrier assertions below rely on (readyCount, the signaled set in the
+ * serialize/restore round-trip). Since the live registry no longer spawns an
+ * un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated OFF in
+ * tests), the pin spawns an explicit crafterDrone-blueprint entity (isNPC)
+ * instead of keeping one from the registry; npcs.json growth (the
+ * crafterDrone merge 7b54605) can no longer silently add planners.
  * @returns {{ world: import('../../src/controllers/WorldStateController.js'), tick: UniversalTickSystem, turns: import('../../src/controllers/core/TurnSystemController.js'), entityId: string }}
  */
 function buildWorld() {
@@ -52,9 +53,17 @@ function buildWorld() {
     // Spawn a test droid entity (default world has no pre-spawned droids).
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
-    // Keep a single data-driven NPC (first in registry order); despawn the rest.
-    const npcs = Object.values(world.stateEntityController.entities).filter(e => e.isNPC === true);
-    for (let i = 1; i < npcs.length; i++) world.despawnEntity(npcs[i].id);
+    // Explicit roster NPC (documented exception): the turn machine only needs
+    // isNPC for the agent slot — the blueprint's matter-only components keep
+    // the entity inert, exactly like the old registry-spawned crafterDrone.
+    world.stateEntityController.spawnEntity('crafterDrone', startRoomId, {
+        isNPC: true,
+        name: 'Crafter Drone',
+        npcConfig: {
+            displayName: 'Crafter Drone',
+            personality: 'A tireless field-fabrication drone that forages dropped knives, forges each one into a T1 container weapon, and leaves the finished weapon on the ground.'
+        }
+    });
     return { world, tick, turns: subControllers.turnSystemController, entityId };
 }
 
@@ -76,7 +85,7 @@ function aHeadComponentId(world, entityId) {
     return head.id;
 }
 
-/** The id of the data-driven NPC entity (or null when none). */
+/** The id of the roster NPC entity (or null when none). */
 function aNpcEntityId(world) {
     const npcs = Object.values(world.stateEntityController.entities).filter(e => e.isNPC === true);
     return npcs.length > 0 ? npcs[0].id : null;
@@ -87,7 +96,7 @@ describe('TurnSystemController (Feature A)', () => {
         const { world, tick, turns, entityId } = buildWorld();
         const entity = world.stateEntityController.getEntity(entityId);
         const npcId = aNpcEntityId(world);
-        expect(npcId, 'test world must contain the data-driven NPC').toBeTruthy();
+        expect(npcId, 'test world must contain the roster NPC').toBeTruthy();
 
         const state = stepTo(world, tick, turns, 0);
 

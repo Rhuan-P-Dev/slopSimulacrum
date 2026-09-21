@@ -137,13 +137,14 @@ describe('Knife Generator — data-driven, fuel-free item organ (generateItem ov
     });
 
     it('breaking the generator despawns it and spills its stored knives + sheds iron chunks', () => {
-        const { world, genId } = buildWorld();
+        const { world, genId, startRoomId } = buildWorld();
         // Generate a handful first so there are stored knives to spill on break.
         for (let r = 1; r <= 5; r++) driveRound(world, r);
         expect(knivesInGenerator(world, genId), '5 stored before break').toBe(5);
 
-        const puncher = findEntity(world, 'smallBallDroid');
-        expect(puncher, 'a puncher NPC exists').toBeTruthy();
+        // The registry no longer ships a puncher droid (the smallBallDroid
+        // "Rogue Droid" entry was removed from data/npcs.json): spawn one.
+        const puncher = world.getEntity(world.stateEntityController.spawnEntity('smallBallDroid', startRoomId));
         const attacker = strongestPunchComponent(world, puncher.id);
 
         const knivesBeforeBreak = knifeDrops(world);
