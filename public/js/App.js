@@ -46,6 +46,7 @@ import ClientLogger from '/utils/ClientLogger.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
 import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
 import { setupListeners } from './AppListeners.js';
+import { initGuardedPanels } from './AppBoot.js';
 
 export class ClientApp {
     constructor() {
@@ -197,27 +198,10 @@ export class ClientApp {
         // 13. Setup listeners
         this._setupListeners();
 
-        // 13b. Feature A: initialize the turn HUD in the config-bar slot.
-        // Wrapped so a missing slot / DOM issue can never break app startup.
-        try {
-            this.turns.init();
-        } catch (err) {
-            ClientLogger.error('App', 'Turn HUD init failed (UI unaffected):', err);
-        }
+        // 13b-13d. Guarded panel inits (turn HUD, room chat, events) —
+        // implementation: AppBoot.js (initGuardedPanels); order and guards preserved.
+        initGuardedPanels(this);
 
-        // 13c. Feature D: initialize the room chat panel. Same guard — a
-        // missing panel must never break startup.
-        try {
-            this.roomChat.init();
-        } catch (err) {
-            ClientLogger.error('App', 'Room chat init failed (UI unaffected):', err);
-        }
-        // 13d. Events tab init — same guard pattern.
-        try {
-            this.events.init();
-        } catch (err) {
-            ClientLogger.error('App', 'Events panel init failed (UI unaffected):', err);
-        }
 
         // 14. Drop item state
         /** @type {Object|null} Pending drop item state { actionName, entityId, itemId, itemType, componentIds } */
