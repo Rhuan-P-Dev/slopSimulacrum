@@ -14,7 +14,7 @@
  *
  * @module routes/craftingRoutes
  */
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -78,11 +78,7 @@ export function register(router, { worldStateController }) {
 			const recipes = worldStateController.getCraftingRecipes();
 			res.json({ recipes });
 		} catch (error) {
-			Logger.error('/crafting/recipes endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/crafting/recipes');
 		}
 	});
 
@@ -176,11 +172,7 @@ export function register(router, { worldStateController }) {
 				produced: result.produced,
 			});
 		} catch (error) {
-			Logger.error('/crafting/:entityId/craft endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/crafting/:entityId/craft');
 		}
 	});
 }
