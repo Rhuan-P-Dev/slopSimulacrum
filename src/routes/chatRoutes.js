@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import { sendRouteErrorBody } from '../utils/routeError.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
 
 /**
@@ -35,12 +35,10 @@ export function register(router, { llmController }) {
 			// invalid input. Map them to consistent structured responses.
 			const code = error.code || 'INTERNAL_ERROR';
 			const status = code === 'VALIDATION_ERROR' ? 400 : 502;
-			Logger.error('Chat endpoint error', { error: error.message, code });
-			res.status(status).json({
+			sendRouteErrorBody(error, res, 'Chat', {
 				error: 'Chat request failed',
-				details: error.message,
-				code
-			});
+				code,
+			}, status);
 		}
 	});
 }

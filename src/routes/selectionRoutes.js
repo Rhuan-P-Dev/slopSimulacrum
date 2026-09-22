@@ -1,5 +1,4 @@
-import Logger from '../utils/Logger.js';
-import { sendRouteError } from '../utils/routeError.js';
+import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -62,16 +61,7 @@ export function register(router, { worldStateController }) {
 			const result = worldStateController.registerSelections(actionName, entityId, components);
 			res.json(result);
 		} catch (error) {
-			Logger.error('/select-components endpoint error', {
-				error: error.message,
-				actionName,
-				entityId,
-			});
-			res.status(500).json({
-				success: false,
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteErrorBody(error, res, '/select-components', { success: false, error: 'Internal Server Error' });
 		}
 	});
 
@@ -110,17 +100,7 @@ export function register(router, { worldStateController }) {
 			const result = worldStateController.registerSelection(actionName, componentId, entityId, role);
 			res.json(result);
 		} catch (error) {
-			Logger.error('/select-component endpoint error', {
-				error: error.message,
-				actionName,
-				entityId,
-				componentId,
-			});
-			res.status(500).json({
-				success: false,
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteErrorBody(error, res, '/select-component', { success: false, error: 'Internal Server Error' });
 		}
 	});
 
@@ -153,15 +133,7 @@ export function register(router, { worldStateController }) {
 			const released = worldStateController.releaseSelection(componentId, entityId);
 			res.json({ success: true, released });
 		} catch (error) {
-			Logger.error('/release-selection endpoint error', {
-				error: error.message,
-				componentId,
-			});
-			res.status(500).json({
-				success: false,
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteErrorBody(error, res, '/release-selection', { success: false, error: 'Internal Server Error' });
 		}
 	});
 

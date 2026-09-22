@@ -46,6 +46,34 @@ export function sendRouteError(error, res, routeLabel) {
 }
 
 /**
+ * Variant of sendRouteError for endpoints whose 500/4xx body carries fields
+ * that the shared contract must not invent (`success`, a coded `error`
+ * object, `code`). The caller writes the whole body so the wire shape stays
+ * readable at the call site; the helper owns two things and only those two:
+ * logging, and the production narrowing of `details`. A caller-supplied
+ * `details` is stripped, so the no-leak property cannot be opted out of.
+ * @param {unknown} error - caught value
+ * @param {import('express').Response} res
+ * @param {string} routeLabel
+ * @param {Object} body - the caller's response body; must not contain `details`
+ * @param {number} [status=500]
+ */
+export function sendRouteErrorBody(error, res, routeLabel, body, status = 500) {
+    const detail = (error && error.message) ? error.message : 'unknown error';
+    Logger.error(`${routeLabel} endpoint error`, { error: detail });
+
+    const payload = { ...body };
+    if ('details' in payload) {
+        Logger.warn(`${routeLabel}: caller-supplied details field stripped by the error contract`);
+        delete payload.details;
+    }
+    if (exposesDetail()) {
+        payload.details = detail;
+    }
+    return res.status(status).json(payload);
+}
+
+/**
  * Terminal Express error handler for anything that escapes a route body
  * (rejected promises thrown by a wrapper, middleware failures).
  * Must be registered AFTER all routes. Four parameters are what make Express

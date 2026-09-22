@@ -1,6 +1,5 @@
 import express from 'express';
-import Logger from '../utils/Logger.js';
-import { sendRouteError } from '../utils/routeError.js';
+import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import DataLoader from '../utils/DataLoader.js';
 
 /**
@@ -188,11 +187,9 @@ export function register(router, { worldStateController, broadcastService }) {
 	        const snapshot = worldStateController.serialize();
 	        res.json({ success: true, snapshot });
 	    } catch (error) {
-	        Logger.error('/api/world/save endpoint error', { error: error.message });
-	        res.status(500).json({
+	        sendRouteErrorBody(error, res, '/api/world/save', {
 	            success: false,
 	            error: { code: 'SAVE_FAILED', message: 'Internal Server Error' },
-	            details: error.message,
 	        });
 	    }
 	});
@@ -224,11 +221,9 @@ export function register(router, { worldStateController, broadcastService }) {
 	            res.status(status).json({ success: false, error: result.error });
 	        }
 	    } catch (error) {
-	        Logger.error('/api/world/load endpoint error', { error: error.message });
-	        res.status(500).json({
+	        sendRouteErrorBody(error, res, '/api/world/load', {
 	            success: false,
 	            error: { code: 'LOAD_FAILED', message: 'Internal Server Error' },
-	            details: error.message,
 	        });
 	    }
 	});
