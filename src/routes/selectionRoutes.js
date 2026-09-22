@@ -1,4 +1,5 @@
 import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -187,14 +188,7 @@ export function register(router, { worldStateController }) {
 			const selections = worldStateController.getLockedComponents(entityId);
 			res.json(selections);
 		} catch (error) {
-			Logger.error('/selections/:entityId endpoint error', {
-				error: error.message,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/selections/:entityId');
 		}
 	});
 }
