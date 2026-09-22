@@ -21,7 +21,6 @@
  *
  * @module WorldMapView
  */
-import { AppConfig } from './Config.js';
 import { getRoomEdgePoint } from '/utils/geometry.js';
 import { CURVE_OFFSET, LABEL_OFFSET, WORLD_MAP_DASH_ARRAY, estimateTextWidth } from '/utils/MapGeometry.js';
 
@@ -232,8 +231,6 @@ export class WorldMapView {
         const pairKey = this._getConnectionKey(room.id, conn.targetId);
         const pairData = connectionPairs.get(pairKey);
         const isBidirectional = pairData && pairData.isBidirectional;
-        const isForward = isBidirectional && pairData.forward.fromId === room.id;
-        const isBackward = isBidirectional && pairData.backward.fromId === room.id;
 
         // Curve offset constant for bidirectional connections (shared geometry —
         // see MapGeometry for the "increased from 30" rationale).
@@ -398,7 +395,7 @@ export class WorldMapView {
         }
 
         // Second pass: mark bidirectional pairs
-        for (const [key, entry] of pairMap.entries()) {
+        for (const [_key, entry] of pairMap.entries()) {
             if (entry.forward && entry.backward) {
                 entry.isBidirectional = true;
             } else {

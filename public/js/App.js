@@ -560,7 +560,7 @@ export class ClientApp {
             );
         }
 
-        this.socket.on('dropped-items-update', (data) => {
+        this.socket.on('dropped-items-update', (_data) => {
             // Dropped items are refreshed when world-map is opened via /world-map-with-items
         });
 
@@ -1479,11 +1479,11 @@ export class ClientApp {
     /**
      * Handles leaving a dropped item marker on the spatial map.
      * Clears the hover-based range indicator. UIManager resets the marker stroke.
-     * @param {string} id - The dropped item ID.
-     * @param {Object} item - The dropped item object.
+     * @param {string} _id - The dropped item ID.
+     * @param {Object} _item - The dropped item object.
      * @private
      */
-    _handleDroppedItemLeave(id, item) {
+    _handleDroppedItemLeave(_id, _item) {
         this.ui.clearRangeIndicator();
     }
 

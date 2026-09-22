@@ -42,9 +42,9 @@ export class EntityAttributeBars {
     /**
      * Renders the active droid's entity-attribute bars from the world state.
      * Called on every world-state update, alongside StatBarsManager.updateAll.
-     * @param {Object} state - The complete world state object.
+     * @param {Object} _state - The complete world state object.
      */
-    updateAll(state) {
+    updateAll(_state) {
         if (!this._container) return;
 
         const droid = this._worldStateManager.getActiveDroid();

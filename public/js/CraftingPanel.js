@@ -1353,11 +1353,11 @@ export class CraftingPanel {
 
     /**
      * Finds a recipe card element by recipe ID.
-     * @param {string} recipeId
+     * @param {string} _recipeId
      * @returns {HTMLElement|null}
      * @private
      */
-    _findRecipeCard(recipeId) {
+    _findRecipeCard(_recipeId) {
         if (!this._content) return null;
         return this._content.querySelector(`.crafting-recipe-card[data-recipe-id]`);
     }

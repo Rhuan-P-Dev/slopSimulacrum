@@ -38,7 +38,7 @@ export class ClientErrorController {
      */
     handleError(error) {
         const { code, details = {}, message } = error;
-        let finalMessage = '';
+        let finalMessage;
 
         if (this.templates[code]) {
             finalMessage = this._resolveTemplate(this.templates[code], details, message);

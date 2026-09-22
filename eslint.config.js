@@ -1,6 +1,21 @@
 import js from "@eslint/js";
 import unusedImports from "eslint-plugin-unused-imports";
 
+// Browser globals the client sources reference. Kept explicit and enumerated:
+// when `no-undef` reports a real browser global, add it here. Never turn
+// `no-undef` off for public/ - that would silence the one check that catches a
+// typo'd identifier in code nobody can type-check.
+const BROWSER_GLOBALS = {};
+for (const name of [
+  "window", "document", "localStorage", "sessionStorage", "navigator",
+  "fetch", "Request", "Response", "Headers", "AbortController", "FormData",
+  "Blob", "URL", "URLSearchParams", "structuredClone", "performance",
+  "requestAnimationFrame", "getComputedStyle", "CustomEvent", "Event",
+  "HTMLElement", "prompt", "io", "socket",
+]) {
+  BROWSER_GLOBALS[name] = "readonly";
+}
+
 export default [
   js.configs.recommended,
   {
@@ -9,51 +24,28 @@ export default [
       sourceType: "module",
       globals: {
         // Node.js
-        process: "readonly",
-        require: "readonly",
-        module: "readonly",
-        __dirname: "readonly",
-        console: "readonly",
-        Buffer: "readonly",
-        URL: "readonly",
-        URLSearchParams: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
-        setInterval: "readonly",
-        clearInterval: "readonly",
-        setImmediate: "readonly",
-        queueMicrotask: "readonly",
-        structuredClone: "readonly",
-        crypto: "readonly",
-        fetch: "readonly",
-        Request: "readonly",
-        Response: "readonly",
-        Headers: "readonly",
-        AbortController: "readonly",
+        process: "readonly", require: "readonly", module: "readonly",
+        __dirname: "readonly", console: "readonly", Buffer: "readonly",
+        URL: "readonly", URLSearchParams: "readonly", setTimeout: "readonly",
+        clearTimeout: "readonly", setInterval: "readonly",
+        clearInterval: "readonly", setImmediate: "readonly",
+        queueMicrotask: "readonly", structuredClone: "readonly",
+        crypto: "readonly", fetch: "readonly", Request: "readonly",
+        Response: "readonly", Headers: "readonly", AbortController: "readonly",
         // testes (vitest)
-        describe: "readonly",
-        it: "readonly",
-        test: "readonly",
-        expect: "readonly",
-        vi: "readonly",
-        beforeAll: "readonly",
-        beforeEach: "readonly",
-        afterEach: "readonly",
-        afterAll: "readonly",
+        describe: "readonly", it: "readonly", expect: "readonly",
+        vi: "readonly", beforeAll: "readonly", beforeEach: "readonly",
+        afterEach: "readonly", afterAll: "readonly",
       },
     },
-    plugins: {
-      "unused-imports": unusedImports,
-    },
+    plugins: { "unused-imports": unusedImports },
     rules: {
-      // unused imports: removed automatically via `npm run lint:fix`
       "unused-imports/no-unused-imports": "error",
       "no-unused-vars": [
         "error",
         {
           vars: "all",
           args: "after-used",
-          // catch (err) not using err is not an error (common best-effort pattern)
           caughtErrors: "none",
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_",
@@ -64,19 +56,14 @@ export default [
     },
   },
   {
-    files: ["editor/public/**/*.js"],
-    languageOptions: {
-      globals: {
-        // browser globals (client-side UI)
-        document: "readonly",
-        window: "readonly",
-        confirm: "readonly",
-        alert: "readonly",
-        localStorage: "readonly",
-      },
-    },
+    // The browser client. Deliberately linted with the same unused-code rules
+    // as the server; `no-console` stays off here because Logger-free diagnostics
+    // in the browser console are how this client reports UI failures today.
+    files: ["public/**/*.js"],
+    languageOptions: { globals: BROWSER_GLOBALS },
+    rules: { "no-console": "off" },
   },
   {
-    ignores: ["node_modules/", "coverage/", "public/", "data/", "wiki/", "plans/", "docs/"],
+    ignores: ["node_modules/", "coverage/", "data/", "wiki/", "plans/", "docs/"],
   },
 ];

@@ -620,7 +620,7 @@ export class UIManager {
                 const resolved = resolvedValues[consequence.type];
                 if (resolved) {
                     // deltaSpatial uses 'speed' property instead of 'value'
-                    let valueStr = '';
+                    let valueStr;
                     if (consequence.type === 'deltaSpatial') {
                         valueStr = resolved.speed !== undefined ? ` → ${resolved.speed}` : '';
                     } else {
@@ -698,7 +698,6 @@ export class UIManager {
 
                 const finalValue = this._applySynergyToValue(baseValue, multiplier);
                 const diff = finalValue - baseValue;
-                const absDiff = Math.abs(diff);
                 const sign = diff >= 0 ? '+' : '';
 
                 // Determine visual indicator

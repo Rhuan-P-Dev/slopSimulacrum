@@ -10,7 +10,6 @@
  *
  * @module NavActionsPanel
  */
-import { AppConfig } from './Config.js';
 import IdResolver from '/utils/IdResolver.js';
 
 /**

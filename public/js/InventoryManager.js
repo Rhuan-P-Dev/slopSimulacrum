@@ -570,8 +570,6 @@ export class InventoryManager {
             const internalCapacity = item.volume || (itemDef ? itemDef.volume : 0);
             // An item is a container if it has internal capacity >= CONTAINER_MIN_CAPACITY or has children
             const isContainer = internalCapacity >= AppConfig.INVENTORY.CONTAINER_MIN_CAPACITY || (item.children && item.children.length > 0);
-            const hasChildren = item.children && item.children.length > 0;
-            const percentageStr = displayVolume > 0 ? '100' : '0';
             // massBurden model: equipability is declared by the model's equipableItems
             // list (the old per-item registry key no longer exists after the
             // recipe→derivation migration). Gate on that list.

@@ -102,7 +102,7 @@ export class ActionExecutor {
      */
     async executeSelfTarget(actionName, entityId, componentId, componentIdentifier) {
         try {
-            const result = await this.actions._sendActionRequest({
+            await this.actions._sendActionRequest({
                 actionName,
                 entityId,
                 params: { targetComponentId: componentId, componentIdentifier }
@@ -164,7 +164,7 @@ export class ActionExecutor {
      */
     async executeAction(actionName, entityId, componentId, componentIdentifier) {
         try {
-            const result = await this.actions._sendActionRequest({
+            await this.actions._sendActionRequest({
                 actionName,
                 entityId,
                 params: { targetComponentId: componentId, componentIdentifier }

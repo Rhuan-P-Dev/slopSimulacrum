@@ -8,7 +8,6 @@
  *
  * @module StatBarsManager
  */
-import { AppConfig } from './Config.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { TRAIT_GROUPS } from '../../shared/StatVocabulary.js';
 
@@ -198,7 +197,6 @@ export class StatBarsManager {
             const rawPercentage = effectiveMax > 0 ? (totalValue / effectiveMax) * 100 : 0;
             const displayPercentage = Math.min(rawPercentage, 100);
             const percentageText = rawPercentage > 0 ? ` (${Math.round(rawPercentage)}%)` : '';
-            const color = this._getTraitColor(bar.trait, bar.color);
 
             this._updateBarFill(barId, displayPercentage, totalValue, `${totalValue} / ${effectiveMax}${percentageText}`, state);
         }
@@ -254,11 +252,11 @@ export class StatBarsManager {
 
     /**
      * Gets trait color from world state context.
-     * @param {Object} state - World state.
+     * @param {Object} _state - World state.
      * @returns {string|null}
      * @private
      */
-    _getTraitColorFromState(state) {
+    _getTraitColorFromState(_state) {
         return null;
     }
 
@@ -443,8 +441,6 @@ export class StatBarsManager {
             if (!maxInput || !traitSelect?.value || !statSelect?.value) return;
             const state = this._worldStateManager.getState();
             const instances = state?.components?.instances || {};
-            const entityId = this._worldStateManager.getMyEntityId();
-            const entity = entityId ? state?.entities?.[entityId] : null;
             const compId = componentSelect?.value || prefillComponentId;
             const stats = instances?.[compId] || {};
             const traitStats = stats[traitSelect.value] || {};

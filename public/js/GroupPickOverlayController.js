@@ -24,8 +24,7 @@
  * @module GroupPickOverlayController
  */
 import { AppConfig } from './Config.js';
-import { groupIntoStacks, matchesFilter, expandSelection, selectionVolume } from '../utils/GroupPick.js';
-import ClientLogger from '../utils/ClientLogger.js';
+import { groupIntoStacks, matchesFilter, expandSelection } from '../utils/GroupPick.js';
 
 export class GroupPickOverlayController {
     /**
