@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -30,11 +30,7 @@ export function register(router, { worldStateController }) {
 			const capabilities = worldStateController.getCachedCapabilities();
 			res.json({ capabilities });
 		} catch (error) {
-			Logger.error('/action-capabilities endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/action-capabilities');
 		}
 	});
 
@@ -56,14 +52,7 @@ export function register(router, { worldStateController }) {
 
 			res.json({ actionName, bestComponent });
 		} catch (error) {
-			Logger.error('/action-capabilities/:actionName endpoint error', {
-				error: error.message,
-				actionName,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/action-capabilities/:actionName');
 		}
 	});
 
@@ -92,14 +81,7 @@ export function register(router, { worldStateController }) {
 
 			res.json({ entityId, capabilities });
 		} catch (error) {
-			Logger.error('/action-capabilities/entity/:entityId endpoint error', {
-				error: error.message,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/action-capabilities/entity/:entityId');
 		}
 	});
 
@@ -126,14 +108,7 @@ export function register(router, { worldStateController }) {
 			const updatedEntries = worldStateController.reEvaluateEntityCapabilities(entityId);
 			res.json({ entityId, updatedEntries });
 		} catch (error) {
-			Logger.error('/refresh-entity-capabilities endpoint error', {
-				error: error.message,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/refresh-entity-capabilities');
 		}
 	});
 }
