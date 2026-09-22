@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:ci": "vitest run --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check:lang": "node scripts/check-pt.mjs",

@@ -29,11 +29,20 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],
+            // Gate scope is the server core only. The browser client is
+            // excluded on purpose: mixing a deliberately thin, largely
+            // untested client into the average hides server regressions.
+            include: ['src/**', 'shared/**'],
             exclude: [
                 'node_modules/',
                 'test/',
                 'plans/',
+                'coverage/',
             ],
+            // Floor = measured statements minus 2 (see plans/FIX-PLAN-2026-09.md T7).
+            // Measured 2026-09-22: statements 67.29% (src/ 67.13%, shared/ 78.00%).
+            // Ratchet up, never down.
+            thresholds: { statements: 65.29, lines: 65.29 },
         },
     },
 });
