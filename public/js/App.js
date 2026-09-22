@@ -44,8 +44,8 @@ import MaterialRegistry from './MaterialRegistry.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
-import { SOCKET_EVENTS } from '../../shared/SocketProtocol.js';
 import { TARGETING_TYPES } from '../../shared/ActionVocabulary.js';
+import { setupListeners } from './AppListeners.js';
 
 export class ClientApp {
     constructor() {
@@ -506,89 +506,7 @@ export class ClientApp {
      * @private
      */
     _setupListeners() {
-        this.dispatcher.setupSocketListeners();
-
-        // Listen for drop selector execute event
-        document.addEventListener('drop-selector:execute', (event) => {
-            this._onDropSelectorExecute(event.detail);
-        });
-
-        // Listen for ESC key to cancel pending actions
-        document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape') {
-                this._cancelPendingAction();
-            }
-        });
-
-        // Listen for Alt key to restore previous action
-        // Use event.code instead of event.key because browsers (especially on Linux)
-        // may not fire keydown with event.key==='Alt' for bare modifier keys.
-        document.addEventListener('keydown', (event) => {
-            if (event.code === 'AltLeft' || event.code === 'AltRight') {
-                event.preventDefault();
-                this._restorePreviousAction().catch(err => {
-                    // Suppress unhandled promise rejection for key handler
-                    ClientLogger.error('App', 'Error restoring previous action:', err);
-                });
-            }
-        });
-
-        const map = document.getElementById('world-map');
-        if (map) {
-            this.dispatcher.setupMapClickListener(
-                map,
-                () => this.actions.getPendingAction(),
-                {
-                    hasPendingDropAction: () => this._pendingDropItem !== null,
-                    onDropItemClick: (targetX, targetY) => {
-                        const pending = this._pendingDropItem;
-                        if (pending) {
-                            const droid = this.worldState.getActiveDroid();
-                            const state = this.worldState.getState();
-                            this.executor.executeDropItem(pending, targetX, targetY, droid, state);
-                            this._pendingDropItem = null;
-                            if (droid) {
-                                this.ui.renderRangeIndicator(droid, 0, 'red', 'drop');
-                            }
-                        }
-                    },
-                    hasPendingPickUpAction: () => this._pendingPickUpSelector !== null,
-                    onPickUpItemClick: (targetX, targetY) => {
-                        this._onPickUpMapClick(targetX, targetY);
-                    }
-                }
-            );
-        }
-
-        this.socket.on('dropped-items-update', (_data) => {
-            // Dropped items are refreshed when world-map is opened via /world-map-with-items
-        });
-
-        // Listen for pick-up selector execute event (mirrors drop-selector:execute)
-        document.addEventListener('pick-up-selector:execute', (event) => {
-            this._onPickUpSelectorExecute(event.detail);
-        });
-
-        // Feature A: dedicated turn transition event (phase/round flips).
-        // The payload does NOT carry queues — just re-read the latest full state
-        // (a full-state broadcast follows on the same tick for resolutions).
-        this.socket.on(SOCKET_EVENTS.TURN_ROUND_UPDATE, (payload) => {
-            try {
-                this.turns.onTransition(payload);
-            } catch (err) {
-                ClientLogger.error('App', 'turn-round-update handler failed:', err);
-            }
-        });
-
-        // Feature D: GLOBAL room-chat broadcast (spec §7.3) — the payload
-        // carries the roomId; the controller filters by focused room.
-        this.socket.on(SOCKET_EVENTS.ROOM_CHAT_MESSAGE, (message) => {
-            try {
-                this.roomChat.onRoomChatMessage(message);
-            } catch (err) {
-                ClientLogger.error('App', 'room-chat-message handler failed:', err);
-            }
-        });
+        setupListeners(this);
     }
 
     /**
