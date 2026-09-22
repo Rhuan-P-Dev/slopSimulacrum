@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -47,11 +47,7 @@ export function register(router, { worldStateController, broadcastService }) {
 
 			res.json({ actions: actionStatus });
 		} catch (error) {
-			Logger.error('/actions endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/actions');
 		}
 	});
 
@@ -95,8 +91,7 @@ export function register(router, { worldStateController, broadcastService }) {
 					? { success: true, queued: true, queueId: q.queueId, queue: q.queue }
 					: { success: false, code: q.code, error: q.error } });
 			} catch (error) {
-				Logger.error('/execute-action (queue) endpoint error', { error: error.message, actionName, entityId });
-				return res.status(500).json({ error: 'Internal Server Error', details: error.message });
+				sendRouteError(error, res, '/execute-action (queue)');
 			}
 		}
 
@@ -127,15 +122,7 @@ export function register(router, { worldStateController, broadcastService }) {
 			}
 			res.json({ result: responseResult });
 		} catch (error) {
-			Logger.error('/execute-action endpoint error', {
-				error: error.message,
-				actionName,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/execute-action');
 		}
 	});
 }
