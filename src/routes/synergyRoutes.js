@@ -1,4 +1,4 @@
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 
 /**
  * Registers synergy-related routes with the given Express router.
@@ -16,11 +16,7 @@ export function register(router, { worldStateController }) {
 			const actionsWithSynergy = worldStateController.getActionsWithSynergy();
 			res.json({ actionsWithSynergy });
 		} catch (error) {
-			Logger.error('/synergy/actions endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/synergy/actions');
 		}
 	});
 
@@ -34,14 +30,7 @@ export function register(router, { worldStateController }) {
 			const config = worldStateController.getSynergyConfig(actionName);
 			res.json({ actionName, synergyConfig: config });
 		} catch (error) {
-			Logger.error('/synergy/config/:actionName endpoint error', {
-				error: error.message,
-				actionName,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/synergy/config/:actionName');
 		}
 	});
 
@@ -71,15 +60,7 @@ export function register(router, { worldStateController }) {
 			const synergyResult = worldStateController.computeSynergy(actionName, entityId, context);
 			res.json({ synergyResult });
 		} catch (error) {
-			Logger.error('/synergy/preview endpoint error', {
-				error: error.message,
-				actionName,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/synergy/preview');
 		}
 	});
 
@@ -106,15 +87,7 @@ export function register(router, { worldStateController }) {
 			const previewData = worldStateController.previewActionData(actionName, entityId, context);
 			res.json({ actionPreviewData: previewData });
 		} catch (error) {
-			Logger.error('/synergy/preview-data endpoint error', {
-				error: error.message,
-				actionName,
-				entityId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/synergy/preview-data');
 		}
 	});
 }
