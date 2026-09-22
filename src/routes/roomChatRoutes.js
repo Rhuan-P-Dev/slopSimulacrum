@@ -24,7 +24,7 @@
  * @module roomChatRoutes
  */
 
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
 import { ROOM_CHAT_HISTORY_LIMIT } from '../utils/Constants.js';
 
@@ -71,8 +71,7 @@ export function register(router, { worldStateController }) {
 
 			res.json({ success: true, message: result.message });
 		} catch (error) {
-			Logger.error('/rooms/:roomId/chat endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, '/rooms/:roomId/chat');
 		}
 	});
 
@@ -93,8 +92,7 @@ export function register(router, { worldStateController }) {
 			// (the client already knows the room exists: it is the focused one).
 			res.json({ roomId, messages: worldStateController.getRoomChatMessages(roomId, limit) });
 		} catch (error) {
-			Logger.error('GET /rooms/:roomId/chat endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, 'GET /rooms/:roomId/chat');
 		}
 	});
 }
