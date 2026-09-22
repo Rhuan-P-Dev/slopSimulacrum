@@ -17,7 +17,7 @@
  * @module turnRoutes
  */
 
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 
@@ -42,8 +42,7 @@ export function register(router, { worldStateController }) {
 			}
 			res.json({ turns: turns.getRoundState() });
 		} catch (error) {
-			Logger.error('/turns/state endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, '/turns/state');
 		}
 	});
 
@@ -70,8 +69,7 @@ export function register(router, { worldStateController }) {
 				queue: turns.getQueuedActions(entityId)
 			});
 		} catch (error) {
-			Logger.error('/turns/queue endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, '/turns/queue');
 		}
 	});
 
@@ -98,8 +96,7 @@ export function register(router, { worldStateController }) {
 			const result = turns.cancelAction(entityId, queueId);
 			res.json(result);
 		} catch (error) {
-			Logger.error('/turns/queue DELETE endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, '/turns/queue DELETE');
 		}
 	});
 
@@ -124,8 +121,7 @@ export function register(router, { worldStateController }) {
 			const result = turns.signalPlanComplete(entityId, 'player');
 			res.json(result);
 		} catch (error) {
-			Logger.error('/turns/ready endpoint error', { error: error.message });
-			res.status(500).json({ error: 'Internal Server Error', details: error.message });
+			sendRouteError(error, res, '/turns/ready');
 		}
 	});
 }
