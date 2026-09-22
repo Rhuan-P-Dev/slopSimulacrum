@@ -6,7 +6,7 @@
  *
  * @module routes/llmRoutes
  */
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -80,8 +80,7 @@ export function register(router, { worldStateController }) {
                 stats
             });
         } catch (error) {
-            Logger.error('/llm/context endpoint error', { error: error.message });
-            return res.status(500).json({ error: 'Internal Server Error', details: error.message });
+            sendRouteError(error, res, '/llm/context');
         }
     });
 }
