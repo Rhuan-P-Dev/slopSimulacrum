@@ -8,15 +8,18 @@
  * Extracted verbatim from WorldStateController.getItemStats (only change:
  * `this.<dep>` became a named parameter). Unlike the FASE 6/7 siblings,
  * this module takes EXPLICIT dependencies instead of the facade: its
- * dependency set is exactly four objects, so the narrow-deps rule (plans/
- * FIX-PLAN-2026-09.md T9) applies — no facade, testable without one. The
- * equipped-item-by-itemId lookup the original reached through the facade
- * (getEquippedItemByItemId) is inlined from EquipLogic's same
- * holdingCostController.getEquippedItemsByEntity() read, which is what
- * keeps this module facade-free.
+ * dependency set is exactly four objects and the logic is read-only, the
+ * narrow-deps exception the convention ruling permits (plans/
+ * FIX-PLAN-2026-09.md T9, step A). The equipped-item-by-itemId lookup the
+ * original reached through the facade is delegated to
+ * EquipLogic.getEquippedItemByItemId with a one-key { holdingCostController }
+ * object — EquipLogic only ever reads that one member, so a one-key object
+ * is not a facade; it is the dependency it needs.
  *
  * Read-only: no mutations, no logging, no broadcasts.
  */
+
+import { getEquippedItemByItemId } from './EquipLogic.js';
 
 /**
  * Computes the full stats for a single item instance, combining:
@@ -65,21 +68,10 @@ function resolveItemStats(stateEntityController, inventoryManager, holdingCostCo
 
     if (isEquipped && equippedItemStats) {
         // FIX: Get eqId from itemId to properly look up equipped item stats.
-        // Mirrors EquipLogic.getEquippedItemByItemId (same holding-cost read)
-        // inlined so this module stays facade-free.
-        let equippedItem = null;
-        const allEquipped = holdingCostController.getEquippedItemsByEntity();
-        if (allEquipped && typeof allEquipped === 'object') {
-            const entityItems = allEquipped[entityId];
-            if (entityItems && typeof entityItems === 'object') {
-                for (const [_eqId, found] of Object.entries(entityItems)) {
-                    if (found.itemId === itemId) {
-                        equippedItem = { ...found };
-                        break;
-                    }
-                }
-            }
-        }
+        // EquipLogic.getEquippedItemByItemId only ever reads
+        // facade.holdingCostController, so a one-key object is not a facade -
+        // it is the dependency it needs.
+        const equippedItem = getEquippedItemByItemId({ holdingCostController }, entityId, itemId);
         if (equippedItem && equippedItem.eqId) {
             const eqStats = equippedItemStats.getStats(equippedItem.eqId);
             if (eqStats) {
