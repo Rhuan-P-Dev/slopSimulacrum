@@ -38,7 +38,7 @@ export function register(router, { llmController }) {
 			sendRouteErrorBody(error, res, 'Chat', {
 				error: 'Chat request failed',
 				code,
-			}, status);
+			}, status, { code });
 		}
 	});
 }

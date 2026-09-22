@@ -57,10 +57,11 @@ export function sendRouteError(error, res, routeLabel) {
  * @param {string} routeLabel
  * @param {Object} body - the caller's response body; must not contain `details`
  * @param {number} [status=500]
+ * @param {Object} [logMeta] - extra fields merged into the error log payload (e.g. an LLM error code); never reaches the response
  */
-export function sendRouteErrorBody(error, res, routeLabel, body, status = 500) {
+export function sendRouteErrorBody(error, res, routeLabel, body, status = 500, logMeta = {}) {
     const detail = (error && error.message) ? error.message : 'unknown error';
-    Logger.error(`${routeLabel} endpoint error`, { error: detail });
+    Logger.error(`${routeLabel} endpoint error`, { error: detail, ...logMeta });
 
     const payload = { ...body };
     if ('details' in payload) {
