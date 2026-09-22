@@ -1,5 +1,6 @@
 import express from 'express';
 import authMiddleware from '../utils/authMiddleware.js';
+import { serverErrorHandler } from '../utils/routeError.js';
 import { register as registerChatRoutes } from './chatRoutes.js';
 import { register as registerWorldRoutes } from './worldRoutes.js';
 import { register as registerActionRoutes } from './actionRoutes.js';
@@ -58,4 +59,10 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);
+
+	// Terminal error handler: must be registered after every route so it also
+	// catches throws that escape a route body. Kept out of bootstrapServer()
+	// because Express orders middleware by registration time and the routes
+	// are not mounted yet at bootstrap.
+	app.use(serverErrorHandler);
 }

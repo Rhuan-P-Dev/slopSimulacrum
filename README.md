@@ -36,6 +36,8 @@ All variables are optional (see `.env.example` for the full annotated list).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3001` | HTTP/Socket.IO port |
+| `MAX_BODY_LIMIT` | `512kb` | JSON body size limit for every request (stops an unbounded body becoming a memory event) |
+| `CORS_ORIGINS` | *(unrestricted)* | Comma-separated Socket.IO CORS allowlist; the client is same-origin, so default empty works locally — set it before exposing the server |
 | `LLM_ENDPOINT` | `http://127.0.0.1:20003/v1/chat/completions` | Any OpenAI-compatible chat-completions URL (local models work) |
 | `LLM_API_KEY` | *(none)* | Bearer token; unset = no auth header |
 | `LLM_MODEL` | `gpt-3.5-turbo` | Default model id |
