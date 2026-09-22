@@ -4,7 +4,7 @@
  *
  * @module routes/inventoryRoutes
  */
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 
@@ -64,11 +64,7 @@ export default function register(router, { worldStateController }) {
 			const registry = worldStateController.getItemRegistry();
 			res.json({ registry });
 		} catch (error) {
-			Logger.error('/inventory/registry endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/registry');
 		}
 	});
 
@@ -81,11 +77,7 @@ export default function register(router, { worldStateController }) {
 			const registry = worldStateController.getHoldingCostRegistry();
 			res.json({ registry });
 		} catch (error) {
-			Logger.error('/inventory/holding-cost-registry endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/holding-cost-registry');
 		}
 	});
 
@@ -110,11 +102,7 @@ export default function register(router, { worldStateController }) {
 			const items = worldStateController.getEntityItems(entityId);
 			res.json({ items });
 		} catch (error) {
-			Logger.error('/inventory/:entityId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId');
 		}
 	});
 
@@ -166,11 +154,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true, item: result.item });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/add endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/add');
 		}
 	});
 
@@ -203,11 +187,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/remove/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/remove/:itemId');
 		}
 	});
 
@@ -255,11 +235,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/move/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/move/:itemId');
 		}
 	});
 
@@ -315,11 +291,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/equip/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/equip/:itemId');
 		}
 	});
 
@@ -352,11 +324,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/unequip/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/unequip/:itemId');
 		}
 	});
 
@@ -409,11 +377,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/transfer/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/transfer/:itemId');
 		}
 	});
 
@@ -434,11 +398,7 @@ export default function register(router, { worldStateController }) {
 			const equipped = worldStateController.getEquippedItems(entityId);
 			res.json({ equipped });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/equipped endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/equipped');
 		}
 	});
 
@@ -474,11 +434,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true, stats });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/item-stats/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/item-stats/:itemId');
 		}
 	});
 
@@ -544,11 +500,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ components: capableComponents });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/capable-drop-components endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/capable-drop-components');
 		}
 	});
 
@@ -608,11 +560,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ components: capableComponents });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/capable-pickup-components endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/:entityId/capable-pickup-components');
 		}
 	});
 
@@ -657,11 +605,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true, item: result.item });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/container/:containerItemId/add endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message
-			});
+			sendRouteError(error, res, '/inventory/:entityId/container/:containerItemId/add');
 		}
 	});
 
@@ -697,11 +641,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/container/:containerItemId/remove/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message
-			});
+			sendRouteError(error, res, '/inventory/:entityId/container/:containerItemId/remove/:itemId');
 		}
 	});
 
@@ -737,11 +677,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/container/:containerItemId/move-in/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message
-			});
+			sendRouteError(error, res, '/inventory/:entityId/container/:containerItemId/move-in/:itemId');
 		}
 	});
 
@@ -791,11 +727,7 @@ export default function register(router, { worldStateController }) {
 
 			res.json({ success: true });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/container/:containerItemId/move-out/:itemId endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message
-			});
+			sendRouteError(error, res, '/inventory/:entityId/container/:containerItemId/move-out/:itemId');
 		}
 	});
 
@@ -819,11 +751,7 @@ export default function register(router, { worldStateController }) {
 			const items = worldStateController.getContainerItems(entityId, containerItemId);
 			res.json({ items });
 		} catch (error) {
-			Logger.error('/inventory/:entityId/container/:containerItemId/items endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message
-			});
+			sendRouteError(error, res, '/inventory/:entityId/container/:containerItemId/items');
 		}
 	});
 
@@ -840,11 +768,7 @@ export default function register(router, { worldStateController }) {
 			const droppedItems = worldStateController.getDroppedItems();
 			res.json({ droppedItems });
 		} catch (error) {
-			Logger.error('/inventory/dropped endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/inventory/dropped');
 		}
 	});
 
