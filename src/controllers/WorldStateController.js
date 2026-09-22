@@ -3,7 +3,6 @@ import Logger from '../utils/Logger.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import { DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
 import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
-import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
 import { getAttributes } from '../utils/EntityAttributeData.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 import { spawnDataDrivenNpcs, checkNpcSpawnGate, normalizeNpcAiConfig, buildNpcConfig, applyInitialItems, resolveEquippableHostComponent } from './logic/NpcSpawnLogic.js';
