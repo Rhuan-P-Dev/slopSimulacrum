@@ -4,7 +4,7 @@
  *
  * @module routes/materialRoutes
  */
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 
 /**
  * Registers materials-related routes with the given Express router.
@@ -24,11 +24,7 @@ export function register(router, { worldStateController }) {
 			const registry = worldStateController.getMaterialRegistry();
 			res.json(registry);
 		} catch (error) {
-			Logger.error('/materials/registry endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/materials/registry');
 		}
 	});
 }
