@@ -1,5 +1,6 @@
 import express from 'express';
 import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import DataLoader from '../utils/DataLoader.js';
 
 /**
@@ -21,11 +22,7 @@ export function register(router, { worldStateController, broadcastService }) {
 			const transformedState = broadcastService._transformForBroadcast(worldState);
 			res.json({ state: transformedState });
 		} catch (error) {
-			Logger.error('/world-state endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/world-state');
 		}
 	});
 
@@ -38,11 +35,7 @@ export function register(router, { worldStateController, broadcastService }) {
 			const rooms = worldStateController.getRooms();
 			res.json({ rooms });
 		} catch (error) {
-			Logger.error('/rooms endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/rooms');
 		}
 	});
 
@@ -78,11 +71,7 @@ export function register(router, { worldStateController, broadcastService }) {
 				droppedItems: droppedItemsArray
 			});
 		} catch (error) {
-			Logger.error('/world-map endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/world-map');
 		}
 	});
 
@@ -117,11 +106,7 @@ export function register(router, { worldStateController, broadcastService }) {
 				droppedItems: droppedItemsArray
 			});
 		} catch (error) {
-			Logger.error('/world-map-with-items endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/world-map-with-items');
 		}
 	});
 
@@ -149,16 +134,7 @@ export function register(router, { worldStateController, broadcastService }) {
 				res.status(400).json({ error: result.message });
 			}
 		} catch (error) {
-			Logger.error('/pick-up-item endpoint error', {
-				error: error.message,
-				entityId,
-				droppedItemId,
-				componentId,
-			});
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/pick-up-item');
 		}
 	});
 
@@ -186,16 +162,7 @@ export function register(router, { worldStateController, broadcastService }) {
 	            res.status(404).json({ error: 'Entity not found.' });
 	        }
 	    } catch (error) {
-	        Logger.error('/move-entity endpoint error', {
-	            error: error.message,
-	            entityId,
-	            targetRoomId,
-	            sourceDoor,
-	        });
-	        res.status(500).json({
-	            error: 'Internal Server Error',
-	            details: error.message,
-	        });
+	        sendRouteError(error, res, '/move-entity');
 	    }
 	});
 
