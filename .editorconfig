@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Route modules are tab-indented (dominant convention in src/routes).
+# Normalizing the 7 files that drifted back to spaces; see plans/FIX-PLAN-2026-09.md T3.
+[src/routes/**.js]
+indent_style = tab
+
+# Everything else in the repo is 4-space. Stated so editors stop fighting it.
+[src/**.js]
+indent_style = space
+indent_size = 4
+
+[*.{json,md}]
+indent_style = space
+indent_size = 2

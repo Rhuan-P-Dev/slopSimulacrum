@@ -30,10 +30,10 @@ import { ROOM_CHAT_HISTORY_LIMIT } from '../utils/Constants.js';
 
 /** Maps a controller failure code to an HTTP status (spec §7.3). */
 const CODE_TO_STATUS = {
-    ROOM_NOT_FOUND: 404,
-    EMPTY_MESSAGE: 400,
-    MESSAGE_TOO_LONG: 400,
-    ROOM_CHAT_UNAVAILABLE: 503
+	ROOM_NOT_FOUND: 404,
+	EMPTY_MESSAGE: 400,
+	MESSAGE_TOO_LONG: 400,
+	ROOM_CHAT_UNAVAILABLE: 503
 };
 
 /**

@@ -8,10 +8,10 @@ import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateEntityId(id, context) {
-    if (!IdResolver.isEntityId(id)) {
-        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isEntityId(id)) {
+		return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**

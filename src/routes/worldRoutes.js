@@ -129,7 +129,7 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * POST /pick-up-item
 	 * Picks up a dropped item from the map and adds it to an entity's inventory.
 	 */
-    router.post('/pick-up-item', (req, res) => {
+	router.post('/pick-up-item', (req, res) => {
 		const { entityId, droppedItemId, componentId } = req.body;
 
 		if (!entityId || !droppedItemId || !componentId) {

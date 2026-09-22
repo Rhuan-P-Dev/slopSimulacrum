@@ -26,10 +26,10 @@ import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateEntityId(id, context) {
-    if (!IdResolver.isEntityId(id)) {
-        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isEntityId(id)) {
+		return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**
@@ -37,10 +37,10 @@ function validateEntityId(id, context) {
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateCompId(id, context) {
-    if (!IdResolver.isCompId(id)) {
-        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isCompId(id)) {
+		return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**
@@ -48,10 +48,10 @@ function validateCompId(id, context) {
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateItemId(id, context) {
-    if (!IdResolver.isItemId(id)) {
-        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isItemId(id)) {
+		return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**

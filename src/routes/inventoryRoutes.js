@@ -14,10 +14,10 @@ import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateEntityId(id, context) {
-    if (!IdResolver.isEntityId(id)) {
-        return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isEntityId(id)) {
+		return { valid: false, error: `Invalid entityId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**
@@ -25,10 +25,10 @@ function validateEntityId(id, context) {
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateCompId(id, context) {
-    if (!IdResolver.isCompId(id)) {
-        return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isCompId(id)) {
+		return { valid: false, error: `Invalid componentId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.COMPONENT}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**
@@ -36,10 +36,10 @@ function validateCompId(id, context) {
  * Returns { valid: true } or { valid: false, error: string }.
  */
 function validateItemId(id, context) {
-    if (!IdResolver.isItemId(id)) {
-        return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
-    }
-    return { valid: true };
+	if (!IdResolver.isItemId(id)) {
+		return { valid: false, error: `Invalid itemId in ${context}: "${id}". Expected typed ID format "${ID_PREFIXES.ITEM}<uuid>".` };
+	}
+	return { valid: true };
 }
 
 /**
@@ -417,81 +417,81 @@ export default function register(router, { worldStateController }) {
 		}
 	});
 
-    /**
-     * GET /inventory/:entityId/equipped
-     * Returns all currently equipped items for an entity.
-     */
-    router.get('/inventory/:entityId/equipped', (req, res) => {
-        try {
-            const { entityId } = req.params;
-            
-            // TYPED ID MIGRATION: Validate entityId format
-            const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/equipped params');
-            if (!entityIdValidation.valid) {
-                return res.status(400).json({ error: entityIdValidation.error });
-            }
+	/**
+	 * GET /inventory/:entityId/equipped
+	 * Returns all currently equipped items for an entity.
+	 */
+	router.get('/inventory/:entityId/equipped', (req, res) => {
+		try {
+			const { entityId } = req.params;
+			
+			// TYPED ID MIGRATION: Validate entityId format
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/equipped params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
 
-            const equipped = worldStateController.getEquippedItems(entityId);
-            res.json({ equipped });
-        } catch (error) {
-            Logger.error('/inventory/:entityId/equipped endpoint error', { error: error.message });
-            res.status(500).json({
-                error: 'Internal Server Error',
-                details: error.message,
-            });
-        }
-    });
+			const equipped = worldStateController.getEquippedItems(entityId);
+			res.json({ equipped });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/equipped endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message,
+			});
+		}
+	});
 
-    // =========================================================
-    // ITEM STATS — COMPUTED STATS FOR A SPECIFIC ITEM
-    // =========================================================
+	// =========================================================
+	// ITEM STATS — COMPUTED STATS FOR A SPECIFIC ITEM
+	// =========================================================
 
-    /**
-     * GET /inventory/:entityId/item-stats/:itemId
-     * Returns computed stats for a specific item instance, combining:
-     * - Base traits from inventoryItems.json
-     * - Dynamic equipped item stats (sharpness drain, existence current)
-     * - Holding cost debuffs (if equipped)
-     */
-    router.get('/inventory/:entityId/item-stats/:itemId', (req, res) => {
-        try {
-            const { entityId, itemId } = req.params;
+	/**
+	 * GET /inventory/:entityId/item-stats/:itemId
+	 * Returns computed stats for a specific item instance, combining:
+	 * - Base traits from inventoryItems.json
+	 * - Dynamic equipped item stats (sharpness drain, existence current)
+	 * - Holding cost debuffs (if equipped)
+	 */
+	router.get('/inventory/:entityId/item-stats/:itemId', (req, res) => {
+		try {
+			const { entityId, itemId } = req.params;
 
-            // TYPED ID MIGRATION: Validate entityId and itemId formats
-            const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/item-stats/:itemId params');
-            if (!entityIdValidation.valid) {
-                return res.status(400).json({ error: entityIdValidation.error });
-            }
-            const itemIdValidation = validateItemId(itemId, 'GET /inventory/:entityId/item-stats/:itemId params');
-            if (!itemIdValidation.valid) {
-                return res.status(400).json({ error: itemIdValidation.error });
-            }
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/item-stats/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'GET /inventory/:entityId/item-stats/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
 
-            const stats = worldStateController.getItemStats(entityId, itemId);
-            if (!stats) {
-                return res.status(404).json({ error: 'Not Found', message: `Item "${itemId}" not found on entity "${entityId}".` });
-            }
+			const stats = worldStateController.getItemStats(entityId, itemId);
+			if (!stats) {
+				return res.status(404).json({ error: 'Not Found', message: `Item "${itemId}" not found on entity "${entityId}".` });
+			}
 
-            res.json({ success: true, stats });
-        } catch (error) {
-            Logger.error('/inventory/:entityId/item-stats/:itemId endpoint error', { error: error.message });
-            res.status(500).json({
-                error: 'Internal Server Error',
-                details: error.message,
-            });
-        }
-    });
+			res.json({ success: true, stats });
+		} catch (error) {
+			Logger.error('/inventory/:entityId/item-stats/:itemId endpoint error', { error: error.message });
+			res.status(500).json({
+				error: 'Internal Server Error',
+				details: error.message,
+			});
+		}
+	});
 
-    // =========================================================
-    // DROP SELECTOR — CAPABLE COMPONENTS
-    // =========================================================
+	// =========================================================
+	// DROP SELECTOR — CAPABLE COMPONENTS
+	// =========================================================
 
-    /**
-     * GET /inventory/:entityId/capable-drop-components
-     * Returns all components on an entity that are capable of performing a drop action.
-     * A component is "capable" if it has Physical, Movement, or Manipulation traits.
-     */
-    router.get('/inventory/:entityId/capable-drop-components', (req, res) => {
+	/**
+	 * GET /inventory/:entityId/capable-drop-components
+	 * Returns all components on an entity that are capable of performing a drop action.
+	 * A component is "capable" if it has Physical, Movement, or Manipulation traits.
+	 */
+	router.get('/inventory/:entityId/capable-drop-components', (req, res) => {
 		try {
 			const { entityId } = req.params;
 
