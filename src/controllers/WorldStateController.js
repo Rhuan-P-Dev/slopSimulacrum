@@ -15,6 +15,7 @@ import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRando
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
+import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListener, registerDamageListener, initializeTurnSystem, initializeEnergyFlow, registerEquippedStatsCallback } from './logic/FacadeInitLogic.js';
 
 
 /**
@@ -202,163 +203,17 @@ class WorldStateController {
          */
         this._cascadeAffectedEntityIds = null;
 
-        // Map of sub-controllers for easy iteration/extension
-        this.subControllers = {
-            rooms: this.roomsController,
-            entities: this.stateEntityController,
-            components: this.componentController,
-            internalComponents: this.internalComponentController,
-            actions: this.actionController,
-            capabilities: this.componentCapabilityController,
-            synergy: this.synergyController,
-            selections: this.actionSelectController,
-            inventory: this.inventoryManager,
-            holdingCost: this.holdingCostController,
-            equippedItemStats: this.equippedItemStats
-            // NOTE: `triggers` entry removed — no code in src/ reads `subControllers.triggers`;
-            // TriggerController is accessed directly via `this.triggerController` where needed.
-        };
-
-        // --- Wire internal observers/listeners between sub-controllers -----------
-        // NOTE: none of these callbacks dereference the facade's own state at
-        // construction time; they run later (on spawn / on stat change), by which
-        // point the composition root has injected the facade into every sub-controller.
-
-        // Register spawn observer — applies the declarative initial spawns from
-        // data/world.json to every spawned entity (data-driven replacement of the
-        // former hardcoded spawn items).
-        this.stateEntityController.registerSpawnObserver((entityId) => {
-            this._applyInitialSpawns(entityId);
-        });
-
-        // Wire up stat change notifications from ComponentController to
-        // ComponentCapabilityController — enables automatic capability
-        // re-evaluation when component stats change (+ broadcast).
-        // Also delegate to TriggerController for component:broke detection.
-        // Broadcast only when cascadeReentrancyCount === 0 (exactly 1 broadcast per chain).
-        this.componentController.registerStatChangeListener((componentId, traitId, statName, newValue, oldValue) => {
-            this.componentCapabilityController.onStatChange(componentId, traitId, statName, newValue, oldValue);
-            
-            // Delegate to TriggerController for crossing detection
-            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
-                // Find which entity owns this component via public API
-                let owningEntity;
-                owningEntity = this.stateEntityController.findEntityByComponent(componentId);
-                // Edge cases: when owning entity is despawned, the component:broke
-                // event must STILL be logged; only removal/spill/drop side-effects are skipped.
-                // We always call onComponentBrokeCheck so the event is emitted per spec.
-                // When the entity or its anchors are missing we pass honest fallbacks.
-                if (!owningEntity || !owningEntity.location || !owningEntity.spatial) {
-                    Logger.warn(
-                        `[WorldStateController] Component ${componentId} broke but owning entity/anchors missing — event still logged; removal/spill/drop skipped.`
-                    );
-                    this.triggerController.onComponentBrokeCheck(
-                        componentId,
-                        owningEntity?.id ?? componentId,
-                        oldValue,
-                        newValue,
-                        {
-                            roomId: null,
-                            position: { x: 0, y: 0 },
-                            tick: this.tickSystem?.currentTick ?? 0
-                        }
-                    );
-                } else {
-                    this.triggerController.onComponentBrokeCheck(
-                        componentId,
-                        owningEntity.id,
-                        oldValue,
-                        newValue,
-                        {
-                            roomId: owningEntity.location,
-                            position: owningEntity.spatial,
-                            tick: this.tickSystem?.currentTick ?? 0
-                        }
-                    );
-                }
-            }
-            
-            // Trigger broadcast if broadcastService is available and not in middle of cascade,
-            // AND not in the middle of an energy-flow step (the flow closes its scope with at
-            // most one full-state broadcast — see endEnergyFlowTurn; wiki/subMDs/systems/energy_flow.md).
-            if (this._broadcastService && this._cascadeReentrancyCount === 0 && this._energyFlowScopeCount === 0) {
-                this._broadcastService.broadcast();
-            }
-        });
-
-        // onDamage world-event rule: subscribe the consumer to the component
-        // damage-listener list (source-agnostic weakening events). Null-tolerant —
-        // a hand-built facade without the listener is a no-op. The listener's OWN
-        // facade reference is injected by the composition root (post-construction),
-        // so by the time any real damage event fires it is already wired.
-        this.componentController.registerDamageListener((componentId, traitId, statName, oldValue, newValue) => {
-            this.onDamageDropListener?.handleDamage(componentId, traitId, statName, oldValue, newValue);
-        });
-
-        // Initialize the Turn System (Feature A) with the global tick system —
-        // same pattern as internal components: the job registration is
-        // side-effect-free until tickSystem.start(). The facade reference is
-        // injected by the composition root AFTER this constructor.
-        this.turnSystemController?.initialize();
-
-        // Initialize the Energy Flow (wiki/subMDs/systems/energy_flow.md) — right after the
-        // turn system's initialize(): it resolves the `energyFlow` rule once and
-        // fail-soft-validates the per-recipe capacity fields. The per-turn flow
-        // step itself is driven from the turn system's round-start hook (after
-        // the IC turn step), not a tick job. Same lifecycle as its peers:
-        // side-effect-free until a round starts, and the facade reference is
-        // injected by the composition root AFTER this constructor.
-        this.energyFlowController?.initialize();
-
-        // Wire equippedItemStats stat change callback to trigger capability
-        // re-evaluation. When an equipped item's stats change (e.g., sharpness
-        // drain from cut), the capability cache re-scans with CURRENT stats, not
-        // stale base stats.
-        // Also delegate to TriggerController.onEquippedItemBrokeCheck
-        // when traitId==='Physical' && statName==='existence' (P8 path).
-        this.equippedItemStats.setStatChangeCallback((eqId, traitId, statName, newValue, oldValue) => {
-            // P8 delegate: delegate to TriggerController BEFORE the broadcast
-            if (this.triggerController && traitId === TRAIT_GROUPS.PHYSICAL && statName === STAT_NAMES.EXISTENCE) {
-                const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-                for (const [entityId, items] of Object.entries(allEquipped)) {
-                    if (items[eqId]) {
-                        const equippedData = items[eqId]; // { eqId, itemId, itemType, componentId }
-                        // Resolve entity spatial position via public API
-                        const entity = this.stateEntityController.getEntity(entityId);
-                        const extra = {
-                            roomId: entity?.location ?? null,
-                            position: entity?.spatial ?? { x: 0, y: 0 },
-                            itemType: equippedData.itemType || null,
-                            componentId: equippedData.componentId || null,
-                            itemId: equippedData.itemId || eqId,
-                            tick: this.tickSystem?.currentTick ?? 0
-                        };
-                        this.triggerController.onEquippedItemBrokeCheck(
-                            eqId, entityId, equippedData.componentId || null,
-                            oldValue, newValue, extra
-                        );
-                        break; // only one entity can own this eqId
-                    }
-                }
-            }
-
-            // Find which entity this item belongs to by scanning equipped items.
-            // HoldingCostController.getEquippedItemsByEntity() returns: { [entityId]: { [eqId]: itemData } }
-            const allEquipped = this.holdingCostController.getEquippedItemsByEntity();
-            for (const [entityId, items] of Object.entries(allEquipped)) {
-                if (items[eqId]) {
-                    // Entity found — re-evaluate its capabilities with current stats
-                    const state = this.getAll();
-                    this.actionController.reEvaluateEntityCapabilities(state, entityId);
-                    // Broadcast only when cascadeReentrancyCount === 0
-                    if (this._broadcastService && this._cascadeReentrancyCount === 0) {
-                        this._broadcastService.broadcast();
-                    }
-                    Logger.info(`[WorldStateController] Capability re-evaluated for entity "${entityId}" after ${traitId}.${statName} changed: ${oldValue} → ${newValue}`);
-                    return;
-                }
-            }
-        });
+        // --- Construction preparation (FASE 7: moved to logic/FacadeInitLogic.js) ---
+        // One-line calls in the ORIGINAL constructor order — the order is
+        // part of the composition contract (see the module header for the
+        // why of each step).
+        this.subControllers = buildSubControllersMap(this);
+        registerSpawnObserver(this);
+        registerStatChangeListener(this);
+        registerDamageListener(this);
+        initializeTurnSystem(this);
+        initializeEnergyFlow(this);
+        registerEquippedStatsCallback(this);
     }
 
     /**
