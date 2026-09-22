@@ -23,7 +23,7 @@ The server boots with zero configuration: the world builds itself from
 `data/*.json`, NPCs spawn from `data/npcs.json`, and the client connects
 over Socket.IO.
 
-Run the test suite (84 files, 1,189 tests — unit + contract):
+Run the test suite (vitest, unit + contract; the run prints the file and test counts):
 
 ```sh
 npm test
