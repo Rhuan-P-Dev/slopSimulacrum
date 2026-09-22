@@ -14,6 +14,7 @@ import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/Persiste
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRandomRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
+import { resolveItemStats } from './logic/ItemStatsLogic.js';
 
 
 /**
@@ -1991,101 +1992,16 @@ class WorldStateController {
      * Note: Holding cost debuffs are applied to the COMPONENT's stats, not the item's.
      * They are shown as informational metadata, not subtracted from item stats.
      *
+     * Implementation: src/controllers/logic/ItemStatsLogic.js (`resolveItemStats`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+     *
      * @param {string} entityId - The entity ID.
      * @param {string} itemId - The item ID.
      * @returns {Object|null} The combined stats object, or null if item not found.
      */
     getItemStats(entityId, itemId) {
-        const entity = this.stateEntityController.getEntity(entityId);
-        if (!entity) return null;
-
-        const item = this.inventoryManager.getItem(entity, itemId);
-        if (!item) return null;
-
-        // 1. Build base stats from item traits (always present)
-        const baseStats = {};
-        const traitCategories = {}; // Track which trait categories have stats
-        if (item.traits && typeof item.traits === 'object') {
-            for (const [traitCategory, traitData] of Object.entries(item.traits)) {
-                if (typeof traitData === 'object' && traitData !== null && !Array.isArray(traitData)) {
-                    traitCategories[traitCategory] = true;
-                    for (const [statName, statValue] of Object.entries(traitData)) {
-                        if (typeof statValue === 'number') {
-                            baseStats[statName] = statValue;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Check if equipped and get dynamic stats
-        const isEquipped = this.holdingCostController.isItemEquipped(entityId, itemId);
-        const dynamicStats = {};
-        const dynamicStatCategories = {};
-
-        if (isEquipped && this.equippedItemStats) {
-            // FIX: Get eqId from itemId to properly look up equipped item stats
-            const equippedItem = this.getEquippedItemByItemId(entityId, itemId);
-            if (equippedItem && equippedItem.eqId) {
-                const eqStats = this.equippedItemStats.getStats(equippedItem.eqId);
-                if (eqStats) {
-                    for (const [traitCategory, traitData] of Object.entries(eqStats)) {
-                        if (typeof traitData === 'object' && traitData !== null && !Array.isArray(traitData)) {
-                            dynamicStatCategories[traitCategory] = true;
-                            for (const [statName, statValue] of Object.entries(traitData)) {
-                                dynamicStats[statName] = statValue;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Get holding cost requirements if equipped (informational, NOT applied to item stats)
-        const holdingCostRequirements = [];
-        if (isEquipped) {
-            const holdingCostDef = this.holdingCostController.getHoldingCostDefinition(item.type);
-            if (holdingCostDef && holdingCostDef.holdingCost) {
-                for (const costEntry of holdingCostDef.holdingCost) {
-                    holdingCostRequirements.push({
-                        trait: costEntry.trait,
-                        stat: costEntry.stat,
-                        value: costEntry.value
-                    });
-                }
-            }
-        }
-
-        // 4. Build final result with metadata and separated sections
-        const result = {
-            _itemId: item.id,
-            _type: item.type,
-            _name: item.name || item.type,
-            _isEquipped: isEquipped,
-            _volume: item.volume,
-            _baseStats: baseStats,
-            _traitCategories: traitCategories
-        };
-
-        // Add dynamic stats when equipped
-        if (isEquipped && Object.keys(dynamicStats).length > 0) {
-            result._dynamicStats = dynamicStats;
-            result._dynamicStatCategories = dynamicStatCategories;
-        }
-
-        // Add holding cost requirements when equipped
-        if (isEquipped && holdingCostRequirements.length > 0) {
-            result._holdingCostRequirements = holdingCostRequirements;
-        }
-
-        // Also flatten for easy display: base + dynamic merged
-        const displayStats = { ...baseStats };
-        for (const [statName, statValue] of Object.entries(dynamicStats)) {
-            displayStats[statName] = statValue;
-        }
-        Object.assign(result, displayStats);
-
-        return result;
+        return resolveItemStats(this.stateEntityController, this.inventoryManager, this.holdingCostController, this.equippedItemStats, entityId, itemId);
     }
 
     /**
