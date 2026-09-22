@@ -19,7 +19,7 @@
  * @module worldEventRoutes
  */
 
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 import IdResolver from '../utils/IdResolver.js';
 import { ID_PREFIXES } from '../../shared/IdPrefixes.js';
 import {
@@ -131,8 +131,7 @@ export function register(router, { worldStateController }) {
 
             res.json({ events: enriched });
         } catch (error) {
-            Logger.error('/world-events endpoint error', { error: error.message });
-            res.status(500).json({ error: 'Internal Server Error', details: error.message });
+            sendRouteError(error, res, '/world-events');
         }
     });
 }
