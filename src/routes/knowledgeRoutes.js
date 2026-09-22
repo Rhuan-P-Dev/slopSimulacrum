@@ -7,7 +7,7 @@
  *
  * @module routes/knowledgeRoutes
  */
-import Logger from '../utils/Logger.js';
+import { sendRouteError } from '../utils/routeError.js';
 
 /**
  * Registers the knowledge route with the given Express router.
@@ -29,11 +29,7 @@ export function register(router, { worldStateController }) {
 			const knowledge = worldStateController.getKnowledge();
 			res.json({ knowledge });
 		} catch (error) {
-			Logger.error('/knowledge endpoint error', { error: error.message });
-			res.status(500).json({
-				error: 'Internal Server Error',
-				details: error.message,
-			});
+			sendRouteError(error, res, '/knowledge');
 		}
 	});
 }
