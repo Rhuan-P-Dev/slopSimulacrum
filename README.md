@@ -45,6 +45,25 @@ All variables are optional (see `.env.example` for the full annotated list).
 | `KILLER_LLM_DRONE_ENABLED` | *(off)* | Spawns the `killerLlmDrone` NPC when `"true"`; read once at boot |
 | `REQUIRE_AUTH` / `API_TOKEN` | *(off)* | Bearer-token gate for every API request (production) |
 
+### Request budget (rate limiting)
+
+The two endpoints that reach the LLM — `POST /api/chat` and
+`POST /api/rooms/:roomId/chat` — are guarded by a dependency-free
+sliding-window limiter (`src/utils/rateLimiter.js`):
+
+- **Budget:** 20 requests per 60-second window per client key (code-level
+defaults of `createRateLimiter`, not environment variables).
+- **When over budget:** the request is rejected before the upstream call,
+  with `429 Too Many Requests`, a `Retry-After: <whole seconds>` header
+  (computed from the oldest hit in the window), and body
+  `{ "success": false, "error": { "code": "RATE_LIMITED", "message": "…" } }`.
+- **Trust-proxy caveat:** the limiter keys on `req.ip`, and Express only
+  reports the real client address when `trust proxy` is configured — it is
+  not, today. Behind a reverse proxy every client therefore shares the
+  proxy's one bucket. Do not enable `trust proxy` unless the app really is
+  behind a proxy that rewrites `X-Forwarded-For`: otherwise a caller can
+  pick its own bucket by spoofing that header.
+
 ## Architecture
 
 ```
