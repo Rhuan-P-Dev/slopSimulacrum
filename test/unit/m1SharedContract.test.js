@@ -64,10 +64,10 @@ describe('M1 shared contract', () => {
         expect(effect.targetStat).toBe('Physical.energy');
 
         // And the M1 droid actually carries the whole-entity energy attribute it
-        // is being charged by (data/components/entity_attributes.json), with the same cap
+        // is being charged by (data/entities/entity_attributes.json), with the same cap
         // as the generator's energyCapacity (a single value in the data, not a
         // magic number in a controller).
-        const entityAttrs = readData('components/entity_attributes.json');
+        const entityAttrs = readData('entities/entity_attributes.json');
         const energyAttr = entityAttrs.attributes['m1Droid']['Physical.energy'];
         expect(energyAttr).toBeDefined();
         expect(energyAttr.value).toBeGreaterThan(0);

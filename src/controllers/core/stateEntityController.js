@@ -87,7 +87,7 @@ class stateEntityController {
         };
 
         // Seed whole-entity attributes from the blueprint's entry in
-        // data/components/entity_attributes.json. An empty/missing file or blueprint yields
+        // data/entities/entity_attributes.json. An empty/missing file or blueprint yields
         // {} — nothing is seeded (legacy invariant: no data → no attributes).
         // `attributes` holds the live per-stat values; `attributesConfig` holds
         // the declaration ({ value, max, drainPerTurn }) so consumers can tell

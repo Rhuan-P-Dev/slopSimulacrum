@@ -880,7 +880,7 @@ class InternalComponentController {
      * for the life of the droid, keeping the "1 fuel = N energy" balance lever
      * exact and testable. Cadence, gain and fuel-need come from the effect
      * definition (data/components/internalComponents.json); the charging CEILING is the
-     * entity attribute's `max` (data/components/entity_attributes.json) — the single
+     * entity attribute's `max` (data/entities/entity_attributes.json) — the single
      * source of truth, enforced by setEntityAttributeDelta on every write.
      *
      * Invariant: the fuel snapshot (getEntityItems) and the removals
@@ -918,7 +918,7 @@ class InternalComponentController {
         const statName = effect.targetStat.slice(dot + 1);
 
         // Rule 0 — single source of truth for the ceiling: the whole-entity
-        // energy cap is the entity attribute's `max` (data/components/entity_attributes.json),
+        // energy cap is the entity attribute's `max` (data/entities/entity_attributes.json),
         // NOT the organ's `energyCapacity` (data/components/internalComponents.json). The
         // two files must not silently diverge — the attribute `max` is what
         // setEntityAttributeDelta enforces on every write, so it is the true

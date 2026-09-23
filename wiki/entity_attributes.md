@@ -3,7 +3,7 @@
 **Status:** Implemented and test-pinned. The M1 droid ships with a single
 whole-entity attribute, `Physical.energy`, as the reference case. The pattern
 generalizes to any blueprint: whole-entity stats are declared in
-`data/components/entity_attributes.json`, seeded at spawn, driven per-turn through a
+`data/entities/entity_attributes.json`, seeded at spawn, driven per-turn through a
 facade, and — when declared — rendered by the client.
 
 **Further superseded by a data change (pre-ship):** in the *first* shipped
@@ -29,7 +29,7 @@ to keep them from colliding:
 
 | Kind | Owned by | Declared in | Seeded | Written per-turn | Example |
 | --- | --- | --- | --- | --- | --- |
-| **Whole-entity attribute** | The **entity** (one instance) | `data/components/entity_attributes.json` (per blueprint) | At spawn, into the entity record (`attributes` + `attributesConfig`) | `EntityEnergyController` (drain) / `InternalComponentController` (charge) | `m1Droid` `Physical.energy` 100/100, −1/turn |
+| **Whole-entity attribute** | The **entity** (one instance) | `data/entities/entity_attributes.json` (per blueprint) | At spawn, into the entity record (`attributes` + `attributesConfig`) | `EntityEnergyController` (drain) / `InternalComponentController` (charge) | `m1Droid` `Physical.energy` 100/100, −1/turn |
 | Per-component stat | A **component instance** | `data/components/components.json` / `data/components/internalComponents.json` (organ grants / initial) | By form + organ grants, per component | `ComponentStatsController` / flow / organ effects | a droid's `m1CentralBody` `Physical.energy` (per the old flow) |
 
 The defining rule: **an attribute is a stat of the whole entity and belongs
@@ -41,7 +41,7 @@ stat path.
 
 ---
 
-## 2. Data model — `data/components/entity_attributes.json`
+## 2. Data model — `data/entities/entity_attributes.json`
 
 The file is **immutable config**, read once at boot and cached
 ([src/utils/EntityAttributeData.js](src/utils/EntityAttributeData.js)). Its shape:
@@ -113,7 +113,7 @@ room it occupied**, and the entity is gone.
 
 | Piece | Responsibility | Reads/writes |
 | --- | --- | --- |
-| [src/utils/EntityAttributeData.js](src/utils/EntityAttributeData.js) | Loads + validates `data/components/entity_attributes.json`; `getAttributes(blueprint)` → `{ "Group.stat": { value, max, drainPerTurn } }` or `{}`. Immutable, cached. | Read-only on the file |
+| [src/utils/EntityAttributeData.js](src/utils/EntityAttributeData.js) | Loads + validates `data/entities/entity_attributes.json`; `getAttributes(blueprint)` → `{ "Group.stat": { value, max, drainPerTurn } }` or `{}`. Immutable, cached. | Read-only on the file |
 | [stateEntityController.js](src/controllers/core/stateEntityController.js) | Seeds `attributes` (live) + `attributesConfig` (declaration) on each entity at spawn from the blueprint entry. | Writes entity records |
 | [InternalComponentController.js](src/controllers/core/InternalComponentController.js) | `consumeFuelGenerateStat` fuel burner: source-of-truth ceiling check, fuel search, clamp, exhaustion log-once. | Via facade: `getEntityAttribute`/`getEntityAttributeConfig`/`setEntityAttributeDelta` |
 | [EntityEnergyController.js](src/controllers/core/EntityEnergyController.js) | Per-round: drain each entity's energy by its `drainPerTurn`; eliminate when 0. Stateless (the attribute *is* the state). No tick dependency — driven from the round-start hook. | Via facade only |
@@ -135,7 +135,7 @@ turn system) is the only emit — no per-droid-per-turn redundant full states.
    never on a component instance. Death is an entity event, not a component
    event.
 2. **Data-driven balance.** `value`/`max`/`drainPerTurn` live in
-   `data/components/entity_attributes.json`. The controller has no magic numbers. The
+   `data/entities/entity_attributes.json`. The controller has no magic numbers. The
    charging ceiling is the attribute's `max` — one number, one place.
 3. **Missing data → nothing seeded** (legacy-safe), and the generator burns no
    fuel when there is no attribute to charge (no silent coal loss).

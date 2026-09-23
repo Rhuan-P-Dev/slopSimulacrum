@@ -3,7 +3,7 @@
  *
  * The coal generator is a FUEL BURNER (data/components/internalComponents.json) that
  * charges the HOST ENTITY's energy attribute — a WHOLE-ENTITY stat seeded at
- * spawn from data/components/entity_attributes.json (100 units, max 100, drained 1/turn),
+ * spawn from data/entities/entity_attributes.json (100 units, max 100, drained 1/turn),
  * not a per-component stat. This contract pins the full loop against the REAL
  * per-turn channel, driven WITHOUT real timers (the same house pattern the old
  * coal contract used): build the world via buildWorldState(tickSystem) (tick

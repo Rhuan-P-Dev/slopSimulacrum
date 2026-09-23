@@ -9,7 +9,7 @@
  *
  * This is distinct from the per-component stats that StatBarsManager reads
  * (those come from `state.components.instances`). Entity attributes are
- * seeded at spawn from data/components/entity_attributes.json (see the wiki doc) and are
+ * seeded at spawn from data/entities/entity_attributes.json (see the wiki doc) and are
  * the target of the coal-generator's fuel burn (which charges the host entity)
  * and the per-turn drain that kills the entity at 0.
  *

@@ -69,7 +69,7 @@ describe('generateDescription — shipped organ data', () => {
     });
 
     it('renders coalGenerator (burns coal to charge the host entity\'s energy)', () => {
-        // The energy mechanic is data-driven (data/components/entity_attributes.json):
+        // The energy mechanic is data-driven (data/entities/entity_attributes.json):
         // the organ stays installable and describes its fuel -> energy overTime
         // effect. It charges the HOST ENTITY's energy attribute (a whole-entity
         // stat), not a per-component stat, so no grant clause is declared.

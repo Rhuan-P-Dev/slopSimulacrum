@@ -160,7 +160,6 @@ The 19 data files live under `data/`, grouped into five domain folders. The sub-
 | `data/components/internalComponents.json` | Organ type definitions — the function stats each IC grants (strength, move, fine_controls, think_level), its weight, and its over-time effects; the repair organ converts salvage back into existence |
 | `data/components/inventoryItems.json` | Item recipes: small components with their own form, material composition, and pre-installed ICs, never merged into the host on equip — includes T1 container weapon with dual-volume support |
 | `data/components/traits.json` | No longer a source of global default stat values — the recipe model retires the global molds; trait/stat names live in the shared vocabulary, values are derived |
-| `data/components/entity_attributes.json` | Whole-entity (non-component) stat attributes — e.g. the `Physical.energy` pool the coalGenerator organ charges, with a per-entity value / max / per-turn drain. A separate registry because entity-level attributes are **not** a composition of component parts; keeping them in one file makes the player droid's caps a single data-only decision. |
 | `data/components/holdingCost.json` | Burden definitions — a single lever: total carried mass reduces the carrier's effective `move` and `fine_controls`, with a strength/mass gate on equip |
 
 ### 👤 `data/entities/` — who exists in the world
@@ -168,6 +167,7 @@ The 19 data files live under `data/`, grouped into five domain folders. The sub-
 | File | Purpose |
 |------|---------|
 | `data/entities/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `m1Droid` player droid and the `killerLlmDrone` composition |
+| `data/entities/entity_attributes.json` | Whole-entity (non-component) stat attributes — e.g. the `Physical.energy` pool the coalGenerator organ charges, with a per-entity value / max / per-turn drain. A separate registry because entity-level attributes are **not** a composition of component parts; keeping them in one file makes the player droid's caps a single data-only decision. |
 | `data/entities/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the sole entry — the env-gated, goal-bearing LLM-routed NPC (the historical `smallBallDroid` and `crafterDrone` entries were removed from the world) |
 
 ### ⚙️ `data/systems/` — the behavior rules
