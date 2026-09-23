@@ -132,26 +132,52 @@ graph TD
 
 ## 📁 Data Files
 
+The 19 data files live under `data/`, grouped into five domain folders. The sub-sections below mirror the on-disk layout, and each file cell is the exact relative path passed to `DataLoader.loadJsonSafe()` — move a file and this row moves with it.
+
+### 🌍 `data/world/` — world structure & initial state
+
 | File | Purpose |
 |------|---------|
-| `data/systems/actions.json` | Action definitions — `pickUpItem` also carries the client group-pick cluster config (`groupPick.radius`, `groupPick.minItems`), delivered to the browser through the capability projection and tunable data-only |
-| `data/components/components.json` | Component recipes: form, material composition, and pre-installed ICs — no stat values; stats are derived from matter, form, and organs; a recipe may additionally declare an optional `energyCapacity` bound for the energy-flow rule (absence falls back to the rule's default, an explicit 0 is valid — it bounds a physiological pool, it does not seed a stat) |
-| `data/entities/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `m1Droid` player droid and the `killerLlmDrone` composition |
-| `data/entities/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the sole entry — the env-gated, goal-bearing LLM-routed NPC (the historical `smallBallDroid` and `crafterDrone` entries were removed from the world) |
-| `data/components/traits.json` | No longer a source of global default stat values — the recipe model retires the global molds; trait/stat names live in the shared vocabulary, values are derived |
-| `data/systems/synergy.json` | Synergy configurations — multipliers of action output from bound components cooperating; kept as-is in the new model, with only the punch cap's dead reference to the never-defined `Physical.stability` stat corrected |
 | `data/world/rooms.json` | Room definitions (name, description, connections as target references, coordinates) |
 | `data/world/worldObjects.json` | World objects (props) placed in rooms — each names a blueprint (so its matter is real, validated data), a room, and a room-relative position. Materialized at boot as `isStatic` entities (so they can be hit, broken, and harvested); the `isStatic` flag is what keeps them out of the turn roster; see [World Objects](subMDs/systems/world_objects.md) |
 | `data/world/world.json` | Initial-spawn kit/loadout source (player kit: coal loadout, T1 weapon, knife stock) — entries carry an optional top-level `count` (default 1); the kit lives in one file so the player's starting inventory is a data-only balance decision, tunable without touching spawn code |
-| `data/components/internalComponents.json` | Organ type definitions — the function stats each IC grants (strength, move, fine_controls, think_level), its weight, and its over-time effects; the repair organ converts salvage back into existence |
-| `data/components/inventoryItems.json` | Item recipes: small components with their own form, material composition, and pre-installed ICs, never merged into the host on equip — includes T1 container weapon with dual-volume support |
-| `data/components/holdingCost.json` | Burden definitions — a single lever: total carried mass reduces the carrier's effective `move` and `fine_controls`, with a strength/mass gate on equip |
+| `data/world/world_rules.json` | World-rules layer — stable string key → small config objects governing cross-cutting laws (not loot tables); ships the `damageTornMaterial` rule (a deterministic X% of applied loss drops as torn matter per composition fraction), the `onDamage` event law (a small per-event chance to drop a chunk of the damaged component's material, additive to the per-material chunk drops). The `energyFlow` rule (the cross-component energy circulation law: per-turn share of turn-start energy plus the default per-component capacity bound — see [Energy Flow](subMDs/systems/energy_flow.md)) was **removed from the shipped data** (energy off by data); the code path remains and would pick the rule back up on boot if the key is re-added; a missing/empty/malformed file means all rules and event laws off (legacy world, never crashes) |
+
+### 🧱 `data/materials/` — matter and everything derived from it
+
+| File | Purpose |
+|------|---------|
 | `data/materials/materials.json` | Material definitions (name, density, properties) for composition-driven trait derivation |
 | `data/materials/propertyTraitMapping.json` | Property-to-stat mapping table (expanded): the single balance lever of the material layer — links material properties to the derived stat set (six channel resistances, sharpness, mass, threshold-derived flags) alongside existence, the ratio of remaining matter |
 | `data/materials/materialDamageTypes.json` | Per-material damage-type split — how a raw value dealt *by* a material is distributed across the six damage channels, so the attacker's material decides a hit's channel mix (wood blunts and shreds, iron is pure impact); a missing/empty file turns the feature off, exactly reproducing legacy combat |
 | `data/materials/materialDropRates.json` | Per-material chunk-drop loot — the chance a material drops a chunk on a successful channel-damage hit (punch, cut, shootT1) and the share of its lost matter that forms one, plus one global minimum chunk volume; a missing/empty file means no drops at all |
-| `data/world/world_rules.json` | World-rules layer — stable string key → small config objects governing cross-cutting laws (not loot tables); ships the `damageTornMaterial` rule (a deterministic X% of applied loss drops as torn matter per composition fraction), the `onDamage` event law (a small per-event chance to drop a chunk of the damaged component's material, additive to the per-material chunk drops). The `energyFlow` rule (the cross-component energy circulation law: per-turn share of turn-start energy plus the default per-component capacity bound — see [Energy Flow](subMDs/systems/energy_flow.md)) was **removed from the shipped data** (energy off by data); the code path remains and would pick the rule back up on boot if the key is re-added; a missing/empty/malformed file means all rules and event laws off (legacy world, never crashes) |
+
+### 🧩 `data/components/` — the building blocks (components, organs, items)
+
+| File | Purpose |
+|------|---------|
+| `data/components/components.json` | Component recipes: form, material composition, and pre-installed ICs — no stat values; stats are derived from matter, form, and organs; a recipe may additionally declare an optional `energyCapacity` bound for the energy-flow rule (absence falls back to the rule's default, an explicit 0 is valid — it bounds a physiological pool, it does not seed a stat) |
+| `data/components/internalComponents.json` | Organ type definitions — the function stats each IC grants (strength, move, fine_controls, think_level), its weight, and its over-time effects; the repair organ converts salvage back into existence |
+| `data/components/inventoryItems.json` | Item recipes: small components with their own form, material composition, and pre-installed ICs, never merged into the host on equip — includes T1 container weapon with dual-volume support |
+| `data/components/traits.json` | No longer a source of global default stat values — the recipe model retires the global molds; trait/stat names live in the shared vocabulary, values are derived |
+| `data/components/entity_attributes.json` | Whole-entity (non-component) stat attributes — e.g. the `Physical.energy` pool the coalGenerator organ charges, with a per-entity value / max / per-turn drain. A separate registry because entity-level attributes are **not** a composition of component parts; keeping them in one file makes the player droid's caps a single data-only decision. |
+| `data/components/holdingCost.json` | Burden definitions — a single lever: total carried mass reduces the carrier's effective `move` and `fine_controls`, with a strength/mass gate on equip |
+
+### 👤 `data/entities/` — who exists in the world
+
+| File | Purpose |
+|------|---------|
+| `data/entities/blueprints.json` | Entity blueprint definitions (component hierarchies) — includes the `m1Droid` player droid and the `killerLlmDrone` composition |
+| `data/entities/npcs.json` | NPC registry keyed by blueprint — name, room, personality, per-round action/chat caps, optional `ai.behavior` block (deterministic brain), optional `envGate` spawn-time env-var gate (default off), optional `objective` rendered into the LLM system prompt, and `initialItems` loadout with optional `equip` and nested `contents`; `killerLlmDrone` is the sole entry — the env-gated, goal-bearing LLM-routed NPC (the historical `smallBallDroid` and `crafterDrone` entries were removed from the world) |
+
+### ⚙️ `data/systems/` — the behavior rules
+
+| File | Purpose |
+|------|---------|
+| `data/systems/actions.json` | Action definitions — `pickUpItem` also carries the client group-pick cluster config (`groupPick.radius`, `groupPick.minItems`), delivered to the browser through the capability projection and tunable data-only |
+| `data/systems/synergy.json` | Synergy configurations — multipliers of action output from bound components cooperating; kept as-is in the new model, with only the punch cap's dead reference to the never-defined `Physical.stability` stat corrected |
 | `data/systems/crafting.json` | Crafting recipe definitions (inputs/outputs referencing inventory item types; inputs may additionally be the self-describing dynamic `chunk_<material>` types, which have no registry entry by design) — ships the two knife→T1 assemblies and the two coal-conversion recipes (`t1_to_coal`, `wood_chunk_to_coal`) |
+
 
 ## 🧩 Shared Modules
 
