@@ -40,11 +40,11 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(projectRoot, rel)
 
 const RESISTANCE_SCALE = 100;
 
-const dropRates = readJson('data/materialDropRates.json');
-const worldRules = readJson('data/world_rules.json');
+const dropRates = readJson('data/materials/materialDropRates.json');
+const worldRules = readJson('data/world/world_rules.json');
 const tornPercent = worldRules.rules.damageTornMaterial.percent;
 
-const WORLD_RULES_PATH = path.join(projectRoot, 'data/world_rules.json');
+const WORLD_RULES_PATH = path.join(projectRoot, 'data/world/world_rules.json');
 
 /** A fresh, not-started world. */
 function buildWorld() {
@@ -131,7 +131,7 @@ function hideWorldRulesFile() {
     // Fail loud rather than corrupt: a pending .bak means a restore is already
     // outstanding (crashed prior run) — overwriting it would lose the original.
     if (fs.existsSync(WORLD_RULES_PATH + '.bak')) {
-        throw new Error('data/world_rules.json.bak already exists — restore it before swapping the file');
+        throw new Error('data/world/world_rules.json.bak already exists — restore it before swapping the file');
     }
     fs.renameSync(WORLD_RULES_PATH, WORLD_RULES_PATH + '.bak');
 }
@@ -346,7 +346,7 @@ describe('World Rules — torn-material drop (contract, full round-trip)', () =>
     it('5. Gate edge: torn volume below minChunkVolume → no torn; chunk still appears', () => {
         // Deterministic sub-gate (no Math.random mocking, no break, no drain):
         // scale the attacker's fists down to the action's OWN strength floor
-        // (the 'droid punch' requirement, read from data/actions.json) and punch
+        // (the 'droid punch' requirement, read from data/systems/actions.json) and punch
         // the victim's two-material droidHand (iron 0.7 + wood 0.3, from the data
         // files). At the floor, the applied loss is small enough that BOTH
         // materials' torn volumes fall below the shared minChunkVolume floor,
@@ -372,8 +372,8 @@ describe('World Rules — torn-material drop (contract, full round-trip)', () =>
         expect((tornPercent / 100) * L_base * ironFraction * V,
             'the full-strength iron torn volume should clear the gate').toBeGreaterThanOrEqual(minChunk);
 
-        // The action's strength floor (data/actions.json) — the weakest legal punch.
-        const strengthFloor = readJson('data/actions.json')['droid punch'].requirements
+        // The action's strength floor (data/systems/actions.json) — the weakest legal punch.
+        const strengthFloor = readJson('data/systems/actions.json')['droid punch'].requirements
             .find((r) => r.trait === 'Physical' && r.stat === 'strength').minValue;
         const fists = droidHands(world, attackerId);
         expect(fists.length, 'the blueprint provides two droidHands').toBe(2);

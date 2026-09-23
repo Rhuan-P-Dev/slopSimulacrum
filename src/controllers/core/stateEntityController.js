@@ -87,7 +87,7 @@ class stateEntityController {
         };
 
         // Seed whole-entity attributes from the blueprint's entry in
-        // data/entity_attributes.json. An empty/missing file or blueprint yields
+        // data/components/entity_attributes.json. An empty/missing file or blueprint yields
         // {} — nothing is seeded (legacy invariant: no data → no attributes).
         // `attributes` holds the live per-stat values; `attributesConfig` holds
         // the declaration ({ value, max, drainPerTurn }) so consumers can tell
@@ -272,7 +272,7 @@ class stateEntityController {
      * Used exclusively by WorldStateController.restore(). Spawn observers are
      * intentionally NOT fired: a snapshot already contains the final, fully
      * populated entity state (items, internal components, positions), and the
-     * declarative initial-spawn path (data/world.json) was already applied by
+     * declarative initial-spawn path (data/world/world.json) was already applied by
      * the instance that produced the snapshot. Re-firing it would double-add
      * items. The observers list itself is left untouched for future spawns.
      *

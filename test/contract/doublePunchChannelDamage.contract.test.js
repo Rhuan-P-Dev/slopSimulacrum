@@ -39,7 +39,7 @@ import { getDefinitionVolume } from '../../src/utils/definitionVolume.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf-8'));
 
-const dropRates = readJson('data/materialDropRates.json');
+const dropRates = readJson('data/materials/materialDropRates.json');
 
 /**
  * Builds a fresh world for an isolated scenario.
@@ -320,7 +320,7 @@ describe('BUG-134 — two-fist punch per-fist chunk drops (spec D11, revised)', 
         const world = buildWorld();
         const { attackerId, victimId } = spawnPunchers(world);
 
-        // Simulate the empty/absent data/materialDropRates.json: the MaterialController's
+        // Simulate the empty/absent data/materials/materialDropRates.json: the MaterialController's
         // feature-off behavior (verified in the unit tests) is exactly that these two
         // public accessors report null/0. Stubbing them on the built world reproduces
         // that degradation without touching the real data file.

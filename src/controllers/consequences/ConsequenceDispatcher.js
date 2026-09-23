@@ -216,7 +216,7 @@ class ConsequenceDispatcher {
         const results = [];
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
-            // Failure log consequences in data/actions.json store message/level at the
+            // Failure log consequences in data/systems/actions.json store message/level at the
             // top level (no params object) — merge them through so the handler logs
             // the real message instead of the empty fallback.
             const effectiveParams = consequence.type === 'log'
@@ -325,7 +325,7 @@ class ConsequenceDispatcher {
 
             try {
                 let effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-                // Log consequences in data/actions.json store message/level at the
+                // Log consequences in data/systems/actions.json store message/level at the
                 // top level (no params object) — merge them through so the handler
                 // logs the real message instead of the empty fallback.
                 if (consequence.type === 'log') {

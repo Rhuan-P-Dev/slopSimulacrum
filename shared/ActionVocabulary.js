@@ -4,14 +4,14 @@
  * SINGLE SOURCE OF TRUTH for the string literals that name the parts of the
  * action system: targeting types (how an action acquires its target),
  * component-binding roles (how component slots are filled in a resolved
- * action), action names (the exact keys of `data/actions.json`), and target
- * anchors. These strings appear in `data/actions.json` definitions, in
+ * action), action names (the exact keys of `data/systems/actions.json`), and target
+ * anchors. These strings appear in `data/systems/actions.json` definitions, in
  * resolved action objects, and in comparisons across many controllers;
  * naming them once here stops the spellings from drifting between layers.
  *
  * Note: the string 'self_target' legitimately appears in BOTH
  * TARGETING_TYPES and BINDING_ROLES. It is a targetingType in
- * `data/actions.json` (the actor targets itself, no external target) and it
+ * `data/systems/actions.json` (the actor targets itself, no external target) and it
  * is also a binding role (a self-referencing component slot). The overlap is
  * intentional, not a conflict.
  *
@@ -24,7 +24,7 @@
  */
 
 /**
- * Targeting types from `data/actions.json`: how an action resolves its
+ * Targeting types from `data/systems/actions.json`: how an action resolves its
  * target — a point in space, a component, the actor itself, or nothing.
  * @type {Object.<string, string>}
  */
@@ -50,7 +50,7 @@ export const BINDING_ROLES = {
 };
 
 /**
- * Action names — the exact keys of `data/actions.json`. Used wherever code
+ * Action names — the exact keys of `data/systems/actions.json`. Used wherever code
  * names an action (NPC behavior strategies, instinct candidate lists,
  * capability entries) instead of re-typing the literal, so a rename in the
  * data file only has to happen in one place.

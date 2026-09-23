@@ -21,7 +21,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InventoryManager } from '../../public/js/InventoryManager.js';
 import ClientLogger from '../../public/utils/ClientLogger.js';
 
-// Mirrors the shape of data/holdingCost.json (the single massBurden model, not
+// Mirrors the shape of data/components/holdingCost.json (the single massBurden model, not
 // the removed per-item map).
 const HOLDING_COST_MODEL = {
     model: 'massBurden',

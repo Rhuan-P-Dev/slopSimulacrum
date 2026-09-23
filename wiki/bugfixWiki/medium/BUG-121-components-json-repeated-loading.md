@@ -7,11 +7,11 @@
 
 ## Symptoms
 
-Every inventory operation (adding or moving an item) triggered redundant re-reads of `data/components.json`, causing unnecessary I/O overhead on every inventory operation.
+Every inventory operation (adding or moving an item) triggered redundant re-reads of `data/components/components.json`, causing unnecessary I/O overhead on every inventory operation.
 
 ## Root Cause
 
-The component definitions were not cached at the InventoryManager level: the volume-check methods (`_getComponentMaxVolume()`, `_getComponentMaxVolumeFromEntity()`) loaded `data/components.json` fresh on every invocation, even though the file is static data that rarely changes.
+The component definitions were not cached at the InventoryManager level: the volume-check methods (`_getComponentMaxVolume()`, `_getComponentMaxVolumeFromEntity()`) loaded `data/components/components.json` fresh on every invocation, even though the file is static data that rarely changes.
 
 ## Fix
 

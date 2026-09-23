@@ -4,7 +4,7 @@
  * A per-turn (round-start) energy lifecycle for the world: every round it drains
  * each active entity's energy attribute by that attribute's `drainPerTurn` (a
  * per-attribute value carried on the entity's own declaration, seeded at spawn
- * from the blueprint's entry in data/entity_attributes.json). Then it runs the
+ * from the blueprint's entry in data/components/entity_attributes.json). Then it runs the
  * life-or-death check: when the energy attribute hits 0 the host is ELIMINATED —
  * its carried contents spill to the floor and the entity is despawned, via the
  * facade's `eliminateEntityByEnergy` (which owns the spill + despawn atomically).
@@ -53,7 +53,7 @@ class EntityEnergyController {
     /**
      * Returns the per-turn drain for a specific entity/attribute. Reads from the
      * entity's own attributesConfig (seeded at spawn from the blueprint entry in
-     * data/entity_attributes.json). Returns 0 when there is no attribute / no
+     * data/components/entity_attributes.json). Returns 0 when there is no attribute / no
      * drain declared.
      * @param {string} entityId
      * @param {string} traitId

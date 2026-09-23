@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `src/utils/InventoryManager.js`, `src/routes/inventoryRoutes.js`, `public/js/InventoryManager.js`, `public/css/inventory.css`, `data/inventoryItems.json`
+- **Related Files**: `src/utils/InventoryManager.js`, `src/routes/inventoryRoutes.js`, `public/js/InventoryManager.js`, `public/css/inventory.css`, `data/components/inventoryItems.json`
 
 ## Symptoms
 

@@ -3,7 +3,7 @@
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `InternalComponentController.js`, `data/internalComponents.json`
+- **Related Files**: `InternalComponentController.js`, `data/components/internalComponents.json`
 
 ## Symptoms
 
@@ -26,7 +26,7 @@ Added to demonstrate the generic system with a non-repair effect (a movement sta
 
 ## Prevention
 
-- All internal component effects must be defined in `data/internalComponents.json`
+- All internal component effects must be defined in `data/components/internalComponents.json`
 - Controller code only reads the registry and applies effects generically
 - Adding a new effect type requires only a registry entry, no code changes
 

@@ -12,7 +12,7 @@ import Logger from '../../utils/Logger.js';
 class RoomsController {
     /**
      * Creates a new RoomsController instance.
-     * Loads room definitions from data/rooms.json and initializes the internal room store.
+     * Loads room definitions from data/world/rooms.json and initializes the internal room store.
      */
     constructor() {
         // Internal storage for rooms.
@@ -27,7 +27,7 @@ class RoomsController {
         this.doorPositions = {};
 
         // Load room definitions from external data file (per DataLoader pattern used by WorldStateController)
-        const roomDefinitions = DataLoader.loadJsonSafe('data/rooms.json', {});
+        const roomDefinitions = DataLoader.loadJsonSafe('data/world/rooms.json', {});
 
         // Validate loaded definitions before initialization
         this._validateRoomDefinitions(roomDefinitions);

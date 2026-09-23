@@ -143,7 +143,7 @@ describe('Knife Generator — data-driven, fuel-free item organ (generateItem ov
         expect(knivesInGenerator(world, genId), '5 stored before break').toBe(5);
 
         // The registry no longer ships a puncher droid (the smallBallDroid
-        // "Rogue Droid" entry was removed from data/npcs.json): spawn one.
+        // "Rogue Droid" entry was removed from data/entities/npcs.json): spawn one.
         const puncher = world.getEntity(world.stateEntityController.spawnEntity('smallBallDroid', startRoomId));
         const attacker = strongestPunchComponent(world, puncher.id);
 

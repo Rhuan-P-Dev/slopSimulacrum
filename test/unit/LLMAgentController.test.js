@@ -35,7 +35,7 @@ const NPC_ID = 'ent-npc-0001';
 const NPC = {
     id: NPC_ID,
     name: 'Bolt',
-    // Deliberately NOT a key of data/npcs.json (Feature D created that file
+    // Deliberately NOT a key of data/entities/npcs.json (Feature D created that file
     // with 'merchantDroid'): these tests exercise the entity-name FALLBACK
     // path (config === null → displayName falls back to entity.name).
     blueprint: 'unregisteredDroid',

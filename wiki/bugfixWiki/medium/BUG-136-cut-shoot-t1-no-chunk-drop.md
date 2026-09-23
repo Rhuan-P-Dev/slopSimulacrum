@@ -3,7 +3,7 @@
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
 - **Fixed In**: `pending`
-- **Related Files**: `data/actions.json` (cut / shootT1 consequence lists), `data/materialDropRates.json`, `test/contract/materialChunkDropCutShootT1.contract.test.js`
+- **Related Files**: `data/systems/actions.json` (cut / shootT1 consequence lists), `data/materials/materialDropRates.json`, `test/contract/materialChunkDropCutShootT1.contract.test.js`
 
 ## Symptoms
 
@@ -15,12 +15,12 @@ Chunk drop is a **data-declared consequence**, not an implicit effect of dealing
 
 ## Fix
 
-Data-only, no code changes: the drop consequence was added to the two missing consequence lists in `data/actions.json`, positioned **after** each action's damage consequence (the drop step consumes the loss the damage step published, so the declaration must follow the damage step in the list) and before the remaining bookkeeping steps:
+Data-only, no code changes: the drop consequence was added to the two missing consequence lists in `data/systems/actions.json`, positioned **after** each action's damage consequence (the drop step consumes the loss the damage step published, so the declaration must follow the damage step in the list) and before the remaining bookkeeping steps:
 
 - `cut`: after `damageComponent`, before `updateComponentStatDelta` (the sharpness drain).
 - `shootT1`: after `consumeItemAndDamage`, before `log`.
 
-The `_comment` in `data/materialDropRates.json` was reworded from "per successful punch" to "per successful channel-damage hit", since drops now apply to punch, cut, and shootT1. The wiki scope wording (integration table, sub-wiki, map, CORE) was generalized accordingly. Balance behavior is intentionally unchanged: `shootT1`'s applied loss is tiny (the projectile's volume), so its chunks usually sit at the `minChunkVolume` floor — the intended minimum-volume behavior, not something to "fix".
+The `_comment` in `data/materials/materialDropRates.json` was reworded from "per successful punch" to "per successful channel-damage hit", since drops now apply to punch, cut, and shootT1. The wiki scope wording (integration table, sub-wiki, map, CORE) was generalized accordingly. Balance behavior is intentionally unchanged: `shootT1`'s applied loss is tiny (the projectile's volume), so its chunks usually sit at the `minChunkVolume` floor — the intended minimum-volume behavior, not something to "fix".
 
 ## Prevention
 

@@ -20,18 +20,18 @@ class InventoryManager {
         this._materialController = options.materialController ?? null;
 
         /**
-         * Item type definitions loaded from data/inventoryItems.json
+         * Item type definitions loaded from data/components/inventoryItems.json
          * Format: { [itemType]: { name, description, volume, traits } }
          * @type {Object}
          */
-        this._itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        this._itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
 
         /**
-         * Component definitions loaded from data/components.json
+         * Component definitions loaded from data/components/components.json
          * Format: { [componentType]: { name, traits } }
          * @type {Object}
          */
-        this._componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+        this._componentDefinitions = DataLoader.loadJsonSafe('data/components/components.json', {});
 
         Logger.info(`InventoryManager initialized with ${Object.keys(this._itemDefinitions).length} item types`);
 
@@ -126,7 +126,7 @@ class InventoryManager {
 
     /**
      * Gets the component's max volume from the component type definition.
-     * Looks up the volume from data/components.json by component type.
+     * Looks up the volume from data/components/components.json by component type.
      * @param {string} componentType - The component type name (e.g., 'centralBall').
      * @returns {number} The max volume, or 0 if not found.
      * @private

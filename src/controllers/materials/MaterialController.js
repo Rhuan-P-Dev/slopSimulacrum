@@ -29,10 +29,10 @@ const DAMAGE_TYPE_SUM_TOLERANCE = 0.01;
 
 /**
  * Validates and blends material properties for a single blueprint.
- * @param {Object} materialsRegistry - Material definitions from data/materials.json.
- * @param {Object} mappingRegistry - Property-to-trait mapping from data/propertyTraitMapping.json.
+ * @param {Object} materialsRegistry - Material definitions from data/materials/materials.json.
+ * @param {Object} mappingRegistry - Property-to-trait mapping from data/materials/propertyTraitMapping.json.
  * @param {Object} [damageTypesRegistry] - Per-material damage-type distributions from
- *   data/materialDamageTypes.json (feature 1). Optional and defaulted to `{}` so that
+ *   data/materials/materialDamageTypes.json (feature 1). Optional and defaulted to `{}` so that
  *   hand-built controllers (and the "feature off" case — absent/empty file) never
  *   change existing behavior; the constructor validates it and toggles the
  *   damage-type split on/off accordingly.
@@ -46,13 +46,13 @@ class MaterialController {
         // It returns the (possibly normalized) registry and sets _damageTypesEnabled.
         this.damageTypesRegistry = this._validateMaterialDamageTypes(damageTypesRegistry);
         // Feature 2 (material chunk drop on punch): validate the injected drop-rates
-        // registry (data/materialDropRates.json). Must ALSO run after the materials
+        // registry (data/materials/materialDropRates.json). Must ALSO run after the materials
         // registry is validated, because the validator cross-checks each drop-file
         // material key against this.materialsRegistry. Returns the normalized registry
         // and sets _dropRatesEnabled (feature off → no drops, graceful degradation).
         this.dropRatesRegistry = this._validateMaterialDropRates(dropRatesRegistry);
         // The mapping registry is the recipe-model wrapper { derivedStats, flagThresholds }
-        // (data/propertyTraitMapping.json). For backward compatibility a legacy flat
+        // (data/materials/propertyTraitMapping.json). For backward compatibility a legacy flat
         // { "Trait.stat": mapping } map is also accepted (treated as the derivedStats body).
         const raw = mappingRegistry || {};
         this.flagThresholds = (raw.flagThresholds && typeof raw.flagThresholds === 'object' && !Array.isArray(raw.flagThresholds))
@@ -109,7 +109,7 @@ class MaterialController {
      *     percentages don't sum to 100 (beyond tolerance) they are proportionally
      *     rescaled to 100 with a Logger.warn (tuning drift, D9 — feature stays on).
      *
-     * @param {Object|null} registry - Raw registry from data/materialDamageTypes.json.
+     * @param {Object|null} registry - Raw registry from data/materials/materialDamageTypes.json.
      * @returns {Object} The normalized registry ({} when the feature is off).
      * @private
      */
@@ -141,7 +141,7 @@ class MaterialController {
             if (material.startsWith('_')) continue;
             // Cross-validation: every damage-file material must be a known material.
             if (!this.materialsRegistry[material]) {
-                throw new TypeError(`Material damage-types: unknown material "${material}" (not in data/materials.json).`);
+                throw new TypeError(`Material damage-types: unknown material "${material}" (not in data/materials/materials.json).`);
             }
             if (typeof channels !== 'object' || channels === null || Array.isArray(channels)) {
                 throw new TypeError(`Material damage-types: entry for "${material}" must be an object of channel → percentage.`);
@@ -177,7 +177,7 @@ class MaterialController {
 
     /**
      * Whether the per-material damage-type split feature is active — i.e. the
-     * data/materialDamageTypes.json registry loaded and validated to a non-empty
+     * data/materials/materialDamageTypes.json registry loaded and validated to a non-empty
      * split. Mirrors the drop-rates feature flag (_dropRatesEnabled); both are set
      * during construction. Exposed as a public predicate so callers and tests can
      * query the feature state without reaching into the private flag.
@@ -257,8 +257,8 @@ class MaterialController {
     /**
      * Validates the material drop-rates registry (feature 2, spec D1/D9).
      *
-     * Multi-section shape (data/materialDropRates.json, same precedent as
-     * data/holdingCost.json): an optional global scalar `minChunkVolume` plus a
+     * Multi-section shape (data/materials/materialDropRates.json, same precedent as
+     * data/components/holdingCost.json): an optional global scalar `minChunkVolume` plus a
      * `materials` section mapping material name → { dropRate, chunkFraction }.
      *
      * Three distinct outcomes (spec D9), mirroring _validateMaterialDamageTypes:
@@ -276,7 +276,7 @@ class MaterialController {
      * A missing `minChunkVolume` is stored as 0 (the floor becomes a no-op); a missing
      * `materials` section yields an empty materials map (no material ever drops).
      *
-     * @param {Object|null} registry - Raw registry from data/materialDropRates.json.
+     * @param {Object|null} registry - Raw registry from data/materials/materialDropRates.json.
      * @returns {Object} { minChunkVolume: number, materials: Object<string, {dropRate:number, chunkFraction:number}> }.
      *   An empty object when the feature is off.
      * @private
@@ -316,7 +316,7 @@ class MaterialController {
                 if (material.startsWith('_')) continue;
                 // Cross-validation: every drop-file material must be a known material.
                 if (!this.materialsRegistry[material]) {
-                    throw new TypeError(`Material drop-rates: unknown material "${material}" (not in data/materials.json).`);
+                    throw new TypeError(`Material drop-rates: unknown material "${material}" (not in data/materials/materials.json).`);
                 }
                 if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
                     throw new TypeError(`Material drop-rates: entry for "${material}" must be an object with dropRate and chunkFraction.`);
@@ -368,7 +368,7 @@ class MaterialController {
      * onDamage `host_material` rule to decide which material a damage chip is made of.
      *
      * Tie-break: the FIRST entry in array order wins (a later equal fraction never
-     * replaces an earlier best). The composition order in data/components.json is the
+     * replaces an earlier best). The composition order in data/components/components.json is the
      * stable canonical order, so the result is deterministic.
      *
      * Returns null when the input is not a valid non-empty composition: a non-array,
@@ -481,7 +481,7 @@ class MaterialController {
     }
 
     /**
-     * Returns the derived-on-demand flag thresholds (data/propertyTraitMapping.json
+     * Returns the derived-on-demand flag thresholds (data/materials/propertyTraitMapping.json
      * `flagThresholds`), mapping flag name → { property, threshold }. A component is
      * flagged when its blended material property crosses the threshold (e.g. flammable).
      * @returns {Object<string, {property: string, threshold: number}>}
@@ -566,7 +566,7 @@ class MaterialController {
     /**
      * Derives trait stats from blended properties using the mapping table.
      *
-     * Supported mapping forms (data/propertyTraitMapping.json `derivedStats`):
+     * Supported mapping forms (data/materials/propertyTraitMapping.json `derivedStats`):
      *  - `formula: "densityVolume"` → mass = Σ(fraction × density) × volume.
      *  - `formula: "matterRatio"` → existence (a 0–1 store). A freshly-spawned
      *    component holds 100% of its matter, so the derived value is 1.0; runtime

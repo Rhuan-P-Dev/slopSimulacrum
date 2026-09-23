@@ -19,7 +19,7 @@ import { ReachabilityRule } from './rules/ReachabilityRule.js';
 class HintController {
     /**
      * @param {Object} deps
-     * @param {Object} deps.actionRegistry - data/actions.json (loaded by the composition root).
+     * @param {Object} deps.actionRegistry - data/systems/actions.json (loaded by the composition root).
      */
     constructor(deps = {}) {
         const { actionRegistry } = deps;

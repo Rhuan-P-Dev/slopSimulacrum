@@ -11,7 +11,7 @@
  * - Debuffs are reversed on the host component
  * - The capability controller re-evaluates, removing equipped item action entries
  *
- * Data-driven: configuration loaded from data/holdingCost.json
+ * Data-driven: configuration loaded from data/components/holdingCost.json
  *
  * @module HoldingCostController
  */
@@ -50,14 +50,14 @@ class HoldingCostController {
         this.equippedItemStats = equippedItemStats;
 
         /**
-         * Holding cost definitions loaded from data/holdingCost.json
+         * Holding cost definitions loaded from data/components/holdingCost.json
          * Format: { [itemType]: HoldingCostDefinition }
          * @type {Object<string, HoldingCostDefinition>}
          */
         // The data file is a single mass-lever MODEL (not a per-item map): it
         // gates equipping on a strength-to-mass ratio and burdens the function
         // stats (move / fine_controls) by the carried item's mass.
-        this._model = DataLoader.loadJsonSafe('data/holdingCost.json', {});
+        this._model = DataLoader.loadJsonSafe('data/components/holdingCost.json', {});
         this._itemMassCache = {};
 
         Logger.info(`[HoldingCostController] Initialized massBurden model (equipable: ${JSON.stringify(this._model.equipableItems || [])})`);

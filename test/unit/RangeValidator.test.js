@@ -267,7 +267,7 @@ describe('RangeValidator - Range Expression Resolution', () => {
 // This is the SERVER-SIDE counterpart to the client's range display for
 // spatial actions like dropItem (which send targetX/targetY, not a target
 // entity). It must enforce the SAME range the client renders (single source
-// of truth: data/actions.json range, resolved via the shared RangeResolver).
+// of truth: data/systems/actions.json range, resolved via the shared RangeResolver).
 // =========================================================================
 
 describe('RangeValidator - checkSpatialRange (spatial drop enforcement)', () => {
@@ -382,22 +382,22 @@ describe('RangeValidator - checkSpatialRange (spatial drop enforcement)', () => 
     
     // =========================================================================
     // TEST 3 — RangeValidator.checkSpatialRange uses the SAME range as
-    // data/actions.json (single source of truth).
+    // data/systems/actions.json (single source of truth).
     //
     // Regression guarded: the drop-range bug diverged the server-enforced range from
     // the client-displayed range. This test feeds the ACTUAL dropItem.range from
-    // data/actions.json into the real RangeValidator and verifies the enforcement
+    // data/systems/actions.json into the real RangeValidator and verifies the enforcement
     // boundary matches that value exactly (and that the failure message is the
     // point-target message, not the grab message).
     // =========================================================================
     
     function readDropItemRange() {
-        const dataPath = new URL('../../data/actions.json', import.meta.url);
+        const dataPath = new URL('../../data/systems/actions.json', import.meta.url);
         const raw = readFileSync(fileURLToPath(dataPath), 'utf8');
         return JSON.parse(raw).dropItem.range;
     }
     
-    describe('RangeValidator - checkSpatialRange uses the same range as data/actions.json', () => {
+    describe('RangeValidator - checkSpatialRange uses the same range as data/systems/actions.json', () => {
         let validator;
         let mockWSC;
         let mockAC;

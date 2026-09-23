@@ -4,7 +4,7 @@
  *
  * Regression guard for the "player droid spawns with 0 items" defect. The player
  * (a non-NPC smallBallDroid incarnated on the socket-connect path) is supposed to
- * receive the declarative loadout from data/world.json's `initialSpawns`:
+ * receive the declarative loadout from data/world/world.json's `initialSpawns`:
  *
  *     SocketLifecycleController._incarnatePlayer
  *       → WorldStateController.spawnEntity('smallBallDroid', roomId)
@@ -40,7 +40,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
     beforeAll(() => {
         // Mirror src/server.js: build the world via the composition root. buildWorldState
         // performs world init + initial capability scan (spawning the NPCs from
-        // data/npcs.json). The PLAYER is not an NPC — it is incarnated on the
+        // data/entities/npcs.json). The PLAYER is not an NPC — it is incarnated on the
         // socket-connect path, which we replicate with spawnEntity exactly as
         // SocketLifecycleController._incarnatePlayer does.
         const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
@@ -68,7 +68,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         return { entity, entityId, warnings };
     }
 
-    it('applies the full data/world.json loadout to the incarnated player with no "no valid slot" warnings', () => {
+    it('applies the full data/world/world.json loadout to the incarnated player with no "no valid slot" warnings', () => {
         const { entity, warnings } = incarnatePlayer();
         const items = entity.items;
         expect(Array.isArray(items)).toBe(true);
@@ -99,7 +99,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         expect(invalidSlotWarnings).toEqual([]);
     });
 
-    it('resolves a valid slot for every data/world.json entry against a fresh smallBallDroid (unit-level)', () => {
+    it('resolves a valid slot for every data/world/world.json entry against a fresh smallBallDroid (unit-level)', () => {
         // Take the incarnated player and reset its items to [] so each entry is
         // resolved against the FRESH (empty) component capacities — the exact state
         // _applyInitialSpawns sees on first spawn. _resolveInitialSpawnSlot is a pure
@@ -108,7 +108,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         const { entity } = incarnatePlayer();
         const freshEntity = { ...entity, items: [] };
 
-        const config = DataLoader.loadJsonSafe('data/world.json', {});
+        const config = DataLoader.loadJsonSafe('data/world/world.json', {});
         const entries = config?.initialSpawns;
         expect(Array.isArray(entries)).toBe(true);
         expect(entries.length).toBeGreaterThan(0);

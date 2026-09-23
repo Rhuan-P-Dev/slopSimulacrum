@@ -6,7 +6,7 @@
  *
  * World note: buildWorld() pins the roster to exactly ONE NPC in addition to
  * the test droid, so a plain buildWorld() roster always has 2 planners —
- * deterministic against data/npcs.json growth (the crafterDrone merge 7b54605
+ * deterministic against data/entities/npcs.json growth (the crafterDrone merge 7b54605
  * broke this invariant and drifted this suite). The live registry no longer
  * spawns an un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated
  * OFF in tests), so the pin now spawns an explicit crafterDrone-blueprint
@@ -89,7 +89,7 @@ const KILL_EXISTENCE_DELTA = -175;
  * Builds a fresh world wired to a (non-started) tick system, spawns the test
  * droid, and returns the facade + tick system + turn system + droid id.
  *
- * The roster is kept DETERMINISTIC against data/npcs.json: the round-start
+ * The roster is kept DETERMINISTIC against data/entities/npcs.json: the round-start
  * roster is always [one NPC, test droid] = 2 planners — the invariant every
  * test in this file was written against. Since the live registry no longer
  * spawns an un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated

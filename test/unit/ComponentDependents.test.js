@@ -5,7 +5,7 @@
  * never a throw.  Also verifies the happy-path reverse-index construction
  * using the real component shape consumed by WorldStateController._cascadeDependents.
  *
- * Component shape (from entity.components[], see data/components.json +
+ * Component shape (from entity.components[], see data/components/components.json +
  * stateEntityController spawn logic):
  *   {
  *     id: string,            // unique instance uid, e.g. 'comp-centralBall-001'

@@ -86,16 +86,16 @@ class KnowledgeController {
     /**
      * @param {Object} deps - The ALREADY-LOADED registries (injected by the
      *   composition root; never loaded here).
-     * @param {Object} deps.traits - Raw data from data/traits.json
+     * @param {Object} deps.traits - Raw data from data/components/traits.json
      *   ({ group: { stat: number } } — the global trait molds).
-     * @param {Object} deps.materials - Raw data from data/materials.json
+     * @param {Object} deps.materials - Raw data from data/materials/materials.json
      *   ({ id: { name, density, properties } }).
      * @param {Object} deps.propertyTraitMapping - Raw data from
-     *   data/propertyTraitMapping.json (flat "Group.stat" keys; each entry has
+     *   data/materials/propertyTraitMapping.json (flat "Group.stat" keys; each entry has
      *   either `formula` or `sources`).
-     * @param {Object} deps.recipes - Raw data from data/crafting.json (keyed by
+     * @param {Object} deps.recipes - Raw data from data/systems/crafting.json (keyed by
      *   recipe id).
-     * @param {Object} deps.items - Raw data from data/inventoryItems.json
+     * @param {Object} deps.items - Raw data from data/components/inventoryItems.json
      *   (keyed by item type) — also the cross-validation source for every
      *   recipe input/output type (fail-fast at boot, never mid-game).
      */
@@ -107,7 +107,7 @@ class KnowledgeController {
         // fallback and the recipe-model wrapper — passes through.
         this._propertyTraitMapping = propertyTraitMapping;
         // The mapping registry is the recipe-model wrapper { derivedStats, flagThresholds }
-        // (data/propertyTraitMapping.json). Normalize it to the flat "Group.stat" body
+        // (data/materials/propertyTraitMapping.json). Normalize it to the flat "Group.stat" body
         // that the validators and the mapping rows operate on; a legacy flat map
         // (no derivedStats) passes through unchanged. Null-safe so a rejected
         // (null/array) registry is validated before it can be dereferenced.
@@ -382,13 +382,13 @@ class KnowledgeController {
 
     /**
      * The "stat" end of the derivation chain: the global trait molds from
-     * data/traits.json, deep-copied verbatim and preserving the data file's
+     * data/components/traits.json, deep-copied verbatim and preserving the data file's
  * group order (wiki/subMDs/frontend/knowledge_viewer.md).
      * @returns {Object<string, Object<string, number>>}
      * @private
      */
     _buildGroups() {
-        // data/traits.json may carry a top-level `_comment` metadata key; strip
+        // data/components/traits.json may carry a top-level `_comment` metadata key; strip
         // underscore-prefixed keys so the codex groups are clean.
         const groups = {};
         for (const [key, value] of Object.entries(this._traits)) {

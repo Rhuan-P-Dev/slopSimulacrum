@@ -7,7 +7,7 @@
 
 ## Symptoms
 
-Adding a new component-targeted attack action to `data/actions.json` required frontend and backend code to call `executePunch()` or `executeMultiPunch()` specifically. The backend checked `actionName === 'droid punch'` to enable multi-attacker synergy, meaning only that one action could use cooperative attacks. This violated the data-driven principle established by BUG-089.
+Adding a new component-targeted attack action to `data/systems/actions.json` required frontend and backend code to call `executePunch()` or `executeMultiPunch()` specifically. The backend checked `actionName === 'droid punch'` to enable multi-attacker synergy, meaning only that one action could use cooperative attacks. This violated the data-driven principle established by BUG-089.
 
 ## Root Cause
 
@@ -21,7 +21,7 @@ Renamed the punch-specific methods to generic component-attack names, and replac
 
 1. **Method names must describe the pattern, not the action** — use `executeComponentAttack` not `executePunch`
 2. **Backend checks must use `targetingType`, not action names** — `action.targetingType === 'component'`
-3. **Adding new attacks requires only `data/actions.json` changes** — if frontend code changes are needed, this is a bug
+3. **Adding new attacks requires only `data/systems/actions.json` changes** — if frontend code changes are needed, this is a bug
 
 ## References
 

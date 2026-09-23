@@ -6,7 +6,7 @@
 - **Related Files**:
   - `src/controllers/SynergyComponentGatherer.js` (lines 34-101)
   - `src/controllers/synergyController.js` (lines 64-98, 158-210, 223-262)
-  - `data/synergy.json` (lines 18-41)
+  - `data/systems/synergy.json` (lines 18-41)
 
 ## Symptoms
 
@@ -38,7 +38,7 @@ The `SynergyComponentGatherer` methods gathered **ALL matching components on the
 
 1. **`SynergyComponentGatherer.js`** — The gather methods now respect an `allowedComponentIds` filter: when components are explicitly provided for the action, only those count toward synergy — same-type siblings on the entity are no longer auto-included.
 2. **`synergyController.js`** — Provided components are filtered to a single component type (auto-detected from the provided components, since the static type field was removed from the config), and an allowed-ID set built from the provided components is passed down to the gatherer.
-3. **`data/synergy.json`** — All groups now use `groupType: "sameComponentType"` without a static `componentType` field; the component type is auto-detected from the source component at runtime, removing the risk of a stale or mismatched configured type.
+3. **`data/systems/synergy.json`** — All groups now use `groupType: "sameComponentType"` without a static `componentType` field; the component type is auto-detected from the source component at runtime, removing the risk of a stale or mismatched configured type.
 4. **`actionController.js`** — The preview path now passes the source component ID into the synergy computation, so previews reflect what actual execution will do.
 5. **`synergyRoutes.js`** — Both synergy preview routes pass the source component ID in the same way.
 

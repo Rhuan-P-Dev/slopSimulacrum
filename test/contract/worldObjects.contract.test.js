@@ -2,7 +2,7 @@
  * Contract tests for the world-objects system (static props) — see
  * wiki/subMDs/systems/world_objects.md.
  *
- * A world object (e.g. the tree in data/worldObjects.json) is materialized at
+ * A world object (e.g. the tree in data/world/worldObjects.json) is materialized at
  * boot as a STATIC ENTITY (isStatic: true) built from a blueprint. Being a real
  * entity, it is targetable and damageable through the normal combat pipeline
  * (a punch drains its component's existence; at 0 it breaks, drops material
@@ -18,7 +18,7 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 const findEntity = (wsc, blueprint) =>
     Object.values(wsc.getAll().entities).find(e => e.blueprint === blueprint);
 
-describe('World objects (static props) — data/worldObjects.json', () => {
+describe('World objects (static props) — data/world/worldObjects.json', () => {
     it('spawns the declared tree as an isStatic entity at the declared position with real matter and no loadout', () => {
         const { worldStateController: wsc } = buildWorldState(null);
         const tree = findEntity(wsc, 'tree');
@@ -26,7 +26,7 @@ describe('World objects (static props) — data/worldObjects.json', () => {
         expect(tree, 'the tree prop should spawn at boot').toBeTruthy();
         expect(tree.isStatic).toBe(true);
         expect(tree.name).toBe('Tree');
-        // Position straight from data/worldObjects.json (center-top: x 0, y -80).
+        // Position straight from data/world/worldObjects.json (center-top: x 0, y -80).
         expect(tree.spatial).toEqual({ x: 0, y: -80 });
         // Matter is real, validated data — the tree component is 100% wood.
         const compId = tree.components[0].id;
@@ -62,7 +62,7 @@ describe('World objects (static props) — data/worldObjects.json', () => {
         const { worldStateController: wsc } = buildWorldState(null);
         const tree = findEntity(wsc, 'tree');
         // The registry no longer ships a puncher droid (the smallBallDroid
-        // "Rogue Droid" entry was removed from data/npcs.json): spawn one,
+        // "Rogue Droid" entry was removed from data/entities/npcs.json): spawn one,
         // the same way test 1 spawns its roster droid.
         const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
         const rogue = wsc.getEntity(wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId));

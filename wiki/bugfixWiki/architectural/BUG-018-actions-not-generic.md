@@ -3,7 +3,7 @@
 - **Severity**: ARCHITECTURAL
 - **Status**: ✅ Fixed
 - **Fixed In**: `462ecc5` ("fix: make actions generic"), `be6858d` ("feat(actions): implement data-driven action system")
-- **Related Files**: `data/actions.json`, `src/controllers/actionController.js`
+- **Related Files**: `data/systems/actions.json`, `src/controllers/actionController.js`
 
 ## Symptoms
 

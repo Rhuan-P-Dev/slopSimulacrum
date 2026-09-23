@@ -6,7 +6,7 @@
  * Node server and the browser. These strings form a WIRE CONTRACT: world-state
  * stat maps (the nested `stats[<group>][<stat>]` form and the flat
  * `stats['<group>.<stat>']` form), the requirement definitions in
- * `data/actions.json`, the derived-stat keys in `data/propertyTraitMapping.json`,
+ * `data/systems/actions.json`, the derived-stat keys in `data/materials/propertyTraitMapping.json`,
  * and the range expressions in `shared/RangeResolver.js` all key off exactly
  * these strings, so a spelling that drifts from the data files silently breaks
  * stat lookups and damage application. The data files under `data/*.json` must
@@ -97,10 +97,10 @@ export const STAT_NAMES = {
  * Damage-channel names. Damage arrives with a channel and consumes matter one
  * material at a time, starting with the material least resistant to that
  * channel, so a cut is trivial on iron and fatal on a cable. The six channels
- * map one-to-one onto the six material properties in `data/materials.json` —
+ * map one-to-one onto the six material properties in `data/materials/materials.json` —
  * three as direct resistance, three as susceptibility inverted at conversion —
  * so no new material science is invented; the translation lives in
- * `data/propertyTraitMapping.json`, the single balance lever.
+ * `data/materials/propertyTraitMapping.json`, the single balance lever.
  * @type {Object.<string, string>}
  */
 export const DAMAGE_CHANNELS = {
@@ -117,7 +117,7 @@ export const DAMAGE_CHANNELS = {
  * channels and interactions apply to a component; they never add or multiply a
  * stat value (that would give a stat a second source and break derivation).
  *   - `flammable`, `conductive`: derived on read whenever a material property
- *     crosses a threshold declared in `data/propertyTraitMapping.json`;
+ *     crosses a threshold declared in `data/materials/propertyTraitMapping.json`;
  *   - `corrosive`: granted by a specific internal component (organ).
  * @type {Object.<string, string>}
  */

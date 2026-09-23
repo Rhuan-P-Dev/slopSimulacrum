@@ -38,7 +38,7 @@ import {
 // truth). Kept intentionally small but representative.
 // ---------------------------------------------------------------------------
 
-/** @type {Object} data/traits.json */
+/** @type {Object} data/components/traits.json */
 const TRAITS = {
     Physical: {
         existence: 100, mass: 10, volume: 1, temperature: 20,
@@ -50,7 +50,7 @@ const TRAITS = {
     Manipulation: { fine_controls: 10 },
 };
 
-/** @type {Object} data/propertyTraitMapping.json (flat "Group.stat" keys) */
+/** @type {Object} data/materials/propertyTraitMapping.json (flat "Group.stat" keys) */
 const PROPERTY_TRAIT_MAPPING = {
     'Physical.mass': { formula: 'densityVolume' },
     'Physical.existence': {
@@ -59,7 +59,7 @@ const PROPERTY_TRAIT_MAPPING = {
     'Physical.flammability': { sources: { flammability: 1.0 } },
 };
 
-/** @type {Object} data/materials.json */
+/** @type {Object} data/materials/materials.json */
 const MATERIALS = {
     wood: {
         name: 'Wood', density: 0.6,
@@ -77,7 +77,7 @@ const MATERIALS = {
     },
 };
 
-/** @type {Object} data/crafting.json */
+/** @type {Object} data/systems/crafting.json */
 const CRAFTING = {
     single_knife_to_t1: {
         id: 'single_knife_to_t1',
@@ -95,7 +95,7 @@ const CRAFTING = {
     },
 };
 
-/** @type {Object} data/inventoryItems.json (subset, representative) */
+/** @type {Object} data/components/inventoryItems.json (subset, representative) */
 const INVENTORY_ITEMS = {
     knife: {
         name: 'Knife',

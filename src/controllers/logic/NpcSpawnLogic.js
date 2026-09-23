@@ -1,7 +1,7 @@
 /**
  * NpcSpawnLogic — FASE 6 (facade logic extraction).
  *
- * Data-driven NPC spawning (Feature D, spec §7.2): loads data/npcs.json and,
+ * Data-driven NPC spawning (Feature D, spec §7.2): loads data/entities/npcs.json and,
  * per registry entry, gates on env, validates the optional ai block, assembles
  * the persisted npcConfig, spawns the entity, positions it at the room center,
  * and applies the declared initialItems (add / nest / equip — warnings only,
@@ -20,7 +20,7 @@ import Logger from '../../utils/Logger.js';
 import { isEnvFlagOn } from '../../utils/Constants.js';
 
 /**
- * Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
+ * Spawns every NPC declared in data/entities/npcs.json (Feature D, spec §7.2).
  *
  * Registry shape (key = blueprint name; the same registry LLMAgentController
  * validates in its constructor):
@@ -73,7 +73,7 @@ import { isEnvFlagOn } from '../../utils/Constants.js';
 
 
 function spawnDataDrivenNpcs(facade) {
-    const raw = DataLoader.loadJsonSafe('data/npcs.json', {});
+    const raw = DataLoader.loadJsonSafe('data/entities/npcs.json', {});
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return; // no NPC registry configured — not an error
     }
@@ -127,7 +127,7 @@ function spawnDataDrivenNpcs(facade) {
         }
     }
     if (count > 0) {
-        Logger.info(`[WorldStateController] ${count} NPC(s) spawned from data/npcs.json.`);
+        Logger.info(`[WorldStateController] ${count} NPC(s) spawned from data/entities/npcs.json.`);
     }
 }
 
@@ -223,7 +223,7 @@ function normalizeNpcAiConfig(facade, entry) {
  * objective feature.
  *
  * Note: the LLM prompt is rendered from the agent's in-memory registry
- * (LLMAgentController._loadNpcRegistry re-reads data/npcs.json), NOT
+ * (LLMAgentController._loadNpcRegistry re-reads data/entities/npcs.json), NOT
  * from this persisted npcConfig copy — that one exists for
  * serialization and inspection only; the two stay in sync via the
  * data file.
@@ -324,7 +324,7 @@ function applyInitialItems(facade, entityId, entry) {
 /**
  * Resolves the host component for an initialItems entry flagged
  * `equip: true`: the first component whose current stats satisfy the item
- * type's holding-cost requirements (data/holdingCost.json), so the
+ * type's holding-cost requirements (data/components/holdingCost.json), so the
  * subsequent equipItem() call can actually succeed (e.g. a droidHand with
  * strength, not a bare droidArm). Falls back to the standard
  * arm/hand/first-component chain when no component qualifies — in that

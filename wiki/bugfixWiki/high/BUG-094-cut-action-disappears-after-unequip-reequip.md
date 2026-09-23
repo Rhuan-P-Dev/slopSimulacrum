@@ -11,7 +11,7 @@ When a knife is equipped and used for the `cut` action, its sharpness stat drain
 
 ## Root Cause
 
-`HoldingCostController.unequipItem()` called `this.equippedItemStats.removeStats(itemId)`, which completely deleted the item's mutable stats from the in-memory `_itemStats` map. On re-equip, `EquippedItemStatsController.initializeStats()` creates a fresh copy from `data/inventoryItems.json`, restoring all stats to their base values.
+`HoldingCostController.unequipItem()` called `this.equippedItemStats.removeStats(itemId)`, which completely deleted the item's mutable stats from the in-memory `_itemStats` map. On re-equip, `EquippedItemStatsController.initializeStats()` creates a fresh copy from `data/components/inventoryItems.json`, restoring all stats to their base values.
 
 `EquippedItemStatsController.initializeStats()` already had a guard that preserves existing stats, but the guard was never reached: `removeStats()` deleted the stats on unequip, so re-equip always treated the item as brand-new and re-initialized every stat to its base value.
 

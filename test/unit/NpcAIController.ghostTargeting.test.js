@@ -44,7 +44,7 @@ const LIVING_ID = 'ent-live-0001';
 
 /**
  * The chasing droid — deterministic chase_attack brain (exactly like
- * data/npcs.json → WorldStateController._spawnNpcs), standing at the origin.
+ * data/entities/npcs.json → WorldStateController._spawnNpcs), standing at the origin.
  */
 const NPC_ENTITY = {
     id: NPC_ID,

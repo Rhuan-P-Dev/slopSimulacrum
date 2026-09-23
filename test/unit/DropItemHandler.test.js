@@ -32,7 +32,7 @@ function buildNarrowDeps() {
     return { deps, map };
 }
 
-const VALID_ITEM_TYPE = 'knife'; // from data/inventoryItems.json convention
+const VALID_ITEM_TYPE = 'knife'; // from data/components/inventoryItems.json convention
 const ITEM_DEF = { name: 'Knife', description: 'A sharp knife.', volume: 2 };
 
 // =========================================================================

@@ -28,7 +28,7 @@ import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
 /**
  * Flat "trait.stat" key for Physical.existence — derived from the shared
  * stat vocabulary so the `stats[<key>]` lookup key can never drift from
- * data/traits.json (reproduces the `stats['Physical.existence']` format).
+ * data/components/traits.json (reproduces the `stats['Physical.existence']` format).
  * @constant
  */
 const EXISTENCE_FLAT_KEY = flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.EXISTENCE);
@@ -204,7 +204,7 @@ function pickSourceComponent(actionsSnapshot, actionName) {
 class InstinctController {
     /**
      * @param {Object} deps
-     * @param {Object} deps.actionRegistry — data/actions.json
+     * @param {Object} deps.actionRegistry — data/systems/actions.json
      */
     constructor({ actionRegistry }) {
         this._actionRegistry = actionRegistry || {};

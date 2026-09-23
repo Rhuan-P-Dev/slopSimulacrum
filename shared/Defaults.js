@@ -17,8 +17,8 @@
 
 /**
  * Blueprint name used to spawn the player droid when a client connects.
- * Anchored in `data/blueprints.json` (and mirrored by the NPCs in
- * `data/npcs.json`).
+ * Anchored in `data/entities/blueprints.json` (and mirrored by the NPCs in
+ * `data/entities/npcs.json`).
  * @type {string}
  */
 export const DEFAULT_PLAYER_BLUEPRINT = 'm1Droid';
@@ -26,7 +26,7 @@ export const DEFAULT_PLAYER_BLUEPRINT = 'm1Droid';
 /**
  * Fallback volume for an item whose `volume` field is missing or undefined.
  * 0 was chosen deliberately:
- *   - every entry in `data/inventoryItems.json` defines a volume, so this
+ *   - every entry in `data/components/inventoryItems.json` defines a volume, so this
  *     fallback only ever fires on malformed/missing data;
  *   - 0 is the safe direction: it can never falsely block an inventory
  *     from accepting an item (capacity) or inflate holding cost, whereas

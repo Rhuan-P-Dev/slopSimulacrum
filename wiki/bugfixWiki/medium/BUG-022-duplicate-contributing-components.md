@@ -11,7 +11,7 @@ In the synergy preview "Contributing Components:" section, the same component ap
 
 ## Root Cause
 
-The `dash` synergy configuration in `data/synergy.json` has **two component groups** (a `sameComponentType` group for `droidRollingBall` and a `movementComponents` group). Both groups matched the same 2 `droidRollingBall` components (they have both the `droidRollingBall` type AND `Movement` traits), so each component was counted once per matching group, producing 4 entries for 2 physical components.
+The `dash` synergy configuration in `data/systems/synergy.json` has **two component groups** (a `sameComponentType` group for `droidRollingBall` and a `movementComponents` group). Both groups matched the same 2 `droidRollingBall` components (they have both the `droidRollingBall` type AND `Movement` traits), so each component was counted once per matching group, producing 4 entries for 2 physical components.
 
 ## Fix
 

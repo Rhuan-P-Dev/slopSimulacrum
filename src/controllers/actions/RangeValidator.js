@@ -140,7 +140,7 @@ class RangeValidator {
      * coordinate (targetX/targetY) instead of a target entity.
      *
      * This is the SERVER-SIDE enforcement that mirrors the client's range display.
-     * The range expression (from data/actions.json) is resolved with the shared
+     * The range expression (from data/systems/actions.json) is resolved with the shared
      * RangeResolver — the SAME single source of truth the client uses to render
      * the range indicator — so the actual enforced range always matches the
      * displayed range.

@@ -5,7 +5,7 @@ import DataLoader from '../../utils/DataLoader.js';
  * EntityController is responsible for storing entity blueprints and
  * managing the composition of entities.
  * 
- * Blueprints are data-driven: loaded from data/blueprints.json at runtime
+ * Blueprints are data-driven: loaded from data/entities/blueprints.json at runtime
  * via the DataLoader utility, following the data-driven design principle.
  * 
  * dependsOn: expandBlueprint builds a tree structure with parent
@@ -18,7 +18,7 @@ class EntityController {
         
         // Load blueprints from data file (decoupled from code).
         // If blueprints are injected (e.g., for testing), use those instead.
-        this.blueprints = blueprints || DataLoader.loadJsonSafe('data/blueprints.json', {});
+        this.blueprints = blueprints || DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
     }
 
     /**

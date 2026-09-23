@@ -6,7 +6,7 @@
  * removed top-level `itemDef.traits`):
  *
  *   1. The capability scan surfaces `cut` for an equipped knife. The knife
- *      recipe (`data/inventoryItems.json`) declares NO top-level `traits` — its
+ *      recipe (`data/components/inventoryItems.json`) declares NO top-level `traits` — its
  *      stats derive from matter — so the old `if (!itemDef?.traits) continue;`
  *      gate skipped the equipped knife entirely. The relaxation reads the
  *      knife's live per-instance stats (from EquippedItemStatsController) or
@@ -92,7 +92,7 @@ function seedKnifeStats(eqId) {
  *
  * The `form.traits` fallback in the capability scan and the requirement resolver is
  * defensive against legacy/fixture definitions — current production data ships no
- * item `traits` (data/inventoryItems.json carries only `form`/`materials`), and
+ * item `traits` (data/components/inventoryItems.json carries only `form`/`materials`), and
  * `initializeStats` always seeds `Physical.existence`, so the only public path to
  * "no live stats" is `removeStats(eqId)`. This is therefore the only way to exercise
  * the "no live stats → base traits" branch without editing data files. Precedent for

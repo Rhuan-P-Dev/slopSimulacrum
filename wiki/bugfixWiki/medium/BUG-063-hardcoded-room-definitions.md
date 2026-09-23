@@ -3,7 +3,7 @@
 - **Severity**: MEDIUM
 - **Status**: ✅ Fixed
 - **Fixed In**: `3267ec8` (feat: add world map overlay UI and update controller docs)
-- **Related Files**: `src/controllers/core/RoomsController.js`, `data/rooms.json`
+- **Related Files**: `src/controllers/core/RoomsController.js`, `data/world/rooms.json`
 
 ## Symptoms
 
@@ -20,7 +20,7 @@ The `RoomsController` constructor contained a hardcoded `roomDefinitions` object
 
 ## Fix
 
-Room definitions were externalized to `data/rooms.json` so that rooms can be added or modified as data rather than through code changes. `RoomsController` now loads the file via `DataLoader.loadJsonSafe()`, validates it with the standard `_validate*()` pattern before initialization, and logs the initialization count via `Logger` — aligning room handling with the data loading standard used by every other state controller.
+Room definitions were externalized to `data/world/rooms.json` so that rooms can be added or modified as data rather than through code changes. `RoomsController` now loads the file via `DataLoader.loadJsonSafe()`, validates it with the standard `_validate*()` pattern before initialization, and logs the initialization count via `Logger` — aligning room handling with the data loading standard used by every other state controller.
 
 ## Prevention
 

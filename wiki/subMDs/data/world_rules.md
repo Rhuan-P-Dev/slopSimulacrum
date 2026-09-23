@@ -1,10 +1,10 @@
-# World Rules — data/world_rules.json
+# World Rules — data/world/world_rules.json
 
 A world rule is a **law of the world**: a stable string key mapping to a small config object that governs a cross-cutting behavior. It is not a loot table, not a per-entity attribute, and not an action parameter. Rules are global, data-driven, and additive to the existing damage-and-drop system.
 
 ## Why this layer exists
 
-The chunk-drop system (see [material_damage_and_drop.md](material_damage_and_drop.md)) was designed as a *probabilistic* mechanic governed by per-material levers in `data/materialDropRates.json`. The torn-material rule introduces a complementary *deterministic* stream — a fixed percentage of applied loss always drops as torn matter. Mixing this logic into the `MaterialController` would conflate two distinct policy concerns (loot probability vs. world law) and couple the chunk system to a feature that may evolve independently.
+The chunk-drop system (see [material_damage_and_drop.md](material_damage_and_drop.md)) was designed as a *probabilistic* mechanic governed by per-material levers in `data/materials/materialDropRates.json`. The torn-material rule introduces a complementary *deterministic* stream — a fixed percentage of applied loss always drops as torn matter. Mixing this logic into the `MaterialController` would conflate two distinct policy concerns (loot probability vs. world law) and couple the chunk system to a feature that may evolve independently.
 
 The layer has since grown a second kind of law — a *probabilistic event law* (`onDamage`): a small chance, on any damage to a component, that a chunk of its material flies off. It lives here for the same reason the torn rule does: it is a law of the world, not a lever of the chunk system, and it must be able to evolve (new event keys, new drop tokens) without touching the material files or the chunk handler's per-material rolls.
 

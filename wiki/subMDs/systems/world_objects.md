@@ -56,7 +56,7 @@ stall the turn system).**
 
 ## 4. Why Matter Comes From a Blueprint
 
-A prop is built from a **blueprint** (`data/blueprints.json`), not from a raw
+A prop is built from a **blueprint** (`data/entities/blueprints.json`), not from a raw
 component or its own material list. The blueprint maps to one or more
 components, and each component's composition is already validated at boot
 (material fractions must sum to `1.0`) — the same Single Source of Truth rule
@@ -89,12 +89,12 @@ special-casing:
 This closes the loop that makes the tree more than decoration: **hit the tree →
 wood chunks drop (on the non-lethal hits) → pick them up → craft them into
 coal** (the `wood_chunk_to_coal` recipe: `chunk_wood` → coal, in
-`data/crafting.json`). The prop's entire "100% wood" identity is what
+`data/systems/crafting.json`). The prop's entire "100% wood" identity is what
 determines what it drops.
 
 ## 6. The Loadout Opt-Out
 
-The spawn observer applies the declarative `data/world.json` `initialSpawns`
+The spawn observer applies the declarative `data/world/world.json` `initialSpawns`
 loadout to every non-NPC entity (the player's starting inventory). A prop must
 never receive that loadout — a decorative tree is not a droid. `_applyInitialSpawns`
 therefore opts out **both** `isNPC` and `isStatic` entities:
@@ -116,7 +116,7 @@ snapshot faithfully records that.
 
 ## 8. Declaration and Spawn
 
-- `data/worldObjects.json` — the registry. Shape:
+- `data/world/worldObjects.json` — the registry. Shape:
   `{ [key]: { name, blueprint, room, position?: { x, y } } }`. The key is a
   stable, cosmetic registry handle; the runtime identity is the spawned entity's
   id.

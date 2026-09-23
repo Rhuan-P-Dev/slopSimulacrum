@@ -120,7 +120,7 @@ class WorldStateController {
         this.instinctController = deps.instinctController ?? null;
         /** @private {import('./materials/MaterialController.js')|null} */
         this.materialController = deps.materialController ?? null;
-        // CraftingController: recipe registry (data/crafting.json). State
+        // CraftingController: recipe registry (data/systems/crafting.json). State
         // controller; null-tolerant like materialController (tests may build
         // the facade without it). Deliberately NOT in the subControllers map
         // below: it has no getAll() and must stay out of the getAll()/
@@ -135,7 +135,7 @@ class WorldStateController {
         // aggregation (static codex data — the route reads it via getKnowledge()).
         /** @private {import('./knowledge/KnowledgeController.js')|null} */
         this.knowledgeController = deps.knowledgeController ?? null;
-        // WorldRulesController: world-level rules registry (data/world_rules.json).
+        // WorldRulesController: world-level rules registry (data/world/world_rules.json).
         // Null-tolerant like craftingController/knowledgeController — a test may
         // hand-build the facade without it. Deliberately NOT in the subControllers
         // broadcast map: static config data must stay out of the full-state
@@ -220,11 +220,11 @@ class WorldStateController {
      * player droids are incarnated only via socket connection.
      */
     initializeWorld() {
-        // Static world objects (props) declared in data/worldObjects.json are
+        // Static world objects (props) declared in data/world/worldObjects.json are
         // materialized as isStatic entities (see _spawnStaticProps). Spawned
         // first so they are settled scenery before the actors arrive.
         this._spawnStaticProps();
-        // Feature D (spec §7.2): spawn the data-driven NPCs from data/npcs.json
+        // Feature D (spec §7.2): spawn the data-driven NPCs from data/entities/npcs.json
         // (e.g. "Bolt the Merchant" in the start room). NPCs are NOT in
         // world.json initialSpawns — their goods come from initialItems.
         this._spawnNpcs();
@@ -234,7 +234,7 @@ class WorldStateController {
     }
 
     /**
-     * Spawns every world object (prop) declared in data/worldObjects.json as a
+     * Spawns every world object (prop) declared in data/world/worldObjects.json as a
      * STATIC entity.
      *
      * A prop is a real entity built from a blueprint — not a parallel, non-entity
@@ -259,7 +259,7 @@ class WorldStateController {
      * @private
      */
     _spawnStaticProps() {
-        const raw = DataLoader.loadJsonSafe('data/worldObjects.json', {});
+        const raw = DataLoader.loadJsonSafe('data/world/worldObjects.json', {});
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             return; // no world-object registry configured — not an error
         }
@@ -308,13 +308,13 @@ class WorldStateController {
             }
         }
         if (count > 0) {
-            Logger.info(`[WorldStateController] ${count} world object(s) spawned from data/worldObjects.json.`);
+            Logger.info(`[WorldStateController] ${count} world object(s) spawned from data/world/worldObjects.json.`);
         }
     }
 
     /**
     /**
-     * FASE 6 (facade logic extraction): Spawns every NPC declared in data/npcs.json (Feature D, spec §7.2).
+     * FASE 6 (facade logic extraction): Spawns every NPC declared in data/entities/npcs.json (Feature D, spec §7.2).
      * Implementation: src/controllers/logic/NpcSpawnLogic.js (`spawnDataDrivenNpcs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -464,7 +464,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Applies the declarative initial spawns from data/world.json to a spawned entity.
+     * FASE 6 (facade logic extraction): Applies the declarative initial spawns from data/world/world.json to a spawned entity.
      * Implementation: src/controllers/logic/InitialSpawnLogic.js (`applyInitialSpawns`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.

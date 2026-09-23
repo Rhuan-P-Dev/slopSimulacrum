@@ -24,11 +24,11 @@ Equipped items are independent action sources, NOT merged into component stats. 
 
 ### Why data-driven?
 
-Burden definitions live in `data/holdingCost.json`, not hardcoded, so new equipable items do not require controller changes. The file declares how the mass burden applies; the mass itself is derived from the item's matter.
+Burden definitions live in `data/components/holdingCost.json`, not hardcoded, so new equipable items do not require controller changes. The file declares how the mass burden applies; the mass itself is derived from the item's matter.
 
 ## Data Model
 
-Each entry in `data/holdingCost.json` defines the burden of one equipable item type through mass rather than through a list of per-stat debuffs:
+Each entry in `data/components/holdingCost.json` defines the burden of one equipable item type through mass rather than through a list of per-stat debuffs:
 
 - **Equip gate** — the host must be able to bear the item's mass (a strength/mass check). All-or-nothing: a host can bear the item's mass or it cannot equip — there is no such thing as carrying only part of a burden.
 - **Carrying cost** — while equipped, the item's mass joins the carrier's total carried mass, which reduces the carrier's effective `move` and `fine_controls`.
@@ -75,8 +75,8 @@ Capability entries derived from equipped items carry metadata identifying the so
 
 ## Related Files
 
-- `data/holdingCost.json` — burden definitions (the single mass lever)
-- `data/inventoryItems.json` — item recipes: the item's own matter, form, and organs (source for action discovery)
+- `data/components/holdingCost.json` — burden definitions (the single mass lever)
+- `data/components/inventoryItems.json` — item recipes: the item's own matter, form, and organs (source for action discovery)
 - `src/controllers/core/HoldingCostController.js` — Core controller (equip/unequip, passes equippedItemStats)
 - `src/controllers/core/EquippedItemStatsController.js` — Per-instance stat storage for equipped items
 - `src/controllers/capabilities/componentCapabilityController.js` — Equipped-item action scanning with effective stats resolution

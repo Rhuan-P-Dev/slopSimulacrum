@@ -3,12 +3,12 @@
  *
  * Status of the system: the energy mechanic was REMOVED from the shipped
  * data:
- *   - `data/world_rules.json` no longer carries the `energyFlow` rule, so the
+ *   - `data/world/world_rules.json` no longer carries the `energyFlow` rule, so the
  *     flow step is fully off by configuration (per the degradation contract:
  *     missing key → the step no-ops — no entity enumeration, no stat writes,
  *     no broadcast, no per-turn log);
  *   - the `coalGenerator` organ no longer charges `Physical.energy` (inert
- *     `overTime` + empty `grants` in `data/internalComponents.json`, pinned by
+ *     `overTime` + empty `grants` in `data/components/internalComponents.json`, pinned by
  *     coalGenerator.contract.test.js).
  *
  * These tests therefore pin the OFF state against the REAL shipped data the
@@ -48,7 +48,7 @@ import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
 import WorldStateController from '../../src/controllers/WorldStateController.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WORLD_RULES_PATH = path.resolve(__dirname, '../../data/world_rules.json');
+const WORLD_RULES_PATH = path.resolve(__dirname, '../../data/world/world_rules.json');
 
 // Shipped value pinned from the data file — the key's ABSENCE is now the
 // contract. A data edit that re-adds `energyFlow` intentionally breaks (a).
@@ -121,7 +121,7 @@ function seedSkewed(world, entity) {
 }
 
 /**
- * Runs `fn` with data/world_rules.json swapped for `contents`, then restores
+ * Runs `fn` with data/world/world_rules.json swapped for `contents`, then restores
  * the original file in a finally — the rename-based file-swap idiom: the
  * degradation/re-activation contract is tested against the REAL file path the
  * DataLoader reads.
@@ -145,7 +145,7 @@ function withWorldRulesFile(contents, fn) {
 // =========================================================================
 
 describe('energy flow — (a) off by shipped data', () => {
-    it('data/world_rules.json carries no energyFlow key, yet the world builds and the M1 spawns', () => {
+    it('data/world/world_rules.json carries no energyFlow key, yet the world builds and the M1 spawns', () => {
         expect(worldRulesData.rules.energyFlow, 'the shipped data must not carry the rule').toBeUndefined();
 
         const { world, entity } = buildWorld();

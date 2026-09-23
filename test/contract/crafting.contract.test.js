@@ -18,7 +18,7 @@
  *   4. insufficient volume (heavy output) → INSUFFICIENT_VOLUME before any
  *      consumption (NO item loss); 0 broadcasts.
  *   5. unknown recipe / unknown entity / component not on entity → codes.
- *   6. getCraftingRecipes() is data-driven (returns the data/crafting.json entries).
+ *   6. getCraftingRecipes() is data-driven (returns the data/systems/crafting.json entries).
  *   7. queueAction('knife_to_t1') → ACTION_NOT_FOUND (documents the no-turn decision).
  *
  * @module test/contract/crafting.contract
@@ -256,7 +256,7 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         // CraftingController (the same dependency the composition root wires)
         // with a recipe whose output footprint (toolCrate, 30) far exceeds the
         // freed footprint (knife, 1) + free (3).
-        const itemRegistry = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        const itemRegistry = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
         wsc.craftingController = new CraftingController(
             {
                 heavy_swap: {
@@ -298,7 +298,7 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         // were created. getItemDefinitions is read only by the craft
         // pre-check, so the spy models definition drift precisely; the
         // persisted knife instances keep their original footprint of 1.
-        const realRegistry = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        const realRegistry = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
         const driftSpy = vi.spyOn(wsc.inventoryManager, 'getItemDefinitions')
             .mockReturnValue(structuredClone({ ...realRegistry, knife: { ...realRegistry.knife, volume: 2 } }));
 
@@ -395,14 +395,14 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
 });
 
 describe('crafting contract — data-driven registry & no-turn decision', () => {
-    it('getCraftingRecipes() returns the data/crafting.json entries (deep copies)', () => {
+    it('getCraftingRecipes() returns the data/systems/crafting.json entries (deep copies)', () => {
         const world = buildWorld();
         const { worldStateController: wsc } = world;
 
         const recipes = wsc.getCraftingRecipes();
         expect(Array.isArray(recipes)).toBe(true);
         // Four recipes: the two single-knife T1 assemblies + the two
-        // coal-conversion recipes (data/crafting.json).
+        // coal-conversion recipes (data/systems/crafting.json).
         expect(recipes).toHaveLength(4);
 
         const existing = recipes.find(r => r.id === 'knife_to_t1');

@@ -248,7 +248,7 @@ class SynergyPreviewController {
         }
 
         // ─── Component-targeted actions: Return numeric range if defined ──
-        // For component attacks, the range is usually a fixed value from data/actions.json
+        // For component attacks, the range is usually a fixed value from data/systems/actions.json
         // Expression-based ranges (e.g., ":Physical.strength*2+3") are resolved by ActionExecutor
         if (actionData?.targetingType === TARGETING_TYPES.COMPONENT) {
             const explicitRange = SynergyPreviewController.getExplicitRange(actionName, { [actionName]: actionData });

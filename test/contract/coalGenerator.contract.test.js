@@ -1,9 +1,9 @@
 /**
  * CONTRACT TEST — the M1 coal generator organ: the whole-entity energy-life loop.
  *
- * The coal generator is a FUEL BURNER (data/internalComponents.json) that
+ * The coal generator is a FUEL BURNER (data/components/internalComponents.json) that
  * charges the HOST ENTITY's energy attribute — a WHOLE-ENTITY stat seeded at
- * spawn from data/entity_attributes.json (100 units, max 100, drained 1/turn),
+ * spawn from data/components/entity_attributes.json (100 units, max 100, drained 1/turn),
  * not a per-component stat. This contract pins the full loop against the REAL
  * per-turn channel, driven WITHOUT real timers (the same house pattern the old
  * coal contract used): build the world via buildWorldState(tickSystem) (tick

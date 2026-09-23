@@ -58,5 +58,5 @@ RequirementResolver validates that resolved values are numeric. Non-numeric trai
 - Related wiki: `wiki/subMDs/controllers/component_resolver.md` — Component resolution (calls RequirementResolver)
 - Related wiki: `wiki/subMDs/controllers/equipped_item_stats_controller.md` — Per-instance mutable stat tracking
 - Related controller: `ActionController`, `ComponentResolver`
-- Related data file: `data/inventoryItems.json` — Item definitions with traits
-- Related data file: `data/actions.json` — Action definitions with requirements
+- Related data file: `data/components/inventoryItems.json` — Item definitions with traits
+- Related data file: `data/systems/actions.json` — Action definitions with requirements

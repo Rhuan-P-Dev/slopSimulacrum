@@ -43,7 +43,7 @@ class DamageConsequenceHandler {
        this.worldStateController = controllers.worldStateController;
        this.equippedItemStats = controllers.equippedItemStats || null;
        // Feature 1: the MaterialController owns the per-material damage-type
-       // distributions (data/materialDamageTypes.json). Null-tolerant so the
+       // distributions (data/materials/materialDamageTypes.json). Null-tolerant so the
        // feature degrades gracefully (declared channel keeps 100%) when absent.
        this.materialController = controllers.materialController || null;
        // Public test seam for the random-component spread handler:_sampleRandomComponents

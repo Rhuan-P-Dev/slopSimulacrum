@@ -17,16 +17,16 @@ import { writeDroppedItem } from '../consequences/DropItemHandler.js';
 class InternalComponentController {
     /**
      * @param {Object} [internalComponentRegistry] - Pre-loaded internal component definitions.
-     *   If not provided, loads from data/internalComponents.json.
+     *   If not provided, loads from data/components/internalComponents.json.
      * @param {UniversalTickSystem} [tickSystem] - The global tick system instance.
      */
     constructor(internalComponentRegistry = null, tickSystem = null) {
         // Load registry from data file
-        this.registry = internalComponentRegistry || DataLoader.loadJsonSafe('data/internalComponents.json', {});
+        this.registry = internalComponentRegistry || DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
         this._validateRegistry(this.registry);
 
         // Load component definitions for trait checking
-        this.componentDefinitions = DataLoader.loadJsonSafe('data/components.json', {});
+        this.componentDefinitions = DataLoader.loadJsonSafe('data/components/components.json', {});
         this._validateComponentDeclarations();
 
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }
@@ -162,7 +162,7 @@ class InternalComponentController {
     /**
      * Returns the organ declaration of the given type in a component type's
      * `internalComponents` list (the component's own data-driven organ list
-     * from data/components.json). A declaration is either a plain type string
+     * from data/components/components.json). A declaration is either a plain type string
      * (the organ type's default grants apply) or an object
      * `{ type, grants? }` whose `grants` override the organ type's defaults
      * for that recipe's instances (e.g. a stronger strengthCore on a
@@ -879,8 +879,8 @@ class InternalComponentController {
      * Whole units only: energy stays an exact multiple of the per-fuel gain
      * for the life of the droid, keeping the "1 fuel = N energy" balance lever
      * exact and testable. Cadence, gain and fuel-need come from the effect
-     * definition (data/internalComponents.json); the charging CEILING is the
-     * entity attribute's `max` (data/entity_attributes.json) — the single
+     * definition (data/components/internalComponents.json); the charging CEILING is the
+     * entity attribute's `max` (data/components/entity_attributes.json) — the single
      * source of truth, enforced by setEntityAttributeDelta on every write.
      *
      * Invariant: the fuel snapshot (getEntityItems) and the removals
@@ -918,8 +918,8 @@ class InternalComponentController {
         const statName = effect.targetStat.slice(dot + 1);
 
         // Rule 0 — single source of truth for the ceiling: the whole-entity
-        // energy cap is the entity attribute's `max` (data/entity_attributes.json),
-        // NOT the organ's `energyCapacity` (data/internalComponents.json). The
+        // energy cap is the entity attribute's `max` (data/components/entity_attributes.json),
+        // NOT the organ's `energyCapacity` (data/components/internalComponents.json). The
         // two files must not silently diverge — the attribute `max` is what
         // setEntityAttributeDelta enforces on every write, so it is the true
         // ceiling. If the entity carries no such attribute declaration (the data
@@ -1229,7 +1229,7 @@ class InternalComponentController {
 
     /**
      * Checks if a component type has all the required traits for an internal component.
-     * Reads trait definitions from data/components.json and verifies each required
+     * Reads trait definitions from data/components/components.json and verifies each required
      * trait has the stat with a value >= minValue.
      *
      * @param {string} componentType - The component type to check.

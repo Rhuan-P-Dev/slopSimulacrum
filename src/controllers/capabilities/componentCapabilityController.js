@@ -974,7 +974,7 @@ class ComponentCapabilityController {
      * that match the item's traits. Equipped items are checked independently
      * from entity components — their traits satisfy action requirements directly.
      *
-     * When an item is equipped, its traits (from data/inventoryItems.json) are
+     * When an item is equipped, its traits (from data/components/inventoryItems.json) are
      * checked against all registered actions. If the item's traits satisfy an
      * action's requirements, that action becomes available in the capability cache
      * as an equipped item entry.

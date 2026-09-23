@@ -44,7 +44,7 @@ import {
 
 // --- Fixtures ------------------------------------------------------------------
 
-/** A simple two-knife → one-t1 recipe (mirrors a real data/crafting.json entry) */
+/** A simple two-knife → one-t1 recipe (mirrors a real data/systems/crafting.json entry) */
 const KNIFE_TO_T1 = {
     id: 'knife_to_t1',
     name: 'T1 Assembly',

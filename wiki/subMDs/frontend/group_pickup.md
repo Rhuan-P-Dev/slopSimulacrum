@@ -34,7 +34,7 @@ unchanged — the historical overlay flow still runs.
 ## Why data-driven (and which layer owns what)
 
 The cluster `radius` and trigger `minItems` live in
-`data/actions.json` under `pickUpItem.groupPick` — the same file that owns
+`data/systems/actions.json` under `pickUpItem.groupPick` — the same file that owns
 the pickup range and requirements. The capability projection
 (`GET /actions` / per-entity actions) spreads raw action data, so the
 sub-object reaches the client intact; `AppConfig.GROUP_PICK` is only the
@@ -71,7 +71,7 @@ marker click
 
 ## Files
 
-- `data/actions.json` — `pickUpItem.groupPick` (`radius`, `minItems`).
+- `data/systems/actions.json` — `pickUpItem.groupPick` (`radius`, `minItems`).
 - `public/utils/GroupPick.js` — pure decision core: `resolveGroupPickConfig`
   (data-driven config + fallback), `clusterAround` (cluster detection),
   `groupIntoStacks` (per-type stacks with the in/out-of-range split and
@@ -94,5 +94,5 @@ marker click
 - `test/unit/GroupPick.utils.test.js` — the pure decision core (cluster
   math, stacking, filter, expansion clamping, config fallback).
 - `test/contract/groupPick.contract.test.js` — the data path on the real
-  world: `data/actions.json` validity, and the `groupPick` sub-object
+  world: `data/systems/actions.json` validity, and the `groupPick` sub-object
   surviving both capability projections (shared and entity-scoped).

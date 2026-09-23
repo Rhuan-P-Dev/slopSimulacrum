@@ -4,8 +4,8 @@
  *
  * Construction/mock seam (mirrors test/unit/WorldStateController.npcValidation.test.js):
  *   - A single top-level vi.mock of '../../src/utils/DataLoader.js' serves a fixture
- *     data/npcs.json (entries mirroring the production field shape) and a minimal
- *     data/rooms.json; all other paths delegate to the real DataLoader.
+ *     data/entities/npcs.json (entries mirroring the production field shape) and a minimal
+ *     data/world/rooms.json; all other paths delegate to the real DataLoader.
  *   - The full controller is built via buildWorldState(tickSystem) — which already
  *     runs initializeWorld() → _spawnNpcs() — so the gate is evaluated at build time
  *     against the process.env state set by each test before the build.
@@ -41,10 +41,10 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import Logger from '../../src/utils/Logger.js';
 
 // =========================================================================
-// Fixture data (mirrors the production data/npcs.json field shape)
+// Fixture data (mirrors the production data/entities/npcs.json field shape)
 // =========================================================================
 
-/** The env var the drone entry's envGate names (production: data/npcs.json). */
+/** The env var the drone entry's envGate names (production: data/entities/npcs.json). */
 const GATE_VAR = 'KILLER_LLM_DRONE_ENABLED';
 
 /**
@@ -112,7 +112,7 @@ let fixtureNpcs = null;
 /**
  * Sets the fixture npcs.json registry for the next buildWorldState call.
  * @param {Object} entries - Keyed map { [blueprint]: entry } (blueprint keys must
- *   exist in data/blueprints.json so spawnEntity can resolve them).
+ *   exist in data/entities/blueprints.json so spawnEntity can resolve them).
  */
 function setFixture(entries) {
     fixtureNpcs = entries;
@@ -133,10 +133,10 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
     return {
         default: {
             loadJsonSafe(path, defaultValue) {
-                if (path === 'data/npcs.json') {
+                if (path === 'data/entities/npcs.json') {
                     return fixtureNpcs !== null ? fixtureNpcs : defaultValue;
                 }
-                if (path === 'data/rooms.json') {
+                if (path === 'data/world/rooms.json') {
                     // Minimal room definition that passes RoomsController validation
                     return {
                         start_room: {

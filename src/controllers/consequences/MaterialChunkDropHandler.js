@@ -30,7 +30,7 @@ class MaterialChunkDropHandler {
      * @param {Object} deps - Named dependencies.
      * @param {WorldStateController} deps.worldStateController - The facade (injected post-construction).
      * @param {MaterialController|null} deps.materialController - Owns the drop-rates registry
-     *   (data/materialDropRates.json). Null-tolerant: feature off → no drops.
+     *   (data/materials/materialDropRates.json). Null-tolerant: feature off → no drops.
      */
     constructor(deps = {}) {
         this.worldStateController = deps.worldStateController || null;

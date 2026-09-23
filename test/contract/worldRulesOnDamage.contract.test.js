@@ -55,12 +55,12 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(projectRoot, rel)
 
 const RESISTANCE_SCALE = 100;
 
-const dropRates = readJson('data/materialDropRates.json');
-const worldRules = readJson('data/world_rules.json');
+const dropRates = readJson('data/materials/materialDropRates.json');
+const worldRules = readJson('data/world/world_rules.json');
 const tornPercent = worldRules.rules.damageTornMaterial.percent;
 const onDamagePercentage = worldRules.rules.onDamage[0].percentage;
 
-const WORLD_RULES_PATH = path.join(projectRoot, 'data/world_rules.json');
+const WORLD_RULES_PATH = path.join(projectRoot, 'data/world/world_rules.json');
 
 /** A fresh, not-started world. NO seam pin here — the onDamage roll is the
  *  subject under test and each test pins `world.onDamageDropListener._randomFn`
@@ -167,7 +167,7 @@ function closeRound(turns) {
 // =========================================================================
 function hideWorldRulesFile() {
     if (fs.existsSync(WORLD_RULES_PATH + '.bak')) {
-        throw new Error('data/world_rules.json.bak already exists — restore it before swapping the file');
+        throw new Error('data/world/world_rules.json.bak already exists — restore it before swapping the file');
     }
     fs.renameSync(WORLD_RULES_PATH, WORLD_RULES_PATH + '.bak');
 }

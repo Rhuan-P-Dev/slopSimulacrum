@@ -26,11 +26,11 @@ The old "blueprints without a materials field produce byte-identical stats" guar
 
 ## Data Model
 
-### `data/materials.json`
+### `data/materials/materials.json`
 
 Each entry declares one raw material's physical profile: a density (so mass can be derived from how much of the material an object contains and how big the object is) and a set of physical properties on a shared 0–100 scale. The property set maps **one-to-one onto the six damage channels** — cut, impact, wear, heat, electricity, corrosion — three as resistance and three as susceptibility inverted at conversion, so no new material science is invented when the channel resistances are derived. What matters conceptually is that materials describe *what something is made of*, never *how it plays*.
 
-### `data/propertyTraitMapping.json`
+### `data/materials/propertyTraitMapping.json`
 
 This single table is the **only place where physical properties are translated into derived stats** — the expanded heart of the basic stat set:
 
@@ -44,7 +44,7 @@ The exact weights and thresholds live in the data file and are the only balance 
 
 ## The Single Reader of Material Knowledge
 
-`MaterialController` is the **single owner of all material knowledge**. It reads the four material registries — the composition (`data/materials.json`), the property→stat mapping (`data/propertyTraitMapping.json`), the per-material damage-type split (`data/materialDamageTypes.json`), and the per-material punch drop rates (`data/materialDropRates.json`) — and every other part of the system asks *it* "what is this material?" rather than reaching into those files directly.
+`MaterialController` is the **single owner of all material knowledge**. It reads the four material registries — the composition (`data/materials/materials.json`), the property→stat mapping (`data/materials/propertyTraitMapping.json`), the per-material damage-type split (`data/materials/materialDamageTypes.json`), and the per-material punch drop rates (`data/materials/materialDropRates.json`) — and every other part of the system asks *it* "what is this material?" rather than reaching into those files directly.
 
 Keeping one owner for all four registries means the combat layer (damage split) and the salvage layer (chunk drops) consult the same source for "what is this material," so the two features can never disagree about a material's identity or silently read two copies of the same knowledge. It also inherits the controller's existing invariants for free: loaded once at the composition root, validated at construction, and returning defensive copies on every read.
 

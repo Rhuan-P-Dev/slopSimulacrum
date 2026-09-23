@@ -2,13 +2,13 @@
 
 ## Current state
 
-**Off by data.** The `energyFlow` rule was removed from `data/world_rules.json`, and the `coalGenerator` organ no longer charges energy (inert `overTime`/grants in `data/internalComponents.json`). In every shipped world the per-turn flow step therefore no-ops: no entity enumeration, no stat writes, no broadcast, no log — exactly the "missing key" degradation path the design calls for. Nothing below the this section changes: every "why" here documents a code path that is still intact and still runs every round start; the entire mechanic can be re-activated by editing one data key back into `data/world_rules.json` (`test/contract/energyFlow.contract.test.js` scenario (e) pins the off state and that re-activation).
+**Off by data.** The `energyFlow` rule was removed from `data/world/world_rules.json`, and the `coalGenerator` organ no longer charges energy (inert `overTime`/grants in `data/components/internalComponents.json`). In every shipped world the per-turn flow step therefore no-ops: no entity enumeration, no stat writes, no broadcast, no log — exactly the "missing key" degradation path the design calls for. Nothing below the this section changes: every "why" here documents a code path that is still intact and still runs every round start; the entire mechanic can be re-activated by editing one data key back into `data/world/world_rules.json` (`test/contract/energyFlow.contract.test.js` scenario (e) pins the off state and that re-activation).
 
 ## 1. Overview
 
 The M1 droid is not a collection of independent batteries. Some of its parts generate energy (the fuel loop), none of the others have a source of their own, and a droid that can move is one organism, not twenty-three silos. The energy flow gives the entity a circulatory system: every round, each component that holds energy shares a fixed fraction of what it *started* the round with with its peers, until the pool has spread evenly through the whole network. Energy is a substance that circulates, not a number each part owns forever.
 
-The flow is a **law of the world**, not an action: it runs at **round start** (the turn-start hook, after the IC per-turn step) and is switched entirely by one key in `data/world_rules.json`. The client needs no flow logic at all — it already renders each component's `Physical.energy` stat bar dynamically, so it simply receives the updated states.
+The flow is a **law of the world**, not an action: it runs at **round start** (the turn-start hook, after the IC per-turn step) and is switched entirely by one key in `data/world/world_rules.json`. The client needs no flow logic at all — it already renders each component's `Physical.energy` stat bar dynamically, so it simply receives the updated states.
 
 ## 2. Why an entity is one fully-interconnected network
 
@@ -36,7 +36,7 @@ The flow must see what the IC per-turn step did *in the same round*. The coal ge
 
 ## 8. Why the rule is a single off-switch with total degradation
 
-The `energyFlow` entry in `data/world_rules.json` is the entire switch for the feature. Missing key, malformed key, missing file, or an explicit off — any of them leaves the flow fully off: one warning at boot, zero per-turn log noise, and the world boots and runs exactly as if the feature did not exist. The flow step simply does nothing when the rule is off, so turning the rule on or off is a data decision, not a code decision, and a broken data file degrades the feature instead of crashing the world. This mirrors the graceful-degradation contract the other world rules already follow, and it is deliberate: a balance law must be removable by editing one file.
+The `energyFlow` entry in `data/world/world_rules.json` is the entire switch for the feature. Missing key, malformed key, missing file, or an explicit off — any of them leaves the flow fully off: one warning at boot, zero per-turn log noise, and the world boots and runs exactly as if the feature did not exist. The flow step simply does nothing when the rule is off, so turning the rule on or off is a data decision, not a code decision, and a broken data file degrades the feature instead of crashing the world. This mirrors the graceful-degradation contract the other world rules already follow, and it is deliberate: a balance law must be removable by editing one file.
 
 ## 9. Why a balanced network is silent
 

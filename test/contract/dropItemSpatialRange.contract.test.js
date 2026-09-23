@@ -4,14 +4,14 @@
  * Regression guarded: the original drop-range bug let the client DISPLAY one range
  * while the server ENFORCED another (or nothing), so a player could drop an item at
  * any coordinate. The fix made the server enforce the SAME range the client displays
- * (single source of truth: data/actions.json dropItem.range, resolved through the
+ * (single source of truth: data/systems/actions.json dropItem.range, resolved through the
  * shared RangeResolver).
  *
  * This is a higher-level integration test that verifies the FULL server path
  *   executeAction() → ActionController._validateRange() → RangeValidator.checkSpatialRange()
  *   → RangeChecker.checkPointRange()
  * using the REAL WorldStateController (built via the composition root, same as the
- * other contract tests) and the REAL data/actions.json range value. It drives
+ * other contract tests) and the REAL data/systems/actions.json range value. It drives
  * worldStateController.executeAction('dropItem', ...) directly — the exact method the
  * POST /execute-action route delegates to (src/routes/actionRoutes.js) — so the
  * route → controller → validator → checker contract is covered without the socket.io
@@ -20,7 +20,7 @@
  *   1. A drop target OUTSIDE the enforced range is REJECTED with the point-target
  *      message ("Target is too far away") — NOT the grab message.
  *   2. A drop target WITHIN range is ACCEPTED (success: true), proving the enforced
- *      boundary matches data/actions.json dropItem.range.
+ *      boundary matches data/systems/actions.json dropItem.range.
  *
  * @module test/contract/dropItemSpatialRange.contract.test
  */
@@ -31,11 +31,11 @@ import { describe, it, expect } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 
 /**
- * Reads the REAL dropItem.range from data/actions.json so the test validates the
+ * Reads the REAL dropItem.range from data/systems/actions.json so the test validates the
  * actual configured range (not a hardcoded fixture).
  */
 function readDropItemRange() {
-    const dataPath = new URL('../../data/actions.json', import.meta.url);
+    const dataPath = new URL('../../data/systems/actions.json', import.meta.url);
     const raw = readFileSync(fileURLToPath(dataPath), 'utf8');
     return JSON.parse(raw).dropItem.range;
 }
@@ -52,14 +52,14 @@ function createWorldWithDroid() {
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
 
-    // Find the client droid (not a data/npcs.json registry NPC —
+    // Find the client droid (not a data/entities/npcs.json registry NPC —
     // and not a static world object/prop, which has no holding component).
     const allEntities = Object.values(world.stateEntityController.entities);
     const entity = allEntities.find(e => e.isNPC !== true && e.isStatic !== true) || allEntities[0];
     expect(entity, 'a client droid must be spawned').toBeTruthy();
 
     // The dropItem action requires the host component to possess strength
-    // (data/actions.json requirement). Use a holding-capable droidHand (which
+    // (data/systems/actions.json requirement). Use a holding-capable droidHand (which
     // carries a strengthCore and thus strength) as the host component.
     const component =
         entity.components.find(c => c.type === 'droidHand') ||
@@ -115,7 +115,7 @@ describe('dropItem spatial range enforcement (drop-range regression)', () => {
         expect(result.error).not.toContain('Move closer to grab it');
     });
 
-    it('ACCEPTS a drop target WITHIN the enforced range (boundary matches data/actions.json)', () => {
+    it('ACCEPTS a drop target WITHIN the enforced range (boundary matches data/systems/actions.json)', () => {
         const dropRange = readDropItemRange();
         const { world, entityId, componentId, itemId, itemType } = createWorldWithDroid();
 

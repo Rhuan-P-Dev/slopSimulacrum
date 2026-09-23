@@ -5,7 +5,7 @@
  * through text. This controller composes a bounded, sectioned narrative
  * (hard cap of 5000 chars) from the live world state: entity self-state,
  * nearby entities, executable actions (with the natural-language
- * descriptions from data/actions.json), the recent world-event ring buffer,
+ * descriptions from data/systems/actions.json), the recent world-event ring buffer,
  * and (when the room-chat layer exists) the room chat.
  *
  * It is a reader/composer — a logic controller, not a state owner. It
@@ -57,7 +57,7 @@ class LlmContextController {
 
     /**
      * @param {Object} deps
-     * @param {Object} deps.actionRegistry - data/actions.json (loaded by the composition root).
+     * @param {Object} deps.actionRegistry - data/systems/actions.json (loaded by the composition root).
      */
     constructor({ actionRegistry }) {
         this.actionRegistry = actionRegistry && typeof actionRegistry === 'object' ? actionRegistry : {};
@@ -629,7 +629,7 @@ class LlmContextController {
     // =========================================================================
 
     /**
-     * Component type definition from data/components.json (via the registry
+     * Component type definition from data/components/components.json (via the registry
      * held by the component controller — same source the server merges stats
      * from, per spec §3: "mesma fonte do server").
      * @param {string} componentType

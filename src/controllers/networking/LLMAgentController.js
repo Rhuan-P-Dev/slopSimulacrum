@@ -77,7 +77,7 @@ class LLMAgentController {
         this.instinctController = instinctController;
 
         /**
-         * NPC registry (data/npcs.json, spec §7.1): key = blueprint name,
+         * NPC registry (data/entities/npcs.json, spec §7.1): key = blueprint name,
          * value = { displayName, room, personality, objective?,
          * initialItems?, maxWorldActionsPerRound?, maxChatMessagesPerRound? }.
          *
@@ -479,7 +479,7 @@ class LLMAgentController {
     /**
      * Builds the tool OpenAI schema. The `execute_action` actionName enum +
      * descriptions are generated from the live action registry (the same
-     * `data/actions.json` the rest of the world runs on).
+     * `data/systems/actions.json` the rest of the world runs on).
      * @param {Object} [opts]
      * @param {boolean} [opts.includeChat=true] - Whether to include the speak_in_room tool.
      * @param {Array<Object>} [opts.instincts] - Generated instincts for this round (if non-empty, adds use_instinct tool).
@@ -1225,7 +1225,7 @@ class LLMAgentController {
     /**
      * Resolves the LLM config for one live NPC entity: the entity's own
      * `npcConfig` (set at spawn, carrying per-entity personality/caps for
-     * dynamically-spawned cards) merged over the static `data/npcs.json`
+     * dynamically-spawned cards) merged over the static `data/entities/npcs.json`
      * registry entry for its blueprint, with the live values taking
      * precedence.
      *
@@ -1261,15 +1261,15 @@ class LLMAgentController {
     }
 
     /**
-     * Loads + validates data/npcs.json. Tolerant of a missing file (Feature C
+     * Loads + validates data/entities/npcs.json. Tolerant of a missing file (Feature C
      * ships before Feature D creates it) and of malformed entries.
      * @private
      * @returns {Object<string, Object>}
      */
     _loadNpcRegistry() {
-        const raw = DataLoader.loadJsonSafe('data/npcs.json', {});
+        const raw = DataLoader.loadJsonSafe('data/entities/npcs.json', {});
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            Logger.info('[LLMAgent] No NPC registry (data/npcs.json) — the agent has no configured NPCs (no-op until Feature D).');
+            Logger.info('[LLMAgent] No NPC registry (data/entities/npcs.json) — the agent has no configured NPCs (no-op until Feature D).');
             return {};
         }
 

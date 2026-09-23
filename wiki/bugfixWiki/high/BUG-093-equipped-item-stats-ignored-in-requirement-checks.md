@@ -41,4 +41,4 @@ Rationale: the resolver must accept the ID format the capability controller actu
 
 - Related wiki: `wiki/subMDs/data/inventory_system.md`
 - Related controller: `RequirementResolver`, `ComponentCapabilityController`, `HoldingCostController`
-- Related data: `data/inventoryItems.json`, `data/actions.json`
+- Related data: `data/components/inventoryItems.json`, `data/systems/actions.json`

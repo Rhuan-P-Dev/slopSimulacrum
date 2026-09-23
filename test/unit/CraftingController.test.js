@@ -31,7 +31,7 @@ const ITEM_REGISTRY = {
     coal: { name: 'Coal', volume: 1 }
 };
 
-// A valid registry in the data/crafting.json shape: keyed by recipe ID.
+// A valid registry in the data/systems/crafting.json shape: keyed by recipe ID.
 const VALID_REGISTRY = {
     knife_to_t1: {
         id: 'knife_to_t1',

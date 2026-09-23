@@ -65,7 +65,7 @@ function makeRecordingTurns() {
 
 /**
  * Spawns an attacker NPC (deterministic chase_attack brain, exactly like
- * data/npcs.json → WorldStateController._spawnNpcs) and a victim droid in
+ * data/entities/npcs.json → WorldStateController._spawnNpcs) and a victim droid in
  * the SAME (initially empty) room, within punch range (dist 30 ≤ 100).
  */
 function spawnAttackerAndVictim(world) {
@@ -110,7 +110,7 @@ describe('NpcAIController existence desync (real controller chain)', () => {
 
         const victim = world.stateEntityController.getEntity(victimId);
         const comp0 = victim.components[0];
-        // First component of the smallBallDroid blueprint (data/blueprints.json).
+        // First component of the smallBallDroid blueprint (data/entities/blueprints.json).
         expect(comp0.type).toBe('centralBall');
 
         // The entity-side component copy has no stats field (EntityController

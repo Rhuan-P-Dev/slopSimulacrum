@@ -12,7 +12,7 @@ export const AppConfig = {
         CENTER_X: 800 / 2,
         CENTER_Y: 500 / 2,
     },
-    // Action names derived from the shared vocabulary (data/actions.json keys);
+    // Action names derived from the shared vocabulary (data/systems/actions.json keys);
     // values are byte-identical to the former literals.
     ACTIONS: {
         MOVE: ACTION_NAMES.MOVE,
@@ -20,7 +20,7 @@ export const AppConfig = {
         DROP_ITEM: ACTION_NAMES.DROP_ITEM,
         PICK_UP_ITEM: ACTION_NAMES.PICK_UP_ITEM,
     },
-    // Group Pick window (cluster pickup). Data-driven from data/actions.json
+    // Group Pick window (cluster pickup). Data-driven from data/systems/actions.json
     // pickUpItem.groupPick (delivered to the client through the capability
     // projection, GET /actions). These values are the missing-data fallback,
     // mirroring the server's PICK_UP_RANGE_FALLBACK pattern: a valid server
@@ -73,13 +73,13 @@ export const AppConfig = {
     MULTIPLIERS: {
         DASH_RANGE: 2,
         // NOTE: DROP_RANGE is a legacy fallback value. The actual drop range is now
-        // resolved from data/actions.json range expression (e.g., ":Physical.strength*2+3").
+        // resolved from data/systems/actions.json range expression (e.g., ":Physical.strength*2+3").
         // This value is only used if no range expression is found in the action data.
         DROP_RANGE: 2,
     },
     DROP: {
         // NOTE: BASE_RANGE is a legacy fallback value. The actual drop range is now
-        // resolved from data/actions.json range expression (e.g., ":Physical.strength*2+3").
+        // resolved from data/systems/actions.json range expression (e.g., ":Physical.strength*2+3").
         // This value is only used if no range expression is found in the action data.
         BASE_RANGE: 3,
     },

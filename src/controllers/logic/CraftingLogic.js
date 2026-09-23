@@ -56,7 +56,7 @@ import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
  *  10. return { success, recipeId, consumed, produced }
  *
  * @param {string} entityId - Typed entity ID (ent-<uuid>).
- * @param {string} recipeId - Recipe ID from data/crafting.json.
+ * @param {string} recipeId - Recipe ID from data/systems/crafting.json.
  * @param {string} componentId - Typed component ID (comp-<uuid>) hosting the inputs AND receiving the outputs.
  * @param {string[]} itemIds - Exact item instance IDs (item-<uuid>) to consume; must exactly satisfy the recipe inputs.
  * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}
@@ -277,7 +277,7 @@ function precheckCraftVolume(facade, recipe, entity, componentId, items) {
     // Self-contained available-volume computation (does not rely on the InventoryManager
     // capacity check, which is intentionally non-enforcing). maxVolume comes from the
     // component definition's form.volume; usedVolume sums the items on the component.
-    const componentDefs = DataLoader.loadJsonSafe('data/components.json', {});
+    const componentDefs = DataLoader.loadJsonSafe('data/components/components.json', {});
     const comp = entity.components?.find(c => c.id === componentId);
     const compDef = comp ? (componentDefs[comp.type] || {}) : {};
     const maxVolume = (typeof compDef.form?.volume === 'number')

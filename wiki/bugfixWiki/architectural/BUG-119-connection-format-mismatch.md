@@ -16,7 +16,7 @@ Specifically, the World Map arrow rendering failed because `WorldGraphBuilder.bu
 The project lacked a stable, enforced contract for the internal connection storage format. Two branches independently chose different representations:
 
 - **main (HEAD)** used a flat string format: `connections[door] = "uid"` — optimized for simple room-to-room lookups without metadata.
-- **map-door-click-range** used an object format: `connections[door] = { target: "uid" }` — aligned with the wiki's extensible design and the actual `data/rooms.json` structure.
+- **map-door-click-range** used an object format: `connections[door] = { target: "uid" }` — aligned with the wiki's extensible design and the actual `data/world/rooms.json` structure.
 
 Both formats were functionally correct within their own branch but incompatible when combined. The absence of a single source of truth for the connection format meant each branch evolved in isolation, assuming their format was the canonical one. This violated the project's "Single Source of Truth" constraint from [Project Rules](../../project_rules.md) Section 2, where state format should be determined by the root controller's public API contract.
 

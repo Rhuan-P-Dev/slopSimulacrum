@@ -2,12 +2,12 @@
  * Group Pick — data-driven configuration contract tests.
  *
  * The cluster-pickup window (client) reads its cluster radius and trigger
- * threshold from the pickUpItem action definition in data/actions.json. The
+ * threshold from the pickUpItem action definition in data/systems/actions.json. The
  * capability projection (GET /actions / per-entity actions) spreads the raw
  * action data, so the `groupPick` sub-object must survive that projection
  * intact — this contract pins the whole data path on the real world:
  *
- *   1. data/actions.json pickUpItem declares a valid groupPick
+ *   1. data/systems/actions.json pickUpItem declares a valid groupPick
  *      (radius > 0, minItems >= 1) — tuning is data-only;
  *   2. the shared capability projection carries it through to the shape the
  *      browser receives;
@@ -44,8 +44,8 @@ function buildWorld() {
 }
 
 describe('Group Pick data-driven configuration contract', () => {
-    it('data/actions.json declares a valid pickUpItem.groupPick (radius > 0, minItems >= 1)', async () => {
-        const actions = DataLoader.loadJson('data/actions.json');
+    it('data/systems/actions.json declares a valid pickUpItem.groupPick (radius > 0, minItems >= 1)', async () => {
+        const actions = DataLoader.loadJson('data/systems/actions.json');
         const groupPick = actions?.pickUpItem?.groupPick;
 
         expect(groupPick).toBeDefined();

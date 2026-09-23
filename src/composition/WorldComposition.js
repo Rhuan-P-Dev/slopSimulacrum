@@ -128,11 +128,11 @@ export function buildWorldState(tickSystem = null) {
     // =========================================================================
     // 0. Load Configuration Data (registries)
     // =========================================================================
-    const actionRegistry = DataLoader.loadJsonSafe('data/actions.json');
-    const componentRegistry = DataLoader.loadJsonSafe('data/components.json');
-    const traitsRegistry = DataLoader.loadJsonSafe('data/traits.json');
-    const blueprintRegistry = DataLoader.loadJsonSafe('data/blueprints.json', {});
-    const synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
+    const actionRegistry = DataLoader.loadJsonSafe('data/systems/actions.json');
+    const componentRegistry = DataLoader.loadJsonSafe('data/components/components.json');
+    const traitsRegistry = DataLoader.loadJsonSafe('data/components/traits.json');
+    const blueprintRegistry = DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
+    const synergyRegistry = DataLoader.loadJsonSafe('data/systems/synergy.json') || {};
 
     if (!actionRegistry || Object.keys(actionRegistry).length === 0) {
         Logger.warn('Action registry is empty or missing. Actions will not be available.');
@@ -149,24 +149,24 @@ export function buildWorldState(tickSystem = null) {
     // Hoisted to named consts so both the MaterialController and the
     // KnowledgeController read the SAME loaded registries — one load, N readers
     // (zero new file I/O; the controller itself never loads).
-    const materialsRegistry = DataLoader.loadJsonSafe('data/materials.json', {});
-    const propertyTraitMappingRegistry = DataLoader.loadJsonSafe('data/propertyTraitMapping.json', {});
-    // Feature 1: per-material damage-type distributions (data/materialDamageTypes.json).
+    const materialsRegistry = DataLoader.loadJsonSafe('data/materials/materials.json', {});
+    const propertyTraitMappingRegistry = DataLoader.loadJsonSafe('data/materials/propertyTraitMapping.json', {});
+    // Feature 1: per-material damage-type distributions (data/materials/materialDamageTypes.json).
     // Loaded here (one load, N readers) and injected into the MaterialController, which
     // validates it (cross-checking material keys against the materials registry) and
     // serves it to the damage handler. Absent/empty file → feature off (graceful).
-    const materialDamageTypesRegistry = DataLoader.loadJsonSafe('data/materialDamageTypes.json', {});
-    // Feature 2: per-material chunk-drop rates (data/materialDropRates.json). Same
+    const materialDamageTypesRegistry = DataLoader.loadJsonSafe('data/materials/materialDamageTypes.json', {});
+    // Feature 2: per-material chunk-drop rates (data/materials/materialDropRates.json). Same
     // one-load/N-readers pattern; the MaterialController validates it (minChunkVolume,
     // per-material dropRate/chunkFraction in [0,1], material-key cross-check) and serves
     // it to the chunk-drop handler. Absent/empty file → feature off (graceful — no drops).
-    const materialDropRatesRegistry = DataLoader.loadJsonSafe('data/materialDropRates.json', {});
+    const materialDropRatesRegistry = DataLoader.loadJsonSafe('data/materials/materialDropRates.json', {});
     const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry, materialDamageTypesRegistry, materialDropRatesRegistry);
     // World-rules layer (WR-4): a new Layer-0 data owner for world-level rules.
     // Loaded here (one load, N readers) and injected into the WorldRulesController,
     // which validates it (WR-1/WR-5: "off, never crash" degradation). Absent/empty
     // file → all rules off (legacy behavior, bit-identical world).
-    const worldRulesRegistry = DataLoader.loadJsonSafe('data/world_rules.json', {});
+    const worldRulesRegistry = DataLoader.loadJsonSafe('data/world/world_rules.json', {});
     const worldRulesController = new WorldRulesController(worldRulesRegistry);
 
     // =========================================================================
@@ -174,7 +174,7 @@ export function buildWorldState(tickSystem = null) {
     //      not mid-game. Component and inventory-item registries are loaded;
     //      any data defect throws TypeError here (boot failure).
     // =========================================================================
-    const inventoryItemRegistry = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+    const inventoryItemRegistry = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
     for (const [type, def] of Object.entries(componentRegistry)) {
         if (def.materials) materialController.validateComposition(type, def.materials);
     }
@@ -186,9 +186,9 @@ export function buildWorldState(tickSystem = null) {
     // Hoisted so the KnowledgeController below can reuse the SAME recipe
     // registry (one load, N readers). CraftingController's behavior is
     // unchanged: it receives the identical parsed object.
-    const craftingRegistry = DataLoader.loadJsonSafe('data/crafting.json', {});
+    const craftingRegistry = DataLoader.loadJsonSafe('data/systems/crafting.json', {});
     // CraftingController: state controller owning the recipe registry
-    // (data/crafting.json). Receives the already-loaded item registry so every
+    // (data/systems/crafting.json). Receives the already-loaded item registry so every
     // recipe input/output type is cross-validated against inventoryItems.json
     // right here (fail-fast at boot). No controller deps —
     // no setWorldStateController() needed (it never reads world state).
@@ -278,7 +278,7 @@ export function buildWorldState(tickSystem = null) {
     const turnSystemController = new TurnSystemController({ tickSystem });
  // Energy flow (wiki/subMDs/systems/energy_flow.md): the "blood system". Logic
     // controller with named deps only — the already-loaded componentRegistry
-    // (data/components.json — used ONLY to resolve the optional per-recipe
+    // (data/components/components.json — used ONLY to resolve the optional per-recipe
     // `energyCapacity` bound) and the worldRulesController (the flow reads the
     // validated rule via getRule('energyFlow'), never the file). No tick-system
     // dependency: the flow runs once per turn, driven from the turn system's
@@ -336,7 +336,7 @@ export function buildWorldState(tickSystem = null) {
         // MaterialController: provides static material definitions + compositions
         // to the client via getMaterialRegistry() / GET /materials/registry.
         materialController,
-        // CraftingController: recipe registry (data/crafting.json). The facade
+        // CraftingController: recipe registry (data/systems/crafting.json). The facade
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
         craftingController,
@@ -344,7 +344,7 @@ export function buildWorldState(tickSystem = null) {
         // Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
         knowledgeController,
-        // WorldRulesController: world-level rules registry (data/world_rules.json).
+        // WorldRulesController: world-level rules registry (data/world/world_rules.json).
         // Null-tolerant like craftingController/knowledgeController — a test may
         // hand-build the facade without it. Deliberately NOT in the subControllers
         // broadcast map: static config data must stay out of the full-state

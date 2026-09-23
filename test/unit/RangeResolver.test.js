@@ -16,7 +16,7 @@
  *   So the client's range semantics are validated by asserting that the shared
  *   RangeResolver — the module _resolveDropRange now delegates to — produces the
  *   EXACT value the client must display, for both the plain-number shape that
- *   actually ships in data/actions.json and the expression shapes the old broken
+ *   actually ships in data/systems/actions.json and the expression shapes the old broken
  *   regex mis-parsed. If _resolveDropRange ever stops delegating to the shared
  *   resolver, these assertions no longer describe the client's behaviour and the
  *   divergence regression re-emerges.
@@ -24,7 +24,7 @@
  * These tests FAIL if that divergence is reintroduced:
  *   - TEST 1 (CONTRACT): the range value the SERVER enforces (real
  *     RangeValidator._resolveMaxRange) is EXACTLY the value the CLIENT displays
- *     (shared RangeResolver), for the real data/actions.json dropItem.range.
+ *     (shared RangeResolver), for the real data/systems/actions.json dropItem.range.
  *   - TEST 4 (REGRESSION): expression ranges include ALL terms (the old regex
  *     dropped the `+3` offset).
  *   - TEST 5 (REGRESSION): plain-number ranges do NOT fall through to the legacy
@@ -45,12 +45,12 @@ import { AppConfig } from '../../public/js/Config.js';
 // =========================================================================
 
 /**
- * Reads the REAL dropItem.range from data/actions.json (never a hardcoded fixture),
+ * Reads the REAL dropItem.range from data/systems/actions.json (never a hardcoded fixture),
  * so the tests keep validating consistency even if the range value in the data file
  * changes.
  */
 function readDropItemRange() {
-    const dataPath = new URL('../../data/actions.json', import.meta.url);
+    const dataPath = new URL('../../data/systems/actions.json', import.meta.url);
     const raw = readFileSync(fileURLToPath(dataPath), 'utf8');
     return JSON.parse(raw).dropItem.range;
 }
@@ -249,7 +249,7 @@ describe('RangeResolver REGRESSION — plain-number range bypasses the legacy fo
     });
 
     it('resolves a numeric STRING "100" to exactly 100 (not the legacy formula)', () => {
-        // data/actions.json may carry a numeric string; the fast path must still win.
+        // data/systems/actions.json may carry a numeric string; the fast path must still win.
         const resolved = resolveRange('100', STAT_MAP, NaN);
         expect(resolved).toBe(100);
         expect(resolved).not.toBe(legacyFormula(25));

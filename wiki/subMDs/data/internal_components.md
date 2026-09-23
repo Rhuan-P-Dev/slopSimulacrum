@@ -4,13 +4,13 @@
 
 Internal components are passive, data-driven augmentations that attach to host components and apply periodic effects. Unlike regular components or equipped items, they do not participate in actions directly — their sole purpose is to modify host component stats over time.
 
-`data/internalComponents.json` declares the available internal component types — what each type does to a host and where it is allowed to live — and is consumed by the `InternalComponentController`.
+`data/components/internalComponents.json` declares the available internal component types — what each type does to a host and where it is allowed to live — and is consumed by the `InternalComponentController`.
 
 ## Design Rationale
 
 ### Why passive and data-driven?
 
-Internal components encapsulate stats-over-time behavior entirely in data rather than code. Adding a new periodic effect requires only a new entry in `data/internalComponents.json` — no source code changes. This aligns with the project's data-driven design principle.
+Internal components encapsulate stats-over-time behavior entirely in data rather than code. Adding a new periodic effect requires only a new entry in `data/components/internalComponents.json` — no source code changes. This aligns with the project's data-driven design principle.
 
 ### Why attach to host components rather than entities?
 
@@ -48,7 +48,7 @@ The `consumeFuelGenerateStat` effect converts the droid's carried fuel items int
 
 ## Data Model
 
-Each entry in `data/internalComponents.json` describes one internal component type conceptually: what it does to a host (the traits it applies and the periodic effects it schedules) and where it may live (its volume cost and the eligibility filters that gate auto-installation).
+Each entry in `data/components/internalComponents.json` describes one internal component type conceptually: what it does to a host (the traits it applies and the periodic effects it schedules) and where it may live (its volume cost and the eligibility filters that gate auto-installation).
 
 ## Auto-Installation Filters
 
@@ -76,4 +76,4 @@ Setting the default to `false` requires explicit opt-in at runtime for each inst
 
 - Related wiki: `wiki/subMDs/controllers/internal_component_controller.md` — Controller that consumes this data
 - Related wiki: `wiki/subMDs/data/components_and_entities.md` — Component system overview
-- Related data file: `data/internalComponents.json` — Actual definitions
+- Related data file: `data/components/internalComponents.json` — Actual definitions

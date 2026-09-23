@@ -32,7 +32,7 @@
  *
  * Dependency shape (constructor-based root, one-way flow, public API only):
  * constructed by the composition root with two named dependencies —
- * (1) componentRegistry (data/components.json, used ONLY to resolve the
+ * (1) componentRegistry (data/components/components.json, used ONLY to resolve the
  * optional per-recipe `energyCapacity` bound — never stat values, which the
  * recipe model forbids), (2) worldRulesController (the flow reads the
  * validated rule via getRule('energyFlow'), never the file). The facade
@@ -70,7 +70,7 @@ const FLOW_NOOP_EPSILON = 1e-9;
 
 class EnergyFlowController {
     /**
-     * @param {Object} componentRegistry - The already-loaded data/components.json
+     * @param {Object} componentRegistry - The already-loaded data/components/components.json
      *   object (one load, N readers). Used ONLY to resolve the optional
      *   per-recipe `energyCapacity` bound — never for stat values.
      * @param {import('../worldRules/WorldRulesController.js').default|null} worldRulesController

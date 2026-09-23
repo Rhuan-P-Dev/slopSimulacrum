@@ -44,7 +44,7 @@ describe('WorldStateController.getMaterialRegistry', () => {
         const { world } = buildWorld();
         const result = world.getMaterialRegistry();
 
-        // data/materials.json defines 'wood' and 'iron'
+        // data/materials/materials.json defines 'wood' and 'iron'
         expect(result.materials).toHaveProperty('wood');
         expect(result.materials).toHaveProperty('iron');
         expect(result.materials.wood.name).toBe('Wood');
@@ -55,7 +55,7 @@ describe('WorldStateController.getMaterialRegistry', () => {
         const { world } = buildWorld();
         const result = world.getMaterialRegistry();
 
-        // data/components.json: centralBall has materials: [{ material: 'iron', fraction: 1.0 }]
+        // data/components/components.json: centralBall has materials: [{ material: 'iron', fraction: 1.0 }]
         expect(result.compositions).toHaveProperty('centralBall');
         const centralBallMaterials = result.compositions.centralBall;
         expect(Array.isArray(centralBallMaterials)).toBe(true);
@@ -68,7 +68,7 @@ describe('WorldStateController.getMaterialRegistry', () => {
         const { world } = buildWorld();
         const result = world.getMaterialRegistry();
 
-        // data/inventoryItems.json: knife has materials with role
+        // data/components/inventoryItems.json: knife has materials with role
         expect(result.compositions).toHaveProperty('knife');
         const knifeMaterials = result.compositions.knife;
         expect(Array.isArray(knifeMaterials)).toBe(true);

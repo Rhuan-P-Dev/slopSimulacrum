@@ -2,7 +2,7 @@
 
 ## Overview
 
-The attack system provides a **generic, data-driven handler** for all component-targeted actions. Any action with `targetingType: 'component'` in `data/actions.json` automatically uses the unified frontend handler, enabling new attack types to be added purely through data configuration.
+The attack system provides a **generic, data-driven handler** for all component-targeted actions. Any action with `targetingType: 'component'` in `data/systems/actions.json` automatically uses the unified frontend handler, enabling new attack types to be added purely through data configuration.
 
 ## Why a Unified Handler
 
@@ -26,7 +26,7 @@ The `ActionExecutor` handler operates solely on the `targetingType` and `range` 
 
 ### Expression-Based Range Resolution
 
-Range can be defined as either a static numeric value or a dynamic expression in `data/actions.json`. Expression-based ranges enable attacks whose reach scales with the entity's stats (e.g., a stronger character having a longer reach). This decouples range logic from hardcoded values and allows designers to tune behavior through data.
+Range can be defined as either a static numeric value or a dynamic expression in `data/systems/actions.json`. Expression-based ranges enable attacks whose reach scales with the entity's stats (e.g., a stronger character having a longer reach). This decouples range logic from hardcoded values and allows designers to tune behavior through data.
 
 ### Multi-Attacker Synergy Support
 
@@ -34,7 +34,7 @@ The handler supports selecting multiple attacker components simultaneously, dele
 
 ### Backend Separation
 
-The backend consequence system remains fully data-driven. The action's `consequences` array in `data/actions.json` determines all effects — damage calculation, targeting, and logging — with no frontend involvement. The frontend's role is limited to selecting targets and dispatching the action; the backend owns all game logic.
+The backend consequence system remains fully data-driven. The action's `consequences` array in `data/systems/actions.json` determines all effects — damage calculation, targeting, and logging — with no frontend involvement. The frontend's role is limited to selecting targets and dispatching the action; the backend owns all game logic.
 
 ## Attacker-Material Channel Split
 
@@ -50,7 +50,7 @@ per-action code.
 
 ## Adding New Attack Types
 
-Adding a new component-targeted attack requires only a new entry in `data/actions.json` with the appropriate `targetingType`, `range`, `requirements`, and `consequences`. No frontend code changes are needed.
+Adding a new component-targeted attack requires only a new entry in `data/systems/actions.json` with the appropriate `targetingType`, `range`, `requirements`, and `consequences`. No frontend code changes are needed.
 
 ## Related
 

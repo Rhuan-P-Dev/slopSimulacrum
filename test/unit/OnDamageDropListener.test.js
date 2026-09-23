@@ -293,7 +293,7 @@ describe('OnDamageDropListener — stub-deps unit tests (§7.3)', () => {
         };
 
         const { listener } = makeListener({
-            // the shipped world-rule (data/world_rules.json: percentage 0.05)
+            // the shipped world-rule (data/world/world_rules.json: percentage 0.05)
             entries: [{ drop: 'host_material', percentage: 0.05 }],
             facade: makeReplaceFacade(dropRef)
         });

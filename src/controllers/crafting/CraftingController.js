@@ -4,9 +4,9 @@
  * Per the State Controller pattern (wiki/subMDs/controllers/controller_patterns.md §4),
  * this controller holds raw data and has NO cross-controller dependencies: it is
  * constructed by the composition root (src/composition/WorldComposition.js) with
- * the raw `data/crafting.json` content (loaded there via
- * `DataLoader.loadJsonSafe('data/crafting.json', {})` — project rule §5) plus the
- * item registry from `data/inventoryItems.json` for cross-validation of every
+ * the raw `data/systems/crafting.json` content (loaded there via
+ * `DataLoader.loadJsonSafe('data/systems/crafting.json', {})` — project rule §5) plus the
+ * item registry from `data/components/inventoryItems.json` for cross-validation of every
  * input/output item type (fail-fast at startup, never mid-game). Input types
  * may additionally be the self-describing dynamic `chunk_<material>` types
  * (spec D8 — no registry entry by design); outputs must always be registry
@@ -28,9 +28,9 @@ import { isChunkItemType } from '../../utils/Constants.js';
 
 class CraftingController {
     /**
-     * @param {Object} recipeRegistry - Raw data from data/crafting.json: a plain
-     *   object keyed by recipe ID (same convention as data/actions.json).
-     * @param {Object} itemRegistry - Raw data from data/inventoryItems.json, used
+     * @param {Object} recipeRegistry - Raw data from data/systems/crafting.json: a plain
+     *   object keyed by recipe ID (same convention as data/systems/actions.json).
+     * @param {Object} itemRegistry - Raw data from data/components/inventoryItems.json, used
      *   to validate that every recipe input/output type exists (fail-fast).
      *   Inputs may additionally name the dynamic `chunk_<material>` types
      *   (no registry entry by design); outputs must be registry items.
@@ -129,7 +129,7 @@ class CraftingController {
 
     /**
      * Returns a single recipe definition by ID.
-     * @param {string} recipeId - The recipe ID (key of data/crafting.json).
+     * @param {string} recipeId - The recipe ID (key of data/systems/crafting.json).
      * @returns {Object|null} Defensive deep copy of the recipe, or null if unknown.
      */
     getRecipe(recipeId) {

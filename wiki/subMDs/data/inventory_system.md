@@ -6,7 +6,7 @@ The inventory system provides a volume-based storage mechanism where droid entit
 
 This design was chosen because:
 
-- **Volume as a shared metric**: The `Physical.volume` property already exists on component definitions in `data/components.json`, making it a natural capacity metric without introducing new properties.
+- **Volume as a shared metric**: The `Physical.volume` property already exists on component definitions in `data/components/components.json`, making it a natural capacity metric without introducing new properties.
 - **Component as container**: Components are the natural grouping unit — items are stored on specific components, creating a 1:N relationship.
 - **Server-authoritative validation**: All volume operations are validated server-side to prevent state corruption from client manipulation.
 
@@ -55,7 +55,7 @@ Dropped items are not part of any entity's inventory. They exist as independent 
 
 ## Data Model
 
-### Item Type Definitions (`data/inventoryItems.json`)
+### Item Type Definitions (`data/components/inventoryItems.json`)
 
 Item type definitions declare the conceptual information the inventory system needs per item: what the item is (display name and description), how much space it occupies, and the base traits it carries.
 
@@ -69,7 +69,7 @@ Each item instance stored on an entity records its type, its resolved volume and
 
 ## Dynamic Item Types (No Registry Entry)
 
-Not every item type has a row in the registry. The [material chunk drop](material_damage_and_drop.md) feature produces items whose type is *self-describing* (the material is embedded in the type name) and whose only variable is volume, which changes per drop. Such an item has **no entry in `data/inventoryItems.json`** — its definition is synthesized on the fly at the few places an item definition is looked up (pickup, add-to-inventory, re-drop, stat reporting).
+Not every item type has a row in the registry. The [material chunk drop](material_damage_and_drop.md) feature produces items whose type is *self-describing* (the material is embedded in the type name) and whose only variable is volume, which changes per drop. Such an item has **no entry in `data/components/inventoryItems.json`** — its definition is synthesized on the fly at the few places an item definition is looked up (pickup, add-to-inventory, re-drop, stat reporting).
 
 This was chosen over one registry entry per material for the same reason the feature exists: the material set is open-ended, and a registry row would carry a *static* volume where a chunk's volume is *dynamic*. Because ground-item records are already self-describing, the client renders these items with no changes. This sets a precedent for the system: the registry is no longer the *only* source of an item definition — a self-describing type can stand in where the type itself names what the item is.
 
@@ -97,7 +97,7 @@ The item stats feature exposes a computed stat view for any inventory item, comb
 
 Item stats combine data from three independent sources:
 
-- **Base traits** from `data/inventoryItems.json` (static item definition)
+- **Base traits** from `data/components/inventoryItems.json` (static item definition)
 - **Dynamic stats** from `EquippedItemStatsController` (mutable per-instance stats like sharpness drain, current durability)
 - **Holding cost debuffs** from `HoldingCostController` (stat reductions when equipped)
 
@@ -128,7 +128,7 @@ This design was chosen because:
 
 The `volume` property serves dual purposes depending on whether the host is a component or a container item:
 
-- **Component volume**: Sourced from the component type definition in `data/components.json` (`traits.Physical.volume`). This represents the physical capacity of the component.
+- **Component volume**: Sourced from the component type definition in `data/components/components.json` (`traits.Physical.volume`). This represents the physical capacity of the component.
 - **Container item volume**: Sourced from the item instance itself (`item.volume`). This represents the internal capacity of the container.
 
 This polymorphism was chosen because:

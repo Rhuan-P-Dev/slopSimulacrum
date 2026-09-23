@@ -46,7 +46,7 @@ beforeAll(() => {
     //
     // Historically this was the registry's "Rogue Droid" NPC, then the
     // crafterDrone world; both registry entries were removed from
-    // data/npcs.json, so when no move-capable NPC is registered we spawn a
+    // data/entities/npcs.json, so when no move-capable NPC is registered we spawn a
     // smallBallDroid through the public facade (the capability gate under
     // test is blueprint-driven, not isNPC-driven).
     const npcEntry = Object.values(entities).find(e => {

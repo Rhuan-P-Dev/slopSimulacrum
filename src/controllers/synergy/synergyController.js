@@ -30,8 +30,8 @@ class SynergyController {
      * setWorldStateController() after the facade is fully built (this controller —
      * and its nested SynergyComponentGatherer — depend on the facade).
      *
-     * @param {Object} actionRegistry - The full action registry from data/actions.json.
-     * @param {Object} [synergyRegistry] - The synergy registry from data/synergy.json (optional).
+     * @param {Object} actionRegistry - The full action registry from data/systems/actions.json.
+     * @param {Object} [synergyRegistry] - The synergy registry from data/systems/synergy.json (optional).
      * @param {ActionSelectController} [actionSelectController] - Component selection controller.
      */
     constructor(actionRegistry, synergyRegistry, actionSelectController) {

@@ -10,7 +10,7 @@ The full design record is in [Basic Traits & Stats — Spec](../../basic_traits_
 
 ## 2. The Blueprint Is a Recipe, Not a Stat Sheet
 
-A blueprint declares structure only: form, composition, pre-installed organs. The old "blueprint override" layer — hand-tuned per-component stat values — is retired as a source of values, and the global-defaults mold (the baseline trait sheet every component merged from) is retired with it. [`data/traits.json`](data/traits.json:1) remains part of the data set but no longer plays a role as a source of stat values.
+A blueprint declares structure only: form, composition, pre-installed organs. The old "blueprint override" layer — hand-tuned per-component stat values — is retired as a source of values, and the global-defaults mold (the baseline trait sheet every component merged from) is retired with it. [`data/components/traits.json`](data/components/traits.json:1) remains part of the data set but no longer plays a role as a source of stat values.
 
 **Why.**
 

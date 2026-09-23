@@ -541,7 +541,7 @@ class ActionController {
         // Spatial range check (e.g. dropItem): the client sent a target
         // coordinate. Enforce the SAME range the client displays so the actual
         // drop range matches the displayed range (single source of truth:
-        // data/actions.json range, resolved via the shared RangeResolver).
+        // data/systems/actions.json range, resolved via the shared RangeResolver).
         if (params.targetX !== undefined && params.targetY !== undefined) {
             const spatialCheck = this.rangeValidator.checkSpatialRange(entityId, params.targetX, params.targetY, action.range);
             if (!spatialCheck.success) {
@@ -613,7 +613,7 @@ class ActionController {
             // ":Trait.stat" and "-:Trait.stat" (sign prefix) placeholders; the
             // central resolver additionally supports "*:placeholder" multipliers,
             // embedded template strings and non-numeric :variables (superset of
-            // the former local behavior — no data divergence in data/actions.json,
+            // the former local behavior — no data divergence in data/systems/actions.json,
             // which only uses ":Trait.stat", "-:Trait.stat" and embedded :vars).
             const resolvedParams = resolvePlaceholders(consequence.params, requirementValues);
             resolvedConsequences[consequence.type] = resolvedParams;
@@ -624,7 +624,7 @@ class ActionController {
     /**
      * Resolves a declarative `damageSource` path from live world state (BUG-036).
      * Data-driven replacement of the former shootT1-only `_getT1AmmoVolume` special
-     * case: the path is declared in data/actions.json on the consequence (e.g.
+     * case: the path is declared in data/systems/actions.json on the consequence (e.g.
      * "equippedItem.firstChild.volume") and interpreted generically here.
      *
      * Supported path grammar (dot-separated, first segment is the anchor):
@@ -712,7 +712,7 @@ class ActionController {
             : {};
 
         // Declarative damage override (BUG-036): any consequence that declares a
-        // damageSource (data/actions.json) has its 'value' resolved from live world
+        // damageSource (data/systems/actions.json) has its 'value' resolved from live world
         // state (e.g., shootT1: "equippedItem.firstChild.volume" → first ammo volume).
         if (resolveComponentId) {
             for (const consequence of actionDef.consequences) {

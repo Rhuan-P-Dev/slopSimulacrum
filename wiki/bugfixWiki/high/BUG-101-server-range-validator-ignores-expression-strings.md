@@ -7,7 +7,7 @@
 
 ## Symptoms
 
-When `data/actions.json` defines a range expression like `":Physical.strength*2"`, the server throws a `TypeError` in `RangeChecker.checkGrabRange()` ("Invalid maxRange: must be a positive number").
+When `data/systems/actions.json` defines a range expression like `":Physical.strength*2"`, the server throws a `TypeError` in `RangeChecker.checkGrabRange()` ("Invalid maxRange: must be a positive number").
 
 Because `RangeValidator.checkGrabRange()` passes the raw string value directly to `RangeChecker`, which validates `typeof maxRange !== 'number'` and rejects any non-number.
 

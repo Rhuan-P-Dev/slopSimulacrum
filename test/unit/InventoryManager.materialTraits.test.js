@@ -11,7 +11,7 @@ import InventoryManager from '../../src/utils/InventoryManager.js';
 import MaterialController from '../../src/controllers/materials/MaterialController.js';
 
 // ---------------------------------------------------------------------------
-// Shared fixtures (mirror data/materials.json + propertyTraitMapping.json)
+// Shared fixtures (mirror data/materials/materials.json + propertyTraitMapping.json)
 // ---------------------------------------------------------------------------
 
 const materialsRegistry = {

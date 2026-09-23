@@ -58,7 +58,7 @@ const CRAFT_DROP_ACTION = 'dropItem';
 /**
  * The drone's own core component type — the pickup target for craft_loop
  * (foraged items land on the 12-volume core, keeping the 6-volume arms free).
- * Keep in sync with data/blueprints.json / data/components.json.
+ * Keep in sync with data/entities/blueprints.json / data/components/components.json.
  * A data-driven resolution would add a fragile volume heuristic, so the sync risk is pinned by contract test 1's blueprint assertions.
  * @constant
  */

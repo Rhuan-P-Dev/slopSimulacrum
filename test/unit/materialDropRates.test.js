@@ -30,8 +30,8 @@ import { CHUNK_ITEM_TYPE_PREFIX, isChunkItemType, recoverChunkMaterial } from '.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf-8'));
 
-const materials = readJson('data/materials.json');
-const propertyTraitMapping = readJson('data/propertyTraitMapping.json');
+const materials = readJson('data/materials/materials.json');
+const propertyTraitMapping = readJson('data/materials/propertyTraitMapping.json');
 
 /** Build a MaterialController with the given (inline) drop-rates registry. */
 function mc(dropRatesRegistry) {

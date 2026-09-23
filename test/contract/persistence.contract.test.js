@@ -31,7 +31,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
  * The default world has no pre-spawned droids (players are incarnated via
  * socket connection). A smallBallDroid is spawned into start_room so the
  * persistence tests have an entity with declarative initial spawns from
- * data/world.json.
+ * data/world/world.json.
  * FASE 5: built via the composition root (buildWorldState) — the facade
  * no longer self-instantiates its sub-controllers.
  * @returns {WorldStateController}
@@ -75,7 +75,7 @@ function createWorld() {
  * @returns {void}
  */
 function applyMutations(world, handles) {
-    // Find the test-spawned entity (not a data/npcs.json registry NPC —
+    // Find the test-spawned entity (not a data/entities/npcs.json registry NPC —
     // and not a static world object/prop, which has no droidHead/droidHand).
     const allEntities = Object.values(world.stateEntityController.entities);
     const entity = allEntities.find(e => e.isNPC !== true && e.isStatic !== true) || allEntities[0];
@@ -101,7 +101,7 @@ function applyMutations(world, handles) {
     expect(afterDurability).toBeCloseTo(beforeDurability + 0.2);
 
     // 2. Inventory + equipped mutation via the public state API.
-    //    Find a knife item on the hand (data/world.json spawns one on droidHand,
+    //    Find a knife item on the hand (data/world/world.json spawns one on droidHand,
     //    plus the client-only knife from initializeWorld()).
     const handItems = world.getEntityItems(entity.id);
     const knives = (handItems[hand.id] || []).filter(item => item.type === 'knife');

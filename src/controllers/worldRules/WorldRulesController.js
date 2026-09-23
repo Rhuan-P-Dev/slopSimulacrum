@@ -1,12 +1,12 @@
 /**
  * WorldRulesController — Layer-0 data owner for the world-rules layer
- * (data/world_rules.json).
+ * (data/world/world_rules.json).
  *
  * Per the State Controller pattern (wiki/subMDs/controllers/controller_patterns.md §4),
  * this controller holds raw validated configuration and has NO cross-controller
  * dependencies: it is constructed by the composition root
- * (src/composition/WorldComposition.js) with the raw `data/world_rules.json`
- * content (loaded there via `DataLoader.loadJsonSafe('data/world_rules.json', {})`
+ * (src/composition/WorldComposition.js) with the raw `data/world/world_rules.json`
+ * content (loaded there via `DataLoader.loadJsonSafe('data/world/world_rules.json', {})`
  * — project rule §5). It performs no file I/O of its own.
  *
  * Responsibility: validate the rule registry at construction (WR-1/WR-5),
@@ -76,7 +76,7 @@ const KNOWN_DROP_TOKENS = new Set(['host_material']);
 
 class WorldRulesController {
     /**
-     * @param {Object|null} rawRegistry - Raw data from data/world_rules.json
+     * @param {Object|null} rawRegistry - Raw data from data/world/world_rules.json
      *   (the loader's parsed object, or the fallback `{}` on a missing file).
      */
     constructor(rawRegistry) {

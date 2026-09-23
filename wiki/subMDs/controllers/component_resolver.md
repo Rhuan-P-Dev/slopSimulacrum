@@ -38,4 +38,4 @@ The public surface covers the resolution pipeline: sanitizing the component list
 - Related wiki: `wiki/subMDs/controllers/requirement_resolver.md` — Requirement resolution
 - Related wiki: `wiki/subMDs/controllers/component_selection.md` — Component locking system
 - Related controller: `ActionController`, `RequirementResolver`
-- Related data file: `data/actions.json` — Action definitions with `componentBinding`
+- Related data file: `data/systems/actions.json` — Action definitions with `componentBinding`

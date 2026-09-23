@@ -20,7 +20,7 @@ npm run dev            # http://localhost:3001
 ```
 
 The server boots with zero configuration: the world builds itself from
-`data/*.json`, NPCs spawn from `data/npcs.json`, and the client connects
+`data/*.json`, NPCs spawn from `data/entities/npcs.json`, and the client connects
 over Socket.IO.
 
 Run the test suite (vitest, unit + contract; the run prints the file and test counts):

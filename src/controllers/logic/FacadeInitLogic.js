@@ -51,13 +51,13 @@ function buildSubControllersMap(facade) {
 
 /**
  * Registers the spawn observer that applies the declarative initial spawns
- * from data/world.json to every spawned entity (data-driven replacement of
+ * from data/world/world.json to every spawned entity (data-driven replacement of
  * the former hardcoded spawn items).
  * @param {import('../WorldStateController.js').default} facade - the facade under construction
  */
 function registerSpawnObserver(facade) {
     // Register spawn observer — applies the declarative initial spawns from
-    // data/world.json to every spawned entity (data-driven replacement of the
+    // data/world/world.json to every spawned entity (data-driven replacement of the
     // former hardcoded spawn items).
     facade.stateEntityController.registerSpawnObserver((entityId) => {
         facade._applyInitialSpawns(entityId);

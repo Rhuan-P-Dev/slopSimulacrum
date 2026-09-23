@@ -58,4 +58,4 @@ Item definitions are validated on construction and rejected outright if malforme
 - Related wiki: `wiki/subMDs/data/inventory_system.md` — Inventory system (items with traits)
 - Related wiki: `wiki/subMDs/controllers/capability_controller.md` — Capability controller (consumes item stats for scoring)
 - Related controller: `HoldingCostController`, `StatConsequenceHandler`, `ComponentCapabilityController`
-- Related data file: `data/inventoryItems.json`
+- Related data file: `data/components/inventoryItems.json`

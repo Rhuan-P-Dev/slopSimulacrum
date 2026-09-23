@@ -1,5 +1,5 @@
 /**
- * SynergyConfigManager — Loads and manages synergy configurations from data/synergy.json.
+ * SynergyConfigManager — Loads and manages synergy configurations from data/systems/synergy.json.
  * Single Responsibility: Load, validate, and provide synergy config for actions.
  *
  * Extracted from SynergyController to adhere to the Single Responsibility Principle.
@@ -23,11 +23,11 @@ class SynergyConfigManager {
     }
 
     /**
-     * Load synergy config from data/synergy.json.
+     * Load synergy config from data/systems/synergy.json.
      * @returns {Object} The synergy registry.
      */
     load() {
-        this.synergyRegistry = DataLoader.loadJsonSafe('data/synergy.json') || {};
+        this.synergyRegistry = DataLoader.loadJsonSafe('data/systems/synergy.json') || {};
         Logger.info('[SynergyConfigManager] Synergy config loaded', {
             actionCount: Object.keys(this.synergyRegistry).length
         });

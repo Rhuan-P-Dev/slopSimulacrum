@@ -1,6 +1,6 @@
 /**
  * OnDamageDropListener — the enforcement arm of the world-rules layer for the
- * `onDamage` event rule (data/world_rules.json).
+ * `onDamage` event rule (data/world/world_rules.json).
  *
  * It is a FOCUSED ACTOR (not a state owner), the same shape as
  * MaterialChunkDropHandler: it reads component/entity/material state via the facade's

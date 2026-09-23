@@ -209,7 +209,7 @@ describe('Hand shotgun — random-component spread (contract, full round-trip)',
         expect(damageResults[0].data.value, 'hand 0 per-pellet value = fine_controls*2*synergy').toBeCloseTo(hand0Fc * 2 * synergyMult, 6);
         expect(damageResults[1].data.value, 'hand 1 per-pellet value = fine_controls*2*synergy').toBeCloseTo(hand1Fc * 2 * synergyMult, 6);
         // Per-hand pellet count is the DECLARED 3, never scaled by synergy.
-        // data/actions.json declares count as the string "3" precisely so _applySynergy
+        // data/systems/actions.json declares count as the string "3" precisely so _applySynergy
         // skips it; these assertions catch a regression that would scale the declared
         // count when a two-handed shotgun synergy is ever added.
         expect(damageResults[0].data.count, 'hand 0 fires the declared 3 pellets').toBe(3);

@@ -407,7 +407,7 @@ export const AGENT_FEEDBACK_CAPACITY = 5;
 
 /**
  * Default attack range (world units) for NPC combat behaviors.
- * Currently the ONLY value: data/npcs.json has no attackRange field;
+ * Currently the ONLY value: data/entities/npcs.json has no attackRange field;
  * data-driven per-NPC ranges are deferred (see wiki npc_ai_controller).
  * @type {number}
  */
@@ -415,7 +415,7 @@ export const NPC_DEFAULT_ATTACK_RANGE = 100;
 
 /**
  * Behavior key registered by NpcAIController for the chase-then-attack
- * combat strategy (matches data/npcs.json behavior names).
+ * combat strategy (matches data/entities/npcs.json behavior names).
  * @type {string}
  */
 export const NPC_BEHAVIOR_CHASE_ATTACK = 'chase_attack';

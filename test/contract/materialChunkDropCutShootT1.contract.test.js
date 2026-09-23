@@ -13,10 +13,10 @@
  *      drop-rate contract — no hard-coded balance numbers).
  *   2. SHOOT T1: firing a T1 (one stored projectile) sheds a chunk, and because
  *      the applied loss is the projectile's volume (tiny), the volume equals the
- *      minChunkVolume floor from data/materialDropRates.json — the D7 floor is
+ *      minChunkVolume floor from data/materials/materialDropRates.json — the D7 floor is
  *      proven to be what is asserted, not an accidental match.
  *   3. DATA GUARD (the BUG-136 root cause itself): each channel-damage action's
- *      consequence list in data/actions.json declares the dropMaterialChunk
+ *      consequence list in data/systems/actions.json declares the dropMaterialChunk
  *      consequence AFTER its damage consequence, so silently removing the
  *      declaration from any action is caught here.
  *
@@ -41,9 +41,9 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 
 
 const RESISTANCE_SCALE = 100; // mirrors the per-channel formula's base absorption
 
-const actions = readJson('data/actions.json');
-const dropRates = readJson('data/materialDropRates.json');
-const inventoryItems = readJson('data/inventoryItems.json');
+const actions = readJson('data/systems/actions.json');
+const dropRates = readJson('data/materials/materialDropRates.json');
+const inventoryItems = readJson('data/components/inventoryItems.json');
 
 /** A fresh, not-started world (the drop feature's drop-rates registry is on by default). */
 function buildWorld() {
@@ -165,7 +165,7 @@ describe('Feature 2 — material chunk drop on cut and shootT1 (contract, full r
         const { attackerId, victimId } = spawnPair(world, roomId);
 
         // The T1 is a heavy iron item: the strength-to-mass equip gate
-        // (data/holdingCost.json) is too strong for a droidHand, so the host is
+        // (data/components/holdingCost.json) is too strong for a droidHand, so the host is
         // a droidRollingBall (its strengthCore carries the burden).
         const wheel = world.getEntity(attackerId).components.find((c) => c.type === 'droidRollingBall');
         expect(wheel, 'expected a droidRollingBall component on the droid').toBeTruthy();
@@ -225,7 +225,7 @@ describe('Feature 2 — material chunk drop on cut and shootT1 (contract, full r
         expect(chunk.volume).toBeCloseTo(floor, 6);
     });
 
-    it('DATA GUARD (BUG-136 root cause): each channel-damage action declares dropMaterialChunk AFTER its damage consequence in data/actions.json', () => {
+    it('DATA GUARD (BUG-136 root cause): each channel-damage action declares dropMaterialChunk AFTER its damage consequence in data/systems/actions.json', () => {
         const cases = [
             ['droid punch', 'damageComponent'],
             ['cut', 'damageComponent'],
@@ -233,7 +233,7 @@ describe('Feature 2 — material chunk drop on cut and shootT1 (contract, full r
         ];
         for (const [actionName, damageType] of cases) {
             const cons = actions[actionName]?.consequences;
-            expect(cons, `${actionName} should declare consequences in data/actions.json`).toBeTruthy();
+            expect(cons, `${actionName} should declare consequences in data/systems/actions.json`).toBeTruthy();
             const types = cons.map((c) => c.type);
             const damageIdx = types.indexOf(damageType);
             const dropIdx = types.indexOf('dropMaterialChunk');

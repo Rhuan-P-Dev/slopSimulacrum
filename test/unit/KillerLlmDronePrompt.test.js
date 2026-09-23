@@ -5,11 +5,11 @@
  *
  * Convention (mirrors test/unit/LLMAgentController.test.js): everything external
  * is mocked (hand-built facade stubs + a scripted chatFull). The agent is
- * constructed with a DataLoader mock serving a fixture data/npcs.json whose
+ * constructed with a DataLoader mock serving a fixture data/entities/npcs.json whose
  * entries are verbatim copies of the production registry entries this test
  * was written against (the killerLlmDrone entry WITH an objective; the
  * historical smallBallDroid "Rogue Droid" entry WITHOUT one — that entry was
- * later removed from the shipped data/npcs.json, so the fixture keeps the
+ * later removed from the shipped data/entities/npcs.json, so the fixture keeps the
  * no-objective regression guard independent of the live registry). The system
  * prompt is captured from the `options` object of the LLM call `runRound`
  * issues — exactly what the production model receives.
@@ -30,13 +30,13 @@ const ROOM_NAME = 'Main Room';
 
 /**
  * The exact objective string as persisted in the production registry entry
- * (data/npcs.json → killerLlmDrone). The rendering assertion compares against
+ * (data/entities/npcs.json → killerLlmDrone). The rendering assertion compares against
  * this constant, so the Objective: line must carry the data's string verbatim.
  */
 const DRONE_OBJECTIVE = 'Attack all other entities: each round, strike the nearest entity you can reach; when nothing is in range, move toward the nearest one. Never help, never idle while a target is reachable.';
 
 // =========================================================================
-// Fixture registry (verbatim copies of the production data/npcs.json entries
+// Fixture registry (verbatim copies of the production data/entities/npcs.json entries
 // this test was written against — the live file no longer carries the
 // smallBallDroid "Rogue Droid" entry, which was removed from the world)
 // =========================================================================
@@ -74,7 +74,7 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
     return {
         default: {
             loadJsonSafe(path, defaultValue) {
-                if (path === 'data/npcs.json') {
+                if (path === 'data/entities/npcs.json') {
                     return FIXTURE_NPCS;
                 }
                 // Delegate all other paths to the real DataLoader

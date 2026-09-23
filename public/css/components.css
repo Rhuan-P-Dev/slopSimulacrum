@@ -190,7 +190,7 @@
    Whole-entity attribute bars (EntityAttributeBars) — e.g. the M1 droid's
    energy. Mirrors the per-component stat-bar look but is AUTO-rendered for
    the active droid from the entity's attributes/attributesConfig (seeded at
-   spawn from data/entity_attributes.json). Distinct from StatBarsManager.
+   spawn from data/components/entity_attributes.json). Distinct from StatBarsManager.
    --------------------------------------------------------------------- */
 #entity-attributes-container {
     display: flex;

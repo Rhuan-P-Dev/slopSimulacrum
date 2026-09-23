@@ -3,7 +3,7 @@
 - **Severity**: MEDIUM (Feature addition)
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `src/controllers/core/InternalComponentController.js`, `data/internalComponents.json`
+- **Related Files**: `src/controllers/core/InternalComponentController.js`, `data/components/internalComponents.json`
 
 ## Summary
 
@@ -21,7 +21,7 @@ The original architecture only supported flat component hierarchies. Components 
 
 Implemented a complete Internal Components system so components can contain other components internally:
 
-- **Data-driven definitions** — internal component types are defined in `data/internalComponents.json` (volume, repair interval/amount, traits, excluded host types, auto-install flag) and loaded via the standard `DataLoader` path, so new internal components can be added as data rather than code.
+- **Data-driven definitions** — internal component types are defined in `data/components/internalComponents.json` (volume, repair interval/amount, traits, excluded host types, auto-install flag) and loaded via the standard `DataLoader` path, so new internal components can be added as data rather than code.
 - **Dedicated state controller** — `InternalComponentController` owns internal-component runtime state, auto-installs spheres on eligible components at entity spawn, runs the periodic durability repair tick, enforces volume-based capacity checks, and returns defensive copies, following the State Controller self-instantiation pattern.
 - **Entity lifecycle integration** — entities expose an `internalComponents` field; spheres are installed after blueprint expansion and cleaned up on despawn, keeping entity state consistent and leak-free.
 - **Public API and REST exposure** — `WorldStateController` integrates the controller via dependency injection and exposes it through its public API, with dedicated REST routes for client access.
@@ -43,4 +43,4 @@ Implemented a complete Internal Components system so components can contain othe
 - Related controller: `InternalComponentController`
 - Related controller pattern: `wiki/subMDs/controller_patterns.md` Section 8.2
 - Related bugfix: [BUG-068](BUG-068-component-viewer-missing-internal-components.md) — Component Viewer UI for Internal Components
-- Related data: `data/internalComponents.json`, `data/components.json`
+- Related data: `data/components/internalComponents.json`, `data/components/components.json`

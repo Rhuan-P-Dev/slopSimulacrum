@@ -7,7 +7,7 @@
 
 ## Symptoms
 
-Adding a new component-targeted attack action to `data/actions.json` required modifying frontend code: each new attack needed a new handler branch in `EventDispatcher.js`, a new callback in `App.js`, and a new dedicated method in `ActionExecutor.js`. This violated the Single Responsibility Principle and the project's data-driven design goal.
+Adding a new component-targeted attack action to `data/systems/actions.json` required modifying frontend code: each new attack needed a new handler branch in `EventDispatcher.js`, a new callback in `App.js`, and a new dedicated method in `ActionExecutor.js`. This violated the Single Responsibility Principle and the project's data-driven design goal.
 
 ## Root Cause
 
@@ -22,7 +22,7 @@ Replaced all three hardcoded elements (dispatcher branch, app-level callback, de
 To avoid this class of bug in the future:
 
 1. **Frontend routing must never check specific action names** — routing decisions must be based on structural properties (`targetingType`, `range`, etc.) from the action definition.
-2. **New attack actions require only `data/actions.json` changes** — if adding a new attack requires frontend code changes, this is a bug.
+2. **New attack actions require only `data/systems/actions.json` changes** — if adding a new attack requires frontend code changes, this is a bug.
 3. **Document the handler chain** — the wiki documents which file handles which step of the action pipeline.
 
 ## References

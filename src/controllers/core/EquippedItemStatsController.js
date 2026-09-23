@@ -6,7 +6,7 @@
  * stats are loaded from inventoryItems.json and stored as a mutable copy that can be
  * modified independently (e.g., sharpness decreases with use, existence degrades).
  *
- * Data-driven: base stats loaded from data/inventoryItems.json
+ * Data-driven: base stats loaded from data/components/inventoryItems.json
  *
  * @module EquippedItemStatsController
  */
@@ -52,11 +52,11 @@ class EquippedItemStatsController {
         this._itemStats = {};
 
         /**
-         * Item definitions loaded from data/inventoryItems.json.
+         * Item definitions loaded from data/components/inventoryItems.json.
          * Format: { [itemType]: { name, description, volume, traits, ... } }
          * @type {Object<string, Object>}
          */
-        this._itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        this._itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
 
         Logger.info(`[EquippedItemStatsController] Initialized with ${Object.keys(this._itemDefinitions).length} item type definitions`);
 

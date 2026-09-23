@@ -30,11 +30,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const readJson = (rel) =>
     JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf-8'));
 
-const materials = readJson('data/materials.json');
-const propertyTraitMapping = readJson('data/propertyTraitMapping.json');
-const damageTypes = readJson('data/materialDamageTypes.json');
-const components = readJson('data/components.json');
-const inventoryItems = readJson('data/inventoryItems.json');
+const materials = readJson('data/materials/materials.json');
+const propertyTraitMapping = readJson('data/materials/propertyTraitMapping.json');
+const damageTypes = readJson('data/materials/materialDamageTypes.json');
+const components = readJson('data/components/components.json');
+const inventoryItems = readJson('data/components/inventoryItems.json');
 
 /** Build a real MaterialController with the real (feature-on) damage-types registry. */
 function makeMaterialController(registry = damageTypes) {

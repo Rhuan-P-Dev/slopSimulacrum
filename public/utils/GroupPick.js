@@ -22,7 +22,7 @@
  * Resolves the group-pick configuration from the pickUpItem action definition
  * delivered to the client. The capability projection (GET /actions) spreads
  * the raw action data, so the `pickUpItem.groupPick` sub-object from
- * data/actions.json arrives intact and is the data-driven source of truth.
+ * data/systems/actions.json arrives intact and is the data-driven source of truth.
  *
  * Falls back to the provided defaults when the field is absent or a value is
  * malformed — mirroring the range-fallback pattern the client already uses

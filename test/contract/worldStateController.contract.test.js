@@ -120,7 +120,7 @@ function typeOf(value) {
  * equal "true" (case-insensitive, trimmed) for the entry to spawn. A missing
  * or malformed envGate means "no gate" (the entry spawns). Malformed entries
  * (not objects) never spawn.
- * @param {Object} entry - A data/npcs.json registry entry (or anything).
+ * @param {Object} entry - A data/entities/npcs.json registry entry (or anything).
  * @returns {boolean} Whether the entry spawns under the CURRENT process.env.
  */
 function entrySpawnableInCurrentEnv(entry) {
@@ -145,9 +145,9 @@ beforeAll(() => {
     const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     ({ worldStateController: wsc } = buildWorldState(tickSystem));
 
-    // Load the NPC registry from data/npcs.json so we can compute expected counts
+    // Load the NPC registry from data/entities/npcs.json so we can compute expected counts
     // data-driven (matching how WorldStateController._spawnNpcs() loads it).
-    const rawRegistry = DataLoader.loadJsonSafe('data/npcs.json', {});
+    const rawRegistry = DataLoader.loadJsonSafe('data/entities/npcs.json', {});
     const npcRegistry = rawRegistry && typeof rawRegistry === 'object' && !Array.isArray(rawRegistry)
         ? rawRegistry
         : {};
@@ -163,13 +163,13 @@ beforeAll(() => {
         .filter(([, entry]) => entrySpawnableInCurrentEnv(entry))
         .length;
 
-    // World objects (static props) from data/worldObjects.json — counted the
+    // World objects (static props) from data/world/worldObjects.json — counted the
     // same data-driven way _spawnStaticProps() materializes them (one isStatic
     // entity per non-underscore entry whose blueprint resolves). Mirrors
     // production so the expected entity total tracks whatever the data file
     // actually declares (see wiki/subMDs/systems/world_objects.md).
-    const rawProps = DataLoader.loadJsonSafe('data/worldObjects.json', {});
-    const rawBlueprints = DataLoader.loadJsonSafe('data/blueprints.json', {});
+    const rawProps = DataLoader.loadJsonSafe('data/world/worldObjects.json', {});
+    const rawBlueprints = DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
     const staticPropCount = Object.entries(rawProps || {})
         .filter(([k, p]) => !k.startsWith('_') && p && typeof p.blueprint === 'string' && rawBlueprints[p.blueprint])
         .length;
@@ -367,7 +367,7 @@ describe('WorldStateController.getAll() shape', () => {
         expect(typeOf(state.entities)).toBe('object');
         const ids = Object.keys(state.entities);
         // The beforeAll spawns exactly 1 smallBallDroid for testing + the NPCs
-        // the ambient environment allows to spawn: every data/npcs.json entry
+        // the ambient environment allows to spawn: every data/entities/npcs.json entry
         // whose envGate var is "true" (gate-aware — e.g. the killer LLM drone
         // is excluded by default, included in a gate-ON run) PLUS the cards
         // that data/cards/ yields (data-driven via countSpawnableCards).
@@ -389,7 +389,7 @@ describe('WorldStateController.getAll() shape', () => {
             // npcConfig). Three distinct shapes exist:
             //   (1) player droids (non-NPC smallBallDroid) keep the base shape
             //       PLUS `items` (world.json initialSpawns loadout on a component).
-            //   (2) registry NPCs (data/npcs.json): base NPC shape, PLUS `items`
+            //   (2) registry NPCs (data/entities/npcs.json): base NPC shape, PLUS `items`
             //       only when the registry entry declares initialItems.
             //   (3) card NPCs (data/cards/): they are m1Droid, which (a) seeds an
             //       energy attribute -> `attributes` + `attributesConfig`, and (b)
@@ -468,7 +468,7 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity.blueprint)).toBe('string');
             expect(typeOf(entity.location)).toBe('string');
             expect(typeOf(entity.status)).toBe('string');
-            // Entities with no initialItems (from data/world.json) have items key absent.
+            // Entities with no initialItems (from data/world/world.json) have items key absent.
             // Entities with initial spawns DO have items after InventoryManager.addItem().
             if (entity.items) expect(typeOf(entity.items)).toBe('array');
             expect(typeOf(entity.internalComponents)).toBe('object');

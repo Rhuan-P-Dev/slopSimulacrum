@@ -82,11 +82,11 @@ describe('craft_loop configuration constants (npcAiUtils)', () => {
 
 describe('resolvePickUpRange (npcAiUtils) — single source of truth shared with the handler', () => {
     // The pickup range has exactly one definition: the pickUpItem action in
-    // data/actions.json, resolved through the shared RangeResolver with the
+    // data/systems/actions.json, resolved through the shared RangeResolver with the
     // shared PICK_UP_RANGE_FALLBACK for missing data. The brain and the
     // PickUpItemHandler both resolve through this path, so any drift fails
     // here, not in the wild.
-    const actions = DataLoader.loadJsonSafe('data/actions.json', {});
+    const actions = DataLoader.loadJsonSafe('data/systems/actions.json', {});
     const ENTITY = { id: 'ent-rng-0001' };
 
     it('resolves the pickUpItem range from the live action registry (numeric pass-through)', () => {

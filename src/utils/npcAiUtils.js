@@ -16,7 +16,7 @@ import { PICK_UP_RANGE_FALLBACK } from './Constants.js';
  *
  * WHY (single source of truth — see the "Shared Modules" contract in
  * wiki/map.md): the pickup range has exactly one definition — the
- * `pickUpItem` action in data/actions.json, resolved through the shared
+ * `pickUpItem` action in data/systems/actions.json, resolved through the shared
  * RangeResolver with the shared PICK_UP_RANGE_FALLBACK for missing data.
  * This function follows the exact same resolution path as
  * PickUpItemHandler (registry lookup → resolver → fallback), so the brain's
@@ -56,7 +56,7 @@ export function resolvePickUpRange(facade, entity) {
 
 /**
  * Recipe id the craft_loop behavior uses to convert one foraged item into an
- * output item. Keep in sync with data/crafting.json.
+ * output item. Keep in sync with data/systems/crafting.json.
  * @constant {string}
  */
 export const RECIPE_ID = 'single_knife_to_t1';
@@ -71,7 +71,7 @@ export const TARGET_ITEM_TYPE = 'knife';
 
 /**
  * Item type produced by RECIPE_ID — what the drone drops on the ground after
- * crafting. Keep in sync with data/crafting.json / data/inventoryItems.json.
+ * crafting. Keep in sync with data/systems/crafting.json / data/components/inventoryItems.json.
  * @constant {string}
  */
 export const CRAFT_OUTPUT_TYPE = 't1';

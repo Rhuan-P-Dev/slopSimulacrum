@@ -37,8 +37,8 @@ const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 
 
 const RESISTANCE_SCALE = 100; // mirrors the per-channel formula's base absorption
 
-const dropRates = readJson('data/materialDropRates.json');
-const inventoryItems = readJson('data/inventoryItems.json');
+const dropRates = readJson('data/materials/materialDropRates.json');
+const inventoryItems = readJson('data/components/inventoryItems.json');
 
 /** A fresh, not-started world (the drop feature's drop-rates registry is on by default). */
 function buildWorld() {
@@ -128,7 +128,7 @@ describe('Feature 2 — material chunk drop on punch (contract, full round-trip)
         expect(result.success, `punch should succeed: ${JSON.stringify(result.error)}`).toBe(true);
 
         const ironChunks = dropped(world).filter((d) => d.itemType === 'chunk_iron');
-        // With the world-rules torn stream active (data/world_rules.json), a
+        // With the world-rules torn stream active (data/world/world_rules.json), a
         // single-material iron target produces 2 records: the probabilistic chunk
         // + the deterministic torn token (both share the chunk_iron type family).
         expect(ironChunks.length, 'iron (rate 1.0) should shed chunk + torn = 2 records').toBe(2);

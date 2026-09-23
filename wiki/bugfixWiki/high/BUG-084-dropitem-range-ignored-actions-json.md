@@ -3,11 +3,11 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `public/js/ActionExecutor.js`, `public/js/App.js`, `data/actions.json`
+- **Related Files**: `public/js/ActionExecutor.js`, `public/js/App.js`, `data/systems/actions.json`
 
 ## Symptoms
 
-When a user tries to drop their knife (or any equipped item), the client performs a local range check BEFORE sending the action to the server, and fails with `[ActionExecutor] Drop out of range: distance=127, range=53`. The check uses a hardcoded formula instead of the `range` expression defined in `data/actions.json` — if the expression is changed to any value (even `5000`), the client behavior does NOT change because the expression is never read.
+When a user tries to drop their knife (or any equipped item), the client performs a local range check BEFORE sending the action to the server, and fails with `[ActionExecutor] Drop out of range: distance=127, range=53`. The check uses a hardcoded formula instead of the `range` expression defined in `data/systems/actions.json` — if the expression is changed to any value (even `5000`), the client behavior does NOT change because the expression is never read.
 
 ## Root Cause
 
@@ -23,13 +23,13 @@ Additionally, `App.js` has TWO locations with the same bug:
 
 ## Fix
 
-All client-side drop range checks now resolve the `range` expression from the `availableActions` cache instead of computing a hardcoded formula, using a shared client-side `RangeExpressionResolver` utility that mirrors the server-side placeholder resolution. The old `AppConfig` constants remain only as deprecated fallback values. Why: `data/actions.json` is the single source of truth for action ranges — hardcoding the formula on the client violated data-driven design and meant data edits could never change client behavior; resolving the expression (instead of re-implementing the math) keeps client and server interpretations of the same expression consistent.
+All client-side drop range checks now resolve the `range` expression from the `availableActions` cache instead of computing a hardcoded formula, using a shared client-side `RangeExpressionResolver` utility that mirrors the server-side placeholder resolution. The old `AppConfig` constants remain only as deprecated fallback values. Why: `data/systems/actions.json` is the single source of truth for action ranges — hardcoding the formula on the client violated data-driven design and meant data edits could never change client behavior; resolving the expression (instead of re-implementing the math) keeps client and server interpretations of the same expression consistent.
 
 ## Prevention
 
 - All range-based actions must read range from `availableActions` cache, not hardcoded values
 - Expression parsing must mirror the server's `PlaceholderResolver.js` logic
-- Range expressions in `data/actions.json` are the single source of truth
+- Range expressions in `data/systems/actions.json` are the single source of truth
 - Add client-side tests that verify range resolution matches actions.json
 
 ## References

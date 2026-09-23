@@ -58,7 +58,7 @@ const CARD_DEFAULT_PROFILE = {
  * Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid,
  * at a uniformly-random room and a uniformly-random point inside it.
  *
- * WHY a dedicated path (not reusing the `data/npcs.json` registry):
+ * WHY a dedicated path (not reusing the `data/entities/npcs.json` registry):
  * a card's identity is per-file — it lives embedded in each PNG's metadata
  * (`readCharaCard`), so there is no static registry entry keyed by blueprint
  * for it. Two cards share the `m1Droid` blueprint yet must keep distinct

@@ -44,7 +44,7 @@ const ROOM_A = 'room-a';
 const ROOM_B = 'room-b';
 const CORE_ID = 'comp-core-d';
 
-/** The single recipe the behavior uses (mirrors data/crafting.json). */
+/** The single recipe the behavior uses (mirrors data/systems/crafting.json). */
 const RECIPE = {
     id: 'single_knife_to_t1',
     name: 'T1 Field Assembly',
@@ -57,20 +57,20 @@ const RECIPE = {
 // simulation, not be silently ignored by it. In the recipe→derivation model
 // the component carries no inline `traits.Movement.move`; the movement stat is
 // the grant of the `moveCore` organ the component declares, so the per-step
-// size is read from the organ's grant in data/internalComponents.json.
-const components = DataLoader.loadJsonSafe('data/components.json', {});
-const internalComponents = DataLoader.loadJsonSafe('data/internalComponents.json', {});
+// size is read from the organ's grant in data/components/internalComponents.json.
+const components = DataLoader.loadJsonSafe('data/components/components.json', {});
+const internalComponents = DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
 const stepSize = (components.crafterRollingBall?.internalComponents || [])
     .map(organ => internalComponents[organ]?.grants?.['Movement.move'])
     .find(v => typeof v === 'number');
-if (typeof stepSize !== 'number') throw new Error('crafterRollingBall Movement.move grant missing in data/internalComponents.json');
+if (typeof stepSize !== 'number') throw new Error('crafterRollingBall Movement.move grant missing in data/components/internalComponents.json');
 
 // The pickup range the brain resolves each round: the same data-driven
 // pickUpItem definition the PickUpItemHandler validates against (the
 // single source of truth — the brain/handler contract under test here).
-const actions = DataLoader.loadJsonSafe('data/actions.json', {});
+const actions = DataLoader.loadJsonSafe('data/systems/actions.json', {});
 const pickRange = actions.pickUpItem?.range;
-if (typeof pickRange !== 'number') throw new Error('pickUpItem.range missing in data/actions.json');
+if (typeof pickRange !== 'number') throw new Error('pickUpItem.range missing in data/systems/actions.json');
 
 function makeDrone(overrides = {}) {
     return {

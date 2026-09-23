@@ -6,7 +6,7 @@
  * (no hardcoded prose per organ type), so shipping a new organ JSON entry
  * yields a correct description with zero code changes. Every expected string
  * is byte-accurate — derived by running the real util over the shipped
- * `data/internalComponents.json` plus hand-crafted fixtures, then pinned here
+ * `data/components/internalComponents.json` plus hand-crafted fixtures, then pinned here
  * so any wording or data regression fails loudly.
  *
  * Scope:
@@ -37,7 +37,7 @@ const util = InternalComponentUtils;
  */
 const REGISTRY = (() => {
     const raw = JSON.parse(
-        readFileSync(path.join(__dirname, '..', '..', 'data', 'internalComponents.json'), 'utf8')
+        readFileSync(path.join(__dirname, '..', '..', 'data', 'components', 'internalComponents.json'), 'utf8')
     );
     const registry = {};
     for (const [key, def] of Object.entries(raw)) {
@@ -69,7 +69,7 @@ describe('generateDescription — shipped organ data', () => {
     });
 
     it('renders coalGenerator (burns coal to charge the host entity\'s energy)', () => {
-        // The energy mechanic is data-driven (data/entity_attributes.json):
+        // The energy mechanic is data-driven (data/components/entity_attributes.json):
         // the organ stays installable and describes its fuel -> energy overTime
         // effect. It charges the HOST ENTITY's energy attribute (a whole-entity
         // stat), not a per-component stat, so no grant clause is declared.

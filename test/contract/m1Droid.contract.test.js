@@ -9,7 +9,7 @@
  *     every leg, strengthCore+precisionCore on the hand) and their grants
  *     land on the host components — including the strengthCore 120 override
  *     that clears the T1 (gate 117) hold-out;
- *   - the data/world.json initial coal loadout applies on spawn (10 coal in
+ *   - the data/world/world.json initial coal loadout applies on spawn (10 coal in
  *     the body, T1 with 1 knife projectile in the hand, 5 knives on the
  *     frontal-left leg);
  *   - the optional initial-spawn `count` multiplicity is honored, and an
@@ -129,7 +129,7 @@ describe('M1 droid — organ install filters + grants', () => {
     });
 });
 
-describe('M1 droid — initial coal loadout (data/world.json)', () => {
+describe('M1 droid — initial coal loadout (data/world/world.json)', () => {
     it('carries 10 coal in the body, a T1 with 1 knife projectile in the hand, and 5 knives on the frontal-left leg', () => {
         const { world, entityId } = buildWorld();
         const entity = world.stateEntityController.getEntity(entityId);
@@ -162,7 +162,7 @@ describe('M1 droid — move action requirement path', () => {
 
         // The ACTUAL move contract, read from data (no magic numbers in the
         // assertions): the move action's requirements as declared in
-        // data/actions.json, via the public action registry.
+        // data/systems/actions.json, via the public action registry.
         const moveRequirements = world.getActionRegistry().move.requirements;
         const moveReq = moveRequirements.find(r => r.trait === 'Movement' && r.stat === 'move');
         expect(moveReq, 'the move action must declare a Movement.move requirement').toBeTruthy();
@@ -173,7 +173,7 @@ describe('M1 droid — move action requirement path', () => {
         // requirement path can ever see for this entity.
         const perLegMove = legs.map(leg => world.getComponentStats(leg.id).Movement.move);
         const bestSingleLeg = Math.max(...perLegMove);
-        expect(bestSingleLeg).toBe(20); // moveCore grant (data/internalComponents.json)
+        expect(bestSingleLeg).toBe(20); // moveCore grant (data/components/internalComponents.json)
         expect(bestSingleLeg).toBeGreaterThanOrEqual(minValue);
 
         // The 4-leg aggregate, asserted as a data property (sum of the per-leg

@@ -2,13 +2,13 @@
 
 ## 1. Overview
 
-The crafting system lets an entity combine items on one of its components into new items, following recipes defined in `data/crafting.json`. The shipped recipes fuse knives into T1 container weapons (see [T1 Weapon System](t1_weapon_system.md)) and convert matter into coal fuel: a T1 weapon (`t1_to_coal`) and the dynamic `chunk_wood` type — wood chunks shed by damaged wood components, see [Material Damage & Drop](../data/material_damage_and_drop.md) — into coal (`wood_chunk_to_coal`), the fuel the M1 droid's coal generator burns.
+The crafting system lets an entity combine items on one of its components into new items, following recipes defined in `data/systems/crafting.json`. The shipped recipes fuse knives into T1 container weapons (see [T1 Weapon System](t1_weapon_system.md)) and convert matter into coal fuel: a T1 weapon (`t1_to_coal`) and the dynamic `chunk_wood` type — wood chunks shed by damaged wood components, see [Material Damage & Drop](../data/material_damage_and_drop.md) — into coal (`wood_chunk_to_coal`), the fuel the M1 droid's coal generator burns.
 
 Crafting is a **pure UI-panel concept**: it has no world entity, no range or spatial validation, no room requirement, and — decisively — it does not consume a turn. It is a sibling of the inventory system, not a member of the action pipeline.
 
 ## 2. Why Crafting Is Not an Action
 
-Crafting was deliberately kept **outside** `data/actions.json`. The action pipeline is machinery for traits, stats, range, and synergy: an action declares trait-based requirements, a targeting type, an optional range expression, and declarative world-effect consequences (spatial deltas, stat deltas, damage, logs, events). Crafting fits none of those slots:
+Crafting was deliberately kept **outside** `data/systems/actions.json`. The action pipeline is machinery for traits, stats, range, and synergy: an action declares trait-based requirements, a targeting type, an optional range expression, and declarative world-effect consequences (spatial deltas, stat deltas, damage, logs, events). Crafting fits none of those slots:
 
 - **Its precondition is item possession, not a stat.** A recipe's requirement is "this component holds N items of type X". The action requirement schema has no notion of item possession; extending it would inject inventory concerns into a generic stat-validation system — exactly the coupling the action system is kept free of.
 - **Its effect is item mutation, not a world consequence.** There is no consume/produce-item consequence type, because item mutation is owned by the inventory system. The established home for item operations is the inventory route/manager pair with facade wrappers and a broadcast, and crafting follows that precedent rather than creating a parallel consequence path.
@@ -19,7 +19,7 @@ The chosen shape is therefore the one the existing inventory operations already 
 
 ## 3. Why the Crafting Controller Is Decoupled
 
-The crafting controller is a **state controller**: the composition root constructs it from `data/crafting.json` and injects it into the `WorldStateController` facade. It has **no cross-controller dependencies** and **never touches entity or item state** — it owns the recipe registry and answers pure "do these items satisfy this recipe?" questions.
+The crafting controller is a **state controller**: the composition root constructs it from `data/systems/crafting.json` and injects it into the `WorldStateController` facade. It has **no cross-controller dependencies** and **never touches entity or item state** — it owns the recipe registry and answers pure "do these items satisfy this recipe?" questions.
 
 This decoupling exists because:
 
@@ -44,7 +44,7 @@ Crafting has no spatial presence in the world: it is not a world object, so ther
 
 ## 6. Why Recipes Are Data-Driven
 
-Recipes live in `data/crafting.json` — a plain registry keyed by recipe ID, the same convention as the action and item-type registries.
+Recipes live in `data/systems/crafting.json` — a plain registry keyed by recipe ID, the same convention as the action and item-type registries.
 
 - **New content is a data edit.** Adding a recipe means editing JSON only; the code is a generic interpreter of recipe definitions, so the feature grows without code changes.
 - **Item types stay canonical.** A recipe references item types by their registry IDs and never duplicates item definitions — the item registry remains the single source of truth for names, volumes, and traits, and the client resolves display names from the inventory registry. (The one exception is an input naming a dynamic `chunk_<material>` type — canonical in itself via its self-describing prefix, with no registry entry by design.)

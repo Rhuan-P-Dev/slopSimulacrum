@@ -4,7 +4,7 @@
 
 Validates spatial range for proximity-based actions and executes failure consequences when range checks fail. Extracted from `ActionController` to adhere to the Single Responsibility Principle — range logic is decoupled from the main action execution pipeline.
 
-Range values in `data/actions.json` support the same **expression syntax** as consequences (e.g., `":Physical.strength*2"`), resolved at check time by the same `PlaceholderResolver` mechanism. This ensures consistency across all data-driven expressions in the action system.
+Range values in `data/systems/actions.json` support the same **expression syntax** as consequences (e.g., `":Physical.strength*2"`), resolved at check time by the same `PlaceholderResolver` mechanism. This ensures consistency across all data-driven expressions in the action system.
 
 ## Design Decisions
 
@@ -18,7 +18,7 @@ Range validation requires entity position lookups and distance calculations that
 
 ### Why rangeFailure consequences?
 
-Range validation failures are not simple rejections — they trigger defined consequences in `data/actions.json` (e.g., error messages, resource depletion, or state changes). By storing `rangeFailure` consequences in the action definition itself, the system remains fully data-driven: designers control what happens when a grab fails due to distance, without modifying code.
+Range validation failures are not simple rejections — they trigger defined consequences in `data/systems/actions.json` (e.g., error messages, resource depletion, or state changes). By storing `rangeFailure` consequences in the action definition itself, the system remains fully data-driven: designers control what happens when a grab fails due to distance, without modifying code.
 
 ### Separation from RangeChecker utility
 
@@ -34,7 +34,7 @@ Range validation failures are not simple rejections — they trigger defined con
 
 ### Why server-side spatial range enforcement?
 
-Historically only entity-targeted actions (e.g. `punch`, `cut`) were range-checked on the server, via `checkGrabRange`. Spatial actions (e.g. `dropItem`) sent a target coordinate (`targetX`/`targetY`) rather than a target entity, so the client rendered a range indicator but the server never enforced it — a player could drop an item at any coordinate, regardless of the displayed range (the drop-range bug). `checkSpatialRange` closes that gap: it applies the **same** range expression (from `data/actions.json`, resolved via the shared `RangeResolver`) to a point target, so the actual enforced drop range always matches the range the client displays. The point-target failure message is also phrased for a coordinate ("Target is too far away") rather than a grab ("Item is too far away … Move closer to grab it"), since the target is a location, not an item.
+Historically only entity-targeted actions (e.g. `punch`, `cut`) were range-checked on the server, via `checkGrabRange`. Spatial actions (e.g. `dropItem`) sent a target coordinate (`targetX`/`targetY`) rather than a target entity, so the client rendered a range indicator but the server never enforced it — a player could drop an item at any coordinate, regardless of the displayed range (the drop-range bug). `checkSpatialRange` closes that gap: it applies the **same** range expression (from `data/systems/actions.json`, resolved via the shared `RangeResolver`) to a point target, so the actual enforced drop range always matches the range the client displays. The point-target failure message is also phrased for a coordinate ("Target is too far away") rather than a grab ("Item is too far away … Move closer to grab it"), since the target is a location, not an item.
 
 ## Range Expression Resolution
 
@@ -45,7 +45,7 @@ When `maxRange` is a string (e.g., `":Physical.strength*2"`), the shared `_resol
 3. The resolved numeric value is validated — negative, zero, NaN, or non-finite values are rejected with a graceful failure (not a thrown exception).
 4. The resolved numeric value is passed to `RangeChecker` for distance validation (`checkGrabRange()` for an entity target, `checkPointRange()` for a point target).
 
-Because the same shared `RangeResolver` and the same range expression from `data/actions.json` are used on both server and client, the enforced range always matches the displayed range.
+Because the same shared `RangeResolver` and the same range expression from `data/systems/actions.json` are used on both server and client, the enforced range always matches the displayed range.
 
 ### Edge Case Handling
 
@@ -79,4 +79,4 @@ Range validation fails safely — if the source or target entity is not found in
 - Related controller: `RequirementResolver`
 - Related utility: `RangeChecker`
 - Related shared module: `shared/RangeResolver.js` — Shared range-expression resolver (server + client)
-- Related data file: `data/actions.json` — Action definitions with `rangeFailure` consequences
+- Related data file: `data/systems/actions.json` — Action definitions with `rangeFailure` consequences

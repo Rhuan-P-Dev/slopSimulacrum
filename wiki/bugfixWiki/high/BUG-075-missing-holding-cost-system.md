@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `src/controllers/core/HoldingCostController.js`, `data/holdingCost.json`, `src/controllers/WorldStateController.js`, `src/controllers/capabilities/componentCapabilityController.js`, `src/routes/inventoryRoutes.js`, `public/js/InventoryManager.js`, `public/js/NavActionsPanel.js`, `public/css/inventory.css`, `public/css/actions.css`
+- **Related Files**: `src/controllers/core/HoldingCostController.js`, `data/components/holdingCost.json`, `src/controllers/WorldStateController.js`, `src/controllers/capabilities/componentCapabilityController.js`, `src/routes/inventoryRoutes.js`, `public/js/InventoryManager.js`, `public/js/NavActionsPanel.js`, `public/css/inventory.css`, `public/css/actions.css`
 
 ## Symptoms
 
@@ -30,13 +30,13 @@ The client silently failed to load the holding cost registry, resulting in an em
 
 ### Tertiary: Equipped Items Not Scanned for Actions
 
-The capability controller (`ComponentCapabilityController`) only scanned entity components against action requirements. It never checked equipped items. This meant that even when a knife was equipped (with `Physical.sharpness: 50` in `data/inventoryItems.json`), the `cut` action (requiring `Physical.sharpness >= 20`) was never discovered as available.
+The capability controller (`ComponentCapabilityController`) only scanned entity components against action requirements. It never checked equipped items. This meant that even when a knife was equipped (with `Physical.sharpness: 50` in `data/components/inventoryItems.json`), the `cut` action (requiring `Physical.sharpness >= 20`) was never discovered as available.
 
 ## Fix
 
 ### 1. Holding cost system (controller + data + API + UI)
 
-A server-side `HoldingCostController` now owns equip/unequip/transfer: it validates minimum stats before equipping, applies the holding-cost debuffs to the host component, and clears them on unequip. Why: equipment must impose physical demands (stat requirements plus debuffs), not just consume volume, and equip state must be server-owned so a client cannot fake it. Definitions live in `data/holdingCost.json` so new stat-requiring items are data changes, not code changes (data-driven design standard). The client shows equip/unequip buttons and a visual indicator distinguishing actions provided by an equipped item.
+A server-side `HoldingCostController` now owns equip/unequip/transfer: it validates minimum stats before equipping, applies the holding-cost debuffs to the host component, and clears them on unequip. Why: equipment must impose physical demands (stat requirements plus debuffs), not just consume volume, and equip state must be server-owned so a client cannot fake it. Definitions live in `data/components/holdingCost.json` so new stat-requiring items are data changes, not code changes (data-driven design standard). The client shows equip/unequip buttons and a visual indicator distinguishing actions provided by an equipped item.
 
 ### 2. Equipped Item Action Discovery
 
@@ -53,11 +53,11 @@ A parameterized route matches any path segment, so registering it before a stati
 ## Prevention
 
 - Always consider stat requirements when adding new item types
-- Add holding cost entries to `data/holdingCost.json` for items that should require stats to equip
+- Add holding cost entries to `data/components/holdingCost.json` for items that should require stats to equip
 - Use `HoldingCostController.equipItem()` for all equip operations
 - Provide public getter methods on controllers instead of accessing private properties from parent controllers
 - **Express Route Rule**: Always register static routes BEFORE parameterized routes in the same router file. Parameterized routes (`/:id`) match any path segment and will intercept static paths if registered first.
-- **Equipped Item Rule**: All equipped items are automatically scanned for action capabilities during capability re-evaluation. Adding traits to `data/inventoryItems.json` is sufficient to enable item actions.
+- **Equipped Item Rule**: All equipped items are automatically scanned for action capabilities during capability re-evaluation. Adding traits to `data/components/inventoryItems.json` is sufficient to enable item actions.
 - Add defensive logging in client-side data loading to surface server-side issues
 
 ## Bug Fix: Auto-Unequip Equipped Item on Drag-and-Drop

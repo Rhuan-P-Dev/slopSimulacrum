@@ -64,7 +64,7 @@ The filter order follows a **fail-fast, low-cost-to-high-cost** progression. Ear
 
 The required-traits filter ensures internal components only auto-install on host components that possess specific capabilities. For example, a mobility-enhancing internal component should only attach to components that define a `Movement` trait with sufficient `move` stat value. This declarative constraint eliminates the need for post-spawn validation or corrective logic — if a component lacks the required traits, the internal component simply does not install.
 
-The filter operates at component type resolution time, checking against the global trait definitions in `data/components.json`. This decouples eligibility requirements from the component type definitions, allowing internal component constraints to evolve independently.
+The filter operates at component type resolution time, checking against the global trait definitions in `data/components/components.json`. This decouples eligibility requirements from the component type definitions, allowing internal component constraints to evolve independently.
 
 ## 4. Instance Management
 

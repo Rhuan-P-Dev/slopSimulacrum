@@ -19,11 +19,11 @@ import {
 import { DEFAULT_ITEM_VOLUME } from '../../shared/Defaults.js';
 
 describe('numeric fallbacks mirror their anchoring data', () => {
-    const actions = DataLoader.loadJsonSafe('data/actions.json', {});
+    const actions = DataLoader.loadJsonSafe('data/systems/actions.json', {});
 
     it('PICK_UP_RANGE_FALLBACK equals the data-driven pickUpItem range', () => {
         const pickUp = actions.pickUpItem;
-        expect(pickUp, 'data/actions.json must define pickUpItem').toBeTruthy();
+        expect(pickUp, 'data/systems/actions.json must define pickUpItem').toBeTruthy();
         expect(pickUp.range, 'pickUpItem.range must be a number').toBeTypeOf('number');
         expect(PICK_UP_RANGE_FALLBACK).toBe(pickUp.range);
     });
@@ -44,7 +44,7 @@ describe('numeric fallbacks mirror their anchoring data', () => {
     });
 
     it('DEFAULT_ITEM_VOLUME stays 0 because every registered item declares volume', () => {
-        const items = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+        const items = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
         const registry = items.items || items;
         // Plan T8 step 2 adaptation: the data declares volume under form.volume
         // (a top-level volume is the legacy fallback, same chain as

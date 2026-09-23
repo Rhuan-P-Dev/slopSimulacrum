@@ -798,7 +798,7 @@ export class ClientApp {
      * BUGFIX (UI showed items in range that the server rejected): pickup
      * previously reused the dropItem range ("symmetric reachability"), but
      * the server enforces the pickUpItem action's OWN range in
-     * PickUpItemHandler — data-driven from data/actions.json via the shared
+     * PickUpItemHandler — data-driven from data/systems/actions.json via the shared
      * RangeResolver (currently 50, vs dropItem's 100). The client must mirror
      * the enforced range exactly (single source of truth: the shared
      * RangeResolver + the action definition), so every pickup display and
@@ -1191,7 +1191,7 @@ export class ClientApp {
     /**
      * Resolves the data-driven group-pick config: the pickUpItem action entry
      * delivered to the client carries the `groupPick` sub-object from
-     * data/actions.json (the capability projection spreads raw action data),
+     * data/systems/actions.json (the capability projection spreads raw action data),
      * with AppConfig.GROUP_PICK as the missing-data fallback.
      * @returns {{ radius: number, minItems: number }}
      * @private
@@ -1443,7 +1443,7 @@ export class ClientApp {
     /**
      * Resolves the pickup range from the pickUpItem action's range value —
      * the same value the server enforces in PickUpItemHandler (data-driven
-     * from data/actions.json via the shared RangeResolver). The spatial map
+     * from data/systems/actions.json via the shared RangeResolver). The spatial map
      * renders 1 world unit as 1 pixel, so the resolved value is the circle
      * radius.
      * @param {Object} droid - The active droid entity.
@@ -1549,7 +1549,7 @@ export class ClientApp {
      * server uses in RangeValidator._resolveMaxRange() — so the displayed range
      * circle always matches the server-enforced range exactly.
      *
-     * @param {string|number} rangeExpression - The range value from data/actions.json
+     * @param {string|number} rangeExpression - The range value from data/systems/actions.json
      *   (number, numeric string, or expression string).
      * @param {number} strength - The max Physical.strength value (used to resolve
      *   ":Physical.strength" placeholders in the expression).
@@ -1565,7 +1565,7 @@ export class ClientApp {
         // shared RangeResolver expects ("Physical.strength"). This mirrors the
         // server's _resolveMaxRange() resolution context so the displayed range
         // ALWAYS matches the enforced range (single source of truth: the shared
-        // RangeResolver + data/actions.json range value).
+        // RangeResolver + data/systems/actions.json range value).
         const statMap = strength > 0 ? { 'Physical.strength': strength } : {};
 
         // Delegate to the shared RangeResolver — the same single source of truth

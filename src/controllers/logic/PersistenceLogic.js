@@ -55,7 +55,7 @@ const PERSISTENCE_SCHEMA_VERSION = 3;
  *                        (canonical store; entity.internalComponents mirrors it)
  *   - rooms:     dynamic room state (entities/objects lists) — the room
  *                structure itself (positions, connections, doorPositions)
- *                is static data from data/rooms.json and is intentionally
+ *                is static data from data/world/rooms.json and is intentionally
  *                NOT snapshotted
  *   - droppedItems: WorldStateController._droppedItems
  *   - selections: ActionSelectController._selectionRegistry (Map → array)
@@ -107,7 +107,7 @@ function serialize(facade) {
             equippedItemStats: facade.equippedItemStats.getAll(),
             // Canonical internal-component store
             internalComponents: structuredClone(facade.internalComponentController.internalComponents),
-            // Dynamic room state only (structure comes from data/rooms.json)
+            // Dynamic room state only (structure comes from data/world/rooms.json)
             rooms: facade.roomsController.getAll(),
             // Dropped items on the map
             droppedItems: facade.getDroppedItems(),
@@ -253,7 +253,7 @@ function restore(facade, payload) {
         facade.equippedItemStats._itemStats = structuredClone(s.equippedItemStats);
 
         // 7. Dynamic room state (replace entries; keep constructor-built
-        //    structure: idMap + doorPositions come from data/rooms.json)
+        //    structure: idMap + doorPositions come from data/world/rooms.json)
         const restoredRooms = structuredClone(s.rooms);
         for (const roomId of Object.keys(facade.roomsController.rooms)) {
             delete facade.roomsController.rooms[roomId];

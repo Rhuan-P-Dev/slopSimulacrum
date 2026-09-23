@@ -50,5 +50,5 @@ With `holdingCost` present in the global state, the broadcast transform populate
 ## References
 - Related wiki: `wiki/subMDs/controllers/controller_patterns.md`
 - Related controller: `HoldingCostController`, `WorldStateController`, `ComponentCapabilityController`
-- Related action: `cut` (data/actions.json)
+- Related action: `cut` (data/systems/actions.json)
 - Related system: Component capability cache for equipped items (ComponentCapabilityController._scanEquippedItemsForActions)

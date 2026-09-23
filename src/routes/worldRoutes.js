@@ -50,7 +50,7 @@ export function register(router, { worldStateController, broadcastService }) {
 
 			// Transform dropped items into a flat array with item type info
 			const droppedItemsArray = [];
-			const itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+			const itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
 
 			for (const [id, item] of Object.entries(droppedItems)) {
 				const itemDef = itemDefinitions[item.itemType];
@@ -85,7 +85,7 @@ export function register(router, { worldStateController, broadcastService }) {
 
 			// Transform dropped items into a flat array with item type info
 			const droppedItemsArray = [];
-			const itemDefinitions = DataLoader.loadJsonSafe('data/inventoryItems.json', {});
+			const itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
 
 			for (const [id, item] of Object.entries(droppedItems)) {
 				const itemDef = itemDefinitions[item.itemType];

@@ -1,7 +1,7 @@
 /**
  * Crafter Drone contract test — full real world (data files + composition
  * root), no network. ONE documented mock (same pattern as the KillerLlmDrone
- * tests): the DataLoader is served a fixture `data/npcs.json` whose entries
+ * tests): the DataLoader is served a fixture `data/entities/npcs.json` whose entries
  * are verbatim copies of the registry this test was written against — the
  * live registry no longer ships the `crafterDrone` entry (removed from the
  * world), so the fixture keeps this pipeline contract independent of the
@@ -46,8 +46,8 @@
  * the settle window that follows.
  *
  * MEASURED TIMELINE (real world; data-driven pickUpItem range 50 from
- * data/actions.json — the same source the handler validates; 20 px/round
- * from the moveCore grant 20 in data/internalComponents.json, resolved
+ * data/systems/actions.json — the same source the handler validates; 20 px/round
+ * from the moveCore grant 20 in data/components/internalComponents.json, resolved
  * through the move action's ":Movement.move" speed parameter — the last
  * wheel in the drone's component order wins the entity aggregation):
  * knife dropped 120 from the drone at (270, 100) → rounds 0–3: four
@@ -58,7 +58,7 @@
  * Covers the spec §5 contract checklist:
  *   1. Drone boots in start_room with the correct flags (isNPC, craft_loop,
  *      displayName) and the room-center position; component set matches the
- *      blueprint with the stats from data/components.json.
+ *      blueprint with the stats from data/components/components.json.
  *   2. Full end-to-end cycle: dropped knife → approach → pick at the
  *      range boundary → T1 crafted → NEW dropped t1 on the ground at the
  *      drone's position with ownerId === drone.id.
@@ -78,7 +78,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
 // =========================================================================
-// Fixture registry (verbatim copy of the data/npcs.json this test was
+// Fixture registry (verbatim copy of the data/entities/npcs.json this test was
 // written against — the live file no longer carries the crafterDrone entry,
 // which was removed from the world)
 // =========================================================================
@@ -118,7 +118,7 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
     return {
         default: {
             loadJsonSafe(path, defaultValue) {
-                if (path === 'data/npcs.json') {
+                if (path === 'data/entities/npcs.json') {
                     return FIXTURE_NPCS;
                 }
                 // Delegate all other paths to the real DataLoader
@@ -216,7 +216,7 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
         const room = world.roomsController.getRoom(roomId);
         expect(room).toBeDefined();
 
-        // Flags stamped from data/npcs.json by _spawnNpcs.
+        // Flags stamped from data/entities/npcs.json by _spawnNpcs.
         expect(drone.isNPC).toBe(true);
         expect(drone.name).toBe('Crafter Drone');
         expect(drone.npcConfig.personality).toBeTypeOf('string');
@@ -241,7 +241,7 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
             'crafterRollingBall', 'crafterRollingBall'
         ]);
 
-        // Stats from data/components.json (via the real stats controller).
+        // Stats from data/components/components.json (via the real stats controller).
         const core = drone.components.find(c => c.type === 'crafterCore');
         const arm = drone.components.find(c => c.type === 'crafterArm');
         const wheel = drone.components.find(c => c.type === 'crafterRollingBall');
@@ -260,7 +260,7 @@ describe('Crafter Drone contract (real world, data-driven)', () => {
 
     it('2. full cycle: dropped knife → approach → pick → craft → T1 dropped at the drone, owned by it', async () => {
         // The knife is dropped 120 away — beyond the data-driven pickUpItem
-        // range (50, data/actions.json: the same source the handler
+        // range (50, data/systems/actions.json: the same source the handler
         // validates) — to force the approach phase first.
         dropKnifeAt(270, 100);
         const knife = Object.values(world.getDroppedItems()).find(i => i.itemType === 'knife');

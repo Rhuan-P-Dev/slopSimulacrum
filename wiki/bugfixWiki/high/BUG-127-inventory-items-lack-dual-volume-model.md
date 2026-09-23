@@ -3,7 +3,7 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `t1-weapon-implementation`
-- **Related Files**: [`src/utils/InventoryManager.js`](src/utils/InventoryManager.js), [`data/inventoryItems.json`](data/inventoryItems.json)
+- **Related Files**: [`src/utils/InventoryManager.js`](src/utils/InventoryManager.js), [`data/components/inventoryItems.json`](data/components/inventoryItems.json)
 
 ## Symptoms
 

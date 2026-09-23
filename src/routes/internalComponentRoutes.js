@@ -25,7 +25,7 @@ export function register(router, { worldStateController }) {
      */
     router.get('/internal-components/registry', (req, res) => {
         try {
-            const registry = DataLoader.loadJsonSafe('data/internalComponents.json', {});
+            const registry = DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
             return res.json(registry);
         } catch (error) {
             Logger.error(`[InternalComponentRoutes] GET /registry error: ${error.message}`);

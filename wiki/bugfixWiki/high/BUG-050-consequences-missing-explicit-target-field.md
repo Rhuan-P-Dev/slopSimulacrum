@@ -3,11 +3,11 @@
 - **Severity**: HIGH
 - **Status**: ✅ Fixed
 - **Fixed In**: `commit unknown`
-- **Related Files**: `src/controllers/ConsequenceDispatcher.js`, `data/actions.json`, `src/controllers/consequences/DamageConsequenceHandler.js`, `src/controllers/consequences/StatConsequenceHandler.js`, `src/controllers/consequences/SpatialConsequenceHandler.js`, `src/controllers/consequences/LogConsequenceHandler.js`, `src/controllers/consequences/EventConsequenceHandler.js`
+- **Related Files**: `src/controllers/ConsequenceDispatcher.js`, `data/systems/actions.json`, `src/controllers/consequences/DamageConsequenceHandler.js`, `src/controllers/consequences/StatConsequenceHandler.js`, `src/controllers/consequences/SpatialConsequenceHandler.js`, `src/controllers/consequences/LogConsequenceHandler.js`, `src/controllers/consequences/EventConsequenceHandler.js`
 
 ## Symptoms
 
-Consequences and failureConsequences in `data/actions.json` had no explicit `target` field: each handler resolved its own target with ad-hoc logic (guessing from consequence type, reading action params directly, or using private fallback chains), so `self` vs `target` vs entity-wide operations behaved inconsistently from handler to handler.
+Consequences and failureConsequences in `data/systems/actions.json` had no explicit `target` field: each handler resolved its own target with ad-hoc logic (guessing from consequence type, reading action params directly, or using private fallback chains), so `self` vs `target` vs entity-wide operations behaved inconsistently from handler to handler.
 
 This led to:
 1. **Implicit behavior**: No clear documentation of who each consequence affects
@@ -26,7 +26,7 @@ The original consequence system was designed with implicit target resolution:
 
 ### 1. Added Mandatory `target` Field to All Consequences
 
-Every consequence and failureConsequence in `data/actions.json` now MUST include a `target` field, making each consequence's affected party explicit and self-documenting instead of implicit. The field has three values: `"self"` (the source component fulfilling the requirement), `"target"` (the explicitly targeted entity/component), and `"entity"` (the entire entity performing the action).
+Every consequence and failureConsequence in `data/systems/actions.json` now MUST include a `target` field, making each consequence's affected party explicit and self-documenting instead of implicit. The field has three values: `"self"` (the source component fulfilling the requirement), `"target"` (the explicitly targeted entity/component), and `"entity"` (the entire entity performing the action).
 
 ### 2. Added `_resolveTargetForConsequence()` Method
 
@@ -38,9 +38,9 @@ Each handler now receives a pre-resolved target from the dispatcher instead of p
 
 ### 4. Removed `componentBinding` from Actions
 
-The `componentBinding` metadata was removed from `data/actions.json` as it was redundant — the `target` field on consequences provides the same information more explicitly.
+The `componentBinding` metadata was removed from `data/systems/actions.json` as it was redundant — the `target` field on consequences provides the same information more explicitly.
 
-### 5. Updated `data/actions.json`
+### 5. Updated `data/systems/actions.json`
 
 All actions updated with explicit `target` fields.
 

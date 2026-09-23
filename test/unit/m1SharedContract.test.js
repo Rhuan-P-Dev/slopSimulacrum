@@ -28,7 +28,7 @@ describe('M1 shared contract', () => {
     it('the client default player blueprint is m1Droid', () => {
         expect(DEFAULT_PLAYER_BLUEPRINT).toBe('m1Droid');
         // ...and that blueprint actually exists in the data the server loads.
-        const blueprints = readData('blueprints.json');
+        const blueprints = readData('entities/blueprints.json');
         expect(blueprints['m1Droid']).toBeDefined();
         expect(blueprints['m1Droid'][0]).toBe('m1CentralBody');
     });
@@ -41,17 +41,17 @@ describe('M1 shared contract', () => {
     });
 
     it('the M1 feature is fully data-driven (coal + coalGenerator present in the data files)', () => {
-        const materials = readData('materials.json');
+        const materials = readData('materials/materials.json');
         expect(materials['coal']).toBeDefined();
 
-        const items = readData('inventoryItems.json');
+        const items = readData('components/inventoryItems.json');
         expect(items['coal']).toBeDefined();
         expect(items['coal'].form.volume).toBe(1);
 
-        const dropRates = readData('materialDropRates.json');
+        const dropRates = readData('materials/materialDropRates.json');
         expect(dropRates.materials['coal']).toBeDefined();
 
-        const icRegistry = readData('internalComponents.json');
+        const icRegistry = readData('components/internalComponents.json');
         expect(icRegistry['coalGenerator']).toBeDefined();
         // Energy mechanic is data-driven: coalGenerator is a fuel burner that
         // charges the HOST ENTITY's energy attribute (a whole-entity stat, not a
@@ -64,10 +64,10 @@ describe('M1 shared contract', () => {
         expect(effect.targetStat).toBe('Physical.energy');
 
         // And the M1 droid actually carries the whole-entity energy attribute it
-        // is being charged by (data/entity_attributes.json), with the same cap
+        // is being charged by (data/components/entity_attributes.json), with the same cap
         // as the generator's energyCapacity (a single value in the data, not a
         // magic number in a controller).
-        const entityAttrs = readData('entity_attributes.json');
+        const entityAttrs = readData('components/entity_attributes.json');
         const energyAttr = entityAttrs.attributes['m1Droid']['Physical.energy'];
         expect(energyAttr).toBeDefined();
         expect(energyAttr.value).toBeGreaterThan(0);

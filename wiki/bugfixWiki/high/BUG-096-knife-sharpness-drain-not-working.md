@@ -60,4 +60,4 @@ When designing systems that modify item stats at runtime:
 
 - Related wiki: `wiki/CORE.md` (Controller patterns), `wiki/subMDs/data/inventory_system.md`
 - Related controller: `RequirementResolver`, `EquippedItemStatsController`, `HoldingCostController`, `StatConsequenceHandler`, `ComponentCapabilityController`
-- Related data file: `data/inventoryItems.json`, `data/actions.json`
+- Related data file: `data/components/inventoryItems.json`, `data/systems/actions.json`

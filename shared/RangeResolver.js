@@ -7,7 +7,7 @@
  *   - the Node server (relative file path import) and
  *   - the browser (served as a module via the `/shared/` static route).
  *
- * It resolves expressions of the form used in `data/actions.json`, e.g.:
+ * It resolves expressions of the form used in `data/systems/actions.json`, e.g.:
  *   - plain numbers            -> "10", "3.5", "-2"
  *   - simple placeholders      -> ":Physical.strength"
  *   - placeholder * multiplier -> ":Physical.strength*2"

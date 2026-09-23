@@ -53,7 +53,7 @@ class KnifeDropTriggerHandler {
         const rawEntry = itemRegistry[KNIFE_TYPE];
         let knifeDef;
         if (rawEntry == null) {
-            Logger.error(`[KnifeDropTrigger] Missing knife definition in item registry for key "${KNIFE_TYPE}". The knife item definition is expected in data/inventoryItems.json.`);
+            Logger.error(`[KnifeDropTrigger] Missing knife definition in item registry for key "${KNIFE_TYPE}". The knife item definition is expected in data/components/inventoryItems.json.`);
             knifeDef = {};
         } else {
             knifeDef = rawEntry;

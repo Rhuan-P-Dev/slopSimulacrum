@@ -499,7 +499,7 @@ describe('MaterialController', () => {
             const traitsController = new TraitsController({
                 Physical: { existence: 100 },
                 Mind: { think_level: 10 },
-                Movement: {} // Empty in data/traits.json — no default move
+                Movement: {} // Empty in data/components/traits.json — no default move
             });
 
             const blueprintTraits = {
@@ -511,7 +511,7 @@ describe('MaterialController', () => {
 
             // Mind present with merged value
             expect(finalStats.Mind.think_level).toBe(50);
-            // Movement must NOT be present (no default move in data/traits.json, blueprint didn't declare it)
+            // Movement must NOT be present (no default move in data/components/traits.json, blueprint didn't declare it)
             expect(finalStats).not.toHaveProperty('Movement');
             expect(finalStats).not.toHaveProperty('move');
         });

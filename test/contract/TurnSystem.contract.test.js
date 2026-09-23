@@ -37,7 +37,7 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
  * Builds a fresh world wired to a (non-started) tick system. Returns the
  * facade, the tick system, the turn system controller, and spawns a test droid.
  *
- * The roster is kept DETERMINISTIC against data/npcs.json: the round-start
+ * The roster is kept DETERMINISTIC against data/entities/npcs.json: the round-start
  * roster is always [one NPC, test droid] = 2 planners — the invariant the
  * barrier assertions below rely on (readyCount, the signaled set in the
  * serialize/restore round-trip). Since the live registry no longer spawns an
