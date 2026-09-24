@@ -207,7 +207,7 @@ describe('EventLogPanel._renderEvents — message rendered verbatim, no separate
                 targetId: 'ent-target',
                 level: 'info',
                 ts: Date.now(),
-                message: 'Droid (ent-abc123) performed droid punch dealing 25 impact damage'
+                message: 'Rusty (ent-abc123)\'s Droid Hand performed droid punch dealing 25 impact damage to Vex (ent-target)\'s Droid Arm'
             }
         ]);
         const row = panel._listEl.children[0];
@@ -216,7 +216,7 @@ describe('EventLogPanel._renderEvents — message rendered verbatim, no separate
         expect(messageSpan, 'a message span must exist').toBeTruthy();
         expect(
             messageSpan.textContent,
-            'the message is rendered verbatim (server-resolved, includes the action name)'        ).toBe('Droid (ent-abc123) performed droid punch dealing 25 impact damage');
+            'the message is rendered verbatim (server-resolved, includes the action name)'        ).toBe('Rusty (ent-abc123)\'s Droid Hand performed droid punch dealing 25 impact damage to Vex (ent-target)\'s Droid Arm');
         // No separate action badge: no element in the row encodes the action as a badge.
         expect(
             row.children.some((n) => /badge/i.test(n.className)),

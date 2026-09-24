@@ -645,7 +645,12 @@ class ConsequenceDispatcher {
         let recipes = this._recipeCache && this._recipeCache[file];
         if (!recipes) {
             recipes = DataLoader.loadJsonSafe(`data/${file}.json`, {});
-            this._recipeCache = { ...(this._recipeCache || {}), [file]: recipes };
+            // Only cache a successful (non-empty) load so a transient read failure
+            // (loadJsonSafe returning the {} default) can be retried on the next call
+            // instead of being cached for the dispatcher's lifetime.
+            if (recipes && Object.keys(recipes).length > 0) {
+                this._recipeCache = { ...(this._recipeCache || {}), [file]: recipes };
+            }
         }
         const def = recipes && recipes[type];
         return (def && typeof def.name === 'string' && def.name !== '') ? def.name : null;
@@ -708,7 +713,13 @@ class ConsequenceDispatcher {
                 ? base.itemVolume
                 : (typeof value === 'number' && Number.isFinite(value) ? value : 0);
         } else {
-            const resolved = resolvePlaceholders(value, base);
+            // Only attempt stat/param placeholder resolution when a context is actually
+            // present. On the failure path the context is empty ({}), so a stat like
+            // :Physical.strength cannot resolve and resolvePlaceholders would emit a
+            // spurious "placeholder not found" WARN — there is no damage on a failed
+            // action, so fall straight through to the declared-value fallback instead.
+            const hasContext = base && typeof base === 'object' && Object.keys(base).length > 0;
+            const resolved = hasContext ? resolvePlaceholders(value, base) : undefined;
             perHit = (typeof resolved === 'number' && Number.isFinite(resolved) && resolved >= 0)
                 ? resolved
                 : (typeof value === 'number' && Number.isFinite(value) ? value : 0);
