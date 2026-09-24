@@ -18,6 +18,7 @@ import { resolvePlaceholders } from '../../utils/PlaceholderResolver.js';
 import { SYNERGY_BONUS_THRESHOLD, PUBLISHED_CHANNEL_LOSS_KEY } from '../../utils/Constants.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { BINDING_ROLES } from '../../../shared/ActionVocabulary.js';
+import DataLoader from '../../utils/DataLoader.js';
 
 class ConsequenceDispatcher {
     /**
@@ -32,6 +33,9 @@ class ConsequenceDispatcher {
         this.worldStateController = null;
         this.actionController = actionController;
         this.synergyController = synergyController;
+        // Lazy cache for recipe files (data/components.json, data/inventoryItems.json)
+        // used to name components/weapons in log messages (BUG-140 follow-up).
+        this._recipeCache = null;
     }
 
     /**
@@ -360,7 +364,15 @@ class ConsequenceDispatcher {
                         // above keeps the strength-only requirementValues (BUG-134 ammo
                         // semantics). Defaults to requirementValues on the single-attacker
                         // path, whose requirementValues already carry the stats.
-                        messageStatContext ?? requirementValues
+                        messageStatContext ?? requirementValues,
+                        // BUG-140 follow-up: the component doing the hitting (so the line
+                        // can read "…'s <component>"). Prefers the per-attacker param
+                        // (multi-attacker / shoot / cut), then the single-attacker source
+                        // component, then the first fulfilling component.
+                        context.actionParams.attackerComponentId
+                            || primaryComponentId
+                            || (fulfillingComponents ? Object.values(fulfillingComponents)[0] : null)
+                            || null
                     );
                     effectiveParams = {
                         ...(effectiveParams || {}),
@@ -503,7 +515,7 @@ class ConsequenceDispatcher {
      * @returns {string|undefined} The resolved message, or undefined when none declared.
      * @private
      */
-    _resolveLogMessage(message, requirementValues, actionParams, entityId, actionName, entityName, action, statContext) {
+    _resolveLogMessage(message, requirementValues, actionParams, entityId, actionName, entityName, action, statContext, attackerComponentId = null) {
         if (message === undefined || message === null || message === '') return undefined;
         // statContext supplies the base for :stat / :damageValue resolution. It defaults
         // to requirementValues (single-attacker); the multi-attacker path passes its full
@@ -512,6 +524,19 @@ class ConsequenceDispatcher {
         const statBase = statContext !== undefined && statContext !== null
             ? statContext
             : (requirementValues || {});
+
+        // BUG-140 follow-up: name WHAT was hit and WITH WHAT. The damage consequences
+        // target the victim (target: 'target') while the log sits on the attacker
+        // (target: 'self'), so the victim must be resolved from the action params. The
+        // attacker's attacking component (a hand / the knife / the T1) is supplied by
+        // the caller. Each side renders as a possessive phrase ('s <Name>) that degrades
+        // to '' when the component cannot be resolved, keeping the sentence grammatical.
+        const targetEntityId = (actionParams && actionParams.targetEntityId) || entityId;
+        const targetComponentId = (actionParams && actionParams.targetComponentId) || null;
+        const targetName = this._getEntityName(targetEntityId);
+        const targetCompName = this._getComponentDisplayName(targetComponentId, targetEntityId);
+        const attackerCompName = this._getComponentDisplayName(attackerComponentId, entityId);
+
         const resolutionContext = {
             ...statBase,
             ...(actionParams || {}),
@@ -524,6 +549,13 @@ class ConsequenceDispatcher {
             ...(actionName && typeof actionName === 'string' ? { actionName } : {}),
             ...(entityName && typeof entityName === 'string' ? { entityName } : {}),
             ...this._damageContext(action, statBase, actionParams),
+            // BUG-140 follow-up placeholders: the victim (always set — it defaults to the
+            // acting entity — so the sentence never leaks a raw token) and the possessive
+            // component phrases (the attacker's weapon/limb and the victim's hit component).
+            targetName,
+            targetId: targetEntityId,
+            attackerCompPhrase: attackerCompName ? `'s ${attackerCompName}` : '',
+            targetCompPhrase: targetCompName ? `'s ${targetCompName}` : '',
             // entity goes last: it is the authoritative actor for every log line and
             // must not be shadowed by any coincidentally-named action param.
             entityId
@@ -549,6 +581,86 @@ class ConsequenceDispatcher {
             return entity.name.trim();
         }
         return 'Droid';
+    }
+
+    /**
+     * Returns a display name for a component (or equipped weapon) ID, for the
+     * `:attackerCompPhrase` / `:targetCompPhrase` log placeholders.
+     *
+     * Two kinds of IDs arrive here:
+     *   - a body-part component (comp-...): resolved through the owning entity's
+     *     component list to its `type`, then named from data/components.json
+     *     (e.g. droidHand -> "Droid Hand").
+     *   - an equipped weapon (eq-...): resolved through the holder's equipped
+     *     inventory to its `itemType`, then named from data/inventoryItems.json
+     *     (e.g. t1 -> "T1", knife -> "Knife").
+     *
+     * Falls back to a prettified recipe/type key, and to null when nothing can be
+     * resolved (unavailable world / unknown id) — in which case the possessive
+     * phrase is simply omitted, so the log line stays grammatical. Never throws:
+     * log rendering must be fault-tolerant.
+     * @param {string} componentId - The component or equipped-item ID to name.
+     * @param {string} [entityId] - The owning entity (needed to resolve eq- IDs).
+     * @returns {string|null}
+     * @private
+     */
+    _getComponentDisplayName(componentId, entityId) {
+        if (!componentId || typeof componentId !== 'string') return null;
+        const ws = this.worldStateController;
+        if (!ws) return null;
+
+        // Body part: resolve the owning component to its type, then to a recipe name.
+        if (typeof ws.getComponent === 'function') {
+            try {
+                const comp = ws.getComponent(componentId);
+                if (comp && comp.type) {
+                    return this._recipeName('components', comp.type) || this._prettifyType(comp.type);
+                }
+            } catch (_) { /* fall through to the equipped-item path */ }
+        }
+
+        // Equipped weapon: resolve the holder's equipped entry to its itemType, then name.
+        if (typeof ws.getEquippedItem === 'function' && entityId) {
+            try {
+                const item = ws.getEquippedItem(entityId, componentId);
+                if (item && item.itemType) {
+                    return this._recipeName('inventoryItems', item.itemType) || this._prettifyType(item.itemType);
+                }
+            } catch (_) { /* fall through */ }
+        }
+
+        return null;
+    }
+
+    /**
+     * Lazily loads and caches a recipe file, returning the human-readable `name`
+     * for a recipe key (component or item type). Used by _getComponentDisplayName().
+     * @param {'components'|'inventoryItems'} file - data/<file>.json to read.
+     * @param {string} type - The recipe key (component / item type).
+     * @returns {string|null}
+     * @private
+     */
+    _recipeName(file, type) {
+        if (!type || typeof type !== 'string') return null;
+        let recipes = this._recipeCache && this._recipeCache[file];
+        if (!recipes) {
+            recipes = DataLoader.loadJsonSafe(`data/${file}.json`, {});
+            this._recipeCache = { ...(this._recipeCache || {}), [file]: recipes };
+        }
+        const def = recipes && recipes[type];
+        return (def && typeof def.name === 'string' && def.name !== '') ? def.name : null;
+    }
+
+    /**
+     * Prettifies a camelCase recipe/type key into a readable name (droidHand ->
+     * "Droid Hand"). Used only when a recipe file has no explicit `name`.
+     * @param {string} type
+     * @returns {string|null}
+     * @private
+     */
+    _prettifyType(type) {
+        if (!type || typeof type !== 'string') return null;
+        return type.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
     }
 
     /**

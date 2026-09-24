@@ -120,7 +120,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
+        "message": ":entityName (:entityId):attackerCompPhrase performed :actionName dealing :damageValue :damageChannel damage to :targetName (:targetId):targetCompPhrase"
       }
     ],
     "failureConsequences": [
@@ -165,7 +165,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
+        "message": ":entityName (:entityId):attackerCompPhrase performed :actionName dealing :damageValue :damageChannel damage to :targetName (:targetId):targetCompPhrase"
       }
     ],
     "failureConsequences": [
@@ -287,7 +287,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
+        "message": ":entityName (:entityId):attackerCompPhrase performed :actionName dealing :damageValue :damageChannel damage to :targetName (:targetId):targetCompPhrase"
       }
     ],
     "failureConsequences": [
@@ -324,7 +324,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
+        "message": ":entityName (:entityId):attackerCompPhrase performed :actionName dealing :damageValue :damageChannel damage to :targetName (:targetId):targetCompPhrase"
       }
     ],
     "failureConsequences": [
