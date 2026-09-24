@@ -1,5 +1,5 @@
 /**
- * EventLogPanel (CLIENT) unit tests — enriched room-context sub-line formatting.
+ * EventLogPanel (CLIENT) unit tests — room-context sub-line formatting and verbatim message rendering (no action badge).
  *
  * Covers the `_formatOthers` / `_formatContext` logic that renders the
  * "others:" segment of the event-panel context sub-line (spec: better text
@@ -8,9 +8,13 @@
  * CONTEXT_MAX_ENTITIES cap into "… +N", renders entities without a position
  * as the bare name, and yields "others: none" when empty.
  *
- * The panel is a plain ES module; `_formatOthers` and `_formatContext` are
- * pure functions on the prototype (no DOM, no fetch), so they are exercised
- * directly with a bare instance — no DOM stub or fetch mock required.
+ * The action name now lives in the server-resolved message itself (the generic
+ * "… performed :actionName …" template), so the panel renders the message verbatim
+ * with no separate action badge. `_formatOthers` and `_formatContext` are pure
+ * functions on the prototype (no DOM, no fetch) and are exercised directly with a
+ * bare instance; `_renderEvents` is additionally exercised with a minimal `document`
+ * stub that asserts the message renders verbatim and that no action-badge element is
+ * created.
  *
  * @module test/unit/EventLogPanel.client
  */
@@ -160,5 +164,62 @@ describe('EventLogPanel._formatContext (full sub-line)', () => {
         expect(line).toContain(`… +5`);
         expect(line).toContain(`Droid ${MAX} (${MAX - 1}, ${MAX - 1})`);
         expect(line).not.toContain(`Droid ${MAX + 1}`);
+    });
+});
+
+
+
+describe('EventLogPanel._renderEvents — message rendered verbatim, no separate action badge', () => {
+    // Minimal DOM stub: _renderEvents only uses document.createElement + appendChild.
+    function fakeNode() {
+        return {
+            className: '',
+            children: [],
+            textContent: '',
+            classList: { add() {} },
+            appendChild(child) { this.children.push(child); return child; }
+        };
+    }
+    function listEl() {
+        return {
+            innerHTML: '',
+            children: [],
+            appendChild(child) { this.children.push(child); return child; }
+        };
+    }
+    const fakeDocument = { createElement: fakeNode };
+    const ORIGINAL_DOCUMENT = globalThis.document;
+
+    beforeAll(() => {
+        globalThis.document = fakeDocument;
+        panel._listEl = listEl();
+    });
+
+    afterAll(() => {
+        globalThis.document = ORIGINAL_DOCUMENT;
+    });
+
+    it('renders the resolved message verbatim with no separate action-badge element', () => {
+        panel._renderEvents([
+            {
+                tick: 1,
+                action: 'droid punch',
+                targetId: 'ent-target',
+                level: 'info',
+                ts: Date.now(),
+                message: 'Rusty (ent-abc123)\'s Droid Hand performed droid punch dealing 25 impact damage to Vex (ent-target)\'s Droid Arm'
+            }
+        ]);
+        const row = panel._listEl.children[0];
+        expect(row, 'a row element was appended to the list').toBeTruthy();
+        const messageSpan = row.children.find((n) => n.className === 'event-log-message');
+        expect(messageSpan, 'a message span must exist').toBeTruthy();
+        expect(
+            messageSpan.textContent,
+            'the message is rendered verbatim (server-resolved, includes the action name)'        ).toBe('Rusty (ent-abc123)\'s Droid Hand performed droid punch dealing 25 impact damage to Vex (ent-target)\'s Droid Arm');
+        // No separate action badge: no element in the row encodes the action as a badge.
+        expect(
+            row.children.some((n) => /badge/i.test(n.className)),
+            'no action-badge element is created (the action name is already in the message)'        ).toBe(false);
     });
 });

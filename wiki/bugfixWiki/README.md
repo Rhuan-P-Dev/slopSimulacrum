@@ -148,6 +148,7 @@ Centralized knowledge base for all fixed bugs, known issues, and their resolutio
 | [BUG-025](low/BUG-025-startroomid-scope-bug.md) | `startRoomId` Scope Bug in `_spawnKnifeInStartRoom()` | ✅ Fixed | `41014fb3` | `WorldStateController.js` |
 | [BUG-115](low/BUG-115-internal-components-panel-overflows-card.md) | Internal Components Panel Overflows Card Boundaries Horizontally | ✅ Fixed | `commit unknown` | `internal-components.css`, `components.css`, `ComponentViewer.js` |
 | [BUG-116](low/BUG-116-host-text-overflows-internal-component-card.md) | Host Component Type Text Overflows in Internal Component Cards | ✅ Fixed | `commit unknown` | `internal-components.css`, `components.css`, `ComponentViewer.js` |
+| [BUG-140](low/BUG-140-log-message-raw-placeholders-missing-entity-id.md) | Action Log Messages Leak Raw Placeholders, Omit the Acting Entity, and Never Name the Firing Action | ✅ Fixed | `—` | `ConsequenceDispatcher.js`, `LogConsequenceHandler.js`, `EventLogPanel.js`, `data/systems/actions.json`, `ConsequenceDispatcher.logMessage.test.js`, `EventLogPanel.client.test.js` |
 
 ### 🏗️ Architectural Fixes
 

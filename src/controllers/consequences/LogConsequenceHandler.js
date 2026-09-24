@@ -42,11 +42,18 @@ class LogConsequenceHandler {
 
         const logLevel = (typeof level === 'string' && level.toLowerCase()) || 'info';
         // Logger methods are static and rely on `this` — call them bound to Logger.
-        (Logger[logLevel] || Logger.info).call(Logger, `[Action:${targetId}] ${message}`);
+        const actionName = context?.actionName ?? 'action';
+
+        // Name the action generically in the server console log. The message
+        // already carries the acting entity ([:entityId]) and concrete values
+        // (e.g. the damage number); the prefix now also names which action
+        // fired, so the line is self-explanatory. Generic by design — it works
+        // for ANY action (punch, cut, shoot…), not hardcoded to one.
+        (Logger[logLevel] || Logger.info).call(Logger, `[Action:${actionName} target:${targetId}] ${message}`);
 
         if (this._eventSink) {
             this._eventSink({
-                action: context?.actionName ?? 'action',
+                action: actionName,
                 targetId,
                 message,
                 level
