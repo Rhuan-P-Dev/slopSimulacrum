@@ -42,5 +42,17 @@
     "outputs": [
       { "type": "coal", "quantity": 1 }
     ]
+  },
+  "craft_knife_generator": {
+    "id": "craft_knife_generator",
+    "name": "Knife Generator Assembly",
+    "description": "Forge a chunk of coal and a blade into a self-running Knife Generator machine. Place it in the world to run it (1 knife/turn) or retrieve it to carry it again.",
+    "inputs": [
+      { "type": "coal", "quantity": 1 },
+      { "type": "knife", "quantity": 1 }
+    ],
+    "outputs": [
+      { "type": "knifeGenerator", "quantity": 1 }
+    ]
   }
 }

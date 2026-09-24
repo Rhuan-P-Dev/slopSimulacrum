@@ -130,6 +130,15 @@ class WorldStateController {
         // See test/contract/crafting.contract.test.js for the seam usage.
         /** @private {import('./crafting/CraftingController.js')|null} */
         this.craftingController = deps.craftingController ?? null;
+        // MachineRegistryController: machine registry (data/systems/machines.json).
+        // State controller binding a machine's three forms (item ↔ blueprint ↔
+        // recipe). Null-tolerant like craftingController (tests may build the
+        // facade without it). Deliberately NOT in the subControllers broadcast
+        // map below: static config data must stay out of the full-state
+        // aggregation (same rule as craftingController / knowledgeController).
+        // The place/retrieve routes read it via the facade.
+        /** @private {import('./core/MachineRegistryController.js')|null} */
+        this.machineRegistry = deps.machineRegistry ?? null;
  // KnowledgeController: static "Knowledge" codex (wiki/subMDs/frontend/knowledge_viewer.md).
         // State controller; null-tolerant like craftingController (tests may
         // build the facade without it). Deliberately NOT in the subControllers map
@@ -1834,6 +1843,10 @@ class WorldStateController {
                 name: entity.name || entity.id,
                 blueprint: entity.blueprint || null,
                 isStatic: entity.isStatic === true,
+                // Placed-machine tags (the ObjectViewer uses these to show a
+                // "Retrieve" action on a machine object).
+                isMachine: entity.isMachine === true,
+                machineType: entity.machineType || null,
                 spatial: entity.spatial ? { x: entity.spatial.x ?? 0, y: entity.spatial.y ?? 0 } : null,
                 roomId: entity.location || null,
                 roomName: room ? (room.name || null) : null

@@ -82,5 +82,12 @@
     "form": { "volume": 10, "externalVolume": 1 },
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
     "internalComponents": []
+  },
+  "knifeGenerator": {
+    "name": "Knife Generator",
+    "description": "A self-running machine that forges one knife per turn into its own 10-slot belly, spilling the overflow onto the ground beside it. Carry it, then PLACE it in the world to run it, or RETRIEVE it to carry it again. 100% iron.",
+    "form": { "volume": 3 },
+    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "internalComponents": []
   }
 }

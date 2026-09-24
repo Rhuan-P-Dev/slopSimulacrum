@@ -327,12 +327,19 @@ class ConsequenceDispatcher {
                 let effectiveParams = this._applySynergy(resolvedParams, synergyResult);
                 // Log consequences in data/systems/actions.json store message/level at the
                 // top level (no params object) — merge them through so the handler
-                // logs the real message instead of the empty fallback.
+                // logs the real message instead of the empty fallback. The message/level
+                // may contain placeholders (:itemType, :targetX, ...) so resolve them with
+                // the SAME context used for consequence.params, otherwise the raw
+                // template (e.g. "Item ':itemType' dropped at (:targetX, :targetY)") leaks
+                // into the world event log.
                 if (consequence.type === 'log') {
+                    const logCtx = { ...context.actionParams, ...requirementValues };
+                    const resolvedMessage = consequence.message != null ? resolvePlaceholders(consequence.message, logCtx) : undefined;
+                    const resolvedLevel = consequence.level != null ? resolvePlaceholders(consequence.level, logCtx) : undefined;
                     effectiveParams = {
                         ...(effectiveParams || {}),
-                        ...(consequence.message ? { message: consequence.message } : {}),
-                        ...(consequence.level ? { level: consequence.level } : {})
+                        ...(resolvedMessage !== undefined ? { message: resolvedMessage } : {}),
+                        ...(resolvedLevel !== undefined ? { level: resolvedLevel } : {})
                     };
                 }
                 const targetResult = this._resolveTargetForConsequence(consequence, entityId, targetParams, fulfillingComponents, action, actionName, primaryComponentId);

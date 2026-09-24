@@ -125,7 +125,17 @@ export const AppConfig = {
         // Object inspection (wiki/subMDs/frontend/object_viewer.md): PREFIX —
         // append "/:entityId" to fetch one object's inventory + stats payload.
         OBJECT_INSPECT: '/world-objects',
+        // Machine place/retrieve (src/routes/worldRoutes.js → the
+        // PlaceMachineHandler / RetrieveMachineHandler consequence handlers).
+        // POST with { entityId, itemId } (place) or
+        // { entityId, targetEntityId } (retrieve).
+        PLACE_MACHINE: '/place-machine',
+        RETRIEVE_MACHINE: '/retrieve-machine',
     },
+    // Item types that are placeable machines (materialize as world entities via
+    // POST /place-machine). Keep in sync with the server machine registry's
+    // machineForItem() — the InventoryManager shows a "Place" button for these.
+    MACHINE_ITEM_TYPES: ['knifeGenerator', 'waterBottleFillingStation'],
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH
     // mirrors the server constant CHAT_MESSAGE_MAX_LENGTH

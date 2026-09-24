@@ -1,0 +1,9 @@
+{
+  "_comment": "Machine registry (data-driven, read-only at runtime). A machine is a world entity built from a named blueprint whose component carries a self-sustaining organ (e.g. knifeGeneratorIC — 1 knife/turn). Each entry binds three forms of the same thing: (itemKey) the inventory item type a player carries and crafts, (blueprint) the entity blueprint materialized in the world when the machine is PLACED, and (recipeId) the crafting recipe that produces the item form. Placing materializes the item as an isStatic entity (excluded from the turn roster, so it never stalls the planning barrier) at a player-chosen position; retrieving despawns it and returns the item to the player's inventory. The knife generator is the first (and only shipped) machine. See wiki/subMDs/systems/world_objects.md (§10) and wiki/subMDs/systems/machine_system.md.",
+  "knifeGenerator": {
+    "name": "Knife Generator",
+    "blueprint": "knifeGenerator",
+    "itemKey": "knifeGenerator",
+    "recipeId": "craft_knife_generator"
+  }
+}

@@ -66,6 +66,24 @@
     letter-spacing: 1px;
 }
 
+/* "Retrieve machine" action (shown only for placed-machine objects). */
+.ov-retrieve-btn {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.95em;
+    cursor: pointer;
+    color: var(--neon-cyan, #00e5ff);
+    background: color-mix(in srgb, var(--neon-cyan, #00e5ff) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--neon-cyan, #00e5ff) 45%, transparent);
+    border-radius: 4px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ov-retrieve-btn:hover {
+    background: color-mix(in srgb, var(--neon-cyan, #00e5ff) 18%, transparent);
+    border-color: var(--neon-cyan, #00e5ff);
+}
+
 /* ---- Production ---------------------------------------------------------------- */
 
 .ov-prod-row {

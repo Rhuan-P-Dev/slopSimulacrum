@@ -78,6 +78,8 @@ export function normalizeObjectPayload(raw) {
             id: entity.id != null ? String(entity.id) : 'unknown',
             name: typeof entity.name === 'string' && entity.name ? entity.name : 'Unknown object',
             isStatic: entity.isStatic === true,
+            isMachine: entity.isMachine === true,
+            machineType: typeof entity.machineType === 'string' ? entity.machineType : null,
             spatial: (entity.spatial && typeof entity.spatial === 'object') ? entity.spatial : null,
             roomName: typeof entity.roomName === 'string' && entity.roomName ? entity.roomName : null
         },
@@ -371,6 +373,8 @@ export default class ObjectViewer {
         this._moveInFlight = false;
         /** @private {Object|null} The acting droid ({id, spatial}) behind the panel's mutations (range gate, see _distanceToActor) */
         this._actor = null;
+        /** @private {Function|null} Callback to retrieve a placed machine (App.js wires it to ActionExecutor). */
+        this._retrieveHandler = null;
     }
 
     /**
@@ -466,6 +470,16 @@ export default class ObjectViewer {
     }
 
     /**
+     * Sets the callback invoked by a placed machine's "Retrieve" button. The
+     * handler receives the machine's entity id (App.js wires it to
+     * ActionExecutor.retrieveMachine).
+     * @param {Function|null} handler
+     */
+    setRetrieveHandler(handler) {
+        this._retrieveHandler = handler;
+    }
+
+    /**
      * Registers the player's active droid as the actor of the panel's two
      * mutations (move/take). The viewer uses it for the advisory
      * out-of-reach banner, and both POST bodies carry its id so the server
@@ -511,6 +525,12 @@ export default class ObjectViewer {
      */
     _handleContentClick(e) {
         if (!e || !e.target || typeof e.target.closest !== 'function') return;
+
+        const retrieve = e.target.closest('.ov-retrieve-btn');
+        if (retrieve) {
+            if (this._retrieveHandler && this._entityId) this._retrieveHandler(this._entityId);
+            return;
+        }
 
         const close = e.target.closest('.ov-move-close');
         if (close) {
@@ -683,6 +703,7 @@ export default class ObjectViewer {
 
         const parts = [];
         parts.push(this._renderHeader(payload.entity));
+        parts.push(this._renderRetrieve(payload.entity));
         parts.push(this._renderProduction(payload.production));
         parts.push(this._renderInventory(payload.inventory, payload.items, payload.components, payload.takeOptions, outOfRange));
         parts.push(this._renderComponents(payload.components));
@@ -708,6 +729,20 @@ export default class ObjectViewer {
             `<span class="ov-name">${escapeHtml(entity.name)}</span>` +
             `<span class="ov-badge">${escapeHtml(badge)}</span>` +
             `<span class="ov-where">${escapeHtml(where + coords)}</span>` +
+            `</div>`;
+    }
+
+    /**
+     * The "Retrieve machine" action, shown only for placed-machine objects. The
+     * server enforces the retrieve range and returns produced items to the owner.
+     * @param {Object} entity - Normalized entity.
+     * @returns {string}
+     * @private
+     */
+    _renderRetrieve(entity) {
+        if (entity.isMachine !== true) return '';
+        return `<div class="ov-section">` +
+            `<button class="ov-retrieve-btn" type="button" title="Take this machine back (its produced items return to the owner)">🔧 Retrieve machine</button>` +
             `</div>`;
     }
 

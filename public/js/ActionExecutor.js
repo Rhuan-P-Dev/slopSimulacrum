@@ -487,6 +487,68 @@ export class ActionExecutor {
     }
 
     /**
+     * Places a carried machine item into the world at the active droid's location.
+     * POST /place-machine — the server spawns the machine entity and consumes the
+     * item (the same consequence handler as the queued path). Refreshes the world
+     * on success so the new machine marker appears.
+     * @param {string} itemId - The machine item instance id to place.
+     * @returns {Promise<void>}
+     */
+    async placeMachine(itemId) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            this.errorController.handleError({ code: 'NO_ACTIVE_DROID', message: 'No active droid to place from.' });
+            return;
+        }
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.PLACE_MACHINE, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entityId: droid.id, itemId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Failed to place machine.');
+            if (this.selectionController) this.selectionController.clearAllSelections();
+            await this.refreshCallback();
+            ClientLogger.info('ActionExecutor', ` Machine placed: ${result.machine || itemId} → ${result.machineEntityId}`);
+        } catch (error) {
+            ClientLogger.error('ActionExecutor', ` Place machine failed: ${error.message}`, { itemId, error: error.message });
+            this.errorController.handleError({ code: 'PLACE_MACHINE_FAILED', message: error.message });
+        }
+    }
+
+    /**
+     * Retrieves a placed machine back into the world. POST /retrieve-machine —
+     * the server despawns the machine and returns its produced items (to the
+     * entity that placed it). Refreshes the world on success so the marker
+     * disappears and any returned items show up in inventory.
+     * @param {string} targetEntityId - The placed machine entity id to retrieve.
+     * @returns {Promise<void>}
+     */
+    async retrieveMachine(targetEntityId) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid) {
+            this.errorController.handleError({ code: 'NO_ACTIVE_DROID', message: 'No active droid to retrieve with.' });
+            return;
+        }
+        try {
+            const response = await fetch(AppConfig.ENDPOINTS.RETRIEVE_MACHINE, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entityId: droid.id, targetEntityId })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'Failed to retrieve machine.');
+            if (this.selectionController) this.selectionController.clearAllSelections();
+            await this.refreshCallback();
+            ClientLogger.info('ActionExecutor', ` Machine retrieved: ${targetEntityId}`);
+        } catch (error) {
+            ClientLogger.error('ActionExecutor', ` Retrieve machine failed: ${error.message}`, { targetEntityId, error: error.message });
+            this.errorController.handleError({ code: 'RETRIEVE_MACHINE_FAILED', message: error.message });
+        }
+    }
+
+    /**
      * Executes a drop item action at target coordinates.
      * Validates range, sends to server, refreshes world.
      *
