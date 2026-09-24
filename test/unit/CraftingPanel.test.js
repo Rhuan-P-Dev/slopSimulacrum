@@ -42,6 +42,10 @@ import {
     unwrapEnvelope
 } from '../../public/js/CraftingPanel.js';
 
+// Default export (the panel class) — imported only for the one DOM-wiring
+// method covered by a DOM-free regression test below (_findRecipeCard).
+import CraftingPanel from '../../public/js/CraftingPanel.js';
+
 // --- Fixtures ------------------------------------------------------------------
 
 /** A simple two-knife → one-t1 recipe (mirrors a real data/systems/crafting.json entry) */
@@ -699,5 +703,41 @@ describe('unwrapEnvelope', () => {
         expect(unwrapEnvelope({ recipes: null }, 'recipes', [])).toEqual([]);
         expect(unwrapEnvelope(null, 'registry', {})).toEqual({});
         expect(unwrapEnvelope(undefined, 'items', {})).toEqual({});
+    });
+});
+
+// Regression guard for the crafting visual bug: dropping an item on a recipe
+// card that is NOT first in the DOM used to paint the slot fill ("fill point")
+// and the split-host "Inputs must be on the same component." hint onto the
+// FIRST recipe card, because _findRecipeCard ignored its id and always
+// returned the first card. These tests exercise only the card-lookup surface
+// with a bare stub (no real DOM), keeping with the file's no-DOM convention.
+describe('CraftingPanel._findRecipeCard (DOM-free regression)', () => {
+    function makePanel(cardIds) {
+        const cards = cardIds.map((id) => ({ dataset: { recipeId: id } }));
+        const panel = Object.create(CraftingPanel.prototype);
+        panel._content = {
+            querySelectorAll: (sel) => (sel === '.crafting-recipe-card' ? cards : []),
+        };
+        return { panel, cards };
+    }
+
+    it('returns the matching card, not always the first (the reported bug)', () => {
+        const { panel, cards } = makePanel(['t1-field-assembly', 'knife-generator']);
+        // First card in DOM order is t1-field-assembly; asking for the
+        // knife-generator card must return THAT card, not the first one.
+        expect(panel._findRecipeCard('knife-generator')).toBe(cards[1]);
+        expect(panel._findRecipeCard('t1-field-assembly')).toBe(cards[0]);
+    });
+
+    it('returns null when no card matches the id', () => {
+        const { panel } = makePanel(['t1-field-assembly', 'knife-generator']);
+        expect(panel._findRecipeCard('does-not-exist')).toBeNull();
+    });
+
+    it('returns null when there is no content', () => {
+        const panel = Object.create(CraftingPanel.prototype);
+        panel._content = null;
+        expect(panel._findRecipeCard('knife-generator')).toBeNull();
     });
 });

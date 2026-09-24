@@ -1,6 +1,8 @@
 import express from 'express';
 import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import DataLoader from '../utils/DataLoader.js';
+import { handlePlaceMachine } from '../controllers/core/PlaceMachineHandler.js';
+import { handleRetrieveMachine } from '../controllers/core/RetrieveMachineHandler.js';
 
 /**
  * Registers world state-related routes with the given Express router.
@@ -134,6 +136,71 @@ export function register(router, { worldStateController, broadcastService }) {
 			}
 		} catch (error) {
 			sendRouteError(error, res, '/pick-up-item');
+		}
+	});
+
+	/**
+	 * POST /place-machine
+	 * Materialize a carried machine item (e.g. a Knife Generator) as a functional world
+	 * entity at a chosen position. The item is consumed; the machine runs (its organ is
+	 * ticked each round) and can later be retrieved. Immediate (same synchronous path as
+	 * /pick-up-item).
+	 */
+	router.post('/place-machine', (req, res) => {
+		const { entityId, itemId, itemType, targetX, targetY } = req.body;
+		if (!entityId || !itemId) {
+			return res.status(400).json({
+				error: 'Invalid request. "entityId" and "itemId" are required.',
+			});
+		}
+		if (!worldStateController.machineRegistry) {
+			return res.status(503).json({ error: 'Machine registry not available.' });
+		}
+		try {
+			const result = handlePlaceMachine(
+				{ worldStateController, machineRegistry: worldStateController.machineRegistry },
+				{ entityId, itemId, itemType, targetX, targetY }
+			);
+			if (result.success) {
+				broadcastService.broadcast();
+				res.json({ success: true, message: result.message || 'Machine placed.', machineEntityId: result.machineEntityId, position: result.position });
+			} else {
+				res.status(400).json({ error: result.message });
+			}
+		} catch (error) {
+			sendRouteError(error, res, '/place-machine');
+		}
+	});
+
+	/**
+	 * POST /retrieve-machine
+	 * Retrieve a placed machine back into the player's inventory. Its stored contents
+	 * (e.g. forged knives) spill to the floor at the machine's position first, so nothing
+	 * is lost. Immediate (same synchronous path as /pick-up-item).
+	 */
+	router.post('/retrieve-machine', (req, res) => {
+		const { entityId, targetEntityId } = req.body;
+		if (!entityId || !targetEntityId) {
+			return res.status(400).json({
+				error: 'Invalid request. "entityId" and "targetEntityId" are required.',
+			});
+		}
+		if (!worldStateController.machineRegistry) {
+			return res.status(503).json({ error: 'Machine registry not available.' });
+		}
+		try {
+			const result = handleRetrieveMachine(
+				{ worldStateController, machineRegistry: worldStateController.machineRegistry },
+				{ entityId, targetEntityId }
+			);
+			if (result.success) {
+				broadcastService.broadcast();
+				res.json({ success: true, message: result.message, retrieved: result.retrieved, spilled: result.spilled });
+			} else {
+				res.status(400).json({ error: result.message });
+			}
+		} catch (error) {
+			sendRouteError(error, res, '/retrieve-machine');
 		}
 	});
 

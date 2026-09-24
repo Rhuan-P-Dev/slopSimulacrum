@@ -350,36 +350,45 @@ class ConsequenceDispatcher {
                 // the top level (no params object). The message is a data-driven
                 // template — resolve it (like the damage value it mirrors) so the
                 // concrete actor and damage number appear in the log and LLM event
-                // context instead of raw ":placeholder" tokens leaking through.
+                // context instead of raw ":placeholder" tokens leaking through
+                // (e.g. "Item ':itemType' dropped at (:targetX, :targetY)"). The level is
+                // resolved against the SAME context so a templated level can never leak
+                // raw tokens either.
                 if (consequence.type === 'log') {
-                    const resolvedMessage = this._resolveLogMessage(
-                        consequence.message,
+                    // BUG-140 follow-up: the component doing the hitting (so the line
+                    // can read "…'s <component>"). Prefers the per-attacker param
+                    // (multi-attacker / shoot / cut), then the single-attacker source
+                    // component, then the first fulfilling component.
+                    const attackerComponentId = context.actionParams.attackerComponentId
+                        || primaryComponentId
+                        || (fulfillingComponents ? Object.values(fulfillingComponents)[0] : null)
+                        || null;
+                    const logCtx = this._logResolutionContext(
                         requirementValues,
                         context.actionParams,
                         entityId,
                         actionName,
                         this._getEntityName(entityId),
                         action,
-                        // The message resolves its :stat / :damageValue placeholders against
+                        // The template resolves its :stat / :damageValue placeholders against
                         // the FULL stat context (messageStatContext) — on the multi-attacker
                         // path that is the per-attacker stat map — while the param resolution
                         // above keeps the strength-only requirementValues (BUG-134 ammo
                         // semantics). Defaults to requirementValues on the single-attacker
                         // path, whose requirementValues already carry the stats.
                         messageStatContext ?? requirementValues,
-                        // BUG-140 follow-up: the component doing the hitting (so the line
-                        // can read "…'s <component>"). Prefers the per-attacker param
-                        // (multi-attacker / shoot / cut), then the single-attacker source
-                        // component, then the first fulfilling component.
-                        context.actionParams.attackerComponentId
-                            || primaryComponentId
-                            || (fulfillingComponents ? Object.values(fulfillingComponents)[0] : null)
-                            || null
+                        attackerComponentId
                     );
+                    const resolvedMessage = (consequence.message != null && consequence.message !== '')
+                        ? resolvePlaceholders(String(consequence.message), logCtx)
+                        : undefined;
+                    const resolvedLevel = consequence.level
+                        ? resolvePlaceholders(String(consequence.level), logCtx)
+                        : undefined;
                     effectiveParams = {
                         ...(effectiveParams || {}),
                         ...(resolvedMessage ? { message: resolvedMessage } : {}),
-                        ...(consequence.level ? { level: consequence.level } : {})
+                        ...(resolvedLevel ? { level: resolvedLevel } : {})
                     };
                 }
                 const targetResult = this._resolveTargetForConsequence(consequence, entityId, targetParams, fulfillingComponents, action, actionName, primaryComponentId);
@@ -486,27 +495,29 @@ class ConsequenceDispatcher {
     }
 
     /**
-     * Resolves the free-text message declared on a log consequence's top-level
-     * `message` field. Data-driven log consequences store message/level on the
-     * consequence itself (not inside a `params` object), so the message is NOT
-     * touched by _resolveParams (which only resolves `params`).
+     * Builds the resolution context shared by a log consequence's top-level
+     * template fields (`message` and `level`). Data-driven log consequences
+     * store message/level on the consequence itself (not inside a `params`
+     * object), so neither is touched by _resolveParams (which only resolves
+     * `params`).
      *
      * WHY the same template can name a stat for the damage ("dealing
      * :Physical.strength impact damage") as for prose ("dealing
      * :Physical.sharpness cut damage"), and both must display the concrete number
-     * to the player and in the LLM event context. Routing the message through the
-     * same PlaceholderResolver, with a context that carries the acting entity
-     * (:entityId) plus the resolved trait stats, keeps the human-readable "who /
-     * how much" in sync with the damage actually dealt. Without this step the raw
+     * to the player and in the LLM event context. Routing the template through
+     * the same PlaceholderResolver, with a context that carries the acting
+     * entity (:entityId), the action params (:itemType, :targetX, ...) and the
+     * resolved trait stats, keeps the human-readable "who / what / how much" in
+     * sync with the damage actually dealt. Without this step the raw
      * ":placeholder" tokens leak verbatim into the server log and the LLM event
      * context — the original symptom being a log line that names neither the
      * entity ID nor the damage.
      *
-     * Unknown placeholders are left untouched (the resolver's embedded path returns
-     * the original token when the value is absent), so this degrades to the
-     * pre-fix behavior for templates that reference values not present in scope.
+     * Unknown placeholders are left untouched (the resolver's embedded path
+     * returns the original token when the value is absent), so this degrades to
+     * the pre-fix behavior for templates that reference values not present in
+     * scope.
      *
-     * @param {string|null|undefined} message - The template string (may contain no placeholders).
      * @param {Object|null} requirementValues - Flat "Trait.stat" -> number stats.
      * @param {Object|null} actionParams - Action execution params.
      * @param {string} entityId - The acting entity ID.
@@ -514,11 +525,11 @@ class ConsequenceDispatcher {
      * @param {string|null|undefined} entityName - Acting entity display name for :entityName.
      * @param {Object|null} action - Action definition (source of the damage context).
      * @param {Object<string, number>|null|undefined} statContext - Stat base for :stat / :damageValue resolution; defaults to requirementValues when undefined/null. The multi-attacker path passes the full per-attacker stat map so non-strength stats resolve; single-attacker and failure paths omit it.
-     * @returns {string|undefined} The resolved message, or undefined when none declared.
+     * @param {string|null} [attackerComponentId] - The component doing the hitting (BUG-140).
+     * @returns {Object} The placeholder resolution context.
      * @private
      */
-    _resolveLogMessage(message, requirementValues, actionParams, entityId, actionName, entityName, action, statContext, attackerComponentId = null) {
-        if (message === undefined || message === null || message === '') return undefined;
+    _logResolutionContext(requirementValues, actionParams, entityId, actionName, entityName, action, statContext, attackerComponentId = null) {
         // statContext supplies the base for :stat / :damageValue resolution. It defaults
         // to requirementValues (single-attacker); the multi-attacker path passes its full
         // per-attacker stat map so non-strength stats resolve in the message even though
@@ -562,6 +573,38 @@ class ConsequenceDispatcher {
             // must not be shadowed by any coincidentally-named action param.
             entityId
         };
+        return resolutionContext;
+    }
+
+    /**
+     * Resolves the free-text message declared on a log consequence's top-level
+     * `message` field using _logResolutionContext (see its docs for the context
+     * semantics).
+     *
+     * @param {string|null|undefined} message - The template string (may contain no placeholders).
+     * @param {Object|null} requirementValues - Flat "Trait.stat" -> number stats.
+     * @param {Object|null} actionParams - Action execution params.
+     * @param {string} entityId - The acting entity ID.
+     * @param {string|null|undefined} actionName - Action name for :actionName (registry name).
+     * @param {string|null|undefined} entityName - Acting entity display name for :entityName.
+     * @param {Object|null} action - Action definition (source of the damage context).
+     * @param {Object<string, number>|null|undefined} statContext - Stat base for :stat / :damageValue resolution; see _logResolutionContext.
+     * @param {string|null} [attackerComponentId] - The component doing the hitting (BUG-140).
+     * @returns {string|undefined} The resolved message, or undefined when none declared.
+     * @private
+     */
+    _resolveLogMessage(message, requirementValues, actionParams, entityId, actionName, entityName, action, statContext, attackerComponentId = null) {
+        if (message === undefined || message === null || message === '') return undefined;
+        const resolutionContext = this._logResolutionContext(
+            requirementValues,
+            actionParams,
+            entityId,
+            actionName,
+            entityName,
+            action,
+            statContext,
+            attackerComponentId
+        );
         return resolvePlaceholders(String(message), resolutionContext);
     }
 

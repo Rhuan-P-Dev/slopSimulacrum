@@ -613,6 +613,12 @@ export class ClientApp {
             // Wire drop selector to inventory manager
             this.inventory.setDropSelector(this.dropSelector);
 
+            // Machine place/retrieve wiring: the inventory "Place" button places a
+            // carried machine item; the Object Viewer "Retrieve" button reclaims a
+            // placed machine (both delegate to the ActionExecutor).
+            this.inventory.setPlaceHandler((itemId) => this.executor.placeMachine(itemId));
+            this.objectViewer.setRetrieveHandler((machineEntityId) => this.executor.retrieveMachine(machineEntityId));
+
             // Register panels with overlay manager
             this.overlayManager.register('component-viewer', this.componentViewer, 'btn-component-viewer', '1',
                 () => ({ entity: this._resolveComponentViewerEntity(), state: this.worldState.getState() })

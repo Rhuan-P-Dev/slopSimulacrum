@@ -32,6 +32,9 @@ export class InventoryManager {
         /** @private {import('./DropSelectorController.js').DropSelectorController|null} */
         this._dropSelector = null;
 
+        /** @private {Function|null} Callback to place a carried machine item (App.js wires it). */
+        this._placeHandler = null;
+
         /** @private {HTMLElement|null} */
         this._overlay = null;
         /** @private {HTMLElement|null} */
@@ -74,6 +77,7 @@ export class InventoryManager {
         this._onEquipClick = this._onEquipClick.bind(this);
         this._onUnequipClick = this._onUnequipClick.bind(this);
         this._onDropClick = this._onDropClick.bind(this);
+        this._onPlaceClick = this._onPlaceClick.bind(this);
     }
 
     /**
@@ -82,6 +86,16 @@ export class InventoryManager {
      */
     setDropSelector(dropSelector) {
         this._dropSelector = dropSelector;
+    }
+
+    /**
+     * Sets the callback used by a machine item's "Place" button. The handler
+     * receives the machine item's instance id and places it (App.js wires it to
+     * ActionExecutor.placeMachine).
+     * @param {Function|null} handler
+     */
+    setPlaceHandler(handler) {
+        this._placeHandler = handler;
     }
 
     /**
@@ -604,6 +618,13 @@ export class InventoryManager {
                         data-item-type="${item.type}"
                         title="Click to select a component and drop this item">📦 Drop</button>`;
 
+            // Place button — only for placeable machine items (materialize into
+            // the world; the item is consumed and the machine starts producing).
+            const placeButtonHtml = AppConfig.MACHINE_ITEM_TYPES.includes(item.type)
+                ? `<button class="equip-btn place" data-item-id="${item.id}" data-item-type="${item.type}"
+                       title="Place this machine in the world (it starts producing on its own)">🏗️ Place</button>`
+                : '';
+
             // Container header with children (if isContainer — has internal capacity or children)
             let containerHtml = '';
             if (isContainer) {
@@ -657,6 +678,7 @@ export class InventoryManager {
                             title="Click to view item stats">📊 Stats</button>
                     ${equipButtonHtml}
                     ${dropButtonHtml}
+                    ${placeButtonHtml}
                 </div>
                 <!-- Expandable stats panel (hidden by default) -->
                 <div class="inventory-item-stats-panel"
@@ -821,6 +843,14 @@ export class InventoryManager {
             });
         });
 
+        // Attach place button listeners (machine items only).
+        const placeButtons = this._content.querySelectorAll('.equip-btn.place');
+        placeButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this._onPlaceClick(e, btn.closest('.inventory-item-card'));
+            });
+        });
+
         // Attach stats toggle button listeners
         const statsButtons = this._content.querySelectorAll('.equip-btn.stats-toggle');
         statsButtons.forEach(btn => {
@@ -866,6 +896,42 @@ export class InventoryManager {
 
         // Open the DropSelector panel
         this._dropSelector?.show({ pendingDropItem });
+    }
+
+    /**
+     * Handles a click on a machine item's "Place" button: invokes the wired
+     * place handler (App.js → ActionExecutor.placeMachine), which materializes
+     * the carried machine item into the world at the droid's location, then
+     * re-fetches the entity's items so the now-consumed item disappears from
+     * this panel (placeMachine's world-state refresh does not touch this
+     * panel's own item cache).
+     * @param {Event} e - The click event.
+     * @param {HTMLElement} card - The item card element.
+     * @private
+     */
+    async _onPlaceClick(e, card) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!card || !this._placeHandler) {
+            this._showToast('Place action is not available.', 'error');
+            return;
+        }
+        const itemId = card.dataset.itemId;
+        if (!itemId) return;
+        // Await the place action so the server-side consume settles before we
+        // re-fetch. The catch is defensive: the handler already reports its own
+        // errors, and the re-fetch below reflects server truth either way
+        // (item gone on success, still present on failure).
+        try {
+            await this._placeHandler(itemId);
+        } catch (error) {
+            ClientLogger.error('InventoryManager', ' Place handler threw:', error);
+        }
+        // Re-fetch the entity items, then re-render (same reload-then-render
+        // pattern as _onEquipClick) — the world-state refresh alone would
+        // repaint this panel's stale cache and leave the placed item on screen.
+        await this._loadEntityItems(this._currentEntityId);
+        this._renderIfVisible();
     }
 
     /**

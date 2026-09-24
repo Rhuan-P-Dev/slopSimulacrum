@@ -124,9 +124,14 @@ describe('Object Inspector — getObjectInspectData payload contract (knife gene
         }
 
         expect(Object.keys(p.entity).sort()).toEqual(
-            ['blueprint', 'id', 'isStatic', 'name', 'roomId', 'roomName', 'spatial'].sort()
+            ['blueprint', 'id', 'isMachine', 'isStatic', 'machineType', 'name', 'roomId', 'roomName', 'spatial'].sort()
         );
         expect(p.entity.isStatic).toBe(true);
+        // This knifeGenerator is a world-object PROP (auto-spawned), not a machine
+        // the player placed — so the machine tags are absent (the Object Viewer
+        // therefore shows no "Retrieve" action for it). The keys are always present.
+        expect(p.entity.isMachine).toBe(false);
+        expect(p.entity.machineType).toBeNull();
         expect(p.entity.name).toBe('Knife Generator');
         expect(p.entity.roomName, 'room resolved by name, not just id').toBeTruthy();
 

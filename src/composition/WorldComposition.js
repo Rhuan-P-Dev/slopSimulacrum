@@ -57,6 +57,7 @@ import TraitsController from '../controllers/traits/TraitsController.js';
 import InternalComponentController from '../controllers/core/InternalComponentController.js';
 import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
+import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import KnowledgeController from '../controllers/knowledge/KnowledgeController.js';
 import WorldRulesController from '../controllers/worldRules/WorldRulesController.js';
 import OnDamageDropListener from '../controllers/worldRules/OnDamageDropListener.js';
@@ -195,6 +196,20 @@ export function buildWorldState(tickSystem = null) {
     const craftingController = new CraftingController(
         craftingRegistry,
         inventoryItemRegistry
+    );
+    // MachineRegistryController: state controller owning the machine registry
+    // (data/systems/machines.json). Binds each machine's three forms (item ↔
+    // blueprint ↔ recipe) and validates them against the already-loaded registries
+    // at boot (fail-fast — a machine with a missing blueprint/item/recipe fails
+    // startup, never mid-game). No controller deps and no setWorldStateController()
+    // (it never reads live world state) — same Layer-0 shape as CraftingController.
+    // Deliberately kept OUT of the broadcast subControllers map below: static
+    // config data must stay out of the full-state aggregation (same rule).
+    const machineRegistryController = new MachineRegistryController(
+        DataLoader.loadJsonSafe('data/systems/machines.json', {}),
+        blueprintRegistry,
+        inventoryItemRegistry,
+        craftingRegistry
     );
     // KnowledgeController: state controller owning the static "Knowledge" codex
  // (wiki/subMDs/frontend/knowledge_viewer.md). Layer 0 data store — the same layer as the
@@ -340,7 +355,10 @@ export function buildWorldState(tickSystem = null) {
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
         craftingController,
- // KnowledgeController: static knowledge codex (wiki/subMDs/frontend/knowledge_viewer.md).
+        // MachineRegistryController: machine registry (data/systems/machines.json).
+        // Null-tolerant like craftingController — the place/retrieve routes read
+        // it via the facade; deliberately NOT in the subControllers broadcast map.
+        machineRegistry: machineRegistryController,
         // Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
         knowledgeController,

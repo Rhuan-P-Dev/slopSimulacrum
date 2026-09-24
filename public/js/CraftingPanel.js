@@ -1353,13 +1353,23 @@ export class CraftingPanel {
 
     /**
      * Finds a recipe card element by recipe ID.
-     * @param {string} _recipeId
+     * @param {string} recipeId
      * @returns {HTMLElement|null}
      * @private
      */
-    _findRecipeCard(_recipeId) {
+    _findRecipeCard(recipeId) {
         if (!this._content) return null;
-        return this._content.querySelector(`.crafting-recipe-card[data-recipe-id]`);
+        // Resolve by dataset comparison (the project's standing rule: never
+        // interpolate an id into a selector). The previous implementation
+        // ignored the id and returned the FIRST recipe card in the DOM, so
+        // any non-first card's state updates (slot fill / "fill point" and
+        // the split-host "same component" hint) were painted onto that first
+        // card instead of the one actually targeted.
+        const cards = this._content.querySelectorAll('.crafting-recipe-card');
+        for (const card of cards) {
+            if (card.dataset.recipeId === recipeId) return card;
+        }
+        return null;
     }
 
     /**

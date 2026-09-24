@@ -401,9 +401,9 @@ describe('crafting contract — data-driven registry & no-turn decision', () => 
 
         const recipes = wsc.getCraftingRecipes();
         expect(Array.isArray(recipes)).toBe(true);
-        // Four recipes: the two single-knife T1 assemblies + the two
-        // coal-conversion recipes (data/systems/crafting.json).
-        expect(recipes).toHaveLength(4);
+        // Five recipes: the two single-knife T1 assemblies + the two
+        // coal-conversion recipes + the knife-generator machine (data/systems/crafting.json).
+        expect(recipes).toHaveLength(5);
 
         const existing = recipes.find(r => r.id === 'knife_to_t1');
         expect(existing).toBeDefined();
@@ -425,6 +425,11 @@ describe('crafting contract — data-driven registry & no-turn decision', () => 
         expect(woodCoal).toBeDefined();
         expect(woodCoal.inputs).toEqual([{ type: 'chunk_wood', quantity: 1 }]);
         expect(woodCoal.outputs).toEqual([{ type: 'coal', quantity: 1 }]);
+
+        const knifeGen = recipes.find(r => r.id === 'craft_knife_generator');
+        expect(knifeGen).toBeDefined();
+        expect(knifeGen.inputs).toEqual([{ type: 'coal', quantity: 1 }, { type: 'knife', quantity: 1 }]);
+        expect(knifeGen.outputs).toEqual([{ type: 'knifeGenerator', quantity: 1 }]);
 
         // Defensive copy: mutating the result must not affect the controller.
         existing.name = 'TAMPERED';

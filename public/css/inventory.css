@@ -335,6 +335,21 @@
     border-color: var(--color-danger, #e74c3c);
 }
 
+/* Machine "Place" button (materialize a carried machine item into the world). */
+.equip-btn.place {
+    background: transparent;
+    color: var(--neon-cyan, #00e5ff);
+    border: 1px solid color-mix(in srgb, var(--neon-cyan, #00e5ff) 45%, transparent);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.equip-btn.place:hover {
+    background: color-mix(in srgb, var(--neon-cyan, #00e5ff) 15%, transparent);
+    border-color: var(--neon-cyan, #00e5ff);
+}
+
 /* =========================================================================
    Item Stats Panel
    ========================================================================= */
