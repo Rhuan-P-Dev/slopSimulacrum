@@ -1,14 +1,16 @@
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import { DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
-import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY } from '../utils/Constants.js';
+import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY, OBJECT_INTERACT_RANGE } from '../utils/Constants.js';
 import { getAttributes } from '../utils/EntityAttributeData.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 import { spawnDataDrivenNpcs, checkNpcSpawnGate, normalizeNpcAiConfig, buildNpcConfig, applyInitialItems, resolveEquippableHostComponent } from './logic/NpcSpawnLogic.js';
 import { applyInitialSpawns, resolveInitialSpawnSlot } from './logic/InitialSpawnLogic.js';
 import { executeCraftTransaction, resolveCraftTarget, validateCraftInputs, precheckCraftVolume, consumeCraftInputs, produceCraftOutputs, isRecipeInputType } from './logic/CraftingLogic.js';
 import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDirectRemoval, maybeEliminateEntity, removeComponentOrItem, cleanupAfterRemoval, spillAllEntityItems } from './logic/RemovalCascadeLogic.js';
+import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRandomRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
@@ -1276,22 +1278,115 @@ class WorldStateController {
     }
 
     /**
+     * Proximity gate for the object viewer's two mutations (move and take):
+     * the acting entity must be within OBJECT_INTERACT_RANGE of the object
+     * being manipulated. Returns an error message when the actor is out of
+     * reach, or null when the mutation may proceed. A missing actor (legacy
+     * callers of these routes) and missing spatial data pass through: the
+     * gate is a reachability rule, not a data-integrity rule — a distance
+     * that cannot be computed is not violated.
+     * @param {Object} entity - The object being manipulated.
+     * @param {string|null} actorEntityId - The entity performing the interaction.
+     * @returns {string|null} The rejection message, or null when in range.
+     * @private
+     */
+    _objectInteractRangeError(entity, actorEntityId) {
+        if (!actorEntityId) return null;
+        const actor = this.stateEntityController.getEntity(actorEntityId);
+        if (!actor) {
+            return `Actor entity "${actorEntityId}" not found.`;
+        }
+        const a = actor.spatial;
+        const b = entity.spatial;
+        if (!a || typeof a.x !== 'number' || typeof a.y !== 'number'
+            || !b || typeof b.x !== 'number' || typeof b.y !== 'number') {
+            return null;
+        }
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        if (distance > OBJECT_INTERACT_RANGE) {
+            return `Object "${entity.name}" is out of reach (${Math.round(distance)} units, max ${OBJECT_INTERACT_RANGE}). Move closer to interact.`;
+        }
+        return null;
+    }
+
+    /**
      * Moves an item to a different component within an entity.
+     * The target must be one of the entity's own components: a well-formed but
+     * non-member id would otherwise strand the item under a host that no
+     * component view can reach. The check lives here (the component-targeting
+     * route's entry point), not in the shared InventoryManager.moveItem, because
+     * the manager's container flows legally host items on container-item ids.
+     * When an actor is given, the move is additionally range-gated: the actor
+     * must be within OBJECT_INTERACT_RANGE of the entity (object-interaction
+     * reach; see _objectInteractRangeError).
      * @param {string} entityId - The entity ID.
      * @param {string} itemId - The item ID to move.
      * @param {string} targetComponentId - The target component ID.
+     * @param {string|null} [actorEntityId] - The entity performing the move (range gate).
      * @returns {{ success: boolean, message?: string }}
      */
-    moveItemInEntity(entityId, itemId, targetComponentId) {
+    moveItemInEntity(entityId, itemId, targetComponentId, actorEntityId) {
         const entity = this.stateEntityController.getEntity(entityId);
         if (!entity) {
             Logger.warn(`[WorldStateController] Entity "${entityId}" not found for item move.`);
             return { success: false, message: `Entity "${entityId}" not found.` };
         }
+        const rangeError = this._objectInteractRangeError(entity, actorEntityId);
+        if (rangeError) {
+            return { success: false, message: rangeError };
+        }
+
+        const components = Array.isArray(entity.components) ? entity.components : [];
+        if (!components.some(c => c && c.id === targetComponentId)) {
+            return { success: false, message: `Component ${targetComponentId} is not part of entity ${entityId}.` };
+        }
 
         const result = this.inventoryManager.moveItem(entity, itemId, targetComponentId, {
             componentController: this.componentController
         });
+
+        if (result.success && this._broadcastService) {
+            this._broadcastService.broadcast();
+        }
+
+        return result;
+    }
+
+    /**
+     * Transfers an item from one entity to a component of ANOTHER entity
+     * (e.g. from a world object to the player's droid) — the facade's
+     * cross-entity counterpart of moveItemInEntity. Both entities are
+     * resolved here; the manager performs the move (membership + capacity
+     * validation, subtree-aware, same instance kept). On success a full
+     * world-state broadcast is fired — the item now appears on the
+     * destination, and every client (including this one, if the panel is
+     * open) refreshes from the server. Rule-level failures (missing
+     * entities, foreign target component, no volume) return
+     * { success: false, message }; the route maps them to HTTP 400.
+     * @param {string} fromEntityId - The entity the item is currently hosted by.
+     * @param {string} itemId - The item ID to transfer.
+     * @param {string} toEntityId - The destination entity.
+     * @param {string} toComponentId - The receiving component of toEntityId.
+     * @param {string|null} [actorEntityId] - The entity performing the take; when
+     *   given, the actor must be within OBJECT_INTERACT_RANGE of fromEntityId
+     *   (the object being reached into).
+     * @returns {{success: boolean, message?: string}}
+     */
+    takeItemFromEntity(fromEntityId, itemId, toEntityId, toComponentId, actorEntityId) {
+        const fromEntity = this.stateEntityController.getEntity(fromEntityId);
+        if (!fromEntity) {
+            Logger.warn(`[WorldStateController] Entity "${fromEntityId}" not found for item take.`);
+            return { success: false, message: `Entity "${fromEntityId}" not found.` };
+        }
+        const rangeError = this._objectInteractRangeError(fromEntity, actorEntityId);
+        if (rangeError) {
+            return { success: false, message: rangeError };
+        }
+        const toEntity = this.stateEntityController.getEntity(toEntityId);
+        if (!toEntity) {
+            return { success: false, message: `Entity "${toEntityId}" not found.` };
+        }
+        const result = this.inventoryManager.transferItem(fromEntity, itemId, toEntity, toComponentId);
 
         if (result.success && this._broadcastService) {
             this._broadcastService.broadcast();
@@ -1611,6 +1706,190 @@ class WorldStateController {
             return emptyKnowledgePayload();
         }
         return this.knowledgeController.getKnowledge();
+    }
+
+    /**
+     * Object inspection payload — the single read-only aggregation behind the
+     * Object Viewer (wiki/subMDs/frontend/object_viewer.md) and
+     * GET /world-objects/:entityId (objectInspectRoutes.js).
+     *
+     * Everything the viewer shows is derived here from sub-controller public
+     * readers (facade-only-dependency rule — the route never reaches into a
+     * sub-controller itself):
+     *   - the entity record: identity, static flag, position, room;
+     *   - each component: live stats (matter `existence`, capacity `volume`)
+     *     plus the static registry definition (materials, visual form);
+     *   - the component's internal components (organs), enriched with the
+     *     shared description (InternalComponentUtils — the same enrichment
+     *     the world-state broadcast applies, so prose never desyncs);
+     *   - the entity's flat item list, names/descriptions resolved from the
+     *     item definitions;
+     *   - the production summary: every organ whose definition declares a
+     *     `generateItem` overTime effect, its cadence (count per interval,
+     *     interval in turns) and what is stored now. A producer is `active`
+     *     under exactly the same gate the round-start overTime channel
+     *     applies (organ not broken AND host not broken) — so "how many
+     *     knives does it generate per turn?" is answered by the very data
+     *     that drives the effect, never a second copy.
+     *
+     * Works for any entity; the shipped UI surface opens it from a static
+     * world object on the spatial map (the knife-generator use case).
+     *
+     * @param {string} entityId - The entity to inspect.
+     * @returns {Object|null} The inspection payload (a fresh deep copy), or
+     *   null when the entity does not exist (the route maps null → 404).
+     */
+    getObjectInspectData(entityId) {
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) return null;
+
+        const componentStats = this.componentController.getAll().instances || {};
+        const organRegistry = this.internalComponentController ? this.internalComponentController.registry : {};
+        const icByHost = (this.internalComponentController ? this.internalComponentController.getAll() : {})[entity.id] || {};
+        const room = this.roomsController.getRoom(entity.location);
+
+        const components = (Array.isArray(entity.components) ? entity.components : []).map((comp) => {
+            const def = this.componentController.getComponentDefinition(comp.type) || {};
+            const stats = componentStats[comp.id] || {};
+            const physical = (stats[TRAIT_GROUPS.PHYSICAL] && typeof stats[TRAIT_GROUPS.PHYSICAL] === 'object')
+                ? stats[TRAIT_GROUPS.PHYSICAL]
+                : {};
+            const existence = typeof physical[STAT_NAMES.EXISTENCE] === 'number' ? physical[STAT_NAMES.EXISTENCE] : null;
+            const volume = typeof physical.volume === 'number'
+                ? physical.volume
+                : (def.form && typeof def.form.volume === 'number' ? def.form.volume : null);
+            // Deep-clone the organ list, then attach the shared description
+            // (mutates the clones only — the store keeps its instances clean).
+            const organs = (icByHost[comp.id] || []).map((ic) => structuredClone(ic));
+            InternalComponentUtils.enrichWithDescriptions(organs, organRegistry);
+
+            return {
+                id: comp.id,
+                type: comp.type,
+                exists: comp.exists !== false,
+                existence,
+                broken: existence !== null && existence <= EXISTENCE_GONE_AT,
+                volume,
+                stats: structuredClone(stats),
+                materials: structuredClone(def.materials || null),
+                form: structuredClone(def.form || null),
+                internalComponents: organs
+            };
+        });
+
+        const items = (Array.isArray(entity.items) ? entity.items : []).map((item) => {
+            const def = this.inventoryManager ? this.inventoryManager.getItemDefinition(item.type) : null;
+            return {
+                id: item.id,
+                type: item.type,
+                name: item.name || (def && def.name) || item.type,
+                description: (def && def.description) ? def.description : null,
+                volume: typeof item.volume === 'number' ? item.volume : null,
+                hostComponentId: item.hostComponentId || null
+            };
+        });
+
+        const usedVolume = items.reduce((sum, it) => sum + (it.volume || 0), 0);
+        const capacity = components.reduce((sum, c) => sum + (c.volume || 0), 0);
+
+        // Production summary: one entry per (organ instance × generateItem
+        // effect). `active` mirrors the processTurnEffects gate exactly
+        // (organ not broken AND host not broken); `stored` counts the
+        // produced item type currently on the entity; `capacity` is the
+        // host component's volume (where overflow is detected).
+        const production = [];
+        for (const comp of components) {
+            for (const organ of comp.internalComponents) {
+                const organDef = organRegistry[organ.type];
+                if (!organDef || !Array.isArray(organDef.overTime)) continue;
+                for (const effect of organDef.overTime) {
+                    if (!effect || effect.type !== 'generateItem') continue;
+                    const itemDef = this.inventoryManager ? this.inventoryManager.getItemDefinition(effect.itemKey) : null;
+                    production.push({
+                        organType: organ.type,
+                        organDescription: organ.description || null,
+                        organBroken: organ.broken === true,
+                        hostComponentId: comp.id,
+                        hostBroken: comp.broken === true,
+                        itemKey: effect.itemKey,
+                        itemName: (itemDef && itemDef.name) || effect.itemKey,
+                        itemVolume: (itemDef && itemDef.form && typeof itemDef.form.volume === 'number')
+                            ? itemDef.form.volume
+                            : null,
+                        countPerTurn: Number.isInteger(effect.itemsPerInterval) && effect.itemsPerInterval > 0
+                            ? effect.itemsPerInterval
+                            : 1,
+                        intervalTurns: typeof effect.intervalTurns === 'number' ? effect.intervalTurns : 1,
+                        active: organ.broken !== true && comp.broken !== true,
+                        stored: items.filter((it) => it.type === effect.itemKey).length,
+                        capacity: comp.volume || 0
+                    });
+                }
+            }
+        }
+
+        const payload = {
+            entity: {
+                id: entity.id,
+                name: entity.name || entity.id,
+                blueprint: entity.blueprint || null,
+                isStatic: entity.isStatic === true,
+                spatial: entity.spatial ? { x: entity.spatial.x ?? 0, y: entity.spatial.y ?? 0 } : null,
+                roomId: entity.location || null,
+                roomName: room ? (room.name || null) : null
+            },
+            components,
+            items,
+            inventory: {
+                used: usedVolume,
+                capacity,
+                percent: capacity > 0 ? Math.round((usedVolume / capacity) * 100) : 0
+            },
+            production,
+            takeOptions: this._inspectTakeOptions(entity.id)
+        };
+        return structuredClone(payload);
+    }
+
+    /**
+     * The transfer-picker data for the object viewer: one entry per
+     * non-static entity in the world (droids, NPCs) — the entities an item
+     * can be transferred TO. Each carries its components with the
+     * server-side used/capacity volumes, so the client can preview which
+     * destinations have room (advisory only — the take POST re-validates
+     * everything). Static objects are excluded (the player has no reason
+     * to deposit items into scenery), as is the inspected entity itself.
+     * @param {string} excludedEntityId - The inspected entity (always
+     *   static; excluded for clarity).
+     * @returns {Array<{id: string, name: string, components:
+     *   Array<{id: string, type: string, used: number, capacity:
+     *   number|null}>}>}
+     * @private
+     */
+    _inspectTakeOptions(excludedEntityId) {
+        const out = [];
+        for (const entity of Object.values(this.stateEntityController.getAll())) {
+            if (!entity || entity.id === excludedEntityId || entity.isStatic) continue;
+            const comps = (Array.isArray(entity.components) ? entity.components : [])
+                .filter(c => c && c.id)
+                .map((c) => {
+                    const type = c.type || c.entityComponentType || null;
+                    const vol = type ? this.inventoryManager.getComponentVolume(entity, c.id) : null;
+                    return {
+                        id: c.id,
+                        type: type || 'component',
+                        used: vol && Number.isFinite(vol.used) ? vol.used : 0,
+                        capacity: vol && vol.max != null ? vol.max : null
+                    };
+                });
+            if (comps.length === 0) continue;
+            out.push({
+                id: entity.id,
+                name: entity.name || entity.blueprint || 'Unknown',
+                components: comps
+            });
+        }
+        return out;
     }
 
     /**

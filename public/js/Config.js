@@ -83,6 +83,10 @@ export const AppConfig = {
         // This value is only used if no range expression is found in the action data.
         BASE_RANGE: 3,
     },
+    // Maximum distance (world units) for interacting with a world object's
+    // inventory (the Object Viewer's move/take pickers). Keep in sync with
+    // the server-side OBJECT_INTERACT_RANGE in src/utils/Constants.js.
+    OBJECT_INTERACT_RANGE: 50,
     ENDPOINTS: {
         WORLD_STATE: '/world-state',
         ACTIONS: '/actions',
@@ -112,6 +116,15 @@ export const AppConfig = {
         // Knowledge codex (read-only reference; static at runtime — the
         // KnowledgePanel fetches it once per session).
         KNOWLEDGE: '/knowledge',
+        // Inventory mutations (src/routes/inventoryRoutes.js): PREFIX —
+        // append "/:entityId/move/:itemId" (body { targetComponentId }) to
+        // move one stored item between components of the same entity. The
+        // Object Viewer's item rows use it
+        // (wiki/subMDs/frontend/object_viewer.md).
+        INVENTORY: '/inventory',
+        // Object inspection (wiki/subMDs/frontend/object_viewer.md): PREFIX —
+        // append "/:entityId" to fetch one object's inventory + stats payload.
+        OBJECT_INSPECT: '/world-objects',
     },
     // Feature D (spec §7.4): room chat. PLAYER_NAME is the fixed speaker
     // name for player messages (sent explicitly per the spec); CHAT_MAX_LENGTH

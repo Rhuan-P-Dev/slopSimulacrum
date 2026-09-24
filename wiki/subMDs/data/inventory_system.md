@@ -197,3 +197,4 @@ See [Materials System — fill-only gap-filling sync](materials.md) for the full
 - [Client Architecture](../frontend/client_architecture.md) — InventoryManager client module
 - [Item Positioning System](../systems/item_positioning.md) — Room-based dropped item visibility and pickup validation
 - [Crafting System](../systems/crafting_system.md) — consumes/produces items through the inventory system (never bypassed)
+- [Object Viewer](../frontend/object_viewer.md) — the per-object inspection panel; its item rows move stored items between the same entity's components through this system's move endpoint, and take them to other entities through its transfer primitive (no turn consumed for either; both range-gated to the object-interact reach when an actor is named)

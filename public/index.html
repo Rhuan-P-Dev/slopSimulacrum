@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="css/inventory.css">
     <link rel="stylesheet" href="css/crafting.css">
     <link rel="stylesheet" href="css/knowledge.css">
+    <link rel="stylesheet" href="css/object-viewer.css">
     <link rel="stylesheet" href="css/floating-windows.css">
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
@@ -128,6 +129,18 @@
         </div>
         <div id="knowledge-content" class="knowledge-root">
             <!-- Populated by KnowledgePanel -->
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Object Viewer (opened from a world-object click on
+         the spatial map — no config-bar button, wiki/subMDs/frontend/object_viewer.md) -->
+    <div id="object-viewer-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🔍 Object</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="object-viewer-content" class="object-viewer-root">
+            <!-- Populated by ObjectViewer -->
         </div>
     </div>
 

@@ -163,4 +163,7 @@ in-world object (harvest the knives it sheds, or break the prop to spill the
 stored ones) rather than mere decoration. It reuses every existing pipeline — the
 organ channel, `addItemToEntity`, `writeDroppedItem`, and the broken-component
 cascade — adding no new systems. Its contract is pinned by
-`test/contract/knifeGenerator.contract.test.js`.
+`test/contract/knifeGenerator.contract.test.js`. The player-facing read of all of
+this is the [Object Viewer](../frontend/object_viewer.md): clicking the generator on
+the map shows its knives-in-belly, its 10-slot fill, and its "1 knife every 1 turn"
+production line, with the line halting (and naming why) if the organ or its host breaks.

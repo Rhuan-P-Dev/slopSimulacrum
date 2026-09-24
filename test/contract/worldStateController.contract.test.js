@@ -267,6 +267,11 @@ describe('WorldStateController public method surface', () => {
         'getKnowledge',
         'getLockedComponents',
         'getMaterialRegistry',
+ // Added deliberately (wiki/subMDs/frontend/object_viewer.md): the object
+        // inspection payload (inventory + stats + production summary) behind
+        // GET /world-objects/:entityId. Not an accidental addition — the
+        // route reads it via the facade only (facade-only-dependency rule).
+        'getObjectInspectData',
         'getRecentEvents',
         'getRoomChatMessages',
         'getRoomUidByLogicalId',
@@ -302,6 +307,10 @@ describe('WorldStateController public method surface', () => {
         // updateComponentStatDelta facade API.
         'setEntityAttributeDelta',
         'spawnEntity',
+        // Added deliberately (object viewer): cross-entity item transfer
+        // (world object → another entity's component), the facade
+        // counterpart of moveItemInEntity (wiki object_viewer.md §7).
+        'takeItemFromEntity',
         'transferEquip',
         'triggerInitialBroadcast',
         'unequipItem',
@@ -744,4 +753,353 @@ describe('WorldStateController.previewActionData() shape', () => {
             expect(typeOf(preview.synergyResult.synergyMultiplier)).toBe('number');
         });
     }
+});
+
+// =========================================================================
+// moveItemInEntity() — target-component membership guard
+//
+// The Object Viewer's click-to-move picker (wiki/subMDs/frontend/object_viewer.md,
+// §7) and the inventory UI POST to the same endpoint. The picker only ever
+// offers the object's own components, but a hand-crafted request may carry any
+// well-formed id: such a target must be rejected up front instead of stranding
+// the item under a host no component view can reach. The guard fires before the
+// item lookup, and the tests below are self-cleaning (one knife added to the
+// knife generator and removed again), so the shared world ends as it started.
+// =========================================================================
+
+describe('WorldStateController.moveItemInEntity() membership guard', () => {
+    const BOGUS_COMP = 'comp-00000000-1111-2222-3333-444444444444';
+
+    function findKnifeGenerator() {
+        const entities = wsc.getEntities();
+        for (const e of Object.values(entities)) {
+            if (e && e.name === 'Knife Generator'
+                && Array.isArray(e.components) && e.components.length > 0) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    it('rejects a well-formed but non-member target (before the item lookup)', () => {
+        const gen = findKnifeGenerator();
+        expect(gen, 'the knife generator is a static prop of the built world').not.toBeNull();
+
+        // No item involved: the guard must fire before the item lookup, so a
+        // nonexistent item id still yields the membership message — never a
+        // dangling-host write.
+        const result = wsc.moveItemInEntity(gen.id, 'item-does-not-exist', BOGUS_COMP);
+        expect(result.success).toBe(false);
+        expect(result.message).toBe(`Component ${BOGUS_COMP} is not part of entity ${gen.id}.`);
+    });
+
+    it('accepts a member target and rejects a non-member one without mutating the host', () => {
+        const gen = findKnifeGenerator();
+        expect(gen, 'the knife generator is a static prop of the built world').not.toBeNull();
+        const comp = gen.components[0];
+
+        const added = wsc.addItemToEntity(gen.id, 'knife', comp.id);
+        expect(added.success, added.message).toBe(true);
+        const knifeId = added.item.id;
+        try {
+            // The boot storage is empty, so the move onto the member component
+            // has room and must succeed (the pre-existing capacity logic, reached
+            // past the new guard).
+            const moved = wsc.moveItemInEntity(gen.id, knifeId, comp.id);
+            expect(moved.success, moved.message).toBe(true);
+
+            // The same item, non-member target: rejected with the guard message
+            // and the live host untouched.
+            const rejected = wsc.moveItemInEntity(gen.id, knifeId, BOGUS_COMP);
+            expect(rejected.success).toBe(false);
+            expect(rejected.message).toBe(`Component ${BOGUS_COMP} is not part of entity ${gen.id}.`);
+            const live = Object.values(wsc.getEntityItems(gen.id)).flat();
+            expect(live.find(i => i.id === knifeId).hostComponentId).toBe(comp.id);
+        } finally {
+            wsc.removeItemFromEntity(gen.id, knifeId);
+        }
+    });
+
+    it('leaves the knife generator exactly as the built world started it', () => {
+        const gen = findKnifeGenerator();
+        expect(gen, 'the knife generator is a static prop of the built world').not.toBeNull();
+        expect(Object.values(wsc.getEntityItems(gen.id)).flat(), 'no residue from the add/move/remove above')
+            .toEqual([]);
+    });
+});
+
+// =========================================================================
+// takeItemFromEntity() — cross-entity transfer (object → entity component)
+//
+// The Object Viewer's take picker (wiki/subMDs/frontend/object_viewer.md,
+// §7) POSTs to /inventory/:entityId/take/:itemId with { targetEntityId,
+// targetComponentId }: the item instance moves from the inspected world
+// object to the chosen component of another entity (the player's droid).
+// The facade method is the single source of the guard order: target
+// membership first, then the manager's own transfer validation
+// (capacity, subtree, same-entity). Tests are self-cleaning where the
+// shared world is mutated (knives removed in finally; the extra test
+// droid spawned here is harmless — every earlier count-sensitive test in
+// this file has already run, and the world is discarded with the process).
+// =========================================================================
+
+describe('WorldStateController.takeItemFromEntity()', () => {
+    function findKnifeGenerator() {
+        const entities = wsc.getEntities();
+        for (const e of Object.values(entities)) {
+            if (e && e.name === 'Knife Generator'
+                && Array.isArray(e.components) && e.components.length > 0) {
+                return e;
+            }
+        }
+        return null;
+    }
+
+    function spawnTestDroid() {
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        return wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    }
+
+    it('moves the same knife instance into the droid component and fires the world broadcast', () => {
+        const gen = findKnifeGenerator();
+        expect(gen, 'the knife generator is a static prop of the built world').not.toBeNull();
+        const genComp = gen.components[0];
+
+        const droidId = spawnTestDroid();
+        const droid = wsc.stateEntityController.getEntity(droidId);
+        const droidComp = droid.components.find(c => c.type === 'centralBall');
+        expect(droidComp, 'the spawned droid has a centralBall').not.toBeNull();
+
+        const added = wsc.addItemToEntity(gen.id, 'knife', genComp.id);
+        expect(added.success, added.message).toBe(true);
+        const knifeId = added.item.id;
+
+        // Spy the broadcast service for the duration of the call (the
+        // facade must fire the world-state broadcast after a successful
+        // transfer so every client — including this one — re-fetches).
+        const realBroadcast = wsc._broadcastService;
+        const calls = [];
+        wsc._broadcastService = {
+            ...realBroadcast,
+            broadcast: (...args) => { calls.push(args); }
+        };
+        try {
+            const result = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id);
+            expect(result.success, result.message).toBe(true);
+        } finally {
+            wsc._broadcastService = realBroadcast;
+        }
+
+        // Same instance on the droid (id preserved), source empty.
+        const droidAfter = wsc.stateEntityController.getEntity(droidId);
+        expect(droidAfter.items.map(i => i.id)).toContain(knifeId);
+        expect(droidAfter.items.find(i => i.id === knifeId).hostComponentId).toBe(droidComp.id);
+        expect(Object.values(wsc.getEntityItems(gen.id)).flat().map(i => i.id)).not.toContain(knifeId);
+
+        // Exactly one world-state broadcast (the whole-state fan-out).
+        expect(calls).toHaveLength(1);
+
+        wsc.removeItemFromEntity(droidId, knifeId);
+    });
+
+    it('rejects a target component that is not part of the target entity', () => {
+        const gen = findKnifeGenerator();
+        const droidId = spawnTestDroid();
+
+        const added = wsc.addItemToEntity(gen.id, 'knife', gen.components[0].id);
+        expect(added.success, added.message).toBe(true);
+        try {
+            // The generator's own component: a well-formed id belonging to
+            // a DIFFERENT entity — the guard fires before any mutation.
+            const result = wsc.takeItemFromEntity(gen.id, added.item.id, droidId, gen.components[0].id);
+            expect(result.success).toBe(false);
+            expect(result.message).toBe(`Component "${gen.components[0].id}" is not part of entity "${droidId}".`);
+            // Source untouched; the droid gained nothing (it may carry its own
+            // starter kit — only the attempted knife must be absent).
+            expect(Object.values(wsc.getEntityItems(gen.id)).flat().some(i => i.id === added.item.id)).toBe(true);
+            expect(wsc.stateEntityController.getEntity(droidId).items.map(i => i.id)).not.toContain(added.item.id);
+        } finally {
+            wsc.removeItemFromEntity(gen.id, added.item.id);
+        }
+    });
+
+    it('rejects an unknown target entity', () => {
+        const gen = findKnifeGenerator();
+        const added = wsc.addItemToEntity(gen.id, 'knife', gen.components[0].id);
+        expect(added.success, added.message).toBe(true);
+        try {
+            const result = wsc.takeItemFromEntity(gen.id, added.item.id, 'no-such-droid', 'any-comp');
+            expect(result.success).toBe(false);
+            expect(result.message).toBe('Entity "no-such-droid" not found.');
+            expect(Object.values(wsc.getEntityItems(gen.id)).flat().some(i => i.id === added.item.id)).toBe(true);
+        } finally {
+            wsc.removeItemFromEntity(gen.id, added.item.id);
+        }
+    });
+
+    it('rejects when the target component lacks volume (definition seam; source untouched)', () => {
+        const gen = findKnifeGenerator();
+        const droidId = spawnTestDroid();
+        const droid = wsc.stateEntityController.getEntity(droidId);
+        const droidComp = droid.components.find(c => c.type === 'centralBall');
+
+        // The centralBall definition carries only form.volume (the readout
+        // source); the manager's transfer check reads traits.Physical.volume,
+        // which is undefined for it (→ unbounded). A test-only seam gives the
+        // definition a bounded traits volume set at the droid's current used
+        // volume, so any further transfer must be rejected.
+        const used = droid.items
+            .filter(i => i.hostComponentId === droidComp.id)
+            .reduce((s, i) => s + (i.hostVolume ?? i.volume ?? 0), 0);
+        expect(used, 'the spawned droid carries its starter kit on the centralBall').toBeGreaterThan(0);
+        const mgr = wsc.inventoryManager;
+        const realDef = mgr._componentDefinitions.centralBall;
+        mgr._componentDefinitions.centralBall = { traits: { Physical: { volume: used } } };
+
+        const added = wsc.addItemToEntity(gen.id, 'knife', gen.components[0].id);
+        expect(added.success, added.message).toBe(true);
+        try {
+            const result = wsc.takeItemFromEntity(gen.id, added.item.id, droidId, droidComp.id);
+            expect(result.success).toBe(false);
+            expect(result.message).toMatch(/does not have enough volume/);
+            // The knife stays in the generator; the droid keeps exactly its starter kit.
+            expect(Object.values(wsc.getEntityItems(gen.id)).flat().some(i => i.id === added.item.id)).toBe(true);
+            expect(wsc.stateEntityController.getEntity(droidId).items.map(i => i.id))
+                .toEqual(droid.items.map(i => i.id));
+        } finally {
+            wsc.removeItemFromEntity(gen.id, added.item.id);
+            mgr._componentDefinitions.centralBall = realDef;
+        }
+    });
+
+    it('lists the droid (with live capacity) in the inspect payload takeOptions', () => {
+        const gen = findKnifeGenerator();
+        const droidId = spawnTestDroid();
+
+        const payload = wsc.getObjectInspectData(gen.id);
+        expect(payload.takeOptions, 'takeOptions is part of the inspect envelope').toBeInstanceOf(Array);
+        const mine = payload.takeOptions.find(o => o.id === droidId);
+        expect(mine, 'the spawned droid is a take destination').not.toBeNull();
+        const ball = mine.components.find(c => c.type === 'centralBall');
+        expect(ball, 'the droid centralBall is offered').not.toBeNull();
+        expect(ball.capacity, 'centralBall form.volume from data/components.json (the readout source)').toBe(10);
+        // Used tracks the droid's live items (spawned droids carry a starter
+        // kit, so this is not zero).
+        const live = wsc.stateEntityController.getEntity(droidId);
+        const expectedUsed = live.items
+            .filter(i => i.hostComponentId === ball.id)
+            .reduce((s, i) => s + (i.hostVolume ?? i.volume ?? 0), 0);
+        expect(ball.used).toBe(expectedUsed);
+        // Static props are never offered as take destinations.
+        expect(payload.takeOptions.find(o => o.id === gen.id), 'static props excluded').toBeUndefined();
+    });
+});
+
+// =========================================================================
+// Object-interact range gate (wiki/subMDs/frontend/object_viewer.md §7–8)
+//
+// The Object Viewer's two mutations (move / take) are reach-gated: an
+// acting entity must be within OBJECT_INTERACT_RANGE of the object being
+// manipulated. The gate is lenient by design — a missing actor (legacy
+// route callers) or missing spatial data passes through; a known-but-far
+// actor and an unknown actor id are rejected. Tests are self-cleaning
+// (spatial restored in finally; the extra test droids and knives are
+// harmless — the shared world is discarded with the process).
+// =========================================================================
+
+describe('WorldStateController object-interact range gate', () => {
+    function findKnifeGenerator() {
+        for (const e of Object.values(wsc.getEntities())) {
+            if (e && e.name === 'Knife Generator') return e;
+        }
+        return null;
+    }
+
+    function spawnTestDroid() {
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        return wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
+    }
+
+    it('gates a take by the actor distance to the source object', () => {
+        const gen = findKnifeGenerator();
+        expect(gen, 'the knife generator is a static prop of the built world').not.toBeNull();
+        expect(gen.spatial && typeof gen.spatial.x === 'number', 'the generator has spatial data').toBe(true);
+
+        const droidId = spawnTestDroid();
+        const droid = wsc.stateEntityController.getEntity(droidId);
+        const droidComp = droid.components.find(c => c.type === 'centralBall');
+        const added = wsc.addItemToEntity(gen.id, 'knife', gen.components[0].id);
+        expect(added.success, added.message).toBe(true);
+        const knifeId = added.item.id;
+
+        const origSpatial = droid.spatial;
+        try {
+            // 200 units from the generator → out of reach.
+            droid.spatial = { x: gen.spatial.x + 200, y: gen.spatial.y };
+            const far = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id, droidId);
+            expect(far.success).toBe(false);
+            expect(far.message).toMatch(/out of reach/);
+            // The knife is untouched on the generator.
+            expect(Object.values(wsc.getEntityItems(gen.id)).flat().some(i => i.id === knifeId)).toBe(true);
+            expect(droid.items.map(i => i.id)).not.toContain(knifeId);
+
+            // 10 units from the generator → in reach.
+            droid.spatial = { x: gen.spatial.x + 10, y: gen.spatial.y };
+            const near = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id, droidId);
+            expect(near.success, near.message).toBe(true);
+            expect(droid.items.map(i => i.id)).toContain(knifeId);
+        } finally {
+            droid.spatial = origSpatial;
+        }
+    });
+
+    it('gates an in-entity move by the actor distance to the object', () => {
+        const gen = findKnifeGenerator();
+        const droidId = spawnTestDroid();
+        const droid = wsc.stateEntityController.getEntity(droidId);
+        const genComp = gen.components[0];
+        const added = wsc.addItemToEntity(gen.id, 'knife', genComp.id);
+        expect(added.success, added.message).toBe(true);
+        const knifeId = added.item.id;
+
+        const origSpatial = droid.spatial;
+        try {
+            // Far: the gate fires before the manager — the rejection is a
+            // range message, not a manager message.
+            droid.spatial = { x: gen.spatial.x + 200, y: gen.spatial.y };
+            const far = wsc.moveItemInEntity(gen.id, knifeId, genComp.id, droidId);
+            expect(far.success).toBe(false);
+            expect(far.message).toMatch(/out of reach/);
+
+            // Near: the gate no longer blocks — whatever the manager then
+            // decides is manager territory, not range territory (a success
+            // carries no message; assert the message is not a range one).
+            droid.spatial = { x: gen.spatial.x, y: gen.spatial.y };
+            const near = wsc.moveItemInEntity(gen.id, knifeId, genComp.id, droidId);
+            expect(near.message || '').not.toMatch(/out of reach/);
+        } finally {
+            droid.spatial = origSpatial;
+        }
+    });
+
+    it('rejects an unknown actor id, and passes through for legacy callers and spatial-less actors', () => {
+        const gen = findKnifeGenerator();
+        const droidId = spawnTestDroid();
+        const droid = wsc.stateEntityController.getEntity(droidId);
+        const droidComp = droid.components.find(c => c.type === 'centralBall');
+        const added = wsc.addItemToEntity(gen.id, 'knife', gen.components[0].id);
+        expect(added.success, added.message).toBe(true);
+        const knifeId = added.item.id;
+
+        // A hand-crafted request naming a nonexistent actor cannot dodge
+        // the gate (unknown ids are rejected, not treated as "no actor").
+        const bad = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id, 'ent-does-not-exist');
+        expect(bad.success).toBe(false);
+        expect(bad.message).toMatch(/not found/);
+
+        // No actor at all → the legacy behavior of these routes (no gate),
+        // so pre-feature clients of the move endpoint keep working.
+        const legacy = wsc.takeItemFromEntity(gen.id, knifeId, droidId, droidComp.id);
+        expect(legacy.success, legacy.message).toBe(true);
+    });
 });

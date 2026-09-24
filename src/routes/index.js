@@ -17,6 +17,7 @@ import { register as registerWorldEventRoutes } from './worldEventRoutes.js';
 import { register as registerMaterialRoutes } from './materialRoutes.js';
 import { register as registerCraftingRoutes } from './craftingRoutes.js';
 import { register as registerKnowledgeRoutes } from './knowledgeRoutes.js';
+import { register as registerObjectInspectRoutes } from './objectInspectRoutes.js';
 
 /**
  * Registers all routes with the given Express app.
@@ -56,6 +57,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerMaterialRoutes(router, { worldStateController });
 	registerCraftingRoutes(router, { worldStateController });
 	registerKnowledgeRoutes(router, { worldStateController });
+	registerObjectInspectRoutes(router, { worldStateController });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);

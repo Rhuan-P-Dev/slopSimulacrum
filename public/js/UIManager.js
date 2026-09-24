@@ -60,8 +60,19 @@ export class UIManager {
      * @param {Function|null} [onEntityClick] - Called with the clicked entity's id
      *   when a droid marker is clicked ("inspect this droid"); markers are
      *   non-interactive when omitted.
+     * @param {Function|null} [onObjectClick] - Called with the clicked world
+     *   object's id when a static object (prop) is clicked ("inspect this
+     *   object" — opens the Object Viewer, wiki/subMDs/frontend/object_viewer.md);
+     *   objects are non-interactive when omitted.
+     * @param {Function|null} [onObjectHover] - Called with (id, object) when a
+     *   static object (prop) marker is hovered (App draws the interaction-range
+     *   preview circle, wiki/subMDs/frontend/object_viewer.md §7); no preview
+     *   when omitted.
+     * @param {Function|null} [onObjectLeave] - Called with (id, object) when
+     *   the hover on a static object (prop) marker ends (App clears the
+     *   preview circle); no-op when omitted.
      */
-    updateWorldView(state, droid, onMoveCallback, onDoorHover = null, onDoorLeave = null, onEntityClick = null) {
+    updateWorldView(state, droid, onMoveCallback, onDoorHover = null, onDoorLeave = null, onEntityClick = null, onObjectClick = null, onObjectHover = null, onObjectLeave = null) {
         if (!droid) {
             this._renderEmptyState();
             return;
@@ -87,7 +98,7 @@ export class UIManager {
         const props = Object.values(state.entities || {}).filter(
             e => e && e.isStatic === true && e.location === room.id
         );
-        this._renderWorldObjects(room, props, state);
+        this._renderWorldObjects(room, props, state, onObjectClick, onObjectHover, onObjectLeave);
         this.renderRoomConnections(room, state.rooms, onMoveCallback, droid.id, onDoorHover, onDoorLeave);
         this._renderEntities(room, state.entities, droid.id, onEntityClick);
         this._renderDroidComponents(droid, state);
@@ -441,9 +452,16 @@ export class UIManager {
      * @param {Array} [props] - The isStatic entities in this room.
      * @param {Object} [state] - The full world state (used to read each prop's
      *   component existence from state.components.instances).
+     * @param {Function|null} [onObjectClick] - Called with the clicked prop's
+     *   entity id (opens the Object Viewer); props are non-interactive when
+     *   omitted (wiki/subMDs/frontend/object_viewer.md).
+     * @param {Function|null} [onObjectHover] - Called with (id, object) when a
+     *   prop marker is hovered (App draws the interaction-range preview circle).
+     * @param {Function|null} [onObjectLeave] - Called with (id, object) when
+     *   the prop-marker hover ends (App clears the preview circle).
      * @private
      */
-    _renderWorldObjects(room, props, state) {
+    _renderWorldObjects(room, props, state, onObjectClick = null, onObjectHover = null, onObjectLeave = null) {
         const objectsLayer = this.elements.objectsLayer;
         objectsLayer.innerHTML = '';
 
@@ -498,6 +516,27 @@ export class UIManager {
             group.appendChild(title);
             group.appendChild(trunk);
             group.appendChild(canopy);
+
+            // Click → open the Object Viewer for this prop (its inventory and
+            // stats). stopPropagation keeps the click from falling through to
+            // the map's pan/zoom handler.
+            if (typeof onObjectClick === 'function') {
+                group.style.cursor = 'pointer';
+                group.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    onObjectClick(obj.id);
+                });
+            }
+
+            // Hover → App draws the droid's object-interaction range circle on
+            // the entities layer (colored by reachability; the same lightweight
+            // preview style as dropped-item hover — see _handleObjectHover).
+            if (typeof onObjectHover === 'function') {
+                group.addEventListener('mouseenter', () => onObjectHover(obj.id, obj));
+            }
+            if (typeof onObjectLeave === 'function') {
+                group.addEventListener('mouseleave', () => onObjectLeave(obj.id, obj));
+            }
 
             // Name label
             const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
