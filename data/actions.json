@@ -120,7 +120,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "Droid performed a punch dealing :Physical.strength impact damage!"
+        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
       }
     ],
     "failureConsequences": [
@@ -128,7 +128,7 @@
         "type": "log",
         "target": "entity",
         "level": "warn",
-        "message": "Punch failed - strength too low"
+        "message": "Punch failed for [:entityId] - strength too low"
       }
     ]
   },
@@ -165,7 +165,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "The knife cuts, dealing :Physical.sharpness cut damage and losing -1 sharpness."
+        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
       }
     ],
     "failureConsequences": [
@@ -287,7 +287,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "T1 fired, consuming item with volume :itemVolume, dealing :itemVolume impact damage!"
+        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
       }
     ],
     "failureConsequences": [
@@ -324,7 +324,7 @@
         "type": "log",
         "target": "self",
         "level": "info",
-        "message": "The hand-mounted shotgun fires a spread of pellets across random components of the target."
+        "message": ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
       }
     ],
     "failureConsequences": [

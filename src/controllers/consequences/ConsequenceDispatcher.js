@@ -187,7 +187,12 @@ class ConsequenceDispatcher {
                 extraHandlerContext: { attackerComponentId: attackerId },
                 propagateParams: false,
                 propagateKeys: [PUBLISHED_CHANNEL_LOSS_KEY],
-                includeResolvedSourceId: false
+                includeResolvedSourceId: false,
+                // The message's :stat / :damageValue placeholders resolve against this
+                // attacker's FULL stat context (sharpness, fine_controls, …) so a
+                // two-handed shot logs real damage; param resolution above stays
+                // strength-only (BUG-134). Without this, non-strength actions logged 0.
+                messageStatContext: perAttackerStatContext
             });
             allResults.push(...results);
         }
@@ -216,11 +221,20 @@ class ConsequenceDispatcher {
         const results = [];
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
-            // Failure log consequences in data/actions.json store message/level at the
-            // top level (no params object) — merge them through so the handler logs
-            // the real message instead of the empty fallback.
+            // Failure log consequences store message/level at the top level (no params
+            // object). Resolve the template (carrying :entityId) so the logged line
+            // names the acting entity instead of leaking raw placeholder tokens.
+            const resolvedFailureMessage = this._resolveLogMessage(
+                consequence.message,
+                {},
+                {},
+                entityId,
+                actionName,
+                this._getEntityName(entityId),
+                action
+            );
             const effectiveParams = consequence.type === 'log'
-                ? { ...(resolvedParams || {}), ...(consequence.message ? { message: consequence.message } : {}), ...(consequence.level ? { level: consequence.level } : {}) }
+                ? { ...(resolvedParams || {}), ...(resolvedFailureMessage ? { message: resolvedFailureMessage } : {}), ...(consequence.level ? { level: consequence.level } : {}) }
                 : resolvedParams;
 
             const targetResult = this._resolveTargetForConsequence(consequence, entityId, {}, {}, action, actionName);
@@ -302,7 +316,8 @@ class ConsequenceDispatcher {
         extraHandlerContext = null,
         propagateParams = false,
         propagateKeys = null,
-        includeResolvedSourceId = false
+        includeResolvedSourceId = false,
+        messageStatContext = undefined
     }) {
         const results = [];
         // Mutable context: actionParams start from the caller-provided values and
@@ -326,12 +341,30 @@ class ConsequenceDispatcher {
             try {
                 let effectiveParams = this._applySynergy(resolvedParams, synergyResult);
                 // Log consequences in data/actions.json store message/level at the
-                // top level (no params object) — merge them through so the handler
-                // logs the real message instead of the empty fallback.
+                // top level (no params object). The message is a data-driven template
+                // — resolve it (like the damage value it mirrors) so the concrete
+                // actor and damage number appear in the log and LLM event context
+                // instead of raw ":placeholder" tokens leaking through.
                 if (consequence.type === 'log') {
+                    const resolvedMessage = this._resolveLogMessage(
+                        consequence.message,
+                        requirementValues,
+                        context.actionParams,
+                        entityId,
+                        actionName,
+                        this._getEntityName(entityId),
+                        action,
+                        // The message resolves its :stat / :damageValue placeholders against
+                        // the FULL stat context (messageStatContext) — on the multi-attacker
+                        // path that is the per-attacker stat map — while the param resolution
+                        // above keeps the strength-only requirementValues (BUG-134 ammo
+                        // semantics). Defaults to requirementValues on the single-attacker
+                        // path, whose requirementValues already carry the stats.
+                        messageStatContext ?? requirementValues
+                    );
                     effectiveParams = {
                         ...(effectiveParams || {}),
-                        ...(consequence.message ? { message: consequence.message } : {}),
+                        ...(resolvedMessage ? { message: resolvedMessage } : {}),
                         ...(consequence.level ? { level: consequence.level } : {})
                     };
                 }
@@ -436,6 +469,148 @@ class ConsequenceDispatcher {
         // style placeholders can be resolved (e.g., :entityId, :itemId, :itemType).
         const resolutionContext = { ...actionParams, ...requirementValues };
         return resolvePlaceholders(params, resolutionContext);
+    }
+
+    /**
+     * Resolves the free-text message declared on a log consequence's top-level
+     * `message` field. Data-driven log consequences store message/level on the
+     * consequence itself (not inside a `params` object), so the message is NOT
+     * touched by _resolveParams (which only resolves `params`).
+     *
+     * WHY the same template can name a stat for the damage ("dealing
+     * :Physical.strength impact damage") as for prose ("dealing
+     * :Physical.sharpness cut damage"), and both must display the concrete number
+     * to the player and in the LLM event context. Routing the message through the
+     * same PlaceholderResolver, with a context that carries the acting entity
+     * (:entityId) plus the resolved trait stats, keeps the human-readable "who /
+     * how much" in sync with the damage actually dealt. Without this step the raw
+     * ":placeholder" tokens leak verbatim into the server log and the LLM event
+     * context — the original symptom being a log line that names neither the
+     * entity ID nor the damage.
+     *
+     * Unknown placeholders are left untouched (the resolver's embedded path returns
+     * the original token when the value is absent), so this degrades to the
+     * pre-fix behavior for templates that reference values not present in scope.
+     *
+     * @param {string|null|undefined} message - The template string (may contain no placeholders).
+     * @param {Object|null} requirementValues - Flat "Trait.stat" -> number stats.
+     * @param {Object|null} actionParams - Action execution params.
+     * @param {string} entityId - The acting entity ID.
+     * @param {string|null|undefined} actionName - Action name for :actionName (registry name).
+     * @param {string|null|undefined} entityName - Acting entity display name for :entityName.
+     * @param {Object|null} action - Action definition (source of the damage context).
+     * @param {Object<string, number>|null|undefined} statContext - Stat base for :stat / :damageValue resolution; defaults to requirementValues when undefined/null. The multi-attacker path passes the full per-attacker stat map so non-strength stats resolve; single-attacker and failure paths omit it.
+     * @returns {string|undefined} The resolved message, or undefined when none declared.
+     * @private
+     */
+    _resolveLogMessage(message, requirementValues, actionParams, entityId, actionName, entityName, action, statContext) {
+        if (message === undefined || message === null || message === '') return undefined;
+        // statContext supplies the base for :stat / :damageValue resolution. It defaults
+        // to requirementValues (single-attacker); the multi-attacker path passes its full
+        // per-attacker stat map so non-strength stats resolve in the message even though
+        // param resolution stays strength-only (BUG-134).
+        const statBase = statContext !== undefined && statContext !== null
+            ? statContext
+            : (requirementValues || {});
+        const resolutionContext = {
+            ...statBase,
+            ...(actionParams || {}),
+            // Generic "who / what / how much" placeholders so ANY log template reads
+            // the same: the acting entity, the action name, and (for damage actions)
+            // the damage amount + channel. Templates that use a placeholder get a
+            // concrete value; templates without one are untouched (the resolver leaves
+            // unknown placeholders as-is). This is what makes the message format
+            // generic — punch, cut, shoot and shotgun all share one template.
+            ...(actionName && typeof actionName === 'string' ? { actionName } : {}),
+            ...(entityName && typeof entityName === 'string' ? { entityName } : {}),
+            ...this._damageContext(action, statBase, actionParams),
+            // entity goes last: it is the authoritative actor for every log line and
+            // must not be shadowed by any coincidentally-named action param.
+            entityId
+        };
+        return resolvePlaceholders(String(message), resolutionContext);
+    }
+
+    /**
+     * Returns the acting entity's display name, for the `:entityName` placeholder.
+     * Uses the same convention as the LLM context (LlmContextController: entity.name ||
+     * 'Droid'): a named entity (NPC) returns its trimmed name; a bare droid, a missing
+     * entity, or an unavailable world (test seams / pre-injection) returns "Droid".
+     * Never throws — log rendering must be fault-tolerant.
+     * @private
+     */
+    _getEntityName(entityId) {
+        if (!this.worldStateController || typeof this.worldStateController.getEntity !== 'function') return 'Droid';
+        const entity = this.worldStateController.getEntity(entityId);
+        // Same display convention as the LLM context (LlmContextController: entity.name ||
+        // 'Droid'): a named entity (NPC) renders with its name; a bare droid renders as
+        // "Droid" — the label the player already sees elsewhere.
+        if (entity && typeof entity.name === 'string' && entity.name.trim() !== '') {
+            return entity.name.trim();
+        }
+        return 'Droid';
+    }
+
+    /**
+     * Computes the `:damageValue` / `:damageChannel` placeholders for an action's
+     * log message, so the generic template
+     * ":entityName (:entityId) performed :actionName dealing :damageValue :damageChannel damage"
+     * shows a concrete number + channel for ANY damage action — no per-action wording.
+     * First channel-damage consequence wins:
+     *   - damageComponent:      declared value (a stat placeholder, resolved against
+     *     the stat context) — punch → :Physical.strength, cut → :Physical.sharpness.
+     *   - consumeItemAndDamage: the consumed item's volume, published as
+     *     actionParams.itemVolume by ConsumeItemHandler (declared `value` is 0; the
+     *     real damage comes from `damageSource`).
+     *   - damageRandomComponents: PER-PELLET value × count (hand shotgun) — the total
+     *     damage the spread deals across its random components.
+     * `damageValue` is always a finite number (0 fallback) so a template naming
+     * `:damageValue` never leaks a raw placeholder token. Returns {} when the action
+     * has no channel damage (non-damage actions), so their templates simply never
+     * reference the damage placeholders.
+      *
+      * NOTE (synergy): this returns the PRE-SYNERGY damage. Synergy multipliers are
+      * applied separately by the damage handler (_applySynergy) at execution time and
+      * intentionally NOT reflected here, so under an active synergy bonus the logged
+      * :damageValue may be lower than the damage actually applied. The log intentionally
+      * reports the base (pre-synergy) figure from the action definition; the post-synergy
+      * amount is applied by the damage handler.
+     * @private
+     */
+    _damageContext(action, requirementValues, actionParams) {
+        if (!action || !Array.isArray(action.consequences)) return {};
+        const damageTypes = ['damageComponent', 'consumeItemAndDamage', 'damageRandomComponents'];
+        const damage = action.consequences.find(
+            c => c && c.params && damageTypes.includes(c.type) && typeof c.params.channel === 'string'
+        );
+        if (!damage) return {};
+
+        const { channel, value, count } = damage.params;
+        const base = { ...(requirementValues || {}), ...(actionParams || {}) };
+
+        let perHit;
+        if (damage.type === 'consumeItemAndDamage') {
+            // ShootT1-style: declared value is 0; the real damage is the consumed
+            // item's volume (actionParams.itemVolume), set by ConsumeItemHandler.
+            perHit = (typeof base.itemVolume === 'number' && Number.isFinite(base.itemVolume))
+                ? base.itemVolume
+                : (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+        } else {
+            const resolved = resolvePlaceholders(value, base);
+            perHit = (typeof resolved === 'number' && Number.isFinite(resolved) && resolved >= 0)
+                ? resolved
+                : (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+        }
+
+        const rawCount = (count !== undefined && count !== null && Number.isFinite(Number(count)))
+            ? Number(count)
+            : 1;
+        const pelletCount = (rawCount > 1) ? rawCount : 1;
+
+        return {
+            damageChannel: channel,
+            damageValue: perHit * pelletCount
+        };
     }
 
     /**
@@ -623,16 +798,10 @@ class ConsequenceDispatcher {
                     params: { ...consequence.params, value }
                 };
             }
-            if (consequence.type === 'log' && consequence?.params?.message) {
-                return {
-                    type: 'log',
-                    target: consequence.target,
-                    params: {
-                        ...consequence.params,
-                        message: consequence.params.message.replace(/:Physical\.strength/g, String(attackerStrength))
-                    }
-                };
-            }
+            // Log consequences carry their message at the TOP level (no params object);
+            // they pass through here unchanged and are resolved per-attacker later by
+            // _resolveLogMessage (which receives the full per-attacker stat context).
+            // The old params.message string-replace branch is gone with that data shape.
             return consequence;
         });
     }

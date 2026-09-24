@@ -196,11 +196,11 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
     });
 
     describe('non-damageComponent consequences', () => {
-        it('passes through non-damageComponent consequences unchanged', () => {
+        it('passes through non-damageComponent consequences (incl. top-level-message logs) unchanged', () => {
             const action = {
                 consequences: [
                     { type: 'dropMaterialChunk', target: 'target' },
-                    { type: 'log', target: 'self', params: { message: 'hello' }, level: 'info' }
+                    { type: 'log', target: 'self', level: 'info', message: 'hello' }
                 ]
             };
 
@@ -209,9 +209,10 @@ describe('ConsequenceDispatcher._buildPerAttackerConsequences', () => {
             // dropMaterialChunk should pass through unchanged
             expect(result[0]).toEqual({ type: 'dropMaterialChunk', target: 'target' });
 
-            // log with params should be rebuilt with the message
-            expect(result[1].type).toBe('log');
-            expect(result[1].params.message).toBe('hello');
+            // A top-level-message log passes through UNCHANGED here — the message is a
+            // template resolved later per-attacker by _resolveLogMessage (with the full
+            // stat context), not by any string-replace in this builder.
+            expect(result[1]).toEqual({ type: 'log', target: 'self', level: 'info', message: 'hello' });
         });
     });
 });

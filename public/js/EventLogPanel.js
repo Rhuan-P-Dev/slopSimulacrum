@@ -157,6 +157,8 @@ export class EventLogPanel {
             const timeStr = Number.isNaN(d.getTime()) ? '--:--:--' : d.toLocaleTimeString('en-GB', { hour12: false });
             timeSpan.textContent = `[${timeStr}]`;
 
+            // Render the resolved message verbatim. The server already resolves
+            // the action name into it ("… performed droid punch …"), so no action badge.
             const messageSpan = document.createElement('span');
             messageSpan.className = 'event-log-message';
             messageSpan.textContent = event.message || '';
