@@ -88,6 +88,7 @@ Additional reference documentation for specific systems and components, organize
 - [Overlay Manager](subMDs/frontend/overlay_manager.md) — Floating window coordination
 - [Group Pick](subMDs/frontend/group_pickup.md) — Cluster pickup window: per-type stacks with quantity steppers, triggered by the data-driven `pickUpItem.groupPick` config
 - [Knowledge Viewer](subMDs/frontend/knowledge_viewer.md) — Read-only reference codex tab (traits/stats, recipes, items): static, data-driven, fetched once — why it lives outside the world-state flow and how it degrades
+- [Object Viewer](subMDs/frontend/object_viewer.md) — Click-to-inspect panel for a single object (props via the world map): its components + live stats, its stored items, its inventory fill, and its per-turn production lines (e.g. "1 knife every 1 turn") derived from the same organ definitions the overTime channel fires from
 
 ### 🌐 Networking & Communication
 - [Communication & Error Handling](subMDs/networking/communication.md) — LLM integration + error codes

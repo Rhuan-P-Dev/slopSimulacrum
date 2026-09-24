@@ -30,6 +30,7 @@ import { WorldMapView } from './WorldMapView.js';
 import { InventoryManager } from './InventoryManager.js';
 import { CraftingPanel } from './CraftingPanel.js';
 import { KnowledgePanel } from './KnowledgePanel.js';
+import ObjectViewer from './ObjectViewer.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -102,6 +103,10 @@ export class ClientApp {
         // Knowledge viewer: read-only reference codex — no world-state
         // dependencies (the payload is fetched once per session).
         this.knowledge = new KnowledgePanel();
+        // Object viewer: read-only inspection of a world object (its
+        // inventory, stats, organs and production) — opened from a world-
+        // object click on the spatial map, no config-bar button.
+        this.objectViewer = new ObjectViewer();
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -628,6 +633,10 @@ export class ClientApp {
             // Knowledge tab (no numeric shortcut — same treatment as
             // crafting/room-chat/events; fetches its own session-cached payload).
             this.overlayManager.register('knowledge', this.knowledge, 'btn-knowledge', null);
+            // Object Viewer (no button, no shortcut — opened programmatically
+            // from a world-object click; fetches its payload live on open).
+            this.overlayManager.register('object-viewer', this.objectViewer, null, null,
+                () => this._fetchObjectInspectData());
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle
@@ -654,6 +663,39 @@ export class ClientApp {
         if (!entityId || !state?.entities?.[entityId]) return;
         this._inspectEntityId = entityId;
         this.overlayManager.open('component-viewer');
+    }
+
+    /**
+     * "Inspect this object" entry point, triggered by clicking a static world
+     * object (prop) on the spatial map. Remembers the chosen entity and opens
+     * the Object Viewer for it — the panel fetches the inspection payload
+     * (GET /world-objects/:entityId) on open, so inventory and production
+     * stats are always live (wiki/subMDs/frontend/object_viewer.md).
+     * @param {string} entityId - The entity to inspect.
+     */
+    _openObjectViewer(entityId) {
+        if (!entityId) return;
+        this._inspectObjectId = entityId;
+        this.objectViewer.setActor(this.worldState.getActiveDroid() || null);
+        this.overlayManager.open('object-viewer');
+    }
+
+    /**
+     * Fetches the Object Viewer payload for the inspected object.
+     * @returns {Promise<Object|null>} The inspection payload (the `object`
+     *   envelope member), or null when the object vanished in the meantime
+     *   (the panel then renders its fetch-failure state).
+     * @private
+     */
+    async _fetchObjectInspectData() {
+        if (!this._inspectObjectId) return null;
+        const url = `${AppConfig.ENDPOINTS.OBJECT_INSPECT}/${encodeURIComponent(this._inspectObjectId)}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch object inspect data (HTTP ${response.status})`);
+        }
+        const body = await response.json();
+        return body && body.object ? body.object : null;
     }
 
     /**
@@ -692,6 +734,16 @@ export class ClientApp {
             // (crafting design spec §2.3).
             this.crafting.refreshIfOpen();
 
+            // Live-refresh the Object Viewer if open — production and stored
+            // items change every round (the payload is fetched fresh, not
+            // derived from the broadcast; wiki/subMDs/frontend/object_viewer.md).
+            if (this.objectViewer && this.objectViewer.isVisible()) {
+                this.objectViewer.setActor(droid || null);
+                this._fetchObjectInspectData()
+                    .then((payload) => this.objectViewer.refresh(payload))
+                    .catch(() => {});
+            }
+
             // Update the visual world view
             this.ui.updateWorldView(
                 this.worldState.getState(),
@@ -699,7 +751,10 @@ export class ClientApp {
                 (entityId, targetRoomId, doorName) => this._handleDoorClick(entityId, targetRoomId, doorName),
                 (doorName, doorPosition) => this._handleDoorHover(doorName, doorPosition),
                 () => this._hideDoorRangeIndicator(),
-                (entityId) => this._inspectEntity(entityId)
+                (entityId) => this._inspectEntity(entityId),
+                (entityId) => this._openObjectViewer(entityId),
+                (id, obj) => this._handleObjectHover(id, obj),
+                (id, obj) => this._handleObjectLeave(id, obj)
             );
 
             // Re-render entities and components with callbacks
@@ -1386,6 +1441,54 @@ export class ClientApp {
      * @private
      */
     _handleDroppedItemLeave(_id, _item) {
+        this.ui.clearRangeIndicator();
+    }
+
+    /**
+     * Handles hovering over a static world object (prop) marker on the
+     * spatial map. Draws the droid's object-interaction range circle — radius
+     * is the same OBJECT_INTERACT_RANGE the server enforces for object
+     * move/take (AppConfig mirrors src/utils/Constants.js) — colored by
+     * reachability: green if the object is within range, red if out of range.
+     * Reuses the lightweight dropped-item hover preview style ('hover-pickup')
+     * on purpose, so object reach reads exactly like item pickup reach;
+     * the indicator is wiped on the next world update, like every other hover
+     * preview (wiki/subMDs/frontend/object_viewer.md §7).
+     * @param {string} _id - The object's entity id.
+     * @param {Object} obj - The object entity (with spatial coordinates).
+     * @private
+     */
+    _handleObjectHover(_id, obj) {
+        const droid = this.worldState.getActiveDroid();
+        if (!droid || !obj || !obj.spatial) return;
+
+        // Only objects in the droid's room have a meaningful distance (props
+        // are pre-filtered to the rendered room — this is a safety net).
+        if (obj.location !== droid.location) return;
+
+        // Euclidean distance in room-center-relative coordinates — the same
+        // measurement the server's range gate performs.
+        const droidX = droid.spatial?.x || 0;
+        const droidY = droid.spatial?.y || 0;
+        const objX = obj.spatial?.x || 0;
+        const objY = obj.spatial?.y || 0;
+        const distance = Math.sqrt(Math.pow(objX - droidX, 2) + Math.pow(objY - droidY, 2));
+
+        const color = distance <= AppConfig.OBJECT_INTERACT_RANGE
+            ? AppConfig.COLORS.RANGE.IN_RANGE
+            : AppConfig.COLORS.RANGE.OUT_OF_RANGE;
+
+        this.ui.renderRangeIndicator(droid, AppConfig.OBJECT_INTERACT_RANGE, color, 'hover-pickup');
+    }
+
+    /**
+     * Handles leaving a static world object (prop) marker on the spatial map.
+     * Clears the hover-based range indicator.
+     * @param {string} _id - The object's entity id.
+     * @param {Object} _obj - The object entity.
+     * @private
+     */
+    _handleObjectLeave(_id, _obj) {
         this.ui.clearRangeIndicator();
     }
 

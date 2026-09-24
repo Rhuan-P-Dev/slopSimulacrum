@@ -113,6 +113,17 @@ class InventoryManager {
     }
 
     /**
+     * Gets a single item type definition (name/description/volume/traits).
+     * Returns a defensive deep copy, or null when the type is unknown.
+     * @param {string} itemType - The item type identifier.
+     * @returns {Object|null} A deep copy of the definition, or null.
+     */
+    getItemDefinition(itemType) {
+        const def = this._itemDefinitions[itemType];
+        return def ? structuredClone(def) : null;
+    }
+
+    /**
      * Ensures the entity has an inventory entry.
      * @param {string} entityId - The entity ID.
      * @returns {void}
@@ -301,6 +312,107 @@ class InventoryManager {
         item.hostComponentId = targetComponentId;
         Logger.info(`[InventoryManager] Moved item ${itemId} to component ${targetComponentId} on entity ${entity.id}`);
         return { success: true };
+    }
+
+    /**
+     * Transfers an item instance from one entity to a component of ANOTHER
+     * entity (e.g. from a world object to the player's droid). Unlike
+     * moveItem this crosses entity boundaries: the source entity loses the
+     * item, the target entity gains the SAME instance (id, depletable stats
+     * and any items it hosts all survive — a container moves with its
+     * subtree). Validates, before touching anything: the two entities are
+     * distinct, the target component is a member of the target entity (a
+     * well-formed but foreign id would otherwise strand the item on a host
+     * that belongs to no entity), and the target component has enough free
+     * volume (same semantics as moveItem).
+     * @param {Object} fromEntity - The source entity (mutable).
+     * @param {string} itemId - The item ID to transfer.
+     * @param {Object} toEntity - The destination entity (mutable).
+     * @param {string} toComponentId - The receiving component of toEntity.
+     * @returns {{ success: boolean, message?: string }}
+     */
+    transferItem(fromEntity, itemId, toEntity, toComponentId) {
+        if (!fromEntity || !toEntity || fromEntity.id === toEntity.id) {
+            return { success: false, message: 'Transfer requires two distinct entities.' };
+        }
+        if (!fromEntity.items || !Array.isArray(fromEntity.items)) {
+            return { success: false, message: 'Source entity has no items.' };
+        }
+
+        const item = fromEntity.items.find(i => i.id === itemId);
+        if (!item) {
+            Logger.warn(`[InventoryManager] Item "${itemId}" not found in entity ${fromEntity.id}.`);
+            return { success: false, message: `Item not found: ${itemId}` };
+        }
+
+        let targetComponentType = null;
+        if (toEntity.components && Array.isArray(toEntity.components)) {
+            const compRef = toEntity.components.find(c => c.id === toComponentId);
+            if (compRef) {
+                targetComponentType = compRef.type || compRef.entityComponentType || null;
+            }
+        }
+        if (!targetComponentType) {
+            return {
+                success: false,
+                message: `Component "${toComponentId}" is not part of entity "${toEntity.id}".`
+            };
+        }
+
+        const maxVolume = this._getComponentMaxVolume(targetComponentType);
+        if (maxVolume > 0) {
+            const usedVolume = this._calculateComponentUsedVolume(toEntity, toComponentId);
+            const itemHostVolume = item.hostVolume ?? item.volume ?? 0;
+            if (usedVolume + itemHostVolume > maxVolume) {
+                return {
+                    success: false,
+                    message: `Target component ${toComponentId} does not have enough volume. Available: ${maxVolume - usedVolume}, Item needs: ${itemHostVolume}`
+                };
+            }
+        }
+
+        // Collect the moving subtree (the item + everything it hosts) as
+        // live references, detach it from the source, re-host it on the
+        // target. Descendants keep their container-host ids, which travel
+        // with the container, so their hostComponentId values stay valid.
+        const moving = [item];
+        for (const child of this._getChildren(fromEntity, itemId)) {
+            moving.push(child);
+            this._collectSubtree(fromEntity, child.id, moving);
+        }
+        const movingIds = new Set(moving.map(i => i.id));
+        fromEntity.items = fromEntity.items.filter(i => !movingIds.has(i.id));
+        if (this._inventory[fromEntity.id]) {
+            for (const id of movingIds) {
+                delete this._inventory[fromEntity.id][id];
+            }
+        }
+
+        item.hostComponentId = toComponentId;
+        if (!toEntity.items || !Array.isArray(toEntity.items)) toEntity.items = [];
+        toEntity.items.push(...moving);
+        this._ensureEntityInventory(toEntity.id);
+        for (const moved of moving) {
+            this._inventory[toEntity.id][moved.id] = moved;
+        }
+
+        Logger.info(`[InventoryManager] Transferred item ${itemId} from entity ${fromEntity.id} to component ${toComponentId} on entity ${toEntity.id}`);
+        return { success: true };
+    }
+
+    /**
+     * Recursively appends the descendants of one item (its container
+     * subtree) to the given array of live item references.
+     * @param {Object} entity - The entity owning the items.
+     * @param {string} itemId - The container item ID.
+     * @param {Array<Object>} out - Collects the live references.
+     * @private
+     */
+    _collectSubtree(entity, itemId, out) {
+        for (const child of this._getChildren(entity, itemId)) {
+            out.push(child);
+            this._collectSubtree(entity, child.id, out);
+        }
     }
 
     /**

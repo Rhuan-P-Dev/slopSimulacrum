@@ -45,6 +45,14 @@ class InternalComponentUtils {
                 const target = typeof effect.targetStat === 'string' ? InternalComponentUtils._formatStatKey(effect.targetStat) : 'a stat';
                 return `${cadence}burns ${fuel} ${effect.fuelItem ?? 'fuel'} to charge the host ${gain} ${target} (capacity ${capacity})`;
             }
+            case 'generateItem': {
+                // Fuel-free item organ (wiki/subMDs/data/internal_components.md):
+                // the clause names the produced item key and the per-interval
+                // count — the same data the round-start handler reads, so the
+                // prose can never desync from the behavior.
+                const count = Number.isInteger(effect.itemsPerInterval) ? effect.itemsPerInterval : 1;
+                return `${cadence}produces ${count} ${effect.itemKey ?? 'item'}`;
+            }
             default:
                 return null;
         }

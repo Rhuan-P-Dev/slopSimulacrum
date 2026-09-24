@@ -199,7 +199,7 @@ export default function register(router, { worldStateController }) {
 	router.post('/inventory/:entityId/move/:itemId', (req, res) => {
 		try {
 			const { entityId, itemId } = req.params;
-			const { targetComponentId } = req.body;
+			const { targetComponentId, actorEntityId } = req.body;
 
 			// TYPED ID MIGRATION: Validate entityId and itemId formats
 			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/move/:itemId params');
@@ -224,7 +224,7 @@ export default function register(router, { worldStateController }) {
 				return res.status(400).json({ error: compValidation.error });
 			}
 
-			const result = worldStateController.moveItemInEntity(entityId, itemId, targetComponentId);
+			const result = worldStateController.moveItemInEntity(entityId, itemId, targetComponentId, actorEntityId);
 
 			if (!result.success) {
 				return res.status(400).json({
@@ -325,6 +325,55 @@ export default function register(router, { worldStateController }) {
 			res.json({ success: true });
 		} catch (error) {
 			sendRouteError(error, res, '/inventory/:entityId/unequip/:itemId');
+		}
+	});
+
+	/**
+	 * POST /inventory/:entityId/take/:itemId
+	 * Transfers an item from this entity to a component of another entity
+	 * (e.g. from a world object to the player's droid).
+	 * Body: { targetEntityId: string, targetComponentId: string }
+	 * The facade resolves both entities; the manager validates that the
+	 * target component belongs to the target entity and has enough volume,
+	 * then moves the item instance (with its container subtree). A
+	 * successful transfer fires the world-state broadcast, which refreshes
+	 * every client (including this one, if the object panel is open).
+	 */
+	router.post('/inventory/:entityId/take/:itemId', (req, res) => {
+		try {
+			const { entityId, itemId } = req.params;
+			const { targetEntityId, targetComponentId, actorEntityId } = req.body || {};
+
+			// TYPED ID MIGRATION: Validate all three typed ids
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/take/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/take/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+			const targetEntityValidation = validateEntityId(targetEntityId, 'POST /inventory/:entityId/take/:itemId body');
+			if (!targetEntityValidation.valid) {
+				return res.status(400).json({ error: targetEntityValidation.error });
+			}
+			const targetCompValidation = validateCompId(targetComponentId, 'POST /inventory/:entityId/take/:itemId body');
+			if (!targetCompValidation.valid) {
+				return res.status(400).json({ error: targetCompValidation.error });
+			}
+
+			const result = worldStateController.takeItemFromEntity(entityId, itemId, targetEntityId, targetComponentId, actorEntityId);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to take item',
+					message: result.message,
+				});
+			}
+
+			res.json({ success: true });
+		} catch (error) {
+			sendRouteError(error, res, '/inventory/:entityId/take/:itemId');
 		}
 	});
 

@@ -89,6 +89,18 @@ export const DROP_RANGE_MULTIPLIER = 2;
  */
 export const PICK_UP_RANGE_FALLBACK = 50;
 
+/**
+ * Maximum Euclidean distance (world units) at which an entity may
+ * interact with a world object's inventory — the Object Viewer's two
+ * mutations: moving a stored item between the object's own components, or
+ * taking a stored item to another entity (wiki/subMDs/frontend/
+ * object_viewer.md §7–8). Anchored to the pick-up reach: the same physical
+ * arm length a droid needs to grab a dropped item (PICK_UP_RANGE_FALLBACK
+ * / the pickUpItem range in data/actions.json).
+ * @type {number}
+ */
+export const OBJECT_INTERACT_RANGE = 50;
+
 // =========================================================================
 // DYNAMIC ITEM TYPE CONSTANTS (feature 2 — material chunk drop on punch)
 // =========================================================================

@@ -291,3 +291,40 @@ describe('enrichWithDescriptions', () => {
         expect(util.enrichWithDescriptions(n, REGISTRY)).toBe(n);
     });
 });
+
+// ---------------------------------------------------------------------------
+// generateDescription — generateItem clause (fuel-free item organs)
+// ---------------------------------------------------------------------------
+describe('generateDescription — generateItem overTime clause', () => {
+    it('renders the shipped knifeGeneratorIC byte-for-byte', () => {
+        const def = REGISTRY['knifeGeneratorIC'];
+        expect(def, 'knifeGeneratorIC ships in the registry').toBeTruthy();
+        expect(util.generateDescription(def)).toBe('Every 1 turn, produces 1 knife.');
+    });
+
+    it('renders a multi-item interval with its count and cadence', () => {
+        const def = {
+            volume: 1,
+            overTime: [{ type: 'generateItem', itemKey: 'coal', itemsPerInterval: 3, intervalTurns: 2 }]
+        };
+        expect(util.generateDescription(def)).toBe('Every 2 turns, produces 3 coal.');
+    });
+
+    it('defaults a missing itemsPerInterval to 1 (the handler\'s default)', () => {
+        const def = {
+            volume: 1,
+            overTime: [{ type: 'generateItem', itemKey: 'knife', intervalTurns: 1 }]
+        };
+        expect(util.generateDescription(def)).toBe('Every 1 turn, produces 1 knife.');
+    });
+
+    it('composes grants + generateItem into one sentence', () => {
+        const def = {
+            volume: 1,
+            grants: { 'Physical.think_level': 50 },
+            overTime: [{ type: 'generateItem', itemKey: 'knife', itemsPerInterval: 1, intervalTurns: 1 }]
+        };
+        expect(util.generateDescription(def))
+            .toBe("Maintains the host's Physical think_level at 50. Every 1 turn, produces 1 knife.");
+    });
+});

@@ -1,0 +1,387 @@
+/* =============================================================================
+ * Object Viewer (wiki/subMDs/frontend/object_viewer.md)
+ * Single-responsibility CSS module: owns ALL `object-viewer-` and `ov-`
+ * selectors — the inspection panel sections (header, production, inventory
+ * bar + item cards + the click-to-move picker, component cards with
+ * existence bars and stats tables, organ rows, broken badges,
+ * empty/error states).
+ * Uses only `:root` custom properties from styles.css plus neutral literals
+ * (precedent: knowledge.css, crafting.css).
+ * No selector in this file may be duplicated in any other CSS module (BUG-105).
+ * ============================================================================= */
+
+/* ---- Root / scroll container ------------------------------------------------ */
+
+.object-viewer-root {
+    height: 100%;
+    overflow-y: auto;
+    padding: 10px;
+    color: var(--text-main);
+    font-family: monospace;
+    font-size: 1em;
+}
+
+/* ---- Entity header ------------------------------------------------------------ */
+
+.ov-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #333;
+}
+
+.ov-name {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: var(--neon-green);
+}
+
+.ov-badge {
+    padding: 2px 6px;
+    border: 1px solid #444;
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-size: 0.8em;
+}
+
+.ov-where {
+    color: var(--text-dim);
+    font-size: 0.85em;
+}
+
+/* ---- Sections --------------------------------------------------------------- */
+
+.ov-section {
+    margin-bottom: 14px;
+}
+
+.ov-section > h4 {
+    margin: 0 0 6px 0;
+    color: var(--text-dim);
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ---- Production ---------------------------------------------------------------- */
+
+.ov-prod-row {
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    background: var(--bg-black);
+    border-left: 2px solid var(--neon-green);
+    color: var(--text-main);
+}
+
+/* ---- Inventory ------------------------------------------------------------------ */
+
+.ov-bar {
+    height: 8px;
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.ov-bar-sm {
+    height: 5px;
+    margin: 4px 0 8px 0;
+}
+
+.ov-bar-fill {
+    height: 100%;
+    background: var(--neon-green);
+}
+
+.ov-item-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 6px 10px;
+    margin-bottom: 5px;
+    background: #1a1a1a;
+    border: 1px solid #2c2c2c;
+    border-radius: 3px;
+    color: var(--text-main);
+}
+
+.ov-item-name {
+    font-weight: bold;
+}
+
+/* The description gets its own line so long text never competes with the
+   volume badge for row width. */
+.ov-item-desc {
+    flex-basis: 100%;
+    color: var(--text-dim);
+    font-size: 0.8em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Movable rows (every stored item on an object with at least one component):
+   the hover border +
+   name signal the click action; the move chip appears only on hover so
+   quiet lists stay quiet. */
+.ov-item-movable {
+    cursor: pointer;
+}
+
+.ov-item-movable:hover {
+    border-color: var(--neon-green);
+}
+
+.ov-item-movable:hover .ov-item-name {
+    color: var(--neon-green);
+}
+
+.ov-item-move {
+    display: none;
+    color: var(--neon-green);
+    border: 1px solid var(--neon-green);
+    border-radius: 8px;
+    padding: 0 6px;
+    font-size: 0.75em;
+}
+
+.ov-item-movable:hover .ov-item-move {
+    display: inline-block;
+}
+
+/* Volume badge, pushed to the row's right edge. */
+.ov-item-vol {
+    margin-left: auto;
+    background: #101010;
+    border: 1px solid #333;
+    border-radius: 9px;
+    padding: 1px 8px;
+    color: var(--text-dim);
+    font-size: 0.78em;
+    white-space: nowrap;
+}
+
+/* ---- Move picker (click an item → choose the receiving component) -------- */
+
+.ov-move-picker {
+    margin: 8px 0 6px 0;
+    padding: 8px;
+    background: #141414;
+    border: 1px solid #3a3a3a;
+    border-left: 3px solid var(--neon-green);
+    border-radius: 3px;
+}
+
+.ov-move-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    color: var(--text-main);
+    font-size: 0.9em;
+}
+
+.ov-move-close {
+    color: var(--text-dim);
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+.ov-move-close:hover {
+    color: var(--text-main);
+    border-color: var(--text-main);
+}
+
+.ov-move-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
+    background: #1a1a1a;
+    border: 1px solid #2c2c2c;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.ov-move-option:hover {
+    border-color: var(--neon-green);
+}
+
+.ov-move-option:hover .ov-move-comp-name {
+    color: var(--neon-green);
+}
+
+.ov-move-comp-name {
+    color: var(--text-main);
+}
+
+.ov-move-cap {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+.ov-move-tag {
+    color: var(--text-dim);
+    font-size: 0.8em;
+    font-style: italic;
+}
+
+/* The current host: visible but inert. */
+.ov-move-option.is-current {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.ov-move-option.is-current:hover {
+    border-color: #2c2c2c;
+}
+
+.ov-move-option.is-current:hover .ov-move-comp-name {
+    color: var(--text-main);
+}
+
+/* No free volume — advisory preview; the server re-checks on the POST. */
+.ov-move-option.is-full {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.ov-move-option.is-full:hover {
+    border-color: #2c2c2c;
+}
+
+.ov-move-option.is-full:hover .ov-move-comp-name {
+    color: var(--text-main);
+}
+
+.ov-move-error {
+    color: #ff5555;
+    padding: 4px 2px 2px 2px;
+    font-size: 0.85em;
+}
+
+.ov-move-ok {
+    color: var(--neon-green);
+    padding: 4px 2px 2px 2px;
+    font-size: 0.85em;
+}
+
+/* ---- Take picker (click an item → choose the receiving ENTITY) ------------ */
+/* Reuses the move-picker layout; a cyan accent distinguishes the
+   cross-entity transfer from the in-object move (green). */
+.ov-take-picker {
+    border-left: 3px solid var(--neon-cyan, #00d5e8);
+}
+
+.ov-take-picker .ov-take-option:hover {
+    border-color: var(--neon-cyan, #00d5e8);
+}
+
+.ov-take-picker .ov-take-option:hover .ov-move-comp-name {
+    color: var(--neon-cyan, #00d5e8);
+}
+
+/* ---- Components ------------------------------------------------------------------ */
+
+.ov-comp {
+    margin-bottom: 10px;
+    padding: 8px;
+    background: var(--bg-black);
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+.ov-comp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ov-comp-type {
+    font-weight: bold;
+    color: var(--text-main);
+}
+
+.ov-comp-exist {
+    color: var(--text-dim);
+    font-size: 0.85em;
+}
+
+/* ---- Organs ---------------------------------------------------------------------- */
+
+.ov-organs {
+    margin: 6px 0;
+    padding-left: 8px;
+    border-left: 1px solid #333;
+}
+
+.ov-organ {
+    margin-bottom: 4px;
+}
+
+.ov-organ-type {
+    font-weight: bold;
+}
+
+.ov-organ-desc {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    margin-left: 8px;
+}
+
+/* ---- Stats table ------------------------------------------------------------------ */
+
+.ov-stats {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85em;
+}
+
+.ov-stats td {
+    padding: 1px 4px;
+    border-top: 1px solid #2a2a2a;
+    color: var(--text-dim);
+}
+
+.ov-stats td:first-child {
+    color: var(--text-main);
+}
+
+/* ---- Broken / empty / error states ------------------------------------------------- */
+
+/* Out-of-reach banner: the object is beyond interaction range — the
+   inventory section renders read-only until the actor closes the gap. */
+.ov-range-note {
+    color: #ffbb33;
+    border: 1px solid #ffbb33;
+    border-radius: 3px;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+    font-size: 0.85em;
+}
+
+.ov-broken {
+    color: #ff5555;
+    font-weight: bold;
+    font-size: 0.8em;
+}
+
+.ov-empty,
+.ov-empty-sm {
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 4px 6px;
+}
