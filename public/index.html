@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
     <link rel="stylesheet" href="css/events.css">
+    <link rel="stylesheet" href="css/in-text.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -51,8 +52,12 @@
         </div>
     </div>
 
-    <!-- MIDDLE: Map Section -->
-    <div id="map-section">
+    <!-- MAIN: split = spatial map (left) | in-text world view (right) -->
+    <!-- In-text column mirrors everything visible on the map as text: room,
+         doors, droids, props, items, world map, turn, recent events. -->
+    <div id="main-split">
+      <!-- Map Section -->
+      <div id="map-section">
         <div class="room-header">
             <h2 style="margin: 0;">🗺️ Spatial Map</h2>
             <div class="room-info-inline">
@@ -78,6 +83,18 @@
                 <g id="components-layer"></g>
             </svg>
         </div>
+      </div>
+
+      <!-- In-text Section (text mirror of the world view, always visible) -->
+      <div id="in-text-section">
+        <div class="in-text-header">
+          <h2 class="in-text-title">In-Text View</h2>
+          <span class="in-text-tick" id="in-text-tick"></span>
+        </div>
+        <div class="in-text-content">
+          <p class="in-text-placeholder">Waiting for world state…</p>
+        </div>
+      </div>
     </div>
 
     <!-- BOTTOM: Stat Bars Section -->

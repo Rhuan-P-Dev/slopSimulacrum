@@ -19,6 +19,12 @@
     --stat-bar-bg: #111;
     --stat-bar-height: 32px;
 
+    /* In-Text panel (the always-visible text mirror of the world view)
+       — width only lives here (geometry); the visual domain is
+       public/css/in-text.css. */
+    --in-text-width: 380px;
+    --in-text-min-width: 280px;
+
     /* Trait default colors */
     --color-physical: #00ff00;
     --color-mind: #00bfff;

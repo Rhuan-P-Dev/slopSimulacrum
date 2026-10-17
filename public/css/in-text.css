@@ -1,0 +1,161 @@
+/* =========================================================================
+   In-Text Panel — text mirror of the world view.
+   Single Responsibility: visual styling of the IN-TEXT COLUMN.
+
+   Boundary (per css_architecture.md):
+     - Box GEOMETRY (split column, width, mobile stacking) lives in
+       layout.css, which owns the main grid.
+     - This file owns only the content inside #in-text-section (header,
+       scroll area, section rows, entities, items, events).
+   ============================================================================= */
+
+/* Column frame (#in-text-section geometry) lives in layout.css — the
+   split column, width, border and mobile stacking. Everything below is the
+   visual domain inside the column. */
+
+/* Pinned header: title + live tick. */
+.in-text-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--panel-bg);
+    border-bottom: 2px solid var(--neon-green);
+    flex: 0 0 auto;
+    user-select: none;
+}
+
+.in-text-title {
+    margin: 0;
+    font-size: 0.85em;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--neon-green);
+    text-shadow: var(--glow);
+}
+
+.in-text-tick {
+    font-size: 0.7em;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+}
+
+/* Scrollable body — every refresh rebuilds this innerHTML; CSS handles
+   the scroll so the mirror never overflows the split column. */
+.in-text-content {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 10px;
+    font-size: 0.8em;
+    line-height: 1.5;
+    color: var(--neon-green);
+}
+
+.in-text-content::-webkit-scrollbar {
+    width: 8px;
+}
+.in-text-content::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+
+/* Section framing. */
+.in-text-section {
+    border-bottom: 1px dashed var(--stat-bar-bg);
+    padding: 6px 0 4px;
+}
+
+.in-text-sec-title {
+    margin: 0 0 3px;
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+}
+
+.in-text-row {
+    margin: 0 0 3px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.in-text-desc {
+    margin: 0 0 3px;
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.85em;
+}
+
+/* Empty-state convention: consistent "none" lines across sections. */
+.in-text-none,
+.in-text-placeholder {
+    margin: 0 0 3px;
+    color: var(--text-dim);
+    font-size: 0.85em;
+    font-style: italic;
+}
+
+/* Entities (droids and static objects) — the core of the mirror. */
+.in-text-entity {
+    margin: 0 0 4px;
+}
+
+.in-text-entity strong {
+    color: var(--text-main);
+}
+
+/* "YOU" gets neon-green; NPC gets a distinct accent; static objects dim. */
+.in-text-entity-you {
+    border-left: 3px solid var(--neon-green);
+    padding-left: 4px;
+}
+
+.in-text-entity-npc {
+    border-left: 3px solid var(--neon-orange);
+    padding-left: 4px;
+}
+
+.in-text-entity-static {
+    color: var(--text-dim);
+    font-size: 0.9em;
+}
+
+.in-text-entity-components {
+    margin-left: 4px;
+    font-size: 0.9em;
+    color: var(--color-spatial);
+}
+
+.in-text-npc-tag {
+    font-size: 0.75em;
+    color: var(--neon-orange);
+    margin-left: 4px;
+}
+
+.in-text-you-tag {
+    font-size: 0.75em;
+    color: var(--neon-green);
+    margin-left: 4px;
+    font-weight: bold;
+}
+
+/* Turn section: compact, one-line status. */
+.in-text-turn {
+    margin: 0 0 3px;
+    color: var(--text-main);
+}
+
+/* Recent events: reuses the same row rhythm as the Events panel. */
+.in-text-events {
+    margin-top: 2px;
+}
+
+.in-text-event {
+    margin: 0 0 3px;
+    font-size: 0.85em;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+}

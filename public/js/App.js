@@ -40,6 +40,7 @@ import { clusterAround, resolveGroupPickConfig } from '../utils/GroupPick.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
 import { EventLogPanel } from './EventLogPanel.js';
+import { InTextPanel } from './InTextPanel.js';
 import { HintManager } from './HintManager.js';
 import MaterialRegistry from './MaterialRegistry.js';
 import IdResolver from '/utils/IdResolver.js';
@@ -172,6 +173,16 @@ export class ClientApp {
         // getEntityId getter lets the panel enrich its /world-events request
         // with the active entity's current-room context.
         this.events = new EventLogPanel({
+            handleError: (err) => this.errorController.handleError(err),
+            getEntityId: () => this.worldState?.getMyEntityId?.() || this.worldState?.getActiveDroid?.()?.id || null
+        });
+
+        // 10c. In-Text panel — always-visible text mirror of the world view
+        //      (split column beside the spatial map). A permanent part of the
+        //      main layout, not an overlay: it never joins the overlay keyboard
+        //      protocol and refreshes from the same broadcast as the map, so it
+        //      cannot desync from what's drawn.
+        this.inTextPanel = new InTextPanel({
             handleError: (err) => this.errorController.handleError(err),
             getEntityId: () => this.worldState?.getMyEntityId?.() || this.worldState?.getActiveDroid?.()?.id || null
         });
@@ -607,6 +618,12 @@ export class ClientApp {
             this.pickUpOverlay.init();
             this.groupPickOverlay.init();
 
+            // 13e. In-Text panel — always-visible text mirror of the world view.
+            //      NOT an overlay (permanent split column, no keyboard protocol),
+            //      so no OverlayManager registration. init() is no-op-safe: a
+            //      missing DOM slot only mutes the mirror.
+            this.inTextPanel.init();
+
             // Fire-and-forget: preload material registry for inventory badges
             MaterialRegistry.load();
 
@@ -762,6 +779,12 @@ export class ClientApp {
                 (id, obj) => this._handleObjectHover(id, obj),
                 (id, obj) => this._handleObjectLeave(id, obj)
             );
+
+            // In-text mirror — same snapshot, same call. It reads the world
+            // view exactly as the spatial map does, so it can never desync
+            // from what's drawn. Pure read: never mutates state, never
+            // sends messages.
+            this.inTextPanel?.update(this.worldState.getState(), droid);
 
             // Re-render entities and components with callbacks
             if (droid) {

@@ -37,16 +37,39 @@
 }
 
 /* =========================================================================
-   Map Section (middle)
+   Main Split (middle) — spatial map | in-text mirror
+   Single Responsibility: the map/in-text column split and its responsive
+   fallback. Map internals stay under #map-section rules below.
    ========================================================================= */
 
+#main-split {
+    display: flex;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: 0;
+}
+
+/* Map column: full remaining width; in-text takes a fixed share. */
 #map-section {
-    flex-grow: 1;
+    flex: 1 1 0;
+    min-width: 0;
     position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+}
+
+/* In-text column: fixed width, internal scroll, border as divider.
+   Content styling: public/css/in-text.css */
+#in-text-section {
+    flex: 0 0 var(--in-text-width);
+    min-width: var(--in-text-min-width);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 2px solid var(--config-bar-border);
 }
 
 #map-section .room-header {
@@ -194,5 +217,32 @@
     gap: 10px;
     justify-content: flex-end;
     margin-top: 16px;
+}
+
+/* =========================================================================
+   Responsive Layout
+   ========================================================================= */
+
+@media (max-width: 1024px) {
+    /* Below the split width, the in-text column stacks under the map so
+       the map keeps its primary visual role. */
+    #main-split {
+        flex-direction: column;
+    }
+    #map-section {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 300px;
+    }
+    #in-text-section {
+        flex: 0 1 auto;
+        width: 100%;
+        height: auto;
+        border-left: none;
+        border-top: 2px solid var(--config-bar-border);
+    }
+    #in-text-content {
+        max-height: 320px;
+    }
 }
 
