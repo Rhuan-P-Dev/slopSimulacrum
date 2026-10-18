@@ -50,11 +50,11 @@ const ACTION_REGISTRY = {
     move: { description: 'walk', requirements: [] }
 };
 
-function makeWorld({ canExecute = {}, executeResult } = {}) {
+function makeWorld({ canExecute = {}, executeResult, target = null } = {}) {
     const executeCalls = [];
     return {
         executeCalls,
-        getEntity: (id) => (id === NPC_ID ? NPC : null),
+        getEntity: (id) => (id === NPC_ID ? NPC : (target && id === target.id ? target : null)),
         getRooms: () => ({ 'room-main': { name: 'Main Room' } }),
         actionController: { getRegistry: () => ACTION_REGISTRY },
         stateEntityController: { getAll: () => ({ [NPC_ID]: NPC }) },
@@ -1166,5 +1166,248 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
 
         expect(result.error).toBeNull();
         expect(turns.queued).toHaveLength(0);
+    });
+});
+
+// =========================================================================
+// toApproach tool tests
+// =========================================================================
+describe('LLMAgentController.runRound — toApproach tool', () => {
+    // Same-room target shared by the approach tests.
+    const TARGET = { id: 'ent-target-0001', name: 'Merchant', location: 'room-main', spatial: { x: 200, y: 100 } };
+
+    it('offers toApproach in the generated tool schema (fixed intent, required ent-* target)', async () => {
+        const calls = [];
+        const { agent } = makeAgent({
+            calls,
+            chatFullImpl: (messages, options) => {
+                calls.push(options);
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: null, tool_calls: [] }
+                };
+            }
+        });
+
+        await agent.runRound(NPC_ID, 0);
+
+        expect(calls).toHaveLength(1);
+        const options = calls[0];
+        expect(options.tools.map(t => t.function.name)).toContain('execute_action');
+        expect(options.tools.map(t => t.function.name)).toContain('toApproach');
+        const approach = options.tools.find(t => t.function.name === 'toApproach');
+        expect(approach.function.parameters.properties.targetEntityId.type).toBe('string');
+        expect(approach.function.parameters.required).toEqual(['targetEntityId']);
+    });
+
+    it('queues the registered move action toward the target, with server-resolved coordinates', async () => {
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: TARGET });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.error).toBeNull();
+        expect(result.iterations).toBe(1);
+        expect(result.approaches).toHaveLength(1);
+        expect(result.approaches[0]).toMatchObject({ id: 'call_1', actionName: 'toApproach', queued: true, queueId: 'q-1', success: true });
+        expect(world.executeCalls).toHaveLength(0);
+        expect(turns.queued).toHaveLength(1);
+        expect(turns.queued[0]).toMatchObject({ entityId: NPC_ID, actionName: 'move', source: 'npc' });
+        expect(turns.queued[0].params).toEqual({ targetX: 200, targetY: 100 });
+    });
+
+    it('falls back to immediate execution when no turn system is running', async () => {
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: TARGET });
+        const { agent } = makeAgent({
+            world,
+            // A turn object with no phase (turnsActive === false) → the
+            // immediate-execution path instead of the turn queue.
+            turns: { getRoundState: () => ({}), queueAction: () => null },
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.error).toBeNull();
+        expect(result.approaches[0]).toMatchObject({ id: 'call_1', actionName: 'toApproach', queued: false, success: true, detail: 'executed immediately' });
+        expect(world.executeCalls).toHaveLength(1);
+        expect(world.executeCalls[0]).toMatchObject({ actionName: 'move', entityId: NPC_ID, params: { targetX: 200, targetY: 100 } });
+    });
+
+    it('rejects a non-entity id (comp- prefix) with invalid id format and retries once', async () => {
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: TARGET });
+        const turns = makeTurns();
+        const seenMessages = [];
+        let call = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                call += 1;
+                seenMessages.push(messages);
+                return call === 1
+                    ? { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: 'comp-not-an-entity' }) }]) }
+                    : { content: 'Fine, I shall wait.', toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: 'Fine, I shall wait.' } };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(call).toBe(2);
+        expect(result.iterations).toBe(2);
+        expect(result.approaches).toHaveLength(1);
+        expect(result.approaches[0]).toMatchObject({ id: 'call_1', actionName: 'toApproach', success: false });
+        expect(result.approaches[0].detail).toBe(`invalid id format: targetEntityId="comp-not-an-entity"`);
+
+        // The retry's conversation carries the failure as tool-role feedback.
+        const retryMessages = seenMessages[1];
+        const toolMsg = retryMessages.find(m => m.role === 'tool');
+        expect(toolMsg).toBeTruthy();
+        const toolPayload = JSON.parse(toolMsg.content);
+        expect(toolPayload).toEqual({ success: false, error: `invalid id format: targetEntityId="comp-not-an-entity"` });
+        expect(toolMsg.tool_call_id).toBe('call_1');
+
+        expect(world.executeCalls).toHaveLength(0);
+        expect(turns.queued).toHaveLength(0);
+    });
+
+    it('rejects a target that is not in the NPC room (same-room spatial rule)', async () => {
+        const other = { id: 'ent-target-0002', name: 'Merchant B', location: 'room-warehouse', spatial: { x: 10, y: 10 } };
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: other });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: other.id }) }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.approaches[0].success).toBe(false);
+        expect(result.approaches[0].detail).toMatch(/not in your room/);
+        expect(result.approaches[0].detail).toMatch(/targetRoomId/);
+        expect(world.executeCalls).toHaveLength(0);
+        expect(turns.queued).toHaveLength(0);
+    });
+
+    it('is blocked when the NPC cannot currently move (capability gate)', async () => {
+        // default canExecute = {} → move is not executable right now.
+        const world = makeWorld({ target: TARGET });
+        const { agent } = makeAgent({
+            world,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.approaches[0].success).toBe(false);
+        expect(result.approaches[0].detail).toMatch(/move not executable right now/);
+        expect(world.executeCalls).toHaveLength(0);
+    });
+
+    it('counts toward the per-round world action budget (first two succeed, third fails)', async () => {
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: TARGET });
+        const turns = makeTurns();
+        const seenMessages = [];
+        let call = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                call += 1;
+                seenMessages.push(messages);
+                return call === 1
+                    ? {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [
+                                { id: 'call_1', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } },
+                                { id: 'call_2', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } },
+                                { id: 'call_3', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } }
+                            ]
+                        }
+                    }
+                    : { content: null, toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: null, tool_calls: [] } };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.approaches).toHaveLength(3);
+        expect(result.approaches[0]).toMatchObject({ id: 'call_1', actionName: 'toApproach', success: true });
+        expect(result.approaches[1]).toMatchObject({ id: 'call_2', actionName: 'toApproach', success: true });
+        expect(result.approaches[2]).toMatchObject({ id: 'call_3', success: false, detail: 'max world actions per round reached (2)' });
+        expect(turns.queued).toHaveLength(2);
+    });
+
+    it('replays a truthful approach outcome in the next round (transcript tool message)', async () => {
+        const world = makeWorld({ canExecute: { move: ['comp-arms-1'] }, target: TARGET });
+        const turns = makeTurns();
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                seenMessages.push(messages);
+                return seenMessages.length === 1
+                    ? {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } }]
+                        }
+                    }
+                    : { content: null, toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: null, tool_calls: [] } };
+            }
+        });
+
+        await agent.runRound(NPC_ID, 1);
+        await agent.runRound(NPC_ID, 2);
+
+        const r2Messages = seenMessages[1];
+        const toolMsg = r2Messages.find(m => m.role === 'tool');
+        expect(toolMsg).toBeTruthy();
+        expect(toolMsg.tool_call_id).toBe('call_1');
+        const toolPayload = JSON.parse(toolMsg.content);
+        // Replay normalizes the dispatch detail to the `error` field (the
+        // same shape the execute_action tool results use).
+        expect(toolPayload.success).toBe(true);
+        expect(toolPayload.error).toMatch(/queued toward target/);
+        expect(toolPayload.error).toMatch(/targetX=200/);
+        expect(toolPayload.error).toMatch(/targetY=100/);
     });
 });

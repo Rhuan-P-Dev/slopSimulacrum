@@ -181,7 +181,7 @@ Driven without starting the loop: create the world (tick not started), set the t
 
 ## 6. Feature C — Text actions (the LLM "types" actions; the server validates and executes)
 
-**Why this shape:** the model proposes, the world disposes. The agent layer never trusts the model with *who* acts (the NPC's entity id is injected server-side), pre-validates every proposed action against the *live* capability cache, and caps the loop (iterations, calls, round silence on LLM failure). Tool strategy is **one generic action tool + one speak tool** — not one tool per action — because small local models are far more reliable with a two-tool schema whose action name is an enum from the action data (which now carries descriptions from Feature B), and because the generic tool maps 1:1 onto the existing action payload, so **no second executor exists**.
+**Why this shape:** the model proposes, the world disposes. The agent layer never trusts the model with *who* acts (the NPC's entity id is injected server-side), pre-validates every proposed action against the *live* capability cache, and caps the loop (iterations, calls, round silence on LLM failure). Tool strategy is **a generic action tool + a fixed `toApproach` intent tool** (plus the speak tool when chat is enabled, and `use_instinct` when instincts exist) — not one tool per action — because small local models are far more reliable with a small, fixed schema, and both tools map 1:1 onto the existing action pipeline (the generic tool onto the chosen action; `toApproach` onto the registered `move`), so **no second executor exists**. (`toApproach` is a fixed-shape tool, not a new action — rationale and trade-offs in [subMDs/systems/to_approach_tool.md](subMDs/systems/to_approach_tool.md).)
 
 ### 6.1 LLMController fix — full-message return contract
 
@@ -189,9 +189,10 @@ The current LLM controller only returns the message's text and treats a tool-cal
 
 ### 6.2 Tool schemas (generated at runtime)
 
-The tools are **generated at runtime from the action data** (names + descriptions) — **never hardcoded** (actions are data, BUG-018). Two tools:
+The tools are **generated at runtime from the action data** (names + descriptions) — **never hardcoded** (actions are data, BUG-018). A small, fixed schema:
 - A **generic action tool** whose action name is an enum from the action registry, plus optional target/parameter fields.
-- A **speak tool** for room chat.
+- A **`toApproach` tool** (`{ targetEntityId: "ent-*" }`): "move toward this entity as far as possible this round." The model names the target (same-room perception); the server resolves the target's live room coordinates and dispatches the registered `move` action. *(Added to the original "two tools" decision because a small model cannot reliably aim `move`'s `targetX`/`targetY` from a named target — the coordinate gap; it keeps the action registry the single source of movement truth. Rationale + trade-offs: [subMDs/systems/to_approach_tool.md](subMDs/systems/to_approach_tool.md).)*
+- A **speak tool** for room chat (when chat is enabled), plus the `use_instinct` tool when the round's instincts are generated.
 
 Tool choice is `auto`. The speak tool takes **no room parameter** — the agent forces the NPC's current room (the model cannot choose to talk in a room it isn't in).
 
@@ -235,6 +236,7 @@ The agent is constructed with the LLM controller, the facade, and the context/ch
 - [ ] Stub LLM times out → the round resolves with a timeout error, no throw, no queue entries, NPC silent.
 - [ ] Stub LLM returns prose only → recorded as "prose-only", zero retries burned.
 - [ ] Capability gate: an NPC with no equipped knife proposing cut (empty capability) → rejected.
+- [ ] `toApproach` on a same-room target → the **`move` action** is queued with the NPC's injected id and the **server-resolved** target coordinates (not model-supplied); out-of-room / missing-entity / wrong-prefix target → pre-validation rejection (door hint) costing the one retry; the N+1th approach in a round hits the per-round action budget.
 
 ---
 
@@ -305,7 +307,7 @@ Each step ends green: tests added per step (§9), existing suite untouched excep
 | LLM controller | contract | **stubbed fetch:** content-only and tool-call-only responses; timeout; message validation accepts assistant+tool replay, rejects tool without content |
 | Turn system | contract | the full §5.10 checklist — driven deterministically via the tick (no timers); initiative ordering + tiebreak; queue cap; closed planning; resolution through the real pipeline (stat delta asserted); failed entry discarded without aborting the round; NPC hook fired once and late queue rejected; broadcasts emitted (stub); serialize/restore round-trip |
 | Room chat | contract | send/read, per-room eviction, over-length rejection, unknown room, broadcast via stub, serialize/restore |
-| Agent | contract | **stubbed LLM** (+ real world + stubbed NPC entity): tool call queued with injected entity id; unknown action → exactly one retry with error feedback; timeout → graceful silence; prose-only → no retry burn; capability gate blocks an unequipped action; transcript capped |
+| Agent | contract | **stubbed LLM** (+ real world + stubbed NPC entity): tool call queued with injected entity id; unknown action → exactly one retry with error feedback; timeout → graceful silence; prose-only → no retry burn; capability gate blocks an unequipped action; **toApproach → `move` queued with server-resolved coordinates (same-room gate, per-round budget slot, truthful transcript replay)**; transcript capped |
 
 **Existing tests to update:** the persistence contract (schema version and required-sections list grow as B/A/D land) and the facade public-method snapshot (new wrappers + sub-controllers).
 

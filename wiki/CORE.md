@@ -96,7 +96,7 @@ Additional reference documentation for specific systems and components, organize
 ### 🎮 Systems & Mechanics
 - [Synergy System](subMDs/systems/synergy.md) — Synergy engine + preview UI
 - [Movement System](subMDs/systems/movement_system.md) — Movement mechanics
-- [World Map](subMDs/systems/world_map.md) — Map visualization
+- [toApproach Agent Tool](subMDs/systems/to_approach_tool.md) — Why agents get a "move toward entity X" intent tool, why it is mapped to the registered `move` action (not a new one), and why it is same-room + one budget slot
 - [World Map Pick-Up System](subMDs/systems/world_map_pickup.md) — Dropped items pick-up flow
 - [Item Drop & Pickup System](subMDs/systems/item_drop_pickup.md) — Item drop range calculation and pickup
 - [Unique ID System](subMDs/systems/unique_id_system.md) — Self-describing typed IDs (ent-, comp-, item-, eq-) for unambiguous client-server resolution

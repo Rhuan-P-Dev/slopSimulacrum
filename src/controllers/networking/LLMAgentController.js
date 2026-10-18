@@ -5,8 +5,9 @@
  * controller orchestrates ONE agent round per NPC per turn round:
  *   1. guard (entity exists + isNPC) — graceful 'NPC_GONE' otherwise;
  *   2. build the world context via LlmContextController (Feature B);
- *   3. call LLMController.chatFull with a generated 2-tool schema
- *      (execute_action + speak_in_room) and a per-NPC system prompt;
+ *   3. call LLMController.chatFull with the generated tool set
+ *      (execute_action + toApproach, plus speak_in_room when chat is enabled
+ *      and use_instinct when instincts exist) and a per-NPC system prompt;
  *   4. PRE-VALIDATE every proposed tool call — actionName against the data
  *      registry, typed-ID hygiene via IdResolver, capability gate via the
  *      live canExecute cache — and force the acting entity to the NPC's own
@@ -175,6 +176,7 @@ class LLMAgentController {
             iterations: 0,
             chat: { sent: false },
             actions: [],
+            approaches: [],
             error: null
         };
 
@@ -339,6 +341,39 @@ class LLMAgentController {
                     }
                 }
 
+                // Dispatch approach calls (toApproach tool): world-action intent
+                // resolved to the registered move action (server-side coordinates
+                // from the target's live spatial position).
+                for (const call of parsed.approaches) {
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail });
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateApproach(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail: validation.error });
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchApproach(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.approaches.push({
+                        id: call.id,
+                        actionName: dispatch.actionName,
+                        queued: dispatch.queued,
+                        queueId: dispatch.queueId,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'execution failed' };
+                    }
+                }
+
                 // 7. Dispatch instinct calls (use_instinct tool).
                 if (this.instinctController && parsed.instincts && parsed.instincts.length > 0) {
                     for (const entry of parsed.instincts) {
@@ -350,9 +385,10 @@ class LLMAgentController {
                     }
                 }
 
-                // No tool_calls extracted: attempt fallback from content.
-                // Skip fallback if there's an actionable failure from instincts (retry will handle it).
-                if ((parsed.actions.length === 0 && parsed.speaks.length === 0) && !actionableFailure) {
+                // No tool calls (actions / speaks / approaches) extracted:
+                // attempt fallback from content. Skip fallback if there's an
+                // actionable failure (retry will handle it).
+                if ((parsed.actions.length === 0 && parsed.speaks.length === 0 && parsed.approaches.length === 0) && !actionableFailure) {
                     const content = parsed.prose;
                     if (!content) {
                         result.chat = { sent: false, reason: 'no response' };
@@ -455,6 +491,14 @@ class LLMAgentController {
                                 detail: a?.detail
                             };
                         }),
+                        ...parsed.approaches.map(call => {
+                            const a = result.approaches.find(x => x.id === call.id);
+                            return {
+                                id: call.id,
+                                success: a ? a.success : false,
+                                detail: a?.detail
+                            };
+                        }),
                         ...speakResults
                     ]
                 });
@@ -479,7 +523,9 @@ class LLMAgentController {
     /**
      * Builds the tool OpenAI schema. The `execute_action` actionName enum +
      * descriptions are generated from the live action registry (the same
-     * `data/systems/actions.json` the rest of the world runs on).
+     * `data/systems/actions.json` the rest of the world runs on); `toApproach`
+     * is a fixed intent tool that dispatches the registered `move` action
+     * toward the target's live coordinates.
      * @param {Object} [opts]
      * @param {boolean} [opts.includeChat=true] - Whether to include the speak_in_room tool.
      * @param {Array<Object>} [opts.instincts] - Generated instincts for this round (if non-empty, adds use_instinct tool).
@@ -515,7 +561,25 @@ class LLMAgentController {
             }
         };
 
-        const tools = [executeAction];
+        const toApproach = {
+            type: 'function',
+            function: {
+                name: 'toApproach',
+                description: 'Move toward the given entity as far as possible in this round (one full move step, capped by your movement stat). Works only while you share the target\'s room; to reach another room first move through a door (move with a targetRoomId).',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        targetEntityId: {
+                            type: 'string',
+                            description: 'The ent-* ID of the entity to approach (same-room only).'
+                        }
+                    },
+                    required: ['targetEntityId']
+                }
+            }
+        };
+
+        const tools = [executeAction, toApproach];
 
         // Add use_instinct tool only when instincts are generated (spec §2.5)
         if (instincts && instincts.length > 0) {
@@ -615,6 +679,7 @@ class LLMAgentController {
             chatLine,
             actionRule,
             '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
+            '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'Respond with ONE JSON object only, no markdown, no prose:',
@@ -695,13 +760,14 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
         const speaks = [];
         const actions = [];
         const instincts = [];
+        const approaches = [];
         const prose = (message && typeof message.content === 'string' && message.content.trim() !== '')
             ? message.content
             : null;
@@ -732,10 +798,11 @@ class LLMAgentController {
             if (name === 'speak_in_room') speaks.push(entry);
             else if (name === 'execute_action') actions.push(entry);
             else if (name === 'use_instinct') instincts.push(entry);
+            else if (name === 'toApproach') approaches.push(entry);
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, prose };
+        return { speaks, actions, instincts, approaches, prose };
     }
 
     /**
@@ -899,6 +966,66 @@ class LLMAgentController {
         return { ok: true, params };
     }
 
+    /**
+     * Pre-execution validation for one toApproach call:
+     *   - targetEntityId must be a non-empty, well-formed, typed entity ID
+     *     that resolves to a live entity;
+     *   - the target must share the NPC's room — spatial coordinates are per
+     *     room and the agent's context (Feature B) is same-room perception,
+     *     so cross-room "approach" is intentionally out of scope (door travel
+     *     goes through move's targetRoomId);
+     *   - the NPC must be able to execute the registered `move` action right
+     *     now (the same capability gate as execute_action).
+     *
+     * @param {string} npcEntityId
+     * @param {Object} args - Parsed tool arguments ({ targetEntityId }).
+     * @returns {{ ok: true, params: Object } | { ok: false, error: string }}
+     * @private
+     */
+    _prevalidateApproach(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const targetEntityId = args.targetEntityId;
+        if (typeof targetEntityId !== 'string' || targetEntityId.trim() === '') {
+            return { ok: false, error: 'missing "targetEntityId"' };
+        }
+        if (!IdResolver.isEntityId(targetEntityId)) {
+            return { ok: false, error: `invalid id format: targetEntityId="${targetEntityId}"` };
+        }
+
+        const self = this.worldStateController?.getEntity?.(npcEntityId);
+        const target = this.worldStateController?.getEntity?.(targetEntityId);
+        if (!self || !target) {
+            return { ok: false, error: self ? 'target entity not found' : 'actor entity not found' };
+        }
+        if (self.location !== target.location) {
+            return {
+                ok: false,
+                error: 'target not in your room — travel through a door (move with targetRoomId) first'
+            };
+        }
+        if (!target.spatial || typeof target.spatial.x !== 'number' || typeof target.spatial.y !== 'number') {
+            return { ok: false, error: 'target has no spatial position' };
+        }
+
+        // Capability gate: the NPC must be able to execute move right now.
+        const actions = this.worldStateController?.getActionsForEntity?.(npcEntityId) || {};
+        const canExecute = actions.move?.canExecute;
+        if (!Array.isArray(canExecute) || canExecute.length === 0) {
+            return { ok: false, error: 'move not executable right now (insufficient movement stats)' };
+        }
+
+        return {
+            ok: true,
+            params: { targetX: target.spatial.x, targetY: target.spatial.y }
+        };
+    }
+
     // =========================================================================
     // DISPATCH
     // =========================================================================
@@ -961,6 +1088,38 @@ class LLMAgentController {
             this._recordImmediateOutcome(npcEntityId, actionName, false, err?.message || String(err));
             return { actionName, queued: false, success: false, detail: err?.message || String(err) };
         }
+    }
+
+    /**
+     * Dispatches one validated toApproach call. Approach is NOT a new action:
+     * it is the registered `move` action aimed at the target's live coordinates
+     * (resolved in _prevalidateApproach). Reusing the registry action keeps
+     * movement data-driven and preserves everything about `move` for free:
+     * the requirement, the deltaSpatial consequence (one step capped by speed
+     * and by the distance to the target), the broadcast, and the queue-while
+     * planning / immediate-fallback semantics. The NPC gets the identical turn
+     * effect, but under the tool name it understands (toApproach) in its
+     * transcript.
+     *
+     * @param {string} npcEntityId
+     * @param {Object} params - { targetX, targetY } from _prevalidateApproach.
+     * @returns {{ actionName: string, queued: boolean, queueId: string|undefined, success: boolean, detail: string|undefined }}
+     * @private
+     */
+    _dispatchApproach(npcEntityId, params) {
+        const dispatch = this._dispatchAction(npcEntityId, 'move', {
+            targetX: params.targetX,
+            targetY: params.targetY
+        });
+        return {
+            actionName: 'toApproach',
+            queued: dispatch.queued,
+            queueId: dispatch.queueId,
+            success: dispatch.success,
+            detail: dispatch.queued
+                ? `move queued toward target (targetX=${params.targetX}, targetY=${params.targetY})`
+                : (dispatch.success ? 'executed immediately' : (dispatch.detail || 'execution failed'))
+        };
     }
 
     /**
@@ -1115,7 +1274,7 @@ class LLMAgentController {
             // the raw assistant tool_call only has function.arguments (a JSON
             // string) — matching by id keeps the feedback faithful.
             const parsedEntry = call?.id
-                ? [...(parsed.actions || []), ...(parsed.speaks || []), ...(parsed.instincts || [])].find(p => p.id === call.id)
+                ? [...(parsed.actions || []), ...(parsed.speaks || []), ...(parsed.instincts || []), ...(parsed.approaches || [])].find(p => p.id === call.id)
                 : null;
             const actionName = parsedEntry ? String(parsedEntry.args?.actionName ?? '') : '';
             const instinctName = parsedEntry?.args?.instinct || null;
@@ -1128,6 +1287,11 @@ class LLMAgentController {
                 const matched = actionName
                     ? result.actions.find(a => a.actionName === actionName)
                     : null;
+                payload = matched
+                    ? { success: matched.success, ...(matched.detail ? { error: matched.detail } : {}) }
+                    : { success: false, error: 'not dispatched' };
+            } else if (name === 'toApproach') {
+                const matched = result.approaches ? result.approaches.find(a => a.id === call.id || a.actionName === 'toApproach') : null;
                 payload = matched
                     ? { success: matched.success, ...(matched.detail ? { error: matched.detail } : {}) }
                     : { success: false, error: 'not dispatched' };
@@ -1154,6 +1318,7 @@ class LLMAgentController {
 
         const failures = [
             ...result.actions.filter(a => !a.success).map(a => `${a.actionName}: ${a.detail}`),
+            ...result.approaches.filter(a => !a.success).map(a => `${a.actionName}: ${a.detail}`),
             ...(result.chat.sent === false && result.chat.reason && result.chat.reason !== 'prose-only' ? [`chat: ${result.chat.reason}`] : [])
         ];
         const summary = failures.length > 0 ? failures.join('; ') : 'previous call failed';

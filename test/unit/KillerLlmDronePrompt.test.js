@@ -103,6 +103,7 @@ const NO_OBJECTIVE_PROMPT = [
     '- Execute at most 2 world action(s) and send at most 1 chat message(s) per round.',
     '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.',
     '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
+    '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
     '- Keep chat messages under 25 words, in character, no fourth-wall breaks.',
     '',
     'Respond with ONE JSON object only, no markdown, no prose:',
