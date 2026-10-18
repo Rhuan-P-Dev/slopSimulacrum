@@ -40,8 +40,10 @@ const TRANSCRIPT_ROUNDS = 2;
 const DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND = 2;
 /** Default per-round chat cap (spec §6.5); npcs.json may override. */
 const DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND = 1;
-/** Per-call LLM timeout budget (spec §6.5: 4500 ms = 270 ticks at 30 tps — no turn deadline exists in spec v2; the budget bounds the LLM call itself, so every agent promise settles). */
-const LLM_ROUND_TIMEOUT_MS = 4500;
+/** Per-call LLM timeout budget (spec §6.5 default 4500 ms − no turn deadline exists in spec v2; the budget
+ * bounds the LLM call itself, so every agent promise settles). Set 10× (45000 ms)
+ * because local models are slow enough that 4.5 s is below the p95 response time. */
+const LLM_ROUND_TIMEOUT_MS = 45000;
 /** Per-call token cap: tool-call rounds are short (spec §6.5). */
 const LLM_ROUND_MAX_TOKENS = 512;
 /**

@@ -205,7 +205,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
             world,
             turns,
             chatFullImpl: async () => {
-                const err = new Error('LLM request timed out after 4500ms');
+                const err = new Error('LLM request timed out after 45000ms');
                 err.code = 'LLM_TIMEOUT';
                 throw err;
             }
