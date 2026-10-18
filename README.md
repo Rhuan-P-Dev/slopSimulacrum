@@ -21,7 +21,8 @@ npm run dev            # http://localhost:3001
 
 The server boots with zero configuration: the world builds itself from
 `data/*.json`, NPCs spawn from `data/entities/npcs.json`, and the client connects
-over Socket.IO.
+over Socket.IO. A `.env` file, when present, is auto-loaded at boot (shell-
+exported values win over file entries), so no launcher setup is required.
 
 Run the test suite (vitest, unit + contract; the run prints the file and test counts):
 
@@ -44,6 +45,7 @@ All variables are optional (see `.env.example` for the full annotated list).
 | `LLM_TIMEOUT_MS` | `30000` | Per-LLM-call timeout |
 | `KILLER_LLM_DRONE_ENABLED` | *(off)* | Spawns the `killerLlmDrone` NPC when `"true"`; read once at boot |
 | `REQUIRE_AUTH` / `API_TOKEN` | *(off)* | Bearer-token gate for every API request (production) |
+| `LOG_LEVEL` | `DEBUG` | Minimum server log level (DEBUG < INFO < WARN < ERROR < CRITICAL); messages at the level or more severe are emitted — unrecognized/empty values fall back to DEBUG (all emitted) |
 
 ### Request budget (rate limiting)
 

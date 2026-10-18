@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
 import LLMAgentController from './controllers/networking/LLMAgentController.js';
@@ -9,6 +10,12 @@ import { registerRoutes } from './routes/index.js';
 import Logger from './utils/Logger.js';
 import { UniversalTickSystem } from './utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND, FORCED_SHUTDOWN_TIMEOUT_MS } from './utils/Constants.js';
+
+// 0. Load .env into process.env, before any other boot step reads env (all
+//    reads are function-time, so this step-0 ordering is sufficient). Existing
+//    process.env entries (shell-exported values) win via dotenv's no-override
+//    default — the file only provides defaults.
+dotenv.config();
 
 // 1. Bootstrap server (Express + HTTP + Socket.IO)
 const { app, server, io } = bootstrapServer();

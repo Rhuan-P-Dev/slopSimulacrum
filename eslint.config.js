@@ -25,7 +25,8 @@ export default [
       globals: {
         // Node.js
         process: "readonly", require: "readonly", module: "readonly",
-        __dirname: "readonly", console: "readonly", Buffer: "readonly",
+        global: "readonly", __dirname: "readonly", console: "readonly",
+        Buffer: "readonly",
         URL: "readonly", URLSearchParams: "readonly", setTimeout: "readonly",
         clearTimeout: "readonly", setInterval: "readonly",
         clearInterval: "readonly", setImmediate: "readonly",
