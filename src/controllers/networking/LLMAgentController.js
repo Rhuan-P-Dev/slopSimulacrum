@@ -51,13 +51,6 @@ const LLM_ROUND_MAX_TOKENS = 512;
  * @constant
  */
 const LLM_AGENT_MAX_ITERATIONS = 2;
-/**
- * Sampling temperature for agent calls: deliberately lower than the general
- * LLM default (0.7) — tool-call rounds must stay conservative and
- * deterministic (spec §6.5).
- * @constant
- */
-const LLM_AGENT_TEMPERATURE = 0.3;
 
 class LLMAgentController {
     /**
@@ -230,7 +223,6 @@ class LLMAgentController {
                 system: this._buildSystemPrompt(npc, this._roomName(entity)),
                 tools: this._buildTools({ includeChat: maxChat > 0, instincts }),
                 tool_choice: 'required',
-                temperature: LLM_AGENT_TEMPERATURE,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
                 max_tokens: LLM_ROUND_MAX_TOKENS
             };

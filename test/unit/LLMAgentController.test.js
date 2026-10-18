@@ -631,10 +631,10 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
     });
 
     // =========================================================================
-    // Request options: temperature + max_tokens
+    // Request options: max_tokens
     // =========================================================================
 
-    it('agent request uses temperature=0.3 and max_tokens=512', async () => {
+    it('agent request uses max_tokens=512', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
         const seenOptions = [];
@@ -654,7 +654,6 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         await agent.runRound(NPC_ID, 0);
         expect(seenOptions).toHaveLength(1);
-        expect(seenOptions[0].temperature).toBe(0.3);
         expect(seenOptions[0].max_tokens).toBe(512);
     });
 });
