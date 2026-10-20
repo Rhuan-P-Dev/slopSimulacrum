@@ -33,6 +33,15 @@ class ConsequenceDispatcher {
         this.worldStateController = null;
         this.actionController = actionController;
         this.synergyController = synergyController;
+        /**
+         * @type {import('../../utils/ActionAttributionStore.js').ActionAttributionStore|null}
+         * The generic per-entity action-attribution store. Injected post-
+         * construction (same pattern as setWorldStateController). When set, every
+         * successful action flowing through this dispatcher records its attribution
+         * (which components powered it + how many) so perception and any consumer
+         * can query it. When null (bare/test builds) execution is unchanged.
+         */
+        this.actionAttributionStore = null;
         // Lazy cache for recipe files (data/components/components.json,
         // data/components/inventoryItems.json) used to name components/weapons in
         // log messages (BUG-140 follow-up).
@@ -48,6 +57,21 @@ class ConsequenceDispatcher {
     }
 
     /**
+     * Injects the generic per-entity action-attribution store (the single source
+     * of truth for "which components powered action X" + "how many"). Wired by
+     * WorldComposition after the facade is built (same pattern as
+     * setWorldStateController).
+     *
+     * When set, every successful action records its attribution at the single
+     * choke point (`execute` / `executeMultiAttacker`); when null, execution is
+     * unchanged.
+     * @param {ActionAttributionStore|null} store
+     */
+    setActionAttributionStore(store) {
+        this.actionAttributionStore = store ?? null;
+    }
+
+    /**
      * Executes success consequences for an action.
      *
      * @param {string} actionName - The action name.
@@ -58,11 +82,45 @@ class ConsequenceDispatcher {
      * @param {Object} [synergyResult] - Optional synergy computation result.
      * @returns {Object} Result of consequence execution.
      */
-    execute(actionName, entityId, requirementValues, params, fulfillingComponents = null, synergyResult = null, primaryComponentId = null) {
+    execute(actionName, entityId, requirementValues, params, fulfillingComponents = null, synergyResult = null, primaryComponentId = null, attribution = null) {
         const action = this.actionController.actionRegistry[actionName];
         if (!action || !action.consequences) {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
         }
+
+        // ── Record the generic action attribution in the single choke point that
+        //     every successful (consequence-carrying) action passes through. ──
+        // This is what makes the "which & how many components powered action X" answer
+        // reusable for ANY action: the dispatcher is action-agnostic and always
+        // writes the same record shape.
+        //
+        // `ids` = the components that ACTUALLY powered the action. Resolution:
+        //   1. `attribution.explicitIds` — the components the caller explicitly
+        //      designated for this action (SOURCE-role componentIds / componentId /
+        //      attackerComponentId). If the caller named N, N were used — verbatim.
+        //   2. the resolver's *selected* fulfillers (one "best" per requirement —
+        //      the one whose stats the consequences consume) when the caller named
+        //      nothing (entity-wide resolution).
+        // `allFulfillingIds` (every component that merely *satisfied* a
+        // requirement) is NEVER a "used" source — it only survives as metadata in
+        // `fulfillment`, so the surface can never over-claim. (Length-checked,
+        // not `||`-chained: an empty selection array is truthy and would swallow
+        // the fallbacks.)
+        const explicitIds = (Array.isArray(attribution?.explicitIds) ? attribution.explicitIds : [])
+            .filter((id) => typeof id === 'string' && id.length > 0);
+        const selectedIds = this._componentIdsFromFulfilling(fulfillingComponents);
+        this._recordAttribution(entityId, actionName, {
+            primary: primaryComponentId ?? this._firstFulfillingComponentId(fulfillingComponents) ?? null,
+            ids:
+                explicitIds.length > 0
+                    ? explicitIds
+                    : selectedIds.length > 0
+                        ? selectedIds
+                        : (primaryComponentId ? [primaryComponentId] : []),
+            fulfillment: attribution?.fulfillment ?? null,
+            requirementValues,
+            tick: this.worldStateController?.tickSystem?.currentTick ?? null,
+        });
 
         // Phase 4 dedup: the per-consequence loop was extracted into
         // _dispatchConsequences() (shared with executeMultiAttacker). Options keep
@@ -109,6 +167,15 @@ class ConsequenceDispatcher {
         if (!action || !action.consequences) {
             return { success: false, error: `Action "${actionName}" has no consequences defined.` };
         }
+
+        // Record the explicit attacker components — by construction they are the
+        // components that power this multi-attacker action. One record for the
+        // whole action (the full attacker set), not per attacker.
+        this._recordAttribution(entityId, actionName, {
+            primary: attackerComponentIds?.[0] ?? null,
+            ids: attackerComponentIds ?? [],
+            tick: this.worldStateController?.tickSystem?.currentTick ?? null,
+        });
 
         const allResults = [];
 
@@ -208,6 +275,67 @@ class ConsequenceDispatcher {
             executedPerAttacker: attackerComponentIds.length,
             results: allResults
         };
+    }
+
+    /**
+     * Writes the action attribution to the generic store. No-op when no store
+     * is wired (bare/test builds), so this method is safe to call on every
+     * successful action regardless of how the world was constructed.
+     *
+     * Also marks the acting entity's current room dirty in perception: the
+     * action itself is an observation-worthy change ("what did X do?"), even
+     * when its consequences produced no state change worth marking on their
+     * own. Same seam the spatial handler uses for repositions; no-op when the
+     * facade is absent or the entity has no room.
+     *
+     * @private
+     * @param {string} entityId
+     * @param {string} actionName
+     * @param {Object} payload - AttributionPayload (primary, ids, fulfillment,
+     *   requirementValues, tick).
+     */
+    _recordAttribution(entityId, actionName, payload) {
+        if (!this.actionAttributionStore) return;
+        this.actionAttributionStore.record(entityId, actionName, payload);
+        const location = this.worldStateController?.stateEntityController?.getEntity?.(entityId)?.location;
+        this.worldStateController?._markPerceptionDirty?.(location);
+    }
+
+    /**
+     * The first component id in a `fulfillingComponents` map (`Trait.stat` → id),
+     * or null when empty/invalid. Used as a fallback primary when the caller
+     * did not supply an explicit gate component.
+     * @private
+     * @param {Object<string,string>|null} [fulfillingComponents]
+     * @returns {string|null}
+     */
+    _firstFulfillingComponentId(fulfillingComponents) {
+        if (!fulfillingComponents || typeof fulfillingComponents !== 'object') return null;
+        const first = Object.values(fulfillingComponents)[0];
+        return first == null ? null : String(first);
+    }
+
+    /**
+     * Every distinct component id in a `fulfillingComponents` map — the
+     * engine-SELECTED "used" set (one best per requirement) when the caller
+     * named nothing. Order follows first appearance; null/undefined ids are
+     * dropped.
+     * @private
+     * @param {Object<string,string>|null} [fulfillingComponents]
+     * @returns {string[]}
+     */
+    _componentIdsFromFulfilling(fulfillingComponents) {
+        if (!fulfillingComponents || typeof fulfillingComponents !== 'object') return [];
+        const seen = new Set();
+        const out = [];
+        for (const id of Object.values(fulfillingComponents)) {
+            if (id == null) continue;
+            const s = String(id);
+            if (seen.has(s)) continue;
+            seen.add(s);
+            out.push(s);
+        }
+        return out;
     }
 
     /**

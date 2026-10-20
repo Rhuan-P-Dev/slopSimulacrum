@@ -39,7 +39,6 @@ import { GroupPickOverlayController } from './GroupPickOverlayController.js';
 import { clusterAround, resolveGroupPickConfig } from '../utils/GroupPick.js';
 import { RoomConnectionRenderer } from './RoomConnectionRenderer.js';
 import { RoomChatController } from './RoomChatController.js';
-import { EventLogPanel } from './EventLogPanel.js';
 import { InTextPanel } from './InTextPanel.js';
 import { HintManager } from './HintManager.js';
 import MaterialRegistry from './MaterialRegistry.js';
@@ -169,15 +168,7 @@ export class ClientApp {
             handleError: (err) => this.errorController.handleError(err)
         });
 
-        // 10b. Feature (Events tab): world event log overlay panel. The
-        // getEntityId getter lets the panel enrich its /world-events request
-        // with the active entity's current-room context.
-        this.events = new EventLogPanel({
-            handleError: (err) => this.errorController.handleError(err),
-            getEntityId: () => this.worldState?.getMyEntityId?.() || this.worldState?.getActiveDroid?.()?.id || null
-        });
-
-        // 10c. In-Text panel — always-visible text mirror of the world view
+        // 10b. In-Text panel — always-visible text mirror of the world view
         //      (split column beside the spatial map). A permanent part of the
         //      main layout, not an overlay: it never joins the overlay keyboard
         //      protocol and refreshes from the same broadcast as the map, so it
@@ -651,8 +642,6 @@ export class ClientApp {
             // Feature D: room chat panel (button in the config bar, no number
             // shortcut — only 1-4 are wired in OverlayManager).
             this.overlayManager.register('room-chat', this.roomChat, 'btn-room-chat', null);
-            // Events tab (no keyboard shortcut).
-            this.overlayManager.register('events', this.events, 'btn-events', null);
             // Knowledge tab (no numeric shortcut — same treatment as
             // crafting/room-chat/events; fetches its own session-cached payload).
             this.overlayManager.register('knowledge', this.knowledge, 'btn-knowledge', null);

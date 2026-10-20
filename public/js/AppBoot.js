@@ -9,9 +9,9 @@
  * reads those stored references.
  *
  * The order and the try/catch guards are part of the contract: turns ->
- * room chat -> events, each wrapped so a missing slot / DOM issue can
- * never break app startup (a failure here would take down the whole
- * client, not just one optional panel). The blocks are moved verbatim.
+ * room chat, each wrapped so a missing slot / DOM issue can never break
+ * app startup (a failure here would take down the whole client, not just
+ * one optional panel). The blocks are moved verbatim.
  */
 
 import ClientLogger from '../utils/ClientLogger.js';
@@ -36,11 +36,5 @@ export function initGuardedPanels(app) {
         app.roomChat.init();
     } catch (err) {
         ClientLogger.error('App', 'Room chat init failed (UI unaffected):', err);
-    }
-    // 13d. Events tab init — same guard pattern.
-    try {
-        app.events.init();
-    } catch (err) {
-        ClientLogger.error('App', 'Events panel init failed (UI unaffected):', err);
     }
 }

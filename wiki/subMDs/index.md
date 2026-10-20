@@ -26,6 +26,7 @@ System-level architecture documents describing the overall design, data flow, an
 | [Action System](architecture/action_system.md) | Action registry-based pipeline architecture |
 | [Attack System](architecture/attack_system.md) | Generic component-targeted attack handler — unified execution for punch, cut, and future attack types |
 | [Killer LLM Drone](architecture/killer_llm_drone.md) | Env-gated, goal-bearing LLM-routed NPC — why the drone is pure data on the shared agent loop, why its gate is relaxed and bootstrap-only, why the objective is a prompt field, why silent rounds are the only degradation |
+| [Perception System](systems/perception_system.md) | Per-room “what changed since the last observation” delta feed — dirty-mark → diff → entry, per-agent cursors, and performed-action rows that claim only the components the attribution store recorded as used |
 
 ---
 

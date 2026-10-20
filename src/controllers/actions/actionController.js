@@ -473,7 +473,30 @@ class ActionController {
                 );
             } else {
                 consequenceResult = this.consequenceDispatcher.execute(
-                    actionName, entityId, requirementValues, params, fulfillingComponents, synergyResult, requirementCheckResult.componentId
+                    actionName, entityId, requirementValues, params, fulfillingComponents, synergyResult,
+                    requirementCheckResult.componentId,
+                    {
+                        // The resolver's generic, action-agnostic attribution. The
+                        // dispatcher records `ids` in this order:
+                        //   1. `explicitIds` — the components the caller explicitly
+                        //      designated for this action (SOURCE-role entries of the
+                        //      normalized componentList — plain strings default to
+                        //      SOURCE there, unlike the raw params re-derivation).
+                        //      If the caller named N, N were used — perception shows
+                        //      exactly N, never more, never fewer.
+                        //   2. the resolver's selected fulfillers when nothing was
+                        //      named (entity-wide resolution).
+                        // `fulfillment` keeps the per-requirement eligibility
+                        // breakdown (best + every eligible) as metadata; it is never
+                        // claimed as "used".
+                        explicitIds: componentList
+                            ? componentList
+                                .filter((c) => c.role === BINDING_ROLES.SOURCE)
+                                .map((c) => c.componentId)
+                            : null,
+                        allFulfillingIds: requirementCheckResult.allFulfillingIds ?? null,
+                        fulfillment: requirementCheckResult.fulfillment ?? null
+                    }
                 );
             }
 

@@ -23,17 +23,24 @@
 // RENDERED SECTIONS (top → bottom):
 //   1. Header row: server tick (`state.turns.currentTick`).
 //   2. Room: name · position · size · description.
-//   3. Doors: one line per exit — "door (x, y) → Target Room", where (x, y)
+//   3. What Changed (perception, async): the room's recent delta entries —
+//      "what changed since I last looked" (Feature G). Fetched from
+//      GET /perception/:roomId into a dedicated sub-container; entity movers
+//      are named in bullets, the other change types are a one-line summary.
+//      First read is a `baseline` (initial contents) before deltas begin.
+//   4. Doors: one line per exit — "door (x, y) → Target Room", where (x, y)
 //      is the door's room-relative exit point (same math as the map renderer
 //      and the server door-traversal spawn: client-server parity).
-//   4. Droids: the room's non-static entities — position, display name, NPC
+//   5. Droids: the room's non-static entities — position, display name, NPC
 //      flag, "you" flag, components with existence.
-//   5. Objects: static props (`isStatic` entities, e.g. the wooden tree).
-//   6. Items: `state.droppedItems` filtered to the room.
-//   7. Turn: round, phase, barrier status (ready count or close reason + tick),
+//   6. Objects: static props (`isStatic` entities, e.g. the wooden tree).
+//   7. Items: `state.droppedItems` filtered to the room.
+//   8. Turn: round, phase, barrier status (ready count or close reason + tick),
 //      initiative order — the same fields the Turn HUD reads.
-//   8. Recent events: tail of GET /world-events (AppConfig.EVENTS.HISTORY_LIMIT)
-//      with the same 60s staleness guard EventLogPanel uses.
+//   9. Recent events: the unified world-event log (GET /world-events, tail up
+//      to AppConfig.EVENTS.HISTORY_LIMIT, newest-first) with the room context
+//      (room, size, your position, same-room others, items, exits) and warn
+//      coloring — merged from the old Events tab.
 //
 // WHY A SINGLE innerHTML RENDER PASS (not per-section DOM surgery):
 //   The map re-renders the whole canvas per frame; rebuilding one small text
@@ -53,12 +60,12 @@ import { TURN_PHASES } from '../../shared/TurnPhases.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { getRoomEdgePoint } from '/utils/geometry.js';
 
+
 /**
- * Milliseconds older than which an event (that carries a tick) is considered
- * stale — mirrors the EventLogPanel staleness guard, so both panels can never
- * disagree about "what happened".
+ * How many recent perception (delta) entries the "What Changed" column renders.
+ * A short tail — the reader cares about the freshest changes, not history.
  */
-const STALE_EVENT_MS = 60_000;
+const PERCEPTION_LIMIT = 10;
 
 export class InTextPanel {
     /**
@@ -74,6 +81,7 @@ export class InTextPanel {
         this.errorHandler = options.handleError ?? (() => {});
         this.getEntityId = options.getEntityId ?? (() => null);
         this.eventsSelector = options.eventsSelector ?? '#in-text-events';
+        this.perceptionSelector = options.perceptionSelector ?? '#in-text-perception';
         this.container = null;
         this.content = null;
         this.tickEl = null;
@@ -118,6 +126,18 @@ export class InTextPanel {
         this._loadEvents(state).catch((err) => {
             this.errorHandler?.(err);
         });
+
+        // Perception — the room-scoped "what changed since I looked" stream
+        // (GET /perception/:roomId). A pure read: it does not advance any
+        // cursor and never mutates state, so it is safe to run on every state
+        // refresh, matching _loadEvents(). Only when the player is incarnate
+        // in a room (droid.location set).
+        const currentRoomId = droid?.location ?? null;
+        if (currentRoomId) {
+            this._loadPerception(state, currentRoomId).catch((err) => {
+                this.errorHandler?.(err);
+            });
+        }
     }
 
     // =========================================================================
@@ -228,8 +248,10 @@ export class InTextPanel {
     }
 
     /**
-     * "YYYY-MM-DD HH:MM:SS · message @ tick N" — one event line (same shape as
-     * EventLogPanel).
+     * "YYYY-MM-DD HH:MM:SS · message @ tick N" — the main line of an event in
+     * the unified view. An optional room-context sub-line (merged from the old
+     * Events tab) is appended separately by _eventRow() when the server sent
+     * enrichment.
      * @param {Object} event
      * @returns {string}
      */
@@ -280,6 +302,272 @@ export class InTextPanel {
         return ` ${this.formatPosition(x, y)}`;
     }
 
+    /**
+     * HTML block for a single perception delta entry: a `round · kind · summary`
+     * headline and a compact breakdown. Movers that the summary compresses to a
+     * count — entities (appeared / despawned / moved) and item changes (held,
+     * dropped, equipped: added / removed / moved) — are also named in bullets,
+     * so the "who/what changed" is scannable, not buried in the sentence. Each
+     * item row carries a display *name* resolved server-side (type key → item
+     * registry); we fall back to the type key for client-side deltas lacking it.
+     * Baselines list the room's initial entities only: their dropped/equipped/
+     * held items are already named in the "initial observation" summary and can
+     * be huge (a room full of dropped knives), so they are skipped from bullets.
+     * Pure: returns a string, testable without a DOM.
+     *
+     * @param {Object|null} [entry]
+     * @param {number|string|null} [roundNumber] — the round shown to the player
+     *   (same source the Turn section uses: state.turns.roundNumber). Perception
+     *   entries don't carry their own round, so the caller supplies the current
+     *   one. When provided the headline reads "round N" (aligned with the Turn
+     *   badge); when absent it falls back to the entry's own tick so the
+     *   headline never goes blank.
+     * @returns {string}
+     */
+    formatPerceptionEntry(entry = null, roundNumber) {
+        if (!entry || typeof entry !== 'object') {
+            return '<p class="in-text-none">—</p>';
+        }
+        const isBaseline = entry.kind === 'baseline';
+        // Each entry carries its own round (stamped by the perception flush), so
+        // re-rendering the room's history labels every bullet with *its* round
+        // instead of the viewer's current one. Fall back to the passed round
+        // (or the tick) only when the entry has no round of its own.
+        const effectiveRound =
+            (entry.roundNumber != null && Number.isFinite(entry.roundNumber))
+                ? entry.roundNumber
+                : roundNumber;
+        const headlineLabel =
+            (effectiveRound != null && Number.isFinite(effectiveRound))
+                ? `round ${effectiveRound}`
+                : (entry.tick != null ? `tick ${entry.tick}` : '');
+        const kindLabel = isBaseline ? 'Initial observation' : 'Changes';
+        const summaryRaw = typeof entry.summary === 'string' ? entry.summary : '';
+        // Reliable room name (set by the perception controller). Used both for
+        // the bullets (self-contained sentences) and is the room we render.
+        const roomName = entry.roomName ?? null;
+        // Headline keeps only the high-level sentence — the first one, which is
+        // the entity/stat-change counts. Per-item / dropped / equipped detail now
+        // lives in the bullets below, so the headline is a concise "what changed"
+        // count instead of repeating every change.
+        const summarySentences = summaryRaw ? summaryRaw.split('. ') : [];
+        const headSummary = summarySentences.length
+            ? summarySentences[0] + (summarySentences.length > 1 ? '.' : '')
+            : '';
+
+        const headParts = [headlineLabel, kindLabel, headSummary ? this.esc(headSummary) : '']
+            .filter(Boolean);
+
+        const bullets = [];
+        const push = (text) => {
+            if (text) bullets.push(text);
+        };
+        const entities = entry.entities ?? {};
+        // Baselines carry *all* present entities in `appeared` — list them.
+        // Deltas carry only the newcomers — list those too (the "who's new").
+        for (const ent of entities.appeared ?? []) {
+            push(`+ ${this.esc(ent.name ?? ent.id ?? '?')}`);
+        }
+        for (const ent of entities.despawned ?? []) {
+            push(`− ${this.esc(ent.name ?? ent.id ?? '?')}`);
+        }
+        for (const ent of entities.moved ?? []) {
+            // Friendly name when present; otherwise the raw entity id (shown once).
+            // The parenthetical id is added *only* when a distinct friendly name
+            // exists — so an unnamed entity reads "↔ <id>" (id once), not "<id> (id <id>)".
+            const hasName = ent.name != null && String(ent.name) !== '';
+            const name = hasName ? this.esc(ent.name) : (ent.id != null ? this.esc(ent.id) : '?');
+            const id = (hasName &&
+                ent.id != null &&
+                String(ent.id) !== String(ent.name))
+                ? ` (id ${this.esc(ent.id)})` : '';
+            // Primary from→to: the *coordinate* delta (the within-room spatial
+            // move — what actually changed in the current room). Fallback: a
+            // room change. (Real per-room moves are within-room, so coords are
+            // the normal case; the room branch is defensive.)
+            const fp = (p) =>
+                p && Number.isFinite(p.x) && Number.isFinite(p.y)
+                    ? this.formatPosition(p.x, p.y)
+                    : null;
+            const fromX = fp(ent.fromXY);
+            const toX = fp(ent.toXY);
+            const pos = fromX
+                ? (toX ? `${fromX} → ${toX}` : fromX)
+                : (toX ?? '');
+            const roomFrom = ent.fromRoom ? this.esc(ent.fromRoom) : '';
+            const roomTo = ent.toRoom ? this.esc(ent.toRoom) : '';
+            // Room display on the moved bullet:
+            //   • within-room move (fromRoom === toRoom) → OMIT the room (the
+            //     bullet carries the room header; the coordinate delta carries the
+            //     meaning). Avoids printing a raw/unnamed room id twice.
+            //   • cross-room move (fromRoom !== toRoom) → show "from → to".
+            //   • only one side present → show that side (defensive).
+            let roomPart = '';
+            if (roomFrom != null && roomTo != null && roomFrom !== roomTo) {
+                roomPart = ` ${roomFrom} → ${roomTo}`;
+            } else if (roomFrom == null && roomTo != null) {
+                roomPart = ` ${roomTo}`;
+            } else if (roomFrom != null && roomTo == null) {
+                roomPart = ` ${roomFrom}`;
+            }
+            let line = `↔ ${name}${id}` + (pos ? ` ${pos}` : '') + roomPart;
+            // Component list (type (id), …) and its count. Build once, above the
+            // labeling, so the same list feeds the "used to execute" (authoritative)
+            // and "locomotion" (best-effort) labels. Check the array case FIRST:
+            // `typeof [] === 'object'` is true, so a plain-object check would
+            // swallow the array and drop the legs.
+            const loco = ent.locomotion;
+            let fmt = '';
+            let count = 0;
+            if (loco != null) {
+                count = Array.isArray(loco) ? loco.length : 1;
+                fmt = Array.isArray(loco)
+                    ? loco
+                        .map((c) => (typeof c === 'object' ? `${c.type ?? '?'} (${c.id ?? '?'})` : c))
+                        .join(', ')
+                    : typeof loco === 'object'
+                        ? `${loco.type ?? '?'} (${loco.id ?? '?'})`
+                        : typeof loco === 'string'
+                            ? loco
+                            : String(loco);
+            }
+            if (ent.action) {
+                line += ` · action: ${this.esc(ent.action)}`;
+                if (fmt) {
+                    // How many + which components actually powered the action. The
+                    // authoritative count/list comes from the generic attribution
+                    // store (attributionSource === 'store'): every part listed really
+                    // granted this action — this is the exact "which & how many
+                    // executed action X" answer (multi-limb droid → every limb).
+                    // When the store did NOT credit the action (no store, or a
+                    // non-attributable move) the diff flagged it 'heuristic' (best-
+                    // effort Movement.move granters); we then label it "locomotion"
+                    // and NEVER claim "used to execute the action".
+                    if (ent.attributionSource === 'store') {
+                        line += ` · used to execute the action '${this.esc(ent.action)}' (${count}): ${this.esc(fmt)}`;
+                    } else {
+                        line += ` · locomotion: ${this.esc(fmt)}`;
+                    }
+                }
+            } else if (fmt) {
+                // Direct / non-action reposition: no action to credit, just the
+                // movement parts (heuristic, from the diff).
+                line += ` · locomotion: ${this.esc(fmt)}`;
+            }
+            push(line);
+        }
+
+        // Item / dropped / equipped changes (delta only). Each bullet names the
+        // item (display name resolved server-side; type-key fallback if absent),
+        // tags the surface it lives in (`item` = held, `dropped` = on the floor,
+        // `equipped`), and shows the item's id — plus its current position via
+        // formatPosition whenever it sits on the floor (added / removed / moved
+        // dropped items). Held/equipped items live in a component slot, so they
+        // have no floor position. Baselines are skipped here: they already
+        // enumerate every dropped/held item in the "initial observation" summary
+        // and can be huge (a room full of knives).
+        if (!isBaseline) {
+            // Performed actions: each *distinct* action the room's entities
+            // performed since the last observation, with the components the
+            // attribution store recorded as actually used ("only the ones
+            // used" — the server claims none when it has no record). A `move`
+            // row already appears above as a moved bullet (with from → to and
+            // the same used components), so it is skipped here to avoid a
+            // duplicate line for the same action.
+            const movedEntityIds = new Set((entities.moved ?? []).map((m) => m?.id));
+            for (const a of entry.actions?.performed ?? []) {
+                if (a?.action === 'move' && movedEntityIds.has(a.entity)) continue;
+                const used = (a.used ?? []).filter((u) => u && u.id);
+                let line = `⚔ ${this.esc(a.name ?? a.entity ?? '?')} · action: ${this.esc(a.action ?? '?')}`;
+                if (used.length) {
+                    line += ` · used (${used.length}): ` +
+                        this.esc(used.map((u) => `${u.type ?? 'component'} (${u.id})`).join(', '));
+                }
+                if (roomName) line += ` in ${this.esc(roomName)}`;
+                push(line);
+            }
+
+            // `verb` is the category attribution phrase, rendered after the item
+            // id. `verbSep` is the separator before the verb (default "· "); the
+            // item-removal line uses a single space so it reads as one flowing
+            // phrase ("removed from X") rather than "· … · from X". Per category:
+            // item → "gained by" / "removed from"; dropped → "dropped by" / "from"
+            // / "owned by"; equipped → "equipped by" / "unequipped by".
+            const itemBullets = (rows, marker, tag, verb, verbSep = ' · ') => {
+                for (const it of rows ?? []) {
+                    const name = it.name ?? it.type ?? it.itemType ?? '?';
+                    const id = it.itemId ?? it.id ?? null;
+                    // Where the item lives now. Added/removed dropped rows carry
+                    // x/y; a moved dropped row carries fromXY/toXY — show the
+                    // *new* position (toXY). Held/equipped items: no floor pos.
+                    let pos = null;
+                    if (it.x != null && it.y != null) {
+                        pos = this.formatPosition(it.x, it.y);
+                    } else if (it.toXY && it.toXY.x != null) {
+                        pos = this.formatPosition(it.toXY.x, it.toXY.y);
+                    }
+                    let line = `${marker} ${this.esc(name)} (${tag})`;
+                    if (id != null) line += ` · id ${this.esc(id)}`;
+                    if (pos) line += ` ${pos}`;
+                    // Credit the agent involved with this row (resolved server-side
+                    // in the perception controller as { name, id, x, y }: the
+                    // entity that dropped/removed/equipped the item). Render name +
+                    // id + current floor position. Omitted when the actor is unknown
+                    // so we never render "by undefined".
+                    const actor = it.actor;
+                    if (verb && actor && (actor.name || actor.id)) {
+                        // Show the agent's human name. When the entity has no
+                        // friendly name the name falls back to the id, so the
+                        // `(id …)` parenthetical is only worth keeping when it
+                        // differs from the displayed name — otherwise we'd print
+                        // the same id twice ("from ent-… (id ent-…)").
+                        const displayName =
+                            (actor.name != null && actor.name !== '')
+                                ? actor.name
+                                : (actor.id != null ? actor.id : '?');
+                        line += `${verbSep}${verb} ${this.esc(displayName)}`;
+                        if (actor.id != null && String(actor.id) !== String(displayName)) {
+                            line += ` (id ${this.esc(actor.id)})`;
+                        }
+                        if (Number.isFinite(actor.x) && Number.isFinite(actor.y)) {
+                            line += ` @ ${this.formatPosition(actor.x, actor.y)}`;
+                        }
+                    }
+                    if (roomName) line += ` in ${this.esc(roomName)}`;
+                    push(line);
+                }
+            };
+            itemBullets(entry.items?.added, '+', 'item', 'gained by');
+            itemBullets(entry.items?.removed, '−', 'item', 'removed from', ' ');
+            itemBullets(entry.dropped?.added, '+', 'dropped', 'dropped by');
+            itemBullets(entry.dropped?.removed, '−', 'dropped', 'from');
+            itemBullets(entry.dropped?.moved, '↔', 'dropped', 'owned by');
+            itemBullets(entry.equipped?.added, '+', 'equipped', 'equipped by');
+            itemBullets(entry.equipped?.removed, '−', 'equipped', 'unequipped by');
+        }
+
+        // Stat changes: the *last-resort* bullet, shown only when no named
+        // mover above was listed (so a pure stat-change entry still renders
+        // something beneath its headline).
+        const statCount = (entities.statChanges ?? []).length;
+        if (!bullets.length && statCount > 0) {
+            const first = (entities.statChanges ?? [])[0];
+            push(`~ ${statCount} stat change${statCount === 1 ? '' : 's'} ${this.esc(first?.statName ?? '?')} ${this.esc(first?.from ?? '')} → ${this.esc(first?.to ?? '')}`);
+        }
+
+        const head = headParts.length ? `<p class="in-text-perc-headline">${headParts.join(' · ')}</p>` : '';
+        const list = bullets.length
+            ? `<ul class="in-text-perc-bullets">${bullets.map(b => `<li class="in-text-perc-bullet">${b}</li>`).join('')}</ul>`
+            : '';
+
+        return [
+            '<div class="in-text-perc-entry">',
+            head,
+            list,
+            '</div>'
+        ].filter(Boolean).join('');
+    }
+
     // =========================================================================
     // RENDERING (assembles the pure-formatted strings into the column)
     // =========================================================================
@@ -319,7 +607,14 @@ export class InTextPanel {
             ])
         );
 
-        // 2. Doors
+        // 2. What Changed (perception) — async, filled by _loadPerception() after
+        //   this render pass. The sub-container is re-created by every render, so
+        //   the fetch queries the *current* node (never a stale captured ref).
+        html.push(
+            '<section class="in-text-section">\n    <h3 class="in-text-sec-title">What Changed</h3>\n    <div id="in-text-perception" class="in-text-perception">\n        <p class="in-text-none">Waiting for perception data…</p>\n    </div>\n  </section>'
+        );
+
+        // 3. Doors
         const doorLines = room && typeof (room.connections ?? null) === 'object'
             ? Object.entries(room.connections).map(([doorName, conn]) =>
                 this.formatDoor(doorName, conn, room, roomsMap))
@@ -444,37 +739,166 @@ export class InTextPanel {
     }
 
     /**
-     * Loads recent events and paints them into the events sub-container.
-     * Uses the same endpoint, limit and 60s staleness guard as EventLogPanel
-     * so both panels can never disagree about "what happened".
+     * Loads recent events and paints them into the events sub-container. The
+     * unified view: sends the active entity so the server enriches every event
+     * with the requesting room's context (same endpoint, same limit, same
+     * `&entityId=…` param the old Events tab used). Renders newest-first, up
+     * to the configured limit. The element is re-created by every render pass,
+     * so this queries it *after* the render (never a stale captured reference).
      *
      * @private
+     * @param {Object|null} [_state] - Accepted for call-site compatibility;
+     *   the events tail no longer reads a per-broadcast field.
      */
-    _loadEvents(state) {
+    _loadEvents(_state) {
         const limit = AppConfig.EVENTS.HISTORY_LIMIT ?? 50;
-        const url = `${AppConfig.ENDPOINTS.WORLD_EVENTS}?limit=${limit}`;
+        let url = `${AppConfig.ENDPOINTS.WORLD_EVENTS}?limit=${limit}`;
+        const entityId = this.getEntityId?.() ?? null;
+        if (entityId) {
+            url += `&entityId=${encodeURIComponent(entityId)}`;
+        }
         return fetch(url, { headers: { Accept: 'application/json' } })
             .then((r) => {
                 if (!r.ok) throw new Error(`GET ${url} → ${r.status}`);
                 return r.json();
             })
-            .then((events) => {
-                const now = typeof state?.serverTime === 'number' ? state.serverTime : Date.now();
-                const visible = (Array.isArray(events) ? events : []).filter((e) => {
-                    if (typeof e.tick !== 'number') return true;
-                    return e.tick >= now - STALE_EVENT_MS;
-                });
+            .then((data) => {
+                const events = Array.isArray(data?.events)
+                    ? data.events
+                    : Array.isArray(data)
+                        ? data
+                        : [];
                 // Query AFTER the render pass: _buildHtml recreates this node.
                 const eventsEl = this.content?.querySelector(this.eventsSelector);
                 if (!eventsEl) return;
-                if (visible.length === 0) {
-                    eventsEl.innerHTML = '<p class="in-text-none">no recent events</p>';
-                } else {
-                    eventsEl.innerHTML = visible
-                        .slice(0, 10)
-                        .map((e) => `<p class="in-text-event">${this.formatEventLine(e)}</p>`)
-                        .join('');
+                // Server returns oldest → newest; the column reads newest first.
+                const rows = [...events].reverse()
+                    .slice(0, limit)
+                    .map((e) => this._eventRow(e))
+                    .join('');
+                eventsEl.innerHTML = rows || '<p class="in-text-none">no recent events</p>';
+            });
+    }
+
+    /**
+     * One event row: the main line (time · message @ tick) plus an optional
+     * context sub-line (room, size, your position, same-room others, items,
+     * exits) and warn coloring. The context is the enrichment the old Events
+     * tab sent with `&entityId=…`.
+     *
+     * @private
+     * @param {Object} [event]
+     * @returns {string}
+     */
+    _eventRow(event = {}) {
+        const isWarn = event.level === 'warn';
+        const cls = [
+            'in-text-event',
+            ...(isWarn ? ['in-text-event-warn'] : []),
+        ].join(' ');
+        const main = this.formatEventLine(event);
+        const context = event?.context && Object.keys(event.context).length > 0
+            ? `<span class="in-text-event-context">${this.esc(this._formatEventContext(event.context))}</span>`
+            : '';
+        return `<p class="${cls}">${main}${context}</p>`;
+    }
+
+    /**
+     * Formats the enriched room context as a compact summary:
+     * "@ RoomName 40x30 you: (1, 2) | others: A (3,5), B (0,0) | items: 2 | exits: door→Room".
+     *
+     * @private
+     * @param {Object} context - Enriched context object from /world-events.
+     * @returns {string}
+     */
+    _formatEventContext(context) {
+        const size = (context.roomWidth != null && context.roomHeight != null)
+            ? ` ${context.roomWidth}x${context.roomHeight}`
+            : '';
+        const you = (context.playerPosition)
+            ? ` you: (${Math.round(context.playerPosition.x)}, ${Math.round(context.playerPosition.y)})`
+            : '';
+        const others = this._formatOthers(context.entities);
+        const items = Array.isArray(context.droppedItems) ? context.droppedItems.length : 0;
+        const exits = Array.isArray(context.exits) && context.exits.length > 0
+            ? ` | exits: ${context.exits.map(e => `${e.door}→${e.targetRoomName}`).join(', ')}`
+            : '';
+        return `@ ${context.roomName || 'unknown'}${size}${you} | ${others} | items: ${items}${exits}`;
+    }
+
+    /**
+     * The `others:` segment: each same-room entity by name + position, capped
+     * at AppConfig.EVENTS.CONTEXT_MAX_ENTITIES, remainder collapsed to `+N`.
+     *
+     * @private
+     * @param {Array<{name?: string, x?: number|null, y?: number|null}>|*} [entities]
+     *   - The same-room entity records from the event context.
+     * @returns {string}
+     */
+    _formatOthers(entities) {
+        if (!Array.isArray(entities) || entities.length === 0) {
+            return 'others: none';
+        }
+        const max = AppConfig.EVENTS.CONTEXT_MAX_ENTITIES;
+        const shown = entities.slice(0, max);
+        const overflow = entities.length - shown.length;
+        const parts = shown.map((e) => {
+            const name = e?.name || 'Droid';
+            const hasCoords = typeof e?.x === 'number' && typeof e?.y === 'number';
+            return hasCoords
+                ? `${name} (${Math.round(e.x)}, ${Math.round(e.y)})`
+                : name;
+        });
+        const tail = overflow > 0 ? ` … +${overflow}` : '';
+        return `others: ${parts.join(', ')}${tail}`;
+    }
+
+    /**
+     * Loads the current room's recent perception (delta) entries and paints them
+     * into the "What Changed" sub-container (Feature G). Uses the room-scoped
+     * GET /perception/:roomId endpoint — a pure read (does not advance any
+     * cursor, never mutates state), so it is safe to run on every world-state
+     * refresh (the same discipline as _loadEvents()). Queries after the render
+     * pass: _buildHtml recreates the sub-container each time, so the node is
+     * always the current one.
+     *
+     * @private
+     * @param {Object|null} [state]
+     * @param {string|null} [roomId]
+     */
+    _loadPerception(state, roomId) {
+        if (roomId == null) return Promise.resolve();
+        const base = AppConfig.ENDPOINTS?.PERCEPTION_ROOM;
+        if (!base) return Promise.resolve();
+        const url = `${base}/${encodeURIComponent(roomId)}?limit=${PERCEPTION_LIMIT}`;
+        return fetch(url, { headers: { Accept: 'application/json' } })
+            .then((r) => {
+                if (!r.ok) throw new Error(`GET ${url} → ${r.status}`);
+                return r.json();
+            })
+            .then((data) => {
+                // Real endpoint: { success, kind, deltas: [...] }. Tolerate a
+                // bare array too (defensive; the node mock can return a raw list).
+                const deltas = Array.isArray(data)
+                    ? data
+                    : (data?.deltas ?? []);
+                const sel = this.perceptionSelector ?? '#in-text-perception';
+                const el = this.content?.querySelector(sel);
+                if (!el) return;
+                if (!deltas.length) {
+                    el.innerHTML = '<p class="in-text-none">no changes yet</p>';
+                    return;
                 }
+                // Round number (same source the Turn section uses: state.turns.
+                // roundNumber). Perception entries don't carry their own round,
+                // so pass the current one in so the headline reads "round N" and
+                // lines up with the Turn badge.
+                const roundNumber = state?.turns?.roundNumber;
+
+                // Newest first (mirrors the event-tail ordering).
+                el.innerHTML = (deltas.slice(-PERCEPTION_LIMIT).reverse()).map((e) =>
+                    this.formatPerceptionEntry(e, roundNumber)
+                ).join('');
             });
     }
 

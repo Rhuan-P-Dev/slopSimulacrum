@@ -3,7 +3,7 @@ import Logger from '../utils/Logger.js';
 import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
 import { DEFAULT_TRIGGER_RADIUS } from '../utils/DiskSampler.js';
-import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY, OBJECT_INTERACT_RANGE } from '../utils/Constants.js';
+import { WORLD_EVENTS_RECENT_LIMIT, ROOM_CHAT_HISTORY_LIMIT, AGENT_FEEDBACK_CAPACITY, OBJECT_INTERACT_RANGE, PERCEPTION_RECENT_LIMIT } from '../utils/Constants.js';
 import { getAttributes } from '../utils/EntityAttributeData.js';
 import { emptyKnowledgePayload } from './knowledge/KnowledgeController.js';
 import { spawnDataDrivenNpcs, checkNpcSpawnGate, normalizeNpcAiConfig, buildNpcConfig, applyInitialItems, resolveEquippableHostComponent } from './logic/NpcSpawnLogic.js';
@@ -109,6 +109,15 @@ class WorldStateController {
         this.holdingCostController = deps.holdingCostController;
         this.worldEventLogController = deps.worldEventLogController;
         this.llmContextController = deps.llmContextController;
+        /** @private {import('./core/PerceptionController.js').default|null} */
+        // Perception controller (wiki/subMDs/systems/perception_system.md): owns
+        // per-room delta ring buffers + per-agent observation cursors. *Reader*
+        // state, never world state → no getAll(); deliberately kept OUT of the
+        // broadcast subControllers map (same rule as craftingController / knowledgeController).
+        // Null-tolerant: a hand-built test facade may omit it — perception then
+        // degrades to "no changes ever seen" (empty delta lists) without breaking
+        // every mutation path.
+        this.perceptionController = deps.perceptionController ?? null;
         this.turnSystemController = deps.turnSystemController ?? null;
         // Hint system: deterministic suggestions for the player and the LLM agent.
         this.hintController = deps.hintController ?? null;
@@ -242,6 +251,11 @@ class WorldStateController {
         // Card droids (data/cards/ → LLM M1 NPCs, random room + point):
         // spawned alongside the registry NPCs so a new PNG auto-appears on boot.
         this._spawnCards();
+
+        // Perception: a freshly initialized world has no meaningful "since last
+        // observation" history — reset the observer's per-room snapshots and
+        // per-agent cursors so the first perception read is an honest baseline.
+        this.perceptionController?.reset();
     }
 
     /**
@@ -570,6 +584,10 @@ class WorldStateController {
         const newValue = Math.max(0, Math.min(max, previousValue + (Number(delta) || 0)));
         if (newValue === previousValue) return false;
         group[statName] = newValue;
+        // Perception: a whole-entity stat change (e.g. energy drain) mutates the
+        // room's state; mark the room so a perception read sees the updated
+        // value.
+        this._markPerceptionDirty(entity.location);
         if (broadcast && this._broadcastService && this._cascadeReentrancyCount === 0) {
             this._broadcastService.broadcast();
         }
@@ -591,6 +609,7 @@ class WorldStateController {
         try {
             this._spillAllEntityItems(entityId);
             this.stateEntityController.despawnEntity(entityId);
+            this._markPerceptionDirty(entity.location);
             Logger.warn(`[WorldStateController] Entity ${entityId} eliminated (energy exhausted).`);
             return true;
         } catch (error) {
@@ -701,7 +720,13 @@ class WorldStateController {
      * @returns {{ success: true } | { success: false, error: { code: string, message: string } }}
      */
     restore(payload) {
-        return restore(this, payload);
+        const result = restore(this, payload);
+        // Perception: a restored world is a new world — the observer's per-room
+        // snapshots (stale entity/room ids) and per-agent cursors are now
+        // meaningless. Reset so the first read after restore is a fresh
+        // baseline.
+        this.perceptionController?.reset();
+        return result;
     }
 
     // =========================================================================
@@ -715,7 +740,13 @@ class WorldStateController {
      * @returns {string} The new entity ID.
      */
     spawnEntity(blueprintName, roomId) {
-        return this.stateEntityController.spawnEntity(blueprintName, roomId);
+        const entityId = this.stateEntityController.spawnEntity(blueprintName, roomId);
+        if (entityId) {
+            // Perception: a new entity in the world is a state change the
+            // observer should be able to ask "what appeared?" about.
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location ?? roomId);
+        }
+        return entityId;
     }
 
     /**
@@ -724,7 +755,17 @@ class WorldStateController {
      * @returns {boolean} True if successful.
      */
     despawnEntity(entityId) {
-        return this.stateEntityController.despawnEntity(entityId);
+        const entity = this.stateEntityController.getEntity(entityId);
+        if (!entity) return false;
+        const location = entity.location;
+        const success = this.stateEntityController.despawnEntity(entityId);
+        if (success) {
+            // Perception: a despawn removes an entity from its room. The location
+            // is captured before the despawn (after that the entity no longer
+            // exists in the world state).
+            this._markPerceptionDirty(location);
+        }
+        return success;
     }
 
     /**
@@ -741,6 +782,8 @@ class WorldStateController {
             return false;
         }
 
+        const fromLocation = entity.location;
+
         let spawnSpatial = null;
         if (options.sourceDoor) {
             const sourceRoomId = entity.location;
@@ -752,7 +795,15 @@ class WorldStateController {
         }
 
         const moveOptions = spawnSpatial ? { spatial: spawnSpatial } : {};
-        return this.stateEntityController.moveEntity(entityId, targetRoomId, moveOptions);
+        const success = this.stateEntityController.moveEntity(entityId, targetRoomId, moveOptions);
+        if (success) {
+            // Perception: a move changes two rooms (from + to); mark both so each
+            // room's perception reader sees "one entity left" / "one entity
+            // appeared".
+            this._markPerceptionDirty(fromLocation);
+            this._markPerceptionDirty(targetRoomId);
+        }
+        return success;
     }
 
     /**
@@ -852,7 +903,13 @@ class WorldStateController {
      * @returns {Object|null} The created instance, or null if failed.
      */
     addInternalComponent(entityId, hostComponentId, internalComponentType) {
-        return this.internalComponentController.addInternalComponent(entityId, hostComponentId, internalComponentType);
+        const result = this.internalComponentController.addInternalComponent(entityId, hostComponentId, internalComponentType);
+        if (result) {
+            // Perception: installing an internal component mutates the entity
+            // (stats + held organs) — mark its room.
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -884,7 +941,11 @@ class WorldStateController {
      * @returns {boolean} True if removed successfully.
      */
     removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId) {
-        return this.internalComponentController.removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId);
+        const success = this.internalComponentController.removeInternalComponent(entityId, hostComponentId, internalComponentInstanceId);
+        if (success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return success;
     }
 
     /**
@@ -1155,6 +1216,117 @@ class WorldStateController {
     }
 
     // =========================================================================
+    // PERCEPTION API (wiki/subMDs/systems/perception_system.md) — "what changed
+    // since the last observation?" — delta entries computed lazily from the
+    // perception controller's per-room ring buffers. The perception controller
+    // is injected by the composition (null-tolerant: a hand-built facade may
+    // omit it), and all perception reads go through these wrappers so that the
+    // tick and the room resolution stay inside the facade (the perception
+    // controller is deliberately tick-blind — it never owns a tick).
+    // =========================================================================
+
+    /**
+     * Returns up to `limit` recent perception (delta) entries for one room —
+     * i.e. "what changed in this room since the last read". If the room is
+     * dirty (state changed since the last read), the pending diff/baseline is
+     * flushed first, so the result always reflects the room's *current* state.
+     * The room id may be a UID (normal) or a logical name (resolved via
+     * getRoomUidByLogicalId) so clients can query by name too.
+     * @param {string} roomId - Room UID or logical room name.
+     * @param {{ limit?: number }} [options] - max entries to return (clamped to
+     *   PERCEPTION_MAX_LIMIT by the perception controller). Defaults to
+     *   PERCEPTION_RECENT_LIMIT.
+     * @returns {Array} Delta entries, oldest → newest. Empty array when the
+     *   room has no perception history yet or no perception controller is
+     *   injected. Never throws (degrades to an empty list, consistent with the
+     *   null-tolerant read wrappers in this facade).
+     */
+    getPerceptionDeltasForRoom(roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        if (!roomId) return [];
+        try {
+            let resolvedRoomId = roomId;
+            // Rooms are stored UID-keyed (entity.location is always a UID);
+            // accept logical names at the boundary and resolve them here.
+            if (this.roomsController?.getAll?.()[roomId] === undefined) {
+                const uid = this.getRoomUidByLogicalId?.(roomId);
+                if (uid) resolvedRoomId = uid;
+            }
+            return this.perceptionController
+                ? (this.perceptionController.getRoomDeltas(resolvedRoomId, { limit }) ?? [])
+                : [];
+        } catch (error) {
+            Logger.warn(`[WorldStateController] perception read failed for room ${roomId}: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Returns up to `limit` recent perception (delta) entries for the whole
+     * world since this *specific agent* last observed it — the "WHAT CHANGED
+     * SINCE YOUR LAST OBSERVATION" window. The per-agent observation cursor
+     * is advanced to the highest sequence this call observed, so the *next*
+     * call (next round) sees only what changed after this observation. This is
+     * exactly the semantics the LLM context needs: the agent's current context
+     * section and its next round's context must not double-report the same
+     * changes.
+     * @param {string} entityId - The observing entity (agent) id.
+     * @param {{ limit?: number }} [options]
+     * @returns {Array} Delta entries, oldest → newest (baseline entry first).
+     */
+    getAgentPerception(entityId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        if (!entityId) return [];
+        try {
+            return this.perceptionController
+                ? (this.perceptionController.getAgentDeltas(entityId, { limit }) ?? [])
+                : [];
+        } catch (error) {
+            Logger.warn(`[WorldStateController] agent perception read failed for ${entityId}: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Explicitly records that `entityId` has just observed the world (the LLM
+     * context build advances the cursor via getAgentPerception(); this public
+     * method exists for callers that observe without reading deltas — e.g. the
+     * player UI polling path or tests that want to control the cursor
+     * independently). No-op when the entity is unknown or no perception
+     * controller is injected.
+     * @param {string} entityId - The observing entity id.
+     * @returns {void}
+     */
+    recordAgentObservation(entityId) {
+        this.perceptionController?.recordAgentObservation(entityId);
+    }
+
+    /**
+     * Current world tick (0 when no tick system is wired — e.g. a hand-built
+     * test facade). Private seam between the perception controller (tick-blind)
+     * and the tick system (which only the facade owns — see the perception
+     * controller module header on the dependency direction).
+     * @private
+     * @returns {number}
+     */
+    _currentTick() {
+        return this.tickSystem?.currentTick ?? 0;
+    }
+
+    /**
+     * Marks a room as "state changed" for the perception controller. O(1)
+     * bookkeeping only: the actual diff between "last observation" and "now"
+     * is computed lazily when someone reads that room's perception (see the
+     * perception controller module header for the why of lazy diffing).
+     * Null-tolerant: a hand-built test facade may omit the perception
+     * controller, in which case perception degrades to "nothing ever
+     * observed" (empty delta lists) without breaking any mutation path.
+     * @private
+     * @param {string|null} roomId
+     */
+    _markPerceptionDirty(roomId) {
+        this.perceptionController?.markDirty(roomId, this._currentTick());
+    }
+
+    // =========================================================================
     // ACTION SELECTION API WRAPPERS (for server.js access)
     // =========================================================================
 
@@ -1257,6 +1429,11 @@ class WorldStateController {
             ...options
         });
 
+        if (result.success) {
+            // Perception: an item appeared in an entity's inventory — mark the
+            // room.
+            this._markPerceptionDirty(entity.location);
+        }
         if (result.success && this._broadcastService) {
             this._broadcastService.broadcast();
         }
@@ -1279,6 +1456,10 @@ class WorldStateController {
 
         const result = this.inventoryManager.removeItem(entity, itemId);
 
+        if (result.success) {
+            // Perception: an item left an entity's inventory — mark the room.
+            this._markPerceptionDirty(entity.location);
+        }
         if (result.success && this._broadcastService) {
             this._broadcastService.broadcast();
         }
@@ -1354,6 +1535,11 @@ class WorldStateController {
             componentController: this.componentController
         });
 
+        if (result.success) {
+            // Perception: an item moved within the entity — mark the room (the
+            // room is unchanged, but the per-entity component inventory did).
+            this._markPerceptionDirty(entity.location);
+        }
         if (result.success && this._broadcastService) {
             this._broadcastService.broadcast();
         }
@@ -1397,6 +1583,12 @@ class WorldStateController {
         }
         const result = this.inventoryManager.transferItem(fromEntity, itemId, toEntity, toComponentId);
 
+        if (result.success) {
+            // Perception: an item moved between two entities — mark both rooms
+            // (identical in practice, but the correct mark is per room).
+            this._markPerceptionDirty(fromEntity.location);
+            this._markPerceptionDirty(toEntity.location);
+        }
         if (result.success && this._broadcastService) {
             this._broadcastService.broadcast();
         }
@@ -1415,7 +1607,13 @@ class WorldStateController {
  * @param {*} itemIds
      */
     craftItems(entityId, recipeId, componentId, itemIds) {
-        return executeCraftTransaction(this, entityId, recipeId, componentId, itemIds);
+        const result = executeCraftTransaction(this, entityId, recipeId, componentId, itemIds);
+        if (result?.success) {
+            // Perception: crafting consumes inputs and produces outputs on the
+            // component — the entity's inventory changed; mark its room.
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -1564,7 +1762,13 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     equipItem(entityId, itemId, itemType, componentId) {
-        return equipItem(this, entityId, itemId, itemType, componentId);
+        const result = equipItem(this, entityId, itemId, itemType, componentId);
+        if (result?.success) {
+            // Perception: equipping changes the entity's equipped set (and,
+            // via the equipped-stats callback, its stats) — mark its room.
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -1577,7 +1781,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     unequipItem(entityId, itemId) {
-        return unequipItem(this, entityId, itemId);
+        const result = unequipItem(this, entityId, itemId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -1593,7 +1801,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, error?: string }}
      */
     transferEquip(entityId, itemId, itemType, fromComponentId, toComponentId) {
-        return transferEquip(this, entityId, itemId, itemType, fromComponentId, toComponentId);
+        const result = transferEquip(this, entityId, itemId, itemType, fromComponentId, toComponentId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -1968,6 +2180,17 @@ class WorldStateController {
     setDroppedItems(droppedItems) {
         this._droppedItems = droppedItems;
 
+        // Perception: dropped items changed (spill, restore, direct write) —
+        // mark every room that holds a dropped item so each room's perception
+        // reader sees the change. (Rooms emptied by a removal get marked by
+        // removeDroppedItem, since a room with zero dropped items has nothing
+        // to enumerate here.)
+        if (this.perceptionController && droppedItems) {
+            for (const item of Object.values(droppedItems)) {
+                this.perceptionController.markDirty(item?.roomId, this._currentTick());
+            }
+        }
+
         // Gate broadcasts by cascade — only when _cascadeReentrancyCount === 0
         // The caller removeDroppedItem (and writeDroppedItem via facade) continues broadcasting
         // normally; during cascade, the gate suppresses intermediate broadcasts.
@@ -1983,13 +2206,18 @@ class WorldStateController {
      */
     removeDroppedItem(droppedItemId) {
         const droppedItems = this.getDroppedItems();
-        if (!droppedItems[droppedItemId]) {
+        const removedItem = droppedItems[droppedItemId];
+        if (!removedItem) {
             Logger.warn(`[WorldStateController] Dropped item "${droppedItemId}" not found.`);
             return { success: false, message: `Dropped item "${droppedItemId}" not found.` };
         }
 
         delete droppedItems[droppedItemId];
         this.setDroppedItems(droppedItems);
+        // Perception: the removed item's room changed even if it is now empty
+        // (setDroppedItems only marks rooms that still hold items; this marks
+        // the room whose item was just removed).
+        this._markPerceptionDirty(removedItem?.roomId);
 
         Logger.info(`[WorldStateController] Removed dropped item "${droppedItemId}".`);
         return { success: true };
@@ -2007,11 +2235,24 @@ class WorldStateController {
     executePickUpItem(entityId, droppedItemId, componentId) {
         // Delegate to the ConsequenceHandlers public dispatch() API (BUG-122:
         // no more 3-layer deep access through consequenceHandlers.handlers.pickUpItem).
+        // Capture the dropped item before the handler may have moved it (so a
+        // perception mark on success can reference its room even after the
+        // handler clears it).
+        const droppedItem = this._droppedItems?.[droppedItemId] ?? null;
         const result = this.actionController?.consequenceHandlers?.dispatch('pickUpItem', null, { entityId, droppedItemId, componentId }, { entityId });
 
         if (!result) {
             Logger.error('[WorldStateController] ConsequenceHandlers dispatch unavailable for pickUpItem.');
             return { success: false, message: 'PickUpItem handler not available.' };
+        }
+
+        if (result?.success) {
+            // Perception: a pickup moves an item from the floor to an entity's
+            // inventory — mark both the floor's room and the entity's room
+            // (identical in practice, distinct in principle).
+            const entity = this.stateEntityController.getEntity(entityId);
+            this._markPerceptionDirty(entity?.location);
+            this._markPerceptionDirty(droppedItem?.roomId);
         }
 
         return result;
@@ -2066,7 +2307,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string, item?: Object }}
      */
     addItemToContainer(entityId, containerItemId, itemType) {
-        return addItemToContainer(this, entityId, containerItemId, itemType);
+        const result = addItemToContainer(this, entityId, containerItemId, itemType);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -2080,7 +2325,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string }}
      */
     removeItemFromContainer(entityId, containerItemId, itemId) {
-        return removeItemFromContainer(this, entityId, containerItemId, itemId);
+        const result = removeItemFromContainer(this, entityId, containerItemId, itemId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -2094,7 +2343,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemIntoContainer(entityId, containerItemId, itemId) {
-        return moveItemIntoContainer(this, entityId, containerItemId, itemId);
+        const result = moveItemIntoContainer(this, entityId, containerItemId, itemId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -2109,7 +2362,11 @@ class WorldStateController {
      * @returns {{ success: boolean, message?: string }}
      */
     moveItemOutOfContainer(entityId, containerItemId, itemId, targetComponentId) {
-        return moveItemOutOfContainer(this, entityId, containerItemId, itemId, targetComponentId);
+        const result = moveItemOutOfContainer(this, entityId, containerItemId, itemId, targetComponentId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
     }
 
     /**
@@ -2185,7 +2442,18 @@ class WorldStateController {
  * @param {*} payload
      */
     removeBrokenComponent(payload) {
-        return removeBrokenComponentCascade(this, payload);
+        const { entityId } = payload ?? {};
+        // Capture the entity's location before the cascade (it may despawn the
+        // entity as a root-exit elimination; we need the room to mark it).
+        const entity = this.stateEntityController.getEntity?.(entityId);
+        const result = removeBrokenComponentCascade(this, payload);
+        // Perception: a broken-component cascade spills items, removes components
+        // and may despawn the entity — all state changes a perception reader
+        // should be able to ask about. The cascade mutates state *internally*
+        // (not through the thin public mutation methods above), so mark the
+        // room here.
+        this._markPerceptionDirty(entity?.location);
+        return result;
     }
 
     /**

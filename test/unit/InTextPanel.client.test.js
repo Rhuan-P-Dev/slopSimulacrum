@@ -20,7 +20,10 @@ vi.mock('../../public/js/Config.js', () => ({
             HISTORY_LIMIT: 100
         },
         ENDPOINTS: {
-            WORLD_EVENTS: '/world-events'
+            WORLD_EVENTS: '/world-events',
+            // Perception: room-scoped delta stream (Feature G). The In-Text
+            // panel appends "/:roomId?limit=N" to this.
+            PERCEPTION_ROOM: '/perception'
         },
         SERVER_HOST: 'localhost'
     }
@@ -334,6 +337,524 @@ describe('InTextPanel — pure formatters', () => {
         const line = p.formatEventLine({ time: 1700000000000, message: 'X dropped', tick: 5 });
         expect(line).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} · X dropped @ tick 5$/);
     });
+
+    it('formatPerceptionEntry: baseline lists initial entities', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'baseline',
+            tick: 0,
+            summary: 'initial observation of room_abc: 3 entities',
+            entities: { appeared: [{ id: 'e1', name: 'Player' }, { id: 'e2', name: 'Bolt' }, { id: 'e3', name: 'Tree' }] }
+        }, 1);
+        expect(out).toContain('round 1');
+        expect(out).toContain('Initial observation');
+        expect(out).toContain('+ Player');
+        expect(out).toContain('+ Bolt');
+        expect(out).toContain('+ Tree');
+    });
+
+    it('formatPerceptionEntry: delta names the movers as bullets', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            summary: '2 droids appeared; 1 despawned',
+            entities: {
+                appeared: [{ name: 'Player', id: 'a' }, { name: 'Bolt', id: 'b' }],
+                despawned: [{ name: 'Tree', id: 'c' }],
+                moved: []
+            }
+        }, 7);
+        // Headline uses the caller's round number (state.turns.roundNumber),
+        // never the entry's tick.
+        expect(out).toContain('round 7');
+        expect(out).toContain('Changes');
+        expect(out).toContain('+ Player');
+        expect(out).toContain('+ Bolt');
+        expect(out).toContain('− Tree');
+        // entity-only changes (no movers) → summary in the headline; round
+        // omitted → headline falls back to the entry's tick ("tick 3") so it
+        // is never blank.
+        const noMover = p.formatPerceptionEntry({ tick: 3, summary: '1 item dropped (woodChunk)' });
+        expect(noMover).toContain('tick 3');
+        expect(noMover).toContain('Changes');
+        expect(noMover).toContain('1 item dropped (woodChunk)');
+    });
+
+    it('formatPerceptionEntry: entry round overrides the viewer round (old history keeps its round)', () => {
+        const p = new InTextPanel();
+        // An entry stamped with round 3 must render "round 3" even when the
+        // viewer is now on round 11 - re-rendering the perception history must
+        // never relabel every bullet with the current round.
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 37,
+            roundNumber: 3,
+            summary: '1 item removed (Coal)',
+            items: { removed: [{ itemId: 'i7', type: 'coal', name: 'Coal' }] }
+        }, 11);
+        expect(out).toContain('round 3');
+        expect(out).not.toContain('round 11');
+
+        // Entry without its own round -> falls back to the viewer's current round.
+        const current = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 200,
+            summary: '1 item added (Coal)',
+            items: { added: [{ itemId: 'i8', type: 'coal', name: 'Coal' }] }
+        }, 11);
+        expect(current).toContain('round 11');
+
+        // Neither entry round nor viewer round -> falls back to the entry's tick.
+        expect(p.formatPerceptionEntry({ tick: 99, summary: 'x' })).toContain('tick 99');
+    });
+
+    it('formatPerceptionEntry: item/dropped/equipped bullets show name, id, and position (type-key fallback)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 9,
+            summary: '1 item added; 1 dropped appeared; 1 equipped in Hall',
+            items: {
+                added: [{ itemId: 'i1', type: 'knife', name: 'Knife' }],
+                removed: [{ itemId: 'i2', type: 'powerCell', name: 'Power Cell' }]
+            },
+            dropped: {
+                added: [{ itemId: 'd1', type: 'woodChunk', name: 'Wood chunk', x: 10, y: 20 }],
+                removed: [{ itemId: 'd2', type: 'metalChunk', name: 'Metal chunk', x: 5, y: 10 }],
+                moved: [{ itemId: 'd3', type: 'knife', name: 'Knife', fromXY: { x: 1, y: 1 }, toXY: { x: 5, y: 5 } }]
+            },
+            equipped: {
+                added: [{ id: 'e1', itemType: 'toolKit', name: 'Toolkit' }],
+                removed: [{ id: 'e2', itemType: 'knife', name: 'Knife' }]
+            }
+        });
+        expect(out).toContain('+ Knife (item) · id i1');
+        expect(out).toContain('− Power Cell (item) · id i2');
+        expect(out).toContain('+ Wood chunk (dropped) · id d1 (10, 20)');
+        expect(out).toContain('− Metal chunk (dropped) · id d2 (5, 10)');
+        // a moved dropped item shows its *new* position (toXY)
+        expect(out).toContain('↔ Knife (dropped) · id d3 (5, 5)');
+        expect(out).toContain('+ Toolkit (equipped) · id e1');
+        expect(out).toContain('− Knife (equipped) · id e2');
+        // held/equipped items have no floor position (they live in a slot).
+        expect(out).not.toContain('(item) · id i1 (');
+        expect(out).not.toContain('(equipped) · id e1 (');
+        // A client-side row WITHOUT a server-set name falls back to the type
+        // key, so it still shows an identifiable name (never "undefined").
+        const noName = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 9,
+            items: { added: [{ itemId: 'i1', type: 'woodChunk' }] },
+            dropped: { removed: [{ itemId: 'd2', type: 'metalChunk' }] },
+            equipped: { removed: [{ id: 'e2', itemType: 'powerCell' }] }
+        });
+        expect(noName).toContain('+ woodChunk (item)');
+        expect(noName).toContain('− metalChunk (dropped)');
+        expect(noName).toContain('− powerCell (equipped)');
+        expect(noName).not.toContain('undefined');
+    });
+
+    it('formatPerceptionEntry: item/dropped/equipped bullets show the actor (name + id + position, server-resolved)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 20,
+            summary: '1 item added; 1 removed; knife dropped',
+            roomName: 'The Entrance Hall',
+            items: {
+                added: [{ itemId: 'i1', type: 'coal', name: 'Coal', actor: { id: 'e-john', name: 'John', x: -2, y: 3 } }],
+                removed: [{ itemId: 'i2', type: 'coal', name: 'Coal', actor: { id: 'e-john', name: 'John', x: -2, y: 3 } }]
+            },
+            dropped: {
+                added: [{ itemId: 'd1', type: 'knife', name: 'Knife', x: -84, y: 0.5, actor: { id: 'e-generator', name: 'Knife Generator', x: -84, y: 0.5 } }],
+                removed: [{ itemId: 'd2', type: 'knife', name: 'Knife', actor: { id: 'e-jane', name: 'Jane', x: 5, y: 6 } }],
+                moved: [{ itemId: 'd3', type: 'knife', name: 'Knife', fromXY: { x: 1, y: 1 }, toXY: { x: 5, y: 5 }, actor: { id: 'e-jane', name: 'Jane', x: 5, y: 6 } }]
+            },
+            equipped: {
+                added: [{ id: 'e1', itemType: 'toolKit', name: 'Toolkit', actor: { id: 'e-bob', name: 'Bob', x: 10, y: 20 } }],
+                // actor with no floor position -> id rendered, no "@"
+                removed: [{ id: 'e2', itemType: 'knife', name: 'Knife', actor: { id: 'e-bob', name: 'Bob' } }]
+            }
+        });
+        expect(out).toContain('+ Coal (item) · id i1 · gained by John (id e-john) @ (-2, 3) in The Entrance Hall');
+        expect(out).toContain('− Coal (item) · id i2 removed from John (id e-john) @ (-2, 3) in The Entrance Hall');
+        expect(out).toContain('+ Toolkit (equipped) · id e1 · equipped by Bob (id e-bob) @ (10, 20) in The Entrance Hall');
+        expect(out).toContain('− Knife (equipped) · id e2 · unequipped by Bob (id e-bob) in The Entrance Hall');
+        expect(out).toContain('+ Knife (dropped) · id d1 (-84, 0.5) · dropped by Knife Generator (id e-generator) @ (-84, 0.5) in The Entrance Hall');
+        expect(out).toContain('− Knife (dropped) · id d2 · from Jane (id e-jane) @ (5, 6) in The Entrance Hall');
+        expect(out).toContain('↔ Knife (dropped) · id d3 (5, 5) · owned by Jane (id e-jane) @ (5, 6) in The Entrance Hall');
+        // no actor -> attribution omitted; never renders "by undefined"
+        const noActor = p.formatPerceptionEntry({
+            tick: 20,
+            items: { added: [{ itemId: 'i9', type: 'knife', name: 'Knife' }] },
+            dropped: { added: [{ itemId: 'd9', type: 'knife', name: 'Knife' }] },
+            equipped: { added: [{ id: 'e9', itemType: 'knife', name: 'Knife' }] }
+        });
+        expect(noActor).not.toContain('by undefined');
+        expect(noActor).not.toContain('from undefined');
+        expect(noActor).not.toContain('gained by');
+        expect(noActor).not.toContain('dropped by');
+        expect(noActor).toContain('+ Knife (item) · id i9');
+    });
+
+    it('formatPerceptionEntry: actor with no friendly name (name == id) does not duplicate the id', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 20,
+            summary: '1 item removed',
+            items: {
+                removed: [{ itemId: 'i7', type: 'coal', name: 'Coal', actor: { id: 'ent-abc123', name: 'ent-abc123', x: 0, y: 0 } }]
+            }
+        });
+        // name falls back to the id -> the line reads "removed from
+        // ent-abc123" once (no trailing "(id …)"); the item-removal verb also
+        // loses the leading "· " separator so it flows as one phrase.
+        expect(out).toContain('− Coal (item) · id i7 removed from ent-abc123 @ (0, 0)');
+        expect(out).not.toContain('ent-abc123 (id ent-abc123)');
+        expect(out).not.toContain('undefined');
+    });
+
+    it('formatPerceptionEntry: baseline skips item/dropped/equipped bullets (lists only initial entities)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'baseline',
+            tick: 0,
+            summary: 'initial observation of Hall: 1 entity, 3 dropped knives',
+            entities: { appeared: [{ id: 'e1', name: 'Player' }] },
+            dropped: {
+                added: [
+                    { itemId: 'd1', type: 'knife', name: 'Knife' },
+                    { itemId: 'd2', type: 'knife', name: 'Knife' },
+                    { itemId: 'd3', type: 'knife', name: 'Knife' }
+                ]
+            },
+            items: { added: [], removed: [] },
+            equipped: { added: [], removed: [] }
+        });
+        expect(out).toContain('+ Player');
+        // Baselines stay entity-only in bullets; the (many) dropped/held/equipped
+        // items remain in the "initial observation" summary, not as a bullet list.
+        expect(out).not.toContain('Knife (dropped)');
+        expect(out).not.toContain('Knife (item)');
+        expect(out).not.toContain('(equipped)');
+    });
+
+    it('formatPerceptionEntry: moved shows coords, action, and locomotion', () => {
+        const p = new InTextPanel();
+        // Within-room spatial move (the real case): fromRoom === toRoom, so the
+        // bullet shows the coordinate delta — not the (identical) room — and
+        // credits the action + locomotion components that caused the move.
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            entities: {
+                moved: [{
+                    id: 'e1',
+                    name: 'Bolt',
+                    fromRoom: 'room1',
+                    toRoom: 'room1',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 10, y: 5 },
+                    action: 'move',
+                    // Store credited this action (authoritative attribution).
+                    attributionSource: 'store',
+                    locomotion: [{ type: 'Locomotion Core', id: 'c-loc' }]
+                }]
+            }
+        });
+        expect(out).toContain('Bolt');
+        expect(out).toContain('(id e1)');
+        expect(out).toContain('(0, 0) → (10, 5)');
+        expect(out).toContain('· action: move');
+        // Store-sourced → authoritative "used to execute" with the COUNT (QUANTOS).
+        expect(out).toContain("used to execute the action 'move' (1):");
+        expect(out).toContain('Locomotion Core (c-loc)');
+        // The within-room move does *not* surface the (identical) room as a change,
+        // and a non-matching action must not appear.
+        expect(out).not.toContain('· action: punch');
+
+        // Defensive cross-room branch (fromRoom !== toRoom) still renders, and a
+        // move with no coordinates falls back to the room change.
+        const crossRoom = p.formatPerceptionEntry({
+            tick: 4,
+            entities: { moved: [{ name: 'Bolt', fromRoom: 'Hall', toRoom: 'Corridor' }] }
+        });
+        expect(crossRoom).toContain('Bolt');
+        expect(crossRoom).toContain('Hall');
+        expect(crossRoom).toContain('Corridor');
+        // fromRoom absent → still shows the destination, no dangling arrow
+        const noFrom = p.formatPerceptionEntry({ tick: 4, entities: { moved: [{ name: 'Bolt', toRoom: 'Corridor' }] } });
+        expect(noFrom).toContain('Bolt');
+        expect(noFrom).toContain('Corridor');
+        expect(noFrom).not.toContain('undefined');
+    });
+
+    it('formatPerceptionEntry: renders all locomotion components and is omitted when absent', () => {
+        const p = new InTextPanel();
+        // The server returns the *full list* of locomotion components that grant
+        // the action's movement trait (an array of { type, id }); the client joins
+        // them with ", ". Multiple legs → multiple parts.
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    name: 'Rover',
+                    id: 'r1',
+                    fromXY: { x: 1, y: 1 },
+                    toXY: { x: 2, y: 2 },
+                    locomotion: [
+                        { type: 'm1Leg', id: 'c-leg1' },
+                        { type: 'm1Leg', id: 'c-leg2' }
+                    ]
+                }]
+            }
+        });
+        expect(out).toContain('Rover');
+        // No action in the fixture → the fallback `locomotion:` label is used
+        // (the `used to execute the action '…'` label appears when an action is
+        // present, as in the previous test). All legs are joined.
+        expect(out).toContain('· locomotion: m1Leg (c-leg1), m1Leg (c-leg2)');
+        // An absent locomotion emits no locomotion segment.
+        const none = p.formatPerceptionEntry({
+            tick: 1,
+            entities: { moved: [{ name: 'Bolt', fromXY: { x: 1, y: 1 }, toXY: { x: 2, y: 2 } }] }
+        });
+        expect(none).not.toContain('locomotion');
+        expect(none).not.toContain("used to execute");
+    });
+
+    // ── Provenance: ONLY store-sourced attribution may claim "used to execute".
+    it('formatPerceptionEntry: heuristic attribution is labeled `locomotion`, never "used to execute"', () => {
+        const p = new InTextPanel();
+        // The server did NOT credit the action (no store / fallback) → attributionSource
+        // is 'heuristic'. Even though an action name is present, the client must not
+        // overclaim "used to execute the action": the parts are a Movement.move guess.
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'e1',
+                    name: 'Bolt',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 1, y: 1 },
+                    action: 'move',
+                    attributionSource: 'heuristic',
+                    locomotion: [{ type: 'Locomotion Core', id: 'c-loc' }]
+                }]
+            }
+        });
+        expect(out).toContain('· action: move');
+        expect(out).toContain('Locomotion Core (c-loc)');
+        // Labelled as locomotion (a guess); the authoritative claim is withheld.
+        expect(out).toContain('· locomotion:');
+        expect(out).not.toContain('used to execute');
+        // Explicitly absent attributionSource is treated the same (defensive: the
+        // store is the single source of the "used" claim).
+        const absent = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'e1',
+                    name: 'Bolt',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 1, y: 1 },
+                    action: 'move',
+                    locomotion: [{ type: 'Locomotion Core', id: 'c-loc' }]
+                }]
+            }
+        });
+        expect(absent).not.toContain('used to execute');
+    });
+
+    // ── Multi-limb (the user's core ask: QUANTOS) — store-sourced count.
+    // ── Realistic case: a single-requirement move uses exactly ONE component
+    // (its best mover), so the bullet shows count (1) + that one leg. This is the
+    // shape the user asked for — NOT 4 legs for a move.
+    it('formatPerceptionEntry: a move shows only its used mover (count 1)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'ent-m1',
+                    name: 'Rover',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 25, y: 25 },
+                    action: 'move',
+                    attributionSource: 'store',
+                    locomotion: [{ type: 'm1Leg', id: 'c-leg-fL' }]
+                }]
+            }
+        });
+        expect(out).toContain("used to execute the action 'move' (1):");
+        expect(out).toContain('m1Leg (c-leg-fL)');
+        // Must NOT overclaim: the other three legs are not shown.
+        expect(out).not.toContain('c-leg-fR');
+        expect(out).not.toContain('c-leg-bL');
+        expect(out).not.toContain('c-leg-bR');
+    });
+
+    // Genuine multi-component used actions (e.g. a two-actuator attack) still show
+    // their real count.
+    it('formatPerceptionEntry: a multi-part used action shows its real count', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'ent-robot',
+                    name: 'Tandem',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 5, y: 5 },
+                    action: 'wheeledPush',
+                    attributionSource: 'store',
+                    locomotion: [
+                        { type: 'm1Leg', id: 'c-wheel-L' },
+                        { type: 'm1Leg', id: 'c-wheel-R' }
+                    ]
+                }]
+            }
+        });
+        expect(out).toContain("used to execute the action 'wheeledPush' (2):");
+        expect(out).toContain('m1Leg (c-wheel-L), m1Leg (c-wheel-R)');
+    });
+
+    // ── Performed actions (attribution-store rows): "which action, and ONLY the
+    //    components that were used".
+    it('formatPerceptionEntry: a performed action lists its used components (only the ones used)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            actions: {
+                performed: [{
+                    entity: 'ent-9',
+                    name: 'Bolt',
+                    action: 'cut',
+                    used: [
+                        { type: 'knifeBlade', id: 'c-blade-1' },
+                        { type: 'arm', id: 'c-arm-L' }
+                    ],
+                    source: 'store'
+                }]
+            }
+        });
+        expect(out).toContain('⚔ Bolt · action: cut');
+        expect(out).toContain('used (2):');
+        expect(out).toContain('knifeBlade (c-blade-1), arm (c-arm-L)');
+        // Only the used components appear — nothing extra.
+        expect(out).not.toContain('c-arm-R');
+    });
+
+    it('formatPerceptionEntry: a performed action without recorded components claims none (no overclaim)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            actions: { performed: [{ entity: 'ent-9', name: 'Bolt', action: 'speak', used: [], source: 'store' }] }
+        });
+        // The action IS reported; the "used (…):" clause must be absent.
+        expect(out).toContain('⚔ Bolt · action: speak');
+        expect(out).not.toContain('used (');
+    });
+
+    it('formatPerceptionEntry: a performed "move" row is suppressed when the moved bullet already showed it', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'ent-m2',
+                    name: 'Rover',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 3, y: 4 },
+                    action: 'move',
+                    attributionSource: 'store',
+                    locomotion: [{ type: 'm1Leg', id: 'c-leg-fL' }]
+                }]
+            },
+            actions: {
+                performed: [
+                    { entity: 'ent-m2', name: 'Rover', action: 'move', used: [{ type: 'm1Leg', id: 'c-leg-fL' }], source: 'store' },
+                    { entity: 'ent-m2', name: 'Rover', action: 'punch', used: [{ type: 'arm', id: 'c-fist' }], source: 'store' }
+                ]
+            }
+        });
+        // The move bullet appears once (the performed 'move' twin is deduped)...
+        const moveMentions = out.split("action 'move'").length - 1;
+        expect(moveMentions).toBe(1);
+        expect(out).not.toContain('⚔ Rover · action: move');
+        // ...but a different action by the same entity still renders.
+        expect(out).toContain('⚔ Rover · action: punch');
+    });
+
+    it('formatPerceptionEntry: baseline entries never render performed rows (initial observation, not an action window)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'baseline',
+            tick: 1,
+            entities: { appeared: [{ id: 'ent-9', name: 'Bolt' }] },
+            actions: { performed: [{ entity: 'ent-9', name: 'Bolt', action: 'punch', used: [], source: 'store' }] }
+        });
+        expect(out).toContain('+ Bolt');
+        expect(out).not.toContain('⚔');
+    });
+
+    // ── Double-id regression: an unnamed entity shows its id ONCE.
+    it('formatPerceptionEntry: unnamed entity renders its id once (no double id)', () => {
+        const p = new InTextPanel();
+        // name undefined → the id IS the display name, shown once. Previously this
+        // produced "↔ <id> (id <id>)" (the id twice).
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{
+                    id: 'ent-abc123',
+                    fromRoom: 'room1',
+                    toRoom: 'room1',
+                    fromXY: { x: 0, y: 0 },
+                    toXY: { x: 1, y: 1 }
+                }]
+            }
+        });
+        expect(out).toContain('↔ ent-abc123');
+        // The parenthetical id must NOT appear (the name is the id).
+        expect(out).not.toContain('(id ent-abc123)');
+    });
+
+    // Friendly name + distinct id still shows both (unchanged behavior).
+    it('formatPerceptionEntry: friendly name + distinct id shows both (name (id id))', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            tick: 1,
+            entities: {
+                moved: [{ id: 'e1', name: 'Rover', fromXY: { x: 0, y: 0 }, toXY: { x: 1, y: 1 } }]
+            }
+        });
+        expect(out).toContain('↔ Rover (id e1)');
+    });
+
+    it('formatPerceptionEntry: statChange fallback bullet when no entity movers', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            tick: 5,
+            entities: { statChanges: [{ statName: 'energy', from: 0.5, to: 0.2 }, { statName: 'stamina', from: 0.9, to: 0.1 }] }
+        });
+        expect(out).toContain('stat change');
+        expect(out).toContain('energy');
+    });
+
+    it('formatPerceptionEntry: null/empty → dash; names HTML-escaped (no raw markup)', () => {
+        const p = new InTextPanel();
+        expect(p.formatPerceptionEntry(null)).toContain('—');
+        expect(p.formatPerceptionEntry(undefined)).toContain('—');
+        const out = p.formatPerceptionEntry({ tick: 1, entities: { appeared: [{ name: '<script>alert' }] } });
+        expect(out).toContain('&lt;script&gt;');
+        expect(out).not.toContain('<script>alert');
+    });
 });
 
 describe('InTextPanel — full render (fake DOM)', () => {
@@ -426,24 +947,44 @@ describe('InTextPanel — full render (fake DOM)', () => {
         expect(state.entities.e_player_1.name).toBe('<script>alert("xss")</script>');
     });
 
-    it('events sub-section: renders the tail, drops ticks older than 60s', async () => {
+    it('events sub-section: renders recent events newest-first with full context + warn color', async () => {
         const { content, panel } = buildPanel();
         const state = makeState();
         const now = 1750000000000;
-        state.serverTime = now;
-        const freshTick = now - 1000;
-        const staleTick = now - 90000000; // 90s old → stale
+        // Server returns oldest → newest; the unified view sends the active
+        // entity so the server enriches each event with the room context, and
+        // the panel reads the tail newest-first.
+        const context = {
+            roomId: 'room_abc123',
+            roomName: 'The Entrance Hall',
+            roomWidth: 40,
+            roomHeight: 30,
+            playerPosition: { x: 2.1, y: -1.4 },
+            entities: [{ name: 'Droid A', x: 3, y: 5 }],
+            droppedItems: [{ name: 'Coal' }, { name: 'Knife' }],
+            exits: [{ door: 'right_door', targetRoomName: 'Corridor' }]
+        };
         global.fetch = vi.fn((url) => {
-            expect(url).toContain('/world-events');
+            // Perception (Feature G) fetch is routed separately; return an
+            // empty delta list so the "What Changed" section renders "no changes
+            // yet" without interfering with the events assertion.
+            if (!url.includes('/world-events')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ success: true, kind: 'delta', deltas: [] })
+                });
+            }
             expect(url).toContain('limit=100');
+            expect(url).toContain('entityId=e_player_1');
             return Promise.resolve({
                 ok: true,
-                json: () =>
-                    Promise.resolve([
-                        { tick: staleTick, time: staleTick, message: 'OLD — must not show' },
-                        { tick: freshTick, time: freshTick, message: 'Fresh event' },
-                        { time: now, message: 'No tick (kept)' }
-                    ])
+                json: () => Promise.resolve({
+                    events: [
+                        { tick: now - 20000000, time: now - 20000000, message: 'Old event' },
+                        { tick: now - 1000, time: now - 1000, message: 'Droid A dropped Knife', level: 'warn', context },
+                        { tick: now, time: now, message: 'John performed punch on Droid A', context }
+                    ]
+                })
             });
         });
         panel.update(state, state.entities.e_player_1);
@@ -451,9 +992,22 @@ describe('InTextPanel — full render (fake DOM)', () => {
         const eventsEl = content.querySelector('#in-text-events');
         expect(eventsEl).toBeTruthy();
         const eventsHtml = eventsEl.innerHTML;
-        expect(eventsHtml).toContain('Fresh event');
-        expect(eventsHtml).toContain('No tick (kept)');
-        expect(eventsHtml).not.toContain('OLD — must not show');
+        // Newest first: punch (newest) before dropped Knife before Old event.
+        expect(eventsHtml.indexOf('John performed punch')).toBeLessThan(eventsHtml.indexOf('Droid A dropped Knife'));
+        expect(eventsHtml.indexOf('Droid A dropped Knife')).toBeLessThan(eventsHtml.indexOf('Old event'));
+        // No 60s staleness cap: the merged view keeps the whole recent tail.
+        expect(eventsHtml).toContain('John performed punch');
+        expect(eventsHtml).toContain('Droid A dropped Knife');
+        expect(eventsHtml).toContain('Old event');
+        // Full context (merged from the old Events tab).
+        expect(eventsHtml).toContain('The Entrance Hall');
+        expect(eventsHtml).toContain('40x30');
+        expect(eventsHtml).toContain('you: (2, -1)');
+        expect(eventsHtml).toContain('Droid A (3, 5)');
+        expect(eventsHtml).toContain('items: 2');
+        expect(eventsHtml).toContain('right_door→Corridor');
+        // Warn event carries the warn class.
+        expect(eventsHtml).toContain('in-text-event-warn');
     });
 
     it('failed fetch → error is sunk, mirror unaffected', async () => {
@@ -472,5 +1026,71 @@ describe('InTextPanel — full render (fake DOM)', () => {
         // is affected by the fetch failure.
         expect(content.innerHTML).toContain('Round 3');
         expect(content.innerHTML).toContain('Recent Events');
+    });
+});
+
+describe('InTextPanel — perception full flow (_loadPerception)', () => {
+    it('renders the room-scoped delta stream, newest-first, against the real endpoint shape', async () => {
+        const { content, panel } = buildPanel();
+        const state = makeState();
+        state.serverTime = 1750000000000;
+        let urlSeen = null;
+        const deltaOld = { tick: 1, kind: 'delta', summary: '1 droid appeared', entities: { appeared: [{ name: 'Player' }] } };
+        const deltaNew = { tick: 2, kind: 'delta', summary: '1 droid appeared', entities: { appeared: [{ name: 'Bolt' }] } };
+        global.fetch = vi.fn((u) => {
+            if (u.includes('perception')) {
+                urlSeen = u;
+                // Real /perception/:roomId response shape.
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        success: true,
+                        roomId: 'room_abc123',
+                        kind: 'delta',
+                        deltas: [deltaOld, deltaNew]
+                    })
+                });
+            }
+            return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        });
+        panel.update(state, state.entities.e_player_1);
+        await flushMicrotasks();
+        const perc = content.querySelector('#in-text-perception');
+        expect(perc).toBeTruthy();
+        expect(urlSeen).toBe('/perception/room_abc123?limit=10');
+        const html = perc.innerHTML;
+        expect(html).toContain('+ Player');
+        expect(html).toContain('+ Bolt');
+        // Newest entry renders first. (Headlines share the same round, so the
+        // per-entry differentiator is the bullet: + Bolt is the newer tick-2
+        // entry and must come before + Player.)
+        expect(html.indexOf('+ Bolt')).toBeLessThan(html.indexOf('+ Player'));
+    });
+
+    it('empty deltas → "no changes yet"; no droid/location → perception is never fetched', async () => {
+        const { content, panel } = buildPanel();
+        const state = makeState();
+        state.serverTime = 1750000000000;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, kind: 'delta', deltas: [] })
+        }));
+        panel.update(state, state.entities.e_player_1);
+        await flushMicrotasks();
+        expect(content.querySelector('#in-text-perception').innerHTML).toContain('no changes yet');
+
+        // No droid (null) → currentRoomId is null → _loadPerception must not
+        // fetch (only the events fetch fires).
+        const { panel: panel2 } = buildPanel();
+        const state2 = makeState();
+        state2.serverTime = 1750000000000;
+        let percCalled = false;
+        global.fetch = vi.fn((u) => {
+            if (u.includes('perception')) percCalled = true;
+            return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        });
+        panel2.update(state2, null);
+        await flushMicrotasks();
+        expect(percCalled).toBe(false);
     });
 });

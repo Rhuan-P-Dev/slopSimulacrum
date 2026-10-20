@@ -138,11 +138,21 @@ class RequirementResolver {
         }
 
         const result = checkRequirementsForComponent(requirements, componentStats);
-        // Store the resolved target ID in fulfillingComponents for each requirement
+        // Store the resolved target ID in fulfillingComponents for each
+        // requirement. The component-targeted path is inherently single-component:
+        // one named component powers the action, so the generic attribution
+        // de-duplicates to exactly that id.
         if (result.passed) {
             for (const key of Object.keys(result.fulfillingComponents)) {
                 result.fulfillingComponents[key] = resolvingTargetId;
             }
+            result.fulfillment = Object.fromEntries(
+                Object.keys(result.fulfillingComponents).map((key) => [
+                    key,
+                    { best: resolvingTargetId, ids: [resolvingTargetId] }
+                ])
+            );
+            result.allFulfillingIds = [resolvingTargetId];
         }
         return result;
     }

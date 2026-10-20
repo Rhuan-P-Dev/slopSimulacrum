@@ -131,6 +131,12 @@ export const AppConfig = {
         // { entityId, targetEntityId } (retrieve).
         PLACE_MACHINE: '/place-machine',
         RETRIEVE_MACHINE: '/retrieve-machine',
+        // Feature G (perception): room-scoped "what changed since I looked"
+        // delta stream. PREFIX — append "/:roomId?limit=N"
+        // (GET /perception/:roomId). Pure read (no cursor advance, no world
+        // mutation), so the In-Text panel may re-fetch on every state update.
+        // (wiki/subMDs/systems/perception_system.md)
+        PERCEPTION_ROOM: '/perception',
     },
     // Item types that are placeable machines (materialize as world entities via
     // POST /place-machine). Keep in sync with the server machine registry's

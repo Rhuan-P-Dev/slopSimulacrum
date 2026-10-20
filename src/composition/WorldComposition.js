@@ -71,6 +71,15 @@ import RoomsController from '../controllers/core/RoomsController.js';
 import InventoryManager from '../utils/InventoryManager.js';
 import EquippedItemStatsController from '../controllers/core/EquippedItemStatsController.js';
 import WorldEventLogController from '../controllers/core/WorldEventLogController.js';
+// Generic action attribution: the single source of truth for "which components
+// powered action X" + "how many", written by the dispatcher at the execution
+// choke point and read by perception.
+import ActionAttributionStore from '../utils/ActionAttributionStore.js';
+// Feature G (perception): per-room "what changed since the last observation"
+// state owner. Pure observer — never mutates world state (wiki/code_quality:
+// single source of truth); world state changes are reported to it by the
+// facade's mutation sites (see WorldStateController._markPerceptionDirty).
+import PerceptionController from '../controllers/core/PerceptionController.js';
 // Feature D backend (spec §7.3, pulled forward to C for speak_in_room):
 // per-room chat ring buffers (state owner; deliberately NO getAll() →
 // excluded from the world-state broadcast aggregation).
@@ -241,6 +250,19 @@ export function buildWorldState(tickSystem = null) {
     // CHAT_MESSAGE_MAX_LENGTH-char messages). No getAll() on purpose — the
     // full-state broadcast stays lean.
     const roomChatController = new RoomChatController(ROOM_CHAT_HISTORY_LIMIT, CHAT_MESSAGE_MAX_LENGTH);
+    // Feature G (perception): per-room "what changed since the last observation"
+    // state owner (entity inventory/attributes, dropped items, equipped set,
+    // internal components, room count). Zero world-state mutation — a pure
+    // observer; its only facade dependency is the tick value (via the WSC's
+    // _currentTick seam) for the observation watermark. Injected after the
+    // facade so the WSC can reference it; the WSC's mutation methods call
+    // markDirty() directly, so this instance is read-only relative to the facade.
+    const perceptionController = new PerceptionController();
+    // Generic action attribution store (shared by the dispatcher — writer — and
+    // perception — reader). Built before the facade; the facade reference is never
+    // needed (tick is read off the WSC at record time). Injected to each consumer
+    // after the facade is fully built, alongside the other setter-based injections.
+    const actionAttributionStore = new ActionAttributionStore();
     // NOTE: EquippedItemStatsController no longer takes the facade (its reference was
     // dead code — it was stored but never read). It is a pure data store.
     const equippedItemStats = new EquippedItemStatsController();
@@ -335,6 +357,9 @@ export function buildWorldState(tickSystem = null) {
         consequenceHandlers,
         actionController,
         worldEventLogController,
+        // Feature G (perception): null-tolerant (the facade's perception hooks
+        // no-op if omitted — hand-built test facades that skip it keep working).
+        perceptionController,
         llmContextController,
         hintController,
         turnSystemController,
@@ -397,6 +422,10 @@ export function buildWorldState(tickSystem = null) {
     actionSelectController.setWorldStateController(worldStateController);
     synergyController.setWorldStateController(worldStateController);
     actionController.setWorldStateController(worldStateController);
+    // Wire the dispatcher (the single execution choke point) to the shared action-
+    // attribution store: it is where every successful action records "which & how
+    // many components powered it".
+    actionController.consequenceDispatcher.setActionAttributionStore(actionAttributionStore);
     consequenceHandlers.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
@@ -471,6 +500,15 @@ export function buildWorldState(tickSystem = null) {
     // getRoundState() appears as `state.turns` in every world-state broadcast
     // (spec §5.7 — free via the sub-controller loop).
     worldStateController.subControllers.turns = turnSystemController;
+    // PerceptionController: observer that reads the facade (getEntities,
+    // getDroppedItems, getEquippedItems, getInternalComponentsForEntity,
+    // getComponentStats) — inject the root so its lazy _roomSnapshot / _extractEntity
+    // reads work. Injected *before* world init so the markDirty() calls fired by
+    // init's spawns land on an already-wired controller.
+    perceptionController.setWorldStateController(worldStateController);
+    // Perception reads the *same* store so moved-entity rows credit the
+    // authoritative components that powered the action (not a re-derived heuristic).
+    perceptionController.setActionAttributionStore(actionAttributionStore);
 
     // =========================================================================
     // 4. WORLD INITIALIZATION + INITIAL CAPABILITY SCAN.
@@ -536,6 +574,12 @@ export function buildWorldState(tickSystem = null) {
             // getAll() by design; static config data must stay out of the full-state
             // broadcast aggregation (same rule as craftingController / knowledgeController).
             worldRulesController,
+            // Inspection-only (not in broadcast) — Feature G (perception): no
+            // getAll() by design (it is not world state; it is the *observer's*
+            // derived view), so it must stay out of the full-state broadcast
+            // aggregation (same rule as roomChatController). Exposed here for
+            // direct reads from routes/tests (GET /perception/:roomId etc.).
+            perceptionController,
             // Inspection-only (not in broadcast) — the onDamage enforcement arm is a
             // null-tolerant actor with no getAll(); it must stay out of the full-state
             // broadcast aggregation (same rule as worldRulesController).

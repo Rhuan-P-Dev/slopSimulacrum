@@ -210,6 +210,34 @@ export const WORLD_EVENTS_MAX_LIMIT = 50;
 export const WORLD_EVENTS_RECENT_LIMIT = 20;
 
 // =========================================================================
+// PERCEPTION (STATE DIFF) CONSTANTS
+//
+// The perception system (wiki/subMDs/systems/perception_system.md) keeps a
+// ring buffer of *delta* entries per room: every time state changes, the room
+// is marked dirty and the diff is computed lazily on first read. These
+// constants bound how much perception history is stored (the ring capacity) and
+// how much is surfaced to readers (the default tail).
+// =========================================================================
+
+/**
+ * Maximum number of delta entries kept per room (ring buffer capacity) and
+ * the maximum number a single /perception query can request. Mirrors
+ * WORLD_EVENTS_MAX_LIMIT: the full 50-entry ring stays the storage/endpoint
+ * cap.
+ * @type {number}
+ */
+export const PERCEPTION_MAX_LIMIT = 50;
+
+/**
+ * Default number of recent delta entries returned by getRoomDeltas()
+ * (/perception endpoint) and getAgentDeltas() (LLM context "WHAT CHANGED"
+ * section). Smaller than PERCEPTION_MAX_LIMIT: most consumers only need a
+ * short recent tail, while the full 50-entry ring stays the storage cap.
+ * @type {number}
+ */
+export const PERCEPTION_RECENT_LIMIT = 10;
+
+// =========================================================================
 // SPATIAL CONTEXT CAPS (spec "better text & vision")
 //
 // Single source of truth for how much spatial detail the LLM text layer

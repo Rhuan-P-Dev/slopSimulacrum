@@ -229,6 +229,11 @@ describe('WorldStateController public method surface', () => {
         'getActionsForEntity',
         'getActionsWithSynergy',
         'getAgentActionFeedback',
+        // Added deliberately (wiki/subMDs/systems/perception_system.md): the
+        // agent-scoped "WHAT CHANGED SINCE YOUR LAST OBSERVATION" window (all
+        // rooms, oldest → newest) — the exact shape LlmContextController feeds
+        // into its context. Advances the per-agent observation cursor.
+        'getAgentPerception',
         'getAll',
         'getAllEquippedItems',
         'getBestComponentForAction',
@@ -272,6 +277,10 @@ describe('WorldStateController public method surface', () => {
         // GET /world-objects/:entityId. Not an accidental addition — the
         // route reads it via the facade only (facade-only-dependency rule).
         'getObjectInspectData',
+        // Added deliberately (wiki/subMDs/systems/perception_system.md): the
+        // room-scoped perception delta stream (recent entries, oldest →
+        // newest); resolves logical room names and supplies the tick.
+        'getPerceptionDeltasForRoom',
         'getRecentEvents',
         'getRoomChatMessages',
         'getRoomUidByLogicalId',
@@ -289,6 +298,11 @@ describe('WorldStateController public method surface', () => {
         'moveItemOutOfContainer',
         'previewActionData',
         'reEvaluateEntityCapabilities',
+        // Added deliberately (wiki/subMDs/systems/perception_system.md):
+        // explicitly records that an agent observed the world (advances the
+        // per-agent cursor without reading a delta) — used by the UI polling
+        // path and tests that want to control the cursor independently.
+        'recordAgentObservation',
         'registerSelection',
         'registerSelections',
         'releaseSelection',

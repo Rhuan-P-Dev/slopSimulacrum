@@ -18,6 +18,10 @@ import { register as registerMaterialRoutes } from './materialRoutes.js';
 import { register as registerCraftingRoutes } from './craftingRoutes.js';
 import { register as registerKnowledgeRoutes } from './knowledgeRoutes.js';
 import { register as registerObjectInspectRoutes } from './objectInspectRoutes.js';
+// Feature G (perception): room-level delta reads + agent "what happened to me"
+// summary. Read-only observer surface — worldStateController passed through to
+// the perception controller the facade owns (null-tolerant, 503 when absent).
+import { register as registerPerceptionRoutes } from './perceptionRoutes.js';
 
 /**
  * Registers all routes with the given Express app.
@@ -54,6 +58,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerRoomChatRoutes(router, { worldStateController });
 	registerHintRoutes(router, { worldStateController });
 	registerWorldEventRoutes(router, { worldStateController });
+	registerPerceptionRoutes(router, { worldStateController });
 	registerMaterialRoutes(router, { worldStateController });
 	registerCraftingRoutes(router, { worldStateController });
 	registerKnowledgeRoutes(router, { worldStateController });

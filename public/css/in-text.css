@@ -147,9 +147,13 @@
     color: var(--text-main);
 }
 
-/* Recent events: reuses the same row rhythm as the Events panel. */
+/* Recent events: the unified world-event log (merged from the old Events tab).
+ * Scrollable so a full history tail never pushes the rest of the mirror off. */
 .in-text-events {
     margin-top: 2px;
+    max-height: 42vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
 }
 
 .in-text-event {
@@ -158,4 +162,54 @@
     color: var(--text-dim);
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* Warn-level events (server sets level = 'warn'). */
+.in-text-event-warn {
+    color: var(--neon-orange);
+}
+
+/* One-line room context under an event: room, size, your pos, others, items,
+ * exits. Merged from the old Events tab. */
+.in-text-event-context {
+    display: block;
+    margin: 2px 0 0;
+    color: var(--text-dim);
+    font-size: 0.9em;
+    line-height: 1.3;
+    overflow-wrap: break-word;
+}
+
+/* "What Changed" (perception, Feature G). Reuses the same type scale as the
+ * room/droid rows; each delta entry is a compact card: a
+ * tick · kind · summary headline, then a breakdown of who/what moved. */
+.in-text-perception {
+    margin-top: 2px;
+}
+
+.in-text-perc-entry {
+    border-top: 1px dashed var(--border-dim);
+    padding: 4px 0;
+}
+
+.in-text-perc-entry:first-child {
+    border-top: 0;
+}
+
+.in-text-perc-headline {
+    margin: 0 0 2px;
+    font-size: 0.85em;
+    color: var(--text-main);
+}
+
+.in-text-perc-bullets {
+    margin: 0;
+    padding-left: 14px;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+.in-text-perc-bullet {
+    margin: 0;
+    color: var(--text-dim);
 }

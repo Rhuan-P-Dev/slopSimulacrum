@@ -27,7 +27,14 @@ const ERROR_CODES = {
  * @param {Array<Object>} requirements - An array of requirement objects.
  * @param {Object} entity - The entity object (with components array).
  * @param {Function} getComponentStats - Function to get component stats by component ID.
- * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, componentId?: string, error?: {code: string, details: Object}}}
+ * @returns {{passed: boolean, requirementValues?: Object, fulfillingComponents?: Object, componentId?: string,
+ *           fulfillment?: {string: {best?: string, ids: string[]}}, allFulfillingIds?: string[],
+ *           error?: {code: string, details: Object}}}
+ * fulfillment semantics — `best` is the component *selected* to power the
+ * requirement (whose stats the action consumes); `ids` lists EVERY component
+ * that satisfies the requirement, in most-capable order (eligible, not
+ * necessarily used). `allFulfillingIds` is the deduplicated union of all
+ * eligible components across the action's requirements.
  */
 export function checkRequirements(requirements, entity, getComponentStats) {
     if (!entity) {
@@ -54,20 +61,48 @@ export function checkRequirements(requirements, entity, getComponentStats) {
         return { id: component.id, score, satisfiedReqs };
     });
 
-    // 2. Sort components by score descending to prioritize the most capable ones
+    // 2. Sort components by score descending to prioritize the most capable ones.
+    //   The stable sort keeps snapshot order as the tie-break, so a "first" / 
+    //   "best" read below is deterministic.
     componentScores.sort((a, b) => b.score - a.score);
 
+    // 3. Build the action-agnostic attribution: for EACH requirement, every
+    //   component that satisfies it (in most-capable order) plus the *gate*
+    //   component (the most capable one). This is the source of truth for
+    //   "which components can power this action" — the checker itself knows
+    //   nothing about specific actions (no hard-coded 'Movement.move'); it is
+    //   the same code path for move, attack, pickUpItem, etc.
+    const fulfillment = {};
+    for (const req of reqList) {
+        fulfillment[`${req.trait}.${req.stat}`] = { best: null, ids: [] };
+    }
+    const allFulfillingIds = [];
+    const seenAll = new Set();
+
+    for (const cs of componentScores) {
+        for (const req of cs.satisfiedReqs) {
+            const key = `${req.trait}.${req.stat}`;
+            const attr = fulfillment[key];
+            if (!attr) continue; // defensive: never happens
+            if (attr.best === null) attr.best = cs.id; // most capable = gate
+            if (!attr.ids.includes(cs.id)) attr.ids.push(cs.id);
+            if (!seenAll.has(cs.id)) {
+                seenAll.add(cs.id);
+                allFulfillingIds.push(cs.id);
+            }
+        }
+    }
+
+    // 4. Assign the best available component for each requirement (backward
+    //    compatible: one "best" per requirement key, exactly as before).
     const requirementValues = {};
     const fulfillingComponents = {};
     let primaryComponentId = null;
 
-    // 3. Assign the best available component for each requirement
     for (const req of reqList) {
-        const bestComponent = componentScores.find(cs =>
-            cs.satisfiedReqs.some(r => r === req)
-        );
-
-        if (!bestComponent) {
+        const key = `${req.trait}.${req.stat}`;
+        const attr = fulfillment[key];
+        if (!attr || !attr.ids.length || attr.best === null) {
             return {
                 passed: false,
                 error: {
@@ -77,15 +112,29 @@ export function checkRequirements(requirements, entity, getComponentStats) {
             };
         }
 
-        const stats = getComponentStats(bestComponent.id);
-        const key = `${req.trait}.${req.stat}`;
+        const stats = getComponentStats(attr.best);
         requirementValues[key] = stats[req.trait][req.stat];
-        fulfillingComponents[key] = bestComponent.id;
+        fulfillingComponents[key] = attr.best;
 
-        if (!primaryComponentId) primaryComponentId = bestComponent.id;
+        if (!primaryComponentId) primaryComponentId = attr.best;
     }
 
-    return { passed: true, requirementValues, fulfillingComponents, componentId: primaryComponentId };
+    return {
+        passed: true,
+        requirementValues,
+        fulfillingComponents,
+        componentId: primaryComponentId,
+        // NEW (generic, action-agnostic):
+        //   fulfillment        — per-requirement breakdown ({ best, ids: all that satisfy });
+        //   allFulfillingIds   — deduplicated union of every component that satisfied any
+        //                        requirement of the action. This is the *eligibility*
+        //                        union — metadata only. The "which & how many
+        //                        POWERED action X" answer is the caller's explicit
+        //                        designations (when any) or the selected `best`s,
+        //                        never this union.
+        fulfillment,
+        allFulfillingIds,
+    };
 }
 
 /**
