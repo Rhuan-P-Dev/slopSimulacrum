@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, and which components powered each action?"**
+The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, which components powered each action, and *who* (which entity / which component) was acted upon?"**
 
 It is the single observation surface for the world:
 
@@ -29,7 +29,8 @@ per tick / on read ──► snapshot dirty room ──► diff vs last snapshot
 | `src/controllers/core/PerceptionController.js` | dirty set, per-room last snapshots, per-agent cursors, per-entity action seen-cursors, ring buffers, flush |
 | `src/utils/DeltaDiff.js` | pure snapshot→snapshot diff (room level, no controller state) |
 | `src/utils/DeltaSummary.js` | ≤300-char one-line human summary per entry |
-| `src/utils/ActionAttributionStore.js` | shared per-entity "which components powered action X" store (single writer: the consequence dispatcher) |
+| `src/utils/ActionAttributionStore.js` | shared per-entity "which components powered action X — and what it was applied to" store (single writer: the consequence dispatcher) |
+| `shared/CoordFormat.js` | the coordinate display rule — truncate to 2 decimals, render "00.00" (shared by the server entry builder and the client formatter) |
 | `src/controllers/consequences/ConsequenceDispatcher.js` | the **only** place action attribution is written (the choke point) |
 | `src/routes/perceptionRoutes.js` | the HTTP endpoints |
 | `public/js/InTextPanel.js` | the UI consumer (per-room feed + performed-action rows) |
@@ -66,7 +67,7 @@ Each agent keeps a cursor per room plus a global "world sequence" cursor (a mono
 
 ## 6. Why moved rows claim only the components that were used
 
-A "moved" row must not guess *how* the entity moved. The authoritative answer comes from the **ActionAttributionStore**: every successful action passes through the consequence dispatcher's single `execute`/`executeMultiAttacker` choke point, which records — for that entity and action — the primary component, the **used set** as `ids`, the per-requirement fulfillment, and the tick.
+A "moved" row must not guess *how* the entity moved. The authoritative answer comes from the **ActionAttributionStore**: every successful action passes through the consequence dispatcher's single `execute`/`executeMultiAttacker` choke point, which records — for that entity and action — the primary component, the **used set** as `ids`, the **target** (the entity and/or component the action was applied to — *who* was acted upon), the per-requirement fulfillment, and the tick.
 
 **"Used" has exactly two meanings, resolved in order at the recording choke point:**
 
@@ -99,12 +100,20 @@ So every flush credits, per room entity, the distinct actions performed since th
     { "type": "arm", "id": "comp-77aa…" },
     { "type": "centralBall", "id": "comp-31b0…" }
   ],
+  "target": {                   // WHO was acted upon (null for spatial/no-target actions)
+    "id": "ent-dc94…",           // target entity id (null when only a component was named)
+    "name": "Tree",              // display name resolved from the CURRENT world (null if the target no longer exists / is unnamed)
+    "componentId": "comp-a92a…", // the specific component hit (null for entity-level actions)
+    "componentName": "Tree"      // its recipe display name, resolved the same way
+  },
   "tick": 42,                   // tick of the recorded execution (may be null)
   "source": "store"             // provenance: the shared attribution store
 }
 ```
 
-The entry's `counts.actions` tracks these rows (deliberately **not** folded into `counts.total`), `hasDeltaChanges()` treats a non-empty list as a change (an action-only flush must surface even when `counts.total === 0`), the one-line summary names the actions performed (representative examples, `+N more`), and the InText panel renders one bullet per row — `⚔ <name> · action: <action> · used (N): <type (id), …>` — deduplicating a `move` row against the moved bullet that already showed it.
+The `target` ids are recorded at the choke point from the call's `params` (`targetEntityId`, and `targetComponentId` — with the owning entity resolved through the component controller when the call named the component only). Display names are **never stored** — the perception controller resolves them against the current snapshot at render time, so a destroyed target degrades to ids only (never a stale name) and a still-existing one always shows its current name. The component name comes from the same recipe-name source the dispatcher's log phrases use (`ComponentNaming`).
+
+The entry's `counts.actions` tracks these rows (deliberately **not** folded into `counts.total`), `hasDeltaChanges()` treats a non-empty list as a change (an action-only flush must surface even when `counts.total === 0`), the one-line summary names the actions performed (representative examples, `+N more`), and the InText panel renders one bullet per row — `⚔ <name> · action: <action> · used (N): <type (id), …> → <target name> (<target id>) · hit: <component name> (<component id>)` (the `→`/`hit` clauses only when a target was recorded) — deduplicating a `move` row against the moved bullet that already showed it.
 
 ## 8. Entry schema
 
@@ -131,7 +140,7 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
     "moved": [{                                  // with from→to and attribution
       "id": "ent-…", "name": "Rover",
       "fromRoom": "start_room", "toRoom": "right_room",
-      "fromXY": { "x": 0, "y": 0 }, "toXY": { "x": 25, "y": 25 },
+      "fromXY": { "x": 0, "y": 0 }, "toXY": { "x": 25.5, "y": 12.25 },  // truncated to 2 decimals (§8.1)
       "action": "move",                          // lastMoveAction, or null (not action-driven)
       "locomotion": [{ "type": "centralBall", "id": "comp-…" }], // ONLY the used components
       "attributionSource": "store"               // "store" | "heuristic"
@@ -145,6 +154,19 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
   "internal":   { "added": [], "removed": [] }           // item-inside-component
 }
 ```
+
+## 8.1 Why coordinates are truncated to two decimals ("00.00")
+
+The world keeps coordinates at full float precision internally, but a *perceived* coordinate is a display value, and a full-precision tail (`18.81000041279735`) is noise for every reader — the UI bullet and the NPC brain alike. So every coordinate the perception surface shows is **truncated to two decimal places (toward zero) and rendered with exactly two decimal digits**: `18.81000041279735 → 18.81`, `-6.795872605527817 → -6.79`, `300 → "300.00"`, `0 → "0.00"`. (Truncation, not rounding: the value is *cut* at the second decimal — `0.999 → 0.99`, never `1.00`.)
+
+The rule lives in one shared module (`shared/CoordFormat.js`: `truncateCoord` / `formatCoord` / `formatPosition`) and is applied at **two layers, both idempotent**:
+
+1. **Server, on the entry** — `PerceptionController._truncateEntryCoordinates` runs on every built entry (baseline or delta) before it reaches the ring buffer: it walks the row lists (`entities.moved` fromXY/toXY, `dropped`/`items` x/y, `actor` positions) and truncates each coordinate in place. This is why the agent/NPC JSON view (`GET /perception/agent/:id`) never carries a full-precision float.
+2. **Client, on the render** — `InTextPanel.formatPosition` (the single coordinate choke point of the panel: room line, entity rows, moved bullets, floor items, actor `@` positions, door edge points) formats through the same module, so whatever value arrives is always shown as `00.00`.
+
+It is a **display rule by construction, never a world rule**: the room snapshots the diff runs on keep full precision, the world state broadcast is untouched, and truncating an already-truncated value is a no-op — so the two layers can coexist without double-shifting. A float-noise guard keeps `0.29` (stored as `0.28999999999999998`) truncating to `0.29`, and `-0.00` is normalized to `0.00`. The one exception that stays out of scope: the event-log context line ("you: (2, -1)") is a separate, older surface and keeps its integer `Math.round`.
+
+**The display resolution is also the perceptual threshold** — the rule that kills the phantom move: a *"moved" row is only reported when the truncated coordinates differ* (entities and dropped items alike). Since a row prints its coordinates through the very same truncation, a moved row can never claim a move its own endpoints display as identical ("(35.85, -17.73) → (35.85, -17.73)") — a move no observer could see. The world side matches it (`SpatialConsequenceHandler`): a target within one display step (0.01 = `MIN_MOVEMENT_DISTANCE`) of the current position is a genuine no-op, a target within `speed` is **snapped exactly** to the target (the algebraic `x + (target - x)` never converges in floating point — the sum lands on a neighbouring double and successive corrections oscillate around the target by 1 ulp forever, which is exactly the "standing still but moved every round" loop), and both the perception-dirty mark and the move attribution fire only when the *stored* position actually changed. The feedback loop is broken at both ends: the panel stops printing phantom moves, and the NPC/LLM brain that was re-dashing at its own position every round (because its own perception told it it was moving) now sees "action performed, position unchanged" and converges.
 
 ## 9. API surface
 

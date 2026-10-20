@@ -375,3 +375,40 @@ describe('DeltaDiff — performed-action category shape (stable entry schema)', 
     });
 });
 
+describe('DeltaDiff — movement at the perceptual (display) resolution', () => {
+    it('sub-grid drift (identical "00.00" display) is NOT a moved row — the phantom-move bug', () => {
+        // The reported case: an entity dashed at its own position, its stored
+        // coordinate oscillated by ~1e-14 around the target, and perception
+        // claimed "(35.85, -17.73) → (35.85, -17.73)" as a move every round.
+        // Both values display identically → no observer could see a move.
+        const prev = makeSnapshot(10, makeEntity({ x: 35.85, y: -17.73 }));
+        const next = makeSnapshot(12, makeEntity({ x: 35.85000000000001, y: -17.73 }));
+        expect(movedRow(prev, next)).toBeNull();
+    });
+
+    it('a sub-grid drift on the y axis alone is not a moved row either', () => {
+        const prev = makeSnapshot(10, makeEntity({ x: 35.85, y: -17.73 }));
+        const next = makeSnapshot(12, makeEntity({ x: 35.85, y: -17.73000000000001 }));
+        expect(movedRow(prev, next)).toBeNull();
+    });
+
+    it('drift that crosses a display step IS a moved row (a real, visible move)', () => {
+        const prev = makeSnapshot(10, makeEntity({ x: 35.85, y: -17.73 }));
+        const next = makeSnapshot(12, makeEntity({ x: 35.86, y: -17.73 }));
+        const row = movedRow(prev, next);
+        expect(row).not.toBeNull();
+        expect(row.fromXY).toEqual({ x: 35.85, y: -17.73 });
+        expect(row.toXY).toEqual({ x: 35.86, y: -17.73 });
+    });
+
+    it('missing coordinates on both sides is not a moved row (both display "?")', () => {
+        const bare = (tick) => ({
+            roomId: 'room1',
+            tick,
+            entities: { e1: { id: 'e1', name: 'Bolt', location: 'room1', spatial: null, components: {} } }
+        });
+        const delta = diffRoomSnapshots(bare(10), bare(12), 12, 'room1');
+        expect(delta.entities.moved).toEqual([]);
+    });
+});
+

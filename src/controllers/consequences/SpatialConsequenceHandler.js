@@ -21,6 +21,17 @@
  * reliable seam.) Additive only: a small `{ action, tick, componentId }` field;
  * the entity's spatial values are untouched.
  *
+ * **Perceptual resolution:** both spatial entry points act at the observer's
+ * display resolution (0.01 — the "00.00" rule, shared/CoordFormat.js). The
+ * target path SNAPs exactly to the target when it is within `speed` (the
+ * algebraic form `x + (target - x)` does not converge in floating point —
+ * the addition lands on a neighbouring double and successive corrections
+ * oscillate around the target by 1 ulp forever, re-triggering a sub-pixel
+ * "move" every round), and a target closer than MIN_MOVEMENT_DISTANCE (= one
+ * display step) is a genuine no-op. Dirty marking and move attribution fire
+ * only when the *stored* position actually changed, never when only a
+ * non-zero delta was requested.
+ *
  * @module SpatialConsequenceHandler
  */
 
@@ -72,8 +83,18 @@ class SpatialConsequenceHandler {
 
     /**
      * Handles delta (relative) spatial movement for an entity.
-     * If targetX/targetY are provided in actionParams, normalizes movement direction
-     * toward the target, capped by the speed value.
+     * If targetX/targetY are provided in actionParams, normalizes movement
+     * direction toward the target, capped by the speed value: within
+     * MIN_MOVEMENT_DISTANCE of the target the call is a no-op (a sub-
+     * resolution move is invisible — the world does not perform what no
+     * observer could see), within `speed` the entity SNAPS exactly to the
+     * target (converging in one step — the algebraic `x + (target - x)`
+     * form oscillates by 1 ulp around the target and never settles), and
+     * beyond `speed` it moves exactly `speed` units toward the target.
+     * The room's perception-dirty mark and the move attribution are set only
+     * when the stored position actually changed, so repeated no-op calls
+     * (e.g. an agent re-dashing at its own position) never surface a
+     * phantom "moved" in the perception stream.
      *
      * @param {string} targetId - The entity ID to move (resolved from consequence target).
      * @param {Object} deltaUpdate - Object with x, y delta values and/or speed.
@@ -91,6 +112,9 @@ class SpatialConsequenceHandler {
         const speed = (typeof deltaUpdate.speed === 'number') ? deltaUpdate.speed : 0;
         let moveX = deltaUpdate.x || 0;
         let moveY = deltaUpdate.y || 0;
+        // The absolute position to apply — null means NO-OP (the position is
+        // left untouched, the room is not marked dirty, no move is credited).
+        let newSpatial = null;
 
         const actionParams = context?.actionParams;
         if (actionParams && actionParams.targetX !== undefined && actionParams.targetY !== undefined) {
@@ -98,29 +122,42 @@ class SpatialConsequenceHandler {
             const dy = actionParams.targetY - entity.spatial.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
             if (distance <= MIN_MOVEMENT_DISTANCE) {
+                // Sub-resolution target (one "00.00" display step): standing
+                // still is the honest outcome. (With the old zero guard, any
+                // 1e-14 residual would become a permanent micro-move.)
                 moveX = 0;
                 moveY = 0;
             } else if (distance <= speed) {
-                // Target is within movement range — move directly to the clicked position
-                moveX = dx;
-                moveY = dy;
+                // Target is within movement range — SNAP exactly to it. The
+                // old `moveX = dx; x += moveX` form never converged in float
+                // arithmetic (the sum lands on a neighbouring double, the next
+                // correction overshoots to the other side — an eternal ±1 ulp
+                // oscillation that perception reported as "moved" every round
+                // with identical from/to coordinates).
+                newSpatial = { x: actionParams.targetX, y: actionParams.targetY };
             } else {
                 // Target is beyond range — move exactly `speed` units toward it
                 moveX = (dx / distance) * speed;
                 moveY = (dy / distance) * speed;
             }
         }
+        if (newSpatial === null && (moveX !== 0 || moveY !== 0)) {
+            newSpatial = { x: entity.spatial.x + moveX, y: entity.spatial.y + moveY };
+        }
 
-        const success = wsc.stateEntityController.updateEntitySpatial(
-            targetId,
-            { x: entity.spatial.x + moveX, y: entity.spatial.y + moveY }
-        );
+        const spatialBefore = { x: entity.spatial.x, y: entity.spatial.y };
+        let success = true;
+        if (newSpatial !== null) {
+            success = wsc.stateEntityController.updateEntitySpatial(targetId, newSpatial);
+        }
 
-        // An action that produced a *non-zero* position change is the one we credit
-        // the move to. A zero-delta (clamped to the wall / within the min distance)
-        // is not a change, so we skip attribution — this guarantees a stale
-        // `lastMoveAction` can never credit a move that never happened.
-        if (success && (moveX !== 0 || moveY !== 0)) {
+        // An action is credited with the move — and the room marked
+        // perception-dirty — only when the STORED position actually changed.
+        // A requested non-zero delta that float arithmetic cancels (or a
+        // sub-resolution no-op) is not a change, so it never wakes the
+        // perception stream: a stale `lastMoveAction` can never credit a move
+        // that never happened, and a phantom "moved" row can never be born.
+        if (success && spatialChanged(spatialBefore, newSpatial ?? spatialBefore)) {
             // Perception: an in-place spatial reposition is a room state change the
             // observer must be told about. Room moves (moveEntity) already mark both
             // rooms dirty; the in-place `updateEntitySpatial()` path did not — a gap

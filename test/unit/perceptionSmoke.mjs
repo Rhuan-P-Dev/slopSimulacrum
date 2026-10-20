@@ -11,6 +11,7 @@
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
+import { truncateCoord } from '../../shared/CoordFormat.js';
 
 let passed = 0;
 let failed = 0;
@@ -291,6 +292,147 @@ if (actionSucceeded) {
     console.log(`  [PASS] executed "${actionName}" surfaced once with only its used components`);
 } else {
     console.log('  [SKIP] no action executable by this blueprint in the smoke world (action path not exercised)');
+}
+
+// ---------------------------------------------------------------------------
+// 11. Coordinate truncation — every coordinate an entry ships is truncated to
+//     2 decimals (the "00.00" perception display rule), in BOTH the room view
+//     and the agent view. Property-based: a value is "truncated" when it
+//     equals its own truncation (idempotent), whatever the spatial handler
+//     computed for the target.
+// ---------------------------------------------------------------------------
+console.log('\n[11] Coordinate truncation (expect: 2-decimal coords in room + agent views)');
+const truncMove = wsc.executeAction('move', e2, { targetX: 18.81000041279735, targetY: -6.795872605527817 });
+if (truncMove?.success) {
+    const isTruncated = (v) => Number.isFinite(v) && v === truncateCoord(v);
+    const checkEntry = (entry, label) => {
+        const rows = [
+            ...(entry?.entities?.moved ?? []),
+            ...(entry?.dropped?.added ?? []),
+            ...(entry?.dropped?.removed ?? []),
+            ...(entry?.dropped?.moved ?? []),
+            ...(entry?.items?.added ?? []),
+            ...(entry?.items?.removed ?? [])
+        ];
+        let checked = 0;
+        for (const row of rows) {
+            for (const f of ['x', 'y']) {
+                if (row?.[f] != null) {
+                    assert(isTruncated(row[f]), `${label}: row ${f}=${row[f]} truncated to 2 decimals`);
+                    checked++;
+                }
+            }
+            for (const pt of [row?.fromXY, row?.toXY, row?.spatial, row?.actor]) {
+                if (pt?.x != null) {
+                    assert(isTruncated(pt.x), `${label}: point.x=${pt.x} truncated to 2 decimals`);
+                    checked++;
+                }
+                if (pt?.y != null) {
+                    assert(isTruncated(pt.y), `${label}: point.y=${pt.y} truncated to 2 decimals`);
+                    checked++;
+                }
+            }
+        }
+        return checked;
+    };
+    const roomEntry = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    const movedRow = (roomEntry?.entities?.moved ?? []).find((r) => r?.id === e2) ?? roomEntry?.entities?.moved?.[0];
+    assert(Boolean(movedRow), 'the move surfaced a moved row in the room view');
+    if (movedRow?.toXY) {
+        console.log(`  (moved ${movedRow?.name ?? e2}: from ${JSON.stringify(movedRow.fromXY)} → to ${JSON.stringify(movedRow.toXY)})`);
+    }
+    const nRoom = checkEntry(roomEntry, 'room view');
+    assert(nRoom > 0, 'the room entry carried coordinates to check');
+    // The agent (NPC/LLM) view carries the same truncated coordinates.
+    const agentDeltas = wsc.getAgentPerception(e2, { limit: 10 }) ?? [];
+    const agentEntry = agentDeltas.find((d) => d === roomEntry) ?? lastEntry(agentDeltas);
+    const nAgent = checkEntry(agentEntry, 'agent view');
+    assert(nAgent > 0, 'the agent view carried the same coordinates');
+    const agentMoved = (agentEntry?.entities?.moved ?? []).find((r) => r?.id === e2);
+    assert(
+        Boolean(agentMoved) && JSON.stringify(agentMoved.toXY) === JSON.stringify(movedRow?.toXY),
+        'agent view toXY === room view toXY (both truncated, never full precision)'
+    );
+} else {
+    console.log(`  [SKIP] move not executable for this blueprint (${truncMove?.error ?? 'no result'}) — truncation property not exercised`);
+}
+
+// ---------------------------------------------------------------------------
+// [12] Sub-resolution re-target (expect: NO moved row — the phantom-move bug)
+// ---------------------------------------------------------------------------
+console.log('\n[12] Sub-resolution re-target (expect: no moved row — the phantom-move bug)');
+if (truncMove?.success) {
+    const pos = wsc.stateEntityController?.getEntity?.(e2)?.spatial;
+    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+        // The reported bug: an agent brain re-dashes at a target within one
+        // display step (0.01) of its own position. Old behavior: `x +
+        // (target - x)` oscillated by 1 ulp, and the strict-float diff then
+        // claimed a "moved" row with identical from/to coordinates every round.
+        const entryBefore = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+        const target = { targetX: pos.x + 1e-9, targetY: pos.y };
+        const r1 = wsc.executeAction('move', e2, target);
+        const r2 = wsc.executeAction('move', e2, target); // same target again
+        const posAfter = wsc.stateEntityController?.getEntity?.(e2)?.spatial;
+        assert(r1?.success && r2?.success, 'the action executed (it was accepted)');
+        assert(
+            posAfter?.x === pos.x && posAfter?.y === pos.y,
+            'sub-resolution target is a no-op: the stored position never drifts'
+        );
+        const entryAfter = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+        if (entryAfter !== entryBefore) {
+            // An entry flushed anyway (the action is recorded in actions.performed —
+            // that part is honest: the move WAS performed). It must carry no
+            // "moved" row for e2.
+            const movedRows = (entryAfter?.entities?.moved ?? []).filter((r) => r?.id === e2);
+            assert(movedRows.length === 0, 'flushed entry carries no moved row for e2 (phantom move is gone)');
+        } else {
+            assert(true, 'nothing flushed at all — the no-op never woke the room');
+        }
+    } else {
+        console.log('  [SKIP] entity has no spatial data — sub-resolution case not exercised');
+    }
+} else {
+    console.log('  [SKIP] move not executable for this blueprint — sub-resolution case not exercised');
+}
+
+// ---------------------------------------------------------------------------
+// [13] Punch a tree (expect: the performed row names WHO was acted upon and
+//      WHICH component was hit — target attribution end-to-end: the dispatcher
+//      records the target at the choke point, perception resolves display names
+//      against the current world, and the agent view carries the same fields).
+// ---------------------------------------------------------------------------
+console.log('\n[13] Punch a tree (expect: performed row with target entity + hit component)');
+const puncher = wsc.spawnEntity('m1Droid', startRoomId);
+const tree = wsc.spawnEntity('tree', startRoomId);
+if (puncher && tree) {
+    const treeEnt = wsc.stateEntityController.getEntity(tree);
+    const treeComp = treeEnt?.components?.[0] ?? null;
+    // Close the punch range (100) by moving the droid onto the tree's spot.
+    wsc.executeAction('move', puncher, {
+        targetX: treeEnt?.spatial?.x ?? 0,
+        targetY: treeEnt?.spatial?.y ?? 0
+    });
+    const punch = wsc.executeAction('droid punch', puncher, {
+        targetEntityId: tree,
+        targetComponentId: treeComp?.id ?? null
+    });
+    assert(punch?.success, `the punch executed (${punch?.success ? 'strength requirement met' : punch?.error ?? 'no result'})`);
+    const entry = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    const row = (entry?.actions?.performed ?? []).find((r) => r?.entity === puncher && r?.action === 'droid punch');
+    assert(Boolean(row), 'the punch surfaced a performed row');
+    if (row) {
+        assert(row.target?.id === tree, 'the row names the target entity (the tree)');
+        assert(Boolean(row.target?.name), `the target carries a display name (${row.target?.name})`);
+        assert(!treeComp?.id || row.target?.componentId === treeComp.id, 'the row names the component that was hit');
+        assert(Boolean(row.target?.componentName), `the hit component carries a display name (${row.target?.componentName})`);
+        assert(row.used?.length > 0, 'the row lists the components that powered the punch');
+    }
+    // The agent (NPC/LLM) view carries the identical target attribution.
+    const agentEntry = lastEntry(wsc.getAgentPerception(puncher, { limit: 10 }));
+    const aRow = (agentEntry?.actions?.performed ?? []).find((r) => r?.entity === puncher && r?.action === 'droid punch');
+    assert(aRow && JSON.stringify(aRow.target) === JSON.stringify(row?.target), 'agent view carries the same target attribution');
+} else {
+    console.log('  [SKIP] m1Droid/tree blueprint unavailable in this world');
 }
 
 // ---------------------------------------------------------------------------

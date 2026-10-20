@@ -1,7 +1,8 @@
 /**
  * ActionAttributionStore — a generic, action-agnostic per-entity store that
- * records, for every action executed on an entity, *which components powered it*
- * and *how many*.
+ * records, for every action executed on an entity, *which components powered it*,
+ * *how many*, and *who it was directed at* (the target entity / component, when
+ * the action has one — the victim of a punch, the object a tool was used on).
  *
  * Reusability / separation of concerns:
  *   - This module knows nothing about specific actions, component types, or the
@@ -41,6 +42,12 @@
  *   not necessarily used — e.g. all four legs of a droid during a move).
  *   Metadata only: never claimed as the "used" set.
  * @property {Object?} requirementValues
+ * @property {{entityId?: string|null, componentId?: string|null}|null} [target] -
+ *   The action's target, when it has one: the entity acted upon and/or the
+ *   specific component that was hit. IDs only — display names are resolved by
+ *   the consumer (perception) against the current world, so the store stays a
+ *   pure data store. Null for actions with no entity/component target (e.g.
+ *   spatial moves).
  * @property {number} timestamp - Monotonic write timestamp (ms); drives "most
  *   recent" when `get(entityId)` is called without an action name.
  */
@@ -98,6 +105,7 @@ export default class ActionAttributionStore {
             count: ids.length,
             fulfillment: payload?.fulfillment ?? null,
             requirementValues: payload?.requirementValues ?? null,
+            target: this._normalizeTarget(payload?.target),
             timestamp: Date.now(),
         };
         perEntity.set(actionName, record);
@@ -225,5 +233,22 @@ export default class ActionAttributionStore {
             out.push(s);
         }
         return out;
+    }
+
+    /**
+     * Normalizes a target payload to `{ entityId, componentId }` (each field a
+     * non-empty string or null), or null when nothing usable was provided —
+     * an action with no entity/component target (e.g. a spatial move) simply
+     * records `target: null` rather than an empty object.
+     *
+     * @param {{entityId?: unknown, componentId?: unknown}|null|undefined} [target]
+     * @returns {{entityId: string|null, componentId: string|null}|null}
+     */
+    _normalizeTarget(target) {
+        if (!target || typeof target !== 'object') return null;
+        const entityId = typeof target.entityId === 'string' && target.entityId !== '' ? target.entityId : null;
+        const componentId = typeof target.componentId === 'string' && target.componentId !== '' ? target.componentId : null;
+        if (!entityId && !componentId) return null;
+        return { entityId, componentId };
     }
 }

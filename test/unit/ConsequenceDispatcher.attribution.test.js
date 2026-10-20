@@ -302,3 +302,98 @@ describe('ConsequenceDispatcher — generic attribution recording', () => {
         expect(store.record).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('ConsequenceDispatcher — action-target attribution (who was acted upon)', () => {
+    it('execute() records the explicit target entity + hit component (punch on a named victim)', () => {
+        const dispatcher = makeDispatcher();
+        const store = { record: vi.fn() };
+        dispatcher.setActionAttributionStore(store);
+
+        dispatcher.execute(
+            'punch',
+            'ent-attacker',
+            { 'Physical.strength': 40 },
+            { targetEntityId: 'ent-victim', targetComponentId: 'comp-v1' },
+            { 'Physical.strength': 'c-fist' },
+            null,
+            'c-fist',
+            { explicitIds: ['c-fist'] }
+        );
+
+        expect(store.record).toHaveBeenCalledWith('ent-attacker', 'punch', expect.objectContaining({
+            target: { entityId: 'ent-victim', componentId: 'comp-v1' }
+        }));
+    });
+
+    it('execute() component-only call: the target entity is resolved from the component owner', () => {
+        const dispatcher = makeDispatcher();
+        const store = { record: vi.fn() };
+        dispatcher.setActionAttributionStore(store);
+        // Component-targeted calls may name ONLY the component: the dispatcher
+        // must resolve the owning entity itself (WSC.getComponent attaches it).
+        dispatcher.worldStateController.getComponent = vi.fn().mockReturnValue({
+            id: 'comp-v1', type: 'centralBall', entityId: 'ent-owner'
+        });
+
+        dispatcher.execute(
+            'punch',
+            'ent-attacker',
+            { 'Physical.strength': 40 },
+            { targetComponentId: 'comp-v1' },
+            { 'Physical.strength': 'c-fist' },
+            null,
+            'c-fist',
+            null
+        );
+
+        expect(dispatcher.worldStateController.getComponent).toHaveBeenCalledWith('comp-v1');
+        expect(store.record).toHaveBeenCalledWith('ent-attacker', 'punch', expect.objectContaining({
+            target: { entityId: 'ent-owner', componentId: 'comp-v1' }
+        }));
+    });
+
+    it('execute() unresolvable component: the entity degrades to null (never a wrong owner)', () => {
+        const dispatcher = makeDispatcher();
+        const store = { record: vi.fn() };
+        dispatcher.setActionAttributionStore(store);
+        dispatcher.worldStateController.getComponent = vi.fn().mockReturnValue(null);
+
+        dispatcher.execute(
+            'punch',
+            'ent-attacker',
+            { 'Physical.strength': 40 },
+            { targetComponentId: 'comp-gone' },
+            null,
+            null,
+            null,
+            null
+        );
+
+        expect(store.record).toHaveBeenCalledWith('ent-attacker', 'punch', expect.objectContaining({
+            target: { entityId: null, componentId: 'comp-gone' }
+        }));
+    });
+
+    it('execute() spatial action (targetX/targetY): no target is recorded', () => {
+        const dispatcher = makeDispatcher();
+        const store = { record: vi.fn() };
+        dispatcher.setActionAttributionStore(store);
+
+        dispatcher.execute('move', 'ent-1', { 'Movement.move': 20 }, { targetX: 1, targetY: 2 }, null, null, null, null);
+
+        expect(store.record).toHaveBeenCalledWith('ent-1', 'move', expect.objectContaining({ target: null }));
+    });
+
+    it('executeMultiAttacker() records the target alongside the full attacker set', () => {
+        const dispatcher = makeDispatcher();
+        const store = { record: vi.fn() };
+        dispatcher.setActionAttributionStore(store);
+
+        dispatcher.executeMultiAttacker('punch', 'ent-attacker', ['c-fist-L', 'c-fist-R'], { targetEntityId: 'ent-victim' });
+
+        expect(store.record).toHaveBeenCalledWith('ent-attacker', 'punch', expect.objectContaining({
+            ids: ['c-fist-L', 'c-fist-R'],
+            target: { entityId: 'ent-victim', componentId: null }
+        }));
+    });
+});

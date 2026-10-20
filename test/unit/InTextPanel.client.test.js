@@ -239,9 +239,9 @@ function noFetch() {
 describe('InTextPanel — pure formatters', () => {
     it('formatPosition renders (x, y)', () => {
         const p = new InTextPanel();
-        expect(p.formatPosition(3, -4)).toBe('(3, -4)');
-        expect(p.formatPosition(0, 0)).toBe('(0, 0)');
-        expect(p.formatPosition(undefined, 2)).toBe('(?, 2)');
+        expect(p.formatPosition(3, -4)).toBe('(3.00, -4.00)');
+        expect(p.formatPosition(0, 0)).toBe('(0.00, 0.00)');
+        expect(p.formatPosition(undefined, 2)).toBe('(?, 2.00)');
     });
 
     it('formatExistencePercent treats the 0-1 store as percent (clamped)', () => {
@@ -273,9 +273,9 @@ describe('InTextPanel — pure formatters', () => {
         };
         // 300x200 room at the origin, neighbor at (400, 250): the connection
         // exits the right edge at (300, 190) — same point the map draws from
-        expect(p.formatDoor('right_door', { target: 'r2' }, room, rooms)).toBe('right_door (300, 190) → Corridor');
+        expect(p.formatDoor('right_door', { target: 'r2' }, room, rooms)).toBe('right_door (300.00, 190.00) → Corridor');
         // Legacy string target resolves the same way, coordinates still apply
-        expect(p.formatDoor('door', 'r2', room, rooms)).toBe('door (300, 190) → Corridor');
+        expect(p.formatDoor('door', 'r2', room, rooms)).toBe('door (300.00, 190.00) → Corridor');
         // Unknown target → no coordinate, degrades to the raw id
         expect(p.formatDoor('door', 'missing', room, rooms)).toBe('door → missing');
         // Incomplete geometry (source room or target room) → no coordinate
@@ -302,7 +302,7 @@ describe('InTextPanel — pure formatters', () => {
         const comps = { c1: { Physical: { existence: 0.9 } }, c2: { Physical: { existence: 0.5 } } };
         const me = p.formatEntity(entityMe, comps, 'me');
         expect(me.line).toContain('YOU');
-        expect(me.line).toContain('(1, 2) Player');
+        expect(me.line).toContain('(1.00, 2.00) Player');
         expect(me.components).toBe('arm 90%');
         const npc = p.formatEntity(entityNpc, comps, 'me');
         expect(npc.line).toContain('NPC');
@@ -431,10 +431,10 @@ describe('InTextPanel — pure formatters', () => {
         });
         expect(out).toContain('+ Knife (item) · id i1');
         expect(out).toContain('− Power Cell (item) · id i2');
-        expect(out).toContain('+ Wood chunk (dropped) · id d1 (10, 20)');
-        expect(out).toContain('− Metal chunk (dropped) · id d2 (5, 10)');
+        expect(out).toContain('+ Wood chunk (dropped) · id d1 (10.00, 20.00)');
+        expect(out).toContain('− Metal chunk (dropped) · id d2 (5.00, 10.00)');
         // a moved dropped item shows its *new* position (toXY)
-        expect(out).toContain('↔ Knife (dropped) · id d3 (5, 5)');
+        expect(out).toContain('↔ Knife (dropped) · id d3 (5.00, 5.00)');
         expect(out).toContain('+ Toolkit (equipped) · id e1');
         expect(out).toContain('− Knife (equipped) · id e2');
         // held/equipped items have no floor position (they live in a slot).
@@ -477,13 +477,13 @@ describe('InTextPanel — pure formatters', () => {
                 removed: [{ id: 'e2', itemType: 'knife', name: 'Knife', actor: { id: 'e-bob', name: 'Bob' } }]
             }
         });
-        expect(out).toContain('+ Coal (item) · id i1 · gained by John (id e-john) @ (-2, 3) in The Entrance Hall');
-        expect(out).toContain('− Coal (item) · id i2 removed from John (id e-john) @ (-2, 3) in The Entrance Hall');
-        expect(out).toContain('+ Toolkit (equipped) · id e1 · equipped by Bob (id e-bob) @ (10, 20) in The Entrance Hall');
+        expect(out).toContain('+ Coal (item) · id i1 · gained by John (id e-john) @ (-2.00, 3.00) in The Entrance Hall');
+        expect(out).toContain('− Coal (item) · id i2 removed from John (id e-john) @ (-2.00, 3.00) in The Entrance Hall');
+        expect(out).toContain('+ Toolkit (equipped) · id e1 · equipped by Bob (id e-bob) @ (10.00, 20.00) in The Entrance Hall');
         expect(out).toContain('− Knife (equipped) · id e2 · unequipped by Bob (id e-bob) in The Entrance Hall');
-        expect(out).toContain('+ Knife (dropped) · id d1 (-84, 0.5) · dropped by Knife Generator (id e-generator) @ (-84, 0.5) in The Entrance Hall');
-        expect(out).toContain('− Knife (dropped) · id d2 · from Jane (id e-jane) @ (5, 6) in The Entrance Hall');
-        expect(out).toContain('↔ Knife (dropped) · id d3 (5, 5) · owned by Jane (id e-jane) @ (5, 6) in The Entrance Hall');
+        expect(out).toContain('+ Knife (dropped) · id d1 (-84.00, 0.50) · dropped by Knife Generator (id e-generator) @ (-84.00, 0.50) in The Entrance Hall');
+        expect(out).toContain('− Knife (dropped) · id d2 · from Jane (id e-jane) @ (5.00, 6.00) in The Entrance Hall');
+        expect(out).toContain('↔ Knife (dropped) · id d3 (5.00, 5.00) · owned by Jane (id e-jane) @ (5.00, 6.00) in The Entrance Hall');
         // no actor -> attribution omitted; never renders "by undefined"
         const noActor = p.formatPerceptionEntry({
             tick: 20,
@@ -511,7 +511,7 @@ describe('InTextPanel — pure formatters', () => {
         // name falls back to the id -> the line reads "removed from
         // ent-abc123" once (no trailing "(id …)"); the item-removal verb also
         // loses the leading "· " separator so it flows as one phrase.
-        expect(out).toContain('− Coal (item) · id i7 removed from ent-abc123 @ (0, 0)');
+        expect(out).toContain('− Coal (item) · id i7 removed from ent-abc123 @ (0.00, 0.00)');
         expect(out).not.toContain('ent-abc123 (id ent-abc123)');
         expect(out).not.toContain('undefined');
     });
@@ -566,7 +566,7 @@ describe('InTextPanel — pure formatters', () => {
         });
         expect(out).toContain('Bolt');
         expect(out).toContain('(id e1)');
-        expect(out).toContain('(0, 0) → (10, 5)');
+        expect(out).toContain('(0.00, 0.00) → (10.00, 5.00)');
         expect(out).toContain('· action: move');
         // Store-sourced → authoritative "used to execute" with the COUNT (QUANTOS).
         expect(out).toContain("used to execute the action 'move' (1):");
@@ -748,6 +748,65 @@ describe('InTextPanel — pure formatters', () => {
         expect(out).not.toContain('c-arm-R');
     });
 
+    it('formatPerceptionEntry: a performed action shows WHO was acted upon and WHICH component was hit', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            actions: {
+                performed: [{
+                    entity: 'ent-att',
+                    name: 'Droid',
+                    action: 'droid punch',
+                    used: [{ type: 'm1ArticulatedHand', id: 'c-hand-1' }],
+                    target: {
+                        id: 'ent-tree',
+                        name: 'Tree',
+                        componentId: 'comp-trunk-1',
+                        componentName: 'Tree'
+                    },
+                    source: 'store'
+                }]
+            }
+        });
+        expect(out).toContain('⚔ Droid · action: droid punch');
+        expect(out).toContain('used (1): m1ArticulatedHand (c-hand-1)');
+        expect(out).toContain('→ Tree (ent-tree)');
+        expect(out).toContain('· hit: Tree (comp-trunk-1)');
+    });
+
+    it('formatPerceptionEntry: a punch whose target lost its name degrades to the id (never a fabricated name)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            actions: {
+                performed: [{
+                    entity: 'ent-att',
+                    name: 'Droid',
+                    action: 'droid punch',
+                    used: [{ type: 'm1ArticulatedHand', id: 'c-hand-1' }],
+                    target: { id: 'ent-gone', name: null, componentId: null, componentName: null },
+                    source: 'store'
+                }]
+            }
+        });
+        expect(out).toContain('→ ent-gone');
+        // No hit clause when no component was recorded.
+        expect(out).not.toContain('hit:');
+    });
+
+    it('formatPerceptionEntry: a performed action without a target (spatial move) shows no target clause', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 1,
+            actions: { performed: [{ entity: 'ent-9', name: 'Bolt', action: 'spin', used: [], target: null, source: 'store' }] }
+        });
+        expect(out).toContain('⚔ Bolt · action: spin');
+        expect(out).not.toContain('→');
+    });
+
     it('formatPerceptionEntry: a performed action without recorded components claims none (no overclaim)', () => {
         const p = new InTextPanel();
         const out = p.formatPerceptionEntry({
@@ -867,12 +926,12 @@ describe('InTextPanel — full render (fake DOM)', () => {
         const html = content.innerHTML;
         // Room
         expect(html).toContain('The Entrance Hall');
-        expect(html).toContain('(0, 0)');
+        expect(html).toContain('(0.00, 0.00)');
         expect(html).toContain('300 × 200');
         expect(html).toContain('A dimly lit hall.');
         // Doors — room-relative exit point (300x200 room at origin, neighbor
         // at (400, 250) → right edge at (300, 190))
-        expect(html).toContain('right_door (300, 190) → The Eastern Corridor');
+        expect(html).toContain('right_door (300.00, 190.00) → The Eastern Corridor');
         // Droids (room-only — the far-room entity is excluded)
         expect(html).toContain('Player Droid');
         expect(html).toContain('YOU');

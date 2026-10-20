@@ -124,4 +124,30 @@ describe('ActionAttributionStore — generic per-entity attribution', () => {
         store.reset();
         expect(store.get('ent-2', 'move')).toBeNull();
     });
+
+    it('record() normalizes the target (entity/component ids only; null when absent)', () => {
+        const store = new ActionAttributionStore();
+
+        // Both fields: kept verbatim (ids only — display names are the reader's job).
+        const both = store.record('ent-1', 'punch', {
+            ids: ['c-fist'],
+            target: { entityId: 'ent-victim', componentId: 'comp-v1' }
+        });
+        expect(both.target).toEqual({ entityId: 'ent-victim', componentId: 'comp-v1' });
+
+        // Entity-only (entity-targeted action) — componentId stays null.
+        const entOnly = store.record('ent-2', 'push', { target: { entityId: 'ent-v2', componentId: null } });
+        expect(entOnly.target).toEqual({ entityId: 'ent-v2', componentId: null });
+
+        // Component-only (component-targeted action) — entityId stays null.
+        const compOnly = store.record('ent-3', 'punch', { target: { entityId: null, componentId: 'comp-v3' } });
+        expect(compOnly.target).toEqual({ entityId: null, componentId: 'comp-v3' });
+
+        // Nothing usable → null (not an empty object): null payload and empty strings.
+        expect(store.record('ent-4', 'move', { target: null }).target).toBeNull();
+        expect(store.record('ent-5', 'move', { target: { entityId: '', componentId: '' } }).target).toBeNull();
+
+        // Garbage field types degrade away, never stored verbatim.
+        expect(store.record('ent-6', 'punch', { target: { entityId: 42, componentId: { a: 1 } } }).target).toBeNull();
+    });
 });

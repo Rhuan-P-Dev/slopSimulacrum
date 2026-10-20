@@ -52,6 +52,14 @@
  * never a re-derived guess. A row for an action with no recorded components
  * shows the action with an empty used list, so the surface never overclaims.
  *
+ * **Coordinate display rule ("00.00"):** every coordinate an entry ships
+ * (moved fromXY/toXY, dropped/item x/y, actor positions) is truncated to two
+ * decimal places at build time (shared/CoordFormat.js) — a display concern
+ * applied to the *artifact only*: the room snapshots (the diff input) keep
+ * full precision, and the client's InTextPanel re-applies the same rule via
+ * formatPosition (idempotent). The agent/NPC JSON view therefore never shows
+ * full-precision floats either.
+ *
  * **Dependency direction (architecture rule):** this controller receives
  * everything from the root controller (WorldStateController) through its
  * *public API* — no internal state is read. The root controller marks rooms
@@ -69,6 +77,8 @@ import EventRingBuffer from '../../utils/EventRingBuffer.js';
 import { PERCEPTION_MAX_LIMIT, PERCEPTION_RECENT_LIMIT } from '../../utils/Constants.js';
 import { diffRoomSnapshots, buildBaselineEntry, hasDeltaChanges } from '../../utils/DeltaDiff.js';
 import { buildDeltaSummary } from '../../utils/DeltaSummary.js';
+import { truncateCoord } from '../../../shared/CoordFormat.js';
+import { componentTypeName } from '../../utils/ComponentNaming.js';
 
 class PerceptionController {
     constructor() {
@@ -352,6 +362,11 @@ class PerceptionController {
         entry.roomName = this._roomName(roomId);
         // fill the summary (pure, in DeltaSummary.js)
         entry.summary = buildDeltaSummary(entry, entry.roomName);
+        // Apply the perception display rule to every coordinate the entry
+        // ships (truncated to 2 decimals — "00.00"): the agent/NPC JSON view
+        // and the client both consume the entry, so neither may see a
+        // full-precision float. Display-only: the snapshots stay full precision.
+        this._truncateEntryCoordinates(entry);
         if (hasDeltaChanges(entry)) {
             return entry;
         }
@@ -484,6 +499,52 @@ class PerceptionController {
     }
 
     /**
+     * Applies the perception coordinate display rule ("00.00") to every
+     * coordinate the entry ships: truncate (toward zero) to two decimal
+     * places, in place. The entry is the per-flush *artifact* both readers
+     * consume (the InText panel via the room stream, the NPC/LLM brains via
+     * the agent JSON view) — neither may see a full-precision float. This is
+     * display-only by construction: it runs on the entry, never on the room
+     * snapshots (the diff input keeps full precision), and truncation is
+     * idempotent, so the client's formatPosition re-applying the same rule
+     * later is a no-op. Defensive by design: every list/field is optional —
+     * a shape change upstream degrades to "keep as is", never a crash.
+     *
+     * @private
+     * @param {object} entry - the entry just built (baseline or delta)
+     */
+    _truncateEntryCoordinates(entry) {
+        if (!entry || typeof entry !== 'object') return;
+        const fixPoint = (p) => {
+            if (!p || typeof p !== 'object') return;
+            if (p.x != null) p.x = truncateCoord(p.x);
+            if (p.y != null) p.y = truncateCoord(p.y);
+        };
+        const fixRow = (row) => {
+            if (!row || typeof row !== 'object') return;
+            if (row.x != null) row.x = truncateCoord(row.x);
+            if (row.y != null) row.y = truncateCoord(row.y);
+            fixPoint(row.fromXY);
+            fixPoint(row.toXY);
+            fixPoint(row.spatial);
+            fixPoint(row.actor);
+        };
+        const lists = [
+            ...(entry.entities?.moved ?? []),
+            ...(entry.entities?.appeared ?? []),
+            ...(entry.entities?.despawned ?? []),
+            ...(entry.items?.added ?? []),
+            ...(entry.items?.removed ?? []),
+            ...(entry.dropped?.added ?? []),
+            ...(entry.dropped?.removed ?? []),
+            ...(entry.dropped?.moved ?? []),
+            ...(entry.equipped?.added ?? []),
+            ...(entry.equipped?.removed ?? [])
+        ];
+        for (const row of lists) fixRow(row);
+    }
+
+    /**
      * Fills `entry.actions.performed`: one row per *distinct* action the
      * room's entities most recently performed since that entity's last
      * surfacing (per-entity cursor `_lastActionSeen`, keyed by the attribution
@@ -498,6 +559,11 @@ class PerceptionController {
      * component ids are resolved against the *current* snapshot for their
      * type; an id that no longer resolves (component broken/removed since the
      * action) is still listed, with `type: null`.
+     *
+     * Each row also carries the recorded TARGET (when the action had one):
+     * `{ id, name, componentId, componentName }` — who was acted upon and which
+     * component of it was hit, resolved against the current world by
+     * `_resolvePerceivedTarget` (ids only live in the store).
      *
      * The cursor advances per entity when the room flushes, so each record is
      * surfaced at most once — in the room the entity stands in when the flush
@@ -540,6 +606,7 @@ class PerceptionController {
                     name: snap?.name ?? entityId,
                     action: actionName,
                     used,
+                    target: this._resolvePerceivedTarget(record?.target, current),
                     tick: record?.tick ?? null,
                     source: 'store'
                 });
@@ -548,6 +615,50 @@ class PerceptionController {
         }
         entry.actions = { performed };
         entry.counts.actions = performed.length;
+    }
+
+    /**
+     * Resolves a recorded action target (the ids the attribution store kept)
+     * into display fields for the performed row: `{ id, name, componentId,
+     * componentName }`, or null when the action had no entity/component target
+     * (spatial actions) or nothing is usable.
+     *
+     * Names are resolved HERE, at flush time, against the current world — they
+     * are never stored: the attribution store keeps ids only, so a renamed
+     * entity/component always renders with its current name, and a destroyed
+     * target degrades to ids (or null) instead of stale text. The target
+     * entity is preferred from this room's snapshot (a punched target is
+     * same-room by the action's range gate); the live facade is the fallback
+     * for the rare cross-room / already-moved case. The hit component's name
+     * comes from the shared ComponentNaming source — the same recipe table the
+     * combat log phrases use — so the row and the log never disagree.
+     *
+     * @private
+     * @param {{entityId?: string|null, componentId?: string|null}|null|undefined} target - the store record's target (ids only)
+     * @param {import('../../utils/DeltaDiff.js').RoomSnapshot} current - the room snapshot just read
+     * @returns {{id: string|null, name: string|null, componentId: string|null, componentName: string|null}|null}
+     */
+    _resolvePerceivedTarget(target, current) {
+        if (!target || (target.entityId == null && target.componentId == null)) return null;
+        const out = {
+            id: typeof target.entityId === 'string' ? target.entityId : null,
+            name: null,
+            componentId: typeof target.componentId === 'string' ? target.componentId : null,
+            componentName: null
+        };
+        if (out.id) {
+            const live = current?.entities?.[out.id] ?? this._facade?.getEntity?.(out.id) ?? null;
+            const name = live?.name;
+            out.name = typeof name === 'string' && name.trim() !== '' ? name.trim() : null;
+        }
+        if (out.componentId) {
+            const comp = current?.entities?.[out.id]?.components?.[out.componentId]
+                ?? this._facade?.getComponent?.(out.componentId)
+                ?? null;
+            out.componentName = componentTypeName(comp?.type ?? null);
+        }
+        if (out.id == null && out.componentId == null) return null;
+        return out;
     }
 
     _currentTick() {

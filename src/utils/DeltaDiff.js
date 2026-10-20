@@ -24,6 +24,7 @@
  */
 
 import { TRAIT_GROUPS, STAT_NAMES } from '../../shared/StatVocabulary.js';
+import { truncateCoord } from '../../shared/CoordFormat.js';
 
 /**
  * Shape of a perception snapshot (internal to PerceptionController + this module).
@@ -148,7 +149,15 @@ function diffEntities(prevEntities, nextEntities, attributionResolver = null) {
         const prevLocation = prev.location ?? null;
         const nextLocation = next.location ?? null;
         // A move: a room change (coarser, higher-signal) and/or a spatial
-        // reposition. Credit the action that caused it (set on the entity as
+        // reposition that is VISIBLE at the display resolution (0.01 — the
+        // "00.00" rule, shared/CoordFormat.js). The comparison uses the same
+        // truncation as the display, so a moved row can never claim what it
+        // cannot show: a strict float `!==` would report sub-grid drift (e.g.
+        // a ±1 ulp oscillation around a dash target) as a "move" whose
+        // from/to coordinates print identically — "(35.85, -17.73) →
+        // (35.85, -17.73)" — a move no observer could see, which fed back
+        // into agent brains that re-dashed every round to "keep moving".
+        // Credit the action that caused it (set on the entity as
         // `lastMoveAction` by the spatial consequence handler at move time —
         // the event log only carries free-text "turn" lines, which cannot be
         // matched back to an entity). Name the components that *powered the
@@ -160,10 +169,10 @@ function diffEntities(prevEntities, nextEntities, attributionResolver = null) {
         // (every component that grants a positive `Movement.move`). Room change and
         // spatial change are mutually reinforcing, so one entry covers both (the
         // two former branches pushed identical rows).
-        if (prevLocation !== nextLocation ||
-            (prev.spatial?.x ?? NaN) !== (next.spatial?.x ?? NaN) ||
-            (prev.spatial?.y ?? NaN) !== (next.spatial?.y ?? NaN)
-        ) {
+        const spatialChanged =
+            truncateCoord(prev.spatial?.x) !== truncateCoord(next.spatial?.x) ||
+            truncateCoord(prev.spatial?.y) !== truncateCoord(next.spatial?.y);
+        if (prevLocation !== nextLocation || spatialChanged) {
             // Compute the move's attribution once, before the row, so the row carries
             // both the component list and its provenance. The resolver is the
             // generic ActionAttributionStore keyed by the action that last repositioned
@@ -387,8 +396,11 @@ function diffDroppedItems(prevDropped, nextDropped) {
         } else if (prev && !next) {
             removed.push({ itemId, type: prev.type ?? null, ownerId: prev.ownerId ?? null });
         } else if (prev && next) {
-            const xMoved = (prev.x ?? NaN) !== (next.x ?? NaN);
-            const yMoved = (prev.y ?? NaN) !== (next.y ?? NaN);
+            // Same perceptual rule as entities (see §8.1): a dropped item that
+            // drifted by less than one display step (0.01) shows identical
+            // from/to coordinates and is not a visible move.
+            const xMoved = truncateCoord(prev.x) !== truncateCoord(next.x);
+            const yMoved = truncateCoord(prev.y) !== truncateCoord(next.y);
             const typeMoved = prev.type !== next.type;
             if (xMoved || yMoved || typeMoved) {
                 moved.push({ itemId, type: next.type ?? null, fromXY: { x: prev.x ?? null, y: prev.y ?? null }, toXY: { x: next.x ?? null, y: next.y ?? null }, ownerId: next.ownerId ?? null });

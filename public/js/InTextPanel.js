@@ -59,6 +59,7 @@ import { AppConfig } from './Config.js';
 import { TURN_PHASES } from '../../shared/TurnPhases.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { getRoomEdgePoint } from '/utils/geometry.js';
+import { formatPosition as formatPositionShared } from '../../shared/CoordFormat.js';
 
 
 /**
@@ -145,10 +146,13 @@ export class InTextPanel {
     // =========================================================================
 
     /**
-     * "(x, y)" — matches the map's positional format.
+     * "(x, y)" — the perception coordinate display rule (shared/CoordFormat.js,
+     * mirrored server-side on the delta entries): values are truncated to two
+     * decimals and always shown with exactly two decimal digits ("00.00"):
+     * 18.81000041279735 → "(18.81, …)". A non-finite axis renders "?".
      */
     formatPosition(x, y) {
-        return `(${Number.isFinite(x) ? x : '?'}, ${Number.isFinite(y) ? y : '?'})`;
+        return formatPositionShared(x, y);
     }
 
     /**
@@ -482,6 +486,19 @@ export class InTextPanel {
                 if (used.length) {
                     line += ` · used (${used.length}): ` +
                         this.esc(used.map((u) => `${u.type ?? 'component'} (${u.id})`).join(', '));
+                }
+                // Target: WHO was acted upon (the punch's victim, the object a
+                // tool was used on) and WHICH component of it was hit. The ids
+                // come from the attribution store; the server named them
+                // against the current world (a destroyed target degrades to
+                // ids only; spatial actions carry no target at all).
+                if (a.target) {
+                    const t = a.target;
+                    const who = t.name ? `${this.esc(t.name)} (${this.esc(t.id ?? '?')})` : this.esc(t.id ?? '?');
+                    line += ` → ${who}`;
+                    if (t.componentId) {
+                        line += ` · hit: ${this.esc(t.componentName ? `${t.componentName} (${t.componentId})` : t.componentId)}`;
+                    }
                 }
                 if (roomName) line += ` in ${this.esc(roomName)}`;
                 push(line);

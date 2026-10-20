@@ -38,7 +38,8 @@ class ConsequenceDispatcher {
          * The generic per-entity action-attribution store. Injected post-
          * construction (same pattern as setWorldStateController). When set, every
          * successful action flowing through this dispatcher records its attribution
-         * (which components powered it + how many) so perception and any consumer
+         * (which components powered it + how many + which target it was aimed at)
+         * so perception and any consumer
          * can query it. When null (bare/test builds) execution is unchanged.
          */
         this.actionAttributionStore = null;
@@ -119,6 +120,7 @@ class ConsequenceDispatcher {
                         : (primaryComponentId ? [primaryComponentId] : []),
             fulfillment: attribution?.fulfillment ?? null,
             requirementValues,
+            target: this._actionTarget(params),
             tick: this.worldStateController?.tickSystem?.currentTick ?? null,
         });
 
@@ -174,6 +176,7 @@ class ConsequenceDispatcher {
         this._recordAttribution(entityId, actionName, {
             primary: attackerComponentIds?.[0] ?? null,
             ids: attackerComponentIds ?? [],
+            target: this._actionTarget(params),
             tick: this.worldStateController?.tickSystem?.currentTick ?? null,
         });
 
@@ -299,6 +302,44 @@ class ConsequenceDispatcher {
         this.actionAttributionStore.record(entityId, actionName, payload);
         const location = this.worldStateController?.stateEntityController?.getEntity?.(entityId)?.location;
         this.worldStateController?._markPerceptionDirty?.(location);
+    }
+
+    /**
+     * Resolves the action's TARGET (who was acted upon) from the action
+     * params, for the attribution record:
+     *   - entity-targeted actions: `params.targetEntityId` (optionally with a
+     *     `params.targetComponentId` naming the specific component hit);
+     *   - component-targeted actions (punch / cut / shoot…): the call may name
+     *     ONLY `params.targetComponentId` — the owning entity is resolved
+     *     through WorldStateController.getComponent (which returns the
+     *     component with its owner id attached);
+     *   - spatial actions (targetX/targetY): no entity target — returns null.
+     *
+     * Returns `{ entityId, componentId }` (a field is null when unknown), or
+     * null when the action has no entity/component target at all. Fault-
+     * tolerant: an unresolvable component degrades to a null entity id — the
+     * target is never claimed with a wrong owner, and this never throws.
+     *
+     * @private
+     * @param {Object|null|undefined} params - The action params.
+     * @returns {{entityId: string|null, componentId: string|null}|null}
+     */
+    _actionTarget(params) {
+        const targetComponentId = (params?.targetComponentId && typeof params.targetComponentId === 'string')
+            ? params.targetComponentId
+            : null;
+        let targetEntityId = (params?.targetEntityId && typeof params.targetEntityId === 'string')
+            ? params.targetEntityId
+            : null;
+        if (!targetEntityId && targetComponentId) {
+            try {
+                targetEntityId = this.worldStateController?.getComponent?.(targetComponentId)?.entityId ?? null;
+            } catch (_) {
+                targetEntityId = null;
+            }
+        }
+        if (!targetEntityId && !targetComponentId) return null;
+        return { entityId: targetEntityId, componentId: targetComponentId };
     }
 
     /**

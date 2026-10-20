@@ -3,12 +3,19 @@
  * All constants use UPPER_SNAKE_CASE naming convention.
  */
 
+import { DISPLAY_RESOLUTION } from '../../shared/CoordFormat.js';
+
 /**
- * Minimum movement distance required to trigger movement calculation.
- * When distance is 0 or less, no movement is needed.
+ * Minimum distance to a movement target below which NO movement happens.
+ * Tied to the perception display resolution ("00.00" = 0.01 world units,
+ * shared/CoordFormat.js): a target closer than one display step is
+ * indistinguishable from the entity's current position to every observer,
+ * so the honest result is to stand still. (The old zero guard let any
+ * 1e-14 residual target trigger a sub-grid "move" — and re-dashing at the
+ * same target oscillated the position around it by 1 ulp, forever.)
  * @type {number}
  */
-export const MIN_MOVEMENT_DISTANCE = 0;
+export const MIN_MOVEMENT_DISTANCE = DISPLAY_RESOLUTION;
 
 /**
  * Default base multiplier for synergy calculations when not specified.
