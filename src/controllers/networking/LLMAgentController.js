@@ -1147,11 +1147,16 @@ class LLMAgentController {
      * @private
      */
     _dispatchSpeak(entity, displayName, text) {
-        const roomChat = this.roomChatController;
-        if (!roomChat?.sendMessage || !entity?.location) {
+        // Route through the facade's sendRoomChat choke point (NOT the raw
+        // roomChatController): that is the single place a chat line becomes
+        // observable for perception — it also marks the room dirty, so the
+        // NPC's own utterance surfaces in the room's perception feed (same
+        // line the player sees in the chat panel, same speaker attribution).
+        const sendRoomChat = this.worldStateController?.sendRoomChat;
+        if (!sendRoomChat || !entity?.location) {
             return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'room chat layer is not available' };
         }
-        return roomChat.sendMessage({
+        return sendRoomChat({
             roomId: entity.location,
             speakerName: displayName,
             speakerEntityId: entity.id,

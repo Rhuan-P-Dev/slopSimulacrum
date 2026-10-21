@@ -504,6 +504,23 @@ export class InTextPanel {
                 push(line);
             }
 
+            // Chat: lines said in this room's chat transcript since the last
+            // observation ("things said in the room"). Only lines new since the
+            // reader's previous observation arrive here (the diff knows the full
+            // ring); the speaker's name was captured at send time. Entity
+            // speakers get the id parenthetical only when it differs from the
+            // display name (moved-entity convention).
+            for (const m of entry.chat?.added ?? []) {
+                const name = m?.speakerName ?? 'Anonymous';
+                const speakerDisplay =
+                    (m?.speakerEntityId && m.speakerEntityId !== name)
+                        ? `${name} (${m.speakerEntityId})`
+                        : name;
+                let line = `💬 ${this.esc(speakerDisplay)}: "${this.esc(m?.text ?? '')}"`;
+                if (roomName) line += ` in ${this.esc(roomName)}`;
+                push(line);
+            }
+
             // `verb` is the category attribution phrase, rendered after the item
             // id. `verbSep` is the separator before the verb (default "· "); the
             // item-removal line uses a single space so it reads as one flowing

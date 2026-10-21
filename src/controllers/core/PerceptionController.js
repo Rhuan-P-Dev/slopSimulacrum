@@ -416,12 +416,30 @@ class PerceptionController {
                 ownerId: item.ownerId ?? null
             };
         }
+        // Chat transcript, reduced to the room's ring (id → message). The
+        // facade returns a fresh, bounded copy of the last `limit` messages
+        // (limit defaults to the ring capacity), safe to keep as snapshot
+        // data and diff for new lines only.
+        const chat = {};
+        for (const msg of this._facade?.getRoomChatMessages?.(roomId) ?? []) {
+            if (msg?.id) {
+                chat[msg.id] = {
+                    id: msg.id,
+                    speakerName: msg.speakerName ?? null,
+                    speakerEntityId: msg.speakerEntityId ?? null,
+                    text: msg.text ?? '',
+                    tick: msg.tick ?? null,
+                    ts: msg.ts ?? null
+                };
+            }
+        }
 
         return {
             roomId,
             tick: this._currentTick(),
             entities: byId,
-            dropped
+            dropped,
+            chat
         };
     }
 

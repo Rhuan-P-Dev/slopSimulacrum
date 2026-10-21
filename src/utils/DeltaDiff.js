@@ -16,7 +16,11 @@
  * **What a snapshot is (perception contract):** a frozen description of a room's
  * *current* content — entities and, per entity: stats, component stats, items
  * by host component, internal components, equipped items — plus dropped items
- * in the room. Everything else (rooms metadata, actions, turns) is either
+ * in the room and the room's chat transcript. Chat is the only *event* category
+ * (like performed actions): the snapshot stores the whole ring and the diff
+ * reports only the lines that arrived since the last observation; a baseline
+ * is a state description (entities/items) and carries no transcript rows.
+ * Everything else (rooms metadata, actions, turns) is either
  * static or already covered by the "YOUR STATE / NEARBY" context sections,
  * so it is intentionally NOT part of the diff surface.
  *
@@ -34,6 +38,7 @@ import { truncateCoord } from '../../shared/CoordFormat.js';
  * @property {number} tick
  * @property {Object<string, SnapshotEntity>} entities
  * @property {Object<string, SnapshotItem>} dropped
+ * @property {Object<string, SnapshotChatMessage>} chat
  *
  * @typedef {Object} SnapshotEntity
  * @property {string} name
@@ -51,6 +56,14 @@ import { truncateCoord } from '../../shared/CoordFormat.js';
  * @property {string} type
  * @property {number|null} x
  * @property {number|null} y
+ *
+ * @typedef {Object} SnapshotChatMessage
+ * @property {string} id
+ * @property {string|null} speakerName
+ * @property {string|null} speakerEntityId
+ * @property {string} text
+ * @property {number|null} tick
+ * @property {number|null} ts
  */
 
 /**
@@ -91,6 +104,7 @@ export function hasDeltaChanges(delta) {
         (delta.components?.added ?? []).length > 0 ||
         (delta.components?.removed ?? []).length > 0 ||
         (delta.components?.changed ?? []).length > 0 ||
+        (delta.chat?.added ?? []).length > 0 ||
         (delta.equipped?.added ?? []).length > 0 ||
         (delta.equipped?.removed ?? []).length > 0 ||
         (delta.internal?.added ?? []).length > 0 ||
@@ -436,6 +450,44 @@ function diffPerEntityMaps(prevEntities, nextEntities, field, label) {
 }
 
 /**
+ * Diff between two room-chat transcripts (id → message maps). Chat is
+ * append-only within the ring: a line is "new" exactly when its id is present
+ * in `next` but absent from `prev` (old lines evicted by ring capacity were
+ * already reported, so they need no re-report). Returns the new lines as
+ * defensive copies, ordered by (tick, ts, id) — deterministic even when the
+ * tick is static between sends (a room where only chat changes).
+ *
+ * @param {Object<string, SnapshotChatMessage>|null} prevChat
+ * @param {Object<string, SnapshotChatMessage>|null} nextChat
+ * @returns {{ added: SnapshotChatMessage[] }}
+ */
+function diffChat(prevChat, nextChat) {
+    const prev = prevChat ?? {};
+    const next = nextChat ?? {};
+    const added = [];
+    for (const id of Object.keys(next)) {
+        if (!Object.prototype.hasOwnProperty.call(prev, id)) {
+            const msg = next[id];
+            added.push({
+                id: msg?.id ?? id,
+                speakerName: msg?.speakerName ?? null,
+                speakerEntityId: msg?.speakerEntityId ?? null,
+                text: msg?.text ?? '',
+                tick: msg?.tick ?? null,
+                ts: msg?.ts ?? null
+            });
+        }
+    }
+    added.sort((a, b) => {
+        const tA = a.tick ?? a.ts ?? 0;
+        const tB = b.tick ?? b.ts ?? 0;
+        if (tA !== tB) return tA - tB;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    return { added };
+}
+
+/**
  * Builds the baseline entry — the first thing an observer learns about a room.
  * A baseline is not a "change" in the usual sense, but it answers the same
  * question ("what do you see in this room?") and without it an agent could
@@ -467,6 +519,10 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
             components: 0,
             internal: 0,
             equipped: 0,
+            // Baselines carry no chat rows either: a first observation is a
+            // state description ("what is here"), not a transcript window —
+            // the key exists for schema stability (diffs always carry chat).
+            chat: 0,
             // Baselines carry no performed-action rows (an initial observation
             // is not an action window); the key exists for a stable schema.
             actions: 0
@@ -484,7 +540,10 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
         },
         components: { added: [], removed: [], changed: [] },
         equipped: { added: [], removed: [] },
-        internal: { added: [], removed: [] }
+        internal: { added: [], removed: [] },
+        // First observation is a state description, not a transcript window —
+        // no chat rows on baselines (the key exists for schema stability).
+        chat: { added: [] }
     };
 }
 
@@ -508,7 +567,7 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
  *   "which components powered action X" set) and falls back to the `Movement.move`
  *   heuristic only when it yields no component ids. When omitted, behaviour is
  *   identical to before (pure heuristic locomotion).
- * @returns {{ tick: number, sinceTick: number, ts: number, roomId: string, kind: 'delta', counts: { total: number }, summary: null, actions: { performed: Array }, entities: Object, items: Object, dropped: Object, components: Object, equipped: Object, internal: Object }}
+ * @returns {{ tick: number, sinceTick: number, ts: number, roomId: string, kind: 'delta', counts: { total: number, chat: number }, summary: null, actions: { performed: Array }, entities: Object, items: Object, dropped: Object, components: Object, equipped: Object, internal: Object, chat: { added: Array<SnapshotChatMessage> } }}
  */
 export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver = null) {
     const prevEntities = prev?.entities ?? {};
@@ -519,6 +578,7 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
     const droppedChanges = diffDroppedItems(prev?.dropped ?? {}, next?.dropped ?? {});
     const internalChanges = diffPerEntityMaps(prevEntities, nextEntities, 'type', 'internal');
     const equippedChanges = diffPerEntityMaps(prevEntities, nextEntities, 'itemType', 'equipped');
+    const chatChanges = diffChat(prev?.chat ?? {}, next?.chat ?? {});
     const total =
         entityChanges.appeared.length +
         entityChanges.despawned.length +
@@ -535,7 +595,8 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
         internalChanges.added.length +
         internalChanges.removed.length +
         equippedChanges.added.length +
-        equippedChanges.removed.length;
+        equippedChanges.removed.length +
+        chatChanges.added.length;
     return {
         tick,
         sinceTick: prev?.tick ?? tick,
@@ -550,6 +611,12 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
             components: componentChanges.added.length + componentChanges.removed.length + componentChanges.changed.length,
             internal: internalChanges.added.length + internalChanges.removed.length,
             equipped: equippedChanges.added.length + equippedChanges.removed.length,
+            // New lines in the room's chat transcript since the last
+            // observation (the event category that parallels performed actions,
+            // known at diff time, so part of `total`: a chat-only flush is a
+            // real, reportable change). hasDeltaChanges() checks the rows
+            // directly as a defensive second gate.
+            chat: chatChanges.added.length,
             // Intentionally NOT part of `total`: performed-action rows are
             // filled in later by the PerceptionController (it owns the
             // attribution store); the controller updates this count when it
@@ -573,6 +640,9 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
         dropped: { added: droppedChanges.added, removed: droppedChanges.removed, moved: droppedChanges.moved },
         components: { added: componentChanges.added, removed: componentChanges.removed, changed: componentChanges.changed },
         equipped: { added: equippedChanges.added, removed: equippedChanges.removed },
-        internal: { added: internalChanges.added, removed: internalChanges.removed }
+        internal: { added: internalChanges.added, removed: internalChanges.removed },
+        // Delta-only: a baseline is a state description, not a transcript
+        // window — the key exists for schema stability, empty on baselines.
+        chat: { added: chatChanges.added }
     };
 }

@@ -97,14 +97,28 @@ function makeTurns({ phase = 'planning', queueResult } = {}) {
     };
 }
 
-/** Builds an agent with a scripted chatFull. */
+/** Builds an agent with a scripted chatFull.
+ *
+ *  The mock world may pre-supply `sendRoomChat`; when it doesn't, makeAgent
+ *  patches in the facade contract — a `sendRoomChat` that delegates to the
+ *  roomChat mock (mirroring how the real WSC choke point works, including the
+ *  NPC speak path: worldStateController.sendRoomChat → roomChatController). A
+ *  no-op `_markPerceptionDirty` stands in for the real perception dirty mark
+ *  (not exercised here; the perception tests cover that seam).
+ */
 function makeAgent({ world, roomChat, turns, chatFullImpl, calls } = {}) {
     const llmStub = { chatFull: async (messages, options) => chatFullImpl(messages, options) };
+    const effectiveRoomChat = roomChat ?? makeRoomChat();
+    const effectiveWorld = world ?? makeWorld();
+    if (typeof effectiveWorld.sendRoomChat !== 'function') {
+        effectiveWorld.sendRoomChat = effectiveRoomChat.sendMessage;
+        effectiveWorld._markPerceptionDirty = () => {};
+    }
     const agent = new LLMAgentController({
         llmController: llmStub,
-        worldStateController: world ?? makeWorld(),
+        worldStateController: effectiveWorld,
         llmContextController: { buildContext: () => ({ text: '=== ROOM ===\nMain Room' }) },
-        roomChatController: roomChat ?? makeRoomChat(),
+        roomChatController: effectiveRoomChat,
         turnSystemController: turns ?? makeTurns()
     });
     return { agent, calls: calls ?? [] };
@@ -441,7 +455,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(result.actions[0].detail).toBe('invalid id format: targetComponentId="ent-wrong-prefix"');
     });
 
-    it('speak_in_room → chat sent via roomChatController with the room FORCED to the entity location', async () => {
+    it('speak_in_room → chat sent via the worldStateController facade (sendRoomChat) with the room FORCED to the entity location', async () => {
         const roomChat = makeRoomChat();
         const { agent } = makeAgent({
             roomChat,

@@ -268,6 +268,7 @@ A new client controller shows the focused room's chat: renders history on focus,
 - The NPC *hears* the player: the LLM context carries the recent messages of the NPC's room, so a player line this round can be answered in the NPC's *next* round (at most one round of latency — acceptable for chat).
 - The NPC *comments on the world*: the recent-events section includes turn-resolution lines, so the NPC can react to being punched.
 - The player *sees* the NPC: chat panel (live event) + map name label + the full state (entity, items, durability).
+- The chat itself is *perceived*: every send (player route and the NPC speak tool alike) passes through the facade's `sendRoomChat` choke point, which marks the room dirty, so a new line surfaces in the room's perception feed exactly like any other change (the InText panel's `💬` bullets and the `chat` entry category) — see [Perception System](subMDs/systems/perception_system.md) §8.2.
 
 ### 7.6 Acceptance criteria — Feature D
 

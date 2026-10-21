@@ -136,6 +136,21 @@ export function buildDeltaSummary(delta, roomName = null) {
             delta.components?.removed?.length ? `${delta.components.removed.length} component${delta.components.removed.length === 1 ? '' : 's'} broken` : null
         ].filter(Boolean);
         if (comp.length) parts.push(comp.join('; ') + ` ${roomRef}`);
+        // New lines in the room's chat transcript since the last observation
+        // ("things said in chat"). Counts + representative examples only — the
+        // full lines live in `entry.chat.added` / the room chat ring.
+        const chatCount = (delta.chat?.added ?? []).length;
+        if (chatCount) {
+            const examples = (delta.chat?.added ?? [])
+                .slice(0, 3)
+                .map((m) => {
+                    const raw = m?.text ?? '';
+                    const short = (raw.replace(/"/g, '')).slice(0, 24);
+                    return `${m?.speakerName ?? 'Someone'}: "${short}${raw.length > 24 ? '…' : ''}"`;
+                })
+                .join(', ');
+            parts.push(`${chatCount} message${chatCount === 1 ? '' : 's'} in chat (${examples}) ${roomRef}`);
+        }
         const intAdded = delta.internal?.added?.length;
         const intRemoved = delta.internal?.removed?.length;
         if (intAdded) parts.push(`${intAdded} internal component installed ${roomRef}`);

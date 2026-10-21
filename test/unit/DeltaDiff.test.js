@@ -412,3 +412,154 @@ describe('DeltaDiff — movement at the perceptual (display) resolution', () => 
     });
 });
 
+/**
+ * DeltaDiff — chat (the lines said in the room).
+ *
+ * Chat is the *event* category that parallels performed actions: the snapshot
+ * carries the room's whole ring and the diff reports only the lines that
+ * arrived since the last observation. A baseline is a state description and
+ * carries no transcript rows (the key exists for schema stability). All rows
+ * are defensive copies (the snapshots are shared with the broadcast/agent
+ * surfaces, so a mutation of one must never corrupt the other's diff).
+ */
+const chatLine = (id, { speakerName, speakerEntityId, text, tick = null, ts = null } = {}) => ({
+    id,
+    speakerName: speakerName ?? 'Player',
+    speakerEntityId: speakerEntityId ?? null,
+    text: text ?? '',
+    tick,
+    ts
+});
+
+/**
+ * A snapshot with an unchanged entity (no moved row) + a chat ring. The
+ * snapshot contract is an id-keyed map (Object<string, SnapshotChatMessage>),
+ * so the list form is converted here.
+ */
+function makeChatSnapshot(tick, chatList) {
+    const chat = {};
+    for (const m of chatList) chat[m.id] = m;
+    return {
+        roomId: 'room1',
+        tick,
+        entities: {
+            e1: { id: 'e1', name: 'Bolt', location: 'room1', spatial: { x: 0, y: 0 }, components: {}, lastMoveAction: null }
+        },
+        chat
+    };
+}
+
+describe('DeltaDiff — chat (the lines said in the room)', () => {
+    it('a line that arrived since the last observation is reported in chat.added, with speaker attribution', () => {
+        const prev = makeChatSnapshot(10, [
+            chatLine('m1', { speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'hello', tick: 10, ts: 100 })
+        ]);
+        const next = makeChatSnapshot(12, [
+            chatLine('m1', { speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'hello', tick: 10, ts: 100 }),
+            chatLine('m2', { speakerName: 'Player', speakerEntityId: null, text: 'hi there', tick: 12, ts: 200 })
+        ]);
+        const delta = diffRoomSnapshots(prev, next, next.tick, next.roomId);
+        expect(delta.chat).toBeDefined();
+        expect(delta.chat.added).toHaveLength(1);
+        expect(delta.chat.added[0]).toEqual({
+            id: 'm2',
+            speakerName: 'Player',
+            speakerEntityId: null,
+            text: 'hi there',
+            tick: 12,
+            ts: 200
+        });
+        expect(delta.counts.chat).toBe(1);
+        expect(delta.counts.total).toBe(1);
+        expect(hasDeltaChanges(delta)).toBe(true);
+    });
+
+    it('a room whose only change is chat still surfaces as a change (chat-only flush, counts.chat drives hasDeltaChanges)', () => {
+        const prev = makeChatSnapshot(10, []);
+        const next = makeChatSnapshot(12, [
+            chatLine('m1', { speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'who went there', tick: 12, ts: 200 })
+        ]);
+        const delta = diffRoomSnapshots(prev, next, next.tick, next.roomId);
+        expect(delta.counts.total).toBe(1);
+        expect(delta.counts.entities).toBe(0);
+        expect(delta.counts.items).toBe(0);
+        expect(delta.counts.dropped).toBe(0);
+        expect(delta.counts.chat).toBe(1);
+        expect(hasDeltaChanges(delta)).toBe(true);
+    });
+
+    it('no new lines => empty chat diff and no change (chat-only no-op)', () => {
+        const snap = makeChatSnapshot(12, [
+            chatLine('m1', { text: 'a', tick: 10, ts: 100 }),
+            chatLine('m2', { text: 'b', tick: 10, ts: 101 })
+        ]);
+        const delta = diffRoomSnapshots(snap, { ...snap, tick: 15 }, 15, snap.roomId);
+        expect(delta.chat).toBeDefined();
+        expect(delta.chat.added).toHaveLength(0);
+        expect(delta.counts.chat).toBe(0);
+        expect(delta.counts.total).toBe(0);
+        expect(hasDeltaChanges(delta)).toBe(false);
+    });
+
+    it('a line evicted from the ring is not re-reported (only lines that arrived since the last observation)', () => {
+        // Ring capacity is small: prev {m1, m2, m3}, next {m2, m3, m4} → m1 was
+        // evicted (already reported), so only m4 is new.
+        const prev = makeChatSnapshot(10, [
+            chatLine('m1', { text: 'first', tick: 10, ts: 100 }),
+            chatLine('m2', { text: 'second', tick: 10, ts: 101 }),
+            chatLine('m3', { text: 'third', tick: 10, ts: 102 })
+        ]);
+        const next = makeChatSnapshot(12, [
+            chatLine('m2', { text: 'second', tick: 10, ts: 101 }),
+            chatLine('m3', { text: 'third', tick: 10, ts: 102 }),
+            chatLine('m4', { text: 'fourth', tick: 12, ts: 120 })
+        ]);
+        const delta = diffRoomSnapshots(prev, next, next.tick, next.roomId);
+        expect(delta.chat.added).toHaveLength(1);
+        expect(delta.chat.added[0].id).toBe('m4');
+    });
+
+    it('new lines are ordered deterministically by (tick, ts, id) — even when the tick is static (a chat-only room)', () => {
+        const prev = makeChatSnapshot(12, []);
+        const next = makeChatSnapshot(12, [
+            chatLine('z', { text: 'z', tick: 12, ts: 300 }),
+            chatLine('a', { text: 'a', tick: 12, ts: 100 }),
+            chatLine('m', { text: 'm', tick: 12, ts: 200 })
+        ]);
+        const delta = diffRoomSnapshots(prev, next, next.tick, next.roomId);
+        expect(delta.chat.added.map((m) => m.id)).toEqual(['a', 'm', 'z']);
+    });
+
+    it('chat rows are defensive copies — mutating the snapshot does not corrupt the delta', () => {
+        const prev = makeChatSnapshot(10, [chatLine('m1', { text: 'before', tick: 10, ts: 100 })]);
+        const next = makeChatSnapshot(12, [
+            chatLine('m1', { text: 'before', tick: 10, ts: 100 }),
+            chatLine('m2', { speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'after', tick: 12, ts: 200 })
+        ]);
+        const delta = diffRoomSnapshots(prev, next, next.tick, next.roomId);
+        expect(delta.chat.added).toHaveLength(1);
+        expect(delta.chat.added[0].id).toBe('m2');
+        // Mutate the *snapshot* — the delta must be untouched (the ring is a
+        // live shared structure, so the diff must never alias it).
+        next.chat.m2 = { id: 'm2', speakerName: 'hacked', speakerEntityId: 'bad-id', text: 'tampered', tick: null, ts: null };
+        expect(delta.chat.added[0].speakerName).toBe('Bolt');
+        expect(delta.chat.added[0].speakerEntityId).toBe('ent-npc-0001');
+        expect(delta.chat.added[0].text).toBe('after');
+    });
+
+    it('a baseline is a state description: no transcript rows (chat key empty, for schema stability)', () => {
+        const snapshot = {
+            roomId: 'room1',
+            tick: 0,
+            entities: {
+                e1: { id: 'e1', name: 'Bolt', location: 'room1', spatial: { x: 0, y: 0 }, components: {}, lastMoveAction: null }
+            },
+            chat: [chatLine('m1', { text: 'pre-existing line', tick: 0, ts: 0 }), chatLine('m2', { text: 'another', tick: 0, ts: 0 })]
+        };
+        const baseline = buildBaselineEntry(snapshot, 0, 'room1');
+        expect(baseline.counts.chat).toBe(0);
+        expect(baseline.chat).toBeDefined();
+        expect(baseline.chat.added).toEqual([]);
+    });
+});
+

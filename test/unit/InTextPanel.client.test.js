@@ -914,6 +914,53 @@ describe('InTextPanel — pure formatters', () => {
         expect(out).toContain('&lt;script&gt;');
         expect(out).not.toContain('<script>alert');
     });
+
+    it('formatPerceptionEntry: new chat lines appear as "💬 speaker: "text"" bullets (speaker attribution captured at send time)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            summary: '1 message in chat (Player: "hi there") in Main Room',
+            chat: {
+                added: [
+                    { id: 'm1', speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'hello there', tick: 12, ts: 200 },
+                    { id: 'm2', speakerName: 'Player', speakerEntityId: null, text: 'hi "quoted"', tick: 12, ts: 300 }
+                ]
+            }
+        }, 5);
+        expect(out).toContain('round 5');
+        expect(out).toContain('Changes');
+        // entity speaker: name + id parenthetical (id ≠ name)
+        expect(out).toContain('💬 Bolt (ent-npc-0001): "hello there"');
+        // player speaker: no id → no parenthetical; quotes in the text escaped
+        expect(out).toContain('💬 Player: "hi &quot;quoted&quot;"');
+    });
+
+    it('formatPerceptionEntry: an entity speaker with id === name shows the id exactly once (no duplicated "(id)")', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            summary: '1 message in chat (X: "y")',
+            chat: { added: [{ id: 'm1', speakerName: 'e_npc_1', speakerEntityId: 'e_npc_1', text: 'y' }] }
+        }, 5);
+        expect(out).toContain('💬 e_npc_1: "y"');
+        expect(out).not.toContain('e_npc_1 (e_npc_1)');
+    });
+
+    it('formatPerceptionEntry: baseline entries never show chat lines (a baseline is a state description, not a transcript window)', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'baseline',
+            tick: 0,
+            summary: 'initial observation of room_abc: 3 entities',
+            entities: { appeared: [{ id: 'e1', name: 'Bolt' }] },
+            chat: { added: [{ id: 'm1', speakerName: 'Bolt', speakerEntityId: 'ent-npc-0001', text: 'hi' }] }
+        }, 1);
+        expect(out).toContain('round 1');
+        expect(out).toContain('Initial observation');
+        expect(out).not.toContain('💬');
+    });
 });
 
 describe('InTextPanel — full render (fake DOM)', () => {

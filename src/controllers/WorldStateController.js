@@ -1107,7 +1107,16 @@ class WorldStateController {
         if (!this.roomChatController) {
             return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'Room chat layer is not wired.' };
         }
-        return this.roomChatController.sendMessage(args);
+        const result = this.roomChatController.sendMessage(args);
+        // A line sent to a room is an observable change in that room's
+        // perception: a new line in the room's chat transcript. This facade
+        // choke point is the single place every chat send flows through — the
+        // player route AND the NPC speak tool (LLMAgentController._dispatchSpeak
+        // routes here) — so the perception dirty mark lives in exactly one
+        // spot: the room is marked dirty so the next perception flush reports
+        // the line to every reader (panel + agent/NPC view).
+        if (result?.success) this._markPerceptionDirty(args.roomId);
+        return result;
     }
 
     /**

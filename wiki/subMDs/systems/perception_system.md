@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, which components powered each action, and *who* (which entity / which component) was acted upon?"**
+The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, which components powered each action, and *who* (which entity / which component) was acted upon?"** — and, since the chat-observability extension, **"what was *said* in the room's chat transcript since this reader last looked?"**
 
 It is the single observation surface for the world:
 
@@ -34,19 +34,20 @@ per tick / on read ──► snapshot dirty room ──► diff vs last snapshot
 | `src/controllers/consequences/ConsequenceDispatcher.js` | the **only** place action attribution is written (the choke point) |
 | `src/routes/perceptionRoutes.js` | the HTTP endpoints |
 | `public/js/InTextPanel.js` | the UI consumer (per-room feed + performed-action rows) |
-| `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `recordAgentObservation`, `getActionAttributionStore` |
+| `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `recordAgentObservation`, `getActionAttributionStore`, **`sendRoomChat` — the single choke point of every chat send (player route + the NPC speak tool); on success it marks the room dirty for perception** |
+| `src/controllers/core/RoomChatController.js` | the room chat ring (bounded per-room transcript) — the source of the `chat` snapshot category (§8.2); both send routes reach it only through the facade |
 
 ## 2. Why it is delta-based (not a full-state broadcast)
 
 The world-state broadcast already ships full entity/item state to clients. Re-sending an entire room every tick would cost O(room size) per reader per tick for information that is 99% unchanged. A diff costs only what changed: a quiet room produces **no entry at all** (the room isn't even flushed), and a flush with no visible changes is dropped.
 
-The price — and the invariant that keeps it correct — is that **every observable mutation must mark its room(s) dirty.** If a mutation forgets to mark, that change is invisible to perception. The marks are deliberately placed at the *mutating seams* (the consequence handlers, the spatial handler, the facade's spawn/move/despawn), never at read time: reads must never be able to change what the next reader sees.
+The price — and the invariant that keeps it correct — is that **every observable mutation must mark its room(s) dirty.** If a mutation forgets to mark, that change is invisible to perception. The marks are deliberately placed at the *mutating seams* (the consequence handlers, the spatial handler, the facade's spawn/move/despawn), never at read time: reads must never be able to change what the next reader sees. A chat line sent to a room is such a mutation: every send (the player route and the NPC speak tool alike) passes through the facade's `sendRoomChat` choke point, which marks the room dirty on success — so "things said in chat" surface to perception exactly like a state change does.
 
 ## 3. Why mutations mark dirty instead of polling
 
 Per tick (and on demand at read time) the controller flushes only the rooms in the dirty set:
 
-1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items — **excluding** the perception controller's own internal state, so a flush can never make itself dirty);
+1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items, and the room's chat transcript ring — **excluding** the perception controller's own internal state, so a flush can never make itself dirty);
 2. diff it against the room's last-seen snapshot;
 3. if there is a visible change, build an entry, enrich component names, **credit the actions the room's entities performed since their last surfacing** (see §7), write it to the room's ring buffer, and advance that room's last-seen snapshot;
 4. clear the dirty mark.
@@ -57,7 +58,7 @@ Dirty marking is O(1) at the mutation site; the expensive snapshot+diff work hap
 
 A reader's very first look at a room has no "last seen" to diff against. The controller emits a `kind: 'baseline'` entry describing the *whole* current room (everything is "appeared"), then immediately stores that snapshot as the room's new last-seen reference. Every subsequent entry for that room is a `kind: 'delta'`.
 
-Baselines are initial observations, **not** action windows — which is why the `actions.performed` category is always empty on them (see §7).
+Baselines are initial observations, **not** action or transcript windows — which is why `actions.performed` (see §7) and `chat.added` (see §8.2) are always empty on them: a first look is "what is here", not "what just happened".
 
 ## 5. Why per-agent cursors are reader-relative
 
@@ -130,7 +131,8 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
     "total": 5,                // NOT including performed actions (§7)
     "entities": 3, "items": 1, "components": 0,
     "internal": 0, "equipped": 1, "dropped": 0,
-    "actions": 1               // performed-action rows (set by the controller)
+    "chat": 1,                  // new chat lines since the last observation (part of total)
+    "actions": 1               // performed-action rows (set by the controller; NOT part of total)
   },
   "summary": "1 action performed (punch by Rover) in start_room",  // ≤300 chars
   "actions": { "performed": [ /* §7 rows */ ] },
@@ -151,7 +153,10 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
   "dropped":    { "added": [], "removed": [], "moved": [] }, // floor items (with dropper actor)
   "components": { "added": [], "removed": [], "changed": [] }, // per-entity component diffs
   "equipped":   { "added": [], "removed": [] },
-  "internal":   { "added": [], "removed": [] }           // item-inside-component
+  "internal":   { "added": [], "removed": [] },          // item-inside-component
+  "chat": { "added": [                                    // §8.2 — new lines only (event category)
+    { "id": "chat-…", "speakerName": "Bolt", "speakerEntityId": "ent-…", "text": "…", "tick": 41, "ts": 1750000000000 }
+  ] }
 }
 ```
 
@@ -168,6 +173,15 @@ It is a **display rule by construction, never a world rule**: the room snapshots
 
 **The display resolution is also the perceptual threshold** — the rule that kills the phantom move: a *"moved" row is only reported when the truncated coordinates differ* (entities and dropped items alike). Since a row prints its coordinates through the very same truncation, a moved row can never claim a move its own endpoints display as identical ("(35.85, -17.73) → (35.85, -17.73)") — a move no observer could see. The world side matches it (`SpatialConsequenceHandler`): a target within one display step (0.01 = `MIN_MOVEMENT_DISTANCE`) of the current position is a genuine no-op, a target within `speed` is **snapped exactly** to the target (the algebraic `x + (target - x)` never converges in floating point — the sum lands on a neighbouring double and successive corrections oscillate around the target by 1 ulp forever, which is exactly the "standing still but moved every round" loop), and both the perception-dirty mark and the move attribution fire only when the *stored* position actually changed. The feedback loop is broken at both ends: the panel stops printing phantom moves, and the NPC/LLM brain that was re-dashing at its own position every round (because its own perception told it it was moving) now sees "action performed, position unchanged" and converges.
 
+## 8.2 Why chat lines are an *event* category (new lines only, not a transcript state)
+
+A line said in a room's chat is a *change* to that room, exactly like a stat change — but unlike stat or item state, the transcript is **append-only within its bounded ring**. So the snapshot stores the whole ring (id → message) and the diff reports **only the lines that arrived since the last observation** (`chat.added`):
+
+- **New = present now, absent before.** A line is new exactly when its id is in the current ring and not in the last-seen one. A line *evicted* from the ring (capacity exceeded) was already reported — it is never re-reported, and its eviction produces no row of its own (an eviction is not a change anyone can perceive; the reader saw it while it was there).
+- **Attribution is captured at send time.** The speaker's display name and, for entity speakers, the entity id are stamped on the message when it is sent, so a line always names its speaker even if the entity is renamed or despawned before the reader sees it. The InText panel renders `💬 <name> (<id>): "…"` (the id only when it differs from the name); the one-line summary renders `N message(s) in chat (representatives) in <room>` (counts + up to 3 examples, the full lines live on the entry).
+- **Baselines carry no transcript rows** (see §4): a first observation is a state description; the `chat` key exists for schema stability with an empty `added`.
+- **One choke point for the dirty mark.** Both send routes — the player HTTP route and the NPC speak tool (`LLMAgentController._dispatchSpeak` routes through it, not the raw room-chat controller) — pass through the facade's `sendRoomChat`, which calls the room-chat controller and, on success, marks the room dirty. That single mark is what makes "things said in chat" observable to perception (and to the NPC/LLM agent view, which reads the same entries).
+
 ## 9. API surface
 
 | Endpoint | Scope | Notes |
@@ -182,7 +196,7 @@ All three are read-only with respect to world state (the only writes are the con
 
 ## 10. Related Documentation
 
-- [LLM Turn & NPC Spec](../../llm_turns_npc_spec.md) — the agent cursor is the "since your last observation" input to NPC decision turns
+- [LLM Turn & NPC Spec](../../llm_turns_npc_spec.md) — the agent cursor is the "since your last observation" input to NPC decision turns; it also documents the room chat feature (the ring the `chat` category diffs), whose NPC speak tool is one of the two routes through the `sendRoomChat` choke point
 - [Action System](../architecture/action_system.md) — the pipeline whose choke point writes the attribution store
 - [Synergy System](synergy.md) — synergy results flow into the attribution payload
 - [Client Architecture](../frontend/client_architecture.md) — the InText panel as the UI consumer

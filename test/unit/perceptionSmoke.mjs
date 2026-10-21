@@ -436,6 +436,52 @@ if (puncher && tree) {
 }
 
 // ---------------------------------------------------------------------------
+// [14] Chat — a line sent to the room surfaces in that room's perception
+//      (a *new* line in the room's chat transcript). The room is marked dirty
+//      at the single facade choke point, so the next flush for this room
+//      reports exactly the new line; a re-read with no new lines must not
+//      re-surface it (cursor advanced).
+// ---------------------------------------------------------------------------
+console.log('\n[14] Chat: a line sent to the room surfaces in that room\'s perception (new lines only)');
+const chatResult = wsc.sendRoomChat({
+    roomId: startRoomId,
+    speakerName: 'Player',
+    speakerEntityId: null,
+    text: 'Is anyone else in the hall?'
+});
+assert(chatResult?.success, `the chat line was accepted (${chatResult?.code ?? 'no result'})`);
+if (chatResult?.success) {
+    const entry = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    const added = entry?.chat?.added ?? [];
+    assert(added.length === 1, 'exactly one new chat line surfaced (the one just sent)');
+    assert(added[0]?.speakerName === 'Player', 'the new line carries the speaker name (Player)');
+    assert(added[0]?.text === 'Is anyone else in the hall?', 'the new line carries the exact text (trimmed, <= cap)');
+    assert((entry?.counts?.chat ?? 0) === 1, 'counts.chat === 1 on the chat-only flush');
+    // A SECOND line triggers the next flush: it must report only the new line
+    // (the first line is not re-surfaced — the room cursor advanced at the
+    // previous flush). The room view returns history (newest first), so
+    // "cursor advanced" is proven by the *new* entry's contents, not by an
+    // empty re-read (that is the agent view's contract, section [8]).
+    const chatResult2 = wsc.sendRoomChat({
+        roomId: startRoomId,
+        speakerName: 'Player',
+        speakerEntityId: null,
+        text: 'Never mind, just checking.'
+    });
+    const reread = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    assert(chatResult2?.success && reread !== entry, 'a new flush happened for the second line');
+    assert(
+        (reread?.chat?.added ?? []).length === 1 &&
+            reread.chat.added[0].text === 'Never mind, just checking.',
+        'the next flush reports only the second line (the first is not re-surfaced)'
+    );
+    assert(
+        !(reread?.chat?.added ?? []).some((m) => m?.text === 'Is anyone else in the hall?'),
+        'the earlier chat line is not re-surfaced in the later flush (cursor advanced)'
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${'='.repeat(42)}`);
