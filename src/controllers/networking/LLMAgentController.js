@@ -51,8 +51,13 @@ const DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND = 1;
  * bounds the LLM call itself, so every agent promise settles). Set 10× (45000 ms)
  * because local models are slow enough that 4.5 s is below the p95 response time. */
 const LLM_ROUND_TIMEOUT_MS = 45000;
-/** Per-call token cap: tool-call rounds are short (spec §6.5). */
-const LLM_ROUND_MAX_TOKENS = 512;
+/** Per-call token cap: 10× the original 512. Local reasoning models count
+ * their thinking tokens against this budget, and 512 sat below the p95 of
+ * "reasoning + action" — rounds died mid-reasoning with finishReason "length"
+ * and no tool call (the Minako reasoning-truncation incident). 5120 gives
+ * the thinking budget real headroom; the outer bound on a round is the
+ * timeout, not this cap (see LLM_ROUND_TIMEOUT_MS). */
+const LLM_ROUND_MAX_TOKENS = 5120;
 /**
  * Per-call sampling temperature — deliberately below the global 0.7 default
  * (LLMController.DEFAULT_TEMPERATURE): a protocol-B round is a constrained

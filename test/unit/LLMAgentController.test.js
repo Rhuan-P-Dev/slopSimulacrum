@@ -370,7 +370,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(result.error).toBeNull();
     });
 
-    it('agent request uses tool_choice "auto", temperature 0.5, max_tokens=512 (PROTOCOL B)', async () => {
+    it('agent request uses tool_choice "auto", temperature 0.5, max_tokens=5120 (10× reasoning headroom — PROTOCOL B)', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
         const seenOptions = [];
@@ -393,7 +393,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(seenOptions).toHaveLength(1);
         expect(seenOptions[0].tool_choice).toBe('auto'); // never "required" (spec §6.2)
         expect(seenOptions[0].temperature).toBe(0.5);
-        expect(seenOptions[0].max_tokens).toBe(512);
+        expect(seenOptions[0].max_tokens).toBe(5120); // 10× the original 512: thinking tokens count against this budget
         expect(turns.queued).toHaveLength(1);
         expect(result.error).toBeNull();
     });
