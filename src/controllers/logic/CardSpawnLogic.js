@@ -9,9 +9,10 @@
  * backstory, per-round caps — is *embedded in the PNG's metadata side channel
  * as base64 JSON* (Chub.ai/botbooru `chara_card_v2` spec); it is pulled out of
  * the file at spawn time via `readCharaCard()`, not read from a static JSON
- * registry. Cards are spawned at a uniformly-random room and a uniformly-random
- * point inside that room — in contrast to `_spawnNpcs`, which pins each registry
- * NPC at its home-room center.
+ * registry. Cards are ALWAYS spawned in the FIRST room (in world-definition
+ * order — `start_room` in the default world) at a uniformly-random point
+ * inside it — in contrast to `_spawnNpcs`, which pins each registry NPC at
+ * its home-room center.
  *
  * Extracted verbatim from WorldStateController (changes: `this.` became
  * `facade.` and the methods became plain functions; the module-level card
@@ -56,7 +57,8 @@ const CARD_DEFAULT_PROFILE = {
 
 /**
  * Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid,
- * at a uniformly-random room and a uniformly-random point inside it.
+ * always in the first room (in world-definition order) at a uniformly-random
+ * point inside it.
  *
  * WHY a dedicated path (not reusing the `data/entities/npcs.json` registry):
  * a card's identity is per-file — it lives embedded in each PNG's metadata
@@ -133,9 +135,9 @@ function spawnSingleCard(facade, cardFile) {
         : cardFile.cardId;
 
     const profile = facade._buildCardProfile(card);
-    const room = facade._pickRandomRoom();
+    const room = facade._pickFirstSpawnRoom();
     if (!room) {
-        Logger.warn(`[WorldStateController] card "${displayName}" has no rooms to pick from — skipped.`);
+        Logger.warn(`[WorldStateController] card "${displayName}" has no spawnable rooms — skipped.`);
         return null;
     }
     const { x, y } = facade._roomRandomPoint(room);
@@ -194,22 +196,23 @@ function buildCardProfile(facade, card) {
 }
 
 /**
- * Picks a uniformly-random, spawnable room (numeric width/height) from the
- * live room set. Spawn position is a spawn-time property (not a runtime
- * toggle), so the random pick happens once, at boot.
+ * Picks the FIRST spawnable room (numeric width/height) in world-definition
+ * order — the insertion order of the rooms map, which mirrors rooms.json
+ * (start_room first in the default world). Deterministic on purpose: every
+ * card lands where the world starts (design decision 2026-10-21, superseding
+ * the old uniformly-random room pick; cardLlmNpc.test.js locks this in).
  * @private
  * @returns {{uid: string, name: string, width: number, height: number}|null}
  */
-function pickRandomRoom(facade) {
+function pickFirstSpawnRoom(facade) {
     const all = facade.roomsController.getAll() || {};
-    const valid = Object.keys(all).filter((uid) => {
+    for (const uid of Object.keys(all)) {
         const room = all[uid];
-        return room && typeof room.width === 'number' && typeof room.height === 'number';
-    });
-    if (valid.length === 0) return null;
-    const uid = valid[Math.floor(Math.random() * valid.length)];
-    const room = all[uid];
-    return { uid, name: room.name, width: room.width, height: room.height };
+        if (room && typeof room.width === 'number' && typeof room.height === 'number') {
+            return { uid, name: room.name, width: room.width, height: room.height };
+        }
+    }
+    return null;
 }
 
 /**
@@ -228,4 +231,4 @@ function roomRandomPoint(facade, room) {
     };
 }
 
-export { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRandomRoom, roomRandomPoint };
+export { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint };

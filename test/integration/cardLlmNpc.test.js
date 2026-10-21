@@ -2,16 +2,16 @@
  * Card LLM NPCs — integration test (full real world, no network, no LLM calls).
  *
  * Acceptance gate for "every PNG in data/cards/ is spawned as a distinct M1 LLM
- * NPC, at a random room, each with its own identity read from the file's
- * embedded metadata".
+ * NPC, ALWAYS in the first room (world-definition order), each with its own
+ * identity read from the file's embedded metadata".
  *
  * The full real world (buildWorldState) boots the card system during world
  * spawn, so this test drives the REAL spawn path (not a stub) and then:
  *
  *   - asserts each card PNG produced a live entity (blueprint `m1Droid`,
  *     `isNPC: true`, display name == the card's embedded name, a per-entity
- *     `npcConfig.personality`), and that they land in *real, varied* rooms
- *     (random assignment, not a single room);
+ *     `npcConfig.personality`), and that they ALL land in the *first* room
+ *     (deterministic: the first spawnable room in world-definition order);
  *   - asserts the `LLMAgentController` resolves each card's identity through
  *     `_resolveNpcConfig` (live `npcConfig` over the static `data/entities/npcs.json`
  *     registry — the cards have no registry entry, so the live config IS their
@@ -117,7 +117,7 @@ function roomNameOf(world, entity) {
 // The test cases.
 // =========================================================================
 
-describe('data/cards → M1 LLM NPCs (random room, per-card identity)', () => {
+describe('data/cards → M1 LLM NPCs (first room, per-card identity)', () => {
     const CARD_BLUEPRINT = 'm1Droid';
     let world;
     let subControllers;
@@ -153,22 +153,27 @@ describe('data/cards → M1 LLM NPCs (random room, per-card identity)', () => {
         }
     });
 
-    it.skipIf(CARD_FILES.length === 0)('lands every card in a real room, scattering them (random assignment, not one room)', () => {
+    it.skipIf(CARD_FILES.length === 0)('lands EVERY card in the FIRST room (world-definition order — deterministic, no scatter)', () => {
         const expectedNames = readCardNames();
         const cards = Object.values(world.stateEntityController.getAll() || {})
             .filter((e) => expectedNames.includes(e.name));
-        const roomUids = new Set(cards.map((e) => e.location));
+        expect(cards.length).toBeGreaterThanOrEqual(1);
 
-        // (1) every card must land in a room that actually exists in the world.
+        // The first spawnable room in world-definition order: the rooms map is
+        // keyed in rooms.json insertion order (UUIDs are non-numeric, so
+        // object key order IS insertion order), so the first key with numeric
+        // width/height is exactly what pickFirstSpawnRoom picks.
+        const firstSpawnable = Object.values(rooms).find(
+            (r) => typeof r.width === 'number' && typeof r.height === 'number'
+        );
+        expect(firstSpawnable).toBeDefined();
+
         for (const card of cards) {
+            // (1) the room must exist in the world and (2) be EXACTLY the
+            // first one — a regression to random scattering (or a crash) would
+            // put some card in a different room / off the map.
             expect(rooms).toHaveProperty(card.location);
-        }
-        // (2) with two or more cards they must span ≥ 2 distinct rooms — a
-        // "always pick the first room" bug (or a crash) would cluster every
-        // card in a single room / off the map. (A single-card directory cannot
-        // demonstrate scatter, so this bound is relaxed to 1.)
-        if (cards.length >= 2) {
-            expect(roomUids.size).toBeGreaterThanOrEqual(2);
+            expect(rooms[card.location]?.name).toBe(firstSpawnable.name);
         }
     });
 

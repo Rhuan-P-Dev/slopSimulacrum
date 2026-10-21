@@ -12,7 +12,7 @@ import { executeCraftTransaction, resolveCraftTarget, validateCraftInputs, prech
 import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDirectRemoval, maybeEliminateEntity, removeComponentOrItem, cleanupAfterRemoval, spillAllEntityItems } from './logic/RemovalCascadeLogic.js';
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
-import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickRandomRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
+import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
@@ -414,7 +414,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, at a uniformly-random room and a uniformly-random point inside it.
+     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, always in the first room (in world-definition order) at a uniformly-random point inside it.
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnCards`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -464,15 +464,15 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Picks a uniformly-random, spawnable room (numeric width/height) from the live room set. Spawn position is a spawn-time property (not a runtime toggle), so the random pick happens once, at boot.
-     * Implementation: src/controllers/logic/CardSpawnLogic.js (`pickRandomRoom`). This thin
+     * FASE 7 (facade logic extraction): Picks the FIRST spawnable room (numeric width/height) in world-definition order — deterministic: every card lands in the first room (start_room in the default world). Spawn position is a spawn-time property, so the pick happens once, at boot.
+     * Implementation: src/controllers/logic/CardSpawnLogic.js (`pickFirstSpawnRoom`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
      * @private
      * @returns {{uid: string, name: string, width: number, height: number}|null}
      */
-    _pickRandomRoom() {
-        return pickRandomRoom(this);
+    _pickFirstSpawnRoom() {
+        return pickFirstSpawnRoom(this);
     }
 
     /**
