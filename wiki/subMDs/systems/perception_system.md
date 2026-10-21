@@ -34,7 +34,7 @@ per tick / on read ──► snapshot dirty room ──► diff vs last snapshot
 | `src/controllers/consequences/ConsequenceDispatcher.js` | the **only** place action attribution is written (the choke point) |
 | `src/routes/perceptionRoutes.js` | the HTTP endpoints |
 | `public/js/InTextPanel.js` | the UI consumer (per-room feed, machine placer anchor, performed-action rows) |
-| `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `recordAgentObservation`, `getActionAttributionStore`, **`sendRoomChat` — the single choke point of every chat send (player route + the NPC speak tool); on success it marks the room dirty for perception** |
+| `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `getAgentRoomPerception` (room-scoped read for the LLM context, §9.1), `recordAgentObservation`, `getActionAttributionStore`, **`sendRoomChat` — the single choke point of every chat send (player route + the NPC speak tool); on success it marks the room dirty for perception** |
 | `src/controllers/core/RoomChatController.js` | the room chat ring (bounded per-room transcript) — the source of the `chat` snapshot category (§8.2); both send routes reach it only through the facade |
 | `src/controllers/core/PlaceMachineHandler.js` | the machine place handler — tags the spawned entity (machineType/placedBy) and marks the room dirty at the spawn choke point (source of `machines.placed`, §8.3) |
 | `src/controllers/core/RetrieveMachineHandler.js` | the machine retrieve handler — despawns the machine (its last-seen snapshot keeps the tag) and marks the room dirty (source of `machines.retrieved`, §8.3) |
@@ -213,6 +213,21 @@ The InText panel renders each row as `⚙ <name> placed at (<x>, <y>) by <placer
 All three are read-only with respect to world state (the only writes are the controller's own cursor/buffer bookkeeping). The facade additionally exposes `getActionAttributionStore()` for direct store queries (`get(entityId, actionName?)`, `getIds`, `getCount`, `listFor`) — the same store the performed-action rows are built from.
 
 **Reset semantics:** `PerceptionController.reset()` (called on world reset/restore) clears buffers, snapshots, cursors, dirty set, the per-entity action seen-cursors, **and the shared attribution store** — a restored world carries no action history from the voided one.
+
+### 9.1 The LLM context seam (`LlmContextController`)
+
+The integrated consumer: the local-LLM context (`LlmContextController.buildContext`, the agent path) carries a **`YOUR WORLD`** section that is exactly the perception system's two questions, split so that a weak model reads state before change:
+
+- **"now in this room:"** — the *state* block: the agent's own room layout (entities, distances, positions, dropped items, exits). This block is the baseline by construction: a first observation renders the state block and a quiet change window, and it survives budget pressure (see below).
+- **"since you last looked:"** — the *change* block: one line per room delta since the agent's observation cursor, rendering each entry's prebuilt `summary` (≤300 chars: counts + representative examples). The full rows (moved rows with used components, performed-action rows, chat lines, machine rows) ride on the structured `data.deltas` mirror, not on the prose.
+
+**Room-scoped read, cursor on read.** The LLM path reads through the facade's `getAgentRoomPerception(entityId, roomId, { limit })` → `PerceptionController.getRoomDeltasForAgent`: the display is filtered to the agent's *current* room, but the per-agent cursor still advances past everything the room's buffer holds (including the baseline, which is acknowledged and never displayed — the renderer filters `kind: 'baseline'` a second time, defense in depth). The read is the observation: the next `buildContext` shows only what changed after this one. Deltas for rooms the agent is not in stay in their buffers and surface when it re-enters (a re-entry produces a fresh baseline, whose state block re-renders the room). The whole-world `getAgentPerception` (and its HTTP endpoint) stays available for other consumers; the LLM path deliberately uses the narrower read.
+
+**Budget cascade — state before change.** The context has a hard 5000-char budget. When it is exceeded, the cascade sheds in this order: delta lines (sliced in memory — the cursor already advanced, so a facade re-read would find nothing; the renderer must not re-read), then entities, then the failures feed, then chat, then the feedback block, then instincts. The state block is last to be touched and effectively never sheds: the agent never loses its spatial anchor, it loses the freshest "since you last looked" detail first. `stats.truncated.{deltas,entities,failures,chat,feedback,instincts}` reports what actually shed.
+
+**Division of labor with the world-failures feed.** The context's `WORLD FAILURES` section renders only the **warn-level** tail of the world event ring (failed actions, round-level warnings); **success/intent events (level `info`) are excluded** — their state consequences are reported by the delta stream, which carries the better information (component attribution, targets). The two sources are complementary: deltas say *what changed* (with attribution), the failures feed says *what was attempted and failed* (with intent). A missed punch therefore appears once, in the failures feed, never twice.
+
+**Integration files:** `src/controllers/networking/LlmContextController.js` (the seam: `YOUR WORLD` section, `_buildDeltasData`, the cascade), `src/controllers/networking/LLMAgentController.js` (the agent turn calls `buildContext`; no changes were needed — the controller reads the entity's own `location` and the cursor advances on that read).
 
 ## 10. Related Documentation
 

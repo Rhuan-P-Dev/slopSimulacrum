@@ -568,6 +568,58 @@ console.log('\n[15] Machines: a placed machine is perceived with who placed it a
 }
 
 // ---------------------------------------------------------------------------
+// [16] Agent room-scoped perception — the LLM context seam (§9.1)
+// ---------------------------------------------------------------------------
+console.log('\n[16] getAgentRoomPerception (room-scoped read, cursor advances on read)');
+{
+    // A fresh agent (cursor starts at -1). Its first read of start_room
+    // acknowledges the room's whole buffer: baselines are filtered out (the
+    // LLM context renders the baseline as its "now in this room" state block
+    // instead), but any delta entries still resident in the buffer from
+    // earlier sections are new-to-this-reader and DO surface.
+    const agentId = wsc.spawnEntity('smallBallDroid', startRoomId);
+    const first = wsc.getAgentRoomPerception(agentId, startRoomId);
+    assert(Array.isArray(first) && first.every((d) => d.kind !== 'baseline'),
+        'first read: only delta entries (baselines filtered — the state block is the baseline)');
+
+    // The read IS the observation: the cursor now sits at the buffer's last
+    // sequence, so a quiet room yields nothing.
+    assert(wsc.getAgentRoomPerception(agentId, startRoomId).length === 0,
+        'second read (no changes): empty — cursor advanced on the first read');
+
+    // A change in the agent's own room -> the next read shows the delta.
+    const newcomer = wsc.spawnEntity('smallBallDroid', startRoomId);
+    const third = wsc.getAgentRoomPerception(agentId, startRoomId);
+    assert(lastEntry(third)?.kind === 'delta' && rowHas(lastEntry(third)?.entities?.appeared, newcomer),
+        'third read: delta for the newcomer in the agent\'s own room');
+
+    // Room transition: a change in right_room while the agent is in
+    // start_room. The start_room read must NOT show it (room-scoped display,
+    // and the cursor only advances past start_room's buffer — right_room's
+    // history stays for when the agent gets there).
+    const awaySpawn = wsc.spawnEntity('smallBallDroid', rightRoomId);
+    assert(wsc.getAgentRoomPerception(agentId, startRoomId).length === 0,
+        'start_room read does not leak right_room changes (room-scoped display)');
+    const rightRead = wsc.getAgentRoomPerception(agentId, rightRoomId);
+    assert(rightRead.every((d) => d.kind !== 'baseline') &&
+        lastEntry(rightRead)?.kind === 'delta' && rowHas(lastEntry(rightRead)?.entities?.appeared, awaySpawn),
+        'right_room read: the away-spawn surfaces as a delta (baseline-filtered display)');
+
+    // Quiet again, then one more change -> re-entry delta, nothing re-shown.
+    assert(wsc.getAgentRoomPerception(agentId, rightRoomId).length === 0,
+        'right_room quiet read: empty (cursor advanced)');
+    const reentry = wsc.spawnEntity('smallBallDroid', rightRoomId);
+    const reentryRead = wsc.getAgentRoomPerception(agentId, rightRoomId);
+    assert(
+        lastEntry(reentryRead)?.kind === 'delta' &&
+        rowHas(lastEntry(reentryRead)?.entities?.appeared, reentry) &&
+        !reentryRead.some((d) => rowHas(d?.entities?.appeared, awaySpawn)),
+        're-entry after a change: the new spawn only (earlier spawn not re-shown)'
+    );
+    console.log('  ✓ room-scoped read: cursor-on-read, room-scoped display, no double-reporting');
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${'='.repeat(42)}`);

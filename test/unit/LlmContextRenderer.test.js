@@ -4,13 +4,16 @@
  * World is fully mocked (no composition root, no data files): the renderer
  * is a pure reader/composer, so a hand-built facade mock keeps the tests
  * fast and deterministic. Covers:
- *   - section presence & stable order,
+ *   - section presence & stable order (eight headers, state before change),
  *   - "(none)" for empty sections (stable structure for weak models),
  *   - action line format (name/description/range/requirement/first canExecute id),
  *   - not-executable summary line,
  *   - other-room entity labeling,
- *   - hard budget (stats.chars ≤ 4000) and stats.truncated flags,
- *   - event line format "[tick] [action] message".
+ *   - the perception block: "now in this room" state before
+ *     "since you last looked" deltas, baseline entries never displayed,
+ *   - world failures: warn-level events only (info excluded),
+ *   - hard budget (stats.chars ≤ 5000) and stats.truncated flags (the cascade
+ *     sheds delta lines before state lines, state before failures).
  *
  * @module test/unit/LlmContextRenderer
  */
@@ -135,10 +138,12 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         }
     };
 
-    // Ring buffer contract: oldest → newest
+    // Ring buffer contract: oldest → newest. The second event is warn-level:
+    // the WORLD FAILURES section renders only warn events; the info event
+    // stays in the ring but must not appear in the context.
     const recentEvents = [
         { tick: 3505, action: 'dropItem', targetId: null, message: 'Item \'knife\' dropped at (120, 40)', level: 'info', ts: 1 },
-        { tick: 3520, action: 'droid punch', targetId: 'comp-same-core', message: 'Droid performed a punch dealing 25 damage!', level: 'info', ts: 2 }
+        { tick: 3520, action: 'droid punch', targetId: 'comp-same-core', message: 'Droid performed a punch dealing 25 damage!', level: 'warn', ts: 2 }
     ];
 
     return {
@@ -154,6 +159,10 @@ function makeWorld(overrides = {}, extraEntities = {}) {
             : {}),
         getActionsForEntity: (id) => (id === 'ent-self' ? actionsForEntity : {}),
         getRecentEvents: (limit) => recentEvents.slice(-limit),
+        // Perception stream (room-scoped, cursor-on-read). The default world
+        // is quiet; tests that exercise the "since you last looked" block
+        // override this with delta entries.
+        getAgentRoomPerception: () => [],
         // Dropped items in the current room (positions), for the "Dropped items:" line.
         getDroppedItemsByRoom: (roomId) => (roomId === 'room-1'
             ? { 'dropped-1': { id: 'dropped-1', itemType: 'knife', name: 'Knife', x: 150, y: 120, roomId: 'room-1' } }
@@ -185,16 +194,18 @@ describe('LlmContextController (context renderer)', () => {
         expect(() => bare.buildContext('ent-self')).toThrow(/facade not injected/);
     });
 
-    // R1: updated to seven headers (instincts section added between ACTIONS and HINTS)
-    it('returns all seven stable section headers, in order (R1)', () => {
+    // R1: stable headers, in order (perception integration: NEARBY ENTITIES →
+    // YOUR WORLD with the room name, RECENT EVENTS → WORLD FAILURES)
+    it('returns all eight stable section headers, in order (R1)', () => {
         const { text } = controller.buildContext('ent-self');
         const headers = [
             '=== YOUR STATE ===',
-            '=== NEARBY ENTITIES ===',
+            '=== YOUR WORLD (The Entrance Hall) ===',
             '=== YOUR ACTIONS (executable now) ===',
             '=== YOUR INSTINCTS ===',       // R1: new section
             '=== HINTS ===',
-            '=== RECENT EVENTS ===',
+            '=== WORLD FAILURES ===',
+            '=== YOUR LAST ACTIONS & RESULTS ===',
             '=== ROOM CHAT ==='
         ];
         let last = -1;
@@ -243,10 +254,10 @@ describe('LlmContextController (context renderer)', () => {
 
     // Ghost exclusion (subtask 2b, defense-in-depth): a component-less "ghost"
     // entity (mid-cascade or not yet despawned) must NOT appear in the
-    // NEARBY ENTITIES section — the LLM must never "see" a corpse. Exclusion
+    // YOUR WORLD section — the LLM must never "see" a corpse. Exclusion
     // (no dead marker) is the behavior the spec wants ("really deleted").
     describe('ghost exclusion (defense-in-depth, subtask 2b)', () => {
-        it('excludes a component-less same-room ghost from NEARBY ENTITIES (text + data mirror)', () => {
+        it('excludes a component-less same-room ghost from YOUR WORLD (text + data mirror)', () => {
             // dist 1 from self — without the filter the ghost would sort FIRST.
             const ghost = {
                 id: 'ent-ghost',
@@ -423,10 +434,13 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.actions.notExecutable).toEqual(['cut']);
     });
 
-    it('renders events as "[tick] [action] message"', () => {
+    it('renders world failures (warn-level events only) as "[tick] [action] message"', () => {
         const { text } = controller.buildContext('ent-self');
+        // The warn event renders.
         expect(text).toContain('[3520] [droid punch] Droid performed a punch dealing 25 damage!');
-        expect(text).toContain("[3505] [dropItem] Item 'knife' dropped at (120, 40)");
+        // The info event is excluded: success/intent events no longer occupy
+        // the context — their state consequences ride the perception stream.
+        expect(text).not.toContain('[3505] [dropItem]');
     });
 
     it('prints "(none)" for empty sections instead of omitting them', () => {
@@ -441,7 +455,8 @@ describe('LlmContextController (context renderer)', () => {
         const { text } = emptyController.buildContext('ent-self');
         expect(text).toContain('Equipped: (none)');
         expect(text).toContain('Inventory: (none)');
-        expect(text).toContain('=== RECENT EVENTS ===\n(none)');
+        expect(text).toContain('=== WORLD FAILURES ===\n(none)');
+        expect(text).toContain('since you last looked:\n(none)');
         expect(text).toContain('=== ROOM CHAT ===\n(none)');
     });
 
@@ -474,34 +489,120 @@ describe('LlmContextController (context renderer)', () => {
     });
 
     it('caps the rendered text at the 5000-char budget and flags truncation', () => {
-        // Flood the event log with long lines to blow the budget.
+        // Flood the world event ring with long WARN lines AND pad instincts
+        // so the composed context blows the budget (the WORLD FAILURES feed
+        // scans the full ring for warn entries; the cascade sheds failures
+        // before instincts, so this flags the failures stage).
         const flood = Array.from({ length: 200 }, (_, i) => ({
             tick: i, action: 'droid punch', targetId: null,
             message: 'Droid performed a punch dealing 25 damage! '.repeat(8),
-            level: 'info', ts: i
+            level: 'warn', ts: i
+        }));
+        const padInstincts = Array.from({ length: 5 }, (_, i) => ({
+            name: 'pad_instinct_' + i, description: 'x'.repeat(400)
         }));
         const floodWorld = makeWorld({ getRecentEvents: (limit) => flood.slice(-limit) });
         const floodController = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         floodController.setWorldStateController(floodWorld);
 
-        const { text, stats } = floodController.buildContext('ent-self');
+        const { text, stats } = floodController.buildContext('ent-self', { instincts: padInstincts });
         expect(stats.budgetChars).toBe(5000);
         expect(stats.chars).toBeLessThanOrEqual(5000);
         expect(text.length).toBeLessThanOrEqual(5000);
-        expect(stats.truncated.events).toBe(true);
+        expect(stats.truncated.failures).toBe(true);
         // all headers survive truncation (including HINTS)
-        for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== HINTS ===', '=== RECENT EVENTS ===']) {
+        for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== HINTS ===', '=== WORLD FAILURES ===']) {
             expect(text).toContain(header);
         }
     });
 
     it('honors option overrides (clamped to the budget maxes)', () => {
-        const { data, text } = controller.buildContext('ent-self', { maxEvents: 1, maxEntities: 1 });
-        expect(data.recentEvents).toHaveLength(1);
+        const { data, text } = controller.buildContext('ent-self', { maxFailures: 1, maxEntities: 1 });
+        expect(data.worldFailures).toHaveLength(1);
         // same-room list capped at 1, but the other-room entry still allowed
         expect(data.entities.filter(e => e.room === 'same')).toHaveLength(1);
         expect(text).toContain('[3520] [droid punch]');
         expect(text).not.toContain('[3505] [dropItem]');
+    });
+
+    // ------------------------------------------------------------------
+    // Perception block ("YOUR WORLD"): state first, then change.
+    // ------------------------------------------------------------------
+
+    it('YOUR WORLD: state block comes before "since you last looked", delta lines render summaries in order', () => {
+        const deltaWorld = makeWorld({
+            getAgentRoomPerception: (entityId, roomId, { limit }) => {
+                expect(entityId).toBe('ent-self');
+                expect(roomId).toBe('room-1'); // the agent's OWN room
+                return [
+                    { sequence: 3, tick: 40, kind: 'delta', summary: '1 entity moved in The Entrance Hall' },
+                    { sequence: 5, tick: 41, kind: 'delta', summary: '2 actions performed (droid punch by Bolt) in The Entrance Hall' }
+                ].slice(-limit);
+            }
+        });
+        const deltaCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        deltaCtrl.setWorldStateController(deltaWorld);
+        const { text, data } = deltaCtrl.buildContext('ent-self');
+
+        // The section is room-named and state-first.
+        expect(text).toContain('=== YOUR WORLD (The Entrance Hall) ===');
+        const nowIdx = text.indexOf('now in this room:');
+        const sinceIdx = text.indexOf('since you last looked:');
+        expect(nowIdx).toBeGreaterThan(-1);
+        expect(sinceIdx).toBeGreaterThan(nowIdx);
+        // The state block renders the current layout (the baseline).
+        expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
+        // Delta summaries render, oldest → newest.
+        expect(text).toContain('- 1 entity moved in The Entrance Hall');
+        expect(text).toContain('- 2 actions performed (droid punch by Bolt) in The Entrance Hall');
+        expect(text.indexOf('1 entity moved')).toBeLessThan(text.indexOf('2 actions performed'));
+        // The data mirror carries the raw entries.
+        expect(data.deltas).toHaveLength(2);
+        expect(data.deltas[1].summary).toBe('2 actions performed (droid punch by Bolt) in The Entrance Hall');
+    });
+
+    it('YOUR WORLD: baseline entries are never displayed (first observation renders state only)', () => {
+        const baselineWorld = makeWorld({
+            getAgentRoomPerception: () => [{
+                sequence: 1, tick: 1, kind: 'baseline',
+                summary: 'initial observation of The Entrance Hall: 2 entities (Player Droid, Vault Droid)'
+            }]
+        });
+        const baselineCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        baselineCtrl.setWorldStateController(baselineWorld);
+        const { text } = baselineCtrl.buildContext('ent-self');
+
+        // The baseline is the state block itself — the change window is quiet.
+        expect(text).toContain('since you last looked:\n(none)');
+        expect(text).not.toContain('initial observation');
+        // …but the current layout is still rendered.
+        expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
+    });
+
+    it('budget cascade: delta lines are shed before the state block (state survives)', () => {
+        // 10 long summaries (~4KB) on top of the base context blows the
+        // 5000-char budget; the cascade halves the delta window first.
+        const longSummary = 'x'.repeat(398);
+        const deltaFlood = Array.from({ length: 10 }, (_, i) => ({
+            sequence: i + 1, tick: i, kind: 'delta', summary: `${longSummary} ${i}`
+        }));
+        const cascadeWorld = makeWorld({
+            getAgentRoomPerception: (id, roomId, { limit }) => deltaFlood.slice(-limit)
+        });
+        const cascadeCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        cascadeCtrl.setWorldStateController(cascadeWorld);
+
+        const { text, stats } = cascadeCtrl.buildContext('ent-self');
+        expect(stats.chars).toBeLessThanOrEqual(5000);
+        expect(stats.truncated.deltas).toBe(true);
+        // The state block (the agent's spatial anchor) survived the cascade.
+        expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
+        // The delta window was halved (10 → 5).
+        const sinceIdx = text.indexOf('since you last looked:');
+        const actionsIdx = text.indexOf('=== YOUR ACTIONS (executable now) ===');
+        const deltaSection = text.slice(sinceIdx, actionsIdx);
+        const deltaLines = (deltaSection.match(/^- /gm) || []).length;
+        expect(deltaLines).toBe(5);
     });
 
     it('returns empty output for an unknown entity (route maps this to 404)', () => {
@@ -667,16 +768,18 @@ describe('LlmContextController (context renderer)', () => {
     // R5: budget truncation — > 5 instincts reduced to 3, stats.truncated.instincts = true
     it('R5: budget over 5000 chars with > 5 instincts → truncated to 3, stats.truncated.instincts = true', () => {
         // Create many instincts with VERY long descriptions to ensure they contribute significantly
+        // (8 x ~620 chars pushes the composed context far over the 5000-char
+        // budget, so the cascade has to reach the instincts stage).
         const manyInstincts = Array.from({ length: 8 }, (_, i) => ({
             name: `instinct_${i}`,
-            description: 'x'.repeat(300) // very long descriptions (~320 chars each)
+            description: 'x'.repeat(600) // very long descriptions (~620 chars each)
         }));
 
         // Flood events to blow past budget (these get truncated to perMessageChars=200)
         const floodEvents = Array.from({ length: 200 }, (_, i) => ({
             tick: i, action: 'droid punch', targetId: null,
             message: 'Droid performed a punch dealing 25 damage! '.repeat(8),
-            level: 'info', ts: i
+            level: 'warn', ts: i
         }));
 
         const floodWorld = makeWorld({

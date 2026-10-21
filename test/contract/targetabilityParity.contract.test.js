@@ -4,7 +4,7 @@
  * WHY this contract exists: two INDEPENDENT consumers each answer the question
  * "is this entity a viable target?" — the deterministic brain
  * (NpcAIController._isViableTarget, used by chase_attack) and the LLM context
- * (LlmContextController._isViableTarget, used to build the NEARBY ENTITIES
+ * (LlmContextController._isViableTarget, used to build the YOUR WORLD
  * section). If they ever DISAGREE, the world desyncs: the brain can chase a
  * target the LLM never told the LLM agent about (phantom goal → stuck loop),
  * or the LLM can hand the model a target the brain refuses to pursue. Both now

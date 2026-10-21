@@ -4,18 +4,29 @@
  * Feature B (spec §4.3): a local LLM can only reason about the world
  * through text. This controller composes a bounded, sectioned narrative
  * (hard cap of 5000 chars) from the live world state: entity self-state,
- * nearby entities, executable actions (with the natural-language
- * descriptions from data/systems/actions.json), the recent world-event ring buffer,
- * and (when the room-chat layer exists) the room chat.
+ * its world (current room state + the perception delta stream), executable
+ * actions (with the natural-language descriptions from data/systems/
+ * actions.json), world failures (the warn-level event tail), and (when the
+ * room-chat layer exists) the room chat.
  *
  * It is a reader/composer — a logic controller, not a state owner. It
  * receives the facade via setWorldStateController() and only ever reads
  * through its public API (spec "public API only" rule).
  *
+ * The "YOUR WORLD" section is the integrated perception seam (wiki
+ * subMDs/systems/perception_system.md): "now in this room" renders the
+ * current layout (state), "since you last looked" renders the room's delta
+ * stream since the agent's observation cursor — the read of that block IS
+ * the observation (the per-agent cursor advances on read, so the next
+ * round's build shows only what changed after this one). State comes before
+ * change on purpose: the budget cascade sheds delta lines before state
+ * lines, so the agent never loses its spatial anchor.
+ *
  * The section headers are stable and deliberate (prompt engineering):
- *   === YOUR STATE ===, === NEARBY ENTITIES ===,
- *   === YOUR ACTIONS (executable now) ===, === RECENT EVENTS ===,
- *   === ROOM CHAT ===
+ *   === YOUR STATE ===, === YOUR WORLD (room) ===,
+ *   === YOUR ACTIONS (executable now) ===, === YOUR INSTINCTS ===,
+ *   === HINTS ===, === WORLD FAILURES ===,
+ *   === YOUR LAST ACTIONS & RESULTS ===, === ROOM CHAT ===
  * Empty sections still print their header plus "(none)" so weak local
  * models always see the same structure.
  *
@@ -30,13 +41,15 @@ import {
     AGENT_FEEDBACK_CAPACITY,
     LLM_CONTEXT_MAX_CHARS,
     LLM_CONTEXT_OTHER_ROOM_ENTITIES,
-    LLM_CONTEXT_MAX_EVENTS,
+    LLM_CONTEXT_MAX_FAILURES,
+    LLM_CONTEXT_MAX_DELTAS,
     LLM_CONTEXT_MAX_CHAT,
     LLM_CONTEXT_MAX_INSTINCTS,
     LLM_CONTEXT_MAX_NEARBY_STATS,
     LLM_CONTEXT_MAX_HINTS,
     LLM_CONTEXT_MAX_CHAT_IN_CONTEXT,
-    LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT
+    LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT,
+    WORLD_EVENTS_MAX_LIMIT
 } from '../../utils/Constants.js';
 import { TRAIT_GROUPS, STAT_NAMES, flatKey } from '../../../shared/StatVocabulary.js';
 import { hasUsableComponent } from '../../utils/npcAiUtils.js';
@@ -49,7 +62,8 @@ class LlmContextController {
         otherRoomEntities: LLM_CONTEXT_OTHER_ROOM_ENTITIES,    // entities from other rooms (room-named)
         maxDroppedItems: CONTEXT_MAX_DROPPED_ITEMS, // current-room dropped items listed (positions) (single-sourced in Constants.js)
         maxExits: CONTEXT_MAX_EXITS,             // current-room exits listed (safety cap) (single-sourced in Constants.js)
-        maxEvents: LLM_CONTEXT_MAX_EVENTS,
+        maxFailures: LLM_CONTEXT_MAX_FAILURES,   // warn-level world event tail ("WORLD FAILURES" section)
+        maxDeltas: LLM_CONTEXT_MAX_DELTAS,       // perception delta lines ("since you last looked" block)
         maxChat: LLM_CONTEXT_MAX_CHAT,
         maxInstincts: LLM_CONTEXT_MAX_INSTINCTS,         // displayed instincts (display cap)
         perMessageChars: CHAT_MESSAGE_MAX_LENGTH     // per chat/event line truncation (shared with the room-chat message cap)
@@ -77,9 +91,11 @@ class LlmContextController {
      * Builds the LLM context for one entity.
      *
      * @param {string} entityId - Typed entity ID (ent-…).
-     * @param {Object} [options] - May override maxEntities / maxEvents / maxChat
-     *   (each clamped to the BUDGET maximum).
-     * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, events: boolean, chat: boolean } } }}
+     * @param {Object} [options] - May override maxEntities / maxFailures
+     *   (a.k.a. the historical `maxEvents`) / maxDeltas / maxChat (each
+     *   clamped to the BUDGET maximum). `instincts` (agent path) bypasses
+     *   the facade instinct fallback.
+     * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, failures: boolean, deltas: boolean, chat: boolean, feedback: boolean, instincts: boolean } } }}
      */
     buildContext(entityId, options = {}) {
         const facade = this.worldStateController;
@@ -88,12 +104,16 @@ class LlmContextController {
         }
 
         const maxEntities = this._clampOption(options.maxEntities, LlmContextController.BUDGET.maxEntities);
-        const maxEvents = this._clampOption(options.maxEvents, LlmContextController.BUDGET.maxEvents);
+        // `maxEvents` is the historical option name; the section it capped is
+        // now the warn-only "WORLD FAILURES" feed (maxFailures is the new name).
+        const maxFailures = this._clampOption(
+            options.maxFailures ?? options.maxEvents, LlmContextController.BUDGET.maxFailures);
+        const maxDeltas = this._clampOption(options.maxDeltas, LlmContextController.BUDGET.maxDeltas);
         const maxChat = this._clampOption(options.maxChat, LlmContextController.BUDGET.maxChat);
 
         const entity = facade.getEntity(entityId);
         if (!entity) {
-            return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, events: false, chat: false } } };
+            return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, failures: false, deltas: false, chat: false, feedback: false, instincts: false } } };
         }
 
         // Compute the rooms map ONCE (a defensive deep clone from the facade)
@@ -103,16 +123,21 @@ class LlmContextController {
         const roomName = this._roomName(entity.location, rooms);
         const self = this._buildSelfData(entity);
         const nearData = this._buildNearbyData(entity, entity.location, maxEntities, rooms);
+        // Read ONCE: the room-scoped perception read IS the observation (the
+        // agent cursor advances on this call), so truncation later slices the
+        // result in memory — a second facade read would find an already-
+        // advanced cursor and nothing left to show.
+        const deltasData = this._buildDeltasData(entity, maxDeltas);
         const actionData = this._buildActionData(entityId);
         const hintsData = this._buildHintsData(entityId);
-        const eventsData = this._buildEventData(maxEvents);
+        const failuresData = this._buildFailureData(maxFailures);
         const chatData = this._buildChatData(entity.location, maxChat);
         const feedbackData = this._buildFeedbackData(entityId);
 
         const stats = {
             chars: 0,
             budgetChars: LlmContextController.BUDGET.maxChars,
-            truncated: { entities: false, events: false, chat: false, feedback: false, instincts: false }
+            truncated: { entities: false, failures: false, deltas: false, chat: false, feedback: false, instincts: false }
         };
 
         // Build instincts data: preferred source is options.instincts (agent path),
@@ -121,53 +146,68 @@ class LlmContextController {
             ? options.instincts
             : (facade.instinctController?.generateForEntity?.(entityId) ?? []);
 
-        // Truncation order when over budget (spec §4.3): events first, then
-        // entities (same-room first), then chat (drop to 5), then feedback
-        // (least critical — dropped entirely), then instincts (reduced to 3).
-        // The `data` mirror always reflects exactly what was rendered (the truncated versions).
+        // Truncation order when over budget (spec §4.3): delta lines first
+        // (the "since you last looked" window is the most expendable — the
+        // state block is the agent's spatial anchor and must survive), then
+        // entities (same-room first), then failures, then chat (drop to 5),
+        // then feedback (dropped entirely), then instincts (reduced to 3, then
+        // dropped). The `data` mirror always reflects exactly what was
+        // rendered (the truncated versions).
         let near = nearData;
-        let events = eventsData;
+        let deltas = deltasData;
+        let failures = failuresData;
         let chat = chatData;
         let feedback = feedbackData;
         let instinctSection = instincts.slice(0, LlmContextController.BUDGET.maxInstincts);
         const droppedItems = this._buildDroppedItemsData(entity.location);
-        let text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+        let text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
 
         if (text.length > stats.budgetChars) {
-            events = this._buildEventData(Math.max(5, Math.floor(maxEvents / 2)));
-            text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
-            stats.truncated.events = events.length < eventsData.length || text.length > stats.budgetChars;
+            // Deltas are sliced in memory (NOT re-read): the perception read
+            // above IS the observation — the cursor already advanced, so a
+            // second facade read would find nothing left to show.
+            if (deltas.length > 2) {
+                deltas = deltas.slice(-Math.max(2, Math.floor(deltas.length / 2)));
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                stats.truncated.deltas = true;
+            }
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)), rooms);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
+            }
+
+            if (text.length > stats.budgetChars && failures.length > 2) {
+                failures = failures.slice(-Math.max(2, Math.floor(failures.length / 2)));
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                stats.truncated.failures = true;
             }
 
             if (text.length > stats.budgetChars && chat.length > LLM_CONTEXT_MAX_CHAT_IN_CONTEXT) {
                 chat = chat.slice(0, LLM_CONTEXT_MAX_CHAT_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.chat = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
             if (text.length > stats.budgetChars && feedback.length > 0) {
                 feedback = [];
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.feedback = true;
             }
 
             // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
             if (instinctSection.length > LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT) {
                 instinctSection = instinctSection.slice(0, LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.instincts = true;
             }
 
             // Final fallback: if still over budget after all truncation, truncate instincts further
             if (text.length > stats.budgetChars && instinctSection.length > 0) {
                 instinctSection = [];
-                text = this._render(entity, roomName, self, near, actionData, hintsData, events, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
                 stats.truncated.instincts = true; // already set, but ensure clarity
             }
         }
@@ -183,7 +223,8 @@ class LlmContextController {
             droppedItems,
             actions: actionData,
             hints: hintsData.slice(0, LLM_CONTEXT_MAX_HINTS),
-            recentEvents: events,
+            deltas,
+            worldFailures: failures,
             roomChat: chat,
             lastActionsResults: feedback,
             instincts: instinctSection
@@ -442,20 +483,58 @@ class LlmContextController {
     }
 
     /**
-     * Events section: last `limit` world events, rendered as
-     * "[tick] [action] message".
+     * World-failures section: the warn-level tail of the world event ring,
+     * rendered as "[tick] [action] message". The full ring is scanned (not
+     * just the recent tail) so up to `limit` WARN events are found even when
+     * the ring is mostly info. Success (info) events are intentionally
+     * excluded: their state consequences are reported by the perception
+     * delta stream ("since you last looked"), which carries the better
+     * information (with component attribution).
      * @param {number} limit
      * @returns {string[]}
      * @private
      */
-    _buildEventData(limit) {
+    _buildFailureData(limit) {
         const facade = this.worldStateController;
         if (!facade.getRecentEvents) return [];
-        const perMessageChars = LlmContextController.BUDGET.perMessageChars;
-        return (facade.getRecentEvents(limit) || []).map(ev => {
-            const msg = (ev.message || '').slice(0, perMessageChars);
-            return `[${ev.tick ?? '----'}] [${ev.action}] ${msg}`;
-        });
+        try {
+            const perMessageChars = LlmContextController.BUDGET.perMessageChars;
+            const ring = facade.getRecentEvents(WORLD_EVENTS_MAX_LIMIT) || [];
+            return ring
+                .filter(ev => ev.level === 'warn')
+                .slice(-limit)
+                .map(ev => `[${ev.tick ?? '----'}] [${ev.action}] ${(ev.message || '').slice(0, perMessageChars)}`);
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Perception delta section: the agent's own room, since the agent's
+     * observation cursor. The read IS the observation —
+     * PerceptionController.getRoomDeltasForAgent advances the cursor on this
+     * call, so buildContext never re-reads (truncation slices in memory).
+     * Each entry renders its prebuilt summary sentence (DeltaSummary: counts
+     * + representative examples; the full rows live on the data mirror).
+     * Baseline entries are never displayed: the "now in this room" state
+     * block is the baseline, so a first observation renders state only.
+     * @param {Object} entity
+     * @param {number} limit
+     * @returns {Array<Object>} raw delta entries, oldest to newest
+     * @private
+     */
+    _buildDeltasData(entity, limit) {
+        const facade = this.worldStateController;
+        if (!facade.getAgentRoomPerception) return [];
+        try {
+            const raw = facade.getAgentRoomPerception(entity.id, entity.location, { limit }) || [];
+            // Defense in depth: a baseline is the state block's job, never
+            // the change window. The facade already filters baselines; this
+            // guards the renderer against any other producer of the stream.
+            return raw.filter(d => d && d.kind !== 'baseline');
+        } catch {
+            return [];
+        }
     }
 
     /**
@@ -507,7 +586,7 @@ class LlmContextController {
      *   by buildContext so the room block is resolved from the same single clone.
      * @private
      */
-    _render(entity, roomName, self, near, actions, hints, events, chat, feedback, instincts, droppedItems, _maxEntities, rooms) {
+    _render(entity, roomName, self, near, deltas, actions, hints, failures, chat, feedback, instincts, droppedItems, _maxEntities, rooms) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -544,8 +623,13 @@ class LlmContextController {
             : 'Inventory: (none)');
         lines.push('');
 
-        // === NEARBY ENTITIES ===
-        lines.push('=== NEARBY ENTITIES ===');
+        // === YOUR WORLD ({room}) ===
+        // State first, then change: the "now in this room" block is the
+        // agent's spatial anchor (it survives the budget cascade), the
+        // "since you last looked" block is the perception delta stream (shed
+        // first under budget pressure — see buildContext).
+        lines.push(`=== YOUR WORLD (${roomName || 'unknown'}) ===`);
+        lines.push('now in this room:');
         const nearby = [...near.sameRoom, ...near.otherRooms];
         if (nearby.length === 0) {
             lines.push('(none)');
@@ -566,6 +650,14 @@ class LlmContextController {
         if (Array.isArray(droppedItems) && droppedItems.length > 0) {
             lines.push(`Dropped items: ${droppedItems.map(it => `${it.name} at (${Math.round(it.x)}, ${Math.round(it.y)})`).join(', ')}`);
         }
+        // The perception delta stream: one summary line per room delta since
+        // the agent's observation cursor (baselines never appear here — the
+        // state block above is the baseline, so a first observation prints
+        // "(none)").
+        lines.push('since you last looked:');
+        lines.push(deltas.length > 0
+            ? deltas.map(d => `- ${d.summary || '(change)'}`).join('\n')
+            : '(none)');
         lines.push('');
 
         // === YOUR ACTIONS (executable now) ===
@@ -599,9 +691,13 @@ class LlmContextController {
         lines.push(hintLines.length > 0 ? hintLines.join('\n') : '(none)');
         lines.push('');
 
-        // === RECENT EVENTS ===
-        lines.push('=== RECENT EVENTS ===');
-        lines.push(events.length > 0 ? events.join('\n') : '(none)');
+        // === WORLD FAILURES ===
+        // The warn-level tail of the world event ring (failed actions +
+        // round-level warnings). Success events are intentionally absent:
+        // their state consequences ride the perception stream in the
+        // "since you last looked" block above.
+        lines.push('=== WORLD FAILURES ===');
+        lines.push(failures.length > 0 ? failures.join('\n') : '(none)');
         lines.push('');
 
         // === YOUR LAST ACTIONS & RESULTS ===
@@ -662,7 +758,8 @@ class LlmContextController {
     }
 
     /**
-     * Viability predicate for the NEARBY ENTITIES section (defense-in-depth).
+     * Viability predicate for the YOUR WORLD section's entity list
+     * (defense-in-depth).
      *
      * WHY: a mid-cascade or not-yet-despawned entity can briefly linger in the
      * world state with no components (a "ghost"). Rendering it would hand the

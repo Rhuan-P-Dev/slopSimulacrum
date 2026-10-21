@@ -31,15 +31,20 @@
  * **Why baselines:** an agent can't perceive *relative* changes in a room it
  * has never seen. The first read of a room therefore emits a *baseline* entry
  * (the room's initial contents) and only then switches to deltas. The LLM
- * context section handles the baseline by rendering "initial observation".
+ * context consumes the baseline implicitly: its "now in this room" state
+ * section already renders the room contents, so getRoomDeltasForAgent
+ * acknowledges baseline entries without displaying them (a first observation
+ * renders state only, no "since you last looked" lines).
  *
  * **Why per-agent cursors:** "since your last observation" is a *reader-relative*
  * time window, not a wall-clock one. Two readers (an NPC brain and the UI)
  * that start looking at the same room at different times need different
- * "since" points. The cursor advances when the *reader* confirms it looked
- * (recordAgentObservation), never when the world changed — so a reader that
- * sleeps between ticks still sees *everything* that changed while it was
- * asleep.
+ * "since" points. The cursor advances when the *reader* looks — the LLM
+ * context's room-scoped read (getRoomDeltasForAgent) advances it as part of
+ * the read itself, and recordAgentObservation is the explicit variant for
+ * readers that observe without reading (UI polling / observe endpoint) —
+ * never when the world changed. So a reader that sleeps between ticks still
+ * sees *everything* that changed while it was asleep.
  *
  * **Why performed-action rows ("only the components that were used"):** an
  * observer also wants to know *what the entities did*, not just what changed
@@ -273,11 +278,72 @@ class PerceptionController {
     }
 
     /**
+     * Returns the delta entries of ONE room (the agent's own room) since the
+     * agent last looked — the room-scoped variant of getAgentDeltas used by
+     * the LLM context's "YOUR WORLD → since you last looked" block.
+     *
+     * Same per-agent cursor as getAgentDeltas, with two deliberate semantic
+     * differences (both serve the same-room perception model):
+     *
+     * 1. **Display is room-filtered, acknowledgment is not.** Only entries
+     *    from `roomId` are returned, but the cursor still advances past
+     *    everything in that room's buffer that post-dates it — including the
+     *    baseline entry, which is *acknowledged but never displayed* (the
+     *    agent's "now in this room" state section IS the baseline, so
+     *    rendering it as "everything appeared" would double-report the room
+     *    contents). Entries from OTHER rooms are untouched by this method:
+     *    the cursor only moves past what this room's buffer holds, so a
+     *    quiet-own-room stretch does not consume history the agent will
+     *    later want when it moves rooms — arriving in a room surfaces what
+     *    changed there while the agent was elsewhere (bounded by the room
+     *    ring capacity).
+     * 2. **Baseline entries are excluded from the display list** (see 1).
+     *
+     * The read is the observation: after this call the agent's cursor sits
+     * at the highest sequence this room's buffer held since the previous
+     * read, so the next round's build does not double-report.
+     *
+     * @param {string} entityId - the observing agent's entity id
+     * @param {string} roomId - the agent's current room (UID)
+     * @param {{ limit?: number }} [options] - tail cap (default
+     *   PERCEPTION_RECENT_LIMIT); the window is sliced, never re-read
+     *   (re-reading would find an already-advanced cursor).
+     * @returns {Array} delta entries (kind 'delta' only), oldest → newest
+     */
+    getRoomDeltasForAgent(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        if (!entityId || !roomId) return [];
+        const sinceSequence = this._agentCursors.get(entityId) ?? -1;
+        const buffer = this._bufferFor(roomId);
+        const fresh = this._flushRoom(roomId);
+        if (fresh) buffer.push(fresh);
+        // Read the full room buffer (capacity = PERCEPTION_MAX_LIMIT): every
+        // entry still resident that post-dates the cursor must be
+        // acknowledged, regardless of the display tail length.
+        let acknowledged = sinceSequence;
+        const visible = [];
+        for (const entry of buffer.getRecent(PERCEPTION_MAX_LIMIT)) {
+            if (entry.sequence <= sinceSequence) continue;
+            acknowledged = Math.max(acknowledged, entry.sequence);
+            if (entry.kind !== 'baseline') visible.push(entry);
+        }
+        // Advance only up to the acknowledged sequence (never regress):
+        // a quiet room (nothing since the cursor) leaves the cursor where it
+        // is — see the method header for why that is the desired behavior.
+        if (acknowledged > sinceSequence) {
+            this._agentCursors.set(entityId, acknowledged);
+        }
+        visible.sort((a, b) => a.sequence - b.sequence || (a.ts ?? 0) - (b.ts ?? 0));
+        return visible.slice(-limit);
+    }
+
+    /**
      * Confirms that the agent has now observed everything up to the current
      * sequence. Advances the agent cursor to the latest global `sequence`
-     * (i.e. `stop reporting changes until I look again`). Called by
-     * LlmContextController after it built the context so the cursor and the
-     * rendered "WHAT CHANGED" section advance together.
+     * (i.e. `stop reporting changes until I look again`). Used by callers
+     * that observe without reading deltas — the player UI polling path, the
+     * /perception observe endpoint, and tests that want to control the
+     * cursor independently. The LLM context path does NOT need this: its
+     * getRoomDeltasForAgent read advances the cursor itself.
      *
      * @param {string} entityId
      */

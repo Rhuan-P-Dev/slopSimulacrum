@@ -1295,12 +1295,39 @@ class WorldStateController {
     }
 
     /**
-     * Explicitly records that `entityId` has just observed the world (the LLM
-     * context build advances the cursor via getAgentPerception(); this public
-     * method exists for callers that observe without reading deltas — e.g. the
-     * player UI polling path or tests that want to control the cursor
-     * independently). No-op when the entity is unknown or no perception
-     * controller is injected.
+     * Returns the perception (delta) entries of ONE room since this *specific
+     * agent* last observed it — the room-scoped "what changed while I wasn't
+     * looking" window the LLM context's "YOUR WORLD → since you last looked"
+     * block renders. Unlike getAgentPerception (whole world), display is
+     * filtered to the agent's current room, but the per-agent cursor still
+     * advances past everything the room's buffer holds (including baseline
+     * entries, which are acknowledged but never displayed — the context's
+     * "now in this room" state section is the baseline). Reading advances the
+     * cursor, so the next call sees only what changed after this observation.
+     * @param {string} entityId - The observing entity (agent) id.
+     * @param {string} roomId - The agent's current room (UID).
+     * @param {{ limit?: number }} [options]
+     * @returns {Array} Delta entries (kind 'delta' only), oldest → newest.
+     */
+    getAgentRoomPerception(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        if (!entityId || !roomId) return [];
+        try {
+            return this.perceptionController
+                ? (this.perceptionController.getRoomDeltasForAgent(entityId, roomId, { limit }) ?? [])
+                : [];
+        } catch (error) {
+            Logger.warn(`[WorldStateController] agent room perception read failed for ${entityId} in ${roomId}: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Explicitly records that `entityId` has just observed the world. Exists
+     * for callers that observe without reading deltas — e.g. the player UI
+     * polling path, the /perception observe endpoint, or tests that want to
+     * control the cursor independently. The LLM context path does not call
+     * this: its getAgentRoomPerception read advances the cursor itself.
+     * No-op when no perception controller is injected.
      * @param {string} entityId - The observing entity id.
      * @returns {void}
      */

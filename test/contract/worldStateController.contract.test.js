@@ -234,6 +234,9 @@ describe('WorldStateController public method surface', () => {
         // rooms, oldest → newest) — the exact shape LlmContextController feeds
         // into its context. Advances the per-agent observation cursor.
         'getAgentPerception',
+        // Room-scoped perception read for the LLM context: the agent's own
+        // room only, baseline-filtered, cursor advanced on read.
+        'getAgentRoomPerception',
         'getAll',
         'getAllEquippedItems',
         'getBestComponentForAction',

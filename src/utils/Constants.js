@@ -237,8 +237,9 @@ export const PERCEPTION_MAX_LIMIT = 50;
 
 /**
  * Default number of recent delta entries returned by getRoomDeltas()
- * (/perception endpoint) and getAgentDeltas() (LLM context "WHAT CHANGED"
- * section). Smaller than PERCEPTION_MAX_LIMIT: most consumers only need a
+ * (/perception endpoint), getAgentDeltas() (/perception/agent endpoint) and
+ * getRoomDeltasForAgent() (the LLM context "YOUR WORLD → since you last
+ * looked" block). Smaller than PERCEPTION_MAX_LIMIT: most consumers only need a
  * short recent tail, while the full 50-entry ring stays the storage cap.
  * @type {number}
  */
@@ -255,8 +256,10 @@ export const PERCEPTION_RECENT_LIMIT = 10;
 // =========================================================================
 
 /**
- * Maximum number of same-room entities listed in the enriched spatial
- * context (LLM "NEARBY ENTITIES" section and event-panel context).
+ * Maximum number of same-room entities listed in the context's
+ * "now in this room" block (the LLM "YOUR WORLD" section; the InText
+ * event panel shares the same spatial constants so both views of a room
+ * always agree).
  * @type {number}
  */
 export const CONTEXT_MAX_ENTITIES = 8;
@@ -435,6 +438,27 @@ export const LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT = 3;
  * @type {number}
  */
 export const LLM_CONTEXT_MAX_FEEDBACK = 5;
+
+/**
+ * Max world-failure entries rendered into the composed LLM context's
+ * "WORLD FAILURES" section: the warn-level tail of the world event ring
+ * (failed actions + round-level warnings). Success events are excluded —
+ * their state consequences are reported by the perception delta stream
+ * ("since you last looked"), which carries the better information (with
+ * component attribution).
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_FAILURES = 10;
+
+/**
+ * Max perception-delta entries rendered into the composed LLM context's
+ * "YOUR WORLD → since you last looked" block (per-agent, room-scoped:
+ * only the deltas of the agent's current room, since its observation
+ * cursor advanced). The read of this block IS the observation — the
+ * per-agent cursor advances on read.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_DELTAS = 10;
 
 // =========================================================================
 // AGENT CONSTANTS
