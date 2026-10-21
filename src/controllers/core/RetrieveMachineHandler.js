@@ -90,6 +90,12 @@ export function handleRetrieveMachine(deps, params) {
   const distance = Math.sqrt(dx * dx + dy * dy);
   if (distance > RETRIEVE_RANGE) return { success: false, message: `Machine out of range (${distance.toFixed(1)} > ${RETRIEVE_RANGE}).` };
 
+  // Captured before the despawn below: the machine's room is what we mark
+  // dirty for perception. The machine's last-seen snapshot keeps its machine
+  // tag, so the diff can report the retrieval with who placed it and where
+  // it stood.
+  const machineRoom = machine.location ?? null;
+
   // Spill the machine's stored items to the floor before despawning (nothing is lost).
   const itemRegistry = worldStateController.getItemRegistry?.() || {};
   const storedItems = Array.isArray(machine.items) ? [...machine.items] : [];
@@ -116,6 +122,12 @@ export function handleRetrieveMachine(deps, params) {
   if (spilled < storedItems.length) {
     Logger.warn(`[RetrieveMachineHandler] ${spilled}/${storedItems.length} stored item(s) from "${machineDef.name}" spilled; the rest could not be placed on a free floor slot.`);
   }
+  // Perception choke point: mark the room dirty so the retrieval (and the
+  // floor spill above) surfaces in the room's perception on the next flush.
+  // Both rooms are marked: the machine's and the player's (the same room in
+  // practice — the range gate requires it — but the mark is idempotent).
+  worldStateController._markPerceptionDirty?.(machineRoom);
+  worldStateController._markPerceptionDirty?.(player.location);
   Logger.info(`[RetrieveMachineHandler] ${entityId} retrieved machine "${machineDef.name}" (${targetEntityId}); ${spilled} stored item(s) returned to the floor.`);
   return {
     success: true,

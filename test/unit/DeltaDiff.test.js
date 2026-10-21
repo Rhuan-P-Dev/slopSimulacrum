@@ -563,3 +563,89 @@ describe('DeltaDiff — chat (the lines said in the room)', () => {
     });
 });
 
+describe('diffRoomSnapshots machines (who placed what where)', () => {
+    // The place choke point tags the spawned entity record (isMachine/
+    // machineType/placedBy), so the diff derives the machine category from
+    // the record itself — no side state. A machine is an entity, so it also
+    // appears in the entity rows (with the tag) — but `counts.machines` is
+    // deliberately NOT folded into `counts.total` (it would double-count).
+
+    function machineEntity({ x = 30, y = 30, name = 'Knife Generator', type = 'knifeGenerator', placedBy = { id: 'p1', name: 'Ada' } } = {}) {
+        return {
+            id: 'e1',
+            name,
+            location: 'room1',
+            spatial: { x, y },
+            components: {},
+            items: {},
+            internal: {},
+            equipped: {},
+            lastMoveAction: null,
+            machine: { type, placedBy }
+        };
+    }
+
+    function machineRoom(tick, entities) {
+        return { roomId: 'room1', tick, entities };
+    }
+
+    it('a machine-tagged entity appearing surfaces in machines.placed with who/where', () => {
+        const prev = machineRoom(1, {});
+        const next = machineRoom(2, { e1: machineEntity({ x: 30, y: 30 }) });
+        const delta = diffRoomSnapshots(prev, next, 2, 'room1');
+        expect(delta.machines.placed).toEqual([
+            { id: 'e1', name: 'Knife Generator', type: 'knifeGenerator', x: 30, y: 30, placedBy: { id: 'p1', name: 'Ada' } }
+        ]);
+        expect(delta.machines.retrieved).toEqual([]);
+        expect(delta.counts.machines).toBe(1);
+        // The machine is an entity: the raw entity row carries the tag too.
+        expect(delta.entities.appeared).toHaveLength(1);
+        expect(delta.entities.appeared[0].machine).toEqual({ type: 'knifeGenerator', placedBy: { id: 'p1', name: 'Ada' } });
+        // But total counts the entity once (machines is not folded in).
+        expect(delta.counts.total).toBe(1);
+    });
+
+    it('a machine-tagged entity despawning surfaces in machines.retrieved with last-seen who/where', () => {
+        const prev = machineRoom(1, { e1: machineEntity({ x: 30, y: 30 }) });
+        const next = machineRoom(2, {});
+        const delta = diffRoomSnapshots(prev, next, 2, 'room1');
+        expect(delta.machines.retrieved).toEqual([
+            { id: 'e1', name: 'Knife Generator', type: 'knifeGenerator', x: 30, y: 30, placedBy: { id: 'p1', name: 'Ada' } }
+        ]);
+        expect(delta.machines.placed).toEqual([]);
+        expect(delta.counts.machines).toBe(1);
+        // The despawned row keeps the tag (the diff's source for the row).
+        expect(delta.entities.despawned[0].machine).toEqual({ type: 'knifeGenerator', placedBy: { id: 'p1', name: 'Ada' } });
+    });
+
+    it('an unchanged machine (and a plain non-machine entity) produce no machine rows', () => {
+        const m = machineEntity();
+        const plain = { id: 'e2', name: 'Bolt', location: 'room1', spatial: { x: 1, y: 2 }, components: {}, lastMoveAction: null };
+        const prev = machineRoom(1, { e1: m, e2: plain });
+        const next = machineRoom(2, { e1: m, e2: plain });
+        const delta = diffRoomSnapshots(prev, next, 2, 'room1');
+        expect(delta.machines).toEqual({ placed: [], retrieved: [] });
+        expect(delta.counts.machines).toBe(0);
+        // The plain entity's rows carry machine: null (schema stability).
+        const plainDelta = diffRoomSnapshots(machineRoom(1, {}), machineRoom(2, { e2: plain }), 2, 'room1');
+        expect(plainDelta.entities.appeared[0].machine).toBeNull();
+    });
+
+    it('a baseline reports machines present at first observation (a fact, not an event window); a machine-less baseline stays empty', () => {
+        const baseline = buildBaselineEntry(machineRoom(1, { e1: machineEntity({ x: 5.5, y: 7.25 }) }), 1, 'room1');
+        expect(baseline.machines.placed).toEqual([
+            { id: 'e1', name: 'Knife Generator', type: 'knifeGenerator', x: 5.5, y: 7.25, placedBy: { id: 'p1', name: 'Ada' } }
+        ]);
+        expect(baseline.machines.retrieved).toEqual([]);
+        expect(baseline.counts.machines).toBe(1);
+        // The appeared row carries the tag too (schema parity with the delta).
+        expect(baseline.entities.appeared[0].machine).toEqual({ type: 'knifeGenerator', placedBy: { id: 'p1', name: 'Ada' } });
+
+        const plainSnap = machineRoom(1, { e1: { id: 'e1', name: 'Bolt', location: 'room1', spatial: { x: 1, y: 2 }, components: {}, lastMoveAction: null } });
+        const plainBaseline = buildBaselineEntry(plainSnap, 1, 'room1');
+        expect(plainBaseline.machines).toEqual({ placed: [], retrieved: [] });
+        expect(plainBaseline.counts.machines).toBe(0);
+        expect(plainBaseline.entities.appeared[0].machine).toBeNull();
+    });
+});
+

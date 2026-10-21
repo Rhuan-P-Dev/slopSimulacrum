@@ -93,6 +93,11 @@ export function handlePlaceMachine(deps, params) {
   });
   worldStateController.stateEntityController.updateEntitySpatial(newEntityId, pos);
 
+  // Perception choke point: mark the room dirty so this placement surfaces in
+  // the room's perception on the next flush. The diff reports it from the
+  // entity's machine tag (set above at the spawn choke point): who placed it
+  // and where.
+  worldStateController._markPerceptionDirty?.(entity.location);
   Logger.info(`[PlaceMachineHandler] ${entityId} placed machine "${machine.name}" (${newEntityId}) at (${pos.x}, ${pos.y}).`);
   return { success: true, machineEntityId: newEntityId, position: { x: pos.x, y: pos.y }, machine: machine.name };
 }

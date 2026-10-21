@@ -512,7 +512,25 @@ class PerceptionController {
             // "turn" lines that can't be matched back to an entity, so this per-
             // entity tag is the reliable seam. `null` when the entity has never
             // moved by an action.
-            lastMoveAction: entity?.lastMoveAction ?? null
+            lastMoveAction: entity?.lastMoveAction ?? null,
+            // Placed-machine attribution. The place choke point (PlaceMachineHandler)
+            // tags the spawned entity (isMachine/machineType/placedBy), so the
+            // snapshot carries WHO placed the machine: the placer's display name
+            // resolved against the current world at snapshot time (null when the
+            // placer is gone or unnamed — the row then degrades to the id, the
+            // same rule as action targets). DeltaDiff promotes machine-tagged
+            // entity rows into the `machines` category (placed/retrieved).
+            machine: entity?.isMachine === true
+                ? {
+                    type: entity.machineType ?? null,
+                    placedBy: entity.placedBy
+                        ? {
+                            id: entity.placedBy,
+                            name: this._facade?.getEntity?.(entity.placedBy)?.name ?? null
+                        }
+                        : null
+                }
+                : null
         };
     }
 
@@ -551,6 +569,10 @@ class PerceptionController {
             ...(entry.entities?.moved ?? []),
             ...(entry.entities?.appeared ?? []),
             ...(entry.entities?.despawned ?? []),
+            // Machine rows (who placed what where) share the fixRow shape —
+            // their x/y ride directly on the row.
+            ...(entry.machines?.placed ?? []),
+            ...(entry.machines?.retrieved ?? []),
             ...(entry.items?.added ?? []),
             ...(entry.items?.removed ?? []),
             ...(entry.dropped?.added ?? []),

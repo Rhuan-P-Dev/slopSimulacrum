@@ -367,12 +367,23 @@ export class InTextPanel {
             if (text) bullets.push(text);
         };
         const entities = entry.entities ?? {};
+        // Machine-tagged entities read as dedicated machine rows (below), with
+        // who placed them and where — the plain appeared/despawned bullets for
+        // those entities are skipped so one machine reads as one line. This
+        // covers baselines too: a machine present at first observation is a
+        // placed machine, so its row reports who placed it and where.
+        const machineEntIds = new Set([
+            ...(entry.machines?.placed ?? []).map((m) => m?.id),
+            ...(entry.machines?.retrieved ?? []).map((m) => m?.id)
+        ]);
         // Baselines carry *all* present entities in `appeared` — list them.
         // Deltas carry only the newcomers — list those too (the "who's new").
         for (const ent of entities.appeared ?? []) {
+            if (machineEntIds.has(ent.id)) continue;
             push(`+ ${this.esc(ent.name ?? ent.id ?? '?')}`);
         }
         for (const ent of entities.despawned ?? []) {
+            if (machineEntIds.has(ent.id)) continue;
             push(`− ${this.esc(ent.name ?? ent.id ?? '?')}`);
         }
         for (const ent of entities.moved ?? []) {
@@ -459,6 +470,24 @@ export class InTextPanel {
                 line += ` · locomotion: ${this.esc(fmt)}`;
             }
             push(line);
+        }
+
+        // Machines: a placed machine is reported with WHO placed it (the
+        // placer's name, resolved at snapshot time — id fallback when the
+        // placer is gone or unnamed) and WHERE (the floor position, "00.00"
+        // rule); a retrieval reports where the machine stood. Baselines
+        // carry only placed rows (a machine standing in the room is a placed
+        // machine — a fact, not an event); retrievals need a before/after.
+        for (const m of entry.machines?.placed ?? []) {
+            const placer = m.placedBy?.name
+                ? `${this.esc(m.placedBy.name)} (${this.esc(m.placedBy.id ?? '?')})`
+                : this.esc(m.placedBy?.id ?? '?');
+            const at = m.x != null || m.y != null ? ` at ${this.formatPosition(m.x, m.y)}` : '';
+            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} placed${at} by ${placer}`);
+        }
+        for (const m of entry.machines?.retrieved ?? []) {
+            const from = m.x != null || m.y != null ? ` from ${this.formatPosition(m.x, m.y)}` : '';
+            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} retrieved${from}`);
         }
 
         // Item / dropped / equipped changes (delta only). Each bullet names the

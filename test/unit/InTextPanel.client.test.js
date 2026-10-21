@@ -1200,3 +1200,59 @@ describe('InTextPanel — perception full flow (_loadPerception)', () => {
         expect(percCalled).toBe(false);
     });
 });
+
+describe('InTextPanel machines rendering', () => {
+    it('formatPerceptionEntry: a placed machine reads with who placed it and where; the plain entity bullets are deduped', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            summary: '1 machine placed (Knife Generator by Ada) in Main Room',
+            entities: {
+                appeared: [{ id: 'm1', name: 'Knife Generator' }],
+                despawned: [{ id: 'm2', name: 'Oven' }],
+                moved: [],
+                statChanges: []
+            },
+            machines: {
+                placed: [{ id: 'm1', name: 'Knife Generator', type: 'knifeGenerator', x: 5.5, y: 7.25, placedBy: { id: 'ent-p', name: 'Ada' } }],
+                retrieved: [{ id: 'm2', name: 'Oven', type: 'oven', x: 1, y: 2, placedBy: { id: 'ent-q', name: null } }]
+            }
+        }, 5);
+        expect(out).toContain('⚙ Knife Generator placed at (5.50, 7.25) by Ada (ent-p)');
+        expect(out).toContain('⚙ Oven retrieved from (1.00, 2.00)');
+        // One machine, one line: the plain entity bullets are deduped.
+        expect(out).not.toContain('+ Knife Generator');
+        expect(out).not.toContain('− Oven');
+    });
+
+    it('formatPerceptionEntry: an unnamed placer degrades to the id; a missing position is skipped', () => {
+        const p = new InTextPanel();
+        const out = p.formatPerceptionEntry({
+            kind: 'delta',
+            tick: 12,
+            summary: '1 machine placed (Oven) in Room',
+            entities: { appeared: [{ id: 'm1', name: 'Oven' }], despawned: [], moved: [], statChanges: [] },
+            machines: { placed: [{ id: 'm1', name: 'Oven', type: 'oven', placedBy: { id: 'ent-z', name: null } }], retrieved: [] }
+        }, 5);
+        expect(out).toContain('⚙ Oven placed by ent-z');
+    });
+
+    it('formatPerceptionEntry: a baseline reports machines present at first observation (a fact, not an event)', () => {
+        const p = new InTextPanel();
+        const baseline = p.formatPerceptionEntry({
+            kind: 'baseline',
+            tick: 12,
+            summary: 'initial observation of Room: 1 entity (Oven), 0 dropped items',
+            entities: { appeared: [{ id: 'm1', name: 'Oven' }], despawned: [], moved: [], statChanges: [] },
+            machines: {
+                // A machine standing in the room is a placed machine — the
+                // baseline carries its attribution (who + where).
+                placed: [{ id: 'm1', name: 'Oven', type: 'oven', x: 3, y: 4, placedBy: { id: 'ent-z', name: 'Ada' } }],
+                retrieved: []
+            }
+        }, 5);
+        expect(baseline).toContain('⚙ Oven placed at (3.00, 4.00) by Ada (ent-z)');
+        expect(baseline).not.toContain('+ Oven');
+    });
+});

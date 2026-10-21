@@ -152,11 +152,32 @@ function diffEntities(prevEntities, nextEntities, attributionResolver = null) {
         const prev = prevEntities?.[id];
         const next = nextEntities?.[id];
         if (!prev && next) {
-            appeared.push({ id, name: next.name ?? id, blueprint: next.blueprint ?? null });
+            // Machine-tagged newcomers also carry the placement attribution
+            // (who placed it) and the floor position (where) — the snapshot
+            // carries both (the place choke point tags the entity).
+            // diffRoomSnapshots promotes them into the `machines` category.
+            appeared.push({
+                id,
+                name: next.name ?? id,
+                blueprint: next.blueprint ?? null,
+                machine: next.machine ?? null,
+                x: next.spatial?.x ?? null,
+                y: next.spatial?.y ?? null
+            });
             continue;
         }
         if (prev && !next) {
-            despawned.push({ id, name: prev.name ?? id });
+            // The last-seen machine tag (and floor position) survives the
+            // despawn so the `machines` category can report the retrieval with
+            // who placed the machine and where it stood (the tag rides on the
+            // entity record; nothing else knows).
+            despawned.push({
+                id,
+                name: prev.name ?? id,
+                machine: prev.machine ?? null,
+                x: prev.spatial?.x ?? null,
+                y: prev.spatial?.y ?? null
+            });
             continue;
         }
         if (!prev || !next) continue; // never expected — defensive
@@ -501,6 +522,21 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
     const dropped = snapshot.dropped ?? {};
     const allEntities = Object.keys(entities);
     const allDropped = Object.keys(dropped);
+    // Machines present at first observation are reported with their placement
+    // attribution (who placed them where — the tag rides on the entity record).
+    // `retrieved` is always empty on a baseline: a retrieval is an event, and
+    // events need a before/after.
+    const baselineMachinesPlaced = allEntities
+        .map((id) => entities[id])
+        .filter((e) => e?.machine)
+        .map((e) => ({
+            id: e.id,
+            name: e.name ?? e.id,
+            type: e.machine.type ?? null,
+            x: e.spatial?.x ?? null,
+            y: e.spatial?.y ?? null,
+            placedBy: e.machine.placedBy ?? null
+        }));
     return {
         tick,
         sinceTick: tick,
@@ -525,11 +561,32 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
             chat: 0,
             // Baselines carry no performed-action rows (an initial observation
             // is not an action window); the key exists for a stable schema.
-            actions: 0
+            actions: 0,
+            // Baselines DO carry machine rows: a machine standing in the room
+            // at first observation is a *placed* machine (the placer is known
+            // from the entity's tag), so "placed" is a fact here, not an
+            // event-window claim (unlike chat, which stays empty).
+            machines: baselineMachinesPlaced.length
         },
         summary: null, // filled by DeltaSummaryBuilder
         actions: { performed: [] },
-        entities: { appeared: allEntities.map((id) => ({ id, name: entities[id]?.name ?? id })), despawned: [], moved: [], statChanges: [] },
+        // The row shape mirrors the delta (machine tag + floor position ride
+        // along for schema stability).
+        entities: {
+            appeared: allEntities.map((id) => ({
+                id,
+                name: entities[id]?.name ?? id,
+                machine: entities[id]?.machine ?? null,
+                x: entities[id]?.spatial?.x ?? null,
+                y: entities[id]?.spatial?.y ?? null
+            })),
+            despawned: [],
+            moved: [],
+            statChanges: []
+        },
+        // See the derivation above: placed machines are facts (a machine in
+        // the room was placed by someone); retrievals are events (empty here).
+        machines: { placed: baselineMachinesPlaced, retrieved: [] },
         items: { added: [], removed: [] },
         // Initial dropped items are reported as "added" (they appeared relative
         // to the empty previous state), matching the delta schema exactly.
@@ -567,7 +624,7 @@ export function buildBaselineEntry(snapshot, tick, roomId) {
  *   "which components powered action X" set) and falls back to the `Movement.move`
  *   heuristic only when it yields no component ids. When omitted, behaviour is
  *   identical to before (pure heuristic locomotion).
- * @returns {{ tick: number, sinceTick: number, ts: number, roomId: string, kind: 'delta', counts: { total: number, chat: number }, summary: null, actions: { performed: Array }, entities: Object, items: Object, dropped: Object, components: Object, equipped: Object, internal: Object, chat: { added: Array<SnapshotChatMessage> } }}
+ * @returns {{ tick: number, sinceTick: number, ts: number, roomId: string, kind: 'delta', counts: { total: number, chat: number }, summary: null, actions: { performed: Array }, entities: Object, machines: { placed: Array, retrieved: Array }, items: Object, dropped: Object, components: Object, equipped: Object, internal: Object, chat: { added: Array<SnapshotChatMessage> } }}
  */
 export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver = null) {
     const prevEntities = prev?.entities ?? {};
@@ -579,6 +636,26 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
     const internalChanges = diffPerEntityMaps(prevEntities, nextEntities, 'type', 'internal');
     const equippedChanges = diffPerEntityMaps(prevEntities, nextEntities, 'itemType', 'equipped');
     const chatChanges = diffChat(prev?.chat ?? {}, next?.chat ?? {});
+    // Machines: placed/retrieved rows are the *machine-tagged* entity rows.
+    // The place choke point tags the spawned entity (isMachine/machineType/
+    // placedBy) and the snapshot carries it, so no side state is needed: a
+    // placement is a machine-tagged entity appearing in the room, a retrieval
+    // is one despawning (its last-seen tag and position ride the despawned
+    // row). Deliberately NOT folded into `total`: a machine is an entity, and
+    // its entity row is already counted there (same convention as performed
+    // actions, which the controller counts separately).
+    const machineRow = (r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.machine?.type ?? null,
+        x: r.x ?? null,
+        y: r.y ?? null,
+        placedBy: r.machine?.placedBy ?? null
+    });
+    const machines = {
+        placed: entityChanges.appeared.filter((r) => r.machine).map(machineRow),
+        retrieved: entityChanges.despawned.filter((r) => r.machine).map(machineRow)
+    };
     const total =
         entityChanges.appeared.length +
         entityChanges.despawned.length +
@@ -617,6 +694,10 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
             // real, reportable change). hasDeltaChanges() checks the rows
             // directly as a defensive second gate.
             chat: chatChanges.added.length,
+            // Machine placements/retrievals (who placed what where, and what
+            // was retrieved): derived from the entity rows above, deliberately
+            // NOT part of `total` (the entity rows are already counted there).
+            machines: machines.placed.length + machines.retrieved.length,
             // Intentionally NOT part of `total`: performed-action rows are
             // filled in later by the PerceptionController (it owns the
             // attribution store); the controller updates this count when it
@@ -636,6 +717,12 @@ export function diffRoomSnapshots(prev, next, tick, roomId, attributionResolver 
             moved: entityChanges.moved,
             statChanges: entityChanges.statChanges
         },
+        // Who placed what where (placed) and what was retrieved (the machine
+        // tag rode on the entity's last-seen snapshot). Baselines carry the
+        // placed machines present at first observation (a fact, not an
+        // event-window claim — see buildBaselineEntry); like chat, the key
+        // exists on every entry for schema stability.
+        machines: { placed: machines.placed, retrieved: machines.retrieved },
         items: { added: itemChanges.added, removed: itemChanges.removed },
         dropped: { added: droppedChanges.added, removed: droppedChanges.removed, moved: droppedChanges.moved },
         components: { added: componentChanges.added, removed: componentChanges.removed, changed: componentChanges.changed },

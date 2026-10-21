@@ -89,6 +89,24 @@ describe('Machine lifecycle (craft -> place -> forge -> retrieve)', () => {
         // 5. The carried item was consumed on place.
         expect(flatItems(wsc, entityId).find((i) => i.type === 'knifeGenerator'), 'item should be consumed on place').toBeUndefined();
 
+        // 5b. The placement is PERCEIVED on the room's first observation: the
+        // baseline reports the machine with WHO placed it (the droid) and
+        // WHERE (the chosen floor position) — derived from the machine tag on
+        // the entity itself, so no side state is involved.
+        const startRoomId = wsc.roomsController.getUidByLogicalId('start_room');
+        const firstEntries = wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 5 });
+        const firstEntry = firstEntries?.[firstEntries.length - 1] ?? null;
+        expect(firstEntry?.kind, 'first observation is a baseline').toBe('baseline');
+        expect(firstEntry?.machines?.placed?.length, 'the baseline reports the placed machine').toBe(1);
+        expect(firstEntry.machines.placed[0].name).toBe('Knife Generator');
+        expect(firstEntry.machines.placed[0].type).toBe('knifeGenerator');
+        expect(firstEntry.machines.placed[0].placedBy?.id, 'the placer is credited (who)').toBe(entityId);
+        expect(firstEntry.machines.placed[0].x, 'the floor position is reported (where)').toBe(place.position.x);
+        expect(firstEntry.machines.placed[0].y).toBe(place.position.y);
+        // counts.machines mirrors the row (deliberately NOT part of total,
+        // which already counts the machine's entity row).
+        expect(firstEntry.counts.machines).toBe(1);
+
         // 6. The generator organ forges knives into the machine's belly over turns.
         const icc = subControllers.internalComponentController;
         icc.processTurnEffects(1);
@@ -107,6 +125,19 @@ describe('Machine lifecycle (craft -> place -> forge -> retrieve)', () => {
         expect(wsc.stateEntityController.getEntity(machineEntityId), 'machine should be despawned').toBeNull();
         const spilledKnives = Object.values(wsc.getDroppedItems() || {}).filter((d) => d.itemType === 'knife');
         expect(spilledKnives.length, 'spilled knives should be on the floor').toBeGreaterThanOrEqual(knivesInBelly);
+
+        // 9. The retrieval is PERCEIVED too: the diff against the baseline
+        // reports the machine's disappearance with its last-seen position and
+        // the placer (the tag rode on the despawned entity's snapshot).
+        const retEntries = wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 5 });
+        const retEntry = retEntries?.[retEntries.length - 1] ?? null;
+        expect(retEntry?.kind, 'second observation is a delta').toBe('delta');
+        expect(retEntry?.machines?.retrieved?.length, 'the delta reports the retrieved machine').toBe(1);
+        expect(retEntry.machines.retrieved[0].name).toBe('Knife Generator');
+        expect(retEntry.machines.retrieved[0].placedBy?.id, 'the retrieval row still credits the placer (who)').toBe(entityId);
+        expect(retEntry.machines.retrieved[0].x, 'the last-seen position is reported (where)').toBe(place.position.x);
+        expect(retEntry.machines.retrieved[0].y).toBe(place.position.y);
+        expect(retEntry?.machines?.placed?.length, 'a retrieval flush has no placement rows').toBe(0);
     });
 
     it('rejects placing an item that is not a machine', () => {

@@ -94,6 +94,17 @@ export function buildDeltaSummary(delta, roomName = null) {
             .join(', ');
         const droppedNamePhrase = itemPhrase((delta.dropped?.added ?? []).slice(0, 3));
         parts.push(`initial observation of ${roomName ?? delta.roomId}: ${delta.entities.appeared.length} entit${delta.entities.appeared.length === 1 ? '' : 'ies'} ${entityNamePhrase ? `(${entityNamePhrase})` : ''}, ${delta.counts.dropped ?? 0} dropped item(s)${droppedNamePhrase ? ` (${droppedNamePhrase})` : ''}`);
+        // Machines present at first observation: who placed them where (a
+        // fact — a machine standing in the room was placed by someone — the
+        // rows live on entry.machines.placed).
+        const baselineMachines = (delta.machines?.placed ?? []).length;
+        if (baselineMachines) {
+            const ex = (delta.machines?.placed ?? [])
+                .slice(0, 3)
+                .map((m) => `${m.name ?? m.id}${m.placedBy?.name ? ` by ${m.placedBy.name}` : ''}`)
+                .join(', ');
+            parts.push(`${baselineMachines} machine${baselineMachines === 1 ? '' : 's'} placed (${ex})`);
+        }
     } else {
         const roomRef = `in ${roomName ?? delta.roomId}`;
         const entityCounts = [
@@ -150,6 +161,26 @@ export function buildDeltaSummary(delta, roomName = null) {
                 })
                 .join(', ');
             parts.push(`${chatCount} message${chatCount === 1 ? '' : 's'} in chat (${examples}) ${roomRef}`);
+        }
+        // Machines: who placed what and where (placed) / what was retrieved.
+        // Counts + representative examples only — the full rows (with the
+        // placer's identity and the floor position) live on entry.machines.
+        const machinePlacedCount = (delta.machines?.placed ?? []).length;
+        const machineRetrievedCount = (delta.machines?.retrieved ?? []).length;
+        if (machinePlacedCount || machineRetrievedCount) {
+            const machineBits = [];
+            if (machinePlacedCount) {
+                const ex = delta.machines.placed
+                    .slice(0, 3)
+                    .map((m) => `${m.name ?? m.id}${m.placedBy?.name ? ` by ${m.placedBy.name}` : ''}`)
+                    .join(', ');
+                machineBits.push(`${machinePlacedCount} machine${machinePlacedCount === 1 ? '' : 's'} placed (${ex})`);
+            }
+            if (machineRetrievedCount) {
+                const ex = delta.machines.retrieved.slice(0, 3).map((m) => m.name ?? m.id).join(', ');
+                machineBits.push(`${machineRetrievedCount} machine${machineRetrievedCount === 1 ? '' : 's'} retrieved (${ex})`);
+            }
+            parts.push(`${machineBits.join('; ')} ${roomRef}`);
         }
         const intAdded = delta.internal?.added?.length;
         const intRemoved = delta.internal?.removed?.length;

@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, which components powered each action, and *who* (which entity / which component) was acted upon?"** — and, since the chat-observability extension, **"what was *said* in the room's chat transcript since this reader last looked?"**
+The perception system answers one question on the server: **"what changed in room R since this reader last looked?"** — and, since the action-observability extension, **"what did the entities in room R *do* since this reader last looked, which components powered each action, and *who* (which entity / which component) was acted upon?"** — and, since the chat-observability extension, **"what was *said* in the room's chat transcript since this reader last looked?"** — and, since the machine-observability extension, **"who *placed* which machine in the room (and who retrieved it), and *where*?"**
 
 It is the single observation surface for the world:
 
@@ -36,6 +36,8 @@ per tick / on read ──► snapshot dirty room ──► diff vs last snapshot
 | `public/js/InTextPanel.js` | the UI consumer (per-room feed + performed-action rows) |
 | `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `recordAgentObservation`, `getActionAttributionStore`, **`sendRoomChat` — the single choke point of every chat send (player route + the NPC speak tool); on success it marks the room dirty for perception** |
 | `src/controllers/core/RoomChatController.js` | the room chat ring (bounded per-room transcript) — the source of the `chat` snapshot category (§8.2); both send routes reach it only through the facade |
+| `src/controllers/core/PlaceMachineHandler.js` | the machine place handler — tags the spawned entity (machineType/placedBy) and marks the room dirty at the spawn choke point (source of `machines.placed`, §8.3) |
+| `src/controllers/core/RetrieveMachineHandler.js` | the machine retrieve handler — despawns the machine (its last-seen snapshot keeps the tag) and marks the room dirty (source of `machines.retrieved`, §8.3) |
 
 ## 2. Why it is delta-based (not a full-state broadcast)
 
@@ -47,7 +49,7 @@ The price — and the invariant that keeps it correct — is that **every observ
 
 Per tick (and on demand at read time) the controller flushes only the rooms in the dirty set:
 
-1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items, and the room's chat transcript ring — **excluding** the perception controller's own internal state, so a flush can never make itself dirty);
+1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items, and the room's chat transcript ring — **excluding** the perception controller's own internal state, so a flush can never make itself dirty); machine-tagged entities additionally carry their `machine` field (type + placer id + floor position) on the snapshot, which is the sole input of the `machines` category (§8.3);
 2. diff it against the room's last-seen snapshot;
 3. if there is a visible change, build an entry, enrich component names, **credit the actions the room's entities performed since their last surfacing** (see §7), write it to the room's ring buffer, and advance that room's last-seen snapshot;
 4. clear the dirty mark.
@@ -58,7 +60,7 @@ Dirty marking is O(1) at the mutation site; the expensive snapshot+diff work hap
 
 A reader's very first look at a room has no "last seen" to diff against. The controller emits a `kind: 'baseline'` entry describing the *whole* current room (everything is "appeared"), then immediately stores that snapshot as the room's new last-seen reference. Every subsequent entry for that room is a `kind: 'delta'`.
 
-Baselines are initial observations, **not** action or transcript windows — which is why `actions.performed` (see §7) and `chat.added` (see §8.2) are always empty on them: a first look is "what is here", not "what just happened".
+Baselines are initial observations, **not** action or transcript windows — which is why `actions.performed` (see §7) and `chat.added` (see §8.2) are always empty on them: a first look is "what is here", not "what just happened". Machines are the deliberate exception: `machines.placed` may be non-empty on a baseline, because a machine standing in the room at first observation is a *placed* machine — a fact the entity's record carries (who placed it, where), not an event-window claim (§8.3).
 
 ## 5. Why per-agent cursors are reader-relative
 
@@ -132,13 +134,14 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
     "entities": 3, "items": 1, "components": 0,
     "internal": 0, "equipped": 1, "dropped": 0,
     "chat": 1,                  // new chat lines since the last observation (part of total)
-    "actions": 1               // performed-action rows (set by the controller; NOT part of total)
+    "actions": 1,               // performed-action rows (set by the controller; NOT part of total)
+    "machines": 1               // placed + retrieved machine rows (§8.3; NOT part of total — the entity row is already counted)
   },
   "summary": "1 action performed (punch by Rover) in start_room",  // ≤300 chars
   "actions": { "performed": [ /* §7 rows */ ] },
   "entities": {
-    "appeared":  [{ "id": "ent-…", "name": "Rover" }],
-    "despawned": [{ "id": "ent-…" }],
+    "appeared":  [{ "id": "ent-…", "name": "Rover", "blueprint": "smallBallDroid", "machine": null, "x": 0, "y": 0 }],  // machine-tagged entities carry the tag + floor position
+    "despawned": [{ "id": "ent-…", "name": "Rover", "machine": null, "x": 0, "y": 0 }],
     "moved": [{                                  // with from→to and attribution
       "id": "ent-…", "name": "Rover",
       "fromRoom": "start_room", "toRoom": "right_room",
@@ -156,7 +159,11 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
   "internal":   { "added": [], "removed": [] },          // item-inside-component
   "chat": { "added": [                                    // §8.2 — new lines only (event category)
     { "id": "chat-…", "speakerName": "Bolt", "speakerEntityId": "ent-…", "text": "…", "tick": 41, "ts": 1750000000000 }
-  ] }
+  ] },
+  "machines": {                                           // §8.3 — who placed what where (fact on baselines, event on deltas)
+    "placed":   [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada" } }],
+    "retrieved": [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada" } }]
+  }
 }
 ```
 
@@ -166,7 +173,7 @@ The world keeps coordinates at full float precision internally, but a *perceived
 
 The rule lives in one shared module (`shared/CoordFormat.js`: `truncateCoord` / `formatCoord` / `formatPosition`) and is applied at **two layers, both idempotent**:
 
-1. **Server, on the entry** — `PerceptionController._truncateEntryCoordinates` runs on every built entry (baseline or delta) before it reaches the ring buffer: it walks the row lists (`entities.moved` fromXY/toXY, `dropped`/`items` x/y, `actor` positions) and truncates each coordinate in place. This is why the agent/NPC JSON view (`GET /perception/agent/:id`) never carries a full-precision float.
+1. **Server, on the entry** — `PerceptionController._truncateEntryCoordinates` runs on every built entry (baseline or delta) before it reaches the ring buffer: it walks the row lists (`entities.*` fromXY/toXY/x/y, `machines.*` x/y, `dropped`/`items` x/y, `actor` positions) and truncates each coordinate in place. This is why the agent/NPC JSON view (`GET /perception/agent/:id`) never carries a full-precision float.
 2. **Client, on the render** — `InTextPanel.formatPosition` (the single coordinate choke point of the panel: room line, entity rows, moved bullets, floor items, actor `@` positions, door edge points) formats through the same module, so whatever value arrives is always shown as `00.00`.
 
 It is a **display rule by construction, never a world rule**: the room snapshots the diff runs on keep full precision, the world state broadcast is untouched, and truncating an already-truncated value is a no-op — so the two layers can coexist without double-shifting. A float-noise guard keeps `0.29` (stored as `0.28999999999999998`) truncating to `0.29`, and `-0.00` is normalized to `0.00`. The one exception that stays out of scope: the event-log context line ("you: (2, -1)") is a separate, older surface and keeps its integer `Math.round`.
@@ -181,6 +188,18 @@ A line said in a room's chat is a *change* to that room, exactly like a stat cha
 - **Attribution is captured at send time.** The speaker's display name and, for entity speakers, the entity id are stamped on the message when it is sent, so a line always names its speaker even if the entity is renamed or despawned before the reader sees it. The InText panel renders `💬 <name> (<id>): "…"` (the id only when it differs from the name); the one-line summary renders `N message(s) in chat (representatives) in <room>` (counts + up to 3 examples, the full lines live on the entry).
 - **Baselines carry no transcript rows** (see §4): a first observation is a state description; the `chat` key exists for schema stability with an empty `added`.
 - **One choke point for the dirty mark.** Both send routes — the player HTTP route and the NPC speak tool (`LLMAgentController._dispatchSpeak` routes through it, not the raw room-chat controller) — pass through the facade's `sendRoomChat`, which calls the room-chat controller and, on success, marks the room dirty. That single mark is what makes "things said in chat" observable to perception (and to the NPC/LLM agent view, which reads the same entries).
+
+## 8.3 Why machines are an *attribution* category (who placed what where)
+
+A machine placed in the world (the `PlaceMachineHandler` path — a blueprint tagged `isMachine`/`machineType`, spawned at the chosen floor position) is an entity, but the *placement* is the observable fact, and it has an author and a location. The category answers **who placed which machine, and where** — and, on retrieval, **which machine was retrieved, from where, and who had placed it**.
+
+- **Derived from the machine tag — no side state.** At the spawn choke point the place handler tags the entity record (`isMachine`, `machineType`, `placedBy` — the placer's entity id). The snapshot extraction carries that tag on the entity (the placer's *display name* is resolved at snapshot time; id fallback when the placer is gone or unnamed), so the diff derives `machines.placed` (a machine-tagged entity appearing) and `machines.retrieved` (a machine-tagged entity despawning — its *last-seen* snapshot still carries the tag and the floor position). No registry, no event log, no extra store: the record is the source.
+- **One choke point per mutation.** Both handlers mark the room dirty on success (the place handler after tagging + positioning; the retrieve handler after despawning + floor spill). That mark is what makes the event observable — the diff itself only ever reads snapshots.
+- **Baselines report placed machines (a fact, not an event).** Unlike chat (§8.2) and performed actions (§7) — which stay empty on a baseline — `machines.placed` may be non-empty on a first observation: a machine standing in the room was placed by someone, and the record knows who and where. `machines.retrieved` is always empty on baselines (a retrieval is an event and needs a before/after).
+- **Deliberately not part of `counts.total`.** A machine is an entity, and its entity row is already counted in `total`; folding the `machines` rows in would double-count (same convention as performed actions, §7).
+- **Coordinates follow the "00.00" rule (§8.1):** the entry's coordinate truncation covers the machine rows like every other row it ships.
+
+The InText panel renders each row as `⚙ <name> placed at (<x>, <y>) by <placer> (<id>)` / `⚙ <name> retrieved from (<x>, <y>)` (the placer id is shown when the name is missing or different; the position is omitted when unknown) and dedupes the plain entity bullets for those machines, so one machine reads as one line.
 
 ## 9. API surface
 

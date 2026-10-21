@@ -27,7 +27,8 @@ function makeDelta({
     components = {},
     internal = {},
     equipped = {},
-    actions = {}
+    actions = {},
+    machines = { placed: [], retrieved: [] }
 } = {}) {
     const e = { appeared: [], despawned: [], moved: [], statChanges: [], ...entities };
     const i = { added: [], removed: [], ...items };
@@ -36,6 +37,7 @@ function makeDelta({
     const n = { added: [], removed: [], ...internal };
     const q = { added: [], removed: [], ...equipped };
     const a = { performed: [], ...actions };
+    const m = { placed: [], retrieved: [], ...machines };
     const total =
         e.appeared.length +
         e.despawned.length +
@@ -69,10 +71,12 @@ function makeDelta({
             internal: n.added.length + n.removed.length,
             equipped: q.added.length + q.removed.length,
             chat: chat.length,
-            actions: 0
+            actions: 0,
+            machines: m.placed.length + m.retrieved.length
         },
         summary: null,
         actions: a,
+        machines: m,
         entities: e,
         items: i,
         dropped: d,
@@ -166,5 +170,50 @@ describe('buildDeltaSummary — chat category', () => {
         const sum = buildDeltaSummary(delta, 'Main Room');
         expect(sum).toContain('1 message in chat');
         expect(sum).not.toContain('entity');
+    });
+});
+
+describe('buildDeltaSummary — machines (who placed what where)', () => {
+    it('summarizes placements (with the placer) and retrievals in the room', () => {
+        const sum = buildDeltaSummary(
+            makeDelta({
+                machines: {
+                    placed: [{ id: 'm1', name: 'Knife Generator', type: 'knifeGenerator', x: 5, y: 10, placedBy: { id: 'p1', name: 'Ada' } }],
+                    retrieved: [{ id: 'm2', name: 'Oven', type: 'oven', x: 1, y: 2, placedBy: { id: 'p1', name: 'Ada' } }]
+                }
+            }),
+            'Main Room'
+        );
+        expect(sum).toContain('1 machine placed (Knife Generator by Ada); 1 machine retrieved (Oven) in Main Room');
+    });
+
+    it('multiple placements list up to three names', () => {
+        const sum = buildDeltaSummary(
+            makeDelta({
+                machines: {
+                    placed: [
+                        { id: 'm1', name: 'Oven', placedBy: { id: 'p1', name: 'Ada' } },
+                        { id: 'm2', name: 'Forge', placedBy: { id: 'p1', name: 'Ada' } },
+                        { id: 'm3', name: 'Batteries', placedBy: null }
+                    ],
+                    retrieved: []
+                }
+            })
+        );
+        expect(sum).toContain('3 machines placed (Oven by Ada, Forge by Ada, Batteries) in room_main');
+    });
+
+    it('an unnamed placer degrades to no "by" phrase', () => {
+        const sum = buildDeltaSummary(
+            makeDelta({ machines: { placed: [{ id: 'm1', name: 'Oven', placedBy: { id: 'p9', name: null } }], retrieved: [] } })
+        );
+        expect(sum).toContain('1 machine placed (Oven) in room_main');
+    });
+
+    it('no machine clause when there are no machine rows', () => {
+        const sum = buildDeltaSummary(
+            makeDelta({ entities: { appeared: [{ id: 'e1', name: 'Bolt' }] } }, 'Main Room')
+        );
+        expect(sum).not.toContain('machine');
     });
 });

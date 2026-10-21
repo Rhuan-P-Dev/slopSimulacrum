@@ -482,6 +482,80 @@ if (chatResult?.success) {
 }
 
 // ---------------------------------------------------------------------------
+// [15] Machines — a placed machine is perceived with WHO placed it and WHERE.
+//      The place choke point tags the spawned entity (isMachine/machineType/
+//      placedBy) and marks the room dirty, so the next flush reports the
+//      placement (machines.placed) with the placer's identity and the floor
+//      position; a retrieval reports the last-seen position (machines.
+//      retrieved). Baselines carry the machines present at first observation
+//      (a machine standing in a room is a placed machine — a fact).
+// ---------------------------------------------------------------------------
+console.log('\n[15] Machines: a placed machine is perceived with who placed it and where');
+{
+    // A named droid places the machine (players carry no display name; a
+    // named placer keeps the "who" readable in the assertions).
+    const placerId = wsc.stateEntityController.spawnEntity('smallBallDroid', startRoomId, { name: 'Ada' });
+    // Mirror exactly what PlaceMachineHandler does at the spawn choke point
+    // (the machine mechanics themselves are covered by MachineLifecycle.
+    // test.js): spawn the blueprint tagged, position it, mark the room dirty.
+    const machineId = wsc.stateEntityController.spawnEntity('knifeGenerator', startRoomId, {
+        isStatic: true,
+        name: 'Knife Generator',
+        isMachine: true,
+        machineType: 'knifeGenerator',
+        placedBy: placerId
+    });
+    wsc.stateEntityController.updateEntitySpatial(machineId, { x: 12.3456, y: 7.5 });
+    wsc._markPerceptionDirty(startRoomId);
+
+    const placedEntry = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    const placed = placedEntry?.machines?.placed ?? [];
+    assert(placed.length === 1, 'exactly one machine placement surfaced');
+    assert(placed[0]?.name === 'Knife Generator', 'the machine is named');
+    assert(placed[0]?.type === 'knifeGenerator', 'the machine type is carried');
+    assert(placed[0]?.placedBy?.id === placerId, 'the placer is credited (who)');
+    assert(placed[0]?.placedBy?.name === 'Ada', 'the placer display name is resolved (who)');
+    assert(
+        placed[0]?.x === 12.34 && placed[0]?.y === 7.5,
+        'the floor position is reported at the 00.00 resolution (where)'
+    );
+    // The machine is an entity: its raw row carries the tag, but counts.total
+    // must NOT count it twice — the machines category is deliberately excluded
+    // from total (the entity row is the one that is counted).
+    assert(
+        placedEntry.counts.total ===
+            placedEntry.counts.entities +
+            placedEntry.counts.items +
+            placedEntry.counts.components +
+            placedEntry.counts.internal +
+            placedEntry.counts.equipped +
+            placedEntry.counts.dropped +
+            placedEntry.counts.chat,
+        'machines are not folded into counts.total (no double-count)'
+    );
+
+    // Retrieval: despawn + mark — exactly what RetrieveMachineHandler does at
+    // its choke point. The machine's last-seen snapshot carries the tag, so
+    // the retrieval row reports where it stood and still credits Ada.
+    wsc.despawnEntity(machineId);
+    wsc._markPerceptionDirty(startRoomId);
+    const retrievedEntry = lastEntry(wsc.getPerceptionDeltasForRoom(startRoomId, { limit: 10 }));
+    assert(retrievedEntry !== placedEntry, 'a new flush happened for the retrieval');
+    const retrieved = retrievedEntry?.machines?.retrieved ?? [];
+    assert(retrieved.length === 1 && retrieved[0]?.name === 'Knife Generator', 'the retrieval surfaced with the machine name');
+    assert(retrieved[0]?.placedBy?.id === placerId, 'the retrieval row still credits the placer (who)');
+    assert(
+        retrieved[0]?.x === 12.34 && retrieved[0]?.y === 7.5,
+        'the retrieval row carries the last-seen position (where)'
+    );
+
+    // Quiet the room again for any reader that follows (the placer despawn is
+    // via the sub-controller, unmarked — no extra flush).
+    wsc.stateEntityController.despawnEntity(placerId);
+    console.log('  ✓ machine placement/retrieval surfaces in the room view with who + where');
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${'='.repeat(42)}`);
