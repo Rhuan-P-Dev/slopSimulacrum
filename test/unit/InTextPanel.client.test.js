@@ -381,6 +381,48 @@ describe('InTextPanel — pure formatters', () => {
         expect(noMover).toContain('1 item dropped (woodChunk)');
     });
 
+    it('formatPerceptionEntry: machine row anchors the placer ("your droid @ (x, y)" / "Name (id) @ (x, y)")', () => {
+        const placedRow = {
+            id: 'm1',
+            name: 'Knife Generator',
+            machineType: 'knifeGenerator',
+            x: 12.34,
+            y: 7.5,
+            placedBy: { id: 'me', name: 'Ada', x: 0, y: 0 }
+        };
+        const entry = (row) => ({
+            kind: 'delta',
+            tick: 9,
+            summary: '1 machine placed (Knife Generator by Ada) in Main Room',
+            entities: { appeared: [], despawned: [], moved: [] },
+            machines: { placed: [row], retrieved: [] }
+        });
+        // The viewer IS the placer → "your droid" + the placer's current
+        // position (the machine at 12.35/7.50, the droid at the origin — both
+        // coordinates visible, so a bare "(0.00, 0.00)" is legible).
+        const mine = new InTextPanel({ getEntityId: () => 'me' });
+        expect(mine.formatPerceptionEntry(entry(placedRow), 9)).toContain('your droid @ (0.00, 0.00)');
+        // The explicit myId parameter wins over the panel's getEntityId option.
+        expect(mine.formatPerceptionEntry(entry(placedRow), 9, 'someone-else')).toContain('Ada (me) @ (0.00, 0.00)');
+        // Another viewer → "Name (id)" + the placer's position.
+        const theirs = new InTextPanel({ getEntityId: () => 'someone-else' });
+        expect(theirs.formatPerceptionEntry(entry(placedRow), 9)).toContain('Ada (me) @ (0.00, 0.00)');
+        // Placer gone (no name, no position) → bare id, no "@".
+        const goneRow = { ...placedRow, id: 'm2', placedBy: { id: 'gone', name: null, x: null, y: null } };
+        const outGone = theirs.formatPerceptionEntry(entry(goneRow), 9);
+        expect(outGone).toContain('by gone');
+        expect(outGone).not.toContain('@ (');
+        // A retrieval row carries the same anchor.
+        const retEntry = {
+            kind: 'delta',
+            tick: 10,
+            summary: '1 machine retrieved (Knife Generator) in Main Room',
+            entities: { appeared: [], despawned: [], moved: [] },
+            machines: { placed: [], retrieved: [placedRow] }
+        };
+        expect(mine.formatPerceptionEntry(retEntry, 10)).toContain('retrieved from (12.34, 7.50) by your droid @ (0.00, 0.00)');
+    });
+
     it('formatPerceptionEntry: entry round overrides the viewer round (old history keeps its round)', () => {
         const p = new InTextPanel();
         // An entry stamped with round 3 must render "round 3" even when the

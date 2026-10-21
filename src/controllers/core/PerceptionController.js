@@ -493,6 +493,14 @@ class PerceptionController {
             const key = eq.itemId ?? eq.id;
             if (key) equipped[key] = { itemType: eq.itemType ?? eq.type ?? 'unknown' };
         }
+        // Placed-machine placer lookup (world-wide — the placer may no longer
+        // be in this room): the display name and CURRENT position that ride on
+        // the machine row. Placement is "at the placer" by design (the client
+        // places at the droid's feet), so the anchor is what makes a bare
+        // "(0.00, 0.00)" legible in the panel (InTextPanel._placerLabel renders
+        // it as "your droid @ (x, y)").
+        const machinePlacer = entity?.isMachine === true ? (entity?.placedBy ?? null) : null;
+        const placerEntity = machinePlacer ? (this._facade?.getEntity?.(machinePlacer) ?? null) : null;
         return {
             id: entity.id,
             name: entity.name ?? entity.id,
@@ -516,17 +524,21 @@ class PerceptionController {
             // Placed-machine attribution. The place choke point (PlaceMachineHandler)
             // tags the spawned entity (isMachine/machineType/placedBy), so the
             // snapshot carries WHO placed the machine: the placer's display name
-            // resolved against the current world at snapshot time (null when the
-            // placer is gone or unnamed — the row then degrades to the id, the
-            // same rule as action targets). DeltaDiff promotes machine-tagged
-            // entity rows into the `machines` category (placed/retrieved).
+            // and current position, resolved against the world at snapshot time
+            // (nulls when the placer is gone or unnamed — the row then degrades
+            // to the id, the same rule as action targets). DeltaDiff promotes
+            // machine-tagged entity rows into the `machines` category
+            // (placed/retrieved); the diff copies placedBy through by reference,
+            // so the position anchor rides on both row kinds.
             machine: entity?.isMachine === true
                 ? {
                     type: entity.machineType ?? null,
-                    placedBy: entity.placedBy
+                    placedBy: machinePlacer
                         ? {
-                            id: entity.placedBy,
-                            name: this._facade?.getEntity?.(entity.placedBy)?.name ?? null
+                            id: machinePlacer,
+                            name: placerEntity?.name ?? null,
+                            x: placerEntity?.spatial?.x ?? null,
+                            y: placerEntity?.spatial?.y ?? null
                         }
                         : null
                 }

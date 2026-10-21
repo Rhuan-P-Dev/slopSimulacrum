@@ -101,6 +101,10 @@ describe('Machine lifecycle (craft -> place -> forge -> retrieve)', () => {
         expect(firstEntry.machines.placed[0].name).toBe('Knife Generator');
         expect(firstEntry.machines.placed[0].type).toBe('knifeGenerator');
         expect(firstEntry.machines.placed[0].placedBy?.id, 'the placer is credited (who)').toBe(entityId);
+        // The placer's own position is anchored on the row: the droid never
+        // moved from its spawn origin, while the machine stands at (30, 30).
+        expect(firstEntry.machines.placed[0].placedBy?.x, 'placer position anchored (x)').toBe(0);
+        expect(firstEntry.machines.placed[0].placedBy?.y, 'placer position anchored (y)').toBe(0);
         expect(firstEntry.machines.placed[0].x, 'the floor position is reported (where)').toBe(place.position.x);
         expect(firstEntry.machines.placed[0].y).toBe(place.position.y);
         // counts.machines mirrors the row (deliberately NOT part of total,
@@ -135,6 +139,8 @@ describe('Machine lifecycle (craft -> place -> forge -> retrieve)', () => {
         expect(retEntry?.machines?.retrieved?.length, 'the delta reports the retrieved machine').toBe(1);
         expect(retEntry.machines.retrieved[0].name).toBe('Knife Generator');
         expect(retEntry.machines.retrieved[0].placedBy?.id, 'the retrieval row still credits the placer (who)').toBe(entityId);
+        expect(retEntry.machines.retrieved[0].placedBy?.x, 'the retrieval row still anchors the placer position (x)').toBe(0);
+        expect(retEntry.machines.retrieved[0].placedBy?.y, 'the retrieval row still anchors the placer position (y)').toBe(0);
         expect(retEntry.machines.retrieved[0].x, 'the last-seen position is reported (where)').toBe(place.position.x);
         expect(retEntry.machines.retrieved[0].y).toBe(place.position.y);
         expect(retEntry?.machines?.placed?.length, 'a retrieval flush has no placement rows').toBe(0);

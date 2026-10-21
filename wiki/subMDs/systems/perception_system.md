@@ -33,7 +33,7 @@ per tick / on read ──► snapshot dirty room ──► diff vs last snapshot
 | `shared/CoordFormat.js` | the coordinate display rule — truncate to 2 decimals, render "00.00" (shared by the server entry builder and the client formatter) |
 | `src/controllers/consequences/ConsequenceDispatcher.js` | the **only** place action attribution is written (the choke point) |
 | `src/routes/perceptionRoutes.js` | the HTTP endpoints |
-| `public/js/InTextPanel.js` | the UI consumer (per-room feed + performed-action rows) |
+| `public/js/InTextPanel.js` | the UI consumer (per-room feed, machine placer anchor, performed-action rows) |
 | `src/controllers/WorldStateController.js` | facade seams: `markPerceptionDirty`, `getPerceptionDeltasForRoom`, `getAgentPerception`, `recordAgentObservation`, `getActionAttributionStore`, **`sendRoomChat` — the single choke point of every chat send (player route + the NPC speak tool); on success it marks the room dirty for perception** |
 | `src/controllers/core/RoomChatController.js` | the room chat ring (bounded per-room transcript) — the source of the `chat` snapshot category (§8.2); both send routes reach it only through the facade |
 | `src/controllers/core/PlaceMachineHandler.js` | the machine place handler — tags the spawned entity (machineType/placedBy) and marks the room dirty at the spawn choke point (source of `machines.placed`, §8.3) |
@@ -49,7 +49,7 @@ The price — and the invariant that keeps it correct — is that **every observ
 
 Per tick (and on demand at read time) the controller flushes only the rooms in the dirty set:
 
-1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items, and the room's chat transcript ring — **excluding** the perception controller's own internal state, so a flush can never make itself dirty); machine-tagged entities additionally carry their `machine` field (type + placer id + floor position) on the snapshot, which is the sole input of the `machines` category (§8.3);
+1. snapshot the room's current state (room-level: entities, their components, dropped items, equipment, internal items, and the room's chat transcript ring — **excluding** the perception controller's own internal state, so a flush can never make itself dirty); machine-tagged entities additionally carry their `machine` field (type + placer `{ id, name, x, y }` + floor position) on the snapshot, which is the sole input of the `machines` category (§8.3);
 2. diff it against the room's last-seen snapshot;
 3. if there is a visible change, build an entry, enrich component names, **credit the actions the room's entities performed since their last surfacing** (see §7), write it to the room's ring buffer, and advance that room's last-seen snapshot;
 4. clear the dirty mark.
@@ -161,8 +161,8 @@ Every entry (baseline or delta) has a stable shape — consumers may rely on the
     { "id": "chat-…", "speakerName": "Bolt", "speakerEntityId": "ent-…", "text": "…", "tick": 41, "ts": 1750000000000 }
   ] },
   "machines": {                                           // §8.3 — who placed what where (fact on baselines, event on deltas)
-    "placed":   [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada" } }],
-    "retrieved": [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada" } }]
+    "placed":   [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada", "x": 0, "y": 0 } }],
+    "retrieved": [{ "id": "ent-…", "name": "Knife Generator", "type": "knifeGenerator", "x": 12.34, "y": 7.5, "placedBy": { "id": "ent-…", "name": "Ada", "x": 0, "y": 0 } }]
   }
 }
 ```
@@ -194,12 +194,13 @@ A line said in a room's chat is a *change* to that room, exactly like a stat cha
 A machine placed in the world (the `PlaceMachineHandler` path — a blueprint tagged `isMachine`/`machineType`, spawned at the chosen floor position) is an entity, but the *placement* is the observable fact, and it has an author and a location. The category answers **who placed which machine, and where** — and, on retrieval, **which machine was retrieved, from where, and who had placed it**.
 
 - **Derived from the machine tag — no side state.** At the spawn choke point the place handler tags the entity record (`isMachine`, `machineType`, `placedBy` — the placer's entity id). The snapshot extraction carries that tag on the entity (the placer's *display name* is resolved at snapshot time; id fallback when the placer is gone or unnamed), so the diff derives `machines.placed` (a machine-tagged entity appearing) and `machines.retrieved` (a machine-tagged entity despawning — its *last-seen* snapshot still carries the tag and the floor position). No registry, no event log, no extra store: the record is the source.
+- **The row anchors the placer's own position.** `placedBy` carries the placer's *current* position at snapshot time (nulls when the placer is gone). Placement is "at the placer" by design — the client places at the droid's feet and the handler falls back to the placer's position when no explicit coordinates arrive — so the anchor is what makes the bare coordinates legible: the panel renders `by your droid @ (0.00, 0.00)` (the viewer's own droid) or `by Ada (ent-…) @ (12.30, 4.50)`, and the machine's and the placer's positions can be read together.
 - **One choke point per mutation.** Both handlers mark the room dirty on success (the place handler after tagging + positioning; the retrieve handler after despawning + floor spill). That mark is what makes the event observable — the diff itself only ever reads snapshots.
 - **Baselines report placed machines (a fact, not an event).** Unlike chat (§8.2) and performed actions (§7) — which stay empty on a baseline — `machines.placed` may be non-empty on a first observation: a machine standing in the room was placed by someone, and the record knows who and where. `machines.retrieved` is always empty on baselines (a retrieval is an event and needs a before/after).
 - **Deliberately not part of `counts.total`.** A machine is an entity, and its entity row is already counted in `total`; folding the `machines` rows in would double-count (same convention as performed actions, §7).
 - **Coordinates follow the "00.00" rule (§8.1):** the entry's coordinate truncation covers the machine rows like every other row it ships.
 
-The InText panel renders each row as `⚙ <name> placed at (<x>, <y>) by <placer> (<id>)` / `⚙ <name> retrieved from (<x>, <y>)` (the placer id is shown when the name is missing or different; the position is omitted when unknown) and dedupes the plain entity bullets for those machines, so one machine reads as one line.
+The InText panel renders each row as `⚙ <name> placed at (<x>, <y>) by <placer anchor>` / `⚙ <name> retrieved from (<x>, <y>) by <placer anchor>`, where the anchor is `your droid @ (<x>, <y>)` when the placer is the viewer's active droid, `<name> (<id>) @ (<x>, <y>)` for a named third party, or the bare id when the placer is gone (the `@` position is omitted when unknown) — and dedupes the plain entity bullets for those machines, so one machine reads as one line.
 
 ## 9. API surface
 

@@ -326,12 +326,18 @@ export class InTextPanel {
      *   one. When provided the headline reads "round N" (aligned with the Turn
      *   badge); when absent it falls back to the entry's own tick so the
      *   headline never goes blank.
+     * @param {string|null} [myId] — the viewer's active entity id; machine rows
+     *   render the placer as "your droid" when it matches (_placerLabel).
      * @returns {string}
      */
-    formatPerceptionEntry(entry = null, roundNumber) {
+    formatPerceptionEntry(entry = null, roundNumber, myId = null) {
         if (!entry || typeof entry !== 'object') {
             return '<p class="in-text-none">—</p>';
         }
+        // The viewer's own entity id for the machine placer anchor: the caller
+        // may pass it explicitly (tests, external renderers); otherwise fall
+        // back to the panel's getEntityId option (the same source update() uses).
+        const effectiveMyId = myId ?? this._safeGetEntityId();
         const isBaseline = entry.kind === 'baseline';
         // Each entry carries its own round (stamped by the perception flush), so
         // re-rendering the room's history labels every bullet with *its* round
@@ -475,19 +481,20 @@ export class InTextPanel {
         // Machines: a placed machine is reported with WHO placed it (the
         // placer's name, resolved at snapshot time — id fallback when the
         // placer is gone or unnamed) and WHERE (the floor position, "00.00"
-        // rule); a retrieval reports where the machine stood. Baselines
-        // carry only placed rows (a machine standing in the room is a placed
-        // machine — a fact, not an event); retrievals need a before/after.
+        // rule); the placer row is anchored to the placer's CURRENT position
+        // ("your droid @ (x, y)" / "Ada (ent-…) @ (x, y)") so a bare
+        // coordinate is legible — placement is "at the placer" by design.
+        // A retrieval reports where the machine stood plus who placed it.
+        // Baselines carry only placed rows (a machine standing in the room is
+        // a placed machine — a fact, not an event); retrievals need a
+        // before/after.
         for (const m of entry.machines?.placed ?? []) {
-            const placer = m.placedBy?.name
-                ? `${this.esc(m.placedBy.name)} (${this.esc(m.placedBy.id ?? '?')})`
-                : this.esc(m.placedBy?.id ?? '?');
             const at = m.x != null || m.y != null ? ` at ${this.formatPosition(m.x, m.y)}` : '';
-            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} placed${at} by ${placer}`);
+            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} placed${at} by ${this._placerLabel(m, effectiveMyId)}`);
         }
         for (const m of entry.machines?.retrieved ?? []) {
             const from = m.x != null || m.y != null ? ` from ${this.formatPosition(m.x, m.y)}` : '';
-            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} retrieved${from}`);
+            push(`⚙ ${this.esc(m.name ?? m.id ?? '?')} retrieved${from} by ${this._placerLabel(m, effectiveMyId)}`);
         }
 
         // Item / dropped / equipped changes (delta only). Each bullet names the
@@ -917,6 +924,29 @@ export class InTextPanel {
     }
 
     /**
+     * Placer (retriever) anchor for a machine row: "your droid" when the
+     * placer is the viewer's active entity, "Name (id)" when named, the bare
+     * id otherwise — plus the placer's CURRENT position ("@ (x, y)") whenever
+     * known (null when the placer is gone). Placement is "at the placer" by
+     * design (the client places at the droid's feet), so the anchor is what
+     * makes a bare "(0.00, 0.00)" legible: the machine stands where that
+     * entity stands.
+     * @private
+     * @param {Object} m - A machines.placed/retrieved row (carries placedBy {id, name, x, y}).
+     * @param {string|null} [myId] - The viewer's active entity id.
+     * @returns {string} e.g. "your droid @ (0.00, 0.00)" or "Ada (ent-…) @ (12.30, 4.50)".
+     */
+    _placerLabel(m, myId) {
+        const pb = m?.placedBy;
+        if (!pb?.id) return '?';
+        const who = pb.id === myId
+            ? 'your droid'
+            : (pb.name ? `${this.esc(pb.name)} (${this.esc(pb.id)})` : this.esc(pb.id));
+        const at = (pb.x != null && pb.y != null) ? ` @ ${this.formatPosition(pb.x, pb.y)}` : '';
+        return who + at;
+    }
+
+    /**
      * Loads the current room's recent perception (delta) entries and paints them
      * into the "What Changed" sub-container (Feature G). Uses the room-scoped
      * GET /perception/:roomId endpoint — a pure read (does not advance any
@@ -958,9 +988,12 @@ export class InTextPanel {
                 // lines up with the Turn badge.
                 const roundNumber = state?.turns?.roundNumber;
 
-                // Newest first (mirrors the event-tail ordering).
+                // Newest first (mirrors the event-tail ordering). myId lets
+                // machine rows render the viewer's own droid as "your droid"
+                // (the placer anchor, _placerLabel).
+                const myId = this._safeGetEntityId();
                 el.innerHTML = (deltas.slice(-PERCEPTION_LIMIT).reverse()).map((e) =>
-                    this.formatPerceptionEntry(e, roundNumber)
+                    this.formatPerceptionEntry(e, roundNumber, myId)
                 ).join('');
             });
     }

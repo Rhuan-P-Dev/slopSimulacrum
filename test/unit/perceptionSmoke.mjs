@@ -515,6 +515,14 @@ console.log('\n[15] Machines: a placed machine is perceived with who placed it a
     assert(placed[0]?.type === 'knifeGenerator', 'the machine type is carried');
     assert(placed[0]?.placedBy?.id === placerId, 'the placer is credited (who)');
     assert(placed[0]?.placedBy?.name === 'Ada', 'the placer display name is resolved (who)');
+    // The placer's own position is anchored on the row: Ada spawned at the
+    // room origin and never moved, so the anchor (0, 0) is distinct from the
+    // machine's floor position (12.34, 7.50) — the machine stands where the
+    // placer stood at placement, and the row carries both coordinates.
+    assert(
+        placed[0]?.placedBy?.x === 0 && placed[0]?.placedBy?.y === 0,
+        'the placer position is anchored on the row (where the placer stands, distinct from where the machine stands)'
+    );
     assert(
         placed[0]?.x === 12.34 && placed[0]?.y === 7.5,
         'the floor position is reported at the 00.00 resolution (where)'
@@ -544,6 +552,10 @@ console.log('\n[15] Machines: a placed machine is perceived with who placed it a
     const retrieved = retrievedEntry?.machines?.retrieved ?? [];
     assert(retrieved.length === 1 && retrieved[0]?.name === 'Knife Generator', 'the retrieval surfaced with the machine name');
     assert(retrieved[0]?.placedBy?.id === placerId, 'the retrieval row still credits the placer (who)');
+    assert(
+        retrieved[0]?.placedBy?.x === 0 && retrieved[0]?.placedBy?.y === 0,
+        'the retrieval row anchors the placer position too'
+    );
     assert(
         retrieved[0]?.x === 12.34 && retrieved[0]?.y === 7.5,
         'the retrieval row carries the last-seen position (where)'
