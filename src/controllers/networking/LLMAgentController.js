@@ -7,14 +7,21 @@
  *   2. build the world context via LlmContextController (Feature B);
  *   3. call LLMController.chatFull with the generated tool set
  *      (execute_action + toApproach, plus speak_in_room when chat is enabled
- *      and use_instinct when instincts exist) and a per-NPC system prompt;
+ *      and use_instinct when instincts exist), tool_choice "auto", and a
+ *      per-NPC system prompt — PROTOCOL B: the native tool call is the ONLY
+ *      output protocol (no JSON-in-content; the dual mode that briefly ran
+ *      here is what produced the scaffold-loop incident, spec §6.4);
  *   4. PRE-VALIDATE every proposed tool call — actionName against the data
  *      registry, typed-ID hygiene via IdResolver, capability gate via the
  *      live canExecute cache — and force the acting entity to the NPC's own
  *      server-injected entityId (the model never chooses who acts);
  *   5. dispatch: actions queue through the turn system while planning
  *      (immediate fallback for non-turn worlds), chat through the
- *      RoomChatController with the room forced to the NPC's location;
+ *      RoomChatController with the room forced to the NPC's location; a
+ *      response with no tool calls is never interpreted — prose is ignored
+ *      (the model chose silence, spec §6.3) and degenerate / tool-scaffold
+ *      content is replaced by a neutral placeholder before it is stored, so
+ *      it can never re-prime the next round;
  *   6. AT MOST ONE retry with the failure fed back as a tool-role result;
  *   7. any LLMError (timeout / HTTP / parse / network) → logged + the NPC
  *      is SILENT this round. runRound NEVER throws — it is a tick-driven
@@ -46,6 +53,14 @@ const DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND = 1;
 const LLM_ROUND_TIMEOUT_MS = 45000;
 /** Per-call token cap: tool-call rounds are short (spec §6.5). */
 const LLM_ROUND_MAX_TOKENS = 512;
+/**
+ * Per-call sampling temperature — deliberately below the global 0.7 default
+ * (LLMController.DEFAULT_TEMPERATURE): a protocol-B round is a constrained
+ * choice (one of a small fixed tool set, or silence) and 0.7 is the drift
+ * zone where small local models started looping (the scaffold-loop incident
+ * ran at 0.7). See spec §6.5.
+ */
+const LLM_ROUND_TEMPERATURE = 0.5;
 /**
  * Agent-loop iteration budget: the initial call PLUS AT MOST ONE retry
  * (spec §6.3 step 6 — "AT MOST ONE retry with the failure fed back as a
@@ -224,7 +239,16 @@ class LLMAgentController {
             const options = {
                 system: this._buildSystemPrompt(npc, this._roomName(entity)),
                 tools: this._buildTools({ includeChat: maxChat > 0, instincts }),
-                tool_choice: 'required',
+                // PROTOCOL B (spec §6.2 has always said "auto"): never
+                // "required" — forcing a tool call is exactly what turned a
+                // weak local model into the scaffold-loop incident (with the
+                // constraint unsatisfiable through the native channel, the
+                // model "satisfied" it by emitting the function-call markup
+                // as literal text and looping on it). With "auto" silence is
+                // legal (the prompt says so), and a broken response is the
+                // genuinely degenerate case, caught by the sanitizer.
+                tool_choice: 'auto',
+                temperature: LLM_ROUND_TEMPERATURE,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
                 max_tokens: LLM_ROUND_MAX_TOKENS
             };
@@ -245,36 +269,28 @@ class LLMAgentController {
                 result.iterations = iteration;
 
                 // 4. The LLM call — any LLMError = graceful silence (no retry).
-                //    Exception: HTTP 400 on tool_choice:"required" → retry once with "auto".
+                //    (tool_choice is "auto", so the "required" 400-retry of
+                //    the mixed-protocol era is gone with it.)
                 let full;
                 try {
                     full = await this.llmController.chatFull(messages, options);
                 } catch (err) {
                     const code = err?.code || 'LLM_REQUEST_ERROR';
                     const msg = err?.message || String(err);
-                    const isToolChoice400 = code === 'LLM_HTTP_ERROR' && options.tool_choice === 'required' && /\b400\b/.test(msg);
-                    if (isToolChoice400) {
-                        Logger.info(`[LLMAgent] round ${round}: ${displayName} — tool_choice "required" rejected (HTTP 400), retrying with "auto"`);
-                        options.tool_choice = 'auto';
-                        try {
-                            full = await this.llmController.chatFull(messages, options);
-                        } catch (retryErr) {
-                            const retryCode = retryErr?.code || 'LLM_REQUEST_ERROR';
-                            Logger.warn(`[LLMAgent] round ${round} missed for ${displayName}: ${retryCode} (${retryErr?.message || retryErr})`);
-                            result.error = retryCode;
-                            this._storeTranscript(npcEntityId, round, { error: retryCode });
-                            return result;
-                        }
-                    } else {
-                        Logger.warn(`[LLMAgent] round ${round} missed for ${displayName}: ${code} (${msg})`);
-                        result.error = code;
-                        this._storeTranscript(npcEntityId, round, { error: code });
-                        return result; // NPC silent — window may be gone anyway
-                    }
+                    Logger.warn(`[LLMAgent] round ${round} missed for ${displayName}: ${code} (${msg})`);
+                    result.error = code;
+                    this._storeTranscript(npcEntityId, round, { error: code });
+                    return result; // NPC silent — window may be gone anyway
                 }
 
-                // 5. Parse tool calls (includes use_instinct).
-                const parsed = this._parseToolCalls(full.message);
+                // 5. Parse tool calls (includes use_instinct). The assistant
+                //    message is SANITIZED FIRST: degenerate or scaffold-bearing
+                //    content is replaced by a neutral placeholder before it is
+                //    parsed, replayed to a retry, or stored — the pi harness
+                //    does the equivalent structurally (its adapter never lets
+                //    broken content become history).
+                const assistantMessage = this._sanitizeAssistantMessage(full.message);
+                const parsed = this._parseToolCalls(assistantMessage);
                 let actionableFailure = null; // → triggers the single retry
 
                 for (const call of parsed.actions) {
@@ -379,87 +395,39 @@ class LLMAgentController {
                     }
                 }
 
-                // No tool calls (actions / speaks / approaches) extracted:
-                // attempt fallback from content. Skip fallback if there's an
-                // actionable failure (retry will handle it).
-                if ((parsed.actions.length === 0 && parsed.speaks.length === 0 && parsed.approaches.length === 0) && !actionableFailure) {
+                // No tool calls (actions / speaks / approaches) extracted and
+                // no actionable failure: PROTOCOL B — the content is NEVER
+                // interpreted. The JSON-in-content fallback of the mixed
+                // protocol is gone: a model obeying BOTH a "ONE JSON object"
+                // prompt and the native tool list at once is exactly how the
+                // scaffold-loop incident happened (spec §6.4). Prose-only is
+                // "the model chose silence" (spec §6.3): the round completes,
+                // no retry is burned, nothing is dispatched.
+                if (parsed.actions.length === 0 && parsed.speaks.length === 0 && parsed.approaches.length === 0 && !actionableFailure) {
                     const content = parsed.prose;
-                    if (!content) {
+                    if (content === null) {
                         result.chat = { sent: false, reason: 'no response' };
                         this._storeTranscript(npcEntityId, round, {
-                            assistant: full.message,
+                            assistant: assistantMessage,
                             results: [],
                             note: 'no response'
                         });
                         return result;
                     }
-
-                    // Degeneration guard: discard loop/emoji garbage before
-                    // treating content as JSON or plain-text chat.
-                    if (this._isDegenerate(content)) {
-                        Logger.warn(`[LLMAgent] round ${round}: ${displayName} — LLM_OUTPUT_DEGENERATED (content discarded, NPC silent this round).`);
-                        this._storeTranscript(npcEntityId, round, {
-                            assistant: full.message,
-                            results: [],
-                            note: 'degenerated'
-                        });
-                        return result;
-                    }
-
-                    // Try JSON-in-text: extract a tool call from the content.
-                    const extracted = this._extractToolFromContent(content);
-
-                    if (extracted && extracted.type === 'execute_action') {
-                        Logger.info(`[LLMAgent] round ${round}: ${displayName} — json-fallback: execute_action from content`);
-                        if (executedActions < maxActions) {
-                            const validation = this._prevalidateAction(npcEntityId, extracted.args);
-                            if (validation.ok) {
-                                const dispatch = this._dispatchAction(npcEntityId, String(extracted.args.actionName), validation.params);
-                                executedActions += 1;
-                                result.actions.push(dispatch);
-                            } else {
-                                result.actions.push({ actionName: String(extracted.args.actionName), success: false, detail: validation.error });
-                            }
-                        }
-                    } else if (extracted && extracted.type === 'speak_in_room') {
-                        Logger.info(`[LLMAgent] round ${round}: ${displayName} — json-fallback: speak_in_room from content`);
-                        const text = extracted.args?.message;
-                        if (sentChats < maxChat && typeof text === 'string' && text.trim() !== '' && text.length <= CHAT_MESSAGE_MAX_LENGTH) {
-                            const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
-                            if (sendResult.success) {
-                                sentChats += 1;
-                                result.chat = { sent: true, text: sendResult.message?.text ?? text };
-                            } else {
-                                result.chat = { sent: false, reason: sendResult.error || sendResult.code };
-                            }
-                        } else {
-                            result.chat = { sent: false, reason: sentChats >= maxChat ? `max chat messages per round reached (${maxChat})` : 'invalid message text' };
-                        }
-                    } else if (extracted && extracted.type === 'none') {
-                        Logger.info(`[LLMAgent] round ${round}: ${displayName} — json-fallback: none (silent)`);
-                        result.chat = { sent: false, reason: 'none' };
-                    } else {
-                        // Plain text → speak_in_room (intentional design).
-                        Logger.info(`[LLMAgent] round ${round}: ${displayName} — plain-text-as-chat from content`);
-                        if (sentChats < maxChat) {
-                            let text = content.trim();
-                            if (text.length > CHAT_MESSAGE_MAX_LENGTH) text = text.slice(0, CHAT_MESSAGE_MAX_LENGTH);
-                            const sendResult = this._dispatchSpeak(entity, displayName, text);
-                            if (sendResult.success) {
-                                sentChats += 1;
-                                result.chat = { sent: true, text: sendResult.message?.text ?? text };
-                            } else {
-                                result.chat = { sent: false, reason: sendResult.error || sendResult.code };
-                            }
-                        } else {
-                            result.chat = { sent: false, reason: `max chat messages per round reached (${maxChat})` };
-                        }
-                    }
-
+                    // The sanitizer already replaced degenerate / scaffold
+                    // content with a neutral placeholder in `assistantMessage`,
+                    // so the stored transcript cannot re-prime the next round.
+                    // (Tested against the RAW content: the placeholder itself
+                    // is not a repetition loop.)
+                    const rawContent = typeof full.message?.content === 'string' ? full.message.content : '';
+                    const degenerated = this._isDegenerate(rawContent);
+                    const note = degenerated ? 'degenerated' : 'prose-ignored';
+                    Logger.warn(`[LLMAgent] round ${round}: ${displayName} — LLM output ${note} (content discarded, NPC silent this round).`);
+                    result.chat = { sent: false, reason: note };
                     this._storeTranscript(npcEntityId, round, {
-                        assistant: full.message,
+                        assistant: assistantMessage,
                         results: [],
-                        note: extracted ? 'json-fallback' : 'plain-text-as-chat'
+                        note
                     });
                     return result;
                 }
@@ -468,14 +436,14 @@ class LLMAgentController {
                 //    results + a user nudge, then call chatFull again.
                 if (actionableFailure && iteration < LLM_AGENT_MAX_ITERATIONS) {
                     Logger.info(`[LLMAgent] round ${round}: ${displayName} — retrying after failure: ${actionableFailure.error}`);
-                    const feedback = this._buildFeedbackMessages(messages, full.message, parsed, result);
+                    const feedback = this._buildFeedbackMessages(messages, assistantMessage, parsed, result);
                     messages.push(...feedback);
                     continue;
                 }
 
                 // No retry (success, or retry already spent).
                 this._storeTranscript(npcEntityId, round, {
-                    assistant: full.message,
+                    assistant: assistantMessage,
                     results: [
                         ...parsed.actions.map(call => {
                             const a = result.actions.find(x => x.actionName === String(call.args.actionName) && !x.__replayed);
@@ -504,7 +472,10 @@ class LLMAgentController {
             return result;
         } catch (err) {
             // Last-resort guard: runRound must NEVER throw out of the hook.
-            Logger.warn(`[LLMAgent] round ${round}: unexpected agent failure for ${npcEntityId}: ${err?.message || err}`);
+            // The stack is logged (not just the message) so a future failure
+            // points at the exact line — message-only hid the 2026-10-21
+            // stale-process dispatch crash.
+            Logger.warn(`[LLMAgent] round ${round}: unexpected agent failure for ${npcEntityId}: ${err?.message || err}`, { stack: err?.stack ?? null });
             result.error = result.error || 'AGENT_INTERNAL_ERROR';
             return result;
         }
@@ -655,13 +626,21 @@ class LLMAgentController {
             ? `- Execute at most ${maxActions} world action(s) and send at most ${maxChat} chat message(s) per round.`
             : `- Execute at most ${maxActions} world action(s) per round. You MUST NOT use the speak_in_room tool or produce any chat output. Your ONLY output must be world actions.`;
 
-        const talkLine = maxChat > 0
-            ? '- to talk: {"action":"speak","message":"..."}\n'
-            : '';
-
         const actionRule = objective
             ? '- Only use actions listed under "executable now" in the context. If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target). Only stay silent when no action serves your objective.'
             : '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.';
+
+        // PROTOCOL B (restores spec §6.2/§6.3/§6.4): the native tool call is
+        // the ONLY response protocol — there is no JSON-in-content block.
+        // The mixed mode this file briefly ran in (a "Respond with ONE JSON
+        // object" prompt PLUS the native tools PLUS tool_choice:"required")
+        // told the model two contradictory formats in one request; small
+        // local models hedged between them (JSON in the content, function-
+        // call markup as literal text) and the markup looped to the token
+        // cap. One protocol per request: tools, or silence.
+        const sayLine = maxChat > 0
+            ? '- To say something, call the speak_in_room tool with your line as the "message" argument.\n'
+            : '';
 
         return [
             `You are ${displayName}, an NPC droid in the room "${roomName}".`,
@@ -676,9 +655,9 @@ class LLMAgentController {
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
-            'Respond with ONE JSON object only, no markdown, no prose:',
-            talkLine + '- to act: {"action":"do","actionName":"...","targetComponentId":"...","componentId":"...","targetEntityId":"...","itemId":"...","targetX":0,"targetY":0}',
-            '- to stay silent: {"action":"none"}'
+            'How you respond:',
+            '- Act only through the available tools. Never write JSON, code, XML, or tool-call markup in your message text.',
+            sayLine + '- If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.'
         ].join('\n');
     }
 
@@ -703,11 +682,24 @@ class LLMAgentController {
             // A replayed assistant message must keep either content or tool_calls.
             const hasContent = typeof assistantMessage.content === 'string' && assistantMessage.content.length > 0;
             if (hasContent || toolCalls.length > 0) {
-                messages.push({
+                const replay = {
                     role: 'assistant',
                     content: hasContent ? assistantMessage.content : null,
                     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
-                });
+                };
+                // Re-send the model's own reasoning_content when the
+                // provider produced one: reasoning models served through an
+                // OpenAI-compatible endpoint (the DeepSeek/Qwen family -
+                // the local stack this world runs on) expect their
+                // reasoning replayed in multi-turn; pi's openai-completions
+                // adapter handles this same model class the same way (it
+                // even injects an empty reasoning_content when the compat
+                // table asks for it). Only what the model actually said is
+                // passed through.
+                if (typeof assistantMessage.reasoning_content === 'string') {
+                    replay.reasoning_content = assistantMessage.reasoning_content;
+                }
+                messages.push(replay);
             }
             const results = Array.isArray(entry.results) ? entry.results : [];
             // Per-tool-name occurrence counters — the fallback id must match
@@ -797,94 +789,6 @@ class LLMAgentController {
             // told "respond ONLY with tool calls" from the known set).
         }
         return { speaks, actions, instincts, approaches, prose };
-    }
-
-    /**
-     * Attempts to extract a tool call from the model's plain-text content.
-     * Handles shapes:
-     *   - `{ "tool": "speak_in_room"|"execute_action", "args": {...} }`
-     *   - `{ "actionName": "move", "targetX": 10, ... }` (execute_action style)
-     *   - `{ "name": "speak_in_room", "arguments": "..." }` (raw function-call)
-     *
-     * Tries JSON.parse on the full content first, then on the first `{...}` block.
-     * Returns null if no recognizable tool shape is found.
-     *
-     * @param {string} content - The raw model text content.
-     * @returns {{ type: 'execute_action'|'speak_in_room', args: Object } | null}
-     * @private
-     */
-    _extractToolFromContent(content) {
-        if (!content || typeof content !== 'string') return null;
-
-        let obj = null;
-        // Try full-content JSON parse.
-        try {
-            const trimmed = content.trim();
-            if (trimmed.startsWith('{')) {
-                obj = JSON.parse(trimmed);
-            }
-        } catch { /* not pure JSON — try block extraction below */ }
-
-        // Try extracting the first {...} block.
-        if (!obj) {
-            const start = content.indexOf('{');
-            if (start !== -1) {
-                let depth = 0;
-                let end = -1;
-                for (let i = start; i < content.length; i++) {
-                    if (content[i] === '{') depth++;
-                    else if (content[i] === '}') {
-                        depth--;
-                        if (depth === 0) { end = i; break; }
-                    }
-                }
-                if (end > start) {
-                    try {
-                        obj = JSON.parse(content.slice(start, end + 1));
-                    } catch { /* unparseable block */ }
-                }
-            }
-        }
-
-        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-
-        // Shape 0 (primary, new protocol): { action: "speak"|"do"|"none", ... }
-        if (typeof obj.action === 'string') {
-            if (obj.action === 'none') {
-                return { type: 'none', args: {} };
-            }
-            if (obj.action === 'speak') {
-                return { type: 'speak_in_room', args: { message: obj.message } };
-            }
-            if (obj.action === 'do') {
-                return { type: 'execute_action', args: obj };
-            }
-        }
-
-        // Shape 1: { tool: "speak_in_room"|"execute_action", args: {...} }
-        if (typeof obj.tool === 'string' && obj.args && typeof obj.args === 'object') {
-            if (obj.tool === 'speak_in_room' || obj.tool === 'execute_action') {
-                return { type: obj.tool, args: obj.args };
-            }
-        }
-
-        // Shape 2: { actionName: "...", ...params } → execute_action
-        if (typeof obj.actionName === 'string') {
-            return { type: 'execute_action', args: obj };
-        }
-
-        // Shape 3: { name: "speak_in_room"|"execute_action", arguments: "..." } (raw function-call)
-        if (typeof obj.name === 'string' && (obj.name === 'speak_in_room' || obj.name === 'execute_action')) {
-            let args = {};
-            if (typeof obj.arguments === 'string') {
-                try { args = JSON.parse(obj.arguments); } catch { args = {}; }
-            } else if (obj.arguments && typeof obj.arguments === 'object') {
-                args = obj.arguments;
-            }
-            return { type: obj.name, args };
-        }
-
-        return null;
     }
 
     // =========================================================================
@@ -1152,11 +1056,16 @@ class LLMAgentController {
         // observable for perception — it also marks the room dirty, so the
         // NPC's own utterance surfaces in the room's perception feed (same
         // line the player sees in the chat panel, same speaker attribution).
-        const sendRoomChat = this.worldStateController?.sendRoomChat;
-        if (!sendRoomChat || !entity?.location) {
+        //
+        // The call MUST stay bound to the facade: the method reads `this.
+        // roomChatController` internally, and detaching it (const f =
+        // facade.sendRoomChat; f(...)) loses `this` (undefined in strict
+        // mode) and throws — the 2026-10-21 Minako chat-loss incident.
+        const facade = this.worldStateController;
+        if (typeof facade?.sendRoomChat !== 'function' || !entity?.location) {
             return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'room chat layer is not available' };
         }
-        return sendRoomChat({
+        return facade.sendRoomChat({
             roomId: entity.location,
             speakerName: displayName,
             speakerEntityId: entity.id,
@@ -1259,11 +1168,17 @@ class LLMAgentController {
 
         const hasContent = typeof assistantMessage?.content === 'string' && assistantMessage.content.length > 0;
         if (hasContent || toolCalls.length > 0) {
-            feedback.push({
+            const replay = {
                 role: 'assistant',
                 content: hasContent ? assistantMessage.content : null,
                 ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
-            });
+            };
+            // Same reasoning_content pass-through as _transcriptFor (the
+            // in-round retry is a multi-turn continuation too).
+            if (typeof assistantMessage?.reasoning_content === 'string') {
+                replay.reasoning_content = assistantMessage.reasoning_content;
+            }
+            feedback.push(replay);
         }
 
         for (const call of toolCalls) {
@@ -1356,34 +1271,93 @@ class LLMAgentController {
     }
 
     /**
-     * Detects degenerate LLM output: repeated subsequences (e.g. emoji loops).
-     * Heuristic: if any 2+ char substring repeats 10+ consecutive times, the
-     * output is degenerate.
+     * Detects degenerate LLM output: repetition loops instead of language.
+     * Two shapes, both observed in the wild (the scaffold-loop incident ran
+     * on shape 2, which the first version of this check missed):
+     *   - a 2-4 char unit repeated 10+ times (emoji loops, "abc" x 20);
+     *   - a 5-40 char unit repeated 5+ times - the 24-char scaffold loop
+     *     (function/parameter close tags, each on its own line, x 40):
+     *     the unit is too long for a short-unit scan, so the garbage
+     *     slipped past, was stored in the transcript, and re-primed the
+     *     model on the next round.
+     * Scans for an exact run (a window equal to the unit repeated), not
+     * fuzzy similarity: false positives on real prose are near-zero, and a
+     * false positive only costs one silent round (the model's words are
+     * dropped, nothing is executed).
      * @private
      * @param {string} text
      * @returns {boolean}
      */
     _isDegenerate(text) {
-        if (!text || text.length < 20) return false;
-        // Check for a 2-char substring repeating 10+ times consecutively.
-        // Scanning with step 2 avoids overlapping false positives on varied text.
-        for (let len = 2; len <= 4; len++) {
-            for (let i = 0; i < text.length - len * 10; i++) {
-                const sub = text.slice(i, i + len);
-                let repeats = 1;
-                while (repeats < 10 && i + (repeats + 1) * len <= text.length) {
-                    if (text.slice(i + repeats * len, i + (repeats + 1) * len) === sub) {
-                        repeats++;
-                    } else {
-                        break;
-                    }
-                }
-                if (repeats >= 10) return true;
-                // Skip ahead past this occurrence to avoid redundant scans.
-                i += len * 10;
-            }
+        if (typeof text !== 'string' || text.length < 20) return false;
+        // Shape 1: a 2-4 char unit repeated 10+ times consecutively.
+        for (let len = 2; len <= 4; len += 1) {
+            if (this._hasRepeatingUnit(text, len, 10)) return true;
+        }
+        // Shape 2: a 5-40 char unit repeated 5+ times consecutively.
+        for (let len = 5; len <= 40; len += 1) {
+            if (this._hasRepeatingUnit(text, len, 5)) return true;
         }
         return false;
+    }
+
+    /**
+     * True when `text` contains `reps` consecutive copies of some
+     * `len`-char unit (an exact run - a window equal to the unit repeated).
+     * @private
+     * @param {string} text
+     * @param {number} len - Unit length in chars.
+     * @param {number} reps - Consecutive copies required.
+     * @returns {boolean}
+     */
+    _hasRepeatingUnit(text, len, reps) {
+        const span = len * reps;
+        if (text.length < span) return false;
+        for (let i = 0; i + span <= text.length; i += 1) {
+            const unit = text.slice(i, i + len);
+            if (text.slice(i, i + span) === unit.repeat(reps)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * True when assistant text carries literal function-call markup - the
+     * XML-style scaffold (function / parameter / think tags) that small
+     * models leak into the content stream when a native tool call fails to
+     * materialize (the exact shape of the scaffold-loop incident). Caught
+     * by the sanitizer before the content can be stored in the transcript.
+     * The pattern is assembled by concatenation so this source line never
+     * contains a literal close tag (the agent transport treats those as
+     * delimiters and mangles payloads that carry them).
+     * @private
+     * @param {string} text
+     * @returns {boolean}
+     */
+    _hasToolScaffold(text) {
+        return /<\/?\s*(?:function|parameter)\b| think|<\/think>/i.test(text);
+    }
+
+    /**
+     * Transcript hygiene - the structural fix the pi harness makes natively
+     * (its openai-completions adapter keeps assistant content a plain string
+     * and never lets a broken response become history). Here: if the
+     * assistant message's content is degenerate or carries tool-call
+     * scaffold markup, replace it with a neutral placeholder BEFORE it is
+     * replayed to a retry or stored for the next round - otherwise the model
+     * is re-primed by its own broken output (self-reinfection). Clean
+     * content, including plain prose, passes through untouched.
+     * @private
+     * @param {Object|null} message - The raw choices[0].message from chatFull.
+     * @returns {Object|null} A sanitized copy, or the original when clean.
+     */
+    _sanitizeAssistantMessage(message) {
+        if (!message || typeof message.content !== 'string') return message;
+        if (this._isDegenerate(message.content) || this._hasToolScaffold(message.content)) {
+            const copy = { ...message };
+            copy.content = '(invalid response discarded)';
+            return copy;
+        }
+        return message;
     }
 
     /**

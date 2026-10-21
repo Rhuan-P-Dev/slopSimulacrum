@@ -210,7 +210,11 @@ describe('data/cards → M1 LLM NPCs (random room, per-card identity)', () => {
         expect(prompt).toContain(`Personality: ${personality}`);
         expect(prompt).toContain('at most 2 world action');
         expect(prompt).toContain('at most 1 chat message');
-        expect(prompt).toContain('to stay silent: {"action":"none"}');
+        // PROTOCOL B: native tool calls are the only output protocol — silence
+        // is legal, and there is no JSON-in-content protocol.
+        expect(prompt).toContain('If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.');
+        expect(prompt).not.toContain('Respond with ONE JSON object');
+        expect(prompt).not.toContain('"action":"speak"');
     });
 
     describe('_resolveNpcConfig (live config over static registry)', () => {

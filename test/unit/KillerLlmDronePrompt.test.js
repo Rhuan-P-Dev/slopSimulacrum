@@ -88,11 +88,16 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
 });
 
 /**
- * The historical (pre-objective) system prompt template, rendered for the
+ * The current PROTOCOL B no-objective system prompt, rendered for the
  * fixture smallBallDroid registry entry (verbatim copy of the historical
  * production entry — no objective → default caps 2/1) in room "Main Room".
  * This is the byte-identical regression target: any template change that
  * affects objective-less NPCs must fail this test.
+ *
+ * PROTOCOL B (spec §6.2/§6.3/§6.4): the native tool call is the ONLY
+ * response protocol — no JSON-in-content block, and tool_choice is "auto"
+ * (never "required": the dual mode that produced the scaffold-loop
+ * incident). Silence is legal.
  */
 const NO_OBJECTIVE_PROMPT = [
     `You are Rogue Droid, an NPC droid in the room "${ROOM_NAME}".`,
@@ -106,10 +111,9 @@ const NO_OBJECTIVE_PROMPT = [
     '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
     '- Keep chat messages under 25 words, in character, no fourth-wall breaks.',
     '',
-    'Respond with ONE JSON object only, no markdown, no prose:',
-    '- to talk: {"action":"speak","message":"..."}',
-    '- to act: {"action":"do","actionName":"...","targetComponentId":"...","componentId":"...","targetEntityId":"...","itemId":"...","targetX":0,"targetY":0}',
-    '- to stay silent: {"action":"none"}'
+    'How you respond:',
+    '- Act only through the available tools. Never write JSON, code, XML, or tool-call markup in your message text.',
+    '- To say something, call the speak_in_room tool with your line as the "message" argument.\n- If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.'
 ].join('\n');
 
 /**
@@ -234,15 +238,16 @@ describe('LLMAgentController._buildSystemPrompt — objective rendering (design 
         expect(toolNames).not.toContain('speak_in_room');
     });
 
-    it('without an objective: the system prompt is byte-identical to the pre-change template (regression guard)', async () => {
+    it('without an objective: the system prompt is byte-identical to the PROTOCOL B template (regression guard)', async () => {
         const { agent, calls } = makeAgent(makeWorld(ROGUE_ENTITY));
 
         const result = await agent.runRound(ROGUE_ID, 0);
 
         expect(result.error).toBeNull();
         expect(calls).toHaveLength(1);
-        // Exact equality: no Objective: line, the legacy idle rule and chat
-        // guidance line intact — this is the historical template, unchanged.
+        // Exact equality: no Objective: line, silence-allowed tail (protocol B),
+        // no JSON-in-content protocol, no forced tool choice.
         expect(calls[0].options.system).toBe(NO_OBJECTIVE_PROMPT);
+        expect(calls[0].options.tool_choice).toBe('auto');
     });
 });

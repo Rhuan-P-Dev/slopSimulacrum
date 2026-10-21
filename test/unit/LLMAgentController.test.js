@@ -13,8 +13,10 @@
  *     2 iterations, no world mutation;
  *   - chatFull rejects with LLM_TIMEOUT → runRound resolves
  *     { error:'LLM_TIMEOUT' }, no throw, nothing queued;
- *   - prose-only response → chat { sent:false, reason:'prose-only' }, the
- *     retry is NOT burned (iterations stays 1);
+ *   - PROTOCOL B: prose-only responses are NEVER interpreted — the JSON-\n *     in-content fallback is gone (spec §6.4), the model chose silence (spec
+ *     §6.3), and the retry is NOT burned (iterations stays 1);
+ *   - degenerate / tool-scaffold responses → content replaced by a neutral
+ *     placeholder before storage (never re-primed), nothing dispatched;
  *   - capability gate (canExecute empty) → 'action not executable right now';
  *   - ID hygiene: a comp- argument with the wrong prefix → 'invalid id format';
  *   - speak_in_room → roomChatController.sendMessage with the room FORCED to
@@ -234,7 +236,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(turns.queued).toHaveLength(0);
     });
 
-    it('plain-text response → treated as speak_in_room (plain-text-as-chat)', async () => {
+    it('PROTOCOL B: plain-text response → ignored, nothing dispatched, no retry', async () => {
         const roomChat = makeRoomChat();
         const seen = [];
         const { agent } = makeAgent({
@@ -252,20 +254,18 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(seen).toHaveLength(1); // exactly one chatFull call
+        expect(seen).toHaveLength(1); // exactly one chatFull call — the retry is not burned
         expect(result.iterations).toBe(1);
-        expect(result.chat).toEqual({ sent: true, text: 'Greetings, traveler!' });
-        expect(roomChat.sent).toHaveLength(1);
-        expect(roomChat.sent[0].text).toBe('Greetings, traveler!');
+        expect(result.chat).toEqual({ sent: false, reason: 'prose-ignored' });
+        expect(roomChat.sent).toHaveLength(0); // prose is never sent to chat (no plain-text-as-chat)
         expect(result.error).toBeNull();
     });
 
-    it('plain-text response with >200 chars → truncated to 200', async () => {
+    it('PROTOCOL B: long plain-text response → ignored (no truncation, no dispatch)', async () => {
         const roomChat = makeRoomChat();
         // Use varied text to avoid triggering the degeneration check.
         const longText = 'The quick brown fox jumps over the lazy dog. '.repeat(5).trim();
-        // Ensure it's over 200 chars and not degenerate.
-                const { agent } = makeAgent({
+        const { agent } = makeAgent({
             roomChat,
             chatFullImpl: () => ({
                 content: longText,
@@ -277,12 +277,12 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(result.chat.sent).toBe(true);
-        expect(result.chat.text).toHaveLength(200);
-        expect(roomChat.sent[0].text).toHaveLength(200);
+        expect(result.chat.sent).toBe(false);
+        expect(result.chat.reason).toBe('prose-ignored');
+        expect(roomChat.sent).toHaveLength(0);
     });
 
-    it('content with JSON tool (speak_in_room shape) → dispatches speak_in_room (json-fallback)', async () => {
+    it('PROTOCOL B: content with a JSON tool shape → ignored (no json-fallback)', async () => {
         const roomChat = makeRoomChat();
         const { agent } = makeAgent({
             roomChat,
@@ -296,13 +296,15 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(result.chat).toEqual({ sent: true, text: 'Hello there!' });
-        expect(roomChat.sent).toHaveLength(1);
-        expect(roomChat.sent[0].text).toBe('Hello there!');
+        // The dual-protocol era interpreted this as a speak; protocol B never
+        // does: no tool call means silence (spec §6.3).
+        expect(result.chat.sent).toBe(false);
+        expect(result.chat.reason).toBe('prose-ignored');
+        expect(roomChat.sent).toHaveLength(0);
         expect(result.error).toBeNull();
     });
 
-    it('content with JSON tool (execute_action actionName shape) → dispatches action (json-fallback)', async () => {
+    it('PROTOCOL B: content with a JSON execute_action shape → ignored (no action from text)', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
         const { agent } = makeAgent({
@@ -318,15 +320,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(turns.queued).toHaveLength(1);
-        expect(turns.queued[0].actionName).toBe('selfHeal');
-        expect(turns.queued[0].entityId).toBe(NPC_ID);
-        expect(result.actions).toHaveLength(1);
-        expect(result.actions[0]).toMatchObject({ actionName: 'selfHeal', queued: true, success: true });
+        expect(turns.queued).toHaveLength(0); // never executed from content
+        expect(result.actions).toHaveLength(0);
+        expect(result.chat.sent).toBe(false);
         expect(result.error).toBeNull();
     });
 
-    it('content with JSON in surrounding text (first {...} block) → dispatches speak_in_room', async () => {
+    it('PROTOCOL B: JSON buried in prose → ignored (never parsed out of text)', async () => {
         const roomChat = makeRoomChat();
         const content = 'Sure! Here is my action:\n{"tool":"speak_in_room","args":{"message":"Hey!"}}\nDone.';
         const { agent } = makeAgent({
@@ -341,17 +341,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(result.chat).toEqual({ sent: true, text: 'Hey!' });
-        expect(roomChat.sent).toHaveLength(1);
+        expect(result.chat.sent).toBe(false);
+        expect(roomChat.sent).toHaveLength(0);
     });
 
-    it('plain-text with maxChat reached → silent', async () => {
-        // Simulate: the NPC already sent its one chat message this round.
-        // We do this by having the LLM return TWO separate rounds of plain text,
-        // but since runRound only processes one LLM call, we use a world with
-        // maxChatMessagesPerRound = 1 and mock the chat layer to fail on 2nd call.
-        // Instead, we directly test: if sentChats >= maxChat, the text is dropped.
-        // The simplest way: make roomChat.sendMessage fail (simulate cap reached).
+    it('PROTOCOL B: prose with maxChat reached → still just ignored (chat layer never touched)', async () => {
+        // Even when the chat layer would reject a send (cap reached), the
+        // prose is discarded before it ever reaches the chat layer.
         const roomChat = {
             sent: [],
             sendMessage: () => ({ success: false, code: 'CHAT_LIMIT', error: 'max chat messages per round reached (1)' })
@@ -369,28 +365,20 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         const result = await agent.runRound(NPC_ID, 0);
 
         expect(result.chat.sent).toBe(false);
-        expect(result.chat.reason).toBe('max chat messages per round reached (1)');
+        expect(result.chat.reason).toBe('prose-ignored');
         expect(roomChat.sent).toHaveLength(0);
         expect(result.error).toBeNull();
     });
 
-    it('tool_choice "required" rejected with HTTP 400 → retries once with "auto"', async () => {
+    it('agent request uses tool_choice "auto", temperature 0.5, max_tokens=512 (PROTOCOL B)', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
-        let callCount = 0;
         const seenOptions = [];
         const { agent } = makeAgent({
             world,
             turns,
             chatFullImpl: (messages, options) => {
-                callCount += 1;
-                seenOptions.push(options.tool_choice);
-                if (callCount === 1) {
-                    const err = new Error('LLM API error: HTTP 400 Bad Request — tool_choice "required" not supported');
-                    err.code = 'LLM_HTTP_ERROR';
-                    throw err;
-                }
-                // Second call with "auto" succeeds with a tool call.
+                seenOptions.push(options);
                 return {
                     content: null,
                     toolCalls: [],
@@ -402,11 +390,11 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
 
-        expect(callCount).toBe(2);
-        expect(seenOptions[0]).toBe('required');
-        expect(seenOptions[1]).toBe('auto');
+        expect(seenOptions).toHaveLength(1);
+        expect(seenOptions[0].tool_choice).toBe('auto'); // never "required" (spec §6.2)
+        expect(seenOptions[0].temperature).toBe(0.5);
+        expect(seenOptions[0].max_tokens).toBe(512);
         expect(turns.queued).toHaveLength(1);
-        expect(turns.queued[0].actionName).toBe('selfHeal');
         expect(result.error).toBeNull();
     });
 
@@ -476,6 +464,42 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(roomChat.sent[0].speakerEntityId).toBe(NPC_ID);
     });
 
+    it('speak: the facade sendRoomChat is called BOUND (production shape is this-dependent — 2026-10-21 regression)', async () => {
+        const roomChat = makeRoomChat();
+        const world = makeWorld();
+        // Production shape: a real METHOD that reads `this.roomChatController`
+        // (exactly like WorldStateController.sendRoomChat) — NOT an arrow
+        // function. If _dispatchSpeak detaches it (const f =
+        // facade.sendRoomChat; f(...)), that read runs with `this === undefined`
+        // (strict mode) and the round dies with AGENT_INTERNAL_ERROR — the
+        // exact shape of the Minako chat-loss incident (the player route calls
+        // the method bound and worked; only the NPC path detached it).
+        world.sendRoomChat = function (args) {
+            if (!this.roomChatController) {
+                return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'not wired' };
+            }
+            return this.roomChatController.sendMessage(args);
+        };
+        world.roomChatController = roomChat;
+        const { agent } = makeAgent({
+            world,
+            roomChat,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'speak_in_room', args: '{"message":"h-hello..."}' }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.error).toBeNull(); // a detached call would have thrown here
+        expect(result.chat).toEqual({ sent: true, text: 'h-hello...' });
+        expect(roomChat.sent).toHaveLength(1);
+        expect(roomChat.sent[0].speakerEntityId).toBe(NPC_ID);
+    });
+
     it('malformed tool arguments JSON → pre-validation failure, not a crash', async () => {
         const world = makeWorld();
         const { agent } = makeAgent({
@@ -526,10 +550,10 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
     });
 
     // =========================================================================
-    // JSON-in-text protocol (new primary shape)
+    // Legacy JSON-in-text shapes — PROTOCOL B: all ignored (never dispatched)
     // =========================================================================
 
-    it('{"action":"speak","message":"..."} → dispatches speak_in_room', async () => {
+    it('legacy {"action":"speak","message":"..."} → ignored (prose, not a tool call)', async () => {
         const roomChat = makeRoomChat();
         const { agent } = makeAgent({
             roomChat,
@@ -542,13 +566,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         });
 
         const result = await agent.runRound(NPC_ID, 0);
-        expect(result.chat).toEqual({ sent: true, text: 'Hello from JSON!' });
-        expect(roomChat.sent).toHaveLength(1);
-        expect(roomChat.sent[0].text).toBe('Hello from JSON!');
+        expect(result.chat.sent).toBe(false);
+        expect(result.chat.reason).toBe('prose-ignored');
+        expect(roomChat.sent).toHaveLength(0);
         expect(result.error).toBeNull();
     });
 
-    it('{"action":"do","actionName":"selfHeal"} → dispatches execute_action', async () => {
+    it('legacy {"action":"do","actionName":"selfHeal"} → ignored (no action from text)', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
         const { agent } = makeAgent({
@@ -563,15 +587,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         });
 
         const result = await agent.runRound(NPC_ID, 0);
-        expect(turns.queued).toHaveLength(1);
-        expect(turns.queued[0].actionName).toBe('selfHeal');
-        expect(turns.queued[0].entityId).toBe(NPC_ID);
-        expect(result.actions).toHaveLength(1);
-        expect(result.actions[0]).toMatchObject({ actionName: 'selfHeal', queued: true, success: true });
+        expect(turns.queued).toHaveLength(0);
+        expect(result.actions).toHaveLength(0);
+        expect(result.chat.sent).toBe(false);
         expect(result.error).toBeNull();
     });
 
-    it('{"action":"none"} → NPC silent, nothing dispatched', async () => {
+    it('legacy {"action":"none"} → NPC silent, nothing dispatched', async () => {
         const roomChat = makeRoomChat();
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
@@ -589,7 +611,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
 
         const result = await agent.runRound(NPC_ID, 0);
         expect(result.chat.sent).toBe(false);
-        expect(result.chat.reason).toBe('none');
+        expect(result.chat.reason).toBe('prose-ignored');
         expect(result.actions).toHaveLength(0);
         expect(roomChat.sent).toHaveLength(0);
         expect(turns.queued).toHaveLength(0);
@@ -645,30 +667,157 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
     });
 
     // =========================================================================
-    // Request options: max_tokens
+    // Transcript hygiene (the structural fix pi makes natively)
     // =========================================================================
 
-    it('agent request uses max_tokens=512', async () => {
+    it('scaffold loop (24-char tag unit x40 — the incident shape) → discarded AND sanitized in the transcript given to the next round', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
-        const seenOptions = [];
+        // Built by concatenation so this test source never carries a literal
+        // closing tag (the agent transport treats those as delimiters and
+        // mangles payloads that carry them — the same bug as the incident).
+        const unit = '<' + '/parameter' + '>\n' + '<' + '/function' + '>\n';
+        const degenerated = unit.repeat(40); // 960 chars: 24-char unit x40
+        let callCount = 0;
+        const seenMessages = [];
         const { agent } = makeAgent({
             world,
             turns,
-            chatFullImpl: (messages, options) => {
-                seenOptions.push(options);
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                if (callCount === 1) {
+                    // Round 1: the model loops on the scaffold, no tool calls.
+                    return {
+                        content: degenerated,
+                        toolCalls: [],
+                        finishReason: 'length',
+                        message: { role: 'assistant', content: degenerated }
+                    };
+                }
+                // Round 2 (next tick): the model recovers and acts.
                 return {
-                    content: '{"action":"speak","message":"ok"}',
+                    content: null,
                     toolCalls: [],
-                    finishReason: 'stop',
-                    message: { role: 'assistant', content: '{"action":"speak","message":"ok"}' }
+                    finishReason: 'tool_calls',
+                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal"}' }])
+                };
+            }
+        });
+
+        const r1 = await agent.runRound(NPC_ID, 0);
+        expect(r1.chat).toEqual({ sent: false, reason: 'degenerated' });
+        expect(r1.actions).toHaveLength(0);
+        expect(turns.queued).toHaveLength(0);
+
+        const r2 = await agent.runRound(NPC_ID, 1);
+        expect(r2.actions).toHaveLength(1);
+        expect(turns.queued).toHaveLength(1);
+
+        // The round-2 request must carry the placeholder, NOT the loop:
+        const round2 = seenMessages[1];
+        const assistant = round2.find(m => m.role === 'assistant');
+        expect(assistant).toBeTruthy();
+        expect(assistant.content).toBe('(invalid response discarded)');
+        expect(JSON.stringify(round2).includes('/parameter')).toBe(false); // no re-priming
+    });
+
+    it('clean prose in the transcript is preserved verbatim (sanitizer only touches broken output)', async () => {
+        const roomChat = makeRoomChat();
+        let callCount = 0;
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            roomChat,
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                if (callCount === 1) {
+                    return {
+                        content: 'The door is locked; I will find another way.',
+                        toolCalls: [],
+                        finishReason: 'stop',
+                        message: { role: 'assistant', content: 'The door is locked; I will find another way.' }
+                    };
+                }
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"move"}' }])
                 };
             }
         });
 
         await agent.runRound(NPC_ID, 0);
-        expect(seenOptions).toHaveLength(1);
-        expect(seenOptions[0].max_tokens).toBe(512);
+        await agent.runRound(NPC_ID, 1);
+
+        const nextReq = seenMessages[1];
+        const assistant = nextReq.find(m => m.role === 'assistant');
+        expect(assistant.content).toBe('The door is locked; I will find another way.');
+    });
+
+    it('reasoning_content from the model is replayed to in-round retries and the next round', async () => {
+        const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
+        const turns = makeTurns();
+        let callCount = 0;
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                if (callCount === 1) {
+                    // Unknown action ('fly') → pre-validation failure → retry.
+                    return {
+                        content: 'Let me repair.',
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: {
+                            role: 'assistant',
+                            content: 'Let me repair.',
+                            reasoning_content: 'I must self-repair to survive.',
+                            tool_calls: [{
+                                id: 'call_1',
+                                type: 'function',
+                                function: { name: 'execute_action', arguments: '{"actionName":"fly"}' }
+                            }]
+                        }
+                    };
+                }
+                // call 2 = the in-round retry (succeeds); call 3 = next round.
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: {
+                        role: 'assistant',
+                        reasoning_content: 'The door is jammed; a repair should free it.',
+                        tool_calls: [{
+                            id: 'call_2',
+                            type: 'function',
+                            function: { name: 'execute_action', arguments: '{"actionName":"selfHeal"}' }
+                        }]
+                    }
+                };
+            }
+        });
+
+        const r1 = await agent.runRound(NPC_ID, 0);
+        expect(r1.iterations).toBe(2);
+        // In-round retry request carries the model's reasoning for the failed call:
+        const retryReq = seenMessages[1];
+        const retryAssistant = retryReq.find(m => m.role === 'assistant' && m.reasoning_content);
+        expect(retryAssistant).toBeTruthy();
+        expect(retryAssistant.reasoning_content).toBe('I must self-repair to survive.');
+
+        // Next round: the stored transcript (the round's final assistant
+        // message) replays ITS reasoning.
+        await agent.runRound(NPC_ID, 1);
+        const nextReq = seenMessages[2];
+        const nextAssistant = nextReq.find(m => m.role === 'assistant' && m.reasoning_content);
+        expect(nextAssistant).toBeTruthy();
+        expect(nextAssistant.reasoning_content).toBe('The door is jammed; a repair should free it.');
     });
 });
 
