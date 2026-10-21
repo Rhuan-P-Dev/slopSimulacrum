@@ -20,7 +20,13 @@
  * the observation (the per-agent cursor advances on read, so the next
  * round's build shows only what changed after this one). State comes before
  * change on purpose: the budget cascade sheds delta lines before state
- * lines, so the agent never loses its spatial anchor.
+ * lines, so the agent never loses its spatial anchor. Each "now in this
+ * room" line also carries the entity's LIVE target ids (entity id for
+ * targetEntityId actions; its first existence-bearing component id for
+ * targetingType "component" actions like cut) — rebuilt from the world
+ * every round, because ids regenerate on respawn and any older copy in the
+ * transcript is stale (the Minako/tree "target entity not found" incident,
+ * 2026-10-21).
  *
  * The section headers are stable and deliberate (prompt engineering):
  *   === YOUR STATE ===, === YOUR WORLD (room) ===,
@@ -644,7 +650,16 @@ class LlmContextController {
                 // Same-room entities carry their room-relative position so the
                 // LLM can gauge where each one stands; other-room entries do not.
                 const at = (e.x != null && e.y != null) ? ` at (${Math.round(e.x)}, ${Math.round(e.y)})` : '';
-                lines.push(`${i + 1}. ${e.name}${where}${at}${dur}${stats ? `, ${stats}` : ''}`);
+                // LIVE targeting ids: the entity id (targetEntityId actions
+                // like shootT1 / hand shotgun) and its first existence-bearing
+                // component id (targetingType "component" actions like cut).
+                // Rebuilt from the world every round — ids regenerate on
+                // respawn, so the model must target from this line, never from
+                // a stale transcript copy (the Minako/tree incident).
+                const targetIds = e.id
+                    ? ` [ent: ${e.id}${e.existence?.id ? ` | target comp: ${e.existence.id}` : ''}]`
+                    : '';
+                lines.push(`${i + 1}. ${e.name}${where}${at}${dur}${stats ? `, ${stats}` : ''}${targetIds}`);
             });
         }
         if (Array.isArray(droppedItems) && droppedItems.length > 0) {
@@ -740,8 +755,12 @@ class LlmContextController {
 
     /**
      * First existence-bearing component of an entity (current/max).
+     * Also returns the component's id (`id`): the target id for
+     * targetingType "component" actions (e.g. cut) — the context's
+     * "now in this room" lines render it so the LLM can target the live
+     * component, not a stale transcript copy.
      * @param {Object} entity
-     * @returns {Object|null}
+     * @returns {{component: string, id: string, current: number, max: number}|null}
      * @private
      */
     _firstExistence(entity) {
@@ -751,7 +770,7 @@ class LlmContextController {
             const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
             const max = this._componentDef(comp.type)?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? cur;
             if (typeof cur === 'number' && typeof max === 'number' && max > 0) {
-                return { component: comp.type, current: cur, max };
+                return { component: comp.type, id: comp.id, current: cur, max };
             }
         }
         return null;

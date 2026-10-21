@@ -579,6 +579,25 @@ describe('LlmContextController (context renderer)', () => {
         expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
     });
 
+    it('YOUR WORLD: "now in this room" lines carry the LIVE targeting ids (entity + first existence component)', () => {
+        // Regression: the Minako/tree incident (2026-10-21) — the model kept
+        // cutting a stale tree id it remembered from an earlier round
+        // ("Target entity … not found") because the context showed the tree
+        // with no id at all and ids regenerate on respawn. The line must
+        // always carry the CURRENT entity id (targetEntityId actions) and
+        // the body component id (targetingType "component" actions, e.g. cut).
+        const liveCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        liveCtrl.setWorldStateController(makeWorld());
+        const { text } = liveCtrl.buildContext('ent-self');
+        const lines = text.split('\n');
+
+        const sameLine = lines.find((l) => l.startsWith('1. Player Droid'));
+        expect(sameLine).toContain('[ent: ent-same | target comp: comp-same-core]');
+
+        const vaultLine = lines.find((l) => l.startsWith('2. Vault Droid'));
+        expect(vaultLine).toContain('[ent: ent-other | target comp: comp-other-core]');
+    });
+
     it('budget cascade: delta lines are shed before the state block (state survives)', () => {
         // 10 long summaries (~4KB) on top of the base context blows the
         // 5000-char budget; the cascade halves the delta window first.
