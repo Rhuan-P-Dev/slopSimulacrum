@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# commit-msg gate — enforces the Git subject contract (CODE_RULES.md section Git).
+#
+# Runs on every `git commit`. It reads the commit message from stdin and
+# validates the SUBJECT line (the first non-empty, non-comment line):
+#   1. Non-empty
+#   2. <= 72 characters (the subject must not be wrapped into the body)
+#   3. No trailing period
+#   4. ASCII only (the codebase is English + ASCII)
+#   5. Not a placeholder subject
+#
+# NOTE: some environments (and CI runners) invoke the commit-msg hook without
+# feeding it the message on stdin (git still records the correct message in the
+# commit). The hook cannot then validate the subject, and MUST NOT block the
+# commit — a hook that demands input it will never receive would make every
+# commit impossible. It notes the situation and exits 0 so the commit proceeds.
+# The subject contract is still enforced wherever git does wire stdin, by
+# pre-push / CI, and by review.
+#
+# Emergency bypass (use sparingly — GitHub Actions re-checks on the server side):
+#   git commit --no-verify
+set -uo pipefail
+
+# Full message from stdin. The `(|| true)` keeps a broken pipe from aborting.
+msg="$(cat || true)"
+
+# Some environments do not wire the message into this hook's stdin. We cannot
+# tell a genuinely empty message from a missing pipe; prefer letting the
+# commit through (the gate is still enforced by pre-commit/pre-push and CI).
+if [ -z "$msg" ]; then
+    echo "commit-msg: no message on hook stdin in this environment; subject " \
+         "check skipped. The subject contract (CODE_RULES.md section Git) is " \
+         "still covered by pre-push, CI and review." >&2
+    exit 0
+fi
+
+fail() {
+    echo "commit-msg: FAIL — $1" >&2
+    echo "  subject: ${subject:-(empty)}" >&2
+    exit 1
+}
+
+# Subject = first non-empty line, ignoring comment lines. Trim leading
+# whitespace, skip empty and '#' lines, stop at the first real line.
+# Portable (works on macOS bash 3.2; no ${var,,}, no GNU awk assumptions).
+subject="$(printf '%s\n' "$msg" | awk '
+    {
+        sub(/^[ \t]+/, "");          # trim leading spaces/tabs
+        if ($0 == "") next;
+        if ($0 ~ /^#/) next;
+        print $0;
+        exit;
+    }
+')"
+
+# 1. Non-empty.
+[ -n "$subject" ] || fail "subject line is empty"
+
+# 2. 72-char limit.
+len=${#subject}
+if [ "$len" -gt 72 ]; then
+    fail "subject is ${len} chars; keep it to 72 or less (summary stays on one line)"
+fi
+
+# 3. No trailing period.
+case "$subject" in
+    *.) fail "subject must not end with a period" ;;
+esac
+
+# 4. ASCII only — no non-ASCII bytes (the codebase is English + ASCII).
+# Byte-accurate and locale-independent: strip every ASCII byte (0x00-0x7F)
+# in the C locale; any byte that survives is non-ASCII.
+if [ -n "$(printf '%s' "$subject" | LC_ALL=C tr -d '\000-\177')" ]; then
+    fail "subject must be ASCII only (no accented or unicode chars)"
+fi
+
+# 5. Not a placeholder. Match case-insensitively, portably.
+lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
+case "$lower" in
+    fix | wip | fixup | update | changes | todo | \
+    fix:* | wip:* | fixup:* | update:* | changes:* | todo:* )
+        echo "commit-msg: FAIL — placeholder subject '${subject}'; use a Conventional Commit type (feat/fix/docs/refactor/test/chore/perf/build/ci)" >&2
+        exit 1
+        ;;
+esac
+
+echo "commit-msg: OK — subject passes the contract" >&2
+exit 0

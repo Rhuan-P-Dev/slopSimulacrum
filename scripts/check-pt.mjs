@@ -24,7 +24,12 @@ const BINARY_EXTS = new Set([
 ]);
 
 /** Directories to skip entirely. */
-const SKIP_DIRS = new Set(['node_modules', '.git', 'coverage']);
+// `lint-fixtures` is deliberate counter-example content for test/lint-rules
+// (it must contain the accent violation, the fs import, and console calls it
+// pins to). The gate lint (npm run lint) already excludes it with
+// --ignore-pattern; the language guard excludes it here so check:lang stays
+// green. The ESLint rule pins in the vitest test, not in this walk.
+const SKIP_DIRS = new Set(['node_modules', '.git', 'coverage', 'lint-fixtures']);
 
 /** Files (by basename) to skip — self-exclusion for scanner + test files. */
 const SKIP_FILES = new Set(['check-pt.mjs', 'ptLanguageRegression.test.js']);

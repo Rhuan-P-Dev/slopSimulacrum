@@ -13,10 +13,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:ci": "vitest run --coverage",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --ignore-pattern 'src/lint-fixtures/**'",
+    "lint:fix": "eslint . --fix --ignore-pattern 'src/lint-fixtures/**'",
     "check:lang": "node scripts/check-pt.mjs",
-    "check": "npm run lint && npm run check:lang && npm test"
+    "lint:rules": "vitest run test/lint-rules.test.js",
+    "check": "npm run lint && npm run check:lang && npm test",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "keywords": [],
   "author": "",

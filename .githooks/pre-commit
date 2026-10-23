@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# pre-commit gate — the fast gate that runs on every `git commit`.
+#
+# Catches the two cheap, high-value checks before you even commit:
+#   npm run lint      — ESLint incl. the local cr/* rules (tools/eslint-rules.js)
+#   npm run check:lang — no Portuguese / accents in the code
+#
+# The full suite (including all tests) runs in pre-push, so commits stay fast
+# and the real "is the code green" gate is the push. This commit-level gate
+# only catches what a human can see in the diff + the lint/lint pass.
+#
+# Emergency bypass (use sparingly):
+#   git commit --no-verify
+set -euo pipefail
+
+echo "pre-commit gate: lint + check:lang"
+npm run lint --quiet
+npm run check:lang
+echo "pre-commit gate passed."
