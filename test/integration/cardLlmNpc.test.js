@@ -41,6 +41,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { readCharaCard } from '../../src/utils/PngCharaReader.js';
 import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
+import { buildCardProfile } from '../../src/controllers/logic/CardSpawnLogic.js';
 
 // =========================================================================
 // World helpers (mirrors the existing contract-test house pattern: build the
@@ -102,6 +103,28 @@ function readCardNames() {
         }
     }
     return names;
+}
+
+/** All cards in data/cards/ with their reader-derived data (name + card
+ * payload + file). Mirrors the spawn path in CardSpawnLogic: every image
+ * file readCharaCard can read produces an entity, and the display name falls
+ * back to the file stem when the embedded `name` is empty. */
+function readAllCards() {
+    const dir = path.resolve('data/cards');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+        .filter((f) => !f.startsWith('.') && CARD_IMAGE_EXT.test(path.extname(f)))
+        .map((file) => {
+            const res = readCharaCard(path.join(dir, file));
+            const card = res.success ? res.card : null;
+            return {
+                file,
+                card,
+                name: card && typeof card.name === 'string' && card.name.trim() !== ''
+                    ? card.name.trim()
+                    : path.basename(file, path.extname(file))
+            };
+        });
 }
 
 /** Best-effort room display name for an entity, mirroring the LLM agent's
@@ -179,47 +202,47 @@ describe('data/cards → M1 LLM NPCs (first room, per-card identity)', () => {
 
     it.skipIf(CARD_FILES.length === 0)('routes cards (no registry entry) through the per-entity config, not a shared blueprint', () => {
         const npcs = agent.getNpcs();
-        const frisk = npcs.find((n) => n.entity?.name === 'Frisk');
-        expect(frisk).toBeDefined();
+        for (const card of readAllCards()) {
+            const entry = npcs.find((n) => n.entity?.name === card.name);
+            expect(entry, `no live NPC entry for card "${card.name}"`).toBeDefined();
 
-        // Frisk's embedded `personality` is empty; the controller falls back to
-        // `description` — the prompt must show the card's own lore, not the
-        // generic M1 default. Data-driven: assert the exact reader-derived
-        // personality so it works for whatever text the card carries.
-        const readerRes = readCharaCard(path.resolve('data/cards/Frisk-69286.png'));
-        const fallback = typeof readerRes.card?.description === 'string' ? readerRes.card.description.trim() : '';
-        expect(fallback).not.toBe('');
-        expect(frisk.config.personality).toBe(fallback);
-        expect(frisk.config.maxWorldActionsPerRound).toBe(2);
-        expect(frisk.config.maxChatMessagesPerRound).toBe(1);
-        // The registry has no `m1Droid` entry, so nothing should bleed into
-        // the card's config — this pins the "live config IS the card" invariant.
-        expect(frisk.config.displayName).toBeUndefined();
-        expect(frisk.config.objective).toBeUndefined();
+            // Per-card identity: the resolved config is exactly what the card's
+            // own embedded payload resolves to (personality || description ||
+            // default profile) — never the generic M1 default, never another
+            // card's, never a registry leak.
+            const profile = buildCardProfile(null, card.card);
+            expect(entry.config.personality).toBe(profile.personality);
+            expect(entry.config.maxWorldActionsPerRound).toBe(2);
+            expect(entry.config.maxChatMessagesPerRound).toBe(1);
+            // The registry has no `m1Droid` entry, so nothing should bleed
+            // into the card's config — this pins the "live config IS the card"
+            // invariant.
+            expect(entry.config.displayName).toBeUndefined();
+            expect(entry.config.objective).toBeUndefined();
+        }
     });
 
     it.skipIf(CARD_FILES.length === 0)('renders each card\'s name + personality in the LLM system prompt', () => {
         const npcs = agent.getNpcs();
-        const frisk = npcs.find((n) => n.entity?.name === 'Frisk');
-        expect(frisk).toBeDefined();
+        for (const card of readAllCards()) {
+            const entry = npcs.find((n) => n.entity?.name === card.name);
+            expect(entry, `no live NPC entry for card "${card.name}"`).toBeDefined();
 
-        // Data-driven personality check: the prompt must embed the EXACT
-        // reader-derived persona, pinning both the fallback path and the
-        // live-config routing without hard-coding the card text.
-        const readerRes = readCharaCard(path.resolve('data/cards/Frisk-69286.png'));
-        const personality = readerRes.card.description.trim();
+            // Data-driven prompt check: the prompt must embed the EXACT
+            // reader-derived persona, pinning the live-config routing without
+            // hard-coding any card.
+            const prompt = agent._buildSystemPrompt(entry, roomNameOf(world, entry.entity));
 
-        const prompt = agent._buildSystemPrompt(frisk, roomNameOf(world, frisk.entity));
-
-        expect(prompt).toContain('You are Frisk, an NPC droid');
-        expect(prompt).toContain(`Personality: ${personality}`);
-        expect(prompt).toContain('at most 2 world action');
-        expect(prompt).toContain('at most 1 chat message');
-        // PROTOCOL B: native tool calls are the only output protocol — silence
-        // is legal, and there is no JSON-in-content protocol.
-        expect(prompt).toContain('If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.');
-        expect(prompt).not.toContain('Respond with ONE JSON object');
-        expect(prompt).not.toContain('"action":"speak"');
+            expect(prompt).toContain(`You are ${card.name}, an NPC droid`);
+            expect(prompt).toContain(`Personality: ${entry.config.personality}`);
+            expect(prompt).toContain('at most 2 world action');
+            expect(prompt).toContain('at most 1 chat message');
+            // PROTOCOL B: native tool calls are the only output protocol — silence
+            // is legal, and there is no JSON-in-content protocol.
+            expect(prompt).toContain('If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.');
+            expect(prompt).not.toContain('Respond with ONE JSON object');
+            expect(prompt).not.toContain('"action":"speak"');
+        }
     });
 
     describe('_resolveNpcConfig (live config over static registry)', () => {

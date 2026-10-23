@@ -89,17 +89,28 @@ const KILL_EXISTENCE_DELTA = -175;
  * Builds a fresh world wired to a (non-started) tick system, spawns the test
  * droid, and returns the facade + tick system + turn system + droid id.
  *
- * The roster is kept DETERMINISTIC against data/entities/npcs.json: the round-start
- * roster is always [one NPC, test droid] = 2 planners — the invariant every
- * test in this file was written against. Since the live registry no longer
- * spawns an un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated
- * OFF in tests), the pin spawns an explicit crafterDrone-blueprint entity
- * (isNPC) instead of keeping one from the registry; npcs.json growth (the
+ * The roster is kept DETERMINISTIC against data/entities/npcs.json: any NPCs
+ * spawned during world boot (cards in data/cards/, gitignored local image
+ * content, spawned as M1 LLM NPCs) are despawned, so the round-start roster
+ * is always [one NPC, test droid] = 2 planners — the invariant every test in
+ * this file was written against. Since the live registry no longer spawns an
+ * un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated OFF in
+ * tests), the pin spawns an explicit crafterDrone-blueprint entity (isNPC)
+ * instead of keeping one from the registry; npcs.json growth (the
  * crafterDrone merge 7b54605) can no longer silently add planners.
  */
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
+
+    // Despawn any NPCs spawned during world boot (cards in data/cards/, a
+    // gitignored local image file set, always spawned as M1 LLM NPCs) so the
+    // roster stays pinned to [test droid, explicit crafter NPC] = 2 planners
+    // no matter what image files land in data/cards/.
+    Object.values(world.stateEntityController.entities)
+        .filter((e) => e.isNPC === true)
+        .forEach((npc) => world.despawnEntity(npc.id));
+
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
     // Explicit roster NPC (documented exception): the turn machine only needs
@@ -117,8 +128,9 @@ function buildWorld() {
 }
 
 /**
- * Same as buildWorld(), but despawns the roster NPC before the first tick so
- * the round-start roster is exactly the test droid (single-entity world).
+ * Same as buildWorld(), but despawns all NPCs before the first tick (the boot
+ * cards as well) so the round-start roster is exactly the test droid
+ * (single-entity world).
  */
 function buildSoloWorld() {
     const ctx = buildWorld();

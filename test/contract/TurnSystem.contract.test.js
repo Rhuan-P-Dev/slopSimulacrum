@@ -37,9 +37,11 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
  * Builds a fresh world wired to a (non-started) tick system. Returns the
  * facade, the tick system, the turn system controller, and spawns a test droid.
  *
- * The roster is kept DETERMINISTIC against data/entities/npcs.json: the round-start
- * roster is always [one NPC, test droid] = 2 planners — the invariant the
- * barrier assertions below rely on (readyCount, the signaled set in the
+ * The roster is kept DETERMINISTIC against data/entities/npcs.json: any NPCs
+ * spawned during world boot (cards in data/cards/, gitignored local image
+ * content, spawned as M1 LLM NPCs) are despawned, so the round-start roster
+ * is always [one NPC, test droid] = 2 planners — the invariant the barrier
+ * assertions below rely on (readyCount, the signaled set in the
  * serialize/restore round-trip). Since the live registry no longer spawns an
  * un-gated NPC (crafterDrone removed; killerLlmDrone is env-gated OFF in
  * tests), the pin spawns an explicit crafterDrone-blueprint entity (isNPC)
@@ -50,6 +52,15 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 function buildWorld() {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
+
+    // Despawn any NPCs spawned during world boot (cards in data/cards/, a
+    // gitignored local image file set, always spawned as M1 LLM NPCs) so the
+    // roster stays pinned to [test droid, explicit crafter NPC] = 2 planners
+    // no matter what image files land in data/cards/.
+    Object.values(world.stateEntityController.entities)
+        .filter((e) => e.isNPC === true)
+        .forEach((npc) => world.despawnEntity(npc.id));
+
     // Spawn a test droid entity (default world has no pre-spawned droids).
     const startRoomId = world.roomsController.getUidByLogicalId('start_room');
     const entityId = world.stateEntityController.spawnEntity('smallBallDroid', startRoomId);
