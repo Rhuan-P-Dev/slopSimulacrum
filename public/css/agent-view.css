@@ -14,7 +14,7 @@
     max-width: 680px;
 }
 
-/* Fixed-height controls row: picker + refresh + auto toggle.
+/* Fixed-height controls row: picker + manual refresh.
    Override the default top-level-content flex/scroll so it sits above the body. */
 #agent-view-overlay > .agent-view-controls {
     flex: 0 0 auto;
@@ -65,21 +65,6 @@
 }
 .agent-view-btn:hover {
     background: rgba(0, 255, 0, 0.12);
-}
-
-.agent-view-toggle {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--text-dim, #aaa);
-    font-size: 0.75em;
-    font-family: 'Courier New', Courier, monospace;
-    white-space: nowrap;
-}
-.agent-view-toggle input {
-    accent-color: var(--neon-green, #00ff00);
-    cursor: pointer;
 }
 
 /* Scrollable body. */

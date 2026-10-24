@@ -10,15 +10,13 @@
  *
  * Follows the project's floating-overlay pattern (init/show/hide/toggle, driven
  * by OverlayManager). The payload is fetched from GET /llm/agent/:entityId on
- * (re)open and, while open + auto enabled, every AUTO_REFRESH_MS.
+ * open (and on manual refresh) — it is never refreshed in the background.
  *
  * @module ui/AgentViewPanel
  */
 import ClientLogger from '/utils/ClientLogger.js';
 
 export class AgentViewPanel {
-    /** Auto-refresh cadence (ms) while the overlay is open and auto is on. */
-    static AUTO_REFRESH_MS = 3000;
 
     /**
      * @param {{ worldStateManager?: Object }} [opts] — source of the live entity
@@ -30,13 +28,10 @@ export class AgentViewPanel {
         this._controls = null;
         this._content = null;
         this._picker = null;
-        this._autoInput = null;
         this._initialized = false;
         this._selectedId = null;
         this._lastPayload = null;
         this._inFlight = false;
-        this._autoTimer = null;
-        this._autoEnabled = true;
     }
 
     // ---------------------------------------------------------------- init
@@ -61,11 +56,9 @@ export class AgentViewPanel {
             }.call(this));
         this._controls.innerHTML =
             '<select id="agent-view-picker" class="agent-view-picker" title="Choose the agent to inspect"></select>' +
-            '<button id="agent-view-refresh" class="agent-view-btn" title="Re-fetch the payload">&#8650;</button>' +
-            '<label class="agent-view-toggle"><input type="checkbox" id="agent-view-auto" checked>Auto</label>';
+            '<button id="agent-view-refresh" class="agent-view-btn" title="Re-fetch the payload">&#8650;</button>';
 
         this._picker = this._controls.querySelector('#agent-view-picker');
-        this._autoInput = this._controls.querySelector('#agent-view-auto');
         const refreshBtn = this._controls.querySelector('#agent-view-refresh');
 
         this._picker.addEventListener('change', () => {
@@ -73,13 +66,6 @@ export class AgentViewPanel {
             this._doLoad();
         });
         if (refreshBtn) refreshBtn.addEventListener('click', () => this._doLoad());
-        if (this._autoInput) {
-            this._autoInput.addEventListener('change', () => {
-                this._autoEnabled = !!this._autoInput.checked;
-                if (this._autoEnabled) this._startAuto();
-                else this._stopAuto();
-            });
-        }
 
         this._initialized = true;
         this._overlay.style.display = 'none';
@@ -98,12 +84,10 @@ export class AgentViewPanel {
         this._overlay.style.display = 'block';
         this._reconcileSelection();
         this._rebuildPicker();
-        if (this._autoEnabled) this._startAuto();
         this._doLoad();
     }
 
     hide() {
-        this._stopAuto();
         if (this._overlay) this._overlay.style.display = 'none';
     }
 
@@ -146,8 +130,8 @@ export class AgentViewPanel {
     }
 
     /**
-     * (Re)build the NPC-only dropdown. Only called on open (not per auto-tick),
-     * so it never clobbers a selection the user picked mid-refresh.
+     * (Re)build the NPC-only dropdown. Only called on open (never on
+     * refresh), so it never clobbers a selection the user picked.
      */
     _rebuildPicker() {
         if (!this._picker || !this._ws) return;
@@ -389,20 +373,6 @@ export class AgentViewPanel {
         return raw;
     }
 
-    // ---------------------------------------------------------------- auto-refresh
-
-    _startAuto() {
-        this._stopAuto();
-        if (!this._autoEnabled) return;
-        this._autoTimer = setInterval(() => this._doLoad(), AgentViewPanel.AUTO_REFRESH_MS);
-    }
-
-    _stopAuto() {
-        if (this._autoTimer) {
-            clearInterval(this._autoTimer);
-            this._autoTimer = null;
-        }
-    }
 }
 
 export default AgentViewPanel;
