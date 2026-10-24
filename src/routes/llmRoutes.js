@@ -83,4 +83,62 @@ export function register(router, { worldStateController }) {
             sendRouteError(error, res, '/llm/context');
         }
     });
+
+    /**
+     * GET /llm/agent/:entityId
+     *  
+     * Dev-inspector snapshot (the "Agent View" tab). Returns, for one entity,
+     * exactly what the LLM agent would receive in a live round — resolved NPC
+     * config, system prompt, full tool set, sectioned context (narrative + data
+     * + render stats), live action registry, generated instincts, and the last
+     * replayable transcript round. Read-only; in-memory reads only, no rate limit.
+     */
+    router.get('/llm/agent/:entityId', (req, res) => {
+        try {
+            const entityId = req.params.entityId;
+
+            // Same typed-ID validation as /llm/context.
+            if (!entityId) {
+                return res.status(400).json({ error: 'entityId is required.' });
+            }
+            if (!IdResolver.isEntityId(entityId)) {
+                return res.status(400).json({
+                    error: `Invalid entityId: "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".`
+                });
+            }
+
+            const entity = worldStateController.getEntity(entityId);
+            if (!entity) {
+                return res.status(404).json({ error: 'ENTITY_NOT_FOUND' });
+            }
+
+            // The agent controller is attached to the facade at boot (server.js).
+            const agent = worldStateController.llmAgentController;
+            if (!agent || typeof agent.describeAgentView !== 'function') {
+                return res.status(503).json({
+                    error: 'LLM agent controller not wired yet — the inspector needs the agent instance.'
+                });
+            }
+
+            // Optional context overrides (same parsing as /llm/context).
+            const options = {};
+            const raw = {
+                maxEntities: req.query.maxEntities,
+                maxEvents: req.query.maxEvents,
+                maxChat: req.query.maxChat
+            };
+            for (const [key, value] of Object.entries(raw)) {
+                if (value === undefined) continue;
+                const n = parseNonNegativeInt(value);
+                if (Number.isNaN(n)) {
+                    return res.status(400).json({ error: `Invalid ${key}: must be a non-negative integer.` });
+                }
+                options[key] = n;
+            }
+
+            return res.json(agent.describeAgentView(entityId, options));
+        } catch (error) {
+            sendRouteError(error, res, '/llm/agent/:entityId');
+        }
+    });
 }

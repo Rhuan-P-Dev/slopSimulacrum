@@ -741,6 +741,173 @@ class LLMAgentController {
     }
 
     // =========================================================================
+    // AGENT VIEW — public inspector (dev tab, GET /llm/agent/:entityId)
+    //
+    // Reuses the EXACT round-runner logic (_resolveNpcConfig, _buildTools,
+    // _buildSystemPrompt, _safeGenerateInstincts, llmContextController.
+    // buildContext) so the view is byte-identical to what the LLM receives in
+    // a live round. Read-only: never mutates round state.
+    // =========================================================================
+
+    /**
+     * Builds a plain, serializable snapshot of one agent's LLM-facing state.
+     * @param {string} entityId - Typed entity id ("ent-uuid").
+     * @param {Object} [options] - Optional context overrides ({ maxEntities,
+     *   maxEvents, maxChat }) forwarded to buildContext.
+     * @returns {{
+     *   entityId: string, name: string|null,
+     *   room: { id: string|null, name: string|null },
+     *   isNpc: boolean, deterministicBrain: boolean,
+     *   config: Object, systemPrompt: string|null,
+     *   context: { text: string, data: Object|null, stats: Object|null },
+     *   tools: Array, instincts: Array,
+     *   registry: Object<string, Object>,
+     *   transcript: { round, assistant: { content, tool_calls, reasoning_content },
+     *     toolResults: Array, note: string|null }|null,
+     *   error: string|null
+     * }}
+     */
+    describeAgentView(entityId, options = {}) {
+        const out = {
+            entityId: typeof entityId === 'string' ? entityId : null,
+            name: null,
+            room: { id: null, name: null },
+            isNpc: false,
+            deterministicBrain: false,
+            config: null,
+            systemPrompt: null,
+            context: { text: '', data: null, stats: null },
+            tools: [],
+            instincts: [],
+            registry: {},
+            transcript: null,
+            error: null
+        };
+
+        const wsc = this.worldStateController;
+
+        const entity = typeof wsc?.getEntity === 'function' ? wsc.getEntity(entityId) : null;
+        if (!entity || typeof entity !== 'object') {
+            out.error = 'ENTITY_NOT_FOUND';
+            return out;
+        }
+        out.name = entity.name ?? null;
+        const rooms = typeof wsc?.getRooms === 'function' ? wsc.getRooms() : {};
+        if (entity.location && rooms[entity.location]) {
+            out.room = { id: entity.location, name: rooms[entity.location].name ?? null };
+        } else {
+            out.room = { id: entity.location ?? null, name: null };
+        }
+        out.isNpc = entity.isNPC === true;
+
+        // Deterministic AI: the LLM never runs for these (deterministic brain
+        // handles them). Flag it so the view is honest.
+        try {
+            if (hasDeterministicBrain(entity)) out.deterministicBrain = true;
+        } catch (err) {
+            // ignore — flag only on success; never block the view.
+        }
+
+        // Same NPC config resolution as the round runner.
+        const npc = { entity, config: this._resolveNpcConfig(entity) };
+        out.config = npc.config;
+
+        // Same system-prompt builder + room name as the round runner.
+        try {
+            out.systemPrompt = this._buildSystemPrompt(npc, this._roomName(entity));
+        } catch (err) {
+            out.systemPrompt = null;
+        }
+
+        // Same live instinct generation as the round runner.
+        let instincts;
+        try {
+            instincts = this._safeGenerateInstincts(entityId) ?? [];
+        } catch (err) {
+            instincts = [];
+        }
+        out.instincts = instincts;
+
+        // includeChat flag: same rule as the round runner — explicit 0 disables
+        // chat; anything else falls back to the default.
+        let includeChat;
+        try {
+            const rawMaxChat = npc.config?.maxChatMessagesPerRound;
+            const maxChat = (rawMaxChat === 0) ? 0 : this._asPositiveInt(rawMaxChat, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
+            includeChat = maxChat > 0;
+        } catch (err) {
+            includeChat = false;
+        }
+
+        // Byte-identical tool set to what the LLM is handed.
+        try {
+            out.tools = this._buildTools({ includeChat, instincts });
+        } catch (err) {
+            out.tools = [];
+        }
+
+        // Action registry (source of the execute_action enum).
+        try {
+            const registry = typeof wsc?.actionController?.getRegistry === 'function'
+                ? wsc.actionController.getRegistry()
+                : {};
+            out.registry = registry && typeof registry === 'object' ? registry : {};
+        } catch (err) {
+            out.registry = {};
+        }
+
+        // Same bounded sectioned context as the round runner.
+        try {
+            const ctx = this.llmContextController?.buildContext
+                ? this.llmContextController.buildContext(entityId, { instincts, ...options })
+                : { text: '', data: null, stats: null };
+            out.context = ctx && typeof ctx === 'object' ? ctx : { text: '', data: null, stats: null };
+        } catch (err) {
+            try {
+                out.context.text = this._minimalContextLine(entity);
+            } catch (e) {
+                out.context.text = '';
+            }
+            out.context.data = null;
+            out.context.stats = null;
+        }
+
+        // Last replayable transcript round (if any).
+        try {
+            out.transcript = this._getLastTranscriptRound(entityId);
+        } catch (err) {
+            out.transcript = null;
+        }
+
+        return out;
+    }
+
+    /**
+     * Most recently stored transcript round for an NPC, normalized for client
+     * display (assistant message + tool results + note). null when no round
+     * has been stored yet. @private
+     */
+    _getLastTranscriptRound(entityId) {
+        const rounds = Array.from((this._transcripts?.get(entityId)) || []);
+        for (let i = rounds.length - 1; i >= 0; i -= 1) {
+            const entry = rounds[i];
+            if (!entry || typeof entry !== 'object') continue;
+            const assistant = entry.assistant;
+            return {
+                round: entry.round ?? null,
+                assistant: {
+                    content: (assistant && typeof assistant.content === 'string') ? assistant.content : null,
+                    tool_calls: (assistant && Array.isArray(assistant.tool_calls)) ? assistant.tool_calls : null,
+                    reasoning_content: (assistant && typeof assistant.reasoning_content === 'string') ? assistant.reasoning_content : null
+                },
+                toolResults: Array.isArray(entry.results) ? entry.results : [],
+                note: typeof entry.note === 'string' ? entry.note : null
+            };
+        }
+        return null;
+    }
+
+    // =========================================================================
     // TOOL-CALL PARSING
     // =========================================================================
 

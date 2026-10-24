@@ -69,6 +69,12 @@ const llmAgentController = new LLMAgentController({
     instinctController: worldStateController.instinctController
 });
 
+// 7e. Expose the LLM agent controller on the facade for the dev "Agent View"
+//     inspector (GET /llm/agent/:entityId). Read-only: routes call
+//     describeAgentView() only. The agent is built AFTER registerRoutes(), so
+//     it cannot be a route dependency; the routes read it off the facade.
+worldStateController.llmAgentController = llmAgentController;
+
 // Build the deterministic AI brain (outside composition root — spec §A6).
 const npcAIController = new NpcAIController({
     worldStateController,
