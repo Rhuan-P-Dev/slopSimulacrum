@@ -237,9 +237,9 @@ describe('data/cards → M1 LLM NPCs (first room, per-card identity)', () => {
             expect(prompt).toContain(`Personality: ${entry.config.personality}`);
             expect(prompt).toContain('at most 2 world action');
             expect(prompt).toContain('at most 1 chat message');
-            // PROTOCOL B: native tool calls are the only output protocol — silence
-            // is legal, and there is no JSON-in-content protocol.
-            expect(prompt).toContain('If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.');
+            // PROTOCOL B: native tool calls are the only output protocol — the done
+            // tool ends the round, and there is no JSON-in-content protocol.
+            expect(prompt).toContain('If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).');
             expect(prompt).not.toContain('Respond with ONE JSON object');
             expect(prompt).not.toContain('"action":"speak"');
         }

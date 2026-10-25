@@ -154,7 +154,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal","entityId":"ent-SOMEONE-ELSE"}' }])
+                message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal","entityId":"ent-SOMEONE-ELSE"}' }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -170,6 +170,114 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(result.actions[0]).toMatchObject({ actionName: 'selfHeal', queued: true, success: true });
         expect(result.error).toBeNull();
         expect(result.iterations).toBe(1);
+    });
+
+    // Capture Point B (spec §4.2): the round runner records every dispatched
+    // outcome to the agent feedback controller, named the way the agent called
+    // it (registry action name for execute_action; tool name for the others),
+    // so the context's RECENT TOOLS section stays truthful about what happened
+    // this round — success and failure.
+    it('records a successful execute_action to the feedback controller, named as called (spec §4.2)', async () => {
+        const recorded = [];
+        const fb = { record: (entityId, outcome) => recorded.push({ entityId, outcome }) };
+        const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([
+                    { name: 'execute_action', args: '{"actionName":"selfHeal"}' },
+                    { name: 'done', args: '{}' }
+                ])
+            })
+        });
+        agent.setFeedbackController(fb);
+
+        await agent.runRound(NPC_ID, 0);
+
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0].entityId).toBe(NPC_ID);
+        expect(recorded[0].outcome).toMatchObject({
+            actionName: 'selfHeal',
+            success: true
+        });
+    });
+
+    it('records a failed execute_action (unknown action) to the feedback controller, named as called; the single retry records nothing (spec §4.2)', async () => {
+        const recorded = [];
+        const fb = { record: (entityId, outcome) => recorded.push({ entityId, outcome }) };
+        const world = makeWorld();
+        const turns = makeTurns();
+        let call = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => {
+                call += 1;
+                return call === 1
+                    ? {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([
+                            { name: 'execute_action', args: '{"actionName":"fly"}' },
+                            { name: 'done', args: '{}' }
+                        ])
+                      }
+                    : {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([{ name: 'done', args: '{}' }])
+                      };
+            }
+        });
+        agent.setFeedbackController(fb);
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.iterations).toBe(2); // one failure feed-back, then done
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0].entityId).toBe(NPC_ID);
+        expect(recorded[0].outcome).toMatchObject({
+            actionName: 'fly',
+            success: false
+        });
+    });
+
+    it('records speak_in_room to the feedback controller under the tool name (success) (spec §4.2)', async () => {
+        const recorded = [];
+        const fb = { record: (entityId, outcome) => recorded.push({ entityId, outcome }) };
+        const world = makeWorld();
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([
+                    { name: 'speak_in_room', args: '{"message":"Hello, there!"}' },
+                    { name: 'done', args: '{}' }
+                ])
+            })
+        });
+        agent.setFeedbackController(fb);
+
+        await agent.runRound(NPC_ID, 0);
+
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0].entityId).toBe(NPC_ID);
+        expect(recorded[0].outcome).toMatchObject({
+            actionName: 'speak_in_room',
+            success: true
+        });
+        expect(recorded[0].outcome.detail).toContain('Hello, there!');
     });
 
     it('unknown actionName → exactly one retry with the error in history, 2 iterations, no mutation', async () => {
@@ -383,7 +491,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                     content: null,
                     toolCalls: [],
                     finishReason: 'tool_calls',
-                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal"}' }])
+                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal"}' }, { name: 'done', args: '{}' }])
                 };
             }
         });
@@ -451,7 +559,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'speak_in_room', args: '{"message":"Welcome, traveler."}' }])
+                message: toolMessage([{ name: 'speak_in_room', args: '{"message":"Welcome, traveler."}' }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -488,7 +596,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'speak_in_room', args: '{"message":"h-hello..."}' }])
+                message: toolMessage([{ name: 'speak_in_room', args: '{"message":"h-hello..."}' }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -695,12 +803,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                         message: { role: 'assistant', content: degenerated }
                     };
                 }
-                // Round 2 (next tick): the model recovers and acts.
+                // Round 2 (next tick): the model recovers and acts (done ends
+                // the in-round loop at the single queued action).
                 return {
                     content: null,
                     toolCalls: [],
                     finishReason: 'tool_calls',
-                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal"}' }])
+                    message: toolMessage([{ name: 'execute_action', args: '{"actionName":"selfHeal"}' }, { name: 'done', args: '{}' }])
                 };
             }
         });
@@ -785,7 +894,8 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                         }
                     };
                 }
-                // call 2 = the in-round retry (succeeds); call 3 = next round.
+                // call 2 = the in-round retry (succeeds and ends the round via
+                // the done tool); call 3+ = the next round.
                 return {
                     content: null,
                     toolCalls: [],
@@ -797,6 +907,10 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
                             id: 'call_2',
                             type: 'function',
                             function: { name: 'execute_action', arguments: '{"actionName":"selfHeal"}' }
+                        }, {
+                            id: 'call_3',
+                            type: 'function',
+                            function: { name: 'done', arguments: '{}' }
                         }]
                     }
                 };
@@ -811,13 +925,103 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(retryAssistant).toBeTruthy();
         expect(retryAssistant.reasoning_content).toBe('I must self-repair to survive.');
 
-        // Next round: the stored transcript (the round's final assistant
-        // message) replays ITS reasoning.
+        // Next round: the stored transcript replays every in-round group —
+        // here both the failed call (R1) and the final call (R2). The final
+        // assistant message carries the latest reasoning.
         await agent.runRound(NPC_ID, 1);
         const nextReq = seenMessages[2];
-        const nextAssistant = nextReq.find(m => m.role === 'assistant' && m.reasoning_content);
-        expect(nextAssistant).toBeTruthy();
-        expect(nextAssistant.reasoning_content).toBe('The door is jammed; a repair should free it.');
+        const nextAssistants = nextReq.filter(
+            (m) => m.role === 'assistant' && m.reasoning_content
+        );
+        expect(nextAssistants).toHaveLength(2);
+        expect(nextAssistants.at(-1).reasoning_content).toBe(
+            'The door is jammed; a repair should free it.'
+        );
+    });
+
+    it('discovery round: get_actions/get_instincts feed back the action list, so the model acts instead of spinning (spec §6.5)', async () => {
+        const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'], move: ['comp-hand'], cut: [] } });
+        const turns = makeTurns();
+        let callCount = 0;
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                // Simulate an LLM that keeps re-discovering until it actually
+                // sees the action list fed back into the conversation. The
+                // "| range" marker is unique to the formatted action list
+                // (formatActionList emits "| range N | needs ... | use comp-..").
+                // Before the fix nothing was appended after a discovery call,
+                // so this returned the discovery calls every round and spun to
+                // the budget cap; after the fix the list appears on call 2 and
+                // it acts.
+                const hasList = messages.some(
+                    (m) => m.role === 'tool' && typeof m.content === 'string'
+                        && m.content.includes('| range')
+                );
+                if (!hasList) {
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([{ name: 'get_actions', args: '{}' }, { name: 'get_instincts', args: '{}' }])
+                    };
+                }
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: toolMessage([
+                        { name: 'execute_action', args: '{"actionName":"selfHeal"}' },
+                        { name: 'done', args: '{}' }
+                    ])
+                };
+            }
+        });
+        // The main makeAgent stubs only buildContext; the discovery tools read
+        // getActionData (the live canExecute), which the real LlmContextController
+        // exposes (monkey-patched below) so the action list is non-empty.
+        agent.llmContextController = {
+            buildContext: () => ({ text: '=== ROOM === Main Room' }),
+            getActionData: () => ({
+                entries: [
+                    { name: 'selfHeal', description: 'self-repair', range: 0, canExecute: ['comp-head-1'], requirement: '' },
+                    { name: 'move', description: 'walk', range: 100, canExecute: ['comp-hand'], requirement: '' }
+                ],
+                notExecutable: ['cut']
+            })
+        };
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        // Exactly two LLM calls (discover, then act), not a spin to the 41
+        // iteration budget of the pre-fix discovery loop.
+        expect(callCount).toBe(2);
+        expect(result.iterations).toBe(2);
+        expect(turns.queued).toHaveLength(1);
+        expect(result.actions).toHaveLength(1);
+        expect(result.actions[0]).toMatchObject({ actionName: 'selfHeal', queued: true, success: true });
+        expect(result.error).toBeNull();
+
+        // The second call's conversation must carry the discovery result:
+        // the assistant replay (with both discovery tool calls) and a
+        // tool-role result for get_actions whose content includes the
+        // formatted action list (executable names + not-executable summary).
+        const discovery = seenMessages[1];
+        const assistantReplay = discovery.find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls));
+        expect(assistantReplay).toBeTruthy();
+        expect(assistantReplay.tool_calls.map((t) => t.function.name)).toEqual(['get_actions', 'get_instincts']);
+        const actionTool = discovery.find((m) => m.role === 'tool' && m.tool_call_id === 'call_1');
+        expect(actionTool).toBeTruthy();
+        const actionPayload = JSON.parse(actionTool.content);
+        expect(actionPayload.success).toBe(true);
+        expect(typeof actionPayload.list).toBe('string');
+        expect(actionPayload.list).toMatch(/selfHeal/);
+        expect(actionPayload.list).toMatch(/move/);
+        expect(actionPayload.list).toMatch(/cut/); // not-executable summary
     });
 });
 
@@ -990,7 +1194,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+                message: toolMessage([{ name: 'use_instinct', args: { instinctId: 'chase_attack', targetEntityId: 'ent-target-1' } }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -1044,7 +1248,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase' } }])
+                message: toolMessage([{ name: 'use_instinct', args: { instinctId: 'chase' } }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -1083,7 +1287,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
                         content: null,
                         toolCalls: [],
                         finishReason: 'tool_calls',
-                        message: toolMessage([{ name: 'use_instinct', args: { instinct: 'nonexistent_instinct' } }])
+                        message: toolMessage([{ name: 'use_instinct', args: { instinctId: 'nonexistent_instinct' } }])
                     };
                 }
                 // Retry: model gives up
@@ -1128,17 +1332,29 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
                 return inst ? { ok: true, steps: [{ actionName: 'move' }, { actionName: 'selfHeal' }] } : { ok: false, error: 'unknown' };
             }
         };
+        let t4Calls = 0;
         const { agent } = makeAgent({
             world,
             turns,
             instincts,
             instinctController,
-            chatFullImpl: () => ({
-                content: null,
-                toolCalls: [],
-                finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
-            })
+            chatFullImpl: () => {
+                t4Calls += 1;
+                if (t4Calls === 1) {
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([{ name: 'use_instinct', args: { instinctId: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+                    };
+                }
+                return {
+                    content: 'I have finished this instinct.',
+                    toolCalls: [],
+                    finishReason: 'stop',
+                    message: { role: 'assistant', content: 'I have finished this instinct.' }
+                };
+            }
         });
 
         const result = await agent.runRound(NPC_ID, 0);
@@ -1180,7 +1396,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
         const toolNamesWith = toolsWith.map(t => t.function.name);
         expect(toolNamesWith).toContain('use_instinct');
         const instinctTool = toolsWith.find(t => t.function.name === 'use_instinct');
-        expect(instinctTool.function.parameters.properties.instinct.enum).toEqual(['chase']);
+        expect(instinctTool.function.parameters.properties.instinctId.type).toBe('string');
 
         // Without instincts
         seenOptions.length = 0;
@@ -1244,7 +1460,7 @@ describe('LLMAgentController — Instincts system (T1-T7)', () => {
                         content: null,
                         toolCalls: [],
                         finishReason: 'tool_calls',
-                        message: toolMessage([{ name: 'use_instinct', args: { instinct: 'chase_attack', targetEntityId: 'ent-target-1' } }])
+                        message: toolMessage([{ name: 'use_instinct', args: { instinctId: 'chase_attack', targetEntityId: 'ent-target-1' } }])
                     };
                 }
                 // Retry response: plain text (no additional actions)
@@ -1374,7 +1590,7 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }])
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -1401,7 +1617,7 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
                 content: null,
                 toolCalls: [],
                 finishReason: 'tool_calls',
-                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }])
+                message: toolMessage([{ name: 'toApproach', args: JSON.stringify({ targetEntityId: TARGET.id }) }, { name: 'done', args: '{}' }])
             })
         });
 
@@ -1550,7 +1766,7 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
                         message: {
                             role: 'assistant',
                             content: null,
-                            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } }]
+                            tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'toApproach', arguments: JSON.stringify({ targetEntityId: TARGET.id }) } }, { id: 'call_2', type: 'function', function: { name: 'done', arguments: '{}' } }]
                         }
                     }
                     : { content: null, toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: null, tool_calls: [] } };

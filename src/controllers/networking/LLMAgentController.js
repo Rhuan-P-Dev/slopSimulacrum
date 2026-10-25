@@ -22,7 +22,9 @@
  *      (the model chose silence, spec §6.3) and degenerate / tool-scaffold
  *      content is replaced by a neutral placeholder before it is stored, so
  *      it can never re-prime the next round;
- *   6. AT MOST ONE retry with the failure fed back as a tool-role result;
+ *   6. in-round agent loop (spec §6.5): up to LLM_AGENT_MAX_ITERATIONS LLM
+ *      calls, each continuing with its tool results fed back, until the model
+ *      ends the round with the done tool or stays silent;
  *   7. any LLMError (timeout / HTTP / parse / network) → logged + the NPC
  *      is SILENT this round. runRound NEVER throws — it is a tick-driven
  *      fire-and-forget hook and must never break the turn loop.
@@ -40,6 +42,7 @@ import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/Constants.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
+import { formatActionList, formatInstinctList } from './LlmContextController.js';
 
 /** Hard cap on the agent's conversation memory per NPC (rounds). */
 const TRANSCRIPT_ROUNDS = 2;
@@ -67,12 +70,16 @@ const LLM_ROUND_MAX_TOKENS = 5120;
  */
 const LLM_ROUND_TEMPERATURE = 0.5;
 /**
- * Agent-loop iteration budget: the initial call PLUS AT MOST ONE retry
- * (spec §6.3 step 6 — "AT MOST ONE retry with the failure fed back as a
- * tool-role result"), i.e. at most 2 chatFull calls per round.
+ * The in-round agent loop is the model's own turn budget, not a retry
+ * mechanism (spec §6.5): up to LLM_AGENT_MAX_ITERATIONS chatFull calls per
+ * round, each continuing the loop with its tool results fed back
+ * (spec §6.3.6), until the model itself ends the round with the done tool
+ * or stays silent. A fixed cap exists because the tool list is finite and a
+ * model that never calls done must be bounded.
  * @constant
  */
-const LLM_AGENT_MAX_ITERATIONS = 2;
+const LLM_AGENT_DONE_TOOL_NAME = 'done';
+const LLM_AGENT_MAX_ITERATIONS = 5;
 
 class LLMAgentController {
     /**
@@ -181,6 +188,10 @@ class LLMAgentController {
      *   iterations: number,
      *   chat: { sent: boolean, text?: string, reason?: string },
      *   actions: Array<{ actionName: string, queued?: boolean, queueId?: string, success: boolean, detail?: string }>,
+     *   note: string|undefined - why the agent stopped (done / no response /
+     *     prose-ignored / degenerated / iterations exhausted / LLM error code),
+     *   done: boolean - true when the agent stopped by its own call (done tool
+     *     or silence), not by an error,
      *   error: string|null
      * }>}
      */
@@ -189,6 +200,8 @@ class LLMAgentController {
             entityId: npcEntityId,
             round,
             iterations: 0,
+            done: undefined,
+            note: undefined,
             chat: { sent: false },
             actions: [],
             approaches: [],
@@ -264,11 +277,14 @@ class LLMAgentController {
             // the NEXT round replays the REAL outcome (a successful speak must
             // not be replayed as success:false — the pre-fix transcript lied).
             const speakResults = [];
-            /** Stable id for a speak tool_call (the model sometimes omits id). */
-            const speakCallId = (call, index) =>
-                (typeof call?.id === 'string' && call.id !== '')
-                    ? call.id
-                    : `call-${npcEntityId}-${round}-${index}`;
+            // One aggregated result per instinct call (spec \u00a76.5); success =
+            // all steps succeeded. Drives the transcript tool-result (see
+            // _buildRoundGroup).
+            const instinctResults = [];
+            // One group per LLM call (the in-round agent loop, spec §6.5);
+            // capped by LLM_AGENT_MAX_ITERATIONS. Replayed as history next
+            // round (see _transcriptFor / _getLastTranscriptRound).
+            const groups = [];
 
             for (let iteration = 1; iteration <= LLM_AGENT_MAX_ITERATIONS; iteration++) {
                 result.iterations = iteration;
@@ -284,7 +300,7 @@ class LLMAgentController {
                     const msg = err?.message || String(err);
                     Logger.warn(`[LLMAgent] round ${round} missed for ${displayName}: ${code} (${msg})`);
                     result.error = code;
-                    this._storeTranscript(npcEntityId, round, { error: code });
+                    this._storeTranscript(npcEntityId, round, { groups, note: code, error: code });
                     return result; // NPC silent — window may be gone anyway
                 }
 
@@ -302,6 +318,7 @@ class LLMAgentController {
                     if (executedActions >= maxActions) {
                         const detail = `max world actions per round reached (${maxActions})`;
                         result.actions.push({ actionName: String(call.args.actionName), success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, String(call.args.actionName), false, detail);
                         if (!actionableFailure) actionableFailure = { call, error: detail };
                         continue;
                     }
@@ -309,6 +326,7 @@ class LLMAgentController {
                     const validation = this._prevalidateAction(npcEntityId, call.args);
                     if (!validation.ok) {
                         result.actions.push({ actionName: String(call.args.actionName), success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, String(call.args.actionName), false, validation.error);
                         if (!actionableFailure) actionableFailure = { call, error: validation.error };
                         continue;
                     }
@@ -322,13 +340,19 @@ class LLMAgentController {
                         success: dispatch.success,
                         detail: dispatch.detail
                     });
+                    this._recordImmediateOutcome(
+                        npcEntityId,
+                        dispatch.actionName,
+                        dispatch.success,
+                        dispatch.detail || (dispatch.queued ? 'queued' : 'executed')
+                    );
                     if (!dispatch.success && !actionableFailure) {
                         actionableFailure = { call, error: dispatch.detail || 'execution failed' };
                     }
                 }
 
                 for (const call of parsed.speaks) {
-                    const callId = speakCallId(call, speakResults.length);
+                    const callId = call.id;
                     const text = call.args?.message;
                     if (sentChats >= maxChat || typeof text !== 'string' || text.trim() === '' || text.length > CHAT_MESSAGE_MAX_LENGTH) {
                         const reason = sentChats >= maxChat
@@ -336,6 +360,7 @@ class LLMAgentController {
                             : 'invalid message text';
                         result.chat = { sent: false, reason };
                         speakResults.push({ id: callId, success: false, detail: reason });
+                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', false, reason);
                         continue;
                     }
                     const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
@@ -349,10 +374,14 @@ class LLMAgentController {
                             success: true,
                             messageId: sendResult.message?.id || null
                         });
+                        const spoken = text.trim();
+                        const spokenShort = spoken.length > 60 ? `${spoken.slice(0, 57)}...` : spoken;
+                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', true, `said "${spokenShort}"`);
                     } else {
                         const reason = sendResult.error || sendResult.code;
                         result.chat = { sent: false, reason };
                         speakResults.push({ id: callId, success: false, detail: reason });
+                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', false, reason);
                     }
                 }
 
@@ -363,6 +392,7 @@ class LLMAgentController {
                     if (executedActions >= maxActions) {
                         const detail = `max world actions per round reached (${maxActions})`;
                         result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, 'toApproach', false, detail);
                         if (!actionableFailure) actionableFailure = { call, error: detail };
                         continue;
                     }
@@ -370,6 +400,7 @@ class LLMAgentController {
                     const validation = this._prevalidateApproach(npcEntityId, call.args);
                     if (!validation.ok) {
                         result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, 'toApproach', false, validation.error);
                         if (!actionableFailure) actionableFailure = { call, error: validation.error };
                         continue;
                     }
@@ -384,96 +415,155 @@ class LLMAgentController {
                         success: dispatch.success,
                         detail: dispatch.detail
                     });
+                    this._recordImmediateOutcome(
+                        npcEntityId,
+                        'toApproach',
+                        dispatch.success,
+                        dispatch.detail || (dispatch.queued ? 'queued' : 'executed')
+                    );
                     if (!dispatch.success && !actionableFailure) {
                         actionableFailure = { call, error: dispatch.detail || 'execution failed' };
                     }
                 }
 
-                // 7. Dispatch instinct calls (use_instinct tool).
+                // 7. Dispatch instinct calls (use_instinct tool). One aggregated
+                // result per call, in call order, drives the transcript
+                // tool-result (see _buildRoundGroup).
                 if (this.instinctController && parsed.instincts && parsed.instincts.length > 0) {
                     for (const entry of parsed.instincts) {
                         const instinctResult = await this._dispatchInstinct(npcEntityId, entry, round, result);
                         result.actions.push(...instinctResult.actions);
+                        // success = every step succeeded. Accurate even for the
+                        // missing-id early-return, where actionable is false but
+                        // the call clearly failed.
+                        const instinctOk = instinctResult.actions.length > 0
+                            ? instinctResult.actions.every(a => Boolean(a.success))
+                            : !instinctResult.actionable;
+                        instinctResults.push({
+                            id: entry.id,
+                            success: instinctOk,
+                            detail: instinctOk ? undefined : (instinctResult.detail || 'instinct failed')
+                        });
+                        const iid = entry.args?.instinctId;
+                        this._recordImmediateOutcome(
+                            npcEntityId,
+                            'use_instinct',
+                            instinctOk,
+                            instinctOk
+                                ? (iid ? `executed ${iid}` : 'executed')
+                                : (instinctResult.detail || 'instinct failed')
+                        );
                         if (instinctResult.actionable && !actionableFailure) {
                             actionableFailure = { call: entry, error: instinctResult.detail || 'instinct failed' };
                         }
                     }
                 }
 
-                // No tool calls (actions / speaks / approaches) extracted and
-                // no actionable failure: PROTOCOL B — the content is NEVER
-                // interpreted. The JSON-in-content fallback of the mixed
-                // protocol is gone: a model obeying BOTH a "ONE JSON object"
-                // prompt and the native tool list at once is exactly how the
-                // scaffold-loop incident happened (spec §6.4). Prose-only is
-                // "the model chose silence" (spec §6.3): the round completes,
-                // no retry is burned, nothing is dispatched.
-                if (parsed.actions.length === 0 && parsed.speaks.length === 0 && parsed.approaches.length === 0 && !actionableFailure) {
+                // 8. Discovery payloads: get_actions / get_instincts return
+                //    the formatted list directly — the tool result IS the list
+                //    (one per call, built from the live registry / instinct
+                //    list, filtered as requested).
+                const actionData = this.llmContextController
+                    && typeof this.llmContextController.getActionData === 'function'
+                    ? this.llmContextController.getActionData(npcEntityId)
+                    : { entries: [], notExecutable: [] };
+                const payloadMap = {};
+                for (const discovery of parsed.discoveries) {
+                    const list = discovery.kind === 'get_actions'
+                        ? formatActionList(actionData.entries, actionData.notExecutable, discovery.args.filter)
+                        : formatInstinctList(instincts, discovery.args.filter);
+                    payloadMap[discovery.id] = { success: true, list };
+                }
+
+                // 9. This LLM call is one group of the in-round agent loop
+                //    (spec §6.5); the full loop is what replays next round.
+                //    The assistant message is the SANITIZED one (degenerate /
+                //    scaffold content was replaced by a neutral placeholder in
+                //    the parser), so the stored group cannot re-prime the next
+                //    round (BUG-007).
+                const group = this._buildRoundGroup(assistantMessage, parsed, result, {
+                    speakResults,
+                    instinctResults,
+                    payloadMap
+                });
+                groups.push(group);
+
+                // 10. Stop conditions (each ends the round — the loop IS the
+                //     agent, not a retry mechanism).
+                const hasTools =
+                    parsed.actions.length > 0 ||
+                    parsed.speaks.length > 0 ||
+                    parsed.approaches.length > 0 ||
+                    parsed.instincts.length > 0 ||
+                    parsed.discoveries.length > 0 ||
+                    parsed.done;
+
+                if (!hasTools && !actionableFailure) {
+                    // No tools, no failure: the model chose silence (spec
+                    // §6.3). PROTOCOL B: the content is NEVER interpreted
+                    // as an intent — it is simply discarded.
                     const content = parsed.prose;
+                    let note;
                     if (content === null) {
-                        result.chat = { sent: false, reason: 'no response' };
-                        this._storeTranscript(npcEntityId, round, {
-                            assistant: assistantMessage,
-                            results: [],
-                            note: 'no response'
-                        });
-                        return result;
+                        note = 'no response';
+                    } else {
+                        // Degeneracy check on the RAW model content (the
+                        // placeholder itself must not loop — tested).
+                        const rawContent =
+                            typeof full.message?.content === 'string' ? full.message.content : '';
+                        const degenerated = this._isDegenerate(rawContent);
+                        note = degenerated ? 'degenerated' : 'prose-ignored';
                     }
-                    // The sanitizer already replaced degenerate / scaffold
-                    // content with a neutral placeholder in `assistantMessage`,
-                    // so the stored transcript cannot re-prime the next round.
-                    // (Tested against the RAW content: the placeholder itself
-                    // is not a repetition loop.)
-                    const rawContent = typeof full.message?.content === 'string' ? full.message.content : '';
-                    const degenerated = this._isDegenerate(rawContent);
-                    const note = degenerated ? 'degenerated' : 'prose-ignored';
                     Logger.warn(`[LLMAgent] round ${round}: ${displayName} — LLM output ${note} (content discarded, NPC silent this round).`);
+                    result.done = true;
+                    result.note = note;
                     result.chat = { sent: false, reason: note };
-                    this._storeTranscript(npcEntityId, round, {
-                        assistant: assistantMessage,
-                        results: [],
-                        note
-                    });
+                    this._storeTranscript(npcEntityId, round, { groups, note });
                     return result;
                 }
 
-                // 6. Retry (at most one): feed the failure back as tool-role
-                //    results + a user nudge, then call chatFull again.
-                if (actionableFailure && iteration < LLM_AGENT_MAX_ITERATIONS) {
-                    Logger.info(`[LLMAgent] round ${round}: ${displayName} — retrying after failure: ${actionableFailure.error}`);
-                    const feedback = this._buildFeedbackMessages(messages, assistantMessage, parsed, result);
+                if (parsed.done && !actionableFailure) {
+                    // The agent declared its work complete with the done tool
+                    // (spec §6.5.6).
+                    result.done = true;
+                    result.note = 'done';
+                    this._storeTranscript(npcEntityId, round, { groups, note: 'done' });
+                    return result;
+                }
+
+                if (actionableFailure) {
+                    // Failed call with budget left: feed the failure back
+                    // (spec §6.3.6) and continue the loop.
+                    Logger.info(`[LLMAgent] round ${round}: ${displayName} — feeding failure back to the model: ${actionableFailure.error}`);
+                    const feedback = this._buildFeedbackMessages(group);
                     messages.push(...feedback);
                     continue;
                 }
 
-                // No retry (success, or retry already spent).
-                this._storeTranscript(npcEntityId, round, {
-                    assistant: assistantMessage,
-                    results: [
-                        ...parsed.actions.map(call => {
-                            const a = result.actions.find(x => x.actionName === String(call.args.actionName) && !x.__replayed);
-                            return {
-                                id: call.id,
-                                success: a ? a.success : false,
-                                detail: a?.detail
-                            };
-                        }),
-                        ...parsed.approaches.map(call => {
-                            const a = result.approaches.find(x => x.id === call.id);
-                            return {
-                                id: call.id,
-                                success: a ? a.success : false,
-                                detail: a?.detail
-                            };
-                        }),
-                        ...speakResults
-                    ]
-                });
-                return result;
+                if (iteration >= LLM_AGENT_MAX_ITERATIONS) {
+                    // Budget exhausted: the loop ends; the final call lives in
+                    // `groups` (no retries were left to spend).
+                    result.note = result.note || 'iterations exhausted';
+                    this._storeTranscript(npcEntityId, round, { groups, note: result.note });
+                    return result;
+                }
+
+                // Success with no failure and no stop: feed the assistant's
+                // tool results back so the model can chain calls (spec §6.5)
+                // and continue the loop. Without this append the next
+                // iteration re-sees the identical state — the get_actions /
+                // get_instincts discovery loop (and any multi-call round
+                // without done) spins to LLM_AGENT_MAX_ITERATIONS.
+                messages.push(...this._buildFeedbackMessages(group));
             }
 
-            // Unreachable: the loop returns on iteration 2.
-            this._storeTranscript(npcEntityId, round, { error: 'iterations exhausted' });
+            // Defensive fallback: the loop normally returns above; this only
+            // fires if the final iteration had an actionableFailure (the
+            // failure-fed-back continue pushed past the budget cap).
+            this._storeTranscript(npcEntityId, round, {
+                groups,
+                note: result.note || 'loop ended without return'
+            });
             return result;
         } catch (err) {
             // Last-resort guard: runRound must NEVER throw out of the hook.
@@ -491,32 +581,31 @@ class LLMAgentController {
     // =========================================================================
 
     /**
-     * Builds the tool OpenAI schema. The `execute_action` actionName enum +
-     * descriptions are generated from the live action registry (the same
-     * `data/systems/actions.json` the rest of the world runs on); `toApproach`
-     * is a fixed intent tool that dispatches the registered `move` action
-     * toward the target's live coordinates.
+     * Builds the tool OpenAI schema — generated from data every round, never
+     * hardcoded (BUG-018): the `get_actions` / `get_instincts` tools are the
+     * model's ONLY source of executable options; `execute_action` carries no
+     * actionName enum (the registry is the live list, not the tool list);
+     * `toApproach` is a fixed intent tool that dispatches the registered
+     * move action toward the target's live coordinates; `use_instinct` is
+     * offered only when the instinct controller generated instincts this
+     * round; `done` ends the round and is listed last.
      * @param {Object} [opts]
      * @param {boolean} [opts.includeChat=true] - Whether to include the speak_in_room tool.
-     * @param {Array<Object>} [opts.instincts] - Generated instincts for this round (if non-empty, adds use_instinct tool).
+     * @param {Array<Object>} [opts.instincts] - Generated instincts for this round (if non-empty, adds the use_instinct tool).
      * @returns {Array<Object>}
      */
     _buildTools({ includeChat = true, instincts = [] } = {}) {
-        const registry = this.worldStateController?.actionController?.getRegistry?.() || {};
-        const actionNames = Object.keys(registry);
-
         const executeAction = {
             type: 'function',
             function: {
                 name: 'execute_action',
-                description: 'Execute one world action with your own body. Only use action names marked executable in your context.',
+                description: 'Execute one world action with your own body. Only use action names the get_actions tool returned — those are the ONLY executable options this round.',
                 parameters: {
                     type: 'object',
                     properties: {
                         actionName: {
                             type: 'string',
-                            enum: actionNames,
-                            description: 'The action to perform (see YOUR ACTIONS in the context for descriptions).'
+                            description: 'The action to perform. See the get_actions output for names, parameters, and whether it is executable right now.'
                         },
                         targetComponentId: { type: 'string', description: 'comp-… target component (attacks, cuts, pickup target).' },
                         componentId: { type: 'string', description: 'comp-… your own source component (e.g. the arm/hand using the tool).' },
@@ -535,13 +624,13 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'toApproach',
-                description: 'Move toward the given entity as far as possible in this round (one full move step, capped by your movement stat). Works only while you share the target\'s room; to reach another room first move through a door (move with a targetRoomId).',
+                description: 'Move toward another droid in the current room as far as your movement stat allows. Pass only the target entity id (ent-…); the server resolves its live coordinates. It does not cross rooms — to travel between rooms use execute_action move with a targetRoomId.',
                 parameters: {
                     type: 'object',
                     properties: {
                         targetEntityId: {
                             type: 'string',
-                            description: 'The ent-* ID of the entity to approach (same-room only).'
+                            description: 'The entity to move toward (ent-…).'
                         }
                     },
                     required: ['targetEntityId']
@@ -549,51 +638,98 @@ class LLMAgentController {
             }
         };
 
-        const tools = [executeAction, toApproach];
-
-        // Add use_instinct tool only when instincts are generated (spec §2.5)
-        if (instincts && instincts.length > 0) {
-            const instinctNames = instincts.map(i => i.name);
-            tools.push({
-                type: 'function',
-                function: {
-                    name: 'use_instinct',
-                    description: 'Perform a whole behavior at once: the server executes the instinct\'s action sequence for you. See the YOUR INSTINCTS section of the context.',
-                    parameters: {
-                        type: 'object',
-                        properties: {
-                            instinct: {
-                                type: 'string',
-                                enum: instinctNames,
-                                description: 'The instinct to perform (see YOUR INSTINCTS in the context).'
-                            },
-                            targetEntityId: { type: 'string', description: 'ent-… entity the instinct acts on; default: nearest entity in your room.' }
-                        },
-                        required: ['instinct']
-                    }
+        const speakInRoom = {
+            type: 'function',
+            function: {
+                name: 'speak_in_room',
+                description: 'Say something in the chat of the room you are currently in.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        message: { type: 'string', description: 'The line to say (under 25 words, in character).' }
+                    },
+                    required: ['message']
                 }
-            });
-        }
+            }
+        };
 
+        const useInstinct = {
+            type: 'function',
+            function: {
+                name: 'use_instinct',
+                description: "Perform a whole registered behavior in one call: the server expands and executes the instinct's action sequence. See the get_instincts output for available instincts and their ids.",
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        instinctId: {
+                            type: 'string',
+                            description: 'The instinct to perform (see the get_instincts tool output).'
+                        },
+                        targetEntityId: { type: 'string', description: 'Optional target entity id (ent-…); default: nearest entity in your room.' }
+                    },
+                    required: ['instinctId']
+                }
+            }
+        };
+
+        const getActions = {
+            type: 'function',
+            function: {
+                name: 'get_actions',
+                description: 'List the actions you can execute right now, with their parameters, costs, and whether they are executable. This is the ONLY source of executable options — call it at the start of every round.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        filter: { type: 'string', description: 'Optional text filter to narrow the list (e.g. a room name).' }
+                    },
+                    required: []
+                }
+            }
+        };
+
+        const getInstincts = {
+            type: 'function',
+            function: {
+                name: 'get_instincts',
+                description: 'List the instincts available to you this round, with their ids and parameters. This is the ONLY source of instinct ids — call it at the start of every round.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        filter: { type: 'string', description: 'Optional text filter to narrow the list (e.g. move or attack).' }
+                    },
+                    required: []
+                }
+            }
+        };
+
+        const doneTool = {
+            type: 'function',
+            function: {
+                name: LLM_AGENT_DONE_TOOL_NAME,
+                description: 'Ends your round. Call it once your actions, chat, and approaches for this round are done. It is listed last: check your actions first, then end the round when nothing else remains.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        note: { type: 'string', description: 'Optional short note (up to 100 chars) explaining why you are stopping this round.' }
+                    },
+                    required: []
+                }
+            }
+        };
+
+        // Order: discovery tools first (read at round start), action tools,
+        // chat, instincts, and the round-end done tool last.
+        const tools = [getActions, getInstincts, executeAction, toApproach];
         if (includeChat) {
-            tools.push({
-                type: 'function',
-                function: {
-                    name: 'speak_in_room',
-                    description: 'Say something in the chat of the room you are currently in.',
-                    parameters: {
-                        type: 'object',
-                        properties: {
-                            message: { type: 'string', maxLength: CHAT_MESSAGE_MAX_LENGTH, description: 'The line to say (max 200 characters).' }
-                        },
-                        required: ['message']
-                    }
-                }
-            });
+            tools.push(speakInRoom);
         }
+        if (instincts && instincts.length > 0) {
+            tools.push(useInstinct);
+        }
+        tools.push(doneTool);
+
         return tools;
     }
-
     // =========================================================================
     // SYSTEM PROMPT (spec §6.4 template)
     // =========================================================================
@@ -628,12 +764,12 @@ class LLMAgentController {
         const maxChat = (rawMaxChatPrompt === 0) ? 0 : this._asPositiveInt(rawMaxChatPrompt, DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND);
 
         const chatLine = maxChat > 0
-            ? `- Execute at most ${maxActions} world action(s) and send at most ${maxChat} chat message(s) per round.`
-            : `- Execute at most ${maxActions} world action(s) per round. You MUST NOT use the speak_in_room tool or produce any chat output. Your ONLY output must be world actions.`;
+            ? `- You may issue at most ${maxActions} world action call(s) and send at most ${maxChat} chat message(s) this round. Call the done tool to end your round.`
+            : `- You may issue at most ${maxActions} world action call(s) this round. You MUST NOT use the speak_in_room tool or produce any chat output. Call the done tool to end your round.`;
 
         const actionRule = objective
-            ? '- Only use actions listed under "executable now" in the context. If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target). Only stay silent when no action serves your objective.'
-            : '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.';
+            ? '- Only use actions the get_actions tool returned. If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). Stop the round when no action serves your objective.'
+            : '- Only use actions the get_actions tool returned. Move toward your goals with toApproach (pass the targetEntityId — the server resolves the position). Stop the round when nothing is worth doing.';
 
         // PROTOCOL B (restores spec §6.2/§6.3/§6.4): the native tool call is
         // the ONLY response protocol — there is no JSON-in-content block.
@@ -657,12 +793,13 @@ class LLMAgentController {
             chatLine,
             actionRule,
             '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
+            '- Start each round with get_actions (and get_instincts when instincts exist): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct only with names the discovery calls returned.',
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'How you respond:',
-            '- Act only through the available tools. Never write JSON, code, XML, or tool-call markup in your message text.',
-            sayLine + '- If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.'
+            '- Act only through the available tools — the tool calls ARE your content. Never write JSON, code, XML, or tool-call markup in your message text.',
+            sayLine + '- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).'
         ].join('\n');
     }
 
@@ -671,67 +808,85 @@ class LLMAgentController {
     // =========================================================================
 
     /**
-     * Returns the replayable message history: for each stored round, the
-     * assistant tool-call message followed by one tool-role result per call.
-     * Follows the relaxed _validateMessages contract (assistant content:null
-     * + tool_calls; tool messages with content + tool_call_id).
+     * Returns the replayable message history for the LLM: for each stored
+     * round, every group (one per in-round LLM call — the agent loop, spec
+     * §6.5) with its assistant tool-call message, followed by one tool-role
+     * result per call. Legacy entries ({ assistant, results? } / { error })
+     * are still playable as single-call history. Follows the relaxed
+     * _validateMessages contract (assistant content: null + tool_calls;
+     * tool messages: content + tool_call_id).
      * @private
      */
     _transcriptFor(npcEntityId) {
         const rounds = this._transcripts.get(npcEntityId) || [];
         const messages = [];
         for (const entry of rounds) {
-            if (!entry || !entry.assistant) continue;
-            const assistantMessage = entry.assistant;
-            const toolCalls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
-            // A replayed assistant message must keep either content or tool_calls.
-            const hasContent = typeof assistantMessage.content === 'string' && assistantMessage.content.length > 0;
-            if (hasContent || toolCalls.length > 0) {
-                const replay = {
-                    role: 'assistant',
-                    content: hasContent ? assistantMessage.content : null,
-                    ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
-                };
-                // Re-send the model's own reasoning_content when the
-                // provider produced one: reasoning models served through an
-                // OpenAI-compatible endpoint (the DeepSeek/Qwen family -
-                // the local stack this world runs on) expect their
-                // reasoning replayed in multi-turn; pi's openai-completions
-                // adapter handles this same model class the same way (it
-                // even injects an empty reasoning_content when the compat
-                // table asks for it). Only what the model actually said is
-                // passed through.
-                if (typeof assistantMessage.reasoning_content === 'string') {
-                    replay.reasoning_content = assistantMessage.reasoning_content;
+            if (!entry || typeof entry !== 'object') continue;
+            // One group per in-round LLM call (spec §6.5); legacy entries
+            // (error / guard stops) are treated as single-call history.
+            const groups = (entry.groups && Array.isArray(entry.groups))
+                ? entry.groups
+                : (entry.assistant ? [entry] : []);
+            for (const group of groups) {
+                if (!group || !group.assistant) continue;
+                const assistantMessage = group.assistant;
+                const toolCalls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
+                // A replayed assistant message keeps either content or tool_calls.
+                // Degenerate / scaffold content was already replaced by the
+                // neutral placeholder in _sanitizeAssistantMessage before the
+                // group was stored, so no broken output can re-prime a round.
+                const hasContent =
+                    typeof assistantMessage.content === 'string' && assistantMessage.content.length > 0;
+                if (hasContent || toolCalls.length > 0) {
+                    const replay = {
+                        role: 'assistant',
+                        content: hasContent ? assistantMessage.content : null,
+                        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+                    };
+                    // Re-send the model's own reasoning_content when the
+                    // provider produced one: reasoning models served via the
+                    // OpenAI-compatible endpoint expect their reasoning
+                    // replayed in multi-turn (same as the fresh-turn
+                    // _lastAssistantReplay handling).
+                    if (typeof assistantMessage.reasoning_content === 'string') {
+                        replay.reasoning_content = assistantMessage.reasoning_content;
+                    }
+                    messages.push(replay);
                 }
-                messages.push(replay);
-            }
-            const results = Array.isArray(entry.results) ? entry.results : [];
-            // Per-tool-name occurrence counters — the fallback id must match
-            // the one stored at dispatch time (speakCallId indexes within the
-            // same tool's call list, not the full tool_calls array).
-            const nameCounts = {};
-            for (const call of toolCalls) {
-                const fn = call?.function;
-                const name = fn && typeof fn.name === 'string' ? fn.name : '';
-                const occurrence = (nameCounts[name] = (nameCounts[name] || 0) + 1) - 1;
-                if (!fn || typeof fn.name !== 'string') continue;
-                const r = results.find(x => x?.id === call?.id) || {};
-                messages.push({
-                    role: 'tool',
-                    // Stable unique id when the model omitted one.
-                    tool_call_id: typeof call?.id === 'string' && call.id !== ''
-                        ? call.id
-                        : `call-${npcEntityId}-${entry.round}-${occurrence}`,
-                    content: JSON.stringify({ success: Boolean(r.success), ...(r.detail ? { error: r.detail } : {}) })
-                });
+                const results = Array.isArray(group.results) ? group.results : [];
+                const nameCounts = {};
+                for (const call of toolCalls) {
+                    const fn = call?.function;
+                    const name = fn && typeof fn.name === 'string' ? fn.name : '';
+                    const occurrence = (nameCounts[name] = (nameCounts[name] || 0) + 1) - 1;
+                    if (!fn || typeof fn.name !== 'string') continue;
+                    const r = results.find(x => x?.id === call?.id) || {};
+                    messages.push({
+                        role: 'tool',
+                        // Stable unique id when the model omitted one.
+                        tool_call_id: (typeof call?.id === 'string' && call.id !== '')
+                            ? call.id
+                            : `call-${npcEntityId}-${entry.round}-${occurrence}`,
+                        content: JSON.stringify({
+                            success: Boolean(r.success),
+                            ...(r.detail ? { error: r.detail } : {}),
+                            ...(r.list ? { list: r.list } : {})
+                        })
+                    });
+                }
             }
         }
         return messages;
     }
-
     /**
-     * Appends one round to the NPC's transcript (capped at 2 rounds).
+     * Appends one round to the NPC's transcript (capped at 2 rounds). Entry
+     * shapes (spec §6.5): { groups: [...], note? } — the in-round agent
+     * loop (one group per LLM call, each { assistant, results }) plus the
+     * note explaining why the round ended (done, no response,
+     * prose-ignored, degenerated, iterations exhausted, LLM error code) —
+     * or the legacy { assistant?, results?, note?, error? } (guard stops /
+     * early error). Replay via _transcriptFor; inspector via
+     * _getLastTranscriptRound.
      * @private
      */
     _storeTranscript(npcEntityId, round, entry) {
@@ -762,7 +917,7 @@ class LLMAgentController {
      *   context: { text: string, data: Object|null, stats: Object|null },
      *   tools: Array, instincts: Array,
      *   registry: Object<string, Object>,
-     *   transcript: { round, assistant: { content, tool_calls, reasoning_content },
+     *   transcript: { round, groups: Array|undefined, assistant: { content, tool_calls, reasoning_content },
      *     toolResults: Array, note: string|null }|null,
      *   error: string|null
      * }}
@@ -884,29 +1039,37 @@ class LLMAgentController {
 
     /**
      * Most recently stored transcript round for an NPC, normalized for client
-     * display (assistant message + tool results + note). null when no round
-     * has been stored yet. @private
+     * display: round number, the last group's assistant message + tool
+     * results, the full `groups` array (one entry per LLM call, each
+     * { assistant, results } — the in-round agent loop), and the note
+     * explaining why the round ended (done, prose-ignored, LLM error code,
+     * ...). Legacy entries ({ assistant, results } / { error }) normalize the
+     * same way. null when no round has been stored yet. @private
      */
     _getLastTranscriptRound(entityId) {
         const rounds = Array.from((this._transcripts?.get(entityId)) || []);
         for (let i = rounds.length - 1; i >= 0; i -= 1) {
             const entry = rounds[i];
             if (!entry || typeof entry !== 'object') continue;
-            const assistant = entry.assistant;
+            const group = (entry.groups && Array.isArray(entry.groups))
+                ? entry.groups[entry.groups.length - 1]
+                : (entry.assistant ? entry : null);
+            if (!group) continue;
+            const assistant = group.assistant;
             return {
-                round: entry.round ?? null,
+                round: (typeof entry.round === 'number') ? entry.round : null,
                 assistant: {
                     content: (assistant && typeof assistant.content === 'string') ? assistant.content : null,
                     tool_calls: (assistant && Array.isArray(assistant.tool_calls)) ? assistant.tool_calls : null,
                     reasoning_content: (assistant && typeof assistant.reasoning_content === 'string') ? assistant.reasoning_content : null
                 },
-                toolResults: Array.isArray(entry.results) ? entry.results : [],
-                note: typeof entry.note === 'string' ? entry.note : null
+                toolResults: Array.isArray(group.results) ? group.results : [],
+                groups: (entry.groups && Array.isArray(entry.groups)) ? entry.groups : null,
+                note: (typeof entry.note === 'string') ? entry.note : null
             };
         }
         return null;
     }
-
     // =========================================================================
     // TOOL-CALL PARSING
     // =========================================================================
@@ -918,7 +1081,7 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
@@ -926,6 +1089,15 @@ class LLMAgentController {
         const actions = [];
         const instincts = [];
         const approaches = [];
+        const discoveries = [];
+        // Did the model call the done tool? (no args; the call itself is the
+        // round-end signal — spec §6.5.)
+        let done = false;
+        // PROTOCOL B (spec §6.4): prose is never interpreted as an intent —
+        // it is only stored (see runRound, where content is ignored and the
+        // round is treated as the model "chose silence"). Keeping prose out of
+        // the tool lists lets the "no tool calls" stop condition be decided
+        // from the parsed result alone.
         const prose = (message && typeof message.content === 'string' && message.content.trim() !== '')
             ? message.content
             : null;
@@ -957,10 +1129,27 @@ class LLMAgentController {
             else if (name === 'execute_action') actions.push(entry);
             else if (name === 'use_instinct') instincts.push(entry);
             else if (name === 'toApproach') approaches.push(entry);
+            else if (name === 'get_actions') {
+                const filter = entry.args.filter;
+                discoveries.push({
+                    id: entry.id,
+                    kind: 'get_actions',
+                    args: { filter: (filter && typeof filter === 'string') ? filter : undefined }
+                });
+            } else if (name === 'get_instincts') {
+                const filter = entry.args.filter;
+                discoveries.push({
+                    id: entry.id,
+                    kind: 'get_instincts',
+                    args: { filter: (filter && typeof filter === 'string') ? filter : undefined }
+                });
+            } else if (name === LLM_AGENT_DONE_TOOL_NAME) {
+                done = true;
+            }
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, approaches, prose };
+        return { speaks, actions, instincts, approaches, discoveries, done, prose };
     }
 
     // =========================================================================
@@ -1125,10 +1314,10 @@ class LLMAgentController {
             if (q?.code === 'TURNS_DISABLED') {
                 // Defensive: phase said planning but the clock is gone — treat as non-turn.
             } else {
-                // PLANNING_CLOSED / QUEUE_FULL / ENTITY_NOT_FOUND / ACTION_NOT_FOUND
-                // Capture Point B (spec §4.2): immediate failure recording so the NPC
-                // agent knows its action was rejected BEFORE resolution.
-                this._recordImmediateOutcome(npcEntityId, actionName, false, q?.error || q?.code || 'queue rejected');
+                // PLANNING_CLOSED / QUEUE_FULL / ENTITY_NOT_FOUND / ACTION_NOT_FOUND.
+                // The round runner records this outcome under the LLM tool name
+                // (via _recordImmediateOutcome on every action path, success and
+                // failure alike) so it is named the way the agent called it.
                 return { actionName, queued: false, success: false, detail: q?.error || q?.code || 'queue rejected' };
             }
         }
@@ -1142,7 +1331,7 @@ class LLMAgentController {
         if (turnsActive) {
             const detail = 'planning window closed';
             Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, action "${actionName}" dropped (no immediate execution in a turn world).`);
-            this._recordImmediateOutcome(npcEntityId, actionName, false, detail);
+            // Recorded by the round runner under the LLM tool name.
             return { actionName, queued: false, success: false, detail };
         }
 
@@ -1152,10 +1341,10 @@ class LLMAgentController {
             if (exec?.success) {
                 return { actionName, queued: false, success: true, detail: 'executed immediately' };
             }
-            this._recordImmediateOutcome(npcEntityId, actionName, false, exec?.error || 'execution failed');
+            // Recorded by the round runner under the LLM tool name.
             return { actionName, queued: false, success: false, detail: exec?.error || 'execution failed' };
         } catch (err) {
-            this._recordImmediateOutcome(npcEntityId, actionName, false, err?.message || String(err));
+            // Recorded by the round runner under the LLM tool name.
             return { actionName, queued: false, success: false, detail: err?.message || String(err) };
         }
     }
@@ -1262,29 +1451,29 @@ class LLMAgentController {
      * @private
      */
     async _dispatchInstinct(npcEntityId, entry, round, result) {
-        const instinctName = entry.args?.instinct;
-        if (!instinctName || typeof instinctName !== 'string') {
-            const detail = 'missing or invalid instinct name';
+        const instinctId = entry.args?.instinctId;
+        if (!instinctId || typeof instinctId !== 'string') {
+            const detail = 'missing or invalid instinct id';
             result.actions.push({ actionName: 'use_instinct', success: false, detail, instinct: null });
             return { actions: [{ actionName: 'use_instinct', success: false, detail, instinct: null }], actionable: false, detail };
         }
 
-        const fullName = `use_instinct(${instinctName})`;
+        const fullName = `use_instinct(${instinctId})`;
 
         // Expand the instinct
         let expanded;
         try {
-            expanded = this.instinctController.expand(npcEntityId, instinctName, {
+            expanded = this.instinctController.expand(npcEntityId, instinctId, {
                 targetEntityId: entry.args?.targetEntityId
             });
         } catch (err) {
             const detail = err?.message || 'expansion failed';
-            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctName }], actionable: true, detail };
+            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctId }], actionable: true, detail };
         }
 
         if (!expanded.ok) {
             const detail = expanded.error || `expansion failed (${expanded.code})`;
-            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctName }], actionable: true, detail };
+            return { actions: [{ actionName: fullName, success: false, detail, instinct: instinctId }], actionable: true, detail };
         }
 
         // Dispatch each step in order
@@ -1292,13 +1481,13 @@ class LLMAgentController {
         let actionable = false;
 
         for (const step of expanded.steps) {
-            const stepFullName = `use_instinct(${instinctName}):${step.actionName}`;
+            const stepFullName = `use_instinct(${instinctId}):${step.actionName}`;
 
             // Pre-validate
             const validation = this._prevalidateAction(npcEntityId, step);
             if (!validation.ok) {
-                const entry = { actionName: stepFullName, success: false, detail: validation.error, instinct: instinctName };
-                actions.push(entry);
+                const stepEntry = { actionName: stepFullName, success: false, detail: validation.error, instinct: instinctId };
+                actions.push(stepEntry);
                 actionable = true;
                 break; // Abort remaining steps (spec §2.4)
             }
@@ -1311,7 +1500,7 @@ class LLMAgentController {
                 queueId: dispatch.queueId,
                 success: dispatch.success,
                 detail: dispatch.detail,
-                instinct: instinctName
+                instinct: instinctId
             };
             actions.push(stepEntry);
 
@@ -1323,99 +1512,155 @@ class LLMAgentController {
 
         return { actions, actionable, detail: expanded.ok ? null : 'steps aborted' };
     }
-
     // =========================================================================
-    // FEEDBACK / HELPERS
+    // ROUND GROUPS + FEEDBACK / HELPERS (spec §6.5)
     // =========================================================================
 
     /**
-     * Builds the retry-feedback tail of the conversation: the assistant's
-     * tool-call message + one tool-role result per call + a user nudge
-     * (spec §6.3.6).
+     * Builds one "group" — the transcript entry for one LLM call in the
+     * in-round agent loop (spec §6.5). One entry per LLM call (up to
+     * LLM_AGENT_MAX_ITERATIONS groups per round), so the FULL loop replays
+     * next round, not just the last message: the sanitized assistant call
+     * plus one tool result per tool call that call made.
      * @private
      */
-    _buildFeedbackMessages(baseMessages, assistantMessage, parsed, result) {
-        const toolCalls = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls : [];
-        const feedback = [];
+    _buildRoundGroup(assistantMessage, parsed, result, ctx) {
+        const results = [];
 
-        const hasContent = typeof assistantMessage?.content === 'string' && assistantMessage.content.length > 0;
-        if (hasContent || toolCalls.length > 0) {
-            const replay = {
-                role: 'assistant',
-                content: hasContent ? assistantMessage.content : null,
-                ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
-            };
-            // Same reasoning_content pass-through as _transcriptFor (the
-            // in-round retry is a multi-turn continuation too).
-            if (typeof assistantMessage?.reasoning_content === 'string') {
-                replay.reasoning_content = assistantMessage.reasoning_content;
-            }
-            feedback.push(replay);
-        }
-
-        for (const call of toolCalls) {
-            const fn = call?.function;
-            const name = fn?.name;
-            // The Parsed entry (from _parseToolCalls) carries the parsed args;
-            // the raw assistant tool_call only has function.arguments (a JSON
-            // string) — matching by id keeps the feedback faithful.
-            const parsedEntry = call?.id
-                ? [...(parsed.actions || []), ...(parsed.speaks || []), ...(parsed.instincts || []), ...(parsed.approaches || [])].find(p => p.id === call.id)
-                : null;
-            const actionName = parsedEntry ? String(parsedEntry.args?.actionName ?? '') : '';
-            const instinctName = parsedEntry?.args?.instinct || null;
-            let payload;
-            if (name === 'speak_in_room') {
-                payload = result.chat.sent
-                    ? { success: true }
-                    : { success: false, error: result.chat.reason || 'chat failed' };
-            } else if (name === 'execute_action') {
-                const matched = actionName
-                    ? result.actions.find(a => a.actionName === actionName)
-                    : null;
-                payload = matched
-                    ? { success: matched.success, ...(matched.detail ? { error: matched.detail } : {}) }
-                    : { success: false, error: 'not dispatched' };
-            } else if (name === 'toApproach') {
-                const matched = result.approaches ? result.approaches.find(a => a.id === call.id || a.actionName === 'toApproach') : null;
-                payload = matched
-                    ? { success: matched.success, ...(matched.detail ? { error: matched.detail } : {}) }
-                    : { success: false, error: 'not dispatched' };
-            } else if (name === 'use_instinct') {
-                // Aggregate over the call's steps: all success → true; else first failure
-                const instinctActions = result.actions.filter(a => a.instinct === instinctName && a.actionName.startsWith(`use_instinct(${instinctName})`));
-                const failed = instinctActions.find(a => !a.success);
-                if (instinctActions.length === 0) {
-                    payload = { success: false, error: 'not dispatched' };
-                } else if (failed) {
-                    payload = { success: false, error: failed.detail || 'instinct failed' };
-                } else {
-                    payload = { success: true };
-                }
-            } else {
-                payload = { success: false, error: `unknown tool "${name}"` };
-            }
-            feedback.push({
-                role: 'tool',
-                tool_call_id: typeof call?.id === 'string' && call.id !== '' ? call.id : `call-${feedback.length}`,
-                content: JSON.stringify(payload)
+        // execute_action: one result entry per call, in call order.
+        (parsed.actions || []).forEach((call, idx) => {
+            const entry = (result.actions || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: (entry && !entry.success) ? entry.detail : undefined
             });
-        }
-
-        const failures = [
-            ...result.actions.filter(a => !a.success).map(a => `${a.actionName}: ${a.detail}`),
-            ...result.approaches.filter(a => !a.success).map(a => `${a.actionName}: ${a.detail}`),
-            ...(result.chat.sent === false && result.chat.reason && result.chat.reason !== 'prose-only' ? [`chat: ${result.chat.reason}`] : [])
-        ];
-        const summary = failures.length > 0 ? failures.join('; ') : 'previous call failed';
-        feedback.push({
-            role: 'user',
-            content: `Your last action failed: ${summary}. Adjust parameters or pick a different action; you may also just talk.`
         });
 
-        return feedback;
+        // toApproach: one result entry per call, in call order. The detail
+        // ("move queued toward target (x=…,y=…)" / "executed immediately")
+        // is the outcome the model must be replayed (spec §6.5.6); kept even
+        // on success, unlike the failure-only details of the other tools.
+        (parsed.approaches || []).forEach((call, idx) => {
+            const entry = (result.approaches || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // speak_in_room: one result entry per call, in call order.
+        (parsed.speaks || []).forEach((call, idx) => {
+            const entry = (ctx.speakResults || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: (entry && !entry.success) ? entry.detail : undefined
+            });
+        });
+
+        // use_instinct: one result entry per call (aggregated over its steps
+        // — any failed step fails the whole instinct).
+        (parsed.instincts || []).forEach((call, idx) => {
+            const entry = (ctx.instinctResults || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // get_actions / get_instincts: the discovery payloads (payloadMap is
+        // built in runRound for this call).
+        (parsed.discoveries || []).forEach(entry => {
+            const p = (ctx.payloadMap || {})[entry.id];
+            results.push({
+                id: entry.id,
+                success: p ? Boolean(p.success) : false,
+                detail: (p && !p.success) ? p.error : undefined,
+                list: (p && p.list) ? p.list : undefined
+            });
+        });
+
+        const hasContent =
+            (assistantMessage && typeof assistantMessage.content === 'string' && assistantMessage.content.length > 0);
+        const toolCalls =
+            (assistantMessage && Array.isArray(assistantMessage.tool_calls)) ? assistantMessage.tool_calls : [];
+        const replay = {
+            role: 'assistant',
+            content: hasContent ? assistantMessage.content : null,
+            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+        };
+        // Pass the model's reasoning_content through on replay (reasoning
+        // models on an OpenAI-compatible endpoint expect their reasoning
+        // history back; the LLMController does the same for fresh turns).
+        if (assistantMessage && typeof assistantMessage.reasoning_content === 'string') {
+            replay.reasoning_content = assistantMessage.reasoning_content;
+        }
+        return { assistant: replay, results };
     }
 
+    /**
+     * Builds the in-round retry continuation for the conversation (spec
+     * §6.3.6 / §6.5): the assistant's previous tool-call message, one
+     * tool-role result per call (in call order), and a user nudge. Re-attaching
+     * the assistant message keeps the payload a valid multi-turn conversation
+     * (assistant → tool results); without it the tool_call_id bindings are
+     * orphaned and the model never sees its own failed call. runRound appends
+     * this array to `messages` in place before the next chatFull.
+     * @param {Object} group - The round group for one in-round LLM call: { assistant, results }.
+     * @private
+     */
+    _buildFeedbackMessages(group) {
+        const results = Array.isArray(group?.results) ? group.results : [];
+        const messages = [];
+        // Re-attach the assistant's previous tool-call message so the payload
+        // stays a valid multi-turn conversation (assistant → tool results).
+        const assistant = (group && group.assistant) ? group.assistant : null;
+        const hasContent = assistant
+            && typeof assistant.content === 'string'
+            && assistant.content.length > 0;
+        const toolCalls = assistant
+            && Array.isArray(assistant.tool_calls)
+            ? assistant.tool_calls
+            : [];
+        if (hasContent || toolCalls.length > 0) {
+            const replay = { role: 'assistant', content: hasContent ? assistant.content : null };
+            if (toolCalls.length > 0) replay.tool_calls = toolCalls;
+            if (assistant
+                && typeof assistant.reasoning_content === 'string') {
+                replay.reasoning_content = assistant.reasoning_content;
+            }
+            messages.push(replay);
+        }
+        for (let i = 0; i < results.length; i += 1) {
+            const r = results[i];
+            messages.push({
+                role: 'tool',
+                tool_call_id: (typeof r.id === 'string' && r.id !== '')
+                    ? r.id
+                    : `call-feedback-${i}`,
+                // Consistent with _transcriptFor (cross-round replay): a failed
+                // call surfaces { error }; a discovery success (get_actions /
+                // get_instincts) surfaces the formatted list in `list` — the
+                // result the model reads to choose a concrete call.
+                content: JSON.stringify(
+                    {
+                        success: Boolean(r.success),
+                        ...(r.detail ? { error: r.detail } : {}),
+                        ...(r.list ? { list: r.list } : {})
+                    }
+                )
+            });
+        }
+        const failed = results.filter(r => !r.success);
+        const message = failed.length > 0
+            ? `One or more calls failed (${failed.map(r => (r.detail ? r.detail : 'no result')).join('; ')}). Retry with a corrected call, or call the done tool when your work is done.`
+            : `Tool results are above. Continue acting this round, or call the done tool when you are finished.`;
+        messages.push({ role: 'user', content: message });
+        return messages;
+    }
     /**
      * Minimal identity line used when the context layer is unavailable.
      * @private

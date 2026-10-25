@@ -105,15 +105,16 @@ const NO_OBJECTIVE_PROMPT = [
     '',
     'World rules:',
     "- You are the only actor: you never choose another entity's ID as the acting entity.",
-    '- Execute at most 2 world action(s) and send at most 1 chat message(s) per round.',
-    '- Only use actions listed under "executable now" in the context. If none fit your goals, stay silent.',
+    '- You may issue at most 2 world action call(s) and send at most 1 chat message(s) this round. Call the done tool to end your round.',
+    '- Only use actions the get_actions tool returned. Move toward your goals with toApproach (pass the targetEntityId — the server resolves the position). Stop the round when nothing is worth doing.',
     '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
+    '- Start each round with get_actions (and get_instincts when instincts exist): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct only with names the discovery calls returned.',
     '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
     '- Keep chat messages under 25 words, in character, no fourth-wall breaks.',
     '',
     'How you respond:',
-    '- Act only through the available tools. Never write JSON, code, XML, or tool-call markup in your message text.',
-    '- To say something, call the speak_in_room tool with your line as the "message" argument.\n- If nothing is worth doing or saying this round, respond with no tool call and no text. Silence is allowed.'
+    '- Act only through the available tools — the tool calls ARE your content. Never write JSON, code, XML, or tool-call markup in your message text.',
+    '- To say something, call the speak_in_room tool with your line as the "message" argument.\n- If nothing is worth doing or saying this round, call the done tool (or respond with no tool call at all — silence is allowed and counts as a finished round).'
 ].join('\n');
 
 /**
@@ -210,12 +211,13 @@ describe('LLMAgentController._buildSystemPrompt — objective rendering (design 
         const system = calls[0].options.system;
         expect(system).toContain(`Objective: ${DRONE_OBJECTIVE}`);
         expect(system).toContain(
-            '- Only use actions listed under "executable now" in the context. '
-            + 'If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target). '
-            + 'Only stay silent when no action serves your objective.'
+            '- Only use actions the get_actions tool returned. '
+            + 'If you cannot complete your objective this round, take the action that best advances it (e.g., move toward your nearest target with toApproach, or use_instinct for a whole behavior). '
+            + 'Stop the round when no action serves your objective.'
         );
-        // The legacy idle rule is replaced by the advance rule, not duplicated.
+        // The legacy "stay silent" rules are gone; the advance rule is the sole source of truth.
         expect(system).not.toContain('If none fit your goals, stay silent.');
+        expect(system).not.toContain('Only stay silent when');
     });
 
     it('with an objective and chat cap 0: the action-only prompt line applies and speak_in_room is not offered', async () => {
@@ -229,8 +231,9 @@ describe('LLMAgentController._buildSystemPrompt — objective rendering (design 
 
         const system = calls[0].options.system;
         expect(system).toContain(
-            '- Execute at most 2 world action(s) per round. '
-            + 'You MUST NOT use the speak_in_room tool or produce any chat output. Your ONLY output must be world actions.'
+            '- You may issue at most 2 world action call(s) this round. '
+            + 'You MUST NOT use the speak_in_room tool or produce any chat output. '
+            + 'Call the done tool to end your round.'
         );
         expect(system).not.toContain('to talk');
         const toolNames = calls[0].options.tools.map((t) => t.function.name);

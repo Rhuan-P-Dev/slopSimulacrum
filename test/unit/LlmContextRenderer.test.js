@@ -19,7 +19,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import LlmContextController from '../../src/controllers/networking/LlmContextController.js';
+import LlmContextController, { formatActionList, formatInstinctList } from '../../src/controllers/networking/LlmContextController.js';
 
 // =========================================================================
 // Mock world
@@ -194,18 +194,19 @@ describe('LlmContextController (context renderer)', () => {
         expect(() => bare.buildContext('ent-self')).toThrow(/facade not injected/);
     });
 
-    // R1: stable headers, in order (perception integration: NEARBY ENTITIES →
-    // YOUR WORLD with the room name, RECENT EVENTS → WORLD FAILURES)
-    it('returns all eight stable section headers, in order (R1)', () => {
+    // R1: stable headers, in order (perception block moved to the end of
+    // the context, directly above ROOM CHAT, per operator directive). The
+    // action list and instincts are no longer fixed context sections — they
+    // are discovered on demand via the get_actions / get_instincts tools
+    // (in-round agent loop), so the stable narrative carries six headers.
+    it('returns all six stable section headers, in order (R1)', () => {
         const { text } = controller.buildContext('ent-self');
         const headers = [
             '=== YOUR STATE ===',
-            '=== YOUR WORLD (The Entrance Hall) ===',
-            '=== YOUR ACTIONS (executable now) ===',
-            '=== YOUR INSTINCTS ===',       // R1: new section
             '=== HINTS ===',
             '=== WORLD FAILURES ===',
             '=== YOUR LAST ACTIONS & RESULTS ===',
+            '=== YOUR WORLD (The Entrance Hall) ===',
             '=== ROOM CHAT ==='
         ];
         let last = -1;
@@ -223,18 +224,89 @@ describe('LlmContextController (context renderer)', () => {
         expect(text).toContain('You are in: The Entrance Hall — A dimly lit hall.');
         expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
         expect(text).toContain('Exits: right_door → The Deep Vault');
-        // max 2 existence components, lowest ratio first (stable sort keeps
-        // component order on ties: head 45/50 = 0.9 and core 90/100 = 0.9)
-        expect(data.self.existence).toHaveLength(2);
+        // Body: every component of the droid in droid order (coreBall, head,
+        // hand, roller). In this fixture all four carry a Physical.existence
+        // stat, so each renders as "type current/max".
+        expect(data.self.existence).toHaveLength(4);
         expect(data.self.existence).toEqual(expect.arrayContaining([
+            expect.objectContaining({ component: 'coreBall', current: 90, max: 100 }),
             expect.objectContaining({ component: 'head', current: 45, max: 50 }),
-            expect.objectContaining({ component: 'coreBall', current: 90, max: 100 })
+            expect.objectContaining({ component: 'hand', current: 90, max: 90 }),
+            expect.objectContaining({ component: 'roller', current: 60, max: 60 })
         ]));
-        expect(text).toContain('head 45/50');
+        expect(text).toContain('Existence: coreBall 90/100, head 45/50, hand 90/90, roller 60/60');
         expect(text).toContain('Key stats: strength=25 move=20 think=8');
         expect(text).toContain('Equipped: knife');
         expect(text).toContain('powerCell x2');
         expect(data.self.isNPC).toBe(true);
+    });
+
+    it('renders components without a Physical.existence stat as their type alone, in droid order', () => {
+        const bareWorld = makeWorld({}, {
+            'ent-bare': {
+                id: 'ent-bare',
+                name: 'Bare Droid',
+                isNPC: true,
+                location: 'room-1',
+                spatial: { x: 20, y: 20 },
+                components: [makeComponent('comp-bare-hand', 'hand'), makeComponent('comp-bare-roller', 'roller')]
+            }
+        });
+        const c2 = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        c2.setWorldStateController(bareWorld);
+        const { text, data } = c2.buildContext('ent-bare');
+        // comp-bare-hand / comp-bare-roller are not in the fixture's live
+        // stats, so both lack a Physical.existence stat and render as type
+        // alone (matches the format: existence components carry current/max).
+        expect(text).toContain('Existence: hand, roller');
+        expect(data.self.existence).toHaveLength(2);
+        expect(data.self.existence).toEqual(expect.arrayContaining([
+            expect.objectContaining({ component: 'hand', current: null, max: null }),
+            expect.objectContaining({ component: 'roller', current: null, max: null })
+        ]));
+    });
+
+    it('shows the side label for repeated component types (m1Droid style)', () => {
+        // Live entities built from blueprints carry an `identifier` per
+        // component (e.g. m1Toe under m1Leg 'frontal_left' is
+        // 'left_frontal_left'). Plain (un-varianted) components use the
+        // 'default' label, which must render as a bare type.
+        const m1Ent = {
+            id: 'ent-m1',
+            name: 'M1 Droid',
+            isNPC: true,
+            location: 'room-1',
+            spatial: { x: 50, y: 50 },
+            components: [
+                { id: 'c-body', type: 'coreBall', identifier: 'default' },
+                { id: 'c-leg-l', type: 'm1Leg', identifier: 'frontal_left' },
+                { id: 'c-leg-r', type: 'm1Leg', identifier: 'frontal_right' },
+                { id: 'c-toe-1', type: 'm1Toe', identifier: 'left_frontal_left' }
+            ]
+        };
+        const m1World = makeWorld({
+            getEntity: (id) => (id === 'ent-m1' ? m1Ent : null),
+            getComponentStats: (compId) => ({
+                'c-body': { Physical: { existence: 100 } },
+                'c-leg-l': { Physical: { existence: 1 } },
+                'c-leg-r': { Physical: { existence: 1 } },
+                'c-toe-1': { Physical: { existence: 1 } }
+            })[compId] || null
+        }, {});
+        const c2 = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        c2.setWorldStateController(m1World);
+        const { text, data } = c2.buildContext('ent-m1');
+        // 'default' label (coreBall) → bare type; labelled legs/toe → type (label).
+        expect(text).toContain(
+            'Existence: coreBall 100/100, m1Leg (frontal_left) 1/1, m1Leg (frontal_right) 1/1, m1Toe (left_frontal_left) 1/1'
+        );
+        expect(data.self.existence).toHaveLength(4);
+        expect(data.self.existence[0]).toEqual({
+            component: 'coreBall', identifier: null, current: 100, max: 100, ratio: 1
+        });
+        expect(data.self.existence[3]).toEqual({
+            component: 'm1Toe', identifier: 'left_frontal_left', current: 1, max: 1, ratio: 1
+        });
     });
 
     it('lists same-room entities with distance + position and other-room entities room-named', () => {
@@ -417,21 +489,27 @@ describe('LlmContextController (context renderer)', () => {
         expect(result.text).not.toContain('Exits:');
     });
 
-    it('renders executable actions with description, range, requirement and a valid canExecute id', () => {
-        const { text, data } = controller.buildContext('ent-self');
-        expect(text).toMatch(/- droid punch: Throw a punch with your arm.*\| range 100 \| needs Physical\.strength >= 15 \| use comp-hand/);
-        expect(text).toMatch(/- selfHeal: Run a self-repair cycle.*\| range self \| needs Movement\.move >= 1, Physical\.existence >= 1 \| use comp-roller/);
+    // Actions are no longer a fixed context section: the get_actions tool
+    // serves this data (and pins the classic render format it emits).
+    it('action data carries description, range, requirement and a valid canExecute id (get_actions tool backing)', () => {
+        const { data } = controller.buildContext('ent-self');
         expect(data.actions.entries.map(a => a.name).sort()).toEqual(['droid punch', 'selfHeal']);
         for (const entry of data.actions.entries) {
             expect(entry.canExecute[0]).toMatch(/^comp-/);
             expect(entry.description.length).toBeGreaterThan(0);
         }
+        // The get_actions tool renders the classic format from this data; pin
+        // it so a tool-side regression is caught.
+        const rendered = formatActionList(data.actions.entries, data.actions.notExecutable);
+        expect(rendered).toMatch(/- droid punch: Throw a punch with your arm.*\| range 100 \| needs Physical\.strength >= 15 \| use comp-hand/);
+        expect(rendered).toMatch(/- selfHeal: Run a self-repair cycle.*\| range self \| needs Movement\.move >= 1, Physical\.existence >= 1 \| use comp-roller/);
     });
 
-    it('summarizes non-executable actions in a single line', () => {
-        const { text, data } = controller.buildContext('ent-self');
-        expect(text).toContain('1 action not executable right now: cut');
+    it('summarizes non-executable actions in a single line (get_actions tool backing)', () => {
+        const { data } = controller.buildContext('ent-self');
         expect(data.actions.notExecutable).toEqual(['cut']);
+        const rendered = formatActionList(data.actions.entries, data.actions.notExecutable);
+        expect(rendered).toContain('1 action not executable right now: cut');
     });
 
     it('renders world failures (warn-level events only) as "[tick] [action] message"', () => {
@@ -488,30 +566,85 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.roomChat[0]).toContain('Player: Do you have fresh power cells?');
     });
 
-    it('caps the rendered text at the 5000-char budget and flags truncation', () => {
-        // Flood the world event ring with long WARN lines AND pad instincts
-        // so the composed context blows the budget (the WORLD FAILURES feed
-        // scans the full ring for warn entries; the cascade sheds failures
-        // before instincts, so this flags the failures stage).
-        const flood = Array.from({ length: 200 }, (_, i) => ({
-            tick: i, action: 'droid punch', targetId: null,
-            message: 'Droid performed a punch dealing 25 damage! '.repeat(8),
-            level: 'warn', ts: i
+    // RECENT TOOLS: the newest outcomes of the outcome-producing tools the
+    // agent invoked (execute_action, toApproach, use_instinct, speak_in_room),
+    // success + failure, named the way it called each tool. Rendered after the
+    // room chat (the agent reads it last). Uses the same feedback ring as
+    // "YOUR LAST ACTIONS & RESULTS" (LlmAgentFeedbackController), newest first.
+    it('RECENT TOOLS: newest tool outcomes below ROOM CHAT, success + failure, named as called (spec §4.2)', () => {
+        const feedback = [
+            { actionName: 'toApproach', success: true, detail: 'queued' },
+            { actionName: 'shootT1', success: false, detail: 'Target is too far away (distance 350 > 50)' },
+            { actionName: 'speak_in_room', success: true, detail: 'said "Hello, Bolt."' },
+            { actionName: 'use_instinct', success: false, detail: 'instinct chase requires a valid target' }
+        ];
+        const recentWorld = makeWorld({
+            llmAgentFeedbackController: {
+                getRecent: (entityId) => {
+                    expect(entityId).toBe('ent-self');
+                    return feedback.slice(); // newest first
+                }
+            }
+        });
+        const recentController = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        recentController.setWorldStateController(recentWorld);
+
+        const { text } = recentController.buildContext('ent-self');
+
+        const toolsIdx = text.indexOf('=== RECENT TOOLS ===');
+        const chatIdx = text.indexOf('=== ROOM CHAT ===');
+        expect(toolsIdx, 'RECENT TOOLS header must be present').toBeGreaterThanOrEqual(0);
+        // Placed after the room chat (last thing the agent reads).
+        expect(toolsIdx).toBeGreaterThan(chatIdx);
+
+        const section = text.slice(toolsIdx + '=== RECENT TOOLS ==='.length);
+        expect(section).toContain('- ✓ toApproach: queued');
+        expect(section).toContain('- ✗ shootT1: Target is too far away (distance 350 > 50)');
+        expect(section).toContain(`- ✓ speak_in_room: said "Hello, Bolt."`);
+        expect(section).toContain('- ✗ use_instinct: instinct chase requires a valid target');
+        // Newest first, in the order the feedback ring carries it.
+        expect(section.indexOf('toApproach')).toBeLessThan(section.indexOf('shootT1'));
+        expect(section.indexOf('shootT1')).toBeLessThan(section.indexOf('speak_in_room'));
+        expect(section.indexOf('speak_in_room')).toBeLessThan(section.indexOf('use_instinct'));
+    });
+
+    it('RECENT TOOLS: (none) when no tool outcomes recorded', () => {
+        const emptyWorld = makeWorld({
+            llmAgentFeedbackController: { getRecent: () => [] }
+        });
+        const controller = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        controller.setWorldStateController(emptyWorld);
+
+        const { text } = controller.buildContext('ent-self');
+        expect(text).toContain('=== RECENT TOOLS ===\n(none)');
+    });
+
+    it('caps the rendered text at the 5000-char budget and flags the overflowing section', () => {
+        // Flood the perception delta window (the only uncapped section — each
+        // summary is unbounded length) so the composed context blows the budget;
+        // the cascade sheds deltas first and flags the overflow. Failures and
+        // chat are capped (10 x 200 chars) and cannot push the base context over
+        // 5000 on their own once the action/instinct lists left the fixed
+        // sections (they are now tool-backed discovery).
+        const longSummary = 'x'.repeat(500);
+        const deltaFlood = Array.from({ length: 10 }, (_, i) => ({
+            sequence: i + 1, tick: i, kind: 'delta', summary: `${longSummary} ${i}`
         }));
-        const padInstincts = Array.from({ length: 5 }, (_, i) => ({
-            name: 'pad_instinct_' + i, description: 'x'.repeat(400)
-        }));
-        const floodWorld = makeWorld({ getRecentEvents: (limit) => flood.slice(-limit) });
+        const floodWorld = makeWorld({
+            getAgentRoomPerception: () => deltaFlood
+        });
         const floodController = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         floodController.setWorldStateController(floodWorld);
 
-        const { text, stats } = floodController.buildContext('ent-self', { instincts: padInstincts });
+        const { text, stats } = floodController.buildContext('ent-self');
         expect(stats.budgetChars).toBe(5000);
         expect(stats.chars).toBeLessThanOrEqual(5000);
         expect(text.length).toBeLessThanOrEqual(5000);
-        expect(stats.truncated.failures).toBe(true);
-        // all headers survive truncation (including HINTS)
-        for (const header of ['=== YOUR STATE ===', '=== YOUR ACTIONS (executable now) ===', '=== HINTS ===', '=== WORLD FAILURES ===']) {
+        // The overflow came from deltas, so that is the section flagged.
+        expect(stats.truncated.deltas).toBe(true);
+        // All stable headers survive truncation (the perception block ends the
+        // narrative; every header must still be present).
+        for (const header of ['=== YOUR STATE ===', '=== HINTS ===', '=== WORLD FAILURES ===', '=== ROOM CHAT ===']) {
             expect(text).toContain(header);
         }
     });
@@ -599,9 +732,9 @@ describe('LlmContextController (context renderer)', () => {
     });
 
     it('budget cascade: delta lines are shed before the state block (state survives)', () => {
-        // 10 long summaries (~4KB) on top of the base context blows the
+        // 10 long summaries (~5KB) on top of the base context blow the
         // 5000-char budget; the cascade halves the delta window first.
-        const longSummary = 'x'.repeat(398);
+        const longSummary = 'x'.repeat(500);
         const deltaFlood = Array.from({ length: 10 }, (_, i) => ({
             sequence: i + 1, tick: i, kind: 'delta', summary: `${longSummary} ${i}`
         }));
@@ -618,8 +751,10 @@ describe('LlmContextController (context renderer)', () => {
         expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
         // The delta window was halved (10 → 5).
         const sinceIdx = text.indexOf('since you last looked:');
-        const actionsIdx = text.indexOf('=== YOUR ACTIONS (executable now) ===');
-        const deltaSection = text.slice(sinceIdx, actionsIdx);
+        // ROOM CHAT is now the section that follows the perception block,
+        // so the delta lines are sliced up to that header, not YOUR ACTIONS.
+        const chatIdx = text.indexOf('=== ROOM CHAT ===');
+        const deltaSection = text.slice(sinceIdx, chatIdx);
         const deltaLines = (deltaSection.match(/^- /gm) || []).length;
         expect(deltaLines).toBe(5);
     });
@@ -731,29 +866,33 @@ describe('LlmContextController (context renderer)', () => {
         expect(text).toContain('- Test hint message');
     });
 
-    // R2: instinct line format
-    it('R2: renders instinct lines in format "- name: description"', () => {
+    // R2: instinct line format (served by the get_instincts tool, not a
+    // fixed context section — pin the line format the tool emits from the
+    // instinct data).
+    it('R2: instinct data renders as "- name: description" (get_instincts tool backing)', () => {
         const instincts = [
             { name: 'chase', description: 'move toward the target' },
             { name: 'chase_attack', description: 'chase and attack with punch' }
         ];
-        const { text } = controller.buildContext('ent-self', { instincts });
+        const { data } = controller.buildContext('ent-self', { instincts });
 
-        expect(text).toContain('=== YOUR INSTINCTS ===');
-        expect(text).toContain('- chase: move toward the target');
-        expect(text).toContain('- chase_attack: chase and attack with punch');
+        expect(data.instincts).toHaveLength(2);
+        const rendered = formatInstinctList(data.instincts);
+        expect(rendered).toContain('- chase: move toward the target');
+        expect(rendered).toContain('- chase_attack: chase and attack with punch');
     });
 
-    // R3: empty list → (none); absent → (none), no throw
-    it('R3: empty instincts array → header + (none); absent → (none)', () => {
-        const { text: textEmpty } = controller.buildContext('ent-self', { instincts: [] });
-        expect(textEmpty).toContain('=== YOUR INSTINCTS ===');
-        expect(textEmpty).toContain('(none)');
+    // R3: empty list / absent → data.instincts = [] (the get_instincts tool
+    // would emit "(none)" via formatInstinctList); no throw.
+    it('R3: empty instincts array → data.instincts = []; absent → data.instincts = []', () => {
+        const { data: dataEmpty } = controller.buildContext('ent-self', { instincts: [] });
+        expect(dataEmpty.instincts).toEqual([]);
+        expect(formatInstinctList(dataEmpty.instincts)).toBe('(none)');
 
-        // Absent instincts (undefined) should also render (none)
-        const { text: textAbsent } = controller.buildContext('ent-self');
-        expect(textAbsent).toContain('=== YOUR INSTINCTS ===');
-        expect(textAbsent).toContain('(none)');
+        // Absent instincts (undefined) → also empty
+        const { data: dataAbsent } = controller.buildContext('ent-self');
+        expect(dataAbsent.instincts).toEqual([]);
+        expect(formatInstinctList(dataAbsent.instincts)).toBe('(none)');
     });
 
     // R4: facade fallback when options.instincts absent but facade has instinctController
@@ -778,46 +917,29 @@ describe('LlmContextController (context renderer)', () => {
         const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         ctrl.setWorldStateController(facadeWithInstincts);
 
-        const { text } = ctrl.buildContext('ent-self'); // no options.instincts
+        const { data } = ctrl.buildContext('ent-self'); // no options.instincts
 
-        expect(text).toContain('=== YOUR INSTINCTS ===');
-        expect(text).toContain('- debug_instinct: from facade');
+        expect(data.instincts).toHaveLength(1);
+        expect(data.instincts[0]).toEqual({ name: 'debug_instinct', description: 'from facade' });
+        expect(formatInstinctList(data.instincts)).toContain('- debug_instinct: from facade');
     });
 
-    // R5: budget truncation — > 5 instincts reduced to 3, stats.truncated.instincts = true
-    it('R5: budget over 5000 chars with > 5 instincts → truncated to 3, stats.truncated.instincts = true', () => {
-        // Create many instincts with VERY long descriptions to ensure they contribute significantly
-        // (8 x ~620 chars pushes the composed context far over the 5000-char
-        // budget, so the cascade has to reach the instincts stage).
+    // R5: too many instincts → data.instincts is capped to BUDGET.maxInstincts
+    // (5). Instincts no longer occupy a fixed context section, so the cap is
+    // on the data mirror / the get_instincts tool payload, not on rendered text.
+    it('R5: more than BUDGET.maxInstincts → data.instincts capped to 5', () => {
         const manyInstincts = Array.from({ length: 8 }, (_, i) => ({
             name: `instinct_${i}`,
-            description: 'x'.repeat(600) // very long descriptions (~620 chars each)
+            description: 'x'.repeat(600)
         }));
-
-        // Flood events to blow past budget (these get truncated to perMessageChars=200)
-        const floodEvents = Array.from({ length: 200 }, (_, i) => ({
-            tick: i, action: 'droid punch', targetId: null,
-            message: 'Droid performed a punch dealing 25 damage! '.repeat(8),
-            level: 'warn', ts: i
-        }));
-
-        const floodWorld = makeWorld({
-            getRecentEvents: (limit) => floodEvents.slice(-limit)
-        });
-        const floodCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
-        floodCtrl.setWorldStateController(floodWorld);
-
-        const { text, stats } = floodCtrl.buildContext('ent-self', { instincts: manyInstincts });
-
-        expect(stats.chars).toBeLessThanOrEqual(5000);
-        expect(stats.truncated.instincts).toBe(true);
-        // Only 3 instinct lines should appear in rendered text
-        const instinctSection = text.slice(text.indexOf('=== YOUR INSTINCTS ==='));
-        const nextSection = instinctSection.indexOf('=== HINTS ===');
-        const instinctContent = nextSection > 0 ? instinctSection.substring(0, nextSection) : instinctSection;
-        // Count lines starting with "- "
-        const instinctLines = instinctContent.match(/^- /gm) || [];
-        expect(instinctLines.length).toBeLessThanOrEqual(3);
+        const { data } = controller.buildContext('ent-self', { instincts: manyInstincts });
+        expect(data.instincts).toHaveLength(5);
+        expect(data.instincts.map(i => i.name)).toEqual(['instinct_0', 'instinct_1', 'instinct_2', 'instinct_3', 'instinct_4']);
+        // All five are rendered by the get_instincts tool (the old budget-driven
+        // trim to 3 no longer applies; instinct count no longer drives text length).
+        const rendered = formatInstinctList(data.instincts);
+        expect(rendered).toMatch(/- instinct_0: /);
+        expect(rendered).toMatch(/- instinct_4: /);
     });
 
     // R6: data.instincts mirror present in structured output (raw objects, not rendered lines)

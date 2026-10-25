@@ -4,9 +4,9 @@
  * Feature B (spec §4.3): a local LLM can only reason about the world
  * through text. This controller composes a bounded, sectioned narrative
  * (hard cap of 5000 chars) from the live world state: entity self-state,
- * its world (current room state + the perception delta stream), executable
- * actions (with the natural-language descriptions from data/systems/
- * actions.json), world failures (the warn-level event tail), and (when the
+ * executable actions (with the natural-language descriptions from data/systems/
+ * actions.json), world failures (the warn-level event tail), its world
+ * (current room state + the perception delta stream), and (when the
  * room-chat layer exists) the room chat.
  *
  * It is a reader/composer — a logic controller, not a state owner. It
@@ -29,12 +29,20 @@
  * 2026-10-21).
  *
  * The section headers are stable and deliberate (prompt engineering):
- *   === YOUR STATE ===, === YOUR WORLD (room) ===,
- *   === YOUR ACTIONS (executable now) ===, === YOUR INSTINCTS ===,
- *   === HINTS ===, === WORLD FAILURES ===,
- *   === YOUR LAST ACTIONS & RESULTS ===, === ROOM CHAT ===
- * Empty sections still print their header plus "(none)" so weak local
- * models always see the same structure.
+ *   === YOUR STATE ===, === HINTS ===,
+ *   === WORLD FAILURES ===, === YOUR LAST ACTIONS & RESULTS ===,
+ *   === YOUR WORLD (room) ===, === ROOM CHAT ===,
+ *   === RECENT TOOLS ===
+ * (the executable action list and instincts moved out of the context into
+ * native discovery tools, get_actions / get_instincts — the agent discovers
+ * them on demand instead of reading a fixed section). === RECENT TOOLS ===
+ * lists the newest outcomes of the outcome-producing tools the agent invoked
+ * (execute_action, toApproach, use_instinct, speak_in_room), success and
+ * failure, named the way it called each tool. Recorded at dispatch time in
+ * the round runner. Placed after the room chat so the newest local signal
+ * is the most likely to survive the 5000-char budget cascade (sheds oldest
+ * first). Empty sections still print their header plus "(none)" so weak
+ * local models always see the same structure.
  *
  * @module LlmContextController
  */
@@ -243,8 +251,10 @@ class LlmContextController {
     // =========================================================================
 
     /**
-     * Self section data: name, existence (lowest-ratio components first, max 2),
-     * key stats, equipped items, inventory grouped by host component.
+     * Self section data: name, body (every component, each with its existence
+     * current/max when it carries a Physical.existence stat, and its side
+     * label `identifier` when it is not the blueprint's default label), key
+     * stats, equipped items, inventory grouped by host component.
      * @param {Object} entity
      * @returns {Object}
      * @private
@@ -253,19 +263,35 @@ class LlmContextController {
         const facade = this.worldStateController;
         const components = entity.components || [];
 
-        // Existence: components with Physical.existence, lowest ratio first, max 2.
-        const existence = components
-            .map(comp => {
-                const stats = facade.getComponentStats(comp.id);
-                const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
-                const def = this._componentDef(comp.type);
-                const max = def?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? cur;
-                if (typeof cur !== 'number' || typeof max !== 'number' || max <= 0) return null;
-                return { component: comp.type, current: cur, max, ratio: cur / max };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a.ratio - b.ratio)
-            .slice(0, 2);
+        // Body: every component of the droid, in the droid's own order (the
+        // "Existence:" line is the droid's full component list, not a top-N
+        // of damaged parts). Each entry carries the component's side label
+        // (its blueprint `identifier`, e.g. "frontal_left" / "left_frontal_left")
+        // so repeated types (two legs, three toes) are unambiguous; the plain
+        // "default" label (roots like m1Head) renders as bare type. Components
+        // that carry a Physical.existence stat render as "type (label) current/max";
+        // the rest render as "type (label)" or bare "type". `max` is only
+        // carried when there is a live `current`.
+        const existence = components.map(comp => {
+            const stats = facade.getComponentStats(comp.id);
+            const cur = stats?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE];
+            const def = this._componentDef(comp.type);
+            const hasCur = typeof cur === 'number';
+            const max = hasCur
+                ? (def?.traits?.[TRAIT_GROUPS.PHYSICAL]?.[STAT_NAMES.EXISTENCE] ?? cur)
+                : null;
+            const identifier =
+                (comp.identifier && comp.identifier !== 'default')
+                    ? comp.identifier
+                    : null;
+            return {
+                component: comp.type,
+                identifier,
+                current: hasCur ? cur : null,
+                max,
+                ratio: (hasCur && max > 0) ? cur / max : null
+            };
+        });
 
         // Key stats aggregated across components.
                 const sum = (trait, stat) => components.reduce((acc, comp) => {
@@ -468,6 +494,17 @@ class LlmContextController {
     }
 
     /**
+     * Public accessor for the action data (executable entries + not-executable
+     * names). Shared by the agent's get_actions tool; no perception side
+     * effects — safe to call on every tool round.
+     * @param {string} entityId
+     * @returns {{ entries: Array, notExecutable: string[] }}
+     */
+    getActionData(entityId) {
+        return this._buildActionData(entityId);
+    }
+
+    /**
      * Hints section: deterministic suggestions for the entity.
      * Returns raw hint objects (up to 3) for the data mirror; the rendered
      * HINTS section uses hint.message strings.
@@ -592,7 +629,7 @@ class LlmContextController {
      *   by buildContext so the room block is resolved from the same single clone.
      * @private
      */
-    _render(entity, roomName, self, near, deltas, actions, hints, failures, chat, feedback, instincts, droppedItems, _maxEntities, rooms) {
+    _render(entity, roomName, self, near, deltas, _actions, hints, failures, chat, feedback, _instincts, droppedItems, _maxEntities, rooms) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -611,9 +648,15 @@ class LlmContextController {
         } else {
             lines.push(`You are in: ${roomName || 'unknown'}`);
         }
-        lines.push(self.existence.length > 0
-            ? `Existence: ${self.existence.map(d => `${d.component} ${d.current}/${d.max}`).join(', ')}`
-            : 'Existence: (none)');
+        lines.push('Existence: ' + (self.existence.length > 0
+            ? self.existence.map(d => {
+                const label = d.identifier ? ` (${d.identifier})` : '';
+                const type = `${d.component}${label}`;
+                return (d.current != null && d.max != null)
+                    ? `${type} ${d.current}/${d.max}`
+                    : type;
+            }).join(', ')
+            : '(none)'));
         const statParts = [
             self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)] !== null && `strength=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH)]}`,
             self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)] !== null && `sharpness=${self.stats[flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.SHARPNESS)]}`,
@@ -629,11 +672,42 @@ class LlmContextController {
             : 'Inventory: (none)');
         lines.push('');
 
+        // === HINTS ===
+        lines.push('=== HINTS ===');
+        const hintLines = hints.slice(0, LLM_CONTEXT_MAX_HINTS).map(h => `- ${h.message || h}`);
+        lines.push(hintLines.length > 0 ? hintLines.join('\n') : '(none)');
+        lines.push('');
+
+        // === WORLD FAILURES ===
+        // The warn-level tail of the world event ring (failed actions +
+        // round-level warnings). Success events are intentionally absent:
+        // their state consequences ride the perception stream in the
+        // "since you last looked" block above.
+        lines.push('=== WORLD FAILURES ===');
+        lines.push(failures.length > 0 ? failures.join('\n') : '(none)');
+        lines.push('');
+
+        // === YOUR LAST ACTIONS & RESULTS ===
+        lines.push('=== YOUR LAST ACTIONS & RESULTS ===');
+        if (feedback.length === 0) {
+            lines.push('(none — this is your first round or no actions recorded yet)');
+        } else {
+            for (const f of feedback) {
+                const status = f.success ? '✓' : '✗';
+                const instinctTag = f.instinct ? ` (instinct: ${f.instinct})` : '';
+                lines.push(`- ${status} ${f.actionName}: ${f.detail}${instinctTag}`);
+            }
+        }
+        lines.push('');
+
         // === YOUR WORLD ({room}) ===
         // State first, then change: the "now in this room" block is the
         // agent's spatial anchor (it survives the budget cascade), the
         // "since you last looked" block is the perception delta stream (shed
         // first under budget pressure — see buildContext).
+        // Rendered at the end of the context, directly above ROOM CHAT
+        // (operator directive, 2026-10-23): the agent's spatial anchor is the
+        // last thing it reads before the social feed.
         lines.push(`=== YOUR WORLD (${roomName || 'unknown'}) ===`);
         lines.push('now in this room:');
         const nearby = [...near.sameRoom, ...near.otherRooms];
@@ -675,62 +749,33 @@ class LlmContextController {
             : '(none)');
         lines.push('');
 
-        // === YOUR ACTIONS (executable now) ===
-        lines.push('=== YOUR ACTIONS (executable now) ===');
-        if (actions.entries.length === 0) {
-            lines.push('(none)');
-        } else {
-            for (const a of actions.entries) {
-                lines.push(`- ${a.name}: ${a.description} | range ${a.range} | needs ${a.requirement || 'nothing'} | use ${a.canExecute[0]}`);
-            }
-        }
-        if (actions.notExecutable.length > 0) {
-            lines.push(`${actions.notExecutable.length} action${actions.notExecutable.length > 1 ? 's' : ''} not executable right now: ${actions.notExecutable.join(', ')}`);
-        }
-        lines.push('');
-
-        // === YOUR INSTINCTS ===
-        lines.push('=== YOUR INSTINCTS ===');
-        if (instincts.length === 0) {
-            lines.push('(none)');
-        } else {
-            for (const inst of instincts) {
-                lines.push(`- ${inst.name}: ${inst.description}`);
-            }
-        }
-        lines.push('');
-
-        // === HINTS ===
-        lines.push('=== HINTS ===');
-        const hintLines = hints.slice(0, LLM_CONTEXT_MAX_HINTS).map(h => `- ${h.message || h}`);
-        lines.push(hintLines.length > 0 ? hintLines.join('\n') : '(none)');
-        lines.push('');
-
-        // === WORLD FAILURES ===
-        // The warn-level tail of the world event ring (failed actions +
-        // round-level warnings). Success events are intentionally absent:
-        // their state consequences ride the perception stream in the
-        // "since you last looked" block above.
-        lines.push('=== WORLD FAILURES ===');
-        lines.push(failures.length > 0 ? failures.join('\n') : '(none)');
-        lines.push('');
-
-        // === YOUR LAST ACTIONS & RESULTS ===
-        lines.push('=== YOUR LAST ACTIONS & RESULTS ===');
-        if (feedback.length === 0) {
-            lines.push('(none — this is your first round or no actions recorded yet)');
-        } else {
-            for (const f of feedback) {
-                const status = f.success ? '✓' : '✗';
-                const instinctTag = f.instinct ? ` (instinct: ${f.instinct})` : '';
-                lines.push(`- ${status} ${f.actionName}: ${f.detail}${instinctTag}`);
-            }
-        }
-        lines.push('');
-
         // === ROOM CHAT ===
         lines.push('=== ROOM CHAT ===');
         lines.push(chat.length > 0 ? chat.join('\n') : '(none)');
+        lines.push('');
+
+        // === RECENT TOOLS ===
+        // The newest outcomes of the outcome-producing tools the agent invoked
+        // (execute_action, toApproach, use_instinct, speak_in_room), success
+        // and failure, named the way it called each tool (registry action name
+        // for execute_action, the tool name for the others). Recorded at
+        // dispatch time in the round runner via _recordImmediateOutcome.
+        // Placed after the room chat so the agent reads it last — the most
+        // recent local signal is the last thing it sees. Shares the feedback
+        // priority tier with "YOUR LAST ACTIONS & RESULTS" (both render from
+        // the same feedback ring; the budget cascade drops it together when
+        // over budget).
+        lines.push('=== RECENT TOOLS ===');
+        if (feedback.length === 0) {
+            lines.push('(none)');
+        } else {
+            feedback.forEach((f) => {
+                const status = f.success ? '✓' : '✗';
+                const name = (f.actionName || 'tool').replace(/\n/g, ' ').trim();
+                const detail = String(f.detail || '').replace(/\n/g, ' ').trim();
+                lines.push(`- ${status} ${name}${detail ? `: ${detail}` : ''}`);
+            });
+        }
 
         return lines.join('\n');
     }
@@ -900,6 +945,55 @@ class LlmContextController {
         if (!Number.isInteger(n) || n < 0) return max;
         return Math.min(n, max);
     }
+}
+
+/**
+ * Renders the action list in the classic format: one line per executable
+ * action, plus a summary line for not-executable names. Shared by the
+ * get_actions tool and any future renderer.
+ *
+ * @param {Array<Object>} entries - Executable entries from getActionData
+ *   ({ name, description, range, requirement, canExecute }).
+ * @param {string[]} notExecutable - Names currently not executable.
+ * @param {string} [filter] - Case-insensitive substring matched against the
+ *   executable action lines only. Omitted/empty returns the full list (plus
+ *   the not-executable summary). No match returns "(no match: '...')".
+ * @returns {string}
+ */
+export function formatActionList(entries, notExecutable, filter) {
+    const needle = (filter && typeof filter === 'string') ? filter.trim().toLowerCase() : null;
+    const execLines = (entries || []).map(
+        (a) =>
+            `- ${a.name}: ${a.description} | range ${a.range} | needs ${a.requirement || 'nothing'} | use ${a.canExecute[0]}`);
+    if (!needle) {
+        const lines = [...execLines];
+        if (notExecutable && notExecutable.length > 0) {
+            lines.push(`${notExecutable.length} action${notExecutable.length > 1 ? 's' : ''} not executable right now: ${notExecutable.join(', ')}`);
+        }
+        return lines.join('\n');
+    }
+    const hit = execLines.filter(line => line.toLowerCase().includes(needle));
+    return hit.length > 0 ? hit.join('\n') : `(no match: "${filter}")`;
+}
+
+/**
+ * Renders instinct lines as "- name: description". The instincts section of
+ * the context text was removed (instincts are now discovered via the
+ * get_instincts tool); this keeps the line format consistent for the tool.
+ * @param {Array<Object>} instincts - ({ name, description }) objects.
+ * @param {string} [filter] - Case-insensitive substring matched against the
+ *   instinct lines only. No match returns "(no match: '...')".
+ * @returns {string}
+ */
+export function formatInstinctList(instincts, filter) {
+    const needle = (filter && typeof filter === 'string') ? filter.trim().toLowerCase() : null;
+    const lines = (instincts || [])
+        .map((i) => `- ${i.name}: ${i.description}`);
+    if (!needle) {
+        return lines.length > 0 ? lines.join('\n') : '(none)';
+    }
+    const hit = lines.filter(line => line.toLowerCase().includes(needle));
+    return hit.length > 0 ? hit.join('\n') : `(no match: "${filter}")`;
 }
 
 export default LlmContextController;
