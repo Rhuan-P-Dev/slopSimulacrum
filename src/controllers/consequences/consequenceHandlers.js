@@ -22,6 +22,8 @@ import EventConsequenceHandler from './EventConsequenceHandler.js';
 import { handleDropItem } from './DropItemHandler.js';
 import { handlePickUpItem } from './PickUpItemHandler.js';
 import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
+import { handlePlaceMachine } from '../core/PlaceMachineHandler.js';
+import { handleRetrieveMachine } from '../core/RetrieveMachineHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -38,10 +40,15 @@ class ConsequenceHandlers {
      * and propagated to the focused handlers (which keep reading
      * `this.worldStateController` exactly as before — their class bodies are untouched).
      */
-    constructor({ equippedItemStats, worldEventLog = null, materialController = null, worldRulesController = null } = {}) {
+    constructor({ equippedItemStats, worldEventLog = null, materialController = null, worldRulesController = null, machineRegistry = null } = {}) {
         /** @type {WorldStateController|null} Injected post-construction. */
         this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
+        // Machine registry (data/systems/machines.json): forwarded to the
+        // place/retrieve machine handlers (data-driven item <-> machine bindings).
+        // Null-tolerant (tests can omit it). Stored, not in setWorldStateController,
+        // because it is static config data, not the mutable facade.
+        this.machineRegistry = machineRegistry || null;
         // Feature 1: MaterialController owns the per-material damage-type split
         // (data/materials/materialDamageTypes.json); forwarded to the damage handler below.
         this.materialController = materialController || null;
@@ -129,6 +136,10 @@ class ConsequenceHandlers {
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
             consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),
+            // Place a carried machine into the world (becomes isStatic, self-running).
+            placeMachine: (targetId, params, context) => this._handlePlaceMachine(params, context),
+            // Retrieve a previously-placed machine back into inventory (spills stored contents).
+            retrieveMachine: (targetId, params, context) => this._handleRetrieveMachine(params, context),
         };
     }
 
@@ -197,6 +208,31 @@ class ConsequenceHandlers {
                 damageHandler: this.damageHandler
             },
             targetId,
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the placeMachine consequence by delegating to PlaceMachineHandler.
+     * The machine registry (item <-> machine bindings) and the world facade are
+     * passed in the deps object. @private
+     */
+    _handlePlaceMachine(params, context) {
+        return handlePlaceMachine(
+            { worldStateController: this.worldStateController, machineRegistry: this.machineRegistry },
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the retrieveMachine consequence by delegating to RetrieveMachineHandler.
+     * @private
+     */
+    _handleRetrieveMachine(params, context) {
+        return handleRetrieveMachine(
+            { worldStateController: this.worldStateController, machineRegistry: this.machineRegistry },
             params,
             context
         );

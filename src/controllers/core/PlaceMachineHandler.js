@@ -40,35 +40,63 @@ export function handlePlaceMachine(deps, params) {
   const { worldStateController, machineRegistry } = deps;
   if (!worldStateController) return { success: false, message: 'WorldStateController not available.' };
 
-  const { entityId, itemId, targetX, targetY } = params;
-  if (!entityId || !itemId) return { success: false, message: 'Missing entityId or itemId.' };
+  const { entityId, targetX, targetY } = params;
+  let itemId = params.itemId;
+  let itemType = params.itemType;
+  // Guard against unresolved placeholder tokens (":itemId") leaking through the
+  // execute_action template when the agent did not provide a concrete value.
+  if (typeof itemId === 'string' && /^:[a-zA-Z0-9_.]+$/.test(itemId)) itemId = null;
+  if (typeof itemType === 'string' && /^:[a-zA-Z0-9_.]+$/.test(itemType)) itemType = null;
+  if (!entityId) return { success: false, message: 'Missing entityId.' };
+  if (!itemId && !itemType) return { success: false, message: 'Missing itemId or itemType.' };
 
   const entity = worldStateController.getEntity(entityId);
   if (!entity) return { success: false, message: 'Entity not found.' };
 
-  // Locate the exact item instance first: equipped slot, then inventory (mirrors DropItemHandler).
+  // Locate the machine item instance: by itemId if named (REST/player path),
+  // otherwise by itemType (the agent path, which names the carried machine type
+  // and lets the server resolve the instance). Equipped slot is checked first,
+  // then the inventory; first match wins.
   let found = null;
   const equippedItems = worldStateController.getEquippedItems(entityId) || [];
-  for (const eq of equippedItems) {
-    if (eq.itemId === itemId) { found = eq; break; }
-  }
-  if (!found) {
-    const inventory = worldStateController.getEntityItems(entityId) || {};
-    for (const items of Object.values(inventory)) {
-      const it = (items || []).find(i => i.id === itemId);
-      if (it) { found = it; break; }
+  const inventory = worldStateController.getEntityItems(entityId) || {};
+  if (itemId) {
+    for (const eq of equippedItems) {
+      if (eq.itemId === itemId) { found = eq; break; }
+    }
+    if (!found) {
+      for (const items of Object.values(inventory)) {
+        const it = (items || []).find(i => i && i.id === itemId);
+        if (it) { found = it; break; }
+      }
     }
   }
-  if (!found) return { success: false, message: `Item "${itemId}" not found in inventory.` };
+  if (!found && itemType) {
+    for (const eq of equippedItems) {
+      if (eq.itemType === itemType) { found = eq; break; }
+    }
+    if (!found) {
+      for (const items of Object.values(inventory)) {
+        const it = (items || []).find(i => i && i.type === itemType);
+        if (it) { found = it; break; }
+      }
+    }
+  }
+  if (!found) return {
+    success: false,
+    message: `Machine item not found in inventory (itemId=${itemId || 'none'}, itemType=${itemType || 'none'}).`
+  };
 
-  // The item type must be a registered machine (derive it from the instance when the
-  // caller did not name it).
-  const itemType = params.itemType || found.type;
-  const machine = machineRegistry ? machineRegistry.machineForItem(itemType) : null;
-  if (!machine) return { success: false, message: `Item "${itemType}" is not a placeable machine.` };
+  // The item's actual type must be a registered machine (authoritative: use the
+  // instance's own type, not any caller hint, to prevent a type/instance mismatch).
+  const resolvedType = found.type || found.itemType || itemType;
+  const machine = machineRegistry ? machineRegistry.machineForItem(resolvedType) : null;
+  if (!machine) return { success: false, message: `Item "${resolvedType}" is not a placeable machine.` };
 
-  // Consume the item before materializing.
-  const removeResult = worldStateController.removeItemFromEntity(entityId, itemId);
+  // Consume the item before materializing (use the resolved instance's id so both
+  // the itemId path and the itemType path remove the right item).
+  const itemKey = found.id || found.itemId;
+  const removeResult = worldStateController.removeItemFromEntity(entityId, itemKey);
   if (!removeResult.success) return { success: false, message: removeResult.message };
 
   // Spawn the machine entity in the player's room, tagged as a placed machine.

@@ -157,4 +157,67 @@ describe('Machine lifecycle (craft -> place -> forge -> retrieve)', () => {
         // No machine entity should have been created.
         expect(Object.values(wsc.stateEntityController.getAll()).some((e) => e.machineType === 'knifeGenerator')).toBe(false);
     });
+
+    it('places the machine by itemType only (agent path via execute_action, no itemId/no coords)', () => {
+        const { worldStateController: wsc } = buildWorld();
+        const { entityId, droidHead } = spawnDroid({ worldStateController: wsc });
+        const deps = { worldStateController: wsc, machineRegistry: wsc.machineRegistry };
+
+        const [coalId, knifeId] = addItems(wsc, entityId, droidHead.id, ['coal', 'knife']);
+        expect(wsc.craftItems(entityId, 'craft_knife_generator', droidHead.id, [coalId, knifeId]).success).toBe(true);
+        expect(flatItems(wsc, entityId).some((i) => i.type === 'knifeGenerator')).toBe(true);
+
+        // The agent names the machine by TYPE, never by instance id or coords.
+        const place = handlePlaceMachine(deps, { entityId, itemType: 'knifeGenerator' });
+        expect(place.success, 'type-based place should succeed: ' + JSON.stringify(place)).toBe(true);
+        expect(place.machineEntityId).toBeTruthy();
+        // The carried item is consumed on a type-based place, as on the id-based path.
+        expect(flatItems(wsc, entityId).some((i) => i.type === 'knifeGenerator')).toBe(false);
+    });
+
+    it('retrieves the machine by machineType only (agent path, no targetEntityId)', () => {
+        const { worldStateController: wsc } = buildWorld();
+        const { entityId, droidHead } = spawnDroid({ worldStateController: wsc });
+        const deps = { worldStateController: wsc, machineRegistry: wsc.machineRegistry };
+
+        const [coalId, knifeId] = addItems(wsc, entityId, droidHead.id, ['coal', 'knife']);
+        wsc.craftItems(entityId, 'craft_knife_generator', droidHead.id, [coalId, knifeId]);
+        const place = handlePlaceMachine(deps, { entityId, itemType: 'knifeGenerator' });
+        expect(place.success).toBe(true);
+        const machineEntityId = place.machineEntityId;
+
+        // The agent names the machine to retrieve by TYPE (it need not "see" it
+        // in the nearby list — perception of placed machines is out of scope).
+        const ret = handleRetrieveMachine(deps, { entityId, machineType: 'knifeGenerator' });
+        expect(ret.success, 'type-based retrieve should succeed: ' + JSON.stringify(ret)).toBe(true);
+        expect(ret.retrieved.itemType).toBe('knifeGenerator');
+        expect(flatItems(wsc, entityId).some((i) => i.type === 'knifeGenerator'), 'machine item returns to inventory').toBe(true);
+        expect(wsc.stateEntityController.getEntity(machineEntityId), 'machine is despawned').toBeNull();
+    });
+
+    it('rejects type-based place when neither itemId nor itemType is provided', () => {
+        const { worldStateController: wsc } = buildWorld();
+        const { entityId } = spawnDroid({ worldStateController: wsc });
+        const deps = { worldStateController: wsc, machineRegistry: wsc.machineRegistry };
+
+        const place = handlePlaceMachine(deps, { entityId });
+        expect(place.success).toBe(false);
+        expect(place.message).toMatch(/Missing itemId or itemType/);
+    });
+
+    it('treats an unresolved template placeholder (":itemId") as "not provided"', () => {
+        const { worldStateController: wsc } = buildWorld();
+        const { entityId, droidHead } = spawnDroid({ worldStateController: wsc });
+        const deps = { worldStateController: wsc, machineRegistry: wsc.machineRegistry };
+
+        const [coalId, knifeId] = addItems(wsc, entityId, droidHead.id, ['coal', 'knife']);
+        wsc.craftItems(entityId, 'craft_knife_generator', droidHead.id, [coalId, knifeId]);
+
+        // Simulates the execute_action template resolving ":itemId" literally because
+        // the agent did not supply a value. The guard must treat it as missing, not
+        // as a literal (invalid) id.
+        const place = handlePlaceMachine(deps, { entityId, itemId: ':itemId' });
+        expect(place.success).toBe(false);
+        expect(place.message).toMatch(/Missing itemId or itemType/);
+    });
 });

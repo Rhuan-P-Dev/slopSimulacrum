@@ -284,7 +284,7 @@ export function buildWorldState(tickSystem = null) {
     // feeds the LogConsequenceHandler sink (Feature B); facade injected later.
     // materialController is forwarded (feature 1) so the damage handler can apply the
     // attacker's per-material damage-type split at the single damage choke point.
-    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController, worldRulesController });
+    const consequenceHandlers = new ConsequenceHandlers({ equippedItemStats, worldEventLog: worldEventLogController, materialController, worldRulesController, machineRegistry: machineRegistryController });
     // onDamage world-event rule (Layer 3): the enforcement arm of the world-rules
     // layer. Constructed before the facade (like the other logic controllers) with
     // only its named deps (both already in scope — no new file I/O). The facade

@@ -279,6 +279,16 @@ export const CONTEXT_MAX_DROPPED_ITEMS = 6;
  */
 export const CONTEXT_MAX_EXITS = 6;
 
+/**
+ * Maximum number of current-room placed machines listed in the enriched
+ * spatial context (LLM "Placed machines:" line and event-panel context).
+ * Machines are static, set-down objects an agent may have placed; a room
+ * can hold several at once, so this caps the "Placed machines:" line to
+ * keep the context budget intact.
+ * @type {number}
+ */
+export const CONTEXT_MAX_PLACED_MACHINES = 6;
+
 // =========================================================================
 // ENVIRONMENT FLAG CONSTANTS
 // =========================================================================

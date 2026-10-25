@@ -691,6 +691,8 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'hand shotgun',
             'move',
             'pickUpItem',
+            'placeMachine',
+            'retrieveMachine',
             'selfHeal',
             'shootT1',
         ]);

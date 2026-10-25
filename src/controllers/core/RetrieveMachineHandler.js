@@ -66,12 +66,39 @@ export function handleRetrieveMachine(deps, params) {
   const { worldStateController, machineRegistry } = deps;
   if (!worldStateController) return { success: false, message: 'WorldStateController not available.' };
 
-  const { entityId, targetEntityId } = params;
-  if (!entityId || !targetEntityId) return { success: false, message: 'Missing entityId or targetEntityId.' };
+  const { entityId } = params;
+  let targetEntityId = params.targetEntityId;
+  let machineType = params.machineType;
+  // Guard against unresolved placeholder tokens leaking through the
+  // execute_action template when the agent did not provide a concrete value.
+  if (typeof targetEntityId === 'string' && /^:[a-zA-Z0-9_.]+$/.test(targetEntityId)) targetEntityId = null;
+  if (typeof machineType === 'string' && /^:[a-zA-Z0-9_.]+$/.test(machineType)) machineType = null;
+  if (!entityId) return { success: false, message: 'Missing entityId.' };
+  if (!targetEntityId && !machineType) return { success: false, message: 'Missing targetEntityId or machineType.' };
 
   const player = worldStateController.getEntity(entityId);
-  const machine = worldStateController.getEntity(targetEntityId);
   if (!player) return { success: false, message: 'Entity not found.' };
+
+  let machine = null;
+  if (targetEntityId) {
+    machine = worldStateController.getEntity(targetEntityId);
+  }
+  if (!machine && machineType) {
+    // Agent path: the agent names the machine type rather than a specific
+    // world entity id. Find a placed machine of that type in the player's room
+    // (first match). The range/same-room gates below still apply to the
+    // final candidate, so an out-of-reach machine is rejected the same way.
+    const allEntities = worldStateController.getAll?.()?.entities || {};
+    for (const candidate of Object.values(allEntities)) {
+      if (candidate
+        && candidate.isMachine === true
+        && candidate.location === player.location
+        && candidate.machineType === machineType) {
+        machine = candidate;
+        break;
+      }
+    }
+  }
   if (!machine) return { success: false, message: 'Machine not found (it may have been destroyed or already retrieved).' };
 
   // The target must be a placed machine (tagged at place time).
@@ -108,8 +135,9 @@ export function handleRetrieveMachine(deps, params) {
   }
 
   // Despawn the machine entity (cleans up its organs, removes it from the world and the
-  // capability cache).
-  worldStateController.despawnEntity(targetEntityId);
+  // capability cache). Use the resolved machine's entity id (it may have been
+  // located by type, in which case the raw targetEntityId param is null).
+  worldStateController.despawnEntity(machine.id);
 
   // Re-add the machine item to the player's inventory (best-fit component).
   const itemDef = itemRegistry[machineDef.itemKey] || {};
@@ -128,7 +156,7 @@ export function handleRetrieveMachine(deps, params) {
   // practice — the range gate requires it — but the mark is idempotent).
   worldStateController._markPerceptionDirty?.(machineRoom);
   worldStateController._markPerceptionDirty?.(player.location);
-  Logger.info(`[RetrieveMachineHandler] ${entityId} retrieved machine "${machineDef.name}" (${targetEntityId}); ${spilled} stored item(s) returned to the floor.`);
+  Logger.info(`[RetrieveMachineHandler] ${entityId} retrieved machine "${machineDef.name}" (${machine.id}); ${spilled} stored item(s) returned to the floor.`);
   return {
     success: true,
     message: `Retrieved ${machineDef.name}.`,

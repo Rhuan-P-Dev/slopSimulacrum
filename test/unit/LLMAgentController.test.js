@@ -478,7 +478,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(result.error).toBeNull();
     });
 
-    it('agent request uses tool_choice "auto", temperature 0.5, max_tokens=5120 (10× reasoning headroom — PROTOCOL B)', async () => {
+    it('agent request uses tool_choice "auto", temperature 0.5, max_tokens=51200 (10× reasoning headroom — PROTOCOL B)', async () => {
         const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'] } });
         const turns = makeTurns();
         const seenOptions = [];
@@ -501,7 +501,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(seenOptions).toHaveLength(1);
         expect(seenOptions[0].tool_choice).toBe('auto'); // never "required" (spec §6.2)
         expect(seenOptions[0].temperature).toBe(0.5);
-        expect(seenOptions[0].max_tokens).toBe(5120); // 10× the original 512: thinking tokens count against this budget
+        expect(seenOptions[0].max_tokens).toBe(51200); // 10× the previous 5120 (100× the original 512): thinking tokens count against this budget
         expect(turns.queued).toHaveLength(1);
         expect(result.error).toBeNull();
     });
@@ -1787,5 +1787,585 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
         expect(toolPayload.error).toMatch(/queued toward target/);
         expect(toolPayload.error).toMatch(/targetX=200/);
         expect(toolPayload.error).toMatch(/targetY=100/);
+    });
+});
+
+// =========================================================================
+// CRAFTING (Feature C, spec §6.3 — data-driven recipe crafting via the
+// `craft` tool + `get_crafts` discovery). Everything external is mocked as
+// with the rest of the file: the LLM stub is scripted, and the world facade
+// exposes getCraftingRecipes / getEntityItems / craftItems the way the real
+// WorldStateController would. The model names ingredients by type+quantity
+// and the componentId; the server resolves the concrete item instances.
+// =========================================================================
+
+describe('crafting (craft + get_crafts tools)', () => {
+    // The crafting NPC carries a hand component (the output component). It has
+    // no `npcConfig`/registry entry (the unregisteredDroid fallback path), so
+    // maxActions defaults to 2 (DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND).
+    const CRAFT_NPC_ID = NPC_ID;
+
+    const CRAFT_RECIPES = [
+        {
+            id: 'knife_to_t1',
+            name: 'T1 Assembly',
+            description: 'Forge one knife into a T1 container weapon.',
+            inputs: [{ type: 'knife', quantity: 1 }],
+            outputs: [{ type: 't1', quantity: 1 }]
+        },
+        {
+            id: 't1_to_coal',
+            name: 'T1 to Coal',
+            description: 'Salvage a T1 into a chunk of coal fuel.',
+            inputs: [{ type: 't1', quantity: 1 }],
+            outputs: [{ type: 'coal', quantity: 1 }]
+        }
+    ];
+
+    function makeCraftWorld({ items = {}, recipes = CRAFT_RECIPES, craftItemsResult = null, maxActions = 2 } = {}) {
+        const craftCalls = [];
+        const npc = {
+            ...NPC,
+            components: [
+                { id: 'comp-hand-1', type: 'hand' },
+                { id: 'comp-core-1', type: 'centralBall' }
+            ],
+            npcConfig: { maxWorldActionsPerRound: maxActions }
+        };
+        const world = makeWorld({ canExecute: { selfHeal: [] } });
+        world.getEntity = () => npc;
+        world.getRooms = () => ({ 'room-main': { name: 'Main Room' } });
+        world.getCraftingRecipes = () => recipes;
+        world.getEntityItems = () => items;
+        world.craftItems = (entityId, recipeId, componentId, itemIds) => {
+            craftCalls.push({ entityId, recipeId, componentId, itemIds });
+            if (craftItemsResult) {
+                return craftItemsResult;
+            }
+            return {
+                success: true,
+                recipeId,
+                consumed: [...itemIds],
+                produced: [{ id: 'item-t1-1', type: 't1' }]
+            };
+        };
+        world.__craftCalls = craftCalls;
+        return world;
+    }
+
+    function craftArgs({ recipeId, ingredients, componentId, malformed } = {}) {
+        // Return raw argument JSON for a well-formed craft call, or a broken
+        // payload when `malformed` is requested.
+        if (malformed) {
+            return malformed;
+        }
+        return JSON.stringify({ recipeId, ingredients, componentId });
+    }
+
+    function craftMessage({ recipeId, ingredients, componentId, malformed, doneNote }) {
+        const calls = [{
+            name: 'craft',
+            args: malformed ?? craftArgs({ recipeId, ingredients, componentId })
+        }];
+        if (doneNote !== undefined) {
+            calls.push({ name: 'done', args: JSON.stringify({ note: doneNote }) });
+        }
+        return toolMessage(calls);
+    }
+
+    it('dispatches a valid craft: server resolves the ingredient instance and reports success (spec §6.3)', async () => {
+        const world = makeCraftWorld({
+            items: {
+                'comp-hand-1': [
+                    { id: 'item-knife-1', type: 'knife', hostVolume: 2 },
+                    { id: 'item-knife-2', type: 'knife', hostVolume: 2 }
+                ]
+            },
+            craftItemsResult: {
+                success: true,
+                recipeId: 'knife_to_t1',
+                consumed: ['item-knife-1'],
+                produced: [{ id: 'item-t1-1', type: 't1' }]
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: craftMessage({
+                    recipeId: 'knife_to_t1',
+                    ingredients: [{ type: 'knife', quantity: 1 }],
+                    componentId: 'comp-hand-1',
+                    doneNote: 'Forged a T1.'
+                })
+            })
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // The server picked the first knife on comp-hand-1 to consume.
+        const craftCalls = world.__craftCalls;
+        expect(craftCalls).toHaveLength(1);
+        expect(craftCalls[0]).toEqual({
+            entityId: CRAFT_NPC_ID,
+            recipeId: 'knife_to_t1',
+            componentId: 'comp-hand-1',
+            itemIds: ['item-knife-1']
+        });
+
+        expect(result.crafts).toHaveLength(1);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: true });
+        expect(result.crafts[0].detail).toBe(
+            'crafted knife_to_t1 (consumed [item-knife-1], produced 1 item)'
+        );
+        expect(result.done).toBe(true);
+        expect(result.note).toBe('done');
+        expect(result.iterations).toBe(1);
+        expect(result.error).toBeNull();
+    });
+
+    it('dispatches a multi-ingredient recipe with multiple input types', async () => {
+        // Use a two-type recipe to exercise multi-type instance selection. We
+        // override the recipe so it has two inputs.
+        const twoInput = [
+            {
+                id: 'knife_generator',
+                name: 'Knife Generator',
+                description: 'Forge coal + knife into a generator.',
+                inputs: [
+                    { type: 'knife', quantity: 1 },
+                    { type: 'coal', quantity: 2 }
+                ],
+                outputs: [{ type: 'knifeGenerator', quantity: 1 }]
+            }
+        ];
+        const world = makeCraftWorld({
+            recipes: twoInput,
+            items: {
+                'comp-hand-1': [
+                    { id: 'item-knife-1', type: 'knife', hostVolume: 2 },
+                    { id: 'item-coal-1', type: 'coal', hostVolume: 1 },
+                    { id: 'item-coal-2', type: 'coal', hostVolume: 1 },
+                    { id: 'item-coal-3', type: 'coal', hostVolume: 1 }
+                ]
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: craftMessage({
+                    recipeId: 'knife_generator',
+                    ingredients: [{ type: 'knife', quantity: 1 }, { type: 'coal', quantity: 2 }],
+                    componentId: 'comp-hand-1',
+                    doneNote: 'Built the generator.'
+                })
+            })
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(1);
+        // First knife, then the two earliest coal instances.
+        expect(world.__craftCalls[0].itemIds).toEqual(['item-knife-1', 'item-coal-1', 'item-coal-2']);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_generator', success: true });
+    });
+
+    // On the first LLM call, return `firstMessage`; on every later call
+    // return a plain done (the model is shown the failure feedback and
+    // gives up, exactly like the unknown-action parity test). This is a
+    // deterministic "try once, then stop" stub so a rejected craft does not
+    // spin the loop to the iteration budget.
+    function tryOnceThenStop(firstMessage) {
+        let n = 0;
+        return () => {
+            n += 1;
+            if (n === 1) {
+                return { content: null, toolCalls: [], finishReason: 'tool_calls', message: firstMessage };
+            }
+            return { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([{ name: 'done', args: '{}' }]) };
+        };
+    }
+
+    it('rejects an unknown recipe id and feeds the error back for one retry (spec §6.8 unknown-action parity)', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'ghost_recipe',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // Model tried the bad recipe once; pre-validation rejected it before
+        // any dispatch, so craftItems was never called.
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts).toHaveLength(1);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'ghost_recipe', success: false });
+        expect(result.crafts[0].detail).toBe('unknown recipe "ghost_recipe"');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('rejects an ingredient multiset that does not match the recipe exactly (extra type)', async () => {
+        const world = makeCraftWorld({
+            items: {
+                'comp-hand-1': [
+                    { id: 'item-knife-1', type: 'knife', hostVolume: 2 },
+                    { id: 'item-coal-1', type: 'coal', hostVolume: 1 }
+                ]
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }, { type: 'coal', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // Model tried once with a wrong multiset; rejected before dispatch.
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts).toHaveLength(1);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: false });
+        expect(result.crafts[0].detail).toBe(
+            'ingredients do not match recipe "knife_to_t1": extra coal x1 (not in recipe "knife_to_t1")'
+        );
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('rejects a wrong ingredient quantity (over-supplied vs. under-supplied)', async () => {
+        // Over-supplied: recipe needs knife x1, model says knife x3.
+        const world = makeCraftWorld({
+            items: {
+                'comp-hand-1': [
+                    { id: 'item-knife-1', type: 'knife', hostVolume: 2 },
+                    { id: 'item-knife-2', type: 'knife', hostVolume: 2 },
+                    { id: 'item-knife-3', type: 'knife', hostVolume: 2 }
+                ]
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 3 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts).toHaveLength(1);
+        expect(result.crafts[0].success).toBe(false);
+        expect(result.crafts[0].detail).toBe(
+            'ingredients do not match recipe "knife_to_t1": knife x3 given, recipe needs x1'
+        );
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('rejects a component that is not owned by the acting NPC', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-ghost'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: false });
+        expect(result.crafts[0].detail).toBe('component "comp-ghost" not found on entity "ent-npc-0001"');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('rejects a component that holds the wrong ingredients (component has no knife)', async () => {
+        const world = makeCraftWorld({
+            // comp-hand-1 exists but only holds coal, not knife.
+            items: { 'comp-hand-1': [{ id: 'item-coal-1', type: 'coal', hostVolume: 1 }] }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts[0].success).toBe(false);
+        expect(result.crafts[0].detail).toBe('component "comp-hand-1" does not hold knife x1 (holds x0)');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('enforces comp- prefix on componentId (id hygiene)', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'item-not-a-comp'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts[0].success).toBe(false);
+        expect(result.crafts[0].detail).toBe('invalid id format: componentId="item-not-a-comp"');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('rejects malformed / missing craft arguments', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(
+                craftMessage({ recipeId: '', ingredients: [], componentId: 'comp-hand-1', malformed: 'not json at all' })
+            )
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts[0].detail).toBe('malformed tool arguments');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('reports a real-world crafting failure from craftItems (e.g. insufficient volume)', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] },
+            craftItemsResult: {
+                success: false,
+                code: 'INSUFFICIENT_VOLUME',
+                message: 'Component comp-hand-1 has 0 free, gains 2, needs 5.'
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // Pre-validation passed, so the real transaction ran (once) and then
+        // failed; the model gave up on retry.
+        expect(world.__craftCalls).toHaveLength(1);
+        expect(world.__craftCalls[0].itemIds).toEqual(['item-knife-1']);
+        expect(result.crafts[0].success).toBe(false);
+        expect(result.crafts[0].detail).toBe('Component comp-hand-1 has 0 free, gains 2, needs 5.');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('respects the turn gate: a craft arriving outside the planning window is dropped (spec §5.8)', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns({ phase: 'resolution' });
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // No immediate execution and no craftItems call in a closed window.
+        expect(world.__craftCalls).toHaveLength(0);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: false });
+        expect(result.crafts[0].detail).toBe('planning window closed');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('counts craft as a world action against the per-round cap', async () => {
+        const world = makeCraftWorld({
+            maxActions: 1,
+            items: {
+                'comp-hand-1': [
+                    { id: 'item-knife-1', type: 'knife', hostVolume: 2 },
+                    { id: 'item-knife-2', type: 'knife', hostVolume: 2 }
+                ]
+            }
+        });
+        const turns = makeTurns();
+        let callCount = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => {
+                callCount += 1;
+                // First response asks for two crafts (one will hit the cap);
+                // once the model is fed the cap failure it gives up with done.
+                if (callCount >= 2) {
+                    return { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([{ name: 'done', args: '{}' }]) };
+                }
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: toolMessage([
+                        { name: 'craft', args: JSON.stringify({ recipeId: 'knife_to_t1', ingredients: [{ type: 'knife', quantity: 1 }], componentId: 'comp-hand-1' }) },
+                        { name: 'craft', args: JSON.stringify({ recipeId: 'knife_to_t1', ingredients: [{ type: 'knife', quantity: 1 }], componentId: 'comp-hand-1' }) }
+                    ])
+                };
+            }
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // First craft succeeds and consumes the cap; second is rejected.
+        expect(callCount).toBe(2);
+        expect(world.__craftCalls).toHaveLength(1);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: true });
+        expect(result.crafts[1]).toMatchObject({ recipeId: 'knife_to_t1', success: false });
+        expect(result.crafts[1].detail).toBe('max world actions per round reached (1)');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
+    it('get_crafts discovery feeds the formatted craft list back, so the model crafts from it (spec §6.5)', async () => {
+        const world = makeCraftWorld({
+            items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const turns = makeTurns();
+        let callCount = 0;
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                // The craft list (formatCraftList) emits '| need ... | gets ... |
+                // on <comp>'. That marker is unique to the craft list.
+                const hasList = messages.some(
+                    (m) => m.role === 'tool' && typeof m.content === 'string'
+                        && m.content.includes('| need')
+                );
+                if (!hasList) {
+                    return { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([{ name: 'get_crafts', args: '{}' }]) };
+                }
+                return { content: null, toolCalls: [], finishReason: 'tool_calls', message: craftMessage({ recipeId: 'knife_to_t1', ingredients: [{ type: 'knife', quantity: 1 }], componentId: 'comp-hand-1', doneNote: 'Built a T1.' }) };
+            }
+        });
+
+        // Discovery reads getCraftData (the live craft registry) — the main
+        // makeAgent stubs only buildContext, so monkey-patch getCraftData the
+        // way the discovery test monkey-patches getActionData.
+        agent.llmContextController = {
+            buildContext: () => ({ text: '=== ROOM === Main Room' }),
+            getCraftData: () => ({
+                craftable: [
+                    {
+                        recipeId: 'knife_to_t1',
+                        name: 'T1 Assembly',
+                        description: 'Forge one knife into a T1 container weapon.',
+                        needs: [{ type: 'knife', quantity: 1 }],
+                        outputs: [{ type: 't1', quantity: 1 }],
+                        componentId: 'comp-hand-1'
+                    },
+                    {
+                        recipeId: 't1_to_coal',
+                        name: 'T1 to Coal',
+                        description: 'Salvage a T1 into a chunk of coal.',
+                        needs: [{ type: 't1', quantity: 1 }],
+                        outputs: [{ type: 'coal', quantity: 1 }],
+                        componentId: 'comp-hand-1'
+                    }
+                ],
+                notCraftable: []
+            })
+        };
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        // Two LLM calls (discover, then craft) — no spin to the budget cap.
+        expect(callCount).toBe(2);
+        expect(result.iterations).toBe(2);
+        expect(world.__craftCalls).toHaveLength(1);
+        expect(world.__craftCalls[0].itemIds).toEqual(['item-knife-1']);
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: true });
+        expect(result.done).toBe(true);
+        expect(result.error).toBeNull();
+
+        // The second call's conversation must carry the craft discovery result:
+        // a tool-role result for get_crafts whose content includes the formatted
+        // craft list (craftable lines + not-craftable summary).
+        const discovery = seenMessages[1];
+        const assistantReplay = discovery.find((m) => m.role === 'assistant' && Array.isArray(m.tool_calls));
+        expect(assistantReplay).toBeTruthy();
+        expect(assistantReplay.tool_calls.map((t) => t.function.name)).toEqual(['get_crafts']);
+        const craftTool = discovery.find((m) => m.role === 'tool' && m.tool_call_id === 'call_1');
+        expect(craftTool).toBeTruthy();
+        const payload = JSON.parse(craftTool.content);
+        expect(payload.success).toBe(true);
+        expect(typeof payload.list).toBe('string');
+        const list = payload.list;
+        expect(list).toContain('- T1 Assembly (knife_to_t1)');
+        expect(list).toContain('- T1 to Coal (t1_to_coal)');
+        expect(list).toContain('| need knife x1 | gets t1 x1 | on comp-hand-1');
     });
 });

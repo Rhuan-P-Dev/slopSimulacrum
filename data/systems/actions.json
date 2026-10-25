@@ -210,8 +210,75 @@
       }
     ]
   },
+  "placeMachine": {
+    "description": "Place the machine you are carrying into the world near you, turning it into a self-running machine (e.g. a Knife Generator that forges one knife each turn). The carried item is consumed. Pass the machine's item type (e.g. 'knifeGenerator').",
+    "targetingType": "spatial",
+    "range": 100,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "placeMachine",
+        "target": "entity",
+        "params": { "entityId": ":entityId", "itemType": ":itemType" }
+      },
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "info",
+        "message": "Placed machine '(:itemType)' near you."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Placing machine failed - no carried machine item to place."
+      }
+    ]
+  },
+  "retrieveMachine": {
+    "description": "Retrieve a machine you placed earlier from the world and return it to your inventory. Its stored contents (e.g. forged knives) spill to the floor at the machine's position first. Pass the machine type (e.g. 'knifeGenerator').",
+    "targetingType": "spatial",
+    "range": 50,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "retrieveMachine",
+        "target": "entity",
+        "params": { "entityId": ":entityId", "machineType": ":machineType" }
+      },
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "info",
+        "message": "Retrieved machine '(:machineType)'."
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Retrieving machine failed - no placed machine found."
+      }
+    ]
+  },
   "pickUpItem": {
     "description": "Pick up an item that is lying on the map nearby, or take an item from another entity's hand.",
+
     "targetingType": "component",
     "range": 50,
     "groupPick": {

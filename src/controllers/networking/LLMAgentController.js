@@ -6,8 +6,9 @@
  *   1. guard (entity exists + isNPC) — graceful 'NPC_GONE' otherwise;
  *   2. build the world context via LlmContextController (Feature B);
  *   3. call LLMController.chatFull with the generated tool set
- *      (execute_action + toApproach, plus speak_in_room when chat is enabled
- *      and use_instinct when instincts exist), tool_choice "auto", and a
+ *      (execute_action + toApproach, plus speak_in_room when chat is enabled,
+ *      use_instinct when instincts exist, and craft/get_crafts when the NPC
+ *      has a recipe registry), tool_choice "auto", and a
  *      per-NPC system prompt — PROTOCOL B: the native tool call is the ONLY
  *      output protocol (no JSON-in-content; the dual mode that briefly ran
  *      here is what produced the scaffold-loop incident, spec §6.4);
@@ -42,7 +43,7 @@ import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/Constants.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
-import { formatActionList, formatInstinctList } from './LlmContextController.js';
+import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
 
 /** Hard cap on the agent's conversation memory per NPC (rounds). */
 const TRANSCRIPT_ROUNDS = 2;
@@ -51,16 +52,21 @@ const DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND = 2;
 /** Default per-round chat cap (spec §6.5); npcs.json may override. */
 const DEFAULT_MAX_CHAT_MESSAGES_PER_ROUND = 1;
 /** Per-call LLM timeout budget (spec §6.5 default 4500 ms − no turn deadline exists in spec v2; the budget
- * bounds the LLM call itself, so every agent promise settles). Set 10× (45000 ms)
- * because local models are slow enough that 4.5 s is below the p95 response time. */
-const LLM_ROUND_TIMEOUT_MS = 45000;
-/** Per-call token cap: 10× the original 512. Local reasoning models count
- * their thinking tokens against this budget, and 512 sat below the p95 of
- * "reasoning + action" — rounds died mid-reasoning with finishReason "length"
- * and no tool call (the Minako reasoning-truncation incident). 5120 gives
- * the thinking budget real headroom; the outer bound on a round is the
+ * bounds the LLM call itself, so every agent promise settles). The value here must cover a full
+ * reasoning turn on the slow local model: generation alone can exceed 45 s per call (observed
+ * 30–70 s on 127.0.0.1), so the 45 s cap misfired as LLM_TIMEOUT. (max_tokens is now 51200,
+ * which is why the call can run long; the timeout is what finally bounds it.)
+ * Raised to 450 s (7.5 min) so a slow "think carefully" round settles instead of timing out.
+ * The outer bound on a round remains this timeout, not the per-call iteration cap. */
+const LLM_ROUND_TIMEOUT_MS = 450000;
+/** Per-call token cap: 10× the previous 5120 (100× the original 512). Local
+ * reasoning models count their thinking tokens against this budget; a long
+ * "think carefully" turn can burn tens of thousands of thinking tokens before
+ * it finally acts, so a smaller cap truncated the reasoning (finishReason
+ * "length") before the (now generous) timeout would settle. 51200 gives the
+ * thinking budget ample headroom; the outer bound on a round is the
  * timeout, not this cap (see LLM_ROUND_TIMEOUT_MS). */
-const LLM_ROUND_MAX_TOKENS = 5120;
+const LLM_ROUND_MAX_TOKENS = 51200;
 /**
  * Per-call sampling temperature — deliberately below the global 0.7 default
  * (LLMController.DEFAULT_TEMPERATURE): a protocol-B round is a constrained
@@ -205,6 +211,7 @@ class LLMAgentController {
             chat: { sent: false },
             actions: [],
             approaches: [],
+            crafts: [],
             error: null
         };
 
@@ -459,28 +466,80 @@ class LLMAgentController {
                     }
                 }
 
-                // 8. Discovery payloads: get_actions / get_instincts return
-                //    the formatted list directly — the tool result IS the list
-                //    (one per call, built from the live registry / instinct
-                //    list, filtered as requested).
+                // 8. Dispatch craft calls (craft tool): recipe + ingredient
+                //    multiset + component. The pre-check rejects unknown
+                //    recipes, malformed multisets, and components that do not
+                //    hold the ingredients; the server picks the concrete items
+                //    to consume, and facade.craftItems runs the full transaction
+                //    (exact multiset, volume pre-check, consume, produce). In a
+                //    turn world the planning window applies (drop, mirrors
+                //    toApproach). Counts as a world action (maxActions).
+                for (const call of parsed.crafts) {
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        const recipeId = typeof call.args?.recipeId === 'string' ? call.args.recipeId : '';
+                        result.crafts.push({ recipeId, success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, 'craft', false, detail);
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateCraft(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        const recipeId = typeof call.args?.recipeId === 'string' ? call.args.recipeId : '';
+                        result.crafts.push({ recipeId, success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, 'craft', false, validation.error);
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchCraft(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.crafts.push({
+                        recipeId: dispatch.recipeId,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    this._recordImmediateOutcome(
+                        npcEntityId,
+                        'craft',
+                        dispatch.success,
+                        dispatch.detail
+                    );
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'craft failed' };
+                    }
+                }
+
+                // 9. Discovery payloads: get_actions / get_instincts / get_crafts
+                //    return the formatted list directly — the tool result IS the
+                //    list (one per call, built from the live registry / instinct
+                //    list / craft state, filtered as requested).
                 const actionData = this.llmContextController
                     && typeof this.llmContextController.getActionData === 'function'
                     ? this.llmContextController.getActionData(npcEntityId)
                     : { entries: [], notExecutable: [] };
+                const craftData = this.llmContextController
+                    && typeof this.llmContextController.getCraftData === 'function'
+                    ? this.llmContextController.getCraftData(npcEntityId)
+                    : { craftable: [], notCraftable: [] };
                 const payloadMap = {};
                 for (const discovery of parsed.discoveries) {
-                    const list = discovery.kind === 'get_actions'
-                        ? formatActionList(actionData.entries, actionData.notExecutable, discovery.args.filter)
-                        : formatInstinctList(instincts, discovery.args.filter);
+                    const list =
+                        discovery.kind === 'get_actions'
+                            ? formatActionList(actionData.entries, actionData.notExecutable, discovery.args.filter)
+                            : discovery.kind === 'get_instincts'
+                                ? formatInstinctList(instincts, discovery.args.filter)
+                                : formatCraftList(craftData.craftable, craftData.notCraftable, discovery.args.filter);
                     payloadMap[discovery.id] = { success: true, list };
                 }
 
-                // 9. This LLM call is one group of the in-round agent loop
-                //    (spec §6.5); the full loop is what replays next round.
-                //    The assistant message is the SANITIZED one (degenerate /
-                //    scaffold content was replaced by a neutral placeholder in
-                //    the parser), so the stored group cannot re-prime the next
-                //    round (BUG-007).
+                // 10. This LLM call is one group of the in-round agent loop
+                //     (spec §6.5); the full loop is what replays next round.
+                //     The assistant message is the SANITIZED one (degenerate /
+                //     scaffold content was replaced by a neutral placeholder in
+                //     the parser), so the stored group cannot re-prime the next
+                //     round (BUG-007).
                 const group = this._buildRoundGroup(assistantMessage, parsed, result, {
                     speakResults,
                     instinctResults,
@@ -488,13 +547,14 @@ class LLMAgentController {
                 });
                 groups.push(group);
 
-                // 10. Stop conditions (each ends the round — the loop IS the
+                // 11. Stop conditions (each ends the round — the loop IS the
                 //     agent, not a retry mechanism).
                 const hasTools =
                     parsed.actions.length > 0 ||
                     parsed.speaks.length > 0 ||
                     parsed.approaches.length > 0 ||
                     parsed.instincts.length > 0 ||
+                    parsed.crafts.length > 0 ||
                     parsed.discoveries.length > 0 ||
                     parsed.done;
 
@@ -582,11 +642,14 @@ class LLMAgentController {
 
     /**
      * Builds the tool OpenAI schema — generated from data every round, never
-     * hardcoded (BUG-018): the `get_actions` / `get_instincts` tools are the
-     * model's ONLY source of executable options; `execute_action` carries no
-     * actionName enum (the registry is the live list, not the tool list);
-     * `toApproach` is a fixed intent tool that dispatches the registered
-     * move action toward the target's live coordinates; `use_instinct` is
+     * hardcoded (BUG-018): the `get_actions` / `get_instincts` / `get_crafts`
+     * tools are the model's ONLY source of executable options; `execute_action`
+     * carries no actionName enum (the registry is the live list, not the tool
+     * list); `toApproach` is a fixed intent tool that dispatches the registered
+     * move action toward the target's live coordinates; `craft` takes a recipe
+     * id, the named ingredient multiset, and the component that receives the
+     * outputs — pre-validation runs against the live recipe registry and the
+     * component's holdings before the real transaction; `use_instinct` is
      * offered only when the instinct controller generated instincts this
      * round; `done` ends the round and is listed last.
      * @param {Object} [opts]
@@ -599,7 +662,7 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'execute_action',
-                description: 'Execute one world action with your own body. Only use action names the get_actions tool returned — those are the ONLY executable options this round.',
+                description: 'Execute one world action with your own body. Only use action names the get_actions tool returned — those are the ONLY executable options this round. Machine actions (placeMachine / retrieveMachine) take itemType / machineType, and use the placed-machine world state.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -610,7 +673,9 @@ class LLMAgentController {
                         targetComponentId: { type: 'string', description: 'comp-… target component (attacks, cuts, pickup target).' },
                         componentId: { type: 'string', description: 'comp-… your own source component (e.g. the arm/hand using the tool).' },
                         targetEntityId: { type: 'string', description: 'ent-… entity being affected (range-checked).' },
-                        itemId: { type: 'string', description: 'item-… item to drop.' },
+                        itemId: { type: 'string', description: 'item-… item to drop (dropItem / pickUpItem).' },
+                        itemType: { type: 'string', description: 'Machine item type to place (e.g. "knifeGenerator"); used by placeMachine when you name the machine by type rather than instance id.' },
+                        machineType: { type: 'string', description: 'Machine type to retrieve (e.g. "knifeGenerator"); used by retrieveMachine to pick up your own placed machine.' },
                         targetX: { type: 'number', description: 'Target x in room coordinates (move/dash/drop).' },
                         targetY: { type: 'number', description: 'Target y in room coordinates (move/dash/drop).' },
                         targetRoomId: { type: 'string', description: 'Room to move to through a door.' }
@@ -702,6 +767,63 @@ class LLMAgentController {
             }
         };
 
+        const getCrafts = {
+            type: 'function',
+            function: {
+                name: 'get_crafts',
+                description: 'List the recipes you can craft right now, with their exact required ingredients, what they produce, and the comp-… component that can hold the craft, plus recipes that are not craftable and why. This is the ONLY source of craftable options — call it before you craft, not after.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        filter: { type: 'string', description: 'Optional text filter to narrow the list (e.g. "knife" or "coal").' }
+                    },
+                    required: []
+                }
+            }
+        };
+
+        const craftTool = {
+            type: 'function',
+            function: {
+                name: 'craft',
+                description: 'Craft a recipe: consume the named ingredient multiset from ONE of your components and place the produced outputs on that same component. Only use a recipe id the get_crafts tool returned — that is the ONLY source of recipe ids, required ingredients, and the component that can hold the craft. Name each ingredient by type and by exactly how many; the server picks the concrete items it holds on the component.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        recipeId: {
+                            type: 'string',
+                            description: 'Recipe id. See the get_crafts output for ids, needed ingredients, and the component that can hold the craft.'
+                        },
+                        ingredients: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    type: {
+                                        type: 'string',
+                                        description: 'Ingredient item type (e.g. "knife", "coal", "chunk_wood").'
+                                    },
+                                    quantity: {
+                                        type: 'integer',
+                                        minimum: 1,
+                                        description: 'How many of that type to consume.'
+                                    }
+                                },
+                                required: ['type', 'quantity'],
+                                additionalProperties: false
+                            },
+                            description: 'The exact ingredient multiset to consume — match the "need" line of the recipe you are crafting (surplus of a type is fine; only the named multiset is consumed).'
+                        },
+                        componentId: {
+                            type: 'string',
+                            description: 'comp-… of the component that holds the ingredients and receives the outputs. See the "on <comp>" line of the get_crafts output.'
+                        }
+                    },
+                    required: ['recipeId', 'ingredients', 'componentId']
+                }
+            }
+        };
+
         const doneTool = {
             type: 'function',
             function: {
@@ -719,7 +841,7 @@ class LLMAgentController {
 
         // Order: discovery tools first (read at round start), action tools,
         // chat, instincts, and the round-end done tool last.
-        const tools = [getActions, getInstincts, executeAction, toApproach];
+        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool];
         if (includeChat) {
             tools.push(speakInRoom);
         }
@@ -793,7 +915,8 @@ class LLMAgentController {
             chatLine,
             actionRule,
             '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
-            '- Start each round with get_actions (and get_instincts when instincts exist): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct only with names the discovery calls returned.',
+            '- Craft with the craft tool only: pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
+            '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
@@ -1081,7 +1204,7 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
@@ -1089,6 +1212,7 @@ class LLMAgentController {
         const actions = [];
         const instincts = [];
         const approaches = [];
+        const crafts = [];
         const discoveries = [];
         // Did the model call the done tool? (no args; the call itself is the
         // round-end signal — spec §6.5.)
@@ -1129,6 +1253,7 @@ class LLMAgentController {
             else if (name === 'execute_action') actions.push(entry);
             else if (name === 'use_instinct') instincts.push(entry);
             else if (name === 'toApproach') approaches.push(entry);
+            else if (name === 'craft') crafts.push(entry);
             else if (name === 'get_actions') {
                 const filter = entry.args.filter;
                 discoveries.push({
@@ -1143,13 +1268,20 @@ class LLMAgentController {
                     kind: 'get_instincts',
                     args: { filter: (filter && typeof filter === 'string') ? filter : undefined }
                 });
+            } else if (name === 'get_crafts') {
+                const filter = entry.args.filter;
+                discoveries.push({
+                    id: entry.id,
+                    kind: 'get_crafts',
+                    args: { filter: (filter && typeof filter === 'string') ? filter : undefined }
+                });
             } else if (name === LLM_AGENT_DONE_TOOL_NAME) {
                 done = true;
             }
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, approaches, discoveries, done, prose };
+        return { speaks, actions, instincts, approaches, crafts, discoveries, done, prose };
     }
 
     // =========================================================================
@@ -1218,6 +1350,8 @@ class LLMAgentController {
         if (typeof args.componentId === 'string') params.componentId = args.componentId;
         if (typeof args.targetEntityId === 'string') params.targetEntityId = args.targetEntityId;
         if (typeof args.itemId === 'string') params.itemId = args.itemId;
+        if (typeof args.itemType === 'string') params.itemType = args.itemType;
+        if (typeof args.machineType === 'string') params.machineType = args.machineType;
         if (typeof args.targetX === 'number') params.targetX = args.targetX;
         if (typeof args.targetY === 'number') params.targetY = args.targetY;
         if (typeof args.targetRoomId === 'string') params.targetRoomId = args.targetRoomId;
@@ -1379,6 +1513,227 @@ class LLMAgentController {
                 ? `move queued toward target (targetX=${params.targetX}, targetY=${params.targetY})`
                 : (dispatch.success ? 'executed immediately' : (dispatch.detail || 'execution failed'))
         };
+    }
+
+    /**
+     * Pre-execution validation for one craft call. The recipe registry is the
+     * ONLY source of recipe ids (mirrors _prevalidateAction): unknown recipe
+     * ids, malformed args, a component that is not on the acting NPC, and a
+     * named ingredient multiset that differs from the recipe's inputs (or a
+     * component that does not hold the required types in the needed counts)
+     * are all rejected before dispatch. The model never invents recipes.
+     * @param {string} npcEntityId
+     * @param {Object} args - Parsed craft tool args:
+     *   { recipeId: string, ingredients: Array<{type: string, quantity: number}>, componentId: string }.
+     * @returns {{ ok: boolean, error?: string, params?: { recipeId: string, componentId: string, itemIds: string[] } }}
+     * @private
+     */
+    _prevalidateCraft(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const recipeId = args.recipeId;
+        if (typeof recipeId !== 'string' || recipeId.trim() === '') {
+            return { ok: false, error: 'missing "recipeId"' };
+        }
+
+        // The recipe registry is the live source of truth (BUG-018 parity):
+        // the model may only craft a recipe id the registry knows.
+        const registry = this.worldStateController?.getCraftingRecipes?.() || [];
+        if (!Array.isArray(registry)) {
+            return { ok: false, error: 'no crafting recipes available' };
+        }
+        const recipe = registry.find(r => r && r.id === recipeId);
+        if (!recipe) {
+            return { ok: false, error: `unknown recipe "${recipeId}"` };
+        }
+
+        const componentId = args.componentId;
+        if (typeof componentId !== 'string' || componentId.trim() === '') {
+            return { ok: false, error: 'missing "componentId"' };
+        }
+        if (!IdResolver.isCompId(componentId)) {
+            return { ok: false, error: `invalid id format: componentId="${componentId}"` };
+        }
+
+        const self = this.worldStateController?.getEntity?.(npcEntityId);
+        if (!self) {
+            return { ok: false, error: 'actor entity not found' };
+        }
+        const component = (self.components || []).find(c => c && c.id === componentId);
+        if (!component) {
+            return { ok: false, error: `component "${componentId}" not found on entity "${npcEntityId}"` };
+        }
+
+        const ingredients = args.ingredients;
+        if (!Array.isArray(ingredients) || ingredients.length === 0) {
+            return {
+                ok: false,
+                error: 'ingredients must be a non-empty array of { type, quantity }'
+            };
+        }
+        const named = {};
+        for (const ingredient of ingredients) {
+            if (!ingredient || typeof ingredient !== 'object') {
+                return {
+                    ok: false,
+                    error: 'each ingredient must be an object with "type" and "quantity"'
+                };
+            }
+            if (typeof ingredient.type !== 'string' || ingredient.type.trim() === '') {
+                return { ok: false, error: 'invalid ingredient type (empty or not a string)' };
+            }
+            if (!Number.isInteger(ingredient.quantity) || ingredient.quantity < 1) {
+                return { ok: false, error: 'invalid ingredient quantity (must be an integer >= 1)' };
+            }
+            named[ingredient.type] = (named[ingredient.type] || 0) + ingredient.quantity;
+        }
+
+        // Exact multiset against the recipe's inputs (checkExactInputs
+        // semantics): a named type must appear at exactly the recipe's required
+        // count, and no type outside the recipe may be named.
+        const need = {};
+        for (const input of recipe.inputs || []) {
+            const t = input && input.type;
+            if (typeof t === 'string' && Number.isInteger(input.quantity) && input.quantity > 0) {
+                need[t] = (need[t] || 0) + input.quantity;
+            }
+        }
+        if (Object.keys(need).length === 0) {
+            return { ok: false, error: `recipe "${recipeId}" has no valid inputs (malformed recipe)` };
+        }
+        const problems = [];
+        for (const type in need) {
+            const have = named[type] || 0;
+            if (have === 0) {
+                problems.push(`missing ${type} x${need[type]}`);
+            } else if (have !== need[type]) {
+                problems.push(`${type} x${have} given, recipe needs x${need[type]}`);
+            }
+        }
+        for (const type in named) {
+            if (!(type in need)) {
+                problems.push(`extra ${type} x${named[type]} (not in recipe "${recipeId}")`);
+            }
+        }
+        if (problems.length > 0) {
+            return {
+                ok: false,
+                error: `ingredients do not match recipe "${recipeId}": ${problems.join('; ')}`
+            };
+        }
+
+        // The component must hold at least the required count of each type.
+        const itemsByHost = this.worldStateController?.getEntityItems?.(npcEntityId) || {};
+        for (const type in need) {
+            const held = (itemsByHost[componentId] || []).filter(item => item && item.type === type).length;
+            if (held < need[type]) {
+                return {
+                    ok: false,
+                    error: `component "${componentId}" does not hold ${type} x${need[type]} (holds x${held})`
+                };
+            }
+        }
+
+        // Pick the concrete instances to consume: the first `need[type]` items
+        // of each type on the component. All ids come from getEntityItems,
+        // so they are typed item-… ids; crafting consumes exactly this
+        // multiset, no more, no less.
+        const itemIds = [];
+        for (const type in need) {
+            const matching = (itemsByHost[componentId] || []).filter(item => item && item.type === type);
+            for (let i = 0; i < need[type]; i += 1) {
+                itemIds.push(matching[i].id);
+            }
+        }
+
+        return {
+            ok: true,
+            params: { recipeId, componentId, itemIds }
+        };
+    }
+
+    /**
+     * Dispatches one validated craft call: the turn-gate mirror of
+     * _dispatchApproach. In a turn world, a response that lands outside the
+     * planning window is SILENT for that round (no immediate execution)
+     * — spec §5.8. Outside the planning window in a turn world, or in a
+     * non-turn world, the real transaction runs via facade.craftItems
+     * (which re-validates and performs the consume/produce). The NPC gets the
+     * outcome under the tool name it understood (craft) in its transcript.
+     *
+     * @param {string} npcEntityId
+     * @param {Object} params - { recipeId, componentId, itemIds } from _prevalidateCraft.
+     * @returns {{ recipeId: string, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _dispatchCraft(npcEntityId, params) {
+        const turns = this.turnSystemController;
+        const phase = turns?.getRoundState?.()?.phase;
+        const turnsActive = turns && phase !== undefined;
+        if (turnsActive && phase === TURN_PHASES.PLANNING) {
+            // The real transaction is NOT queued by the turn system (crafting
+            // is not a registry action); it runs as an immediate transaction
+            // while planning, and is recorded under the tool name by the round
+            // runner — same shape as toApproach's immediate fallback, but with
+            // no queue entry.
+            return this._executeCraftImmediate(npcEntityId, params);
+        }
+        if (turnsActive) {
+            const detail = 'planning window closed';
+            Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, craft "${params.recipeId}" dropped (no immediate execution in a turn world).`);
+            // Recorded by the round runner under the LLM tool name.
+            return { recipeId: params.recipeId, queued: false, success: false, detail };
+        }
+
+        // Immediate fallback (non-turn worlds / tests only).
+        return this._executeCraftImmediate(npcEntityId, params);
+    }
+
+    /**
+     * Runs the craft transaction on the turn (or non-turn) path: delegates to
+     * facade.craftItems, which re-validates (instance checks, exact multiset,
+     * volume pre-check) and performs the consume/produce, then formats the
+     * outcome for the agent transcript.
+     * @param {string} npcEntityId
+     * @param {Object} params - { recipeId, componentId, itemIds }.
+     * @returns {{ recipeId: string, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _executeCraftImmediate(npcEntityId, params) {
+        try {
+            const exec = this.worldStateController?.craftItems?.(
+                npcEntityId,
+                params.recipeId,
+                params.componentId,
+                params.itemIds
+            );
+            if (exec?.success) {
+                return {
+                    recipeId: params.recipeId,
+                    queued: false,
+                    success: true,
+                    detail: `crafted ${params.recipeId} (consumed [${params.itemIds.join(', ')}], produced ${exec.produced ? exec.produced.length : 0} item${exec.produced && exec.produced.length === 1 ? '' : 's'})`
+                };
+            }
+            return {
+                recipeId: params.recipeId,
+                queued: false,
+                success: false,
+                detail: exec?.message || exec?.error || 'craft failed'
+            };
+        } catch (err) {
+            return {
+                recipeId: params.recipeId,
+                queued: false,
+                success: false,
+                detail: err?.message || String(err)
+            };
+        }
     }
 
     /**
@@ -1571,8 +1926,21 @@ class LLMAgentController {
             });
         });
 
-        // get_actions / get_instincts: the discovery payloads (payloadMap is
-        // built in runRound for this call).
+        // craft: one result entry per call, in call order. The detail
+        // ("planning window closed" / "crafted X (consumed [...], produced n)")
+        // is the outcome the model must be replayed, kept even on success
+        // (same convention as toApproach).
+        (parsed.crafts || []).forEach((call, idx) => {
+            const entry = (result.crafts || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // get_actions / get_instincts / get_crafts: the discovery payloads
+        // (payloadMap is built in runRound for this call).
         (parsed.discoveries || []).forEach(entry => {
             const p = (ctx.payloadMap || {})[entry.id];
             results.push({

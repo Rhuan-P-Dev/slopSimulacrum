@@ -153,7 +153,8 @@ class LLMController {
      * @param {string|Object} [options.tool_choice] - `tool_choice` directive,
      *   included verbatim when provided.
      * @param {number} [options.timeout_ms] - Per-call timeout override in ms
-     *   (positive finite number). The NPC agent passes 45000 ms (spec §6.5 default 4500 ms ×10 — local models are slow).
+     *   (positive finite number). The NPC agent passes 450000 ms (7.5 min; LLM_ROUND_TIMEOUT_MS in
+     *   LLMAgentController) because a full local-model reasoning turn can take tens of seconds.
      *   Absent/invalid → `REQUEST_TIMEOUT_MS` (env default).
      * @returns {Promise<{
      *   content: string|null,

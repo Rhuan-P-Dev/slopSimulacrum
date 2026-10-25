@@ -51,6 +51,7 @@ import {
     CONTEXT_MAX_ENTITIES,
     CONTEXT_MAX_DROPPED_ITEMS,
     CONTEXT_MAX_EXITS,
+    CONTEXT_MAX_PLACED_MACHINES,
     CHAT_MESSAGE_MAX_LENGTH,
     AGENT_FEEDBACK_CAPACITY,
     LLM_CONTEXT_MAX_CHARS,
@@ -68,6 +69,7 @@ import {
 import { TRAIT_GROUPS, STAT_NAMES, flatKey } from '../../../shared/StatVocabulary.js';
 import { hasUsableComponent } from '../../utils/npcAiUtils.js';
 import { resolveRoomExits } from '../../utils/ContextResolution.js';
+import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 
 class LlmContextController {
     static BUDGET = {
@@ -76,6 +78,7 @@ class LlmContextController {
         otherRoomEntities: LLM_CONTEXT_OTHER_ROOM_ENTITIES,    // entities from other rooms (room-named)
         maxDroppedItems: CONTEXT_MAX_DROPPED_ITEMS, // current-room dropped items listed (positions) (single-sourced in Constants.js)
         maxExits: CONTEXT_MAX_EXITS,             // current-room exits listed (safety cap) (single-sourced in Constants.js)
+        maxPlacedMachines: CONTEXT_MAX_PLACED_MACHINES, // current-room placed machines listed (positions) (single-sourced in Constants.js)
         maxFailures: LLM_CONTEXT_MAX_FAILURES,   // warn-level world event tail ("WORLD FAILURES" section)
         maxDeltas: LLM_CONTEXT_MAX_DELTAS,       // perception delta lines ("since you last looked" block)
         maxChat: LLM_CONTEXT_MAX_CHAT,
@@ -174,7 +177,8 @@ class LlmContextController {
         let feedback = feedbackData;
         let instinctSection = instincts.slice(0, LlmContextController.BUDGET.maxInstincts);
         const droppedItems = this._buildDroppedItemsData(entity.location);
-        let text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+        const plAcedMachines = this._buildPlacedMachinesData(entity.location);
+        let text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
 
         if (text.length > stats.budgetChars) {
             // Deltas are sliced in memory (NOT re-read): the perception read
@@ -182,46 +186,46 @@ class LlmContextController {
             // second facade read would find nothing left to show.
             if (deltas.length > 2) {
                 deltas = deltas.slice(-Math.max(2, Math.floor(deltas.length / 2)));
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.deltas = true;
             }
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)), rooms);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && failures.length > 2) {
                 failures = failures.slice(-Math.max(2, Math.floor(failures.length / 2)));
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.failures = true;
             }
 
             if (text.length > stats.budgetChars && chat.length > LLM_CONTEXT_MAX_CHAT_IN_CONTEXT) {
                 chat = chat.slice(0, LLM_CONTEXT_MAX_CHAT_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.chat = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
             if (text.length > stats.budgetChars && feedback.length > 0) {
                 feedback = [];
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.feedback = true;
             }
 
             // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
             if (instinctSection.length > LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT) {
                 instinctSection = instinctSection.slice(0, LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.instincts = true;
             }
 
             // Final fallback: if still over budget after all truncation, truncate instincts further
             if (text.length > stats.budgetChars && instinctSection.length > 0) {
                 instinctSection = [];
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, maxEntities, rooms);
+                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
                 stats.truncated.instincts = true; // already set, but ensure clarity
             }
         }
@@ -235,6 +239,7 @@ class LlmContextController {
                 ...near.otherRooms.map(e => ({ ...e, room: e.roomName }))
             ],
             droppedItems,
+            placedMachines: plAcedMachines,
             actions: actionData,
             hints: hintsData.slice(0, LLM_CONTEXT_MAX_HINTS),
             deltas,
@@ -411,6 +416,37 @@ class LlmContextController {
     }
 
     /**
+     * Placed machines in the current room (static world objects set down by an
+     * agent or player), with positions and entity ids, for the
+     * "Placed machines:" line. The agent can see these (name, type, position,
+     * ent-… id) so it can retrieve them by machineType or targetEntityId. The
+     * list is capped at BUDGET.maxPlacedMachines so a room full of machines
+     * cannot blow the context budget.
+     * @param {string|null} roomUid - Room UID (entity.location).
+     * @returns {Array<{ id: string, name: string, machineType: string, x: number, y: number }>}
+     * @private
+     */
+    _buildPlacedMachinesData(roomUid) {
+        const facade = this.worldStateController;
+        if (!roomUid || !facade.getAll) return [];
+        try {
+            const entities = Object.values(facade.getAll().entities || {});
+            return entities
+                .filter(e => e && e.location === roomUid && e.isMachine === true)
+                .slice(0, LlmContextController.BUDGET.maxPlacedMachines)
+                .map(m => ({
+                    id: m.id,
+                    name: m.name || m.machineType || 'machine',
+                    machineType: m.machineType,
+                    x: m.spatial?.x ?? null,
+                    y: m.spatial?.y ?? null
+                }));
+        } catch {
+            return [];
+        }
+    }
+
+    /**
      * Nearby entities: same room (distance-sorted, capped) + up to 2 from
      * other rooms (room-named).
      * @param {Object} self
@@ -502,6 +538,245 @@ class LlmContextController {
      */
     getActionData(entityId) {
         return this._buildActionData(entityId);
+    }
+
+    /**
+     * Builds the craft data for one entity (the discovery side of the
+     * craft / get_crafts tools). Mirrors _buildActionData: the recipe
+     * registry is the ONLY source of craftable options; this method decides
+     * per recipe whether it is craftable right now (and on which component)
+     * plus why each recipe is not craftable.
+     *
+     * A recipe is craftable on a component when (a) that component holds at
+     * least `need[type]` items of each input type (instances are picked
+     * server-side at dispatch — surplus of a type is fine; crafting consumes
+     * exactly the multiset the model named), and (b) the same volume
+     * inequality the craft transaction itself checks passes:
+     * free + freed >= needed, where `free` is the component's free volume
+     * now, `freed` is the volume gained by removing the items being
+     * consumed (their host volume), and `needed` is the sum of the output
+     * footprint per unit (external footprint when declared, else full
+     * volume, else DEFAULT_ITEM_VOLUME) — the same math as
+     * CraftingLogic.precheckCraftVolume, so the discovery list and the
+     * actual craft transaction agree.
+     *
+     * All reads go through the facade's public API (reader/composer
+     * contract); no mutation ever happens here.
+     * @param {string} entityId
+     * @returns {{
+     *   craftable: Array<{ recipeId: string, name: string, description: string,
+     *     needs: Array<{ type: string, quantity: number }>,
+     *     outputs: Array<{ type: string, quantity: number }>,
+     *     componentId: string }>,
+     *   notCraftable: Array<{ recipeId: string, name: string, reason: string }>
+     * }}
+     * @private
+     */
+    _buildCraftData(entityId) {
+        const facade = this.worldStateController;
+        if (!facade) {
+            return { craftable: [], notCraftable: [] };
+        }
+
+        const recipes =
+            (typeof facade.getCraftingRecipes === 'function'
+                ? (facade.getCraftingRecipes() || [])
+                : []);
+        if (!Array.isArray(recipes) || recipes.length === 0) {
+            return { craftable: [], notCraftable: [] };
+        }
+
+        const entity = facade.getEntity?.(entityId);
+        if (!entity || typeof entity !== 'object') {
+            return { craftable: [], notCraftable: [] };
+        }
+
+        const inventoryManager = facade.inventoryManager;
+        const itemDefinitions =
+            (inventoryManager
+                && typeof inventoryManager.getItemDefinitions === 'function')
+            ? (inventoryManager.getItemDefinitions() || {})
+            : {};
+
+        // Output footprint (the space a NEW output occupies): the declared
+        // external footprint (form.externalVolume, then top-level
+        // externalVolume) when present, else the full volume (form.volume,
+        // then top-level volume), else the no-item-loss floor. Mirrors
+        // CraftingLogic.precheckCraftVolume so the discovery "craftable" list
+        // and the real transaction agree.
+        const outputFootprint = (type) => {
+            const def = itemDefinitions[type] || {};
+            const external =
+                (def.form && typeof def.form.externalVolume === 'number')
+                    ? def.form.externalVolume
+                    : (typeof def.externalVolume === 'number'
+                        ? def.externalVolume
+                        : undefined);
+            if (typeof external === 'number') {
+                return external;
+            }
+            const full =
+                (def.form && typeof def.form.volume === 'number')
+                    ? def.form.volume
+                    : (typeof def.volume === 'number'
+                        ? def.volume
+                        : undefined);
+            return (typeof full === 'number') ? full : DEFAULT_ITEM_VOLUME;
+        };
+
+        // Per-recipe input multiset (a type named in two entries accumulates
+        // — same convention as CraftingController.checkExactInputs).
+        const needsOf = (recipe) => (recipe.inputs || []).reduce((map, input) => {
+            if (!input || typeof input.type !== 'string'
+                || !Number.isFinite(input.quantity) || input.quantity < 1) {
+                return map;
+            }
+            map[input.type] = (map[input.type] || 0) + input.quantity;
+            return map;
+        }, {});
+
+        const itemsByHost =
+            (facade.getEntityItems?.(entityId) || {}) || {};
+
+        const craftable = [];
+        const notCraftable = [];
+
+        for (const recipe of recipes) {
+            if (!recipe || typeof recipe.id !== 'string' || recipe.id.length === 0) {
+                continue;
+            }
+            const needs = needsOf(recipe);
+            if (Object.keys(needs).length === 0) {
+                // No inputs at all (malformed data): no component can be
+                // pointed at for the craft.
+                notCraftable.push({
+                    recipeId: recipe.id,
+                    name: recipe.name || recipe.id,
+                    reason: 'recipe has no inputs (malformed data)'
+                });
+                continue;
+            }
+
+            const neededVolume = (recipe.outputs || []).reduce((sum, output) => {
+                if (!output || typeof output.type !== 'string') {
+                    return sum;
+                }
+                const qty =
+                    (typeof output.quantity === 'number' && output.quantity > 0)
+                        ? output.quantity
+                        : 1;
+                return sum + outputFootprint(output.type) * qty;
+            }, 0);
+
+            let firstReason = null;
+            let pushed = false;
+            for (const component of entity.components || []) {
+                const componentId = component.id;
+                const held = {};
+                for (const item of itemsByHost[componentId] || []) {
+                    if (item && typeof item.type === 'string') {
+                        held[item.type] = (held[item.type] || 0) + 1;
+                    }
+                }
+                const missing = [];
+                for (const [type, qty] of Object.entries(needs)) {
+                    const have = held[type] || 0;
+                    if (have < qty) {
+                        missing.push(`${type} x${qty - have}`);
+                    }
+                }
+                if (missing.length > 0) {
+                    if (!firstReason) {
+                        firstReason = `missing ${missing.join(' ')}`;
+                    }
+                    continue;
+                }
+
+                // Volume: same inequality as the craft transaction itself
+                // (free + freed >= needed). `freed` = host volume of the
+                // instances that would be removed (first `need[type]` of each
+                // required type, exactly as crafting would consume them).
+                const freed = Object.entries(needs).reduce((sum, entry) => {
+                    const [type, qty] = entry;
+                    let added = 0;
+                    for (const item of itemsByHost[componentId] || []) {
+                        if (item && item.type === type && added < qty) {
+                            sum += (typeof item.hostVolume === 'number'
+                                ? item.hostVolume
+                                : (typeof item.volume === 'number'
+                                    ? item.volume
+                                    : 0));
+                            added += 1;
+                        }
+                    }
+                    return sum;
+                }, 0);
+
+                const vol =
+                    (inventoryManager
+                        && typeof inventoryManager.getComponentVolume === 'function')
+                    ? (inventoryManager.getComponentVolume(entity, componentId) || {})
+                    : { used: 0, max: 0 };
+                const free = Math.max(
+                    0,
+                    (typeof vol.max === 'number' ? vol.max : 0)
+                        - (typeof vol.used === 'number' ? vol.used : 0)
+                );
+
+                if (free + freed >= neededVolume) {
+                    craftable.push({
+                        recipeId: recipe.id,
+                        name: recipe.name || recipe.id,
+                        description:
+                            (typeof recipe.description === 'string')
+                                ? recipe.description
+                                : '',
+                        needs: Object.entries(needs).map(([type, quantity]) => ({
+                            type,
+                            quantity
+                        })),
+                        outputs: (recipe.outputs || [])
+                            .filter((output) => output && typeof output.type === 'string')
+                            .map((output) => ({
+                                type: output.type,
+                                quantity:
+                                    (typeof output.quantity === 'number'
+                                        && output.quantity > 0)
+                                        ? output.quantity
+                                        : 1
+                            })),
+                        componentId
+                    });
+                    pushed = true;
+                    break;
+                }
+                if (!firstReason) {
+                    firstReason = `component "${componentId}" has no room for the outputs ` +
+                        `(free ${free}, gains ${freed}, needs ${neededVolume})`;
+                }
+            }
+
+            if (!pushed) {
+                notCraftable.push({
+                    recipeId: recipe.id,
+                    name: recipe.name || recipe.id,
+                    reason: firstReason || 'unknown'
+                });
+            }
+        }
+
+        return { craftable, notCraftable };
+    }
+
+    /**
+     * Public accessor for the craft data (craftable recipes + not-craftable
+     * entries with reasons). Shared by the agent's get_crafts tool; no
+     * perception side effects — safe to call on every tool round.
+     * @param {string} entityId
+     * @returns {{ craftable: Array, notCraftable: Array }}
+     */
+    getCraftData(entityId) {
+        return this._buildCraftData(entityId);
     }
 
     /**
@@ -629,7 +904,7 @@ class LlmContextController {
      *   by buildContext so the room block is resolved from the same single clone.
      * @private
      */
-    _render(entity, roomName, self, near, deltas, _actions, hints, failures, chat, feedback, _instincts, droppedItems, _maxEntities, rooms) {
+    _render(entity, roomName, self, near, deltas, _actions, hints, failures, chat, feedback, _instincts, droppedItems, plAcedMachines, _maxEntities, rooms) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -738,6 +1013,13 @@ class LlmContextController {
         }
         if (Array.isArray(droppedItems) && droppedItems.length > 0) {
             lines.push(`Dropped items: ${droppedItems.map(it => `${it.name} at (${Math.round(it.x)}, ${Math.round(it.y)})`).join(', ')}`);
+        }
+        if (Array.isArray(plAcedMachines) && plAcedMachines.length > 0) {
+            // Placed machines are static world objects the agent itself may have
+            // set down: the agent can see them (name, type, position, ent-… id) so
+            // it can retrieveMachine { machineType } / { targetEntityId } without
+            // guessing which machine it placed. Capped at BUDGET.maxPlacedMachines.
+            lines.push(`Placed machines: ${plAcedMachines.map(m => `${m.name} [type:${m.machineType}] at (${Math.round(m.x)}, ${Math.round(m.y)}), ent:${m.id}`).join(', ')}`);
         }
         // The perception delta stream: one summary line per room delta since
         // the agent's observation cursor (baselines never appear here — the
@@ -992,6 +1274,48 @@ export function formatInstinctList(instincts, filter) {
     if (!needle) {
         return lines.length > 0 ? lines.join('\n') : '(none)';
     }
+    const hit = lines.filter(line => line.toLowerCase().includes(needle));
+    return hit.length > 0 ? hit.join('\n') : `(no match: "${filter}")`;
+}
+
+/**
+ * Renders the craft list for the get_crafts tool. One line per craftable
+ * recipe — `name (recipeId): description | need <type xqty, ...> | gets
+ * <type xqty, ...> | on <componentId>` — plus one summary line listing the
+ * recipes that are not craftable right now with the reason (missing
+ * ingredients or a full component). An optional case-insensitive substring
+ * filter narrows the craftable lines (matches name / recipeId / description /
+ * component); no match → "(no match: '...')". Mirrors formatActionList:
+ * with a filter the not-craftable summary line is dropped, with no filter
+ * it is appended.
+ * @param {Array<{ recipeId: string, name: string, description?: string,
+ *   needs?: Array<{ type: string, quantity: number }>,
+ *   outputs?: Array<{ type: string, quantity: number }>,
+ *   componentId: string }>} craftable - Craftable recipes (getCraftData().craftable).
+ * @param {Array<{ recipeId: string, name: string, reason: string }>} notCraftable - Not craftable right now (getCraftData().notCraftable).
+ * @param {string} [filter] - Optional text filter to narrow the craftable lines.
+ * @returns {string}
+ */
+export function formatCraftList(craftable, notCraftable, filter) {
+    const lines = (craftable || []).map((r) =>
+        `- ${r.name} (${r.recipeId}): ${(typeof r.description === 'string' ? r.description : '')}` +
+        ` | need ${(r.needs || []).map((i) => `${i.type} x${i.quantity}`).join(', ')}` +
+        ` | gets ${(r.outputs || []).map((o) => `${o.type} x${o.quantity}`).join(', ')}` +
+        ` | on ${r.componentId}`
+    );
+    const needle = (filter && typeof filter === 'string') ? filter.trim().toLowerCase() : null;
+
+    if (!needle) {
+        const out = [...lines];
+        if (notCraftable && notCraftable.length > 0) {
+            out.push(
+                `${notCraftable.length} recipe${notCraftable.length > 1 ? 's' : ''} not craftable right now: ` +
+                notCraftable.map((r) => `${r.recipeId} (${r.reason})`).join(', ')
+            );
+        }
+        return out.join('\n');
+    }
+
     const hit = lines.filter(line => line.toLowerCase().includes(needle));
     return hit.length > 0 ? hit.join('\n') : `(no match: "${filter}")`;
 }

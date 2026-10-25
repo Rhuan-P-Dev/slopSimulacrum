@@ -324,6 +324,47 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.droppedItems).toEqual([{ id: 'dropped-1', name: 'Knife', itemType: 'knife', x: 150, y: 120 }]);
     });
 
+    it('lists current-room placed machines (positions) in the "Placed machines:" line', () => {
+        const machWorld = makeWorld({}, {
+            'mach-1': {
+                id: 'mach-1',
+                name: 'Knife Generator',
+                isMachine: true,
+                location: 'room-1',
+                spatial: { x: 200, y: 80 },
+                machineType: 'knifeGenerator',
+                ownerEntityId: 'ent-self'
+            }
+        });
+        const c2 = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        c2.setWorldStateController(machWorld);
+        const { text, data } = c2.buildContext('ent-self');
+        expect(text).toContain('Placed machines: Knife Generator [type:knifeGenerator] at (200, 80), ent:mach-1');
+        expect(data.placedMachines).toEqual([{
+            id: 'mach-1', name: 'Knife Generator', machineType: 'knifeGenerator', x: 200, y: 80
+        }]);
+    });
+
+    it('caps placed machines at the CONTEXT_MAX_PLACED_MACHINES budget', () => {
+        const machines = {};
+        for (let i = 1; i <= 7; i += 1) {
+            machines[`mach-${i}`] = {
+                id: `mach-${i}`, name: `Mach ${i}`, isMachine: true,
+                location: 'room-1', spatial: { x: 10 * i, y: 10 * i }, machineType: `type-${i}`
+            };
+        }
+        const mw = makeWorld({}, machines);
+        const c2 = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        c2.setWorldStateController(mw);
+        const { text, data } = c2.buildContext('ent-self');
+        // Six fit, the seventh (Mach 7) is dropped from both text and data.
+        expect(data.placedMachines).toHaveLength(6);
+        expect(text).toContain('Placed machines: Mach 1 [type:type-1] at (10, 10), ent:mach-1');
+        // Mach 6 sits at the end of the same one-line list (no re-prefixed prefix).
+        expect(text).toContain('Mach 6 [type:type-6] at (60, 60), ent:mach-6');
+        expect(text).not.toContain('Mach 7');
+    });
+
     // Ghost exclusion (subtask 2b, defense-in-depth): a component-less "ghost"
     // entity (mid-cascade or not yet despawned) must NOT appear in the
     // YOUR WORLD section — the LLM must never "see" a corpse. Exclusion
