@@ -1,6 +1,11 @@
 {
   "initialSpawns": [
     {
+      "item": "tshirt",
+      "slot": "bestAvailable",
+      "wear": true
+    },
+    {
       "item": "coal",
       "slot": "firstFit:m1CentralBody,centralBall",
       "count": 10

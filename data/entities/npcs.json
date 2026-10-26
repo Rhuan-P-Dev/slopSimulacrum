@@ -8,6 +8,7 @@
     "maxChatMessagesPerRound": 0,
     "envGate": "KILLER_LLM_DRONE_ENABLED",
     "initialItems": [
+      { "item": "tshirt", "count": 1, "wear": true },
       { "item": "t1", "count": 1, "equip": true, "contents": [{ "item": "knife", "count": 10 }] },
       { "item": "knife", "count": 1, "equip": true }
     ]

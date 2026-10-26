@@ -293,6 +293,7 @@ describe('WorldStateController public method surface', () => {
  // Added deliberately (wiki/subMDs/data/world_rules.md): the world-rules registry
         // passthrough. Not an accidental addition — mirrors getKnowledge().
         'getWorldRules',
+        'getWornItems',
         'hasInternalComponent',
         'initializeWorld',
         'moveEntity',
@@ -331,6 +332,7 @@ describe('WorldStateController public method surface', () => {
         'transferEquip',
         'triggerInitialBroadcast',
         'unequipItem',
+        'wearItem',
     ];
 
     it('exposes exactly the expected set of public methods', () => {

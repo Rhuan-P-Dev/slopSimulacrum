@@ -14,6 +14,7 @@ import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVo
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
+import { wearItem, getWornItems } from './logic/WearLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
 import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListener, registerDamageListener, initializeTurnSystem, initializeEnergyFlow, registerEquippedStatsCallback } from './logic/FacadeInitLogic.js';
@@ -1842,6 +1843,42 @@ class WorldStateController {
             this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
         }
         return result;
+    }
+
+    /**
+     * Clothes feature: wears a carried item on a caller-chosen component
+     * (like equipItem, but with the clothes fit rule: the component must
+     * have at least the item's `wear.minVolume` — item registry — of free
+     * volume; non-wearable items fail). Wearing reuses the equipped
+     * machinery, so a worn item is an equipped entry and unequipItem takes
+     * it off.
+     * Implementation: src/controllers/logic/WearLogic.js (`wearItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+     * @param {string} entityId - The entity that wears the item.
+     * @param {string} itemId - The carried item to wear (in the entity's inventory).
+     * @param {string} componentId - The target component (must belong to the entity).
+     * @returns {{ success: boolean, message: string, itemId?: string, itemType?: string,
+     *   componentId?: string }}
+     */
+    wearItem(entityId, itemId, componentId) {
+        const result = wearItem(this, entityId, itemId, componentId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
+    }
+
+    /**
+     * Clothes feature: lists the items currently worn by an entity (the
+     * equipped subset whose item type declares a `wear.minVolume`).
+     * Implementation: src/controllers/logic/WearLogic.js (`getWornItems`).
+     * @param {string} entityId - The entity to inspect.
+     * @returns {Array<{ itemId: string, itemType: string, name: string,
+     *   componentId: string, componentType: string|null }>}
+     */
+    getWornItems(entityId) {
+        return getWornItems(this, entityId);
     }
 
     /**

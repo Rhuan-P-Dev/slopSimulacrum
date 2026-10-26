@@ -250,15 +250,18 @@ function buildNpcConfig(facade, entry, normalizedAi) {
 
 /**
  * Applies the entry's initialItems to a just-spawned entity. Each
- * `{ item, count, equip?, contents? }` is added `count` times via the
+ * `{ item, count, equip?, wear?, contents? }` is added `count` times via the
  * existing addItemToEntity() API: unequipped entries go to a merchantArm
- * (fallback: first arm-like component, then any component); equip: true
- * entries go to a component that can meet the item's holding-cost
+ * (fallback: first arm-like component, then any component); equip: true and
+ * wear: true entries go to a component that can meet the item's holding-cost
  * requirements (see _resolveEquippableHostComponent). Any declared
  * `contents` ({ item, count }[]) are nested into the just-added instance
  * through the public addItemToContainer() facade (never InventoryManager
  * directly). equip: true items are then equipped on the same host
- * component. A failed add/equip/nest is a warning only — the item stays
+ * component; wear: true items (clothes feature) are worn on the first
+ * component (in component order) with at least the item's `wear.minVolume`
+ * of free volume (WearLogic — pure volume fit; the caller here is the spawn
+ * rule). A failed add/equip/wear/nest is a warning only — the item stays
  * held (or absent) and the entity keeps its unequipped baseline; spawn
  * never fails.
  * @private
@@ -270,14 +273,14 @@ function buildNpcConfig(facade, entry, normalizedAi) {
 function applyInitialItems(facade, entityId, entry) {
     const entity = facade.stateEntityController.getEntity(entityId);
     const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
-    for (const { item, count: n, equip, contents } of items) {
+    for (const { item, count: n, equip, wear, contents } of items) {
         const times = Math.max(0, Number(n) || 0);
-        // equip: true entries are placed on a component that can
+        // equip: true and wear: true entries are placed on a component that can
         // actually meet the item's holding-cost requirements, so
-        // the equip below can succeed (e.g. a droidHand with
-        // strength, not a bare droidArm). Unequipped entries keep
+        // the equip/wear below can succeed (e.g. a droidHand with
+        // strength, not a bare droidArm). Unequipped, unworn entries keep
         // the historical arm-first placement.
-        const hostComponent = equip === true
+        const hostComponent = (equip === true || wear === true)
             ? facade._resolveEquippableHostComponent(entity, item)
             : entity?.components?.find(c => c.type === 'merchantArm')
                 || entity?.components?.find(c => /arm|hand/i.test(c.type || ''))
@@ -315,6 +318,22 @@ function applyInitialItems(facade, entityId, entry) {
                 const equipResult = facade.equipItem(entityId, result.item.id, item, hostComponent.id);
                 if (!equipResult.success) {
                     Logger.warn(`[WorldStateController] NPC item "${item}" #${i + 1} added but equip failed on ${hostComponent.type}: ${equipResult.message}`);
+                }
+            } else if (wear === true && result.item?.id) {
+                // Clothes feature: wear on the first component (in
+                // component order) with at least the item's `wear.minVolume`
+                // of free volume (WearLogic — pure volume fit). Warn-only,
+                // exactly like the equip branch: the item stays held; spawn
+                // never fails.
+                const minVolume = facade.getItemRegistry?.()[item]?.wear?.minVolume;
+                const wearTarget = typeof minVolume === 'number' && Array.isArray(entity.components)
+                    ? entity.components.find((c) => facade.inventoryManager.getAvailableVolume(entity, c.id) >= minVolume)
+                    : null;
+                const wearResult = wearTarget
+                    ? facade.wearItem(entityId, result.item.id, wearTarget.id)
+                    : { success: false, message: 'no component with enough free volume for the item' };
+                if (!wearResult.success) {
+                    Logger.warn(`[WorldStateController] NPC "${entry.displayName}" item "${item}" #${i + 1} added but wear failed: ${wearResult.message}`);
                 }
             }
         }

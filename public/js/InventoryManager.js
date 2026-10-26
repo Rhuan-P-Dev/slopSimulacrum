@@ -76,6 +76,7 @@ export class InventoryManager {
         this._onDragLeave = this._onDragLeave.bind(this);
         this._onEquipClick = this._onEquipClick.bind(this);
         this._onUnequipClick = this._onUnequipClick.bind(this);
+        this._onWearClick = this._onWearClick.bind(this);
         this._onDropClick = this._onDropClick.bind(this);
         this._onPlaceClick = this._onPlaceClick.bind(this);
     }
@@ -611,6 +612,31 @@ export class InventoryManager {
                     </button>`;
             }
 
+            // Clothes feature: wear/take-off button for items whose registry
+            // entry declares `wear.minVolume` (the fit rule: the target
+            // component must have at least that much free volume). Same
+            // container-targeted flow as the equip button: the target is the
+            // component that lists the item (sent in the body).
+            let wearButtonHtml = '';
+            const wearMinVolume = itemDef?.wear?.minVolume;
+            if (typeof wearMinVolume === 'number') {
+                const isWorn = isEquipped;
+                const btnText = isWorn ? '👕 Take off' : '👕 Wear';
+                const btnClass = isWorn ? 'equip-btn takeoff' : 'equip-btn wear';
+                const btnTitle = isWorn
+                    ? 'Click to take this clothing off'
+                    : `Click to wear (needs ${wearMinVolume} free volume in the target component)`;
+
+                wearButtonHtml = `
+                    <button class="${btnClass}"
+                            data-item-id="${item.id}"
+                            data-item-type="${item.type}"
+                            data-is-worn="${isWorn ? 'true' : 'false'}"
+                            title="${btnTitle}">
+                        ${btnText}
+                    </button>`;
+            }
+
             // Drop button for all items
             const dropButtonHtml = `
                 <button class="equip-btn drop"
@@ -677,6 +703,7 @@ export class InventoryManager {
                             data-item-type="${item.type}"
                             title="Click to view item stats">📊 Stats</button>
                     ${equipButtonHtml}
+                    ${wearButtonHtml}
                     ${dropButtonHtml}
                     ${placeButtonHtml}
                 </div>
@@ -833,6 +860,14 @@ export class InventoryManager {
         equipButtons.forEach(btn => {
             const isEquipped = btn.dataset.isEquipped === 'true';
             btn.addEventListener('click', isEquipped ? this._onUnequipClick : this._onEquipClick);
+        });
+
+        // Attach clothes wear/take-off button listeners (wear uses the
+        // container-targeted flow like /equip; take-off reuses unequip)
+        const wearButtons = this._content.querySelectorAll('.equip-btn.wear, .equip-btn.takeoff');
+        wearButtons.forEach(btn => {
+            const isWorn = btn.dataset.isWorn === 'true';
+            btn.addEventListener('click', isWorn ? this._onUnequipClick : this._onWearClick);
         });
 
         // Attach drop button listeners
@@ -1022,6 +1057,59 @@ export class InventoryManager {
         } catch (error) {
             ClientLogger.error('InventoryManager', ' Error unequipping item:', error);
             this._showToast('Failed to unequip item', 'error');
+        }
+    }
+
+    /**
+     * Handles a clothes wear click: wears the item on the component that
+     * lists it (POST /inventory/:entityId/wear/:itemId, body
+     * { componentId }) — the same container-targeted flow as /equip. The
+     * server enforces the fit rule (the component must have at least the
+     * item's wear.minVolume of free volume).
+     * @param {Event} e - The click event.
+     * @private
+     */
+    async _onWearClick(e) {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const itemId = btn.dataset.itemId;
+        if (!this._currentEntityId) return;
+
+        // Find target component from the nearest container (like /equip).
+        const card = btn.closest('.inventory-item-card');
+        const container = card?.closest('.inventory-items-container');
+        const targetCompId = container?.dataset.compId;
+        if (!targetCompId) {
+            this._showToast('No component found to wear on', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/inventory/${this._currentEntityId}/wear/${itemId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ componentId: targetCompId })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                this._showToast(result.message || 'Failed to wear item', 'error');
+                return;
+            }
+
+            this._showToast('Clothing worn successfully', 'success');
+
+            // Reload BOTH item data and equipped state in parallel to avoid stale data
+            await Promise.all([
+                this._loadEntityItems(this._currentEntityId),
+                this._loadEquippedItems(this._currentEntityId)
+            ]);
+            await this._statBarsManager?.refreshCurrentEntity?.();
+            this._renderInventory();
+        } catch (error) {
+            ClientLogger.error('InventoryManager', ' Error wearing item:', error);
+            this._showToast('Failed to wear item', 'error');
         }
     }
 

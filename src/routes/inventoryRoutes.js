@@ -329,6 +329,74 @@ export default function register(router, { worldStateController }) {
 	});
 
 	/**
+	 * POST /inventory/:entityId/wear/:itemId
+	 * Clothes feature: wears a carried item on a caller-chosen component
+	 * (body: { componentId }), the same flow as /equip. Fit rule (WearLogic):
+	 * the component must have at least the item's `wear.minVolume` (item
+	 * registry) of free volume. Non-wearable items are rejected.
+	 */
+	router.post('/inventory/:entityId/wear/:itemId', (req, res) => {
+		try {
+			const { entityId, itemId } = req.params;
+			const { componentId } = req.body;
+
+			// TYPED ID MIGRATION: Validate entityId and itemId formats
+			const entityIdValidation = validateEntityId(entityId, 'POST /inventory/:entityId/wear/:itemId params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			const itemIdValidation = validateItemId(itemId, 'POST /inventory/:entityId/wear/:itemId params');
+			if (!itemIdValidation.valid) {
+				return res.status(400).json({ error: itemIdValidation.error });
+			}
+
+			if (!componentId) {
+				return res.status(400).json({
+					error: 'Bad Request',
+					message: 'componentId is required.',
+				});
+			}
+
+			// TYPED ID MIGRATION: Validate componentId format
+			const compValidation = validateCompId(componentId, 'POST /inventory/:entityId/wear/:itemId body');
+			if (!compValidation.valid) {
+				return res.status(400).json({ error: compValidation.error });
+			}
+
+			const result = worldStateController.wearItem(entityId, itemId, componentId);
+
+			if (!result.success) {
+				return res.status(400).json({
+					error: 'Failed to wear item',
+					message: result.message,
+				});
+			}
+
+			res.json({ success: true, componentId: result.componentId });
+		} catch (error) {
+			sendRouteError(error, res, '/inventory/:entityId/wear/:itemId');
+		}
+	});
+
+	/**
+	 * GET /inventory/:entityId/worn
+	 * Clothes feature: lists the items currently worn by the entity (the
+	 * equipped subset whose item type declares a `wear.minVolume`).
+	 */
+	router.get('/inventory/:entityId/worn', (req, res) => {
+		try {
+			const { entityId } = req.params;
+			const entityIdValidation = validateEntityId(entityId, 'GET /inventory/:entityId/worn params');
+			if (!entityIdValidation.valid) {
+				return res.status(400).json({ error: entityIdValidation.error });
+			}
+			res.json({ entityId, worn: worldStateController.getWornItems(entityId) });
+		} catch (error) {
+			sendRouteError(error, res, '/inventory/:entityId/worn');
+		}
+	});
+
+	/**
 	 * POST /inventory/:entityId/take/:itemId
 	 * Transfers an item from this entity to a component of another entity
 	 * (e.g. from a world object to the player's droid).
