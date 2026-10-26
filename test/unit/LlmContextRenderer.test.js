@@ -999,3 +999,172 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.instincts[1]).toEqual({ name: 'flee', description: 'run away from danger' });
     });
 });
+
+// =========================================================================
+// _buildCraftData — cross-component crafting discovery (the get_crafts
+// tool's data source). The recipe is craftable when the ENTITY holds the
+// inputs ACROSS its components and at least one component can receive the
+// outputs (the first in entity order is the reported destination).
+// =========================================================================
+
+const CRAFT_RECIPES = [
+    {
+        id: 'knife_to_t1',
+        name: 'T1 Assembly',
+        description: 'Forge one knife into a T1 container weapon.',
+        inputs: [{ type: 'knife', quantity: 1 }],
+        outputs: [{ type: 't1', quantity: 1 }]
+    },
+    {
+        id: 'knife_generator',
+        name: 'Knife Generator',
+        description: 'Forge coal + knife into a generator.',
+        inputs: [
+            { type: 'knife', quantity: 1 },
+            { type: 'coal', quantity: 1 }
+        ],
+        outputs: [{ type: 'knifeGenerator', quantity: 1 }]
+    }
+];
+
+const ITEM_DEFINITIONS = {
+    knife: { volume: 2 },
+    coal: { volume: 1 },
+    t1: { form: { volume: 10, externalVolume: 1 } },
+    knifeGenerator: { volume: 3 }
+};
+
+const CRAFT_ENTITY = {
+    id: 'ent-craft',
+    type: 'droid',
+    components: [
+        { id: 'comp-head', type: 'head' },
+        { id: 'comp-arm', type: 'hand' }
+    ]
+};
+
+function makeCraftFacade({ recipes = CRAFT_RECIPES, entity, items, volumes = {} } = {}) {
+    return {
+        getCraftingRecipes: () => recipes,
+        getEntity: (id) => (id === 'ent-craft' ? entity : null),
+        getEntityItems: (id) => (id === 'ent-craft' ? items : {}),
+        inventoryManager: {
+            getItemDefinitions: () => ITEM_DEFINITIONS,
+            getComponentVolume: (_e, componentId) => volumes[componentId] || { used: 0, max: 100 }
+        }
+    };
+}
+
+function makeCraftCtx(facade) {
+    const ctx = new LlmContextController({ actionRegistry: {} });
+    ctx.setWorldStateController(facade);
+    return ctx;
+}
+
+describe('_buildCraftData (cross-component crafting discovery)', () => {
+    it('craftable: input on comp-arm; the destination is the first component with room (comp-head, not the input host)', () => {
+        const facade = makeCraftFacade({
+            entity: CRAFT_ENTITY,
+            items: { 'comp-arm': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const data = makeCraftCtx(facade)._buildCraftData('ent-craft');
+
+        expect(data.craftable).toHaveLength(1);
+        expect(data.craftable[0]).toMatchObject({
+            recipeId: 'knife_to_t1',
+            componentId: 'comp-head'
+        });
+        expect(data.notCraftable).toHaveLength(1);
+        expect(data.notCraftable[0]).toMatchObject({
+            recipeId: 'knife_generator',
+            reason: 'missing coal x1'
+        });
+    });
+
+    it('craftable: inputs split across components (coal on head, knife on arm)', () => {
+        const facade = makeCraftFacade({
+            entity: CRAFT_ENTITY,
+            items: {
+                'comp-head': [{ id: 'item-coal-1', type: 'coal', hostVolume: 1 }],
+                'comp-arm': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }]
+            }
+        });
+        const data = makeCraftCtx(facade)._buildCraftData('ent-craft');
+
+        const gen = data.craftable.find((c) => c.recipeId === 'knife_generator');
+        expect(gen).toMatchObject({
+            recipeId: 'knife_generator',
+            componentId: 'comp-head'
+        });
+    });
+
+    it('lists a missing-ingredient recipe ONCE (entity-wide check, not per component)', () => {
+        // The old per-component rule would have reported knife_generator
+        // once per component without the ingredient; the entity-wide rule
+        // reports it once.
+        const facade = makeCraftFacade({
+            entity: CRAFT_ENTITY,
+            items: { 'comp-arm': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }] }
+        });
+        const data = makeCraftCtx(facade)._buildCraftData('ent-craft');
+
+        const gen = data.notCraftable.filter((n) => n.recipeId === 'knife_generator');
+        expect(gen).toHaveLength(1);
+        expect(gen[0].reason).toBe('missing coal x1');
+    });
+
+    it('notCraftable: no component has room for the outputs (entity-wide freed volume)', () => {
+        const facade = makeCraftFacade({
+            entity: CRAFT_ENTITY,
+            items: {
+                'comp-head': [{ id: 'item-coal-1', type: 'coal', hostVolume: 1 }],
+                'comp-arm': [{ id: 'item-knife-1', type: 'knife', hostVolume: 1 }]
+            },
+            volumes: {
+                'comp-head': { used: 100, max: 100 },
+                'comp-arm': { used: 100, max: 100 }
+            }
+        });
+        const data = makeCraftCtx(facade)._buildCraftData('ent-craft');
+
+        const gen = data.notCraftable.find((n) => n.recipeId === 'knife_generator');
+        expect(gen).toBeDefined();
+        expect(gen.reason).toBe(
+            'no component has room for the outputs (tried "comp-head": free 0, gains 2, needs 3)');
+    });
+
+    it('nested items (hosted by an item, not by a component) are excluded from the pool', () => {
+        const facade = makeCraftFacade({
+            entity: CRAFT_ENTITY,
+            items: {
+                'comp-head': [{ id: 'item-box-1', type: 'box' }],
+                // The knife sits INSIDE the box item — not a component host.
+                'item-box-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }]
+            }
+        });
+        const data = makeCraftCtx(facade)._buildCraftData('ent-craft');
+
+        expect(data.craftable).toHaveLength(0);
+        expect(data.notCraftable).toHaveLength(2);
+        expect(data.notCraftable.every((n) => n.reason.includes('missing knife x1'))).toBe(true);
+    });
+
+    it('degrades to empty lists without a facade, without recipes, or without an entity', () => {
+        const noFacade = new LlmContextController({ actionRegistry: {} });
+        expect(noFacade._buildCraftData('ent-craft')).toEqual({ craftable: [], notCraftable: [] });
+
+        const noRecipes = makeCraftCtx({
+            getCraftingRecipes: () => [],
+            getEntity: () => CRAFT_ENTITY,
+            getEntityItems: () => ({})
+        });
+        expect(noRecipes._buildCraftData('ent-craft')).toEqual({ craftable: [], notCraftable: [] });
+
+        const noEntity = makeCraftCtx({
+            getCraftingRecipes: () => CRAFT_RECIPES,
+            getEntity: () => null,
+            getEntityItems: () => ({})
+        });
+        expect(noEntity._buildCraftData('ent-craft')).toEqual({ craftable: [], notCraftable: [] });
+    });
+});

@@ -6,7 +6,8 @@
  * with per-item hosts (addToPendingPool / removeFromPendingPool /
  * clearPendingPool / getPoolItemIds), broadcast pruning incl. host changes
  * (prunePool over the fresh items map), live-item flattening
- * (getLiveItemIds), the shared-host auto-craft rule (getCraftableHost),
+ * (getLiveItemIds), the majority-host auto-craft rule (getCraftableHost,
+ * countPooledHosts),
  * pooled-set keys (pooledIdsKey), HTML escaping (escapeHtml),
  * per-recipe satisfaction / exact-ID selection (computeRecipeSatisfaction,
  * selectCraftItemIds), and server response envelope unwrapping
@@ -39,6 +40,7 @@ import {
     computeRecipeSatisfaction,
     selectCraftItemIds,
     getCraftableHost,
+    countPooledHosts,
     unwrapEnvelope
 } from '../../public/js/CraftingPanel.js';
 
@@ -450,51 +452,16 @@ describe('getLiveItemIds', () => {
     });
 });
 
-// --- getCraftableHost (same-host auto-craft rule) --------------------------------------
+// --- getCraftableHost (majority-host auto-craft rule) -----------------------------------
 
-describe('getCraftableHost', () => {
+describe('getCraftableHost (majority-host auto-craft rule)', () => {
     it('returns the single shared host when the recipe is satisfied and all inputs share it', () => {
         const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-a')] } };
         expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
     });
 
-    it('returns null when the inputs are satisfied but SPLIT across hosts (must not auto-fire)', () => {
-        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), entry('item-2', 'comp-b')] } };
-        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBeNull();
-    });
-
-    it('returns null when the pool cannot satisfy the recipe (short or empty)', () => {
-        const sameHost = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
-        expect(getCraftableHost(KNIFE_TO_T1, sameHost)).toBeNull();
-        expect(getCraftableHost(KNIFE_TO_T1, {})).toBeNull();
-    });
-
-    it('resolves a shared host across multiple input types', () => {
+    it('returns the majority host when the inputs are split across hosts (craft fires toward it)', () => {
         const pool = {
-            dual_recipe: {
-                a: [entry('item-a1', 'comp-x')],
-                b: [entry('item-b1', 'comp-x'), entry('item-b2', 'comp-x')]
-            }
-        };
-        expect(getCraftableHost(DUAL_RECIPE, pool)).toBe('comp-x');
-    });
-
-    it('counts extra pooled items of the same type toward the host check (overfill)', () => {
-        // 3 knives on comp-a for a 2-knife recipe → all share the host → may fire
-        // (selectCraftItemIds takes exactly two).
-        const pool = {
-            knife_to_t1: {
-                knife: [
-                    entry('item-1', 'comp-a'),
-                    entry('item-2', 'comp-a'),
-                    entry('item-3', 'comp-a')
-                ]
-            }
-        };
-        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
-
-        // The same overfill split across hosts must NOT fire.
-        const split = {
             knife_to_t1: {
                 knife: [
                     entry('item-1', 'comp-a'),
@@ -503,9 +470,50 @@ describe('getCraftableHost', () => {
                 ]
             }
         };
-        expect(getCraftableHost(KNIFE_TO_T1, split)).toBeNull();
+        // 2 on comp-a vs 1 on comp-b → comp-a is the outputs' destination.
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
     });
 
+    it('breaks count ties by first appearance (drop) order in the pool', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-b'), entry('item-2', 'comp-a')] } };
+        // 1 vs 1: the host seen first (comp-b) is the destination.
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-b');
+    });
+
+    it('returns null when the pool cannot satisfy the recipe (short or empty)', () => {
+        const sameHost = { knife_to_t1: { knife: [entry('item-1', 'comp-a')] } };
+        expect(getCraftableHost(KNIFE_TO_T1, sameHost)).toBeNull();
+        expect(getCraftableHost(KNIFE_TO_T1, {})).toBeNull();
+    });
+
+    it('resolves the majority host across multiple input types', () => {
+        const pool = {
+            dual_recipe: {
+                a: [entry('item-a1', 'comp-x')],
+                b: [entry('item-b1', 'comp-x'), entry('item-b2', 'comp-y')]
+            }
+        };
+        // 2 on comp-x (a + b1) vs 1 on comp-y → comp-x wins.
+        expect(getCraftableHost(DUAL_RECIPE, pool)).toBe('comp-x');
+    });
+
+    it('counts extra pooled items of the same type toward the majority (overfill)', () => {
+        // 3 knives: 2 on comp-a, 1 on comp-b → may fire toward comp-a
+        // (selectCraftItemIds takes exactly two).
+        const pool = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'comp-a'),
+                    entry('item-3', 'comp-b')
+                ]
+            }
+        };
+        expect(getCraftableHost(KNIFE_TO_T1, pool)).toBe('comp-a');
+    });
+});
+
+describe('getCraftableHost (host edge cases)', () => {
     it('returns null when a pooled entry carries no usable host, even if satisfied', () => {
         const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), { id: 'item-2', host: '' }] } };
         expect(getCraftableHost(KNIFE_TO_T1, pool)).toBeNull();
@@ -514,6 +522,30 @@ describe('getCraftableHost', () => {
     it('returns null for a malformed/absent recipe', () => {
         expect(getCraftableHost(null, {})).toBeNull();
         expect(getCraftableHost({ id: 'x', inputs: [] }, {})).toBeNull();
+    });
+});
+
+describe('countPooledHosts', () => {
+    it('counts distinct hosts among a recipe\'s pooled entries', () => {
+        const pool = {
+            knife_to_t1: {
+                knife: [
+                    entry('item-1', 'comp-a'),
+                    entry('item-2', 'comp-b'),
+                    entry('item-3', 'comp-a')
+                ]
+            }
+        };
+        expect(countPooledHosts(KNIFE_TO_T1, pool)).toBe(2);
+    });
+
+    it('ignores entries without a usable host', () => {
+        const pool = { knife_to_t1: { knife: [entry('item-1', 'comp-a'), { id: 'item-2', host: '' }] } };
+        expect(countPooledHosts(KNIFE_TO_T1, pool)).toBe(1);
+    });
+
+    it('returns 0 for an empty pool', () => {
+        expect(countPooledHosts(KNIFE_TO_T1, {})).toBe(0);
     });
 });
 
@@ -708,7 +740,7 @@ describe('unwrapEnvelope', () => {
 
 // Regression guard for the crafting visual bug: dropping an item on a recipe
 // card that is NOT first in the DOM used to paint the slot fill ("fill point")
-// and the split-host "Inputs must be on the same component." hint onto the
+// and the outputs-destination hint onto the
 // FIRST recipe card, because _findRecipeCard ignored its id and always
 // returned the first card. These tests exercise only the card-lookup surface
 // with a bare stub (no real DOM), keeping with the file's no-DOM convention.

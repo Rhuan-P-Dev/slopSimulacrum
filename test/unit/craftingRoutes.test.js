@@ -245,9 +245,9 @@ describe('craftingRoutes — POST /crafting/:entityId/craft', () => {
     it('maps each domain failure code to 400 { error: "Failed to craft", message }', async () => {
         const failures = {
             COMPONENT_NOT_FOUND: `Component "${COMP}" not found on entity "${ENT}".`,
-            INVALID_ITEM: `Item "${ITEM_B}" is hosted on component "comp-other", not "${COMP}".`,
+            INVALID_ITEM: `Item "${ITEM_B}" is not hosted directly on a component of entity "${ENT}" (host "comp-other").`,
             INPUTS_MISMATCH: 'Craft inputs do not exactly match recipe "knife_to_t1": knife: have 1, need 2.',
-            INSUFFICIENT_VOLUME: `Component ${COMP} has 0 free, gains 2, needs 6.`,
+            INSUFFICIENT_VOLUME: `Component "${COMP}" has 0 free and the craft frees 2 entity-wide, but the outputs need 6.`,
             CRAFT_FAILED: 'Failed to remove item-abc',
         };
 

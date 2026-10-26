@@ -1797,7 +1797,9 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
 // with the rest of the file: the LLM stub is scripted, and the world facade
 // exposes getCraftingRecipes / getEntityItems / craftItems the way the real
 // WorldStateController would. The model names ingredients by type+quantity
-// and the componentId; the server resolves the concrete item instances.
+// and the destination componentId (the outputs' destination — inputs may
+// be pooled on any of the entity's components); the server resolves the
+// concrete item instances.
 // =========================================================================
 
 describe('crafting (craft + get_crafts tools)', () => {
@@ -1980,6 +1982,40 @@ describe('crafting (craft + get_crafts tools)', () => {
         expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_generator', success: true });
     });
 
+    it('crafts from split components: knife on comp-core-1, destination comp-hand-1 (cross-component)', async () => {
+        const world = makeCraftWorld({
+            // The knife is hosted on the centralBall (comp-core-1), while
+            // the craft names the hand as the outputs' destination — inputs
+            // may be pooled on any of the entity's components.
+            items: {
+                'comp-core-1': [{ id: 'item-knife-1', type: 'knife', hostVolume: 2 }]
+            }
+        });
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: tryOnceThenStop(craftMessage({
+                recipeId: 'knife_to_t1',
+                ingredients: [{ type: 'knife', quantity: 1 }],
+                componentId: 'comp-hand-1'
+            }))
+        });
+
+        const result = await agent.runRound(CRAFT_NPC_ID, 0);
+
+        expect(world.__craftCalls).toHaveLength(1);
+        expect(world.__craftCalls[0]).toEqual({
+            entityId: CRAFT_NPC_ID,
+            recipeId: 'knife_to_t1',
+            componentId: 'comp-hand-1',
+            itemIds: ['item-knife-1']
+        });
+        expect(result.crafts[0]).toMatchObject({ recipeId: 'knife_to_t1', success: true });
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+
     // On the first LLM call, return `firstMessage`; on every later call
     // return a plain done (the model is shown the failure feedback and
     // gives up, exactly like the unknown-action parity test). This is a
@@ -2114,9 +2150,10 @@ describe('crafting (craft + get_crafts tools)', () => {
         expect(result.iterations).toBe(2);
     });
 
-    it('rejects a component that holds the wrong ingredients (component has no knife)', async () => {
+    it('rejects when the entity holds no knife on any component (entity-wide held check)', async () => {
         const world = makeCraftWorld({
-            // comp-hand-1 exists but only holds coal, not knife.
+            // The NPC holds coal on comp-hand-1 and nothing else — no
+            // knife on any of the entity's components.
             items: { 'comp-hand-1': [{ id: 'item-coal-1', type: 'coal', hostVolume: 1 }] }
         });
         const turns = makeTurns();
@@ -2134,7 +2171,7 @@ describe('crafting (craft + get_crafts tools)', () => {
 
         expect(world.__craftCalls).toHaveLength(0);
         expect(result.crafts[0].success).toBe(false);
-        expect(result.crafts[0].detail).toBe('component "comp-hand-1" does not hold knife x1 (holds x0)');
+        expect(result.crafts[0].detail).toBe('entity "ent-npc-0001" does not hold knife x1 (holds x0)');
         expect(result.done).toBe(true);
         expect(result.iterations).toBe(2);
     });
@@ -2190,7 +2227,7 @@ describe('crafting (craft + get_crafts tools)', () => {
             craftItemsResult: {
                 success: false,
                 code: 'INSUFFICIENT_VOLUME',
-                message: 'Component comp-hand-1 has 0 free, gains 2, needs 5.'
+                message: 'Component "comp-hand-1" has 0 free and the craft frees 2 entity-wide, but the outputs need 5.'
             }
         });
         const turns = makeTurns();
@@ -2211,7 +2248,7 @@ describe('crafting (craft + get_crafts tools)', () => {
         expect(world.__craftCalls).toHaveLength(1);
         expect(world.__craftCalls[0].itemIds).toEqual(['item-knife-1']);
         expect(result.crafts[0].success).toBe(false);
-        expect(result.crafts[0].detail).toBe('Component comp-hand-1 has 0 free, gains 2, needs 5.');
+        expect(result.crafts[0].detail).toBe('Component "comp-hand-1" has 0 free and the craft frees 2 entity-wide, but the outputs need 5.');
         expect(result.done).toBe(true);
         expect(result.iterations).toBe(2);
     });

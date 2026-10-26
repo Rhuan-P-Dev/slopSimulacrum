@@ -10,11 +10,17 @@
  * starter items; its centralBall is already full (10/10) while droidHead
  * (8) and the right droidArm (8) start empty — those are the test surfaces.
  *
- * Covers the spec §8 test plan:
- *   1. craft 1 knife → 1 t1 on the same component; hostComponentId preserved;
- *      inputs gone, output present; exactly one broadcast on success.
+ * Covers the spec §8 test plan (cross-component crafting: inputs may be
+ * spread over the entity's components; the named component is the
+ * outputs' destination):
+ *   1. craft 1 knife → 1 t1 on the destination component; hostComponentId
+ *      preserved; inputs gone, output present; exactly one broadcast on
+ *      success.
  *   2. insufficient inputs (1 knife) → INPUTS_MISMATCH; inputs intact; 0 broadcasts.
- *   3. item hosted on a different component → INVALID_ITEM; inputs intact; 0 broadcasts.
+ *   3. input on a different component than the destination → success
+ *      (cross-component); output lands on the named component. Split
+ *      inputs (coal + knife on two components) → success. Two knives for
+ *      a 1-knife recipe → INPUTS_MISMATCH.
  *   4. insufficient volume (heavy output) → INSUFFICIENT_VOLUME before any
  *      consumption (NO item loss); 0 broadcasts.
  *   5. unknown recipe / unknown entity / component not on entity → codes.
@@ -159,7 +165,47 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore);
     });
 
-    it('item hosted on a different component → INVALID_ITEM; both knives intact; 0 broadcasts', () => {
+    it('input on a different component than the destination → success (cross-component); output lands on the named component', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc, broadcast } = world;
+        const { entityId, droidHead, droidArmRight } = spawnDroid(world);
+
+        // The knife sits on the right droidArm, but the craft is named
+        // droidHead: inputs may come from any of the entity's components;
+        // the named component only receives the outputs.
+        const [knifeOnArm] = addItems(wsc, entityId, droidArmRight.id, ['knife']);
+        const broadcastCallsBefore = broadcast.mock.calls.length;
+
+        const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeOnArm]);
+
+        expect(result.success).toBe(true);
+        expect(result.consumed).toEqual([knifeOnArm]);
+        expect(wsc.getItem(entityId, knifeOnArm)).toBeNull();
+        expect(itemsOfType(componentItems(wsc, entityId, droidHead.id), 't1')).toHaveLength(1);
+        expect(itemsOfType(componentItems(wsc, entityId, droidArmRight.id), 't1')).toHaveLength(0);
+        expect(broadcast.mock.calls.length).toBe(broadcastCallsBefore + 1);
+    });
+
+    it('split inputs across components (coal on head, knife on arm) → craft succeeds on the destination', () => {
+        const world = buildWorld();
+        const { worldStateController: wsc } = world;
+        const { entityId, droidHead, droidArmRight } = spawnDroid(world);
+
+        // craft_knife_generator (coal x1 + knife x1 → knifeGenerator x1):
+        // the inputs live on two different components; the named
+        // destination receives the machine.
+        const [coalOnHead] = addItems(wsc, entityId, droidHead.id, ['coal']);
+        const [knifeOnArm] = addItems(wsc, entityId, droidArmRight.id, ['knife']);
+
+        const result = wsc.craftItems(entityId, 'craft_knife_generator', droidHead.id, [coalOnHead, knifeOnArm]);
+
+        expect(result.success).toBe(true);
+        expect(wsc.getItem(entityId, coalOnHead)).toBeNull();
+        expect(wsc.getItem(entityId, knifeOnArm)).toBeNull();
+        expect(itemsOfType(componentItems(wsc, entityId, droidHead.id), 'knifeGenerator')).toHaveLength(1);
+    });
+
+    it('two knives on two components for a 1-knife recipe → INPUTS_MISMATCH; both intact; 0 broadcasts', () => {
         const world = buildWorld();
         const { worldStateController: wsc, broadcast } = world;
         const { entityId, droidHead, droidArmRight } = spawnDroid(world);
@@ -168,14 +214,14 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         const [knifeOnArm] = addItems(wsc, entityId, droidArmRight.id, ['knife']);
         const broadcastCallsBefore = broadcast.mock.calls.length;
 
-        // The recipe inputs match by type (2 knives), but knifeOnArm is
-        // hosted on the right droidArm, not on droidHead → rejected per item.
+        // Both knives are hosted on entity components (valid inputs), but
+        // the exact multiset is knife x1 — two named knives overfill the
+        // recipe.
         const result = wsc.craftItems(entityId, 'knife_to_t1', droidHead.id, [knifeOnHead, knifeOnArm]);
 
         expect(result.success).toBe(false);
-        expect(result.code).toBe('INVALID_ITEM');
-        expect(result.message).toContain(knifeOnArm);
-        expect(result.message).toContain(droidArmRight.id);
+        expect(result.code).toBe('INPUTS_MISMATCH');
+        expect(result.message).toContain('knife: have 2, need 1');
 
         // Both knives still on their original components.
         expect(wsc.getItem(entityId, knifeOnHead)?.hostComponentId).toBe(droidHead.id);
@@ -275,7 +321,7 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         expect(result.success).toBe(false);
         expect(result.code).toBe('INSUFFICIENT_VOLUME');
         expect(result.message).toContain(droidArmRight.id);
-        expect(result.message).toContain('has 3 free, gains 1, needs 30');
+        expect(result.message).toContain('has 3 free and the craft frees 1 entity-wide, but the outputs need 30');
 
         // NO item loss: every input item is still on the component, unchanged.
         const armItems = componentItems(wsc, entityId, droidArmRight.id);
@@ -319,13 +365,13 @@ describe('crafting contract — failure paths (no mutation, no broadcast)', () =
         const result = wsc.craftItems(entityId, 'knife_to_box', droidHead.id, [kA, kB]);
         driftSpy.mockRestore();
 
-        // Instance-based freed: 2 × 1 = 2 ("gains 2"). The definition-based
-        // old code would compute 2 × 2 = 4, pass the pre-check, consume both
-        // knives, and then fail to fit the 4-volume output — destroying the
-        // inputs (item loss).
+        // Instance-based freed: 2 × 1 = 2 ("frees 2 entity-wide"). The
+        // definition-based old code would compute 2 × 2 = 4, pass the
+        // pre-check, consume both knives, and then fail to fit the 4-volume
+        // output — destroying the inputs (item loss).
         expect(result.success).toBe(false);
         expect(result.code).toBe('INSUFFICIENT_VOLUME');
-        expect(result.message).toContain('has 1 free, gains 2, needs 4');
+        expect(result.message).toContain('has 1 free and the craft frees 2 entity-wide, but the outputs need 4');
 
         // NO item loss: all three knives and the original testItem2 intact.
         const headItems = componentItems(wsc, entityId, droidHead.id);

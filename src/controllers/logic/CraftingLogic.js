@@ -5,7 +5,8 @@
  * recipe/entity/component, validate input instances (duplicates, existence,
  * type, host, nested contents), exact multiset check, volume pre-check
  * BEFORE any mutation (no-item-loss guard, wiki/subMDs/systems/crafting_system.md
- * §7), consume inputs, produce outputs on the same component, broadcast.
+ * §7), consume inputs from any of the entity's components, produce outputs
+ * on the named destination component, broadcast.
  * Never throws — every failure returns a `code` the route maps to a status.
  *
  * Extracted verbatim from WorldStateController (only change: `this.` became
@@ -21,8 +22,9 @@ import Logger from '../../utils/Logger.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 
 /**
- * Crafts a recipe: consumes the given item instances from a component and
- * produces the recipe's outputs on the SAME component. Pure UI-panel
+ * Crafts a recipe: consumes the given item instances from any of the
+ * entity's components and produces the recipe's outputs on the named
+ * destination component (cross-component crafting). Pure UI-panel
  * feature: no world effect, no range, no room requirement, no turn
  * (crafting is deliberately NOT a registry action — it executes
  * synchronously outside the round system, like the other inventory ops).
@@ -51,13 +53,13 @@ import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
  *   6. volume pre-check (_precheckCraftVolume, before any mutation)
  *                                           → INSUFFICIENT_VOLUME
  *   7. remove each input item (_consumeCraftInputs, in order)
- *   8. add each output item (_produceCraftOutputs) on the same component
+ *   8. add each output item (_produceCraftOutputs) on the destination component
  *   9. broadcast (null-guarded, mirrors addItemToEntity)
  *  10. return { success, recipeId, consumed, produced }
  *
  * @param {string} entityId - Typed entity ID (ent-<uuid>).
  * @param {string} recipeId - Recipe ID from data/systems/crafting.json.
- * @param {string} componentId - Typed component ID (comp-<uuid>) hosting the inputs AND receiving the outputs.
+ * @param {string} componentId - Typed component ID (comp-<uuid>) receiving the produced outputs; the consumed inputs may be hosted on any of the entity's components (the named component is the outputs' address, not a required input host).
  * @param {string[]} itemIds - Exact item instance IDs (item-<uuid>) to consume; must exactly satisfy the recipe inputs.
  * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}
  */
@@ -105,7 +107,7 @@ function executeCraftTransaction(facade, entityId, recipeId, componentId, itemId
         return { success: false, code: 'CRAFT_FAILED', message: consumed.message };
     }
 
-    // 8. Produce the outputs on the SAME component.
+    // 8. Produce the outputs on the destination component.
     const produced = facade._produceCraftOutputs(recipe, entity, componentId);
     if (!produced.ok) {
         return { success: false, code: 'CRAFT_FAILED', message: produced.message };
@@ -166,8 +168,8 @@ function resolveCraftTarget(facade, entityId, recipeId, componentId) {
 
 /**
  * Craft step 4: validate every requested item instance. Early rejects,
- * in order: duplicate ID → existence → recipe-input type → host
- * component → nested contents.
+ * in order: duplicate ID → existence → recipe-input type → direct hosting
+ * on one of the entity's components → nested contents.
  * @param {Object} recipe - The recipe (deep copy from CraftingController).
  * @param {Object} entity - The live entity.
  * @param {string} componentId
@@ -197,9 +199,13 @@ function validateCraftInputs(facade, recipe, entity, componentId, itemIds) {
     }
 
     // (per item) Each requested item must exist, be a recipe input
-    // type, and be hosted on the crafting component (nested container
-    // items are excluded naturally: their hostComponentId is a
-    // container item ID).
+    // type, and be hosted DIRECTLY on one of the entity's components.
+    // Inputs may be spread across components (cross-component crafting);
+    // `componentId` is only the outputs' destination. Nested container
+    // items stay excluded: their hostComponentId is a container item ID,
+    // not an entity component.
+    const entityComponentIds = new Set(
+        (entity.components || []).map((component) => component && component.id));
     const items = [];
     for (const itemId of itemIds) {
         const item = facade.inventoryManager.getItem(entity, itemId);
@@ -209,8 +215,8 @@ function validateCraftInputs(facade, recipe, entity, componentId, itemIds) {
         if (!facade._isRecipeInputType(recipe, item.type)) {
             return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" (type "${item.type}") is not an input of recipe "${recipe.id}".` };
         }
-        if (item.hostComponentId !== componentId) {
-            return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is hosted on component "${item.hostComponentId}", not "${componentId}".` };
+        if (!item.hostComponentId || !entityComponentIds.has(item.hostComponentId)) {
+            return { ok: false, code: 'INVALID_ITEM', message: `Item "${itemId}" is not hosted directly on a component of entity "${entityId}" (host "${item.hostComponentId ?? 'none'}").` };
         }
         // A recipe input is consumed as a whole unit: removeItem cascades
         // to all descendants, so crafting an item that currently contains
@@ -288,7 +294,7 @@ function precheckCraftVolume(facade, recipe, entity, componentId, items) {
         .reduce((sum, item) => sum + (item.hostVolume ?? item.volume ?? 0), 0);
     const free = Math.max(0, maxVolume - usedVolume);
     if (free + freed < needed) {
-        return { ok: false, message: `Component ${componentId} has ${free} free, gains ${freed}, needs ${needed}.` };
+        return { ok: false, message: `Component "${componentId}" has ${free} free and the craft frees ${freed} entity-wide, but the outputs need ${needed}.` };
     }
     return { ok: true };
 }
@@ -316,7 +322,7 @@ function consumeCraftInputs(facade, entity, itemIds) {
 }
 
 /**
- * Craft step 8: add each output item on the SAME component. Cannot fail
+ * Craft step 8: add each output item on the destination component. Cannot fail
  * on volume: step 6 proved the final footprint fits, and prefixes of a
  * fitting total always fit. Output footprints come from the CURRENT
  * definitions (InventoryManager.addItem), not from persisted instances

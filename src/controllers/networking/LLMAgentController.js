@@ -475,9 +475,10 @@ class LLMAgentController {
                 }
 
                 // 8. Dispatch craft calls (craft tool): recipe + ingredient
-                //    multiset + component. The pre-check rejects unknown
-                //    recipes, malformed multisets, and components that do not
-                //    hold the ingredients; the server picks the concrete items
+                //    multiset + destination component. The pre-check rejects
+                //    unknown recipes, malformed multisets, and entities that
+                //    do not hold the ingredients (across all of the entity's
+                //    components); the server picks the concrete items
                 //    to consume, and facade.craftItems runs the full transaction
                 //    (exact multiset, volume pre-check, consume, produce). In a
                 //    turn world the planning window applies (drop, mirrors
@@ -779,7 +780,7 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'get_crafts',
-                description: 'List the recipes you can craft right now, with their exact required ingredients, what they produce, and the comp-… component that can hold the craft, plus recipes that are not craftable and why. This is the ONLY source of craftable options — call it before you craft, not after.',
+                description: 'List the recipes you can craft right now, with their exact required ingredients (you may hold them on any of your components, pooled), what they produce, and the comp-… component that receives the outputs, plus recipes that are not craftable and why. This is the ONLY source of craftable options — call it before you craft, not after.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -794,13 +795,13 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'craft',
-                description: 'Craft a recipe: consume the named ingredient multiset from ONE of your components and place the produced outputs on that same component. Only use a recipe id the get_crafts tool returned — that is the ONLY source of recipe ids, required ingredients, and the component that can hold the craft. Name each ingredient by type and by exactly how many; the server picks the concrete items it holds on the component.',
+                description: 'Craft a recipe: consume the named ingredient multiset from your components (the ingredients may sit on different components of your droid) and place the produced outputs on the component you name. Only use a recipe id the get_crafts tool returned — that is the ONLY source of recipe ids, required ingredients, and the destination component. Name each ingredient by type and by exactly how many; the server picks the concrete items it holds across your components.',
                 parameters: {
                     type: 'object',
                     properties: {
                         recipeId: {
                             type: 'string',
-                            description: 'Recipe id. See the get_crafts output for ids, needed ingredients, and the component that can hold the craft.'
+                            description: 'Recipe id. See the get_crafts output for ids, needed ingredients, and the component that receives the outputs.'
                         },
                         ingredients: {
                             type: 'array',
@@ -824,7 +825,7 @@ class LLMAgentController {
                         },
                         componentId: {
                             type: 'string',
-                            description: 'comp-… of the component that holds the ingredients and receives the outputs. See the "on <comp>" line of the get_crafts output.'
+                            description: 'comp-… of the component that receives the produced outputs; the ingredients may be on any of your components. See the "on <comp>" line of the get_crafts output.'
                         }
                     },
                     required: ['recipeId', 'ingredients', 'componentId']
@@ -1570,9 +1571,10 @@ class LLMAgentController {
      * Pre-execution validation for one craft call. The recipe registry is the
      * ONLY source of recipe ids (mirrors _prevalidateAction): unknown recipe
      * ids, malformed args, a component that is not on the acting NPC, and a
-     * named ingredient multiset that differs from the recipe's inputs (or a
-     * component that does not hold the required types in the needed counts)
-     * are all rejected before dispatch. The model never invents recipes.
+     * named ingredient multiset that differs from the recipe's inputs (or an
+     * entity that does not hold the required types, across its components,
+     * in the needed counts) are all rejected before dispatch. The model
+     * never invents recipes.
      * @param {string} npcEntityId
      * @param {Object} args - Parsed craft tool args:
      *   { recipeId: string, ingredients: Array<{type: string, quantity: number}>, componentId: string }.
@@ -1678,27 +1680,54 @@ class LLMAgentController {
             };
         }
 
-        // The component must hold at least the required count of each type.
+        // The ENTITY must hold at least the required count of each type,
+        // across ALL of its components (cross-component crafting): the named
+        // component only receives the outputs. Only items hosted directly on
+        // entity components count — nested items (host = a container item
+        // ID) are not consumable, mirroring the transaction's validation.
         const itemsByHost = this.worldStateController?.getEntityItems?.(npcEntityId) || {};
+        const entityCompIds = new Set((self.components || []).map(c => c && c.id));
+        const topLevel = [];
+        for (const [host, list] of Object.entries(itemsByHost)) {
+            if (!entityCompIds.has(host)) {
+                continue;
+            }
+            for (const item of list || []) {
+                if (item && typeof item.type === 'string') {
+                    topLevel.push(item);
+                }
+            }
+        }
         for (const type in need) {
-            const held = (itemsByHost[componentId] || []).filter(item => item && item.type === type).length;
+            const held = topLevel.filter(item => item.type === type).length;
             if (held < need[type]) {
                 return {
                     ok: false,
-                    error: `component "${componentId}" does not hold ${type} x${need[type]} (holds x${held})`
+                    error: `entity "${npcEntityId}" does not hold ${type} x${need[type]} (holds x${held})`
                 };
             }
         }
 
-        // Pick the concrete instances to consume: the first `need[type]` items
-        // of each type on the component. All ids come from getEntityItems,
-        // so they are typed item-… ids; crafting consumes exactly this
-        // multiset, no more, no less.
+        // Pick the concrete instances to consume: the first `need[type]`
+        // items of each type, walking the entity's components in entity
+        // order (deterministic). All ids come from getEntityItems, so they
+        // are typed item-… ids; crafting consumes exactly this multiset,
+        // no more, no less.
         const itemIds = [];
         for (const type in need) {
-            const matching = (itemsByHost[componentId] || []).filter(item => item && item.type === type);
-            for (let i = 0; i < need[type]; i += 1) {
-                itemIds.push(matching[i].id);
+            let remaining = need[type];
+            for (const comp of self.components || []) {
+                if (remaining === 0) {
+                    break;
+                }
+                const matching = (itemsByHost[comp.id] || []).filter(item => item && item.type === type);
+                for (const item of matching) {
+                    if (remaining === 0) {
+                        break;
+                    }
+                    itemIds.push(item.id);
+                    remaining -= 1;
+                }
             }
         }
 

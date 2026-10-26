@@ -3,7 +3,7 @@
  * Single-responsibility CSS module: owns ALL `crafting-` selectors — the
  * per-component available-item groups, recipe-card grid, input slots, the
  * card state modifiers (--idle/--valid/--invalid/--satisfied/--split-host),
- * the split-host hint line, status line, and the generic empty state.
+ * the outputs-destination hint line, status line, and the generic empty state.
  * Uses only `:root` custom properties from styles.css plus neutral literals
  * (precedent: layout.css, inventory.css).
  * No selector in this file may be duplicated in any other CSS module (BUG-105).
@@ -149,8 +149,9 @@
     box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
 }
 
-/* All inputs satisfied but SPLIT across components — the craft is blocked
- * (a cross-host POST would be rejected) and the hint line explains why */
+/* All inputs satisfied but a pooled entry carries no usable host (defensive
+ * state) — the craft cannot fire. A pool split across components is
+ * craftable and shows the --satisfied state with the destination hint. */
 .crafting-recipe-card.crafting-card--split-host {
     border-color: #ffaa00;
     box-shadow: 0 0 6px rgba(255, 170, 0, 0.35);
@@ -242,13 +243,14 @@
     color: var(--neon-green);
 }
 
-/* ---- Split-host hint line -------------------------------------------------------
- * Shown (hidden attribute removed) when a recipe's inputs are all satisfied
- * but hosted on different components; the craft is blocked until they share
- * one component. Kept on its own line so it never clobbers .crafting-status. */
+/* ---- Outputs-destination hint line --------------------------------------------
+ * Shown (hidden attribute removed) when a satisfied recipe's pooled inputs
+ * span multiple components — the craft fires, and the hint names the
+ * destination (majority) component the outputs land on. Kept on its own
+ * line so it never clobbers .crafting-status. */
 
 .crafting-host-hint {
-    color: #ffaa00;
+    color: var(--text-dim);
     font-size: 0.85em;
     font-style: italic;
 }

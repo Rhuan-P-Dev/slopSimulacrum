@@ -24,10 +24,11 @@
  *   - drop appends the item — together with the component that hosts it —
  *     to the client-local pending pool (deduped by item ID: one physical
  *     instance is proposed to at most one recipe)
- *   - when all inputs of a card are satisfied AND every pooled input is
- *     hosted on the same component, the craft auto-executes (POST
- *     /crafting/:entityId/craft naming that shared component); a satisfied
- *     pool split across hosts shows a "same component" hint and never POSTs
+ *   - when all inputs of a card are satisfied (inputs may be split across
+ *     components), the craft auto-executes (POST
+ *     /crafting/:entityId/craft naming the destination component — the
+ *     pooled majority host; ties broken by drop order); a split pool shows
+ *     an "outputs go to <name>" hint
  *   - dragend/dragleave clear transient highlight classes (same hygiene as
  *     InventoryManager)
  *
@@ -41,7 +42,7 @@
  * resolveComponentLabel, addToPendingPool, removeFromPendingPool,
  * clearPendingPool, getPoolItemIds, getLiveItemIds, prunePool,
  * pooledIdsKey, escapeHtml, computeRecipeSatisfaction, selectCraftItemIds,
- * getCraftableHost, unwrapEnvelope) and unit-tested without any DOM
+ * getCraftableHost, countPooledHosts, unwrapEnvelope) and unit-tested without any DOM
  * (test/unit/CraftingPanel.test.js); the class below owns the DOM wiring.
  * Standing rule: every server-fetched map is defensive — guard group values
  * with Array.isArray before iteration. Every server-sourced value is
@@ -451,41 +452,69 @@ export function selectCraftItemIds(recipe, pool) {
 }
 
 /**
- * Resolves the single component a satisfied recipe's craft can be POSTed to
- * (pure) — the shared-host auto-craft rule.
+ * Resolves the destination component a satisfied recipe's craft is POSTed
+ * to (pure) — the majority-host auto-craft rule (cross-component
+ * crafting).
  *
- * Returns the one host when the pool can satisfy the recipe (exact
- * multiset, per selectCraftItemIds) AND every pooled entry of that recipe
- * is hosted on the same component; otherwise null. The POST contract names
- * exactly one component (the server rejects cross-host inputs), so a pool
- * split across hosts must never fire — the panel shows a "same component"
- * hint and keeps the pool instead.
+ * Returns the host holding the MOST pooled entries of that recipe when the
+ * pool can satisfy the recipe (exact multiset, per selectCraftItemIds);
+ * ties are broken by first appearance in pool (drop) order; a pool whose
+ * entries all share one host returns that host (the historical single-host
+ * behavior). Otherwise null: an unsatisfied pool is never a candidate, and
+ * a pooled entry with no usable host can never be POSTed.
  *
  * @param {Object} recipe - The recipe to craft.
  * @param {Object} pool - The pending pool.
- * @returns {string|null} The shared host component ID, or null when the
- *   recipe is unsatisfied, its inputs are split across hosts, or a pooled
- *   entry carries no usable host.
+ * @returns {string|null} The destination (majority) host component ID, or
+ *   null when the recipe is unsatisfied or a pooled entry carries no
+ *   usable host.
  */
 export function getCraftableHost(recipe, pool) {
     if (!selectCraftItemIds(recipe, pool)) {
         return null; // unsatisfied (or malformed) — never a candidate
     }
     const recipePool = (pool || {})[recipe.id] || {};
-    let host = null;
+    const counts = new Map();
     for (const entries of Object.values(recipePool)) {
         if (!Array.isArray(entries)) return null;
         for (const e of entries) {
             const h = e && typeof e.host === 'string' ? e.host : '';
             if (h.length === 0) return null; // hostless entry can never be POSTed
-            if (host === null) {
-                host = h;
-            } else if (host !== h) {
-                return null; // inputs split across components
-            }
+            counts.set(h, (counts.get(h) || 0) + 1);
         }
     }
-    return host;
+    // Most entries win; ties by first appearance (drop order).
+    let best = null;
+    let bestCount = 0;
+    for (const [h, count] of counts) {
+        if (count > bestCount) {
+            best = h;
+            bestCount = count;
+        }
+    }
+    return best;
+}
+
+/**
+ * Counts the distinct component hosts among a recipe's pooled entries
+ * (pure) — >1 drives the "outputs go to <name>" hint on a satisfied pool
+ * split across components. Entries with no usable host are ignored (a
+ * hostless pool can never fire anyway).
+ * @param {Object} recipe - The recipe whose pool to count.
+ * @param {Object} pool - The pending pool.
+ * @returns {number} The number of distinct hosts.
+ */
+export function countPooledHosts(recipe, pool) {
+    const recipePool = (pool || {})[(recipe && recipe.id) || ''] || {};
+    const hosts = new Set();
+    for (const entries of Object.values(recipePool)) {
+        if (!Array.isArray(entries)) continue;
+        for (const e of entries) {
+            const h = e && typeof e.host === 'string' ? e.host : '';
+            if (h.length > 0) hosts.add(h);
+        }
+    }
+    return hosts.size;
 }
 
 /**
@@ -911,9 +940,12 @@ export class CraftingPanel {
     _renderRecipeCard(recipe) {
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
         const host = getCraftableHost(recipe, this._pool);
+        // Satisfied with a hostless entry (defensive): the craft cannot
+        // fire. A satisfied pool split across components IS craftable and
+        // shows the --satisfied state with the destination hint.
         const splitHost = satisfied && !host;
-        // Satisfied but split across hosts: the craft is blocked and the
-        // hint line explains why (a cross-host POST would only 400).
+        const crossHost = Boolean(host) && countPooledHosts(recipe, this._pool) > 1;
+        const destLabel = crossHost ? this._componentLabel(host) : '';
         const baseState = splitHost
             ? 'crafting-card--split-host'
             : (satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle');
@@ -936,11 +968,11 @@ export class CraftingPanel {
             outputs += `<span class="crafting-output-chip">${this._escapeHtml(this._typeName(output.type))} × ${output.quantity}</span>`;
         }
 
-        const hint = splitHost ? 'Inputs must be on the same component.' : '';
+        const hint = crossHost ? `Outputs go to ${destLabel}.` : '';
         return `
             <div class="crafting-recipe-card ${baseState}" data-recipe-id="${this._escapeHtml(recipe.id)}"
                  tabindex="0" role="group"
-                 aria-label="${this._escapeHtml(`${recipe.name} — ${metCount}/${entries.length} inputs${splitHost ? ' — inputs must be on the same component' : ''}`)}">
+                 aria-label="${this._escapeHtml(`${recipe.name} — ${metCount}/${entries.length} inputs${crossHost ? ` — outputs go to ${destLabel}` : ''}`)}">
                 <div class="crafting-card-header">
                     <h4 class="crafting-card-name">${this._escapeHtml(recipe.name)}</h4>
                     <p class="crafting-card-desc">${this._escapeHtml(recipe.description || '')}</p>
@@ -1151,8 +1183,9 @@ export class CraftingPanel {
      * input type of the recipe, pools it together with the component that
      * hosts it (deduped by item ID), applies the re-arm guard, and
      * re-derives the card state, which auto-fires the craft when all
-     * inputs are satisfied AND share one host. Invalid and duplicate
-     * assignments are no-ops.
+     * inputs are satisfied (inputs may be split across components — the
+     * POST names the pooled majority host as the outputs' destination).
+     * Invalid and duplicate assignments are no-ops.
      * @param {string} itemId - The item instance ID to assign.
      * @param {string} recipeId - The target recipe ID.
      * @private
@@ -1183,10 +1216,10 @@ export class CraftingPanel {
 
     /**
      * Re-derives a recipe card's slot counts, base state, and the
-     * split-host hint from the pool. When autoCraft is true and the recipe
-     * just became craftable — satisfied AND every pooled input hosted on
-     * one shared host (a satisfied-but-split pool never fires) — the craft
-     * fires immediately.
+     * outputs-destination hint from the pool. When autoCraft is true and
+     * the recipe is satisfied (inputs may be split across components), the
+     * craft fires immediately, POSTing to the pooled majority host (the
+     * outputs' destination).
      *
      * @param {string} recipeId - The recipe whose card to update.
      * @param {boolean} autoCraft - Whether a craftable card should fire the craft.
@@ -1201,6 +1234,10 @@ export class CraftingPanel {
         const { satisfied, entries } = computeRecipeSatisfaction(recipe, this._pool);
         const host = getCraftableHost(recipe, this._pool);
         const splitHost = satisfied && !host;
+        // A satisfied pool split across components is craftable: the hint
+        // names where the outputs land (the destination host).
+        const crossHost = Boolean(host) && countPooledHosts(recipe, this._pool) > 1;
+        const destLabel = crossHost ? this._componentLabel(host) : '';
 
         for (const entry of entries) {
             const slot = Array.from(card.querySelectorAll('.crafting-slot'))
@@ -1215,13 +1252,13 @@ export class CraftingPanel {
         card.classList.add(splitHost ? 'crafting-card--split-host'
             : (satisfied ? 'crafting-card--satisfied' : 'crafting-card--idle'));
 
-        // The split-host hint lives on its own line (separate from the
+        // The destination hint lives on its own line (separate from the
         // transient .crafting-status) so a "Crafted ✓" flash or an error
         // message is never clobbered by state re-derivation.
         const hint = card.querySelector('.crafting-host-hint');
         if (hint) {
-            if (splitHost) {
-                hint.textContent = 'Inputs must be on the same component.';
+            if (crossHost) {
+                hint.textContent = `Outputs go to ${destLabel}.`;
                 hint.removeAttribute('hidden');
             } else {
                 hint.textContent = '';
@@ -1230,12 +1267,12 @@ export class CraftingPanel {
         }
 
         // Keep the group's ARIA label in sync with the pool (n/m inputs);
-        // the split-host condition is part of the accessible name.
+        // the outputs-destination info is part of the accessible name.
         // setAttribute stores the raw string — no HTML escaping needed.
         const metCount = entries.filter((en) => en.isMet).length;
         card.setAttribute('aria-label',
             `${recipe.name} — ${metCount}/${entries.length} inputs` +
-            (splitHost ? ' — inputs must be on the same component' : ''));
+            (crossHost ? ` — outputs go to ${destLabel}` : ''));
 
         if (autoCraft && host && !this._lastCraftFailed.has(recipeId)) {
             this._craft(recipeId);
@@ -1245,9 +1282,10 @@ export class CraftingPanel {
     /**
      * Executes the craft for a satisfied recipe:
      * POST /crafting/:entityId/craft with the pooled itemIds (in drop order,
-     * exactly the recipe multiset) named to the single component that hosts
-     * ALL of them (the POST contract names one component; the server
-     * rejects cross-host inputs).
+     * exactly the recipe multiset) named to the outputs' destination
+     * component (the pooled majority host; ties by drop order). The server
+     * accepts inputs from any of the entity's components and places the
+     * results on the named one.
      *
      *   200  → "Crafted ✓" flash; the crafted recipe's pool entries are
      *          removed (its items were consumed) and the authoritative
@@ -1265,10 +1303,9 @@ export class CraftingPanel {
 
         const itemIds = selectCraftItemIds(recipe, this._pool);
         if (!itemIds) return; // unsatisfied — must never fire
-        // The shared host is the POST's componentId: present only when every
-        // pooled input of the recipe lives on one component. A satisfied
-        // pool split across hosts never POSTs (a cross-host request is a
-        // guaranteed 400, and a failed craft must never lose items).
+        // The pooled majority host is the POST's componentId — the
+        // outputs' destination. A pool with a hostless entry can never
+        // POST, and a failed craft must never lose items.
         const componentId = getCraftableHost(recipe, this._pool);
         if (!componentId) return;
 
@@ -1363,7 +1400,7 @@ export class CraftingPanel {
         // interpolate an id into a selector). The previous implementation
         // ignored the id and returned the FIRST recipe card in the DOM, so
         // any non-first card's state updates (slot fill / "fill point" and
-        // the split-host "same component" hint) were painted onto that first
+        // the outputs-destination hint) were painted onto that first
         // card instead of the one actually targeted.
         const cards = this._content.querySelectorAll('.crafting-recipe-card');
         for (const card of cards) {

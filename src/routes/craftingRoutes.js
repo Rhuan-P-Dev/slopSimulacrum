@@ -88,8 +88,9 @@ export function register(router, { worldStateController }) {
 
 	/**
 	 * POST /crafting/:entityId/craft
-	 * Crafts a recipe: consumes the listed item instances from the component
-	 * and produces the recipe's outputs on the SAME component.
+	 * Crafts a recipe: consumes the listed item instances from any of the
+	 * entity's components and produces the recipe's outputs on the named
+	 * destination component (cross-component crafting).
 	 * Body: { recipeId: string, componentId: string (comp-<uuid>),
 	 *         itemIds: string[] (item-<uuid> each) }
 	 *
@@ -97,8 +98,8 @@ export function register(router, { worldStateController }) {
 	 *   200 { success: true, recipeId, consumed, produced }
 	 *   400 { error: 'Bad Request' | 'Failed to craft', message }
 	 *       (missing/malformed fields, bad ID prefixes, component not on
-	 *        entity, item not hosted on the component, multiset mismatch,
-	 *        insufficient volume)
+	 *        entity, item not hosted directly on an entity component,
+	 *        multiset mismatch, insufficient volume)
 	 *   404 { error: 'Not Found', message } (unknown recipe or entity)
 	 *   500 { error: 'Internal Server Error', details } (unexpected throw)
 	 */
@@ -123,7 +124,7 @@ export function register(router, { worldStateController }) {
 			if (typeof componentId !== 'string' || componentId.length === 0) {
 				return res.status(400).json({
 					error: 'Bad Request',
-					message: 'componentId is required: all items must be attached to a component.',
+					message: 'componentId is required: it receives the produced outputs.',
 				});
 			}
 

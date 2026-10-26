@@ -544,21 +544,25 @@ class LlmContextController {
      * Builds the craft data for one entity (the discovery side of the
      * craft / get_crafts tools). Mirrors _buildActionData: the recipe
      * registry is the ONLY source of craftable options; this method decides
-     * per recipe whether it is craftable right now (and on which component)
-     * plus why each recipe is not craftable.
+     * per recipe whether it is craftable right now plus why each recipe is
+     * not craftable.
      *
-     * A recipe is craftable on a component when (a) that component holds at
-     * least `need[type]` items of each input type (instances are picked
-     * server-side at dispatch — surplus of a type is fine; crafting consumes
-     * exactly the multiset the model named), and (b) the same volume
-     * inequality the craft transaction itself checks passes:
-     * free + freed >= needed, where `free` is the component's free volume
-     * now, `freed` is the volume gained by removing the items being
-     * consumed (their host volume), and `needed` is the sum of the output
+     * A recipe is craftable when (a) the ENTITY holds at least `need[type]`
+     * items of each input type ACROSS ITS COMPONENTS (instances are picked
+     * server-side at dispatch, in entity component order — surplus of a
+     * type is fine; crafting consumes exactly the multiset the model named)
+     * and (b) at least one component can receive the outputs under the same
+     * volume inequality the craft transaction itself checks:
+     * free + freed >= needed, where `free` is that component's free volume
+     * now, `freed` is the volume freed entity-wide by removing the consumed
+     * instances (their host volume), and `needed` is the sum of the output
      * footprint per unit (external footprint when declared, else full
      * volume, else DEFAULT_ITEM_VOLUME) — the same math as
      * CraftingLogic.precheckCraftVolume, so the discovery list and the
-     * actual craft transaction agree.
+     * actual craft transaction agree. The returned `componentId` is the
+     * FIRST component in entity order that passes (b) — the outputs'
+     * destination, rendered on formatCraftList's "on <comp>" line; the
+     * consumed inputs may sit on any of the entity's components.
      *
      * All reads go through the facade's public API (reader/composer
      * contract); no mutation ever happens here.
@@ -567,7 +571,7 @@ class LlmContextController {
      *   craftable: Array<{ recipeId: string, name: string, description: string,
      *     needs: Array<{ type: string, quantity: number }>,
      *     outputs: Array<{ type: string, quantity: number }>,
-     *     componentId: string }>,
+     *     componentId: string }>,  // the outputs' destination component
      *   notCraftable: Array<{ recipeId: string, name: string, reason: string }>
      * }}
      * @private
@@ -638,6 +642,18 @@ class LlmContextController {
         const itemsByHost =
             (facade.getEntityItems?.(entityId) || {}) || {};
 
+        // The pool a cross-component craft draws from: items hosted directly
+        // on entity components (nested/unhosted excluded), in entity
+        // component order.
+        const topLevelItems = [];
+        for (const component of entity.components || []) {
+            for (const item of itemsByHost[component.id] || []) {
+                if (item && typeof item.type === 'string') {
+                    topLevelItems.push(item);
+                }
+            }
+        }
+
         const craftable = [];
         const notCraftable = [];
 
@@ -668,50 +684,57 @@ class LlmContextController {
                 return sum + outputFootprint(output.type) * qty;
             }, 0);
 
+            // (a) Inputs held ACROSS the entity's components — one
+            // component no longer has to hold everything.
+            const held = {};
+            for (const item of topLevelItems) {
+                held[item.type] = (held[item.type] || 0) + 1;
+            }
+            const missing = [];
+            for (const [type, qty] of Object.entries(needs)) {
+                const have = held[type] || 0;
+                if (have < qty) {
+                    missing.push(`${type} x${qty - have}`);
+                }
+            }
+            if (missing.length > 0) {
+                notCraftable.push({
+                    recipeId: recipe.id,
+                    name: recipe.name || recipe.id,
+                    reason: `missing ${missing.join(' ')}`
+                });
+                continue;
+            }
+
+            // (b) Volume: same inequality as the craft transaction itself
+            // (free + freed >= needed). `freed` = host volume of the
+            // instances that would be removed — the first `need[type]` of
+            // each required type, entity-wide, exactly as the LLM dispatch
+            // picks them (a player POST re-runs the pre-check with its own
+            // ids). It is the space the craft frees regardless of which
+            // component the outputs land on.
+            const freed = Object.entries(needs).reduce((sum, entry) => {
+                const [type, qty] = entry;
+                let added = 0;
+                for (const item of topLevelItems) {
+                    if (item.type === type && added < qty) {
+                        sum += (typeof item.hostVolume === 'number'
+                            ? item.hostVolume
+                            : (typeof item.volume === 'number'
+                                ? item.volume
+                                : 0));
+                        added += 1;
+                    }
+                }
+                return sum;
+            }, 0);
+
+            // The FIRST component in entity order whose free volume passes
+            // (b) becomes the outputs' destination.
             let firstReason = null;
             let pushed = false;
             for (const component of entity.components || []) {
                 const componentId = component.id;
-                const held = {};
-                for (const item of itemsByHost[componentId] || []) {
-                    if (item && typeof item.type === 'string') {
-                        held[item.type] = (held[item.type] || 0) + 1;
-                    }
-                }
-                const missing = [];
-                for (const [type, qty] of Object.entries(needs)) {
-                    const have = held[type] || 0;
-                    if (have < qty) {
-                        missing.push(`${type} x${qty - have}`);
-                    }
-                }
-                if (missing.length > 0) {
-                    if (!firstReason) {
-                        firstReason = `missing ${missing.join(' ')}`;
-                    }
-                    continue;
-                }
-
-                // Volume: same inequality as the craft transaction itself
-                // (free + freed >= needed). `freed` = host volume of the
-                // instances that would be removed (first `need[type]` of each
-                // required type, exactly as crafting would consume them).
-                const freed = Object.entries(needs).reduce((sum, entry) => {
-                    const [type, qty] = entry;
-                    let added = 0;
-                    for (const item of itemsByHost[componentId] || []) {
-                        if (item && item.type === type && added < qty) {
-                            sum += (typeof item.hostVolume === 'number'
-                                ? item.hostVolume
-                                : (typeof item.volume === 'number'
-                                    ? item.volume
-                                    : 0));
-                            added += 1;
-                        }
-                    }
-                    return sum;
-                }, 0);
-
                 const vol =
                     (inventoryManager
                         && typeof inventoryManager.getComponentVolume === 'function')
@@ -751,8 +774,8 @@ class LlmContextController {
                     break;
                 }
                 if (!firstReason) {
-                    firstReason = `component "${componentId}" has no room for the outputs ` +
-                        `(free ${free}, gains ${freed}, needs ${neededVolume})`;
+                    firstReason = `no component has room for the outputs ` +
+                        `(tried "${componentId}": free ${free}, gains ${freed}, needs ${neededVolume})`;
                 }
             }
 
@@ -1281,9 +1304,11 @@ export function formatInstinctList(instincts, filter) {
 /**
  * Renders the craft list for the get_crafts tool. One line per craftable
  * recipe — `name (recipeId): description | need <type xqty, ...> | gets
- * <type xqty, ...> | on <componentId>` — plus one summary line listing the
+ * <type xqty, ...> | on <componentId>` (the `on <comp>` component is the
+ * outputs' destination; the ingredients may be pooled on any of the entity's
+ * components) — plus one summary line listing the
  * recipes that are not craftable right now with the reason (missing
- * ingredients or a full component). An optional case-insensitive substring
+ * ingredients or no component with room for the outputs). An optional case-insensitive substring
  * filter narrows the craftable lines (matches name / recipeId / description /
  * component); no match → "(no match: '...')". Mirrors formatActionList:
  * with a filter the not-craftable summary line is dropped, with no filter

@@ -1633,7 +1633,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Crafts a recipe: consumes inputs and produces outputs on the same component.
+     * FASE 6 (facade logic extraction): Crafts a recipe: consumes inputs from any of the entity's components and produces outputs on the named destination component.
      * Implementation: src/controllers/logic/CraftingLogic.js (`executeCraftTransaction`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
@@ -1710,7 +1710,7 @@ class WorldStateController {
     }
 
     /**
-     * FASE 6 (facade logic extraction): Craft step 8: add each output item on the same component.
+     * FASE 6 (facade logic extraction): Craft step 8: add each output item on the destination component.
      * Implementation: src/controllers/logic/CraftingLogic.js (`produceCraftOutputs`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
