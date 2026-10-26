@@ -90,8 +90,10 @@ export function register(router, { worldStateController }) {
      * Dev-inspector snapshot (the "Agent View" tab). Returns, for one entity,
      * exactly what the LLM agent would receive in a live round — resolved NPC
      * config, system prompt, full tool set, sectioned context (narrative + data
-     * + render stats), live action registry, generated instincts, and the last
-     * replayable transcript round. Read-only; in-memory reads only, no rate limit.
+     * + render stats), live action registry, generated instincts, and the full
+     * inspector transcript history (every stored round — capped by
+     * LLM_AGENT_VIEW_HISTORY_ROUNDS — with all in-round LLM calls and
+     * per-call results). Read-only; in-memory reads only, no rate limit.
      */
     router.get('/llm/agent/:entityId', (req, res) => {
         try {

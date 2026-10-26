@@ -5,8 +5,10 @@
  * live round: resolved NPC config, system prompt, the full tool set (byte-
  * identical to the round runner), the sectioned world context (narrative +
  * structured data + render stats), the live action registry, generated
- * instincts, and the last replayable transcript round (assistant content /
- * reasoning / tool calls + per-call results).
+ * instincts, and the full transcript history: every stored round (the
+ * inspector cap), newest first, each with all of its in-round LLM calls —
+ * the loop's subcalls (assistant content / reasoning / tool calls) and
+ * per-call results.
  *
  * Follows the project's floating-overlay pattern (init/show/hide/toggle, driven
  * by OverlayManager). The payload is fetched from GET /llm/agent/:entityId on
@@ -249,46 +251,77 @@ export class AgentViewPanel {
     }
 
     _transcriptSection(p) {
-        const t = p.transcript;
-        if (!t) {
-            return this._section('Last Round Transcript', '<p class="agent-view-empty">No rounds have been run for this agent yet.</p>');
+        const rounds = (p.transcriptRounds && Array.isArray(p.transcriptRounds)) ? p.transcriptRounds : [];
+        if (rounds.length === 0) {
+            return this._section('Transcript (all rounds)', '<p class="agent-view-empty">No rounds have been run for this agent yet.</p>');
         }
+        // Server stores oldest → newest; the inspector reads newest first.
+        const ordered = Array.from(rounds).reverse();
+        const parts = ordered.map((t, i) => this._roundHtml(t, i === 0));
+        return this._section(`Transcript (${rounds.length} round${rounds.length > 1 ? 's' : ''} stored)`, parts.join(''));
+    }
+
+    _roundHtml(t, isLatest) {
         const lines = [];
-        lines.push(`<p><span class="agent-view-stat">round #${t.round}</span></p>`);
-        const content = t.assistant && typeof t.assistant.content === 'string' ? t.assistant.content : null;
+        lines.push(`<div class="agent-view-round-header"><span class="agent-view-stat">round #${t.round == null ? '?' : this._esc(t.round)}</span>` +
+            (isLatest ? '<span class="agent-view-badge neon">latest</span>' : '') +
+            (t.note ? `<span class="agent-view-badge info">${this._esc(t.note)}</span>` : '') +
+            (t.error ? `<span class="agent-view-badge warning">${this._esc(t.error)}</span>` : '') +
+            '</div>');
+        const groups = Array.isArray(t.groups) ? t.groups : [];
+        if (groups.length === 0) {
+            lines.push('<p class="agent-view-empty">no LLM calls this round</p>');
+        }
+        for (let i = 0; i < groups.length; i += 1) {
+            lines.push(this._groupHtml(groups[i], i + 1, groups.length));
+        }
+        return `<div class="agent-view-round${isLatest ? ' agent-view-round-latest' : ''}">${lines.join('')}</div>`;
+    }
+
+    _groupHtml(g, index, total) {
+        const lines = [];
+        lines.push(`<div class="agent-view-group-header"><span class="agent-view-stat">LLM call ${index}${total > 1 ? ` of ${total}` : ''}</span></div>`);
+        const content = g && typeof g.content === 'string' ? g.content : null;
         if (content) {
             lines.push(`<pre class="agent-view-pre">${this._esc(content)}</pre>`);
         } else {
             lines.push('<p class="agent-view-empty">— assistant silent (no text) —</p>');
         }
-        if (t.assistant && typeof t.assistant.reasoning_content === 'string' && t.assistant.reasoning_content.length > 0) {
-            lines.push(this._details('Reasoning (expand)', `<pre class="agent-view-pre">${this._esc(t.assistant.reasoning_content)}</pre>`));
+        if (g && typeof g.reasoning_content === 'string' && g.reasoning_content.length > 0) {
+            lines.push(this._details('Reasoning (expand)', `<pre class="agent-view-pre">${this._esc(g.reasoning_content)}</pre>`));
         }
-        const calls = t.assistant && Array.isArray(t.assistant.tool_calls) ? t.assistant.tool_calls : [];
+        const calls = (g && Array.isArray(g.tool_calls)) ? g.tool_calls : [];
         if (calls.length > 0) {
-            const per = calls.map(call => {
+            const results = (g && Array.isArray(g.results)) ? g.results : [];
+            const per = calls.map((call, ci) => {
                 const name =
                     (call && call.function && typeof call.function.name === 'string')
                         ? call.function.name
                         : 'unknown';
+                // Match the per-call result by id first; positional fallback
+                // when the model omitted one (results are stored per call).
                 const result =
-                    (t.toolResults && Array.isArray(t.toolResults))
-                        ? (t.toolResults.find(r => r && r.id && r.id === (call && call.id)) || t.toolResults[calls.indexOf(call)])
-                        : null;
+                    (results.find(r => r && r.id && r.id === (call && call.id))
+                        || results[ci]
+                        || null);
                 const okText = result ? (result.success ? '&#10004; success' : '&#10006; failed') : '';
                 const resClass = result ? (result.success ? 'neon' : 'warning') : 'warning';
+                const listInfo = (result && Array.isArray(result.list)) ? ` (${result.list.length} entries)` : '';
+                const listPre = (result && typeof result.list === 'string' && result.list.length > 0)
+                    ? this._details('result list', `<pre class="agent-view-pre">${this._esc(result.list)}</pre>`)
+                    : '';
                 return `<div class="agent-view-tool"><div class="agent-view-tool-name">${this._esc(name)}</div>` +
-                    (result ? `<p class="agent-view-stat ${resClass}">${okText}</p>` : '') +
+                    (result ? `<p class="agent-view-stat ${resClass}">${okText}${listInfo}</p>` : '') +
                     (result && result.detail ? `<p class="agent-view-note">${this._esc(result.detail)}</p>` : '') +
+                    listPre +
                     (this._details('args', `<pre class="agent-view-pre">${this._json(this._parseArgs(call))}</pre>`)) +
                     '</div>';
             }).join('');
             lines.push(`<div>${per}</div>`);
         } else {
-            lines.push('<p class="agent-view-empty">no tool calls this round</p>');
+            lines.push('<p class="agent-view-empty">no tool calls</p>');
         }
-        if (t.note) lines.push(`<p class="agent-view-note">note: ${this._esc(t.note)}</p>`);
-        return this._section('Last Round Transcript', lines.join(''));
+        return `<div class="agent-view-group">${lines.join('')}</div>`;
     }
 
     _toolsSection(p) {

@@ -28,6 +28,7 @@
 
 import { describe, it, expect } from 'vitest';
 import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
+import { LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUNDS } from '../../src/utils/Constants.js';
 
 // =========================================================================
 // Mocks
@@ -2367,5 +2368,160 @@ describe('crafting (craft + get_crafts tools)', () => {
         expect(list).toContain('- T1 Assembly (knife_to_t1)');
         expect(list).toContain('- T1 to Coal (t1_to_coal)');
         expect(list).toContain('| need knife x1 | gets t1 x1 | on comp-hand-1');
+    });
+});
+
+// =========================================================================
+// AGENT VIEW INSPECTOR — describeAgentView transcript history. The dev tab
+// exposes EVERY stored round (capped by LLM_AGENT_VIEW_HISTORY_ROUNDS),
+// each with all of its in-round LLM calls (the loop's subcalls) + per-call
+// results. The model's replay stays at the last LLM_REPLAY_ROUNDS rounds
+// (spec §6.5, raised from 2 per owner request) no matter how deep the
+// inspector window is.
+// =========================================================================
+
+describe('describeAgentView — transcript history (all rounds + subcalls)', () => {
+
+    it('exposes every stored round with all in-round LLM calls and per-call results', async () => {
+        const world = makeWorld({ canExecute: { selfHeal: ['comp-head-1'], move: [], cut: [] } });
+        const turns = makeTurns();
+        let callCount = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => {
+                callCount += 1;
+                if (callCount === 1) {
+                    // Round 1, call 1: a world action plus done (ends the round).
+                    return {
+                        content: 'I will fix myself.',
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: {
+                            role: 'assistant',
+                            content: 'I will fix myself.',
+                            tool_calls: [
+                                { id: 'call_1', type: 'function', function: { name: 'execute_action', arguments: '{"actionName":"selfHeal"}' } },
+                                { id: 'call_2', type: 'function', function: { name: 'done', arguments: '{}' } }
+                            ]
+                        }
+                    };
+                }
+                if (callCount === 2) {
+                    // Round 2, call 1: discovery only — the loop continues.
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [{ id: 'call_3', type: 'function', function: { name: 'get_actions', arguments: '{}' } }]
+                        }
+                    };
+                }
+                // Round 2, call 2: speak + done ends the round.
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: {
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [
+                            { id: 'call_4', type: 'function', function: { name: 'speak_in_room', arguments: '{"message":"round two here"}' } },
+                            { id: 'call_5', type: 'function', function: { name: 'done', arguments: '{}' } }
+                        ]
+                    }
+                };
+            }
+        });
+        // get_actions reads the live action list from the context controller
+        // (same monkey-patch as the discovery round test).
+        agent.llmContextController = {
+            buildContext: () => ({ text: '=== ROOM === Main Room' }),
+            getActionData: () => ({
+                entries: [
+                    { name: 'selfHeal', description: 'self-repair', range: 0, canExecute: ['comp-head-1'], requirement: '' },
+                    { name: 'move', description: 'walk', range: 100, canExecute: [], requirement: '' }
+                ],
+                notExecutable: []
+            })
+        };
+
+        await agent.runRound(NPC_ID, 1);
+        await agent.runRound(NPC_ID, 2);
+
+        const view = agent.describeAgentView(NPC_ID);
+        expect(view.transcriptRounds).toHaveLength(2);
+
+        const r1 = view.transcriptRounds[0];
+        expect(r1.round).toBe(1);
+        expect(r1.note).toBe('done');
+        expect(r1.error).toBeNull();
+        expect(r1.groups).toHaveLength(1);
+        expect(r1.groups[0].content).toBe('I will fix myself.');
+        expect(r1.groups[0].tool_calls.map((c) => c.function.name)).toEqual(['execute_action', 'done']);
+        expect(r1.groups[0].results).toHaveLength(1);
+        expect(r1.groups[0].results[0].success).toBe(true);
+
+        const r2 = view.transcriptRounds[1];
+        expect(r2.round).toBe(2);
+        expect(r2.note).toBe('done');
+        expect(r2.groups).toHaveLength(2);
+        expect(r2.groups[0].tool_calls.map((c) => c.function.name)).toEqual(['get_actions']);
+        expect(r2.groups[0].results).toHaveLength(1);
+        expect(r2.groups[0].results[0].success).toBe(true);
+        expect(r2.groups[0].results[0].list).toContain('selfHeal');
+        expect(r2.groups[1].tool_calls.map((c) => c.function.name)).toEqual(['speak_in_room', 'done']);
+        expect(r2.groups[1].results[0].success).toBe(true);
+    });
+
+    it('caps the inspector window at LLM_AGENT_VIEW_HISTORY_ROUNDS while the replay stays at the last LLM_REPLAY_ROUNDS rounds (spec §6.5)', async () => {
+        const CAP = LLM_AGENT_VIEW_HISTORY_ROUNDS;
+        let callCount = 0;
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            chatFullImpl: (messages) => {
+                callCount += 1;
+                seenMessages.push(messages);
+                const thought = `thought ${callCount}`;
+                return {
+                    content: thought,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: {
+                        role: 'assistant',
+                        content: thought,
+                        tool_calls: [{ id: `call-${callCount}`, type: 'function', function: { name: 'done', arguments: '{}' } }]
+                    }
+                };
+            }
+        });
+
+        for (let r = 1; r <= CAP + 2; r += 1) {
+            await agent.runRound(NPC_ID, r);
+        }
+
+        const view = agent.describeAgentView(NPC_ID);
+        expect(view.transcriptRounds).toHaveLength(CAP);
+        expect(view.transcriptRounds[0].round).toBe(3);
+        expect(view.transcriptRounds[CAP - 1].round).toBe(CAP + 2);
+
+        // The replay to the NEXT round still carries only the last
+        // LLM_REPLAY_ROUNDS rounds, no matter how deep the inspector window
+        // is (spec §6.5): one group per replayed round here, so exactly
+        // LLM_REPLAY_ROUNDS assistant + tool replays, oldest tail entry
+        // first.
+        const REPLAY = LLM_REPLAY_ROUNDS;
+        await agent.runRound(NPC_ID, CAP + 3);
+        const last = seenMessages[seenMessages.length - 1];
+        const assistantReplays = last.filter((m) => m.role === 'assistant');
+        const toolReplays = last.filter((m) => m.role === 'tool');
+        expect(assistantReplays).toHaveLength(REPLAY);
+        expect(toolReplays).toHaveLength(REPLAY);
+        expect(assistantReplays[0].content).toBe(`thought ${CAP + 2 - (REPLAY - 1)}`);
+        expect(assistantReplays[REPLAY - 1].content).toBe(`thought ${CAP + 2}`);
+        expect(last.at(-1).role).toBe('user');
     });
 });

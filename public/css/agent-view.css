@@ -190,6 +190,31 @@
     margin-bottom: 8px;
     background: #0d0d0d;
 }
+
+/* Transcript history: one block per stored round (newest first), each with
+   one indented block per in-round LLM call (the agent loop's subcalls). */
+.agent-view-round {
+    border-left: 2px solid #2a2a2a;
+    margin: 10px 0 14px 0;
+    padding: 4px 0 4px 10px;
+}
+.agent-view-round-latest {
+    border-left-color: var(--neon-green, #00ff00);
+}
+.agent-view-round-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.agent-view-group {
+    border-left: 1px dashed #333;
+    margin: 6px 0 10px 0;
+    padding-left: 10px;
+}
+.agent-view-group-header {
+    margin-bottom: 4px;
+}
 .agent-view-tool-name {
     color: var(--neon-green, #00ff00);
     font-weight: bold;

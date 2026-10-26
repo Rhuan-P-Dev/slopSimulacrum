@@ -41,12 +41,10 @@ import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
-import { CHAT_MESSAGE_MAX_LENGTH } from '../../utils/Constants.js';
+import { CHAT_MESSAGE_MAX_LENGTH, LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUNDS } from '../../utils/Constants.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
 
-/** Hard cap on the agent's conversation memory per NPC (rounds). */
-const TRANSCRIPT_ROUNDS = 2;
 /** Default per-round world-action cap (spec §6.5); npcs.json may override. */
 const DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND = 2;
 /** Default per-round chat cap (spec §6.5); npcs.json may override. */
@@ -85,7 +83,7 @@ const LLM_ROUND_TEMPERATURE = 0.5;
  * @constant
  */
 const LLM_AGENT_DONE_TOOL_NAME = 'done';
-const LLM_AGENT_MAX_ITERATIONS = 5;
+const LLM_AGENT_MAX_ITERATIONS = 50;
 
 class LLMAgentController {
     /**
@@ -118,7 +116,16 @@ class LLMAgentController {
          */
         this._npcRegistry = this._loadNpcRegistry();
 
-        /** @private {Map<string, Array>} npcEntityId → last N round transcripts. */
+        /**
+         * Per-NPC round history (npcEntityId → array of round entries,
+         * oldest → newest), capped at LLM_AGENT_VIEW_HISTORY_ROUNDS — the
+         * "Agent View" inspector window (all of it is exposed by
+         * describeAgentView). The LLM's conversation memory (spec §6.5) is
+         * a view over the TAIL of this same buffer: _transcriptFor replays
+         * only the last LLM_REPLAY_ROUNDS (10) rounds, so the deeper
+         * inspector history never changes what the model sees.
+         * @private {Map<string, Array>}
+         */
         this._transcripts = new Map();
     }
 
@@ -255,7 +262,7 @@ class LLMAgentController {
                 contextText = this._minimalContextLine(entity);
             }
 
-            // 4. Conversation: transcript replay (last ≤2 rounds) + fresh context.
+            // 4. Conversation: transcript replay (last LLM_REPLAY_ROUNDS rounds) + fresh context.
             const messages = [
                 ...this._transcriptFor(npcEntityId),
                 { role: 'user', content: contextText }
@@ -290,7 +297,8 @@ class LLMAgentController {
             const instinctResults = [];
             // One group per LLM call (the in-round agent loop, spec §6.5);
             // capped by LLM_AGENT_MAX_ITERATIONS. Replayed as history next
-            // round (see _transcriptFor / _getLastTranscriptRound).
+            // round (see _transcriptFor) and shown in the Agent View
+            // inspector (see _getTranscriptRounds).
             const groups = [];
 
             for (let iteration = 1; iteration <= LLM_AGENT_MAX_ITERATIONS; iteration++) {
@@ -927,21 +935,27 @@ class LLMAgentController {
     }
 
     // =========================================================================
-    // TRANSCRIPT (last ≤2 rounds per NPC — replayed as history)
+    // TRANSCRIPT (per-NPC round history: the Agent View shows every stored
+    // round; the model replays only the last LLM_REPLAY_ROUNDS = 10 — spec §6.5)
     // =========================================================================
 
     /**
-     * Returns the replayable message history for the LLM: for each stored
-     * round, every group (one per in-round LLM call — the agent loop, spec
-     * §6.5) with its assistant tool-call message, followed by one tool-role
-     * result per call. Legacy entries ({ assistant, results? } / { error })
-     * are still playable as single-call history. Follows the relaxed
-     * _validateMessages contract (assistant content: null + tool_calls;
-     * tool messages: content + tool_call_id).
+     * Returns the replayable message history for the LLM: for each of the
+     * LAST LLM_REPLAY_ROUNDS (10) stored rounds — the replay tail of the
+     * deeper inspector buffer — every group (one per in-round LLM call —
+     * the agent loop, spec §6.5) with its assistant tool-call message,
+     * followed by one tool-role result per call. Legacy entries
+     * ({ assistant, results? } / { error }) are still playable as
+     * single-call history. Follows the relaxed _validateMessages contract
+     * (assistant content: null + tool_calls; tool messages: content +
+     * tool_call_id).
      * @private
      */
     _transcriptFor(npcEntityId) {
-        const rounds = this._transcripts.get(npcEntityId) || [];
+        // Only the last LLM_REPLAY_ROUNDS rounds of the deeper inspector
+        // buffer are ever replayed (spec §6.5) — the model's conversation
+        // memory is unchanged by how many rounds the Agent View keeps.
+        const rounds = (this._transcripts.get(npcEntityId) || []).slice(-LLM_REPLAY_ROUNDS);
         const messages = [];
         for (const entry of rounds) {
             if (!entry || typeof entry !== 'object') continue;
@@ -1002,20 +1016,25 @@ class LLMAgentController {
         return messages;
     }
     /**
-     * Appends one round to the NPC's transcript (capped at 2 rounds). Entry
-     * shapes (spec §6.5): { groups: [...], note? } — the in-round agent
-     * loop (one group per LLM call, each { assistant, results }) plus the
-     * note explaining why the round ended (done, no response,
-     * prose-ignored, degenerated, iterations exhausted, LLM error code) —
-     * or the legacy { assistant?, results?, note?, error? } (guard stops /
-     * early error). Replay via _transcriptFor; inspector via
-     * _getLastTranscriptRound.
+     * Appends one round to the NPC's round history (capped at
+     * LLM_AGENT_VIEW_HISTORY_ROUNDS — the Agent View inspector window).
+     * Entry shapes (spec §6.5): { groups: [...], note?, error? } — the
+     * in-round agent loop (one group per LLM call, each { assistant,
+     * results }) plus the note explaining why the round ended (done, no
+     * response, prose-ignored, degenerated, iterations exhausted, LLM
+     * error code) — or { error } (guard stops such as NPC_GONE) or the
+     * legacy { assistant?, results? } (single-call history). Replay reads
+     * only the last LLM_REPLAY_ROUNDS via _transcriptFor; the inspector
+     * reads all stored rounds via _getTranscriptRounds.
      * @private
      */
     _storeTranscript(npcEntityId, round, entry) {
         const rounds = this._transcripts.get(npcEntityId) || [];
         rounds.push({ round, ...entry });
-        this._transcripts.set(npcEntityId, rounds.slice(-TRANSCRIPT_ROUNDS));
+        this._transcripts.set(
+            npcEntityId,
+            rounds.slice(-LLM_AGENT_VIEW_HISTORY_ROUNDS)
+        );
     }
 
     // =========================================================================
@@ -1024,7 +1043,10 @@ class LLMAgentController {
     // Reuses the EXACT round-runner logic (_resolveNpcConfig, _buildTools,
     // _buildSystemPrompt, _safeGenerateInstincts, llmContextController.
     // buildContext) so the view is byte-identical to what the LLM receives in
-    // a live round. Read-only: never mutates round state.
+    // a live round. The transcript section shows the FULL inspector history:
+    // every stored round (capped at LLM_AGENT_VIEW_HISTORY_ROUNDS), each with
+    // all of its in-round LLM calls (the loop's subcalls) and per-call
+    // results. Read-only: never mutates round state.
     // =========================================================================
 
     /**
@@ -1040,8 +1062,10 @@ class LLMAgentController {
      *   context: { text: string, data: Object|null, stats: Object|null },
      *   tools: Array, instincts: Array,
      *   registry: Object<string, Object>,
-     *   transcript: { round, groups: Array|undefined, assistant: { content, tool_calls, reasoning_content },
-     *     toolResults: Array, note: string|null }|null,
+     *   transcriptRounds: Array<{ round: number|null, note: string|null,
+     *     error: string|null, groups: Array<{ content: string|null,
+     *       reasoning_content: string|null, tool_calls: Array|null,
+     *       results: Array }> }>,
      *   error: string|null
      * }}
      */
@@ -1058,7 +1082,7 @@ class LLMAgentController {
             tools: [],
             instincts: [],
             registry: {},
-            transcript: null,
+            transcriptRounds: [],
             error: null
         };
 
@@ -1150,48 +1174,75 @@ class LLMAgentController {
             out.context.stats = null;
         }
 
-        // Last replayable transcript round (if any).
+        // Full inspector transcript history: every stored round (oldest →
+        // newest; the client renders newest first), each with all of its
+        // in-round LLM calls (subcalls) and per-call results.
         try {
-            out.transcript = this._getLastTranscriptRound(entityId);
+            out.transcriptRounds = this._getTranscriptRounds(entityId);
         } catch (err) {
-            out.transcript = null;
+            out.transcriptRounds = [];
         }
 
         return out;
     }
 
     /**
-     * Most recently stored transcript round for an NPC, normalized for client
-     * display: round number, the last group's assistant message + tool
-     * results, the full `groups` array (one entry per LLM call, each
-     * { assistant, results } — the in-round agent loop), and the note
-     * explaining why the round ended (done, prose-ignored, LLM error code,
-     * ...). Legacy entries ({ assistant, results } / { error }) normalize the
-     * same way. null when no round has been stored yet. @private
+     * All stored transcript rounds for an NPC (the Agent View inspector
+     * history — the full depth of the _transcripts buffer, capped at
+     * LLM_AGENT_VIEW_HISTORY_ROUNDS), oldest → newest, each normalized for
+     * client display: the round number, the note explaining why the round
+     * ended (done, prose-ignored, iterations exhausted, LLM error code,
+     * ...), the error when the round died without LLM calls (NPC_GONE), and
+     * every group of the in-round agent loop (one per LLM call — the
+     * subcalls): the assistant content / reasoning / tool_calls plus one
+     * result per tool call. Legacy entries ({ assistant, results })
+     * normalize as a single-call group.
+     * @private
+     * @param {string} entityId
+     * @returns {Array<{ round: number|null, note: string|null,
+     *   error: string|null, groups: Array<Object> }>}
      */
-    _getLastTranscriptRound(entityId) {
-        const rounds = Array.from((this._transcripts?.get(entityId)) || []);
-        for (let i = rounds.length - 1; i >= 0; i -= 1) {
-            const entry = rounds[i];
+    _getTranscriptRounds(entityId) {
+        const entries = Array.from((this._transcripts?.get(entityId)) || []);
+        const out = [];
+        for (const entry of entries) {
             if (!entry || typeof entry !== 'object') continue;
-            const group = (entry.groups && Array.isArray(entry.groups))
-                ? entry.groups[entry.groups.length - 1]
-                : (entry.assistant ? entry : null);
-            if (!group) continue;
-            const assistant = group.assistant;
-            return {
+            // One group per in-round LLM call (spec §6.5); legacy entries
+            // (guard stops / single-call history) count as one group.
+            const groups = (entry.groups && Array.isArray(entry.groups))
+                ? entry.groups
+                : (entry.assistant ? [entry] : []);
+            out.push({
                 round: (typeof entry.round === 'number') ? entry.round : null,
-                assistant: {
-                    content: (assistant && typeof assistant.content === 'string') ? assistant.content : null,
-                    tool_calls: (assistant && Array.isArray(assistant.tool_calls)) ? assistant.tool_calls : null,
-                    reasoning_content: (assistant && typeof assistant.reasoning_content === 'string') ? assistant.reasoning_content : null
-                },
-                toolResults: Array.isArray(group.results) ? group.results : [],
-                groups: (entry.groups && Array.isArray(entry.groups)) ? entry.groups : null,
-                note: (typeof entry.note === 'string') ? entry.note : null
-            };
+                note: (typeof entry.note === 'string') ? entry.note : null,
+                error: (typeof entry.error === 'string') ? entry.error : null,
+                groups: groups
+                    .filter(g => g && typeof g === 'object' && g.assistant)
+                    .map(g => this._normalizeTranscriptGroup(g))
+            });
         }
-        return null;
+        return out;
+    }
+
+    /**
+     * Projects one round group (one LLM call) onto the inspector shape:
+     * assistant content / reasoning / tool_calls plus the per-call results
+     * ({ id, success, detail?, list? }). The raw stored shape is the
+     * replay-ready message; this projection keeps exactly what the view
+     * shows. @private
+     * @param {Object} group - one _buildRoundGroup entry ({ assistant,
+     *   results }).
+     * @returns {{ content: string|null, reasoning_content: string|null,
+     *   tool_calls: Array|null, results: Array }}
+     */
+    _normalizeTranscriptGroup(group) {
+        const assistant = group.assistant;
+        return {
+            content: (typeof assistant.content === 'string') ? assistant.content : null,
+            reasoning_content: (typeof assistant.reasoning_content === 'string') ? assistant.reasoning_content : null,
+            tool_calls: (assistant.tool_calls && Array.isArray(assistant.tool_calls)) ? assistant.tool_calls : null,
+            results: (group.results && Array.isArray(group.results)) ? group.results : []
+        };
     }
     // =========================================================================
     // TOOL-CALL PARSING

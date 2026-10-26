@@ -190,10 +190,12 @@ export const TURN_MAX_QUEUED_PER_ROUND = 3;
 
 /**
  * Maximum number of simulation ticks per second.
- * Controls the speed of the universal tick loop.
+ * Controls the speed of the universal tick loop (intervalMs = 1000 / value).
+ * Deliberate 1: one tick per second (1000 ms/tick), so the world advances at
+ * real-time pace, matching the long LLM-driven NPC turns (see LLM_ROUND_TIMEOUT_MS).
  * @type {number}
  */
-export const MAX_TICKS_PER_SECOND = 30;
+export const MAX_TICKS_PER_SECOND = 1;
 
 // =========================================================================
 // WORLD EVENT LOG CONSTANTS
@@ -374,6 +376,35 @@ export const LLM_DEFAULT_TIMEOUT_MS = 30000;
  * @type {number}
  */
 export const LLM_LOG_TRUNCATION_CHARS = 500;
+
+/**
+ * How many of the NPC's most recent rounds the LLM replays as conversation
+ * memory — the transcript replay tail of the _transcripts buffer (spec §6.5).
+ *
+ * Decision (DOC-3): spec v2's default was 2 rounds; the owner requested 10,
+ * so the model now sees a longer recent history. The replay is a view over
+ * the TAIL of the same buffer the Agent View inspector reads
+ * (LLM_AGENT_VIEW_HISTORY_ROUNDS) and must stay <= that window: one buffer
+ * serves both readers, and the inspector never changes what the model sees.
+ * @type {number}
+ */
+export const LLM_REPLAY_ROUNDS = 10;
+
+/**
+ * Hard cap on the round history the "Agent View" inspector keeps per NPC
+ * (GET /llm/agent/:entityId — the LLMAgentController._transcripts buffer).
+ *
+ * Decision (DOC-3): this buffer is deliberately DEEPER than the LLM's
+ * replay memory (LLM_REPLAY_ROUNDS — the tail of this SAME buffer). One
+ * buffer serves both readers: the round runner replays the tail (bounded
+ * conversation memory), while the dev tab shows every stored round with all
+ * of its in-round LLM calls (subcalls) and per-call results. The
+ * alternative — a second, separate buffer for the inspector — would store
+ * the same data twice for no gain; an unbounded buffer would grow memory
+ * forever in a long-running world (A-7 / AP-14), hence the named cap.
+ * @type {number}
+ */
+export const LLM_AGENT_VIEW_HISTORY_ROUNDS = 50;
 
 // =========================================================================
 // LLM CONTEXT CONSTANTS (LlmContextController token budget)
