@@ -80,6 +80,7 @@ import ActionAttributionStore from '../utils/ActionAttributionStore.js';
 // single source of truth); world state changes are reported to it by the
 // facade's mutation sites (see WorldStateController._markPerceptionDirty).
 import PerceptionController from '../controllers/core/PerceptionController.js';
+import ViewController from '../controllers/core/ViewController.js';
 // Feature D backend (spec §7.3, pulled forward to C for speak_in_room):
 // per-room chat ring buffers (state owner; deliberately NO getAll() →
 // excluded from the world-state broadcast aggregation).
@@ -258,6 +259,13 @@ export function buildWorldState(tickSystem = null) {
     // facade so the WSC can reference it; the WSC's mutation methods call
     // markDirty() directly, so this instance is read-only relative to the facade.
     const perceptionController = new PerceptionController();
+    // ViewController: the generic "what can I see?" reader behind GET /view/:id
+    // (entity / component / item / equipped payloads). Read-only assembly with
+    // no persistent world data and no getAll() → deliberately OUT of the
+    // subControllers broadcast map (same rule as perceptionController / knowledgeController).
+    // Its own facade reference is injected post-construction, below, so view
+    // payloads read live state.
+    const viewController = new ViewController();
     // Generic action attribution store (shared by the dispatcher — writer — and
     // perception — reader). Built before the facade; the facade reference is never
     // needed (tick is read off the WSC at record time). Injected to each consumer
@@ -360,6 +368,10 @@ export function buildWorldState(tickSystem = null) {
         // Feature G (perception): null-tolerant (the facade's perception hooks
         // no-op if omitted — hand-built test facades that skip it keep working).
         perceptionController,
+        // ViewController: GET /view/:id read-only payload assembly. Null-tolerant
+        // like craftingController / knowledgeController — a test may hand-build
+        // the facade without it; the facade stores it and exposes getViewData().
+        viewController,
         llmContextController,
         hintController,
         turnSystemController,
@@ -506,6 +518,9 @@ export function buildWorldState(tickSystem = null) {
     // reads work. Injected *before* world init so the markDirty() calls fired by
     // init's spawns land on an already-wired controller.
     perceptionController.setWorldStateController(worldStateController);
+    // ViewController: reads live facade state at view time — inject after the
+    // facade (same as perceptionController), before world init.
+    viewController.setWorldStateController(worldStateController);
     // Perception reads the *same* store so moved-entity rows credit the
     // authoritative components that powered the action (not a re-derived heuristic).
     perceptionController.setActionAttributionStore(actionAttributionStore);

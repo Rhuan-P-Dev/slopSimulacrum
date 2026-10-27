@@ -18,6 +18,12 @@ import { register as registerMaterialRoutes } from './materialRoutes.js';
 import { register as registerCraftingRoutes } from './craftingRoutes.js';
 import { register as registerKnowledgeRoutes } from './knowledgeRoutes.js';
 import { register as registerObjectInspectRoutes } from './objectInspectRoutes.js';
+// Generic "what can I see?" view: GET /api/view/:id (entity, component, item,
+// equipped). Read-only payload assembly via WorldStateController.getViewData()
+// (worldStateController passed through to the controller the facade owns;
+// null-tolerant, 404 when the facade has no view controller). Classified once
+// at the boundary (id prefix → kind; 400 otherwise).
+import { register as registerViewRoutes } from './viewRoutes.js';
 // Feature G (perception): room-level delta reads + agent "what happened to me"
 // summary. Read-only observer surface — worldStateController passed through to
 // the perception controller the facade owns (null-tolerant, 503 when absent).
@@ -63,6 +69,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerCraftingRoutes(router, { worldStateController });
 	registerKnowledgeRoutes(router, { worldStateController });
 	registerObjectInspectRoutes(router, { worldStateController });
+	registerViewRoutes(router, { worldStateController });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);

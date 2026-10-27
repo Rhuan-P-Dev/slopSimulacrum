@@ -289,6 +289,12 @@ describe('WorldStateController public method surface', () => {
         'getRoomUidByLogicalId',
         'getRooms',
         'getSynergyConfig',
+        // Generic "what can I see?" view payload (GET /view/:id — viewRoutes.js
+        // + ViewController): entity / component / item / equipped nodes, including
+        // the clothing-node replacement rule. Added deliberately (not an accidental
+        // surface addition); the route reads it via the facade only
+        // (facade-only-dependency rule).
+        'getViewData',
         'getWorldGraph',
  // Added deliberately (wiki/subMDs/data/world_rules.md): the world-rules registry
         // passthrough. Not an accidental addition — mirrors getKnowledge().
