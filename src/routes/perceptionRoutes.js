@@ -34,6 +34,23 @@
  *       player-UI polling path / tests that want to control the cursor without
  *       taking a window. 404 when the entity is absent; 400 when the ID is
  *       malformed.
+ *   GET  /perception/round/:roundNumber
+ *     → 200 { success: true, round, live, startTick, endTick, summary, entryCount,
+ *       rooms: { [roomId]: { name, text, entryCount } } }
+ *       — round N in natural prose: every room-delta entry that landed inside
+ *       the round's tick window (startTick..endTick, inclusive), joined per
+ *       room into one flowing paragraph, plus a one-line round summary.
+ *       A live round's `endTick` is the current tick as of the read. Recent-
+ *       history only: round windows are in-memory turn bookkeeping and the
+ *       perception rings keep the last PERCEPTION_MAX_LIMIT entries per room
+ *       — 400 on malformed round, 404 on unknown/evicted round, 503 when the
+ *       reader is unwired.
+ *   GET  /perception/round/:roundNumber/byRoom/:roomId
+ *     → 200 { success: true, round, live, startTick, endTick, roomId, room,
+ *       entryCount, text }
+ *       — one room's prose for a round. Logical names or uids accepted for
+ *       the room (resolved by the reader, same path as /perception/:roomId).
+ *       Same recent-history contract.
  *
  * All reads go through the *root controller's public read wrappers*
  * (`worldStateController.getPerceptionDeltasForRoom / getAgentPerception /
@@ -108,6 +125,29 @@ function roomExists(worldStateController, roomId) {
 }
 
 /**
+ * Parses a non-negative integer from a route param.
+ * @param {*} raw
+ * @returns {number|null}
+ */
+function parseRoundNumber(raw) {
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * 404 for a round that is not in the recent-history window (unknown round or
+ * window evicted by the in-memory horizon).
+ * @param {import('express').Response} res
+ * @param {number} round
+ */
+function respondRoundNotFound(res, round) {
+    res.status(404).json({
+        success: false,
+        message: `Round ${round} was not observed (out of the recent-history window).`
+    });
+}
+
+/**
  * Registers perception routes with the given Express router.
  * @param {import('express').Router} router - Express router instance.
  * @param {Object} deps - Dependencies.
@@ -140,7 +180,7 @@ export function register(router, { worldStateController }) {
                 deltas
             });
         } catch (error) {
-            sendRouteError(res, error);
+            sendRouteError(error, res, '/perception/:roomId GET');
         }
     });
 
@@ -173,7 +213,7 @@ export function register(router, { worldStateController }) {
                 deltas
             });
         } catch (error) {
-            sendRouteError(res, error);
+            sendRouteError(error, res, '/perception/agent/:entityId GET');
         }
     });
 
@@ -201,7 +241,74 @@ export function register(router, { worldStateController }) {
             worldStateController.recordAgentObservation?.(entityId);
             res.json({ success: true, entityId });
         } catch (error) {
-            sendRouteError(res, error);
+            sendRouteError(error, res, '/perception/agent/:entityId POST');
+        }
+    });
+
+    /**
+     * GET /perception/round/:roundNumber
+     * Round N in natural prose: every room delta entry inside the round's tick
+     * window (startTick..endTick, inclusive), per room as one flowing
+     * paragraph + a one-line round summary. A live round reads "so far"
+     * (its endTick is the current tick as of the read). Recent-history only:
+     * round windows are in-memory turn bookkeeping and the perception rings
+     * keep the last PERCEPTION_MAX_LIMIT entries per room — 400 on malformed
+     * round, 404 on unknown/evicted round, 503 when the reader is unwired.
+     */
+    router.get('/perception/round/:roundNumber', (req, res) => {
+        const rawRound = req.params.roundNumber;
+        const round = parseRoundNumber(rawRound);
+        if (round === null) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid round number "${rawRound}". Use a non-negative integer.`
+            });
+        }
+        const reader = worldStateController.roundProseController;
+        if (!reader) {
+            return res.status(503).json({ error: 'Round prose reader is not available.' });
+        }
+        try {
+            const data = reader.getRoundProse(round);
+            if (!data) {
+                return respondRoundNotFound(res, round);
+            }
+            return res.json({ success: true, ...data });
+        } catch (error) {
+            sendRouteError(error, res, '/perception/round/:roundNumber GET');
+        }
+    });
+
+    /**
+     * GET /perception/round/:roundNumber/byRoom/:roomId
+     * One room's prose for a round (logical name or uid accepted, resolved by
+     * the reader, same path as /perception/:roomId). Same recent-history and
+     * 4xx/503 contract as the full-round endpoint.
+     */
+    router.get('/perception/round/:roundNumber/byRoom/:roomId', (req, res) => {
+        const rawRound = req.params.roundNumber;
+        const round = parseRoundNumber(rawRound);
+        if (round === null) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid round number "${rawRound}". Use a non-negative integer.`
+            });
+        }
+        if (!roomExists(worldStateController, req.params.roomId)) {
+            return respondRoomNotFound(res, worldStateController, req.params.roomId);
+        }
+        const reader = worldStateController.roundProseController;
+        if (!reader) {
+            return res.status(503).json({ error: 'Round prose reader is not available.' });
+        }
+        try {
+            const data = reader.getRoomProse(req.params.roomId, round);
+            if (!data) {
+                return respondRoundNotFound(res, round);
+            }
+            return res.json({ success: true, ...data });
+        } catch (error) {
+            sendRouteError(error, res, '/perception/round/:roundNumber/byRoom/:roomId GET');
         }
     });
 }

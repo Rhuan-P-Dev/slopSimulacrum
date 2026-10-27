@@ -247,6 +247,18 @@ export const PERCEPTION_MAX_LIMIT = 50;
  */
 export const PERCEPTION_RECENT_LIMIT = 10;
 
+/**
+ * Rounds of tick-window bookkeeping kept in memory for the round-prose
+ * reader (TurnSystemController._roundWindows). Rounds are reader-only
+ * history, not persisted, and beyond this horizon a round's perception
+ * entries are already evicted from the per-room rings (PERCEPTION_MAX_LIMIT
+ * each) — the window is worth keeping only while its entries are still
+ * recoverable. Exceeding it is never observable: the reader just reports
+ * the round unknown.
+ * @type {number}
+ */
+export const ROUND_PROSE_HISTORY_LIMIT = 500;
+
 // =========================================================================
 // SPATIAL CONTEXT CAPS (spec "better text & vision")
 //

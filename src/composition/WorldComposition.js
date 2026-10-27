@@ -80,6 +80,7 @@ import ActionAttributionStore from '../utils/ActionAttributionStore.js';
 // single source of truth); world state changes are reported to it by the
 // facade's mutation sites (see WorldStateController._markPerceptionDirty).
 import PerceptionController from '../controllers/core/PerceptionController.js';
+import RoundProseController from '../controllers/core/RoundProseController.js';
 // Feature D backend (spec §7.3, pulled forward to C for speak_in_room):
 // per-room chat ring buffers (state owner; deliberately NO getAll() →
 // excluded from the world-state broadcast aggregation).
@@ -258,6 +259,11 @@ export function buildWorldState(tickSystem = null) {
     // facade so the WSC can reference it; the WSC's mutation methods call
     // markDirty() directly, so this instance is read-only relative to the facade.
     const perceptionController = new PerceptionController();
+    // Round-prose reader (Feature G round reconstruction): a pure reader over
+    // the perception rings and the turn system's round tick window. No
+    // getAll() by design; stays out of the broadcast aggregate (same rule as
+    // perceptionController / roomChatController).
+    const roundProseController = new RoundProseController();
     // Generic action attribution store (shared by the dispatcher — writer — and
     // perception — reader). Built before the facade; the facade reference is never
     // needed (tick is read off the WSC at record time). Injected to each consumer
@@ -510,6 +516,12 @@ export function buildWorldState(tickSystem = null) {
     // authoritative components that powered the action (not a re-derived heuristic).
     perceptionController.setActionAttributionStore(actionAttributionStore);
 
+    // Round-prose reader: wired for the routes (GET /perception/round/*) to
+    // reach it via the facade. Pure reader, so no timing constraint vs world
+    // init.
+    roundProseController.setWorldStateController(worldStateController);
+    worldStateController.roundProseController = roundProseController;
+
     // =========================================================================
     // 4. WORLD INITIALIZATION + INITIAL CAPABILITY SCAN.
     //    These run HERE (not in the facade constructor) so that every facade
@@ -580,6 +592,11 @@ export function buildWorldState(tickSystem = null) {
             // aggregation (same rule as roomChatController). Exposed here for
             // direct reads from routes/tests (GET /perception/:roomId etc.).
             perceptionController,
+            // Inspection-only (not in broadcast) — Feature G (round-prose):
+            // pure reader over the perception rings and turn bookkeeping (not
+            // world state), so it must stay out of the full-state broadcast
+            // aggregate (same rule as perceptionController / roomChatController).
+            roundProseController,
             // Inspection-only (not in broadcast) — the onDamage enforcement arm is a
             // null-tolerant actor with no getAll(); it must stay out of the full-state
             // broadcast aggregation (same rule as worldRulesController).
