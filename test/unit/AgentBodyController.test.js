@@ -12,7 +12,9 @@
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import path from 'node:path';
+import DataLoader from '../../src/utils/DataLoader.js';
 import AgentBodyController, {
     CardNotFoundError,
     DesignValidationError,
@@ -474,43 +476,82 @@ describe('AgentBodyController', () => {
     describe('saveDesign (the "Save" action — persists a validated design)', () => {
         const SAVE_BLUEPRINTS_FILE = 'data/entities/blueprints.json';
         const SAVE_COMPONENTS_FILE = 'data/components/components.json';
-        const blueprintsAbs = path.resolve(SAVE_BLUEPRINTS_FILE);
-        const componentsAbs = path.resolve(SAVE_COMPONENTS_FILE);
 
-        async function snapshotFiles(absolutePaths) {
-            const backup = {};
-            for (const abs of absolutePaths) {
-                backup[abs] = await fs.readFile(abs);
-            }
-            return backup;
-        }
-        async function restoreFiles(backup) {
-            for (const abs of Object.keys(backup)) {
-                await fs.writeFile(abs, backup[abs]);
-            }
-        }
-        async function cleanupSaveBackups(absolutePaths) {
-            for (const abs of absolutePaths) {
-                const dir = path.dirname(abs);
-                const base = path.basename(abs);
-                for (const entry of await fs.readdir(dir)) {
-                    if (entry.startsWith(base + '.bak-')) {
-                        await fs.rm(path.join(dir, entry), { force: true });
-                    }
+        // Every saveDesign here runs against a disposable scratch copy of the world
+        // data, so the committed data files are never written to by the suite.
+        // saveDesign persists through DataLoader's static save/copy/load seam;
+        // those are patched here to route the two data files into the scratch dir
+        // (the backups land there too). The scratch copy is seeded from the current
+        // real data on each test.
+        let scratchDir = '';
+        let scratchBlueprints = '';
+        let scratchComponents = '';
+        let loadSpy = null;
+        let saveSpy = null;
+        let copySpy = null;
+
+        function seedScratch() {
+            scratchDir = fsSync.mkdtempSync(path.join(process.cwd(), 'data', 'scratch-save-design-'));
+            scratchBlueprints = path.join(scratchDir, 'blueprints.json');
+            scratchComponents = path.join(scratchDir, 'components.json');
+            fsSync.mkdirSync(scratchDir, { recursive: true });
+            fsSync.copyFileSync(path.resolve(SAVE_BLUEPRINTS_FILE), scratchBlueprints);
+            fsSync.copyFileSync(path.resolve(SAVE_COMPONENTS_FILE), scratchComponents);
+            const realLoad = DataLoader.loadJsonSafe.bind(DataLoader);
+            const realSave = DataLoader.saveJson.bind(DataLoader);
+            const realCopy = DataLoader.copyFile.bind(DataLoader);
+            loadSpy = vi.spyOn(DataLoader, 'loadJsonSafe').mockImplementation((rel, fallback) => {
+                if (rel === SAVE_COMPONENTS_FILE) return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
+                if (rel === SAVE_BLUEPRINTS_FILE) return JSON.parse(fsSync.readFileSync(scratchBlueprints, 'utf8'));
+                return realLoad(rel, fallback);
+            });
+            saveSpy = vi.spyOn(DataLoader, 'saveJson').mockImplementation((rel, data) => {
+                const json = JSON.stringify(data, null, 2) + '\n';
+                if (rel === SAVE_COMPONENTS_FILE) {
+                    fsSync.writeFileSync(scratchComponents, json, 'utf8');
+                    return undefined;
                 }
-                await fs.rm(path.join(dir, base + '.tmp'), { force: true });
+                if (rel === SAVE_BLUEPRINTS_FILE) {
+                    fsSync.writeFileSync(scratchBlueprints, json, 'utf8');
+                    return undefined;
+                }
+                return realSave(rel, data);
+            });
+            copySpy = vi.spyOn(DataLoader, 'copyFile').mockImplementation((from, to) => {
+                const destName = path.basename(to);
+                if (from === SAVE_COMPONENTS_FILE) {
+                    fsSync.copyFileSync(scratchComponents, path.join(scratchDir, destName));
+                    return to;
+                }
+                if (from === SAVE_BLUEPRINTS_FILE) {
+                    fsSync.copyFileSync(scratchBlueprints, path.join(scratchDir, destName));
+                    return to;
+                }
+                return realCopy(from, to);
+            });
+        }
+
+        function cleanupScratch() {
+            if (loadSpy) { loadSpy.mockRestore(); loadSpy = null; }
+            if (saveSpy) { saveSpy.mockRestore(); saveSpy = null; }
+            if (copySpy) { copySpy.mockRestore(); copySpy = null; }
+            if (scratchDir) {
+                fsSync.rmSync(scratchDir, { recursive: true, force: true });
+                scratchDir = '';
+                scratchBlueprints = '';
+                scratchComponents = '';
             }
         }
 
-        async function readBlueprints() {
-            return JSON.parse(await fs.readFile(blueprintsAbs, 'utf8'));
+        function readScratchBlueprints() {
+            return JSON.parse(fsSync.readFileSync(scratchBlueprints, 'utf8'));
         }
-        async function readComponents() {
-            return JSON.parse(await fs.readFile(componentsAbs, 'utf8'));
+        function readScratchComponents() {
+            return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
         }
 
         it('writes a brand-new droid key + a new component into the world files and takes pre-write backups', async () => {
-            const backup = await snapshotFiles([blueprintsAbs, componentsAbs]);
+            seedScratch();
             try {
                 const result = await controller.saveDesign(HAPPY_BODY);
                 expect(result.saved).toBe(true);
@@ -527,7 +568,7 @@ describe('AgentBodyController', () => {
                 expect(typeof result.backups.blueprints).toBe('string');
                 expect(typeof result.backups.components).toBe('string');
 
-                const bl = await readBlueprints();
+                const bl = readScratchBlueprints();
                 expect(bl.minakoRunner).toEqual(['m1CentralBody']);
                 expect(bl.m1CentralBody).toEqual([
                     'm1Head',
@@ -537,7 +578,7 @@ describe('AgentBodyController', () => {
                 ]);
                 expect(bl.m1Leg).toEqual([['m1Toe', 'left']]);
 
-                const cm = await readComponents();
+                const cm = readScratchComponents();
                 expect(cm.parcelStrap).toEqual({
                     name: 'parcelStrap',
                     form: { volume: 3, position: { x: 2, y: 1 } },
@@ -549,14 +590,13 @@ describe('AgentBodyController', () => {
                     energyCapacity: 10
                 });
 
-                // A pre-write backup of each touched file was created (timestamped sibling).
-                const blFiles = await fs.readdir(path.dirname(blueprintsAbs));
-                const cmFiles = await fs.readdir(path.dirname(componentsAbs));
-                expect(blFiles.some((f) => /blueprints\.json\.bak-\d+/.test(f))).toBe(true);
-                expect(cmFiles.some((f) => /components\.json\.bak-\d+/.test(f))).toBe(true);
+                // A pre-write backup of each touched file was created (timestamped
+                // sibling) in the scratch dir.
+                const scratchFiles = fsSync.readdirSync(scratchDir);
+                expect(scratchFiles.some((f) => /blueprints\.json\.bak-\d+/.test(f))).toBe(true);
+                expect(scratchFiles.some((f) => /components\.json\.bak-\d+/.test(f))).toBe(true);
             } finally {
-                await restoreFiles(backup);
-                await cleanupSaveBackups([blueprintsAbs, componentsAbs]);
+                cleanupScratch();
             }
         });
 
@@ -571,15 +611,14 @@ describe('AgentBodyController', () => {
                 },
                 components: []
             };
-            const backup = await snapshotFiles([blueprintsAbs, componentsAbs]);
+            seedScratch();
             let error;
             try {
                 await controller.saveDesign(design);
             } catch (e) {
                 error = e;
             } finally {
-                await restoreFiles(backup);
-                await cleanupSaveBackups([blueprintsAbs, componentsAbs]);
+                cleanupScratch();
             }
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.errors[0]).toContain('must not be the name of any component used in the body tree');
@@ -596,15 +635,14 @@ describe('AgentBodyController', () => {
                 },
                 components: []
             };
-            const backup = await snapshotFiles([blueprintsAbs, componentsAbs]);
+            seedScratch();
             let error;
             try {
                 await controller.saveDesign(design);
             } catch (e) {
                 error = e;
             } finally {
-                await restoreFiles(backup);
-                await cleanupSaveBackups([blueprintsAbs, componentsAbs]);
+                cleanupScratch();
             }
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.message).toMatch(/unknown component/);

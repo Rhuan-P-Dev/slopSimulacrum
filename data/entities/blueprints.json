@@ -1,58 +1,406 @@
 {
-  "smallBallDroid": ["centralBall"],
+  "smallBallDroid": [
+    "centralBall"
+  ],
   "centralBall": [
     "droidHead",
-    ["droidArm", "left"],
-    ["droidArm", "right"],
-    ["droidRollingBall", "left"],
-    ["droidRollingBall", "right"]
+    [
+      "droidArm",
+      "left"
+    ],
+    [
+      "droidArm",
+      "right"
+    ],
+    [
+      "droidRollingBall",
+      "left"
+    ],
+    [
+      "droidRollingBall",
+      "right"
+    ]
   ],
-  "droidArm": ["droidHand"],
+  "droidArm": [
+    "droidHand"
+  ],
   "droidHand": [
-    ["humanoidDroidFinger", "left"],
-    ["humanoidDroidFinger", "middle"],
-    ["humanoidDroidFinger", "right"]
+    [
+      "humanoidDroidFinger",
+      "left"
+    ],
+    [
+      "humanoidDroidFinger",
+      "middle"
+    ],
+    [
+      "humanoidDroidFinger",
+      "right"
+    ]
   ],
-  "killerLlmDrone": ["centralBall"],
-  "merchantDroid": ["merchantCore"],
+  "killerLlmDrone": [
+    "centralBall"
+  ],
+  "merchantDroid": [
+    "merchantCore"
+  ],
   "merchantCore": [
     "merchantHead",
-    ["merchantArm", "left"],
-    ["merchantArm", "right"],
-    ["merchantRollingBall", "left"],
-    ["merchantRollingBall", "right"]
+    [
+      "merchantArm",
+      "left"
+    ],
+    [
+      "merchantArm",
+      "right"
+    ],
+    [
+      "merchantRollingBall",
+      "left"
+    ],
+    [
+      "merchantRollingBall",
+      "right"
+    ]
   ],
-  "crafterDrone": ["crafterCore"],
+  "crafterDrone": [
+    "crafterCore"
+  ],
   "crafterCore": [
-    ["crafterArm", "left"],
-    ["crafterArm", "right"],
-    ["crafterRollingBall", "left"],
-    ["crafterRollingBall", "right"]
+    [
+      "crafterArm",
+      "left"
+    ],
+    [
+      "crafterArm",
+      "right"
+    ],
+    [
+      "crafterRollingBall",
+      "left"
+    ],
+    [
+      "crafterRollingBall",
+      "right"
+    ]
   ],
-  "m1Droid": ["m1CentralBody"],
+  "m1Droid": [
+    "m1CentralBody"
+  ],
   "m1CentralBody": [
     "m1Head",
-    ["m1Leg", "frontal_left"],
-    ["m1Leg", "frontal_right"],
-    ["m1Leg", "back_left"],
-    ["m1Leg", "back_right"],
-    ["m1ArticulatedHand", "top_hand"],
-    ["m1Gun", "top_gun"]
+    [
+      "m1Leg",
+      "frontal_left"
+    ],
+    [
+      "m1Leg",
+      "frontal_right"
+    ],
+    [
+      "m1Leg",
+      "back_left"
+    ],
+    [
+      "m1Leg",
+      "back_right"
+    ],
+    [
+      "m1ArticulatedHand",
+      "top_hand"
+    ],
+    [
+      "m1Gun",
+      "top_gun"
+    ]
   ],
   "m1Leg": [
-    ["m1Toe", "left"],
-    ["m1Toe", "middle"],
-    ["m1Toe", "right"]
+    [
+      "m1Toe",
+      "left"
+    ],
+    [
+      "m1Toe",
+      "middle"
+    ],
+    [
+      "m1Toe",
+      "right"
+    ]
   ],
   "m1ArticulatedHand": [
-    ["m1Finger", "left"],
-    ["m1Finger", "middle"],
-    ["m1Finger", "right"]
+    [
+      "m1Finger",
+      "left"
+    ],
+    [
+      "m1Finger",
+      "middle"
+    ],
+    [
+      "m1Finger",
+      "right"
+    ]
   ],
   "tree": [
     "tree"
   ],
   "knifeGenerator": [
     "generatorCore"
+  ],
+  "minakobody": [
+    [
+      "minakohead",
+      "top"
+    ],
+    [
+      "minakotorso",
+      "core"
+    ],
+    [
+      "minakoarm",
+      "left"
+    ],
+    [
+      "minakoarm",
+      "right"
+    ],
+    [
+      "minakoleg",
+      "frontal_left"
+    ],
+    [
+      "minakoleg",
+      "frontal_right"
+    ]
+  ],
+  "minakohead": [
+    [
+      "minakohair",
+      "top"
+    ],
+    [
+      "minakoeyes",
+      "frontal"
+    ],
+    [
+      "minakochoker",
+      "neck"
+    ]
+  ],
+  "minakoarm": [
+    [
+      "minakohand",
+      "top_hand"
+    ]
+  ],
+  "minakoleg": [
+    [
+      "minakofoot",
+      "bottom"
+    ]
+  ],
+  "Minako": [
+    "minakobody"
+  ],
+  "maleDroid": [
+    "maleCentralBody"
+  ],
+  "maleCentralBody": [
+    [
+      "maleHead",
+      "top"
+    ],
+    [
+      "maleTorso",
+      "core"
+    ],
+    [
+      "maleBreast",
+      "left"
+    ],
+    [
+      "maleBreast",
+      "right"
+    ],
+    [
+      "maleArm",
+      "left"
+    ],
+    [
+      "maleArm",
+      "right"
+    ],
+    [
+      "maleGenitals",
+      "lower"
+    ],
+    [
+      "maleLeg",
+      "frontal_left"
+    ],
+    [
+      "maleLeg",
+      "frontal_right"
+    ]
+  ],
+  "maleHead": [
+    [
+      "maleHair",
+      "top"
+    ],
+    [
+      "maleEyebrow",
+      "left"
+    ],
+    [
+      "maleEyebrow",
+      "right"
+    ],
+    [
+      "maleEye",
+      "left"
+    ],
+    [
+      "maleEye",
+      "right"
+    ],
+    [
+      "maleEar",
+      "left"
+    ],
+    [
+      "maleEar",
+      "right"
+    ],
+    [
+      "maleNose",
+      "nose"
+    ],
+    [
+      "maleMouth",
+      "mouth"
+    ]
+  ],
+  "maleMouth": [
+    [
+      "maleTooth",
+      "t1"
+    ],
+    [
+      "maleTooth",
+      "t2"
+    ],
+    [
+      "maleTooth",
+      "t3"
+    ],
+    [
+      "maleTooth",
+      "t4"
+    ],
+    [
+      "maleTooth",
+      "t5"
+    ],
+    [
+      "maleTooth",
+      "t6"
+    ],
+    [
+      "maleTooth",
+      "t7"
+    ],
+    [
+      "maleTooth",
+      "t8"
+    ]
+  ],
+  "maleTorso": [],
+  "maleArm": [
+    [
+      "maleHand",
+      "hand"
+    ]
+  ],
+  "maleHand": [
+    [
+      "maleFinger",
+      "f1"
+    ],
+    [
+      "maleFinger",
+      "f2"
+    ],
+    [
+      "maleFinger",
+      "f3"
+    ],
+    [
+      "maleFinger",
+      "f4"
+    ],
+    [
+      "maleFinger",
+      "f5"
+    ]
+  ],
+  "maleFinger": [
+    [
+      "maleNail",
+      "tip"
+    ]
+  ],
+  "maleLeg": [
+    [
+      "maleFoot",
+      "foot"
+    ]
+  ],
+  "maleFoot": [
+    [
+      "maleToe",
+      "toe1"
+    ],
+    [
+      "maleToe",
+      "toe2"
+    ],
+    [
+      "maleToe",
+      "toe3"
+    ],
+    [
+      "maleToe",
+      "toe4"
+    ],
+    [
+      "maleToe",
+      "toe5"
+    ]
+  ],
+  "maleGenitals": [
+    [
+      "malePenis",
+      "shaft"
+    ],
+    [
+      "maleScrotum",
+      "base"
+    ],
+    [
+      "maleTesticle",
+      "left"
+    ],
+    [
+      "maleTesticle",
+      "right"
+    ]
+  ],
+  "malePenis": [
+    [
+      "maleGlans",
+      "tip"
+    ]
   ]
 }

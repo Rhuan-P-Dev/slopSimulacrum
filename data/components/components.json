@@ -2,162 +2,1122 @@
   "_comment": "Component recipes, not stat sheets. Each recipe declares exactly three things: FORM (size/volume + positioning offsets), a COMPOSITION of distinct materials (fractions sum to 1.0), and the INTERNAL COMPONENTS (organs) that are pre-installed. It declares NO stat values: existence, the six channel resistances, mass, and sharpness derive from matter; volume from form; strength/move/fine_controls/think_level from the organs a recipe installs. A recipe with matter but no organs is inert. Material and IC references point at data/materials/materials.json and data/components/internalComponents.json. An internalComponents entry is either an organ type string (type-default grants) or an object { type, grants? } whose grants override the organ type's defaults for that recipe's instances — e.g. droidRollingBall's strengthCore override (120) lets the 12-volume iron wheels bear the heaviest equipable item (T1 needs 1.5 x 78 = 117 strength) where the 10-volume centralBall cannot spare room for a second heavy item. Optional flow field: a recipe MAY declare \"energyCapacity\" (a number >= 0) — the Physical.energy bound for that component under the energyFlow world rule (see data/world/world_rules.json); absence falls back to the rule's defaultEnergyCapacity, and an explicit 0 is valid (a component that holds no energy). It is NOT a stat declaration: it bounds a physiological pool, it does not seed any stat.",
   "centralBall": {
     "name": "Central Ball",
-    "form": { "volume": 10, "position": { "x": 0, "y": 0 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "droidHead": {
     "name": "Droid Head",
-    "form": { "volume": 8, "position": { "x": 0, "y": -20 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "internalComponents": ["thinkCore"]
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 0,
+        "y": -20
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [
+      "thinkCore"
+    ]
   },
   "droidArm": {
     "name": "Droid Arm",
-    "form": { "volume": 8, "position": { "x": 20, "y": 10 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 20,
+        "y": 10
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "droidHand": {
     "name": "Droid Hand",
-    "form": { "volume": 6, "position": { "x": 30, "y": 0 } },
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 30,
+        "y": 0
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.7 },
-      { "material": "wood", "fraction": 0.3 }
+      {
+        "material": "iron",
+        "fraction": 0.7
+      },
+      {
+        "material": "wood",
+        "fraction": 0.3
+      }
     ],
-    "internalComponents": ["strengthCore", "precisionCore"]
+    "internalComponents": [
+      "strengthCore",
+      "precisionCore"
+    ]
   },
   "humanoidDroidFinger": {
     "name": "Droid Finger",
-    "form": { "volume": 4, "position": { "x": 40, "y": 0 } },
-    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "form": {
+      "volume": 4,
+      "position": {
+        "x": 40,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "droidRollingBall": {
     "name": "Droid Rolling Ball",
-    "form": { "volume": 12, "position": { "x": 0, "y": 20 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "internalComponents": ["moveCore", { "type": "strengthCore", "grants": { "Physical.strength": 120 } }]
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": 20
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [
+      "moveCore",
+      {
+        "type": "strengthCore",
+        "grants": {
+          "Physical.strength": 120
+        }
+      }
+    ]
   },
   "merchantCore": {
     "name": "Merchant Core",
-    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "merchantHead": {
     "name": "Merchant Head",
-    "form": { "volume": 6, "position": { "x": 0, "y": -15 } },
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": -15
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.6 },
-      { "material": "wood", "fraction": 0.4 }
+      {
+        "material": "iron",
+        "fraction": 0.6
+      },
+      {
+        "material": "wood",
+        "fraction": 0.4
+      }
     ],
-    "internalComponents": ["thinkCore", "precisionCore"]
+    "internalComponents": [
+      "thinkCore",
+      "precisionCore"
+    ]
   },
   "merchantArm": {
     "name": "Merchant Arm",
-    "form": { "volume": 8, "position": { "x": 18, "y": 10 } },
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 18,
+        "y": 10
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.8 },
-      { "material": "wood", "fraction": 0.2 }
+      {
+        "material": "iron",
+        "fraction": 0.8
+      },
+      {
+        "material": "wood",
+        "fraction": 0.2
+      }
     ],
-    "internalComponents": ["strengthCore", "precisionCore"]
+    "internalComponents": [
+      "strengthCore",
+      "precisionCore"
+    ]
   },
   "merchantRollingBall": {
     "name": "Merchant Rolling Ball",
-    "form": { "volume": 10, "position": { "x": 0, "y": 20 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "internalComponents": ["moveCore"]
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": 20
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [
+      "moveCore"
+    ]
   },
   "crafterCore": {
     "name": "Crafter Core",
-    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "crafterArm": {
     "name": "Crafter Arm",
-    "form": { "volume": 6, "position": { "x": 18, "y": 10 } },
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 18,
+        "y": 10
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.7 },
-      { "material": "wood", "fraction": 0.3 }
+      {
+        "material": "iron",
+        "fraction": 0.7
+      },
+      {
+        "material": "wood",
+        "fraction": 0.3
+      }
     ],
-    "internalComponents": ["strengthCore"]
+    "internalComponents": [
+      "strengthCore"
+    ]
   },
   "crafterRollingBall": {
     "name": "Crafter Rolling Ball",
-    "form": { "volume": 10, "position": { "x": 0, "y": 20 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "internalComponents": ["moveCore"]
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": 20
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": [
+      "moveCore"
+    ]
   },
   "m1CentralBody": {
     "name": "M1 Central Body",
-    "form": { "volume": 12, "position": { "x": 0, "y": 0 } },
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.8 },
-      { "material": "coal", "fraction": 0.2 }
+      {
+        "material": "iron",
+        "fraction": 0.8
+      },
+      {
+        "material": "coal",
+        "fraction": 0.2
+      }
     ],
-    "internalComponents": ["coalGenerator"]
+    "internalComponents": [
+      "coalGenerator"
+    ]
   },
   "m1Head": {
     "name": "M1 Head",
-    "form": { "volume": 6, "position": { "x": 0, "y": -16 } },
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": -16
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.6 },
-      { "material": "wood", "fraction": 0.4 }
+      {
+        "material": "iron",
+        "fraction": 0.6
+      },
+      {
+        "material": "wood",
+        "fraction": 0.4
+      }
     ],
-    "internalComponents": ["thinkCore"]
+    "internalComponents": [
+      "thinkCore"
+    ]
   },
   "m1Leg": {
     "name": "M1 Leg",
-    "form": { "volume": 8, "position": { "x": 0, "y": 16 } },
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 0,
+        "y": 16
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.8 },
-      { "material": "wood", "fraction": 0.2 }
+      {
+        "material": "iron",
+        "fraction": 0.8
+      },
+      {
+        "material": "wood",
+        "fraction": 0.2
+      }
     ],
-    "internalComponents": ["moveCore"]
+    "internalComponents": [
+      "moveCore"
+    ]
   },
   "m1Toe": {
     "name": "M1 Toe",
-    "form": { "volume": 1, "position": { "x": 0, "y": 26 } },
-    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 26
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "m1ArticulatedHand": {
     "name": "M1 Articulated Hand",
-    "form": { "volume": 6, "position": { "x": 14, "y": -4 } },
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 14,
+        "y": -4
+      }
+    },
     "materials": [
-      { "material": "iron", "fraction": 0.7 },
-      { "material": "wood", "fraction": 0.3 }
+      {
+        "material": "iron",
+        "fraction": 0.7
+      },
+      {
+        "material": "wood",
+        "fraction": 0.3
+      }
     ],
     "internalComponents": [
-      { "type": "strengthCore", "grants": { "Physical.strength": 120 } },
+      {
+        "type": "strengthCore",
+        "grants": {
+          "Physical.strength": 120
+        }
+      },
       "precisionCore"
     ]
   },
   "m1Finger": {
     "name": "M1 Finger",
-    "form": { "volume": 1, "position": { "x": 20, "y": -6 } },
-    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 20,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "m1Gun": {
     "name": "M1 Gun",
-    "form": { "volume": 6, "position": { "x": 12, "y": -8 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 12,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "tree": {
     "name": "Tree",
-    "form": { "volume": 40, "position": { "x": 0, "y": 0 } },
-    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "form": {
+      "volume": 40,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
     "internalComponents": []
   },
   "generatorCore": {
     "name": "Knife Generator Core",
-    "form": { "volume": 10, "position": { "x": 0, "y": 0 } },
-    "materials": [ { "material": "iron", "fraction": 1.0 } ],
-    "traits": { "Physical": { "volume": 10 } },
-    "internalComponents": ["knifeGeneratorIC"]
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "traits": {
+      "Physical": {
+        "volume": 10
+      }
+    },
+    "internalComponents": [
+      "knifeGeneratorIC"
+    ]
+  },
+  "minakobody": {
+    "name": "minakobody",
+    "form": {
+      "volume": 20,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.6
+      },
+      {
+        "material": "iron",
+        "fraction": 0.4
+      }
+    ],
+    "internalComponents": []
+  },
+  "minakohead": {
+    "name": "minakohead",
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 0,
+        "y": 5
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.7
+      },
+      {
+        "material": "wood",
+        "fraction": 0.3
+      }
+    ],
+    "internalComponents": [
+      "thinkCore"
+    ]
+  },
+  "minakohair": {
+    "name": "minakohair",
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": 8
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "minakoeyes": {
+    "name": "minakoeyes",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 0.5
+      },
+      {
+        "material": "iron",
+        "fraction": 0.5
+      }
+    ],
+    "internalComponents": []
+  },
+  "minakochoker": {
+    "name": "minakochoker",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "minakotorso": {
+    "name": "minakotorso",
+    "form": {
+      "volume": 18,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "minakoarm": {
+    "name": "minakoarm",
+    "form": {
+      "volume": 7,
+      "position": {
+        "x": -3,
+        "y": 2
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "strengthCore"
+    ]
+  },
+  "minakohand": {
+    "name": "minakohand",
+    "form": {
+      "volume": 5,
+      "position": {
+        "x": -3,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.7
+      },
+      {
+        "material": "iron",
+        "fraction": 0.3
+      }
+    ],
+    "internalComponents": [
+      "precisionCore"
+    ]
+  },
+  "minakoleg": {
+    "name": "minakoleg",
+    "form": {
+      "volume": 9,
+      "position": {
+        "x": -2,
+        "y": -4
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "coal",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "moveCore"
+    ]
+  },
+  "minakofoot": {
+    "name": "minakofoot",
+    "form": {
+      "volume": 4,
+      "position": {
+        "x": -2,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleCentralBody": {
+    "name": "Male Central Body",
+    "form": {
+      "volume": 32,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.6
+      },
+      {
+        "material": "iron",
+        "fraction": 0.4
+      }
+    ],
+    "internalComponents": [
+      "thinkCore",
+      "coalGenerator"
+    ]
+  },
+  "maleTorso": {
+    "name": "Male Torso",
+    "form": {
+      "volume": 18,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.95
+      },
+      {
+        "material": "iron",
+        "fraction": 0.05
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleHead": {
+    "name": "Male Head",
+    "form": {
+      "volume": 9,
+      "position": {
+        "x": 0,
+        "y": 6
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.6
+      },
+      {
+        "material": "wood",
+        "fraction": 0.4
+      }
+    ],
+    "internalComponents": [
+      "thinkCore"
+    ]
+  },
+  "maleHair": {
+    "name": "Male Hair",
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": 7
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleEyebrow": {
+    "name": "Male Eyebrow",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleEye": {
+    "name": "Male Eye",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.5
+      },
+      {
+        "material": "coal",
+        "fraction": 0.5
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleEar": {
+    "name": "Male Ear",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 1,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleNose": {
+    "name": "Male Nose",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 2
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleMouth": {
+    "name": "Male Mouth",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleTooth": {
+    "name": "Male Tooth",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleBreast": {
+    "name": "Male Breast",
+    "form": {
+      "volume": 4,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.95
+      },
+      {
+        "material": "iron",
+        "fraction": 0.05
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleGenitals": {
+    "name": "Male Genitals",
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "malePenis": {
+    "name": "Male Penis",
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleGlans": {
+    "name": "Male Glans",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleScrotum": {
+    "name": "Male Scrotum",
+    "form": {
+      "volume": 4,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleTesticle": {
+    "name": "Male Testicle",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleArm": {
+    "name": "Male Arm",
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 0,
+        "y": 2
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "strengthCore"
+    ]
+  },
+  "maleHand": {
+    "name": "Male Hand",
+    "form": {
+      "volume": 5,
+      "position": {
+        "x": -2,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.7
+      },
+      {
+        "material": "iron",
+        "fraction": 0.3
+      }
+    ],
+    "internalComponents": [
+      "precisionCore"
+    ]
+  },
+  "maleFinger": {
+    "name": "Male Finger",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleNail": {
+    "name": "Male Nail",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleLeg": {
+    "name": "Male Leg",
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": -4
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "coal",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "moveCore"
+    ]
+  },
+  "maleFoot": {
+    "name": "Male Foot",
+    "form": {
+      "volume": 5,
+      "position": {
+        "x": 0,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "maleToe": {
+    "name": "Male Toe",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
   }
 }
