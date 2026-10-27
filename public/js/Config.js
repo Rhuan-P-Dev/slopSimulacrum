@@ -125,6 +125,9 @@ export const AppConfig = {
         // Object inspection (wiki/subMDs/frontend/object_viewer.md): PREFIX —
         // append "/:entityId" to fetch one object's inventory + stats payload.
         OBJECT_INSPECT: '/world-objects',
+        // Generic viewer (src/controllers/core/ViewController.js, viewRoutes):
+        // PREFIX — append "/:id" to inspect any typed id (ent- comp- item- eq-).
+        VIEW_LOOKUP: '/view',
         // Machine place/retrieve (src/routes/worldRoutes.js → the
         // PlaceMachineHandler / RetrieveMachineHandler consequence handlers).
         // POST with { entityId, itemId } (place) or

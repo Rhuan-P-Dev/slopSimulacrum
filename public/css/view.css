@@ -1,0 +1,363 @@
+/* =========================================================================
+   View Panel
+   Single Responsibility: the generic GET /view/:id inspector tab (ViewPanel.js).
+   Two panes per row: room-contents list + paste-id form (left), formatted
+   kind-specific detail (right). Follows the .overlay-panel base
+   (floating-windows.css) — only width/height defaults and inner layout.
+   ========================================================================= */
+
+/* Base size for the panel (drag/resize still apply). */
+#view-overlay {
+    width: 720px;
+    height: 460px;
+}
+
+/* Two columns: list/controls (fixed 280px) and scrolling detail. Each
+   column scrolls on its own — the grid gets the base panel padding. */
+.view-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 1fr;
+    gap: 14px;
+    min-width: 0;
+    min-height: 0;
+}
+.view-grid > * {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* ---- left column: list + form ------------------------------------------- */
+
+.view-room-label {
+    flex: 1;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-align: center;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.view-left {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-right: 1px solid var(--color-border);
+    padding-right: 12px;
+}
+
+.view-list-label,
+.view-paste-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.view-list-count {
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.view-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.view-list-item {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.view-list-item:hover {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border);
+}
+
+.view-list-item.view-list-selected {
+    border-color: var(--neon-green);
+    background: rgba(0, 255, 0, 0.06);
+}
+
+.view-kind-icon {
+    line-height: 1.4;
+}
+
+.view-list-name {
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.view-list-id {
+    font-size: 9px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.view-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.view-id-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--color-surface-elevated);
+    color: var(--text-main);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: inherit;
+    font-size: 11px;
+}
+
+.view-id-input:focus {
+    outline: none;
+    border-color: var(--neon-green);
+}
+
+.view-go-btn {
+    background: var(--color-surface-elevated);
+    color: var(--text-main);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.view-go-btn:hover {
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+}
+
+.view-input-hint {
+    color: #ff8888;
+    font-size: 10px;
+    margin: 2px 0 0;
+    line-height: 1.4;
+}
+
+/* ---- right column: kind-specific detail --------------------------------- */
+
+.view-detail {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-main);
+    min-height: 0;
+}
+
+.view-detail-title {
+    margin: 0 0 2px;
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.view-detail-sub {
+    margin: 0 0 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.view-section {
+    margin-top: 12px;
+}
+
+.view-section-label {
+    margin: 0 0 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.view-row {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 1px 0;
+    word-break: break-word;
+}
+
+.view-row-label {
+    color: var(--text-dim);
+    min-width: 100px;
+    flex-shrink: 0;
+}
+
+.view-row-value {
+    color: var(--text-main);
+}
+
+/* Title name (payload-derived) next to the kind badge(s). */
+.view-detail-title-name {
+    margin-left: 4px;
+    font-size: 13px;
+}
+
+/* Kind badges (detail header). */
+.view-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+}
+
+.view-badge.kind-entity {
+    color: #88dd88;
+}
+.view-badge.kind-component {
+    color: #99ccff;
+}
+.view-badge.kind-item {
+    color: #ffbb77;
+}
+.view-badge.kind-clothing {
+    color: #ff99cc;
+}
+.view-badge.kind-eq {
+    color: #dd99ff;
+}
+
+.view-badge.broken {
+    color: #ff6666;
+    border-color: #cc3333;
+}
+.view-badge.worn {
+    color: #dd99ff;
+    border-color: #aa66cc;
+}
+
+/* Component blocks inside an entity view. */
+.view-component-block {
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+}
+
+/* Component / internal-organ lines. */
+.view-component-name {
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.view-organ {
+    padding: 2px 0;
+    word-break: break-word;
+}
+
+.view-organ-name {
+    font-weight: 600;
+}
+
+.view-organ-desc {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+/* Material composition badges. */
+.view-materials {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 2px 0;
+}
+
+.view-material-badge {
+    background: var(--color-surface-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 10px;
+}
+
+/* Item rows (full entity inventory, hosted component items, container contents). */
+.view-item-row {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    padding: 2px 0;
+    word-break: break-word;
+}
+
+.view-item-name {
+    font-weight: 600;
+}
+
+.view-item-id {
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.view-item-meta {
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.view-placeholder {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.view-error {
+    color: #ff9999;
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.view-raw-id {
+    margin: 4px 0 0;
+    font-size: 10px;
+    color: var(--text-dim);
+    word-break: break-word;
+}
+
+.view-component-block .view-component-name::before {
+    content: "⚙ ";
+}
+
+/* Clothing node — the slot in the component list, or the whole payload. */
+.view-clothing-entry {
+    padding: 2px 0;
+    word-break: break-word;
+}
+
+.view-clothing-entry .view-item-meta {
+    display: block;
+}
