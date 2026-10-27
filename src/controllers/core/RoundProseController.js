@@ -8,6 +8,11 @@
  * live). This controller crosses those two reader sources: round prose = the
  * room deltas whose tick falls in the round's window, assembled into one
  * flowing paragraph per room, plus a one-line round summary (buildRoundProse).
+ * The same reader serves an inclusive range of rounds
+ * (`getRoundRangeProse`, exposed by the `/perception/rounds/:from/:to` route):
+ * one row per requested round, `observed: false` where the in-memory horizon
+ * no longer holds it, so a range spanning an evicted gap still returns every
+ * round the caller asked for.
  *
  * Contract (same family as PerceptionController / RoomChatController):
  *   - pure reader: never mutates world state, never owns a tick (the tick
@@ -103,6 +108,46 @@ class RoundProseController {
                 rooms
             })
         };
+    }
+
+    /**
+     * All requested rounds in [from, to] (inclusive), ascending, one row per
+     * integer in the range. `from`/`to` are non-negative integers with `from
+     * <= to <= current round`, validated at the route (the edge) and trusted
+     * here; the iteration is bounded by that range. Each observed round returns
+     * the exact `getRoundProse` shape plus `observed: true` (a live round is
+     * `live: true`, endTick = current tick as of the read); each round not in
+     * the in-memory horizon returns `{ round, observed: false }` (partial
+     * result, never a `null` round — the caller sees which part of the range
+     * is recoverable). `null` when the reader is unwired (same contract as
+     * `getRoundProse`), so a nulling facade can not silently answer a range
+     * as an empty range.
+     * @param {number} from - lower bound of the range (route-validated, >= 0)
+     * @param {number} to - upper bound of the range (route-validated, <= current round)
+     * @returns {null | { from: number, to: number, rounds: Array<{ round: number,
+     *   observed: boolean, live?: boolean, startTick?: number, endTick?: number,
+     *   summary?: string, entryCount?: number,
+     *   rooms?: { [roomId: string]: { name: string, text: string, entryCount: number } } }> }}
+     */
+    getRoundRangeProse(from, to) {
+        const facade = this._worldStateController;
+        const turns = facade ? facade.turnSystemController : null;
+        if (!facade || !turns) {
+            return null;
+        }
+        const observed = new Set(turns.getRoundWindowNumbers());
+        const rows = [];
+        for (let round = from; round <= to; round += 1) {
+            if (!observed.has(round)) {
+                rows.push({ round, observed: false });
+                continue;
+            }
+            const entry = this.getRoundProse(round);
+            rows.push(entry
+                ? { observed: true, ...entry }
+                : { round, observed: false });
+        }
+        return { from, to, rounds: rows };
     }
 
     /**

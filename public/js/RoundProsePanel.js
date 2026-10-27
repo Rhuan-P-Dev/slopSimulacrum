@@ -28,7 +28,8 @@ export class RoundProsePanel {
         this._overlay = null;
         this._controls = null;
         this._content = null;
-        this._input = null;
+        this._fromInput = null;
+        this._toInput = null;
         this._liveBtn = null;
         this._refreshBtn = null;
         this._initialized = false;
@@ -57,26 +58,34 @@ export class RoundProsePanel {
             }.call(this));
         this._controls = controls;
         this._controls.innerHTML =
-            '<label class="round-prose-label" for="round-prose-round-input">round</label>' +
-            '<input id="round-prose-round-input" class="round-prose-input" type="number" min="0" step="1" ' +
-            'title="Round number to visualize (0-based)" autocomplete="off" />' +
+            '<label class="round-prose-label" for="round-prose-from-input">range</label>' +
+            '<input id="round-prose-from-input" class="round-prose-input" type="number" min="0" step="1" ' +
+            'title="First round of the range (0-based)" autocomplete="off" />' +
+            '<span class="round-prose-range-sep" aria-hidden="true">&rarr;</span>' +
+            '<input id="round-prose-to-input" class="round-prose-input" type="number" min="0" step="1" ' +
+            'title="Last round of the range (0-based)" autocomplete="off" />' +
             '<button id="round-prose-live" class="round-prose-btn" title="Fetch the live round">Live</button>' +
-            '<button id="round-prose-refresh" class="round-prose-btn" title="Fetch the selected round">&#8650;</button>';
+            '<button id="round-prose-refresh" class="round-prose-btn" title="Fetch the selected range">&#8650;</button>';
 
-        this._input = this._controls.querySelector('#round-prose-round-input');
+        this._fromInput = this._controls.querySelector('#round-prose-from-input');
+        this._toInput = this._controls.querySelector('#round-prose-to-input');
         this._liveBtn = this._controls.querySelector('#round-prose-live');
         this._refreshBtn = this._controls.querySelector('#round-prose-refresh');
 
-        this._input.addEventListener('change', () => this._doLoad());
-        this._input.addEventListener('keydown', (e) => {
+        const onRangeInput = () => this._doLoad();
+        const onRangeKeydown = (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                this._doLoad();
+                onRangeInput();
             }
-        });
+        };
+        this._fromInput.addEventListener('change', onRangeInput);
+        this._fromInput.addEventListener('keydown', onRangeKeydown);
+        this._toInput.addEventListener('change', onRangeInput);
+        this._toInput.addEventListener('keydown', onRangeKeydown);
         if (this._liveBtn) {
             this._liveBtn.addEventListener('click', () => {
-                this._setRound(this._currentRoundNumber());
+                this._setRange(this._currentRoundNumber());
                 this._doLoad();
             });
         }
@@ -99,7 +108,7 @@ export class RoundProsePanel {
         this.init();
         if (!this._overlay) return;
         this._overlay.style.display = 'block';
-        this._setRound(this._currentRoundNumber());
+        this._setRange(this._currentRoundNumber());
         this._doLoad();
     }
 
@@ -133,24 +142,38 @@ export class RoundProsePanel {
         return turns && Number.isFinite(turns.roundNumber) ? turns.roundNumber : null;
     }
 
-    _setRound(round) {
+    /** Sets both range inputs to the given round (open / Live) — from and to
+     * equal by default, so the old single-round UX is preserved. */
+    _setRange(round) {
         if (round == null || !Number.isFinite(round)) {
-            this._input.value = '';
+            this._fromInput.value = '';
+            this._toInput.value = '';
             return;
         }
-        this._input.value = String(Math.max(0, Math.floor(round)));
+        const value = String(Math.max(0, Math.floor(round)));
+        this._fromInput.value = value;
+        this._toInput.value = value;
     }
 
     /**
-     * Parses the current input to a non-negative integer round, or null when the
-     * field is empty / not an integer (e.g. "2.5" or "1e2").
+     * Pairs the current range inputs into non-negative integers with `from <=
+     * to`, or null when a field is empty / not an integer (e.g. "2.5") or
+     * `from > to`. The panel shows an inline hint on null; the server rejects
+     * `to` beyond the current round with a message naming it.
      */
-    _parseRound() {
-        const raw = this._input ? String(this._input.value) : '';
-        const trimmed = raw.trim();
-        if (trimmed === '') return null;
-        const n = Number(raw);
-        return Number.isInteger(n) && n >= 0 ? n : null;
+    _parseRange() {
+        const parsed = (element) => {
+            const raw = (element ? String(element.value) : '').trim();
+            if (raw === '') return null;
+            const n = Number(raw);
+            return Number.isInteger(n) && n >= 0 ? n : null;
+        };
+        const from = parsed(this._fromInput);
+        const to = parsed(this._toInput);
+        if (from === null || to === null || from > to) {
+            return null;
+        }
+        return { from, to };
     }
 
     // ---------------------------------------------------------------- data
@@ -158,28 +181,29 @@ export class RoundProsePanel {
     async _doLoad() {
         if (!this.isVisible()) return;
         if (this._inFlight) return;
-        const round = this._parseRound();
-        if (round == null) {
+        const range = this._parseRange();
+        if (!range) {
             this._renderNoInput();
             return;
         }
         this._inFlight = true;
         try {
-            const payload = await this._fetchRound(round);
+            const payload = await this._fetchRange(range.from, range.to);
             this._lastPayload = payload;
-            this._render(payload);
+            this._renderRange(payload);
         } catch (err) {
             ClientLogger.error('RoundProsePanel', 'load failed:', err);
             const message =
                 (err && err.message ? err.message : String(err));
-            this._render(null, { error: message, round });
+            this._renderRange(null, { error: message });
         } finally {
             this._inFlight = false;
         }
     }
 
-    async _fetchRound(round) {
-        const resp = await fetch('/perception/round/' + encodeURIComponent(round));
+    /** One request for the whole range [from, to] (already-parsed integers). */
+    async _fetchRange(from, to) {
+        const resp = await fetch('/perception/rounds/' + from + '/' + to);
         if (!resp.ok) {
             const body = await resp.json().catch(() => null);
             const message =
@@ -193,27 +217,64 @@ export class RoundProsePanel {
 
     // ---------------------------------------------------------------- render
 
-    _render(payload, meta = {}) {
+    /**
+     * Range payload { from, to, rounds: [ ... ] } — one entry per integer of
+     * the range. Observed rounds get the standard header/badges/summary/room
+     * layout inside a per-round section; evicted rounds get a one-line marker.
+     * Deterministic in input order (the server emits ascending).
+     */
+    _renderRange(payload, meta = {}) {
         if (!this._content) return;
         const p = (payload && typeof payload === 'object') ? payload : null;
-        if (!p) {
+        if (!p || !Array.isArray(p.rounds)) {
             this._content.innerHTML =
                 `<div class="round-prose-placeholder"><strong>Error</strong><br>` +
-                `${this._esc(meta.error || 'Unable to load the round prose.')}</div>`;
+                `${this._esc(meta.error || 'Unable to load the range prose.')}</div>`;
             return;
         }
-        const parts = [this._headerHtml(p)];
-        const roomBlocks = this._roomBlocksHtml(p);
-        if (roomBlocks) parts.push(roomBlocks);
+        const parts = [this._rangeHeaderHtml(p)];
+        for (const r of p.rounds) {
+            if (r && r.observed === true) {
+                parts.push(
+                    '<div class="round-prose-round-item">' +
+                    this._headerHtml(r) +
+                    this._roomBlocksHtml(r) +
+                    '</div>'
+                );
+            } else {
+                const n = (r && typeof r.round === 'number') ? r.round : 'n/a';
+                parts.push(
+                    '<div class="round-prose-round-missing">' +
+                    'Round #' + this._esc(String(n)) +
+                    ' &mdash; not observed (out of the recent-history window)' +
+                    '</div>'
+                );
+            }
+        }
         this._content.innerHTML = parts.join('');
+    }
+
+    /** One line above the read: requested bounds + observed vs. evicted. */
+    _rangeHeaderHtml(p) {
+        const rounds = p.rounds || [];
+        const observedCount = rounds.filter((r) => r && r.observed === true).length;
+        const missingCount = rounds.length - observedCount;
+        const missingPart = missingCount > 0
+            ? `<span class="round-prose-stat missing">${missingCount} missing</span>`
+            : '';
+        return '<div class="round-prose-range">' +
+            `<span class="round-prose-stat">range ${this._esc(String(p.from))}&rarr;${this._esc(String(p.to))}</span>` +
+            `<span class="round-prose-stat">${observedCount} of ${rounds.length} observed</span>` +
+            missingPart +
+            '</div>';
     }
 
     _renderNoInput() {
         if (!this._content) return;
         this._content.innerHTML =
             '<div class="round-prose-placeholder">' +
-            'Type a round number (0-based) above, or hit <strong>Live</strong>, ' +
-            'to load a round\'s prose.</div>';
+            'Type a range (from&rarr;to, 0-based) above, or hit <strong>Live</strong>, ' +
+            'to load the rounds in range.</div>';
     }
 
     _headerHtml(p) {

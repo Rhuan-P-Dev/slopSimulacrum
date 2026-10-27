@@ -11,7 +11,9 @@
  * despawned, so round-start roster = [test droid]), and
  * `turns.signalPlanComplete(droid, 'player')` as the deterministic all-ready
  * close trigger. The droid gets a fixed name so prose is comparable across
- * builds (determinism test).
+ * builds (determinism test). Range tests (9-11) reuse the 502-round eviction
+ * loop to put an evicted gap inside an otherwise-observed range, and drive
+ * the new /perception/rounds/:from/:to wire shape.
  *
  * @module test/contract/roundProse
  */
@@ -295,5 +297,164 @@ describe('Round-prose reader (wiki/subMDs/systems/round_prose_system.md)', () =>
         expect(last.startTick).toBe(501);
         expect(last.endTick).toBe(501);
         expect(last.summary).toBe('Round 501 (ticks 501 to 501) recorded 1 observable change across 1 room.');
+    });
+
+    it('9. range reader: one row per requested round, observed:false for evicted gaps, single-round shape when observed', () => {
+        const { world, tick, entityId } = buildWorld();
+        const reader = world.roundProseController;
+        const head = aMoveComponentId(world, entityId);
+        // Close 502 rounds (0..501) so the in-memory horizon (500) evicts
+        // rounds 0 and 1 while 2..501 stay reachable - the reader's exact
+        // eviction horizon, same recipe as test 8.
+        for (let r = 0; r <= 501; r++) {
+            stepToTick(world, tick, r);
+            world.turnSystemController.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+            const sig = world.turnSystemController.signalPlanComplete(entityId, 'player');
+            expect(sig.success).toBe(true);
+        }
+        // Fully evicted range -> observed:false rows only, in request order.
+        const evicted = reader.getRoundRangeProse(0, 1);
+        expect(evicted).toBeTruthy();
+        expect(evicted.from).toBe(0);
+        expect(evicted.to).toBe(1);
+        expect(evicted.rounds).toEqual([
+            { round: 0, observed: false },
+            { round: 1, observed: false }
+        ]);
+        // Mixed range: two evicted + two observed rows; observed rows carry
+        // the exact single-round shape (rounds 2/3 kept no perception ring
+        // entries, so their prose is the deterministic 'no observable changes'
+        // line).
+        const mixed = reader.getRoundRangeProse(0, 3);
+        expect(mixed.rounds).toHaveLength(4);
+        expect(mixed.rounds[0]).toEqual({ round: 0, observed: false });
+        expect(mixed.rounds[1]).toEqual({ round: 1, observed: false });
+        expect(mixed.rounds[2]).toEqual({
+            round: 2,
+            observed: true,
+            live: false,
+            startTick: 2,
+            endTick: 2,
+            summary: 'Round 2 (ticks 2 to 2) passed with no observable changes.',
+            entryCount: 0,
+            rooms: {}
+        });
+        expect(mixed.rounds[3]).toEqual({
+            round: 3,
+            observed: true,
+            live: false,
+            startTick: 3,
+            endTick: 3,
+            summary: 'Round 3 (ticks 3 to 3) passed with no observable changes.',
+            entryCount: 0,
+            rooms: {}
+        });
+    });
+
+    it('10. range reader: live row stays live:true with endTick at read time; pre-start reads report the round unobserved', () => {
+        const { world, tick } = buildWorld();
+        const reader = world.roundProseController;
+        // Before the first tick no window exists: the requested row is unobserved.
+        expect(reader.getRoundRangeProse(0, 0).rounds).toEqual([{ round: 0, observed: false }]);
+        // Lazy round-0 start: observed live row, unobserved row for round 1.
+        stepToTick(world, tick, 0);
+        const range = reader.getRoundRangeProse(0, 1);
+        expect(range).toBeTruthy();
+        expect(range.rounds).toHaveLength(2);
+        const live = range.rounds[0];
+        expect(live.round).toBe(0);
+        expect(live.observed).toBe(true);
+        expect(live.live).toBe(true);
+        expect(live.startTick).toBe(0);
+        expect(live.endTick).toBe(0);
+        expect(live.entryCount).toBeGreaterThan(0);
+        expect(live.summary).toMatch(/^Round 0 \(ticks 0 to 0\) is still planning/);
+        expect(live.rooms).toBeTruthy();
+        expect(range.rounds[1]).toEqual({ round: 1, observed: false });
+        // A later tick while planning advances the live window
+        // (endTick = current tick as of the read, same as the single-round API).
+        stepToTick(world, tick, 1);
+        expect(reader.getRoundRangeProse(0, 0).rounds[0].endTick).toBe(1);
+    });
+
+    it('11. range wire shape (express/fetch): 200 range with evicted gap, 400 on bad bounds/current round, 503 unwired, existing endpoints intact', async () => {
+        const { world, tick, entityId } = buildWorld();
+        const head = aMoveComponentId(world, entityId);
+        // Evict rounds 0 and 1 (close 0..501, same recipe as test 9) so a
+        // 200 range can show an evicted gap inside observed rounds.
+        for (let r = 0; r <= 501; r++) {
+            stepToTick(world, tick, r);
+            world.turnSystemController.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+            const sig = world.turnSystemController.signalPlanComplete(entityId, 'player');
+            expect(sig.success).toBe(true);
+        }
+        const router = express.Router();
+        registerPerceptionRoutes(router, { worldStateController: world });
+        const app = express().use(router);
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        const port = server.address().port;
+        const url = (path) => `http://localhost:${port}${path}`;
+        try {
+            // 200: 501 rows (rounds 1..501) - round 1 evicted (observed:false),
+            // round 2 observed with its deterministic no-change prose, round 501
+            // observed with its own entry (same shape as test 8's single read).
+            const gap = await fetch(url('/perception/rounds/1/501'));
+            expect(gap.status).toBe(200);
+            const gapBody = await gap.json();
+            expect(gapBody.success).toBe(true);
+            expect(gapBody.from).toBe(1);
+            expect(gapBody.to).toBe(501);
+            expect(gapBody.rounds).toHaveLength(501);
+            expect(gapBody.rounds[0]).toEqual({ round: 1, observed: false });
+            expect(gapBody.rounds[1]).toEqual({
+                round: 2,
+                observed: true,
+                live: false,
+                startTick: 2,
+                endTick: 2,
+                summary: 'Round 2 (ticks 2 to 2) passed with no observable changes.',
+                entryCount: 0,
+                rooms: {}
+            });
+            expect(gapBody.rounds[500].round).toBe(501);
+            expect(gapBody.rounds[500].observed).toBe(true);
+            expect(gapBody.rounds[500].summary).toBe(
+                'Round 501 (ticks 501 to 501) recorded 1 observable change across 1 room.'
+            );
+            // 400: out-of-order bounds.
+            const badOrder = await fetch(url('/perception/rounds/500/1'));
+            expect(badOrder.status).toBe(400);
+            expect((await badOrder.json()).message).toBe('from (500) is greater than to (1).');
+            // 400: to beyond the current round (501), message names it.
+            const beyond = await fetch(url('/perception/rounds/500/502'));
+            expect(beyond.status).toBe(400);
+            expect((await beyond.json()).message).toBe('to (502) exceeds the current round (501).');
+            // 400: malformed bounds.
+            const malformed = await fetch(url('/perception/rounds/-3/500'));
+            expect(malformed.status).toBe(400);
+            expect((await malformed.json()).message).toBe('from and to must be non-negative integers.');
+            // 200: single-row range.
+            const single = await fetch(url('/perception/rounds/501/501'));
+            expect(single.status).toBe(200);
+            const singleBody = await single.json();
+            expect(singleBody.rounds).toHaveLength(1);
+            expect(singleBody.rounds[0].round).toBe(501);
+            // Existing single-round endpoints stay intact.
+            const full = await fetch(url('/perception/round/501'));
+            expect(full.status).toBe(200);
+            expect((await full.json()).round).toBe(501);
+            const byRoom = await fetch(url('/perception/round/501/byRoom/start_room'));
+            expect(byRoom.status).toBe(200);
+            // 503: unwired reader.
+            world.roundProseController = null;
+            const unwired = await fetch(url('/perception/rounds/500/501'));
+            expect(unwired.status).toBe(503);
+            expect((await unwired.json()).error).toBe('Round prose reader is not available.');
+        } finally {
+            server.close();
+        }
     });
 });

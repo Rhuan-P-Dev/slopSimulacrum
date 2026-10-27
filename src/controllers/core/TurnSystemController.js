@@ -363,6 +363,19 @@ class TurnSystemController {
         };
     }
 
+    /**
+     * Enumerates the round numbers whose tick window is held in the in-memory
+     * reader bookkeeping (ascending: rounds are only added in order and evicted
+     * from the oldest side), bounded by ROUND_PROSE_HISTORY_LIMIT. Rounds that
+     * did not start yet or fell out of the horizon have no number here; the
+     * caller reads absence as out of recent-history window. Read-only: copies
+     * the keys only, never the window objects.
+     * @returns {number[]}
+     */
+    getRoundWindowNumbers() {
+        return [...this._roundWindows.keys()];
+    }
+
     // =========================================================================
     // QUEUE API (players via REST, NPCs internally)
     // =========================================================================

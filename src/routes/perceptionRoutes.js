@@ -51,6 +51,17 @@
  *       — one room's prose for a round. Logical names or uids accepted for
  *       the room (resolved by the reader, same path as /perception/:roomId).
  *       Same recent-history contract.
+ *   GET  /perception/rounds/:from/:to
+ *     → 200 { success: true, from, to, rounds: [ { round, observed: true,
+ *       live, startTick, endTick, summary, entryCount, rooms } | { round,
+ *       observed: false } ] }
+ *       — inclusive range of rounds, one row per requested round, ascending.
+ *       Observed rounds carry the single-round shape; evicted rounds (outside
+ *       the in-memory reader horizon, ROUND_PROSE_HISTORY_LIMIT) come back with
+ *       `observed: false` (partial result, never a 404 — a range may span an
+ *       evicted gap). 400 for malformed bounds, `from > to`, or `to` beyond
+ *       the current round (named in the message); 503 when the reader is
+ *       unwired.
  *
  * All reads go through the *root controller's public read wrappers*
  * (`worldStateController.getPerceptionDeltasForRoom / getAgentPerception /
@@ -309,6 +320,61 @@ export function register(router, { worldStateController }) {
             return res.json({ success: true, ...data });
         } catch (error) {
             sendRouteError(error, res, '/perception/round/:roundNumber/byRoom/:roomId GET');
+        }
+    });
+
+    /**
+     * GET /perception/rounds/:from/:to
+     *
+     * Inclusive range of rounds as prose — the range view of
+     * /perception/round/:roundNumber. One row per requested round number
+     * (ascending): observed rounds carry the single-round shape (`observed:
+     * true`); rounds evicted from the in-memory reader horizon
+     * (ROUND_PROSE_HISTORY_LIMIT) return `{ round, observed: false }`. The
+     * range itself never 404s — a gap inside the range is partial data,
+     * reported per row. Bounds are validated here (the edge, T-1): non-negative
+     * integers, `from <= to`, `to <= current round`; 400 with a field-level
+     * message on violation (the current round named in the `to` case), 503
+     * when the reader is unwired.
+     */
+    router.get('/perception/rounds/:from/:to', (req, res) => {
+        const from = parseRoundNumber(req.params.from);
+        const to = parseRoundNumber(req.params.to);
+        if (from === null || to === null) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_RANGE_BOUNDS',
+                message: 'from and to must be non-negative integers.'
+            });
+        }
+        if (from > to) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_RANGE_BOUNDS',
+                message: `from (${from}) is greater than to (${to}).`
+            });
+        }
+        const reader = worldStateController.roundProseController;
+        if (!reader) {
+            return res.status(503).json({ error: 'Round prose reader is not available.' });
+        }
+        const turns = worldStateController.turnSystemController;
+        const currentRound = turns ? turns.getRoundState().roundNumber : null;
+        if (currentRound === null || to > currentRound) {
+            return res.status(400).json({
+                success: false,
+                code: 'TO_EXCEEDS_CURRENT',
+                message: `to (${to}) exceeds the current round (${currentRound}).`
+            });
+        }
+        try {
+            const data = reader.getRoundRangeProse(from, to);
+            if (!data) {
+                return res.status(503).json({ error: 'Round prose reader is not available.' });
+            }
+            return res.json({ success: true, from, to, rounds: data.rounds });
+        } catch (error) {
+            sendRouteError(error, res, '/perception/rounds/:from/:to GET');
         }
     });
 }
