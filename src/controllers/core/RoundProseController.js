@@ -182,7 +182,7 @@ class RoundProseController {
             roomId,
             room: resolved.name,
             entryCount: entries.length,
-            text: buildRoomProse({ entries, roomName: resolved.name })
+            text: buildRoomProse({ entries, roomName: resolved.name, room: rooms[resolved.uid] ?? null })
         };
     }
 
@@ -219,7 +219,7 @@ class RoundProseController {
             }
             out[roomId] = {
                 name,
-                text: buildRoomProse({ entries, roomName: name }),
+                text: buildRoomProse({ entries, roomName: name, room }),
                 entryCount: entries.length
             };
         }

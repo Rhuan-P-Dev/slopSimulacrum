@@ -24,6 +24,7 @@
 
 import { recoverChunkMaterial } from './Constants.js';
 import { componentTypeName } from './ComponentNaming.js';
+import { formatPosition } from '../../shared/CoordFormat.js';
 
 /**
  * Uppercase the first non-whitespace character, leaving the rest untouched.
@@ -87,15 +88,17 @@ function isIdLike(s) {
 
 /**
  * Prefer a human `name`; when the name is a raw id (or empty) return the
- * supplied generic fallback instead.
+ * supplied generic fallback instead. A raw id is never echoed, so when both
+ * the name and the generic are empty the result is empty (the caller drops
+ * the phrase rather than falling back to the id).
  * @param {*} name
- * @param {string} generic
+ * @param {string|null} generic
  * @returns {string}
  */
 function displayOrGeneric(name, generic) {
     const n = name && typeof name === 'string' ? name.trim() : '';
     if (n && !isIdLike(n)) return n;
-    return generic || n;
+    return generic || '';
 }
 
 /**
@@ -187,10 +190,153 @@ function actionVerb(action) {
     }
 }
 
+/** A finite number, or null when the value is missing / non-numeric. */
+function finiteNum(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Renders a stat value as deterministic text: finite numbers normalized to at
+ * most 8 decimals (binary float noise stripped, trailing zeros trimmed),
+ * strings passed through, `null`/`undefined`/`NaN` -> null.
+ * @param {*} value
+ * @returns {string|null}
+ */
+function statValue(v) {
+    if (v == null) return null;
+    const n = Number(v);
+    if (Number.isFinite(n)) {
+        return stripTrailingZeros(n.toFixed(8));
+    }
+    return String(v);
+}
+
+/** "80.00300000" -> "80.003"; "100.00000000" -> "100". */
+function stripTrailingZeros(s) {
+    const i = s.indexOf('.');
+    if (i === -1) return s;
+    const t = s.replace(/0+$/, '');
+    return t.endsWith('.') ? t.slice(0, -1) : t;
+}
+
+/**
+ * " (from 15 to 13)" — omits null sides ("(to 13)" / "(from 15)"); empty
+ * string when both sides are null.
+ * @param {*} from
+ * @param {*} to
+ * @returns {string}
+ */
+function valuePhrase(from, to) {
+    const f = statValue(from);
+    const t = statValue(to);
+    if (f == null && t == null) {
+        return '';
+    }
+    let inner;
+    if (f != null && t != null) {
+        inner = `from ${f} to ${t}`;
+    } else if (f != null) {
+        inner = `from ${f}`;
+    } else {
+        inner = `to ${t}`;
+    }
+    return ` (${inner})`;
+}
+
+/**
+ * Display name for an action's target (from the attribution store's resolved
+ * `{ id, name, componentId, componentName }`), or null when nothing usable.
+ * @param {Object|null} target
+ * @returns {string|null}
+ */
+function targetPhrase(target) {
+    if (!target || typeof target !== 'object') return null;
+    let phrase = target.name ? displayOrGeneric(target.name, '') : null;
+    if (!phrase && target.componentName) {
+        phrase = componentTypeName(target.componentName) ?? target.componentName;
+    }
+    return phrase ? phrase : null;
+}
+
+/** Display names from `{ type, id }` part rows, in input order. */
+function partList(rows) {
+    const names = [];
+    (rows || []).forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const t = componentTypeName(row.type ?? row.id);
+        if (t) names.push(t);
+    });
+    return names;
+}
+
+/**
+ * Room display name plus the context suffix used by the first sentence:
+ * " (20 x 12, map position (4.00, 7.00), and a stone hall with a north door)".
+ * Empty string when no room object (or none of name/width/height/x/y/description)
+ * is supplied. Deterministic; raw id-valued fields are simply skipped.
+ * @param {string|null} roomName
+ * @param {Object|null} room
+ * @returns {{ rn: string, suffix: string }}
+ */
+function roomContext(roomName, room) {
+    const r = room && typeof room === 'object' ? room : {};
+    const rn =
+        (roomName && String(roomName).trim() !== '')
+            ? String(roomName)
+            : (r.name && typeof r.name === 'string' ? String(r.name) : 'the room');
+    const parts = [];
+    const w = finiteNum(r.width);
+    const h = finiteNum(r.height);
+    if (w != null && h != null) parts.push(`${w} x ${h}`);
+    const rx = finiteNum(r.x);
+    const ry = finiteNum(r.y);
+    if (rx != null && ry != null) parts.push(`map position ${formatPosition(rx, ry)}`);
+    const desc = typeof r.description === 'string' ? r.description.trim() : '';
+    if (desc) parts.push(desc);
+    return { rn, suffix: parts.length ? ` (${joinChunk(parts)})` : '' };
+}
+
+/**
+ * A machine clause. `mode 'event'` (a placement/retrieval happened this window):
+ * "Maria placed Furnace 1 at (10.00, 5.00)". `mode 'baseline'` (a machine
+ * standing in the room at first observation — a state fact, not an event):
+ * "Furnace 1 stands in the room at (10.00, 5.00) (placed by Maria)".
+ * @param {Object|null} row — machines.placed/retrieved row
+ * @param {'event'|'baseline'} mode
+ * @returns {string|null}
+ */
+function machineClause(row, mode) {
+    if (!row || typeof row !== 'object') return null;
+    const typePhrase =
+        componentTypeName(row.type) || (row.type ? String(row.type) : null);
+    if (!typePhrase) return null;
+    const pos =
+        finiteNum(row.x) != null || finiteNum(row.y) != null
+            ? ` at ${formatPosition(row.x, row.y)}`
+            : '';
+    const name = row.name && !isIdLike(row.name) ? String(row.name) : null;
+    const placedBy = row.placedBy ? displayOrGeneric(row.placedBy, null) : null;
+    if (mode === 'baseline') {
+        const by = placedBy ? ` (placed by ${placedBy})` : '';
+        if (name) return `${name} stands in the room${by}${pos}`;
+        return `${article(typePhrase)} ${typePhrase} stands in the room${by}${pos}`;
+    }
+    if (name && placedBy) {
+        return `${placedBy} placed ${name}${pos}`;
+    }
+    if (placedBy) {
+        return `${placedBy} placed ${article(typePhrase)} ${typePhrase}${pos}`;
+    }
+    return `${article(typePhrase)} ${typePhrase} was placed in the room${pos}`;
+}
+
 /**
  * One ordered lower-case clause fragment per observable event, in a reading
  * order that reads like a short narrative: the main actions first, then the
- * consequences (drops, picked-up items), then the quieter state shifts.
+ * consequences (drops, picked-up items, held items, machines), then presence,
+ * then the quieter state shifts, then what was said. Raw ids never surface; the
+ * perception display rule (shared/CoordFormat.js) formats every coordinate.
  * @param {Object} entry
  * @returns {string[]}
  */
@@ -205,135 +351,335 @@ function entryClauses(entry) {
     const comps = entry.components || {};
     const equipped = entry.equipped || {};
     const internal = entry.internal || {};
+    const machines = entry.machines || {};
 
-    // Main events: what the room's entities did.
+    // Main events: what the room's entities did (including against whom and
+    // which components powered the action).
     (entry.actions?.performed || []).forEach((a) => {
         const actor = displayOrGeneric(a?.name, 'an entity');
-        push(`${actor} ${actionVerb(a?.action)}`);
+        let clause = `${actor} ${a?.action ? actionVerb(a.action) : 'acted'}`;
+        const target = targetPhrase(a?.target);
+        if (target) clause += ` against ${target}`;
+        const parts = partList(a?.used);
+        if (parts.length) clause += `, powered by ${listNames(parts)}`;
+        push(clause);
     });
-    // Floor items the punch / damage knocked loose.
+    // Floor items the punch / damage knocked loose, or that appeared on the
+    // floor. `x`, `y` are display coordinates when present.
     (dropped.added || []).forEach((row) => {
         const item = prettyItemName(row);
         if (!item) return;
-        const actor = row.actor?.name ? displayOrGeneric(row.actor.name, 'someone') : null;
-        if (actor) push(`${actor} dropped ${article(item)} ${item}`);
-        else push(`${article(item)} ${item} came to rest on the floor`);
+        const pos =
+            finiteNum(row?.x) != null || finiteNum(row?.y) != null
+                ? ` at ${formatPosition(row.x, row.y)}`
+                : '';
+        const owner = displayOrGeneric(row.actor?.name ?? row.ownerId, 'someone');
+        if (owner) {
+            push(`${owner} dropped ${article(item)} ${item} on the floor${pos}`);
+        } else {
+            push(`${article(item)} ${item} came to rest on the floor${pos}`);
+        }
     });
-    // Items that came to rest, or were picked up / nudged.
+    // Objects that left the floor (picked up).
     (dropped.removed || []).forEach((row) => {
         const item = prettyItemName(row);
         if (!item) return;
-        const actor = row.actor?.name ? displayOrGeneric(row.actor.name, 'someone') : null;
-        if (actor) push(`${actor} picked up ${article(item)} ${item}`);
-        else push(`${article(item)} ${item} was picked up`);
+        const owner = displayOrGeneric(row.actor?.name ?? row.ownerId, 'someone');
+        if (owner) {
+            push(`${owner} picked up ${article(item)} ${item}`);
+        } else {
+            push(`${article(item)} ${item} was picked up`);
+        }
     });
+    // Objects that moved on the floor.
     if (dropped.moved?.length) {
-        const items = (dropped.moved || []).map((r) => prettyItemName(r)).filter(Boolean);
-        if (items.length) push(`${listWithArticles(items)} shifted on the floor`);
+        const rows = (dropped.moved || []).filter((r) => r && typeof r === 'object');
+        if (rows.length === 1) {
+            const r = rows[0];
+            const item = prettyItemName(r);
+            if (item) {
+                const fx = r.fromXY ? formatPosition(r.fromXY.x, r.fromXY.y) : null;
+                const tx = r.toXY ? formatPosition(r.toXY.x, r.toXY.y) : null;
+                if (fx && tx) {
+                    push(`${article(item)} ${item} shifted on the floor from ${fx} to ${tx}`);
+                } else {
+                    push(`${article(item)} ${item} shifted on the floor`);
+                }
+            }
+        } else if (rows.length) {
+            const movedItems = rows.map((r) => prettyItemName(r)).filter(Boolean);
+            if (movedItems.length) {
+                push(`${listWithArticles(movedItems)} shifted on the floor`);
+            }
+        }
     }
     // Held items that appeared / vanished (e.g. crafted in hand).
     if (items.added?.length) {
-        const names = (items.added || []).map((r) => prettyItemName(r)).filter(Boolean);
-        if (names.length) push(`${listWithArticles(names)} appeared`);
+        (items.added || []).forEach((row) => {
+            const item = prettyItemName(row);
+            if (!item) return;
+            const holder = displayOrGeneric(row?.entity, null);
+            const clause = holder
+                ? `${article(item)} ${item} appeared in ${holder}'s hand`
+                : `${article(item)} ${item} appeared`;
+            push(clause);
+        });
     }
     if (items.removed?.length) {
-        const names = (items.removed || []).map((r) => prettyItemName(r)).filter(Boolean);
-        if (names.length) push(`${listWithArticles(names)} disappeared`);
+        (items.removed || []).forEach((row) => {
+            const item = prettyItemName(row);
+            if (!item) return;
+            const holder = displayOrGeneric(row?.entity, null);
+            const clause = holder
+                ? `${article(item)} ${item} disappeared from ${holder}'s hand`
+                : `${article(item)} ${item} disappeared`;
+            push(clause);
+        });
     }
     // Equipped / unequipped.
     (equipped.added || []).forEach((row) => {
         const item = prettyItemName(row);
         if (!item) return;
-        const actor = row.actor?.name ? displayOrGeneric(row.actor.name, 'someone') : null;
-        if (actor) push(`${actor} equipped ${article(item)} ${item}`);
-        else push(`${article(item)} ${item} was equipped`);
+        const holder = displayOrGeneric(row?.entity, 'someone');
+        push(`${holder} equipped ${article(item)} ${item}`);
     });
     (equipped.removed || []).forEach((row) => {
         const item = prettyItemName(row);
         if (!item) return;
-        const actor = row.actor?.name ? displayOrGeneric(row.actor.name, 'someone') : null;
-        if (actor) push(`${actor} unequipped ${article(item)} ${item}`);
-        else push(`${article(item)} ${item} was unequipped`);
+        const holder = displayOrGeneric(row?.entity, 'someone');
+        push(`${holder} unequipped ${article(item)} ${item}`);
     });
-    // Presence changes: who arrived, left, or moved.
+
+    // Machines placed / retrieved in the room (who placed what where; the
+    // machine-tagged entity rows are deliberately NOT also narrated below,
+    // so a placement is not said twice).
+    (machines.placed || []).forEach((row) => {
+        const clause = machineClause(row, 'event');
+        if (clause) push(clause);
+    });
+    (machines.retrieved || []).forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        const typePhrase =
+            componentTypeName(row.type) || (row.type ? String(row.type) : null);
+        if (!typePhrase) return;
+        const pos =
+            finiteNum(row.x) != null || finiteNum(row.y) != null
+                ? ` at ${formatPosition(row.x, row.y)}`
+                : '';
+        const name = row.name && !isIdLike(row.name) ? String(row.name) : null;
+        const placedBy = row.placedBy ? displayOrGeneric(row.placedBy, null) : null;
+        let clause = name
+            ? `${name} was retrieved${pos}`
+            : `${article(typePhrase)} ${typePhrase} was retrieved${pos}`;
+        if (placedBy) clause += ` (it had been placed by ${placedBy})`;
+        push(clause);
+    });
+
+    // Presence changes: who arrived, left, or moved (machine-tagged rows are
+    // handled by the machine clauses above).
     if (entities.appeared?.length) {
-        const names = (entities.appeared || []).map((e) => displayOrGeneric(e.name, 'an entity')).filter(Boolean);
-        if (names.length) push(`${listNames(names)} appeared in the room`);
+        (entities.appeared || []).forEach((e) => {
+            if (!e || typeof e !== 'object') return;
+            if (e.machine) return;
+            const name = displayOrGeneric(e.name, 'an entity');
+            const pos =
+                finiteNum(e.x) != null || finiteNum(e.y) != null
+                    ? ` at ${formatPosition(e.x, e.y)}`
+                    : '';
+            push(`${name} appeared in the room${pos}`);
+        });
     }
     if (entities.despawned?.length) {
-        const names = (entities.despawned || []).map((e) => displayOrGeneric(e.name, 'an entity')).filter(Boolean);
-        if (names.length) push(`${listNames(names)} left the room`);
+        (entities.despawned || []).forEach((e) => {
+            if (!e || typeof e !== 'object') return;
+            if (e.machine) return;
+            const name = displayOrGeneric(e.name, 'an entity');
+            const pos =
+                finiteNum(e.x) != null || finiteNum(e.y) != null
+                    ? ` from ${formatPosition(e.x, e.y)}`
+                    : '';
+            push(`${name} left the room${pos}`);
+        });
     }
     if (entities.moved?.length) {
-        const names = (entities.moved || []).map((e) => displayOrGeneric(e.name, 'an entity')).filter(Boolean);
-        if (names.length) push(`${listNames(names)} moved`);
+        (entities.moved || []).forEach((e) => {
+            if (!e || typeof e !== 'object') return;
+            const name = displayOrGeneric(e.name, 'an entity');
+            let verb;
+            switch (String(e.action ?? '')) {
+                case 'dash':
+                    verb = 'dashed';
+                    break;
+                case 'walk':
+                    verb = 'walked';
+                    break;
+                default:
+                    verb = 'moved';
+            }
+            let clause = `${name} ${verb}`;
+            const fr = e.fromRoom ? displayOrGeneric(e.fromRoom, null) : null;
+            const tr = e.toRoom ? displayOrGeneric(e.toRoom, null) : null;
+            if (fr && tr) {
+                clause += ` from ${fr} to ${tr}`;
+            } else if (tr) {
+                clause += ` into ${tr}`;
+            } else if (fr) {
+                clause += ` out of ${fr}`;
+            }
+            if (e.fromXY || e.toXY) {
+                const fx = e.fromXY ? formatPosition(e.fromXY.x, e.fromXY.y) : null;
+                const tx = e.toXY ? formatPosition(e.toXY.x, e.toXY.y) : null;
+                if (fx && tx) {
+                    clause += (fr || tr) ? ` (from ${fx} to ${tx})` : ` from ${fx} to ${tx}`;
+                }
+            }
+            const parts = partList(e.locomotion);
+            if (parts.length) clause += `, powered by ${listNames(parts)}`;
+            push(clause);
+        });
     }
-    // The quieter state shifts (stats, component damage).
+    // The quieter state shifts: stats (with their values) and components.
     if (entities.statChanges?.length) {
         (entities.statChanges || []).forEach((s) => {
             const who = displayOrGeneric(s.name, 'an entity');
-            push(`${who} had a stat change in ${s.statName || 'one of its stats'}`);
+            const statName = s.statName ? String(s.statName) : 'one of its stats';
+            push(`${who} had a stat change in ${statName}${valuePhrase(s.from, s.to)}`);
+        });
+    }
+    if (comps.added?.length) {
+        (comps.added || []).forEach((row) => {
+            const part = componentTypeName(row?.type ?? row?.componentId);
+            const holder = displayOrGeneric(row?.entity, 'an entity');
+            if (part) {
+                push(`${holder} gained ${article(part)} ${part}`);
+            } else {
+                push(`${holder} gained a component part`);
+            }
+        });
+    }
+    if (comps.removed?.length) {
+        (comps.removed || []).forEach((row) => {
+            const part = componentTypeName(row?.type ?? row?.componentId);
+            const holder = displayOrGeneric(row?.entity, 'an entity');
+            if (part) {
+                push(`${holder} lost ${article(part)} ${part}`);
+            } else {
+                push(`${holder} lost a component part`);
+            }
         });
     }
     if (comps.changed?.length) {
         (comps.changed || []).forEach((row) => {
-            const part = componentTypeName(row.type ?? row.componentId);
-            if (!part) {
-                push('a part had a stat change');
-                return;
-            }
-            push(`${article(part)} ${part} had a stat change`);
+            const part = componentTypeName(row?.type ?? row?.componentId);
+            const partName = part ? `${article(part)} ${part}` : 'a part';
+            const statPhrase = row.statName ? ` in ${String(row.statName)}` : '';
+            push(`${partName} had a stat change${statPhrase}${valuePhrase(row.from, row.to)}`);
         });
     }
-    // Internal parts (rare) — one gentle line.
-    if (internal.added?.length || internal.removed?.length) {
-        push('internal parts changed');
-    }
+    // Internal parts (rare) — per-row line when possible.
+    (internal.added || []).forEach((row) => {
+        const holder = displayOrGeneric(row?.entity, 'someone');
+        const part =
+            componentTypeName(row?.type) || (row?.type ? String(row.type) : null);
+        push(
+            part
+                ? `${holder} gained an internal part (type ${part})`
+                : `${holder} gained an internal part`
+        );
+    });
+    (internal.removed || []).forEach((row) => {
+        const holder = displayOrGeneric(row?.entity, 'someone');
+        const part =
+            componentTypeName(row?.type) || (row?.type ? String(row.type) : null);
+        push(
+            part
+                ? `${holder} lost an internal part (type ${part})`
+                : `${holder} lost an internal part`
+        );
+    });
+    // What the room's inhabitants said (verbatim, newest window only).
+    (entry.chat?.added || []).forEach((m) => {
+        if (!m || typeof m !== 'object') return;
+        const raw = String(m.text ?? '');
+        const quote = raw.replace(/[\s.!?]+$/, '');
+        if (!quote) return;
+        const speaker = displayOrGeneric(m.speakerName, 'someone');
+        push(`${speaker} said, "${quote}"`);
+    });
     return out;
 }
 
 /**
  * The first-observation paragraph (a room seen for the first time). Opens with
- * "Initial observation of <room>:" — the phrasing the round-prose contract
- * pins — and describes what is already there.
+ * "Initial observation of <room>:" (with the room context suffix) — the
+ * phrasing the round-prose contract pins — and describes what is already
+ * there: who/what is in the room, machines (as a state fact, not an event),
+ * and floor objects (at their display coordinates when known).
  * @param {Object} entry
- * @param {string} roomName
+ * @param {{ rn: string, suffix: string }} roomCtx
  * @returns {string}
  */
-function baselineText(entry, roomName) {
-    const rn = roomName || 'the room';
+function baselineText(entry, roomCtx) {
     const entities = (entry.entities || {}).appeared || [];
-    const dropped = (entry.dropped || {}).added || [];
-    let text;
-    const names = entities.map((e) => displayOrGeneric(e.name, 'an entity')).filter(Boolean);
+    const floor = (entry.dropped || {}).added || [];
+    const machines = (entry.machines || {}).placed || [];
+    const parts = [];
+    const names = entities
+        .filter((e) => e && typeof e === 'object' && !e.machine)
+        .map((e) => displayOrGeneric(e.name, 'an entity'))
+        .filter(Boolean);
     if (names.length) {
         const verb = names.length === 1 ? 'is' : 'are';
-        text = `Initial observation of ${rn}: ${listNames(names)} ${verb} in the room`;
-    } else {
-        text = `Initial observation of ${rn}: nothing notable in the room`;
+        let part = `${listNames(names)} ${verb} in the room`;
+        if (names.length === 1) {
+            const r = entities.filter((e) => e && typeof e === 'object' && !e.machine)[0];
+            if (r != null && (finiteNum(r.x) != null || finiteNum(r.y) != null)) {
+                part += ` at ${formatPosition(r.x, r.y)}`;
+            }
+        }
+        parts.push(part);
     }
-    if (dropped.length) {
-        const items = dropped.map((r) => prettyItemName(r)).filter(Boolean);
-        if (items.length) text += `; ${listWithArticles(items)} rest on the floor`;
+    parts.push(...machines.map((row) => machineClause(row, 'baseline')).filter(Boolean));
+    const floorNames = floor.filter(Boolean).map((r) => prettyItemName(r)).filter(Boolean);
+    if (floorNames.length) {
+        if (floorNames.length === 1) {
+            const r = floor.filter(Boolean)[0];
+            const pos =
+                r != null && (finiteNum(r.x) != null || finiteNum(r.y) != null)
+                    ? ` at ${formatPosition(r.x, r.y)}`
+                    : '';
+            parts.push(`${floorNames[0]} rests on the floor${pos}`);
+        } else {
+            parts.push(`${listWithArticles(floorNames)} rest on the floor`);
+        }
     }
+    const text = parts.length
+        ? `Initial observation of ${roomCtx.rn}${roomCtx.suffix}: ${joinChunk(parts)}`
+        : `Initial observation of ${roomCtx.rn}${roomCtx.suffix}: nothing notable in the room`;
     return `${text}.`;
 }
 
 /**
  * One room, as one paragraph: its delta entries (oldest → newest) turned into
- * flowing narrative sentences. The room name is mentioned once, at the front of
- * the first sentence; later sentences continue without repeating it.
- * @param {{ entries: Array|null, roomName: string|null }} ctx
+ * flowing narrative sentences. The room is named once, at the front of the
+ * first sentence, together with its full context (name, width x height, map
+ * position, description — whatever the room record supplies); later sentences
+ * continue without repeating it.
+ * @param {{ entries: Array|null, roomName: string|null, room: Object|null }} ctx
+ *   - entries: the room's delta entry stream (newest last)
+ *   - roomName: the room's display name for the paragraph
+ *   - room: the full room record (name, description, width/height, map x/y);
+ *     every field is optional
  * @returns {string} — '' when the room had nothing worth saying
  */
-export function buildRoomProse({ entries = null, roomName = null } = {}) {
-    const rn = roomName || 'the room';
+export function buildRoomProse({ entries = null, roomName = null, room = null } = {}) {
+    const context = roomContext(roomName, room);
     const sentences = [];
     let roomNamed = false;
     for (const entry of entries ?? []) {
         if (!entry || typeof entry !== 'object') continue;
         if (entry.kind === 'baseline') {
-            sentences.push(baselineText(entry, rn));
+            sentences.push(baselineText(entry, context));
             roomNamed = true;
             continue;
         }
@@ -344,7 +690,7 @@ export function buildRoomProse({ entries = null, roomName = null } = {}) {
         if (roomNamed) {
             sentences.push(`${capitalizeFirst(body)}.`);
         } else {
-            sentences.push(`In ${rn}, ${body}.`);
+            sentences.push(`In ${context.rn}${context.suffix}, ${body}.`);
         }
         roomNamed = true;
     }
