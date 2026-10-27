@@ -34,7 +34,7 @@
  */
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { AppConfig } from './Config.js';
-import ClientLogger from '/utils/ClientLogger.js';
+import ClientLogger from '../utils/ClientLogger.js';
 
 /**
  * Display order for the room list: entities first, dropped items after.
@@ -108,15 +108,39 @@ function addBadge(container, className, text) {
 }
 
 /**
- * `section-label` + body for a detail block.
+ * `section-label` + body for a detail block. The body is hidden by default
+ * (summary-only policy: raw ids, materials, organs and other detail live in
+ * the body and appear only on Reveal); `.view-section-rows` sections keep the
+ * summary rows visible at all times and hide only the per-row extra parts.
+ * `static: true` renders a plain section with no toggle (summary content only).
  * @param {HTMLElement} container
  * @param {string} label
+ * @param {{ rows?: boolean, static?: boolean }} [options]
  * @returns {{ body: HTMLElement }}
  */
-function startSection(container, label) {
+function startSection(container, label, options = {}) {
     const section = addEl(container, 'div', 'view-section');
-    addEl(section, 'p', 'view-section-label', label);
-    return { body: addEl(section, 'div', 'view-section-body') };
+    if (options.rows) {
+        section.classList.add('view-section-rows');
+    }
+    const head = addEl(section, 'div', 'view-section-head');
+    addEl(head, 'span', 'view-section-label', label);
+    if (!options.static) {
+        const toggle = addEl(head, 'button', 'view-section-toggle');
+        toggle.type = 'button';
+        toggle.textContent = 'Reveal';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', () => {
+            const open = section.classList.toggle('open');
+            toggle.textContent = open ? 'Hide' : 'Reveal';
+            toggle.setAttribute('aria-expanded', String(open));
+        });
+    }
+    const body = addEl(section, 'div', 'view-section-body');
+    if (options.static) {
+        section.classList.add('static');
+    }
+    return { body };
 }
 
 /** Human-readable percentage of a material fraction (a fraction >= 1 is full). */
@@ -168,22 +192,25 @@ function addOrgans(container, organs) {
 function addItemRow(container, item) {
     if (!item || typeof item !== 'object') return;
     const row = addEl(container, 'div', 'view-item-row');
+    // Summary part (always visible): name + volume + worn flag. Raw ids and
+    // host component ids are the reveal-only extras (hidden by CSS until the
+    // containing section opens).
     addEl(row, 'span', 'view-item-name', item.name || (item.type ?? item.itemType ?? 'item'));
-    if (item.id) {
-        addEl(row, 'span', 'view-item-id', '(' + item.id + ')');
-    }
-    const meta = [];
     if (typeof item.volume === 'number' && Number.isFinite(item.volume)) {
-        meta.push('vol ' + item.volume);
+        addEl(row, 'span', 'view-item-vol', 'vol ' + item.volume);
     }
-    if (item.worn) {
+    if (item.worn === true) {
         addBadge(row, 'view-badge worn', 'worn');
     }
-    if (item.hostComponentId) {
-        meta.push('on ' + item.hostComponentId);
+    const extras = [];
+    if (item.id) {
+        extras.push('(' + item.id + ')');
     }
-    if (meta.length > 0) {
-        addEl(row, 'span', 'view-item-meta', meta.join(' · '));
+    if (item.hostComponentId) {
+        extras.push('on ' + item.hostComponentId);
+    }
+    if (extras.length > 0) {
+        addEl(row, 'span', 'view-item-extra', extras.join(' · '));
     }
 }
 
@@ -216,11 +243,11 @@ function renderComponentNode(container, comp, showName) {
         renderClothingNode(container, comp, showName);
         return;
     }
-    if (showName) {
-        addEl(container, 'p', 'view-component-name',
-            `${comp.name || comp.type || comp.id || 'component'}`);
-    }
-    const statusBody = startSection(container, 'Status').body;
+    // Summary = component name (always visible). Detail (status, materials,
+    // organs, stored items) is collapsed behind the per-block Reveal toggle.
+    const { detail } = addComponentBlock(container, showName,
+        comp.name || comp.type || comp.id || 'component');
+    const statusBody = startSection(detail, 'Status').body;
     addRow(statusBody, 'Status', componentStatusLine(comp) || '—');
     if (comp.broken === true) {
         addBadge(statusBody, 'view-badge broken', 'broken');
@@ -230,9 +257,33 @@ function renderComponentNode(container, comp, showName) {
 
     const items = Array.isArray(comp.items) ? comp.items : [];
     if (items.length > 0) {
-        const itemBody = startSection(container, `Stored items (${items.length})`).body;
+        const itemBody = startSection(detail, `Stored items (${items.length})`, { rows: true }).body;
         items.forEach((it) => addItemRow(itemBody, it));
     }
+}
+
+/**
+ * A named, collapsible component block: always-visible name row plus a
+ * Reveal toggle that opens the hidden detail container. Returns the detail
+ * container to fill.
+ */
+function addComponentBlock(container, showName, label) {
+    if (showName) {
+        const block = addEl(container, 'div', 'view-component-block');
+        const head = addEl(block, 'div', 'view-component-head');
+        addEl(head, 'span', 'view-component-name', label);
+        const toggle = addEl(head, 'button', 'view-section-toggle');
+        toggle.type = 'button';
+        toggle.textContent = 'Reveal';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.addEventListener('click', () => {
+            const open = block.classList.toggle('open');
+            toggle.textContent = open ? 'Hide' : 'Reveal';
+            toggle.setAttribute('aria-expanded', String(open));
+        });
+        return { detail: addEl(block, 'div', 'view-component-detail') };
+    }
+    return { detail: container };
 }
 
 /**
@@ -241,27 +292,59 @@ function renderComponentNode(container, comp, showName) {
  */
 function renderClothingNode(container, node, showName) {
     if (!node || typeof node !== 'object') return;
-    if (showName) {
-        addEl(container, 'p', 'view-component-name',
-            `Clothing on ${node.componentId || 'unknown component'}`);
-    }
-    const body = startSection(container, 'Worn').body;
     const worn = Array.isArray(node.worn) ? node.worn : [];
-    if (worn.length === 0) {
-        addRow(body, 'Entries', 'none');
+    if (showName) {
+        // Summary = first worn entry name (always visible). The component id
+        // that owns the clothing is detail, not a summary row.
+        const first = worn.length > 0 ? worn[0] : null;
+        const label = first
+            ? (first.name || first.itemType || 'clothing')
+            : (node.componentId ? 'Clothing item' : 'clothing');
+        const { detail } = addComponentBlock(container, true, label);
+        if (node.componentId) {
+            addEl(detail, 'p', 'view-detail-sub', 'Worn on ' + node.componentId);
+        }
+        wornRows(detail, worn);
         return;
     }
-    for (const entry of worn) {
+    const body = startSection(container, `Worn (${worn.length})`, { rows: true }).body;
+    wornRows(body, worn);
+}
+
+/** Summary rows for worn clothing entries: name + form volume + WORN always
+ * visible; entry id, materials and minVolume are reveal-only extras. */
+function wornRows(container, entries) {
+    if (entries.length === 0) {
+        addRow(container, 'Entries', 'none');
+        return;
+    }
+    for (const entry of entries) {
         if (!entry || typeof entry !== 'object') continue;
-        const block = addEl(body, 'div', 'view-clothing-entry');
-        addEl(block, 'span', 'view-item-name', entry.name || (entry.itemType ?? 'clothing'));
-        if (entry.itemId) {
-            addEl(block, 'span', 'view-item-id', '(' + entry.itemId + ')');
+        const row = addEl(container, 'div', 'view-item-row view-clothing-entry');
+        addEl(row, 'span', 'view-item-name', entry.name || (entry.itemType ?? 'clothing'));
+        const form = entry.form && typeof entry.form === 'object' ? entry.form : null;
+        if (form && typeof form.volume === 'number' && Number.isFinite(form.volume)) {
+            addEl(row, 'span', 'view-item-vol', 'vol ' + form.volume);
         }
-        addMaterialBadges(block, entry.materials);
+        addBadge(row, 'view-badge worn', 'worn');
+        const extra = addEl(row, 'span', 'view-item-extra');
+        const parts = [];
+        if (entry.itemId) {
+            parts.push('(' + entry.itemId + ')');
+        }
+        const mats = Array.isArray(entry.materials) ? entry.materials : [];
+        for (const m of mats) {
+            const badge = addEl(extra, 'span', 'view-material-badge');
+            const label = (m && typeof m === 'object') ? (m.material ?? 'material') : String(m);
+            const fraction = formatFraction(m?.fraction);
+            badge.textContent = fraction ? `${label} ${fraction}` : label;
+        }
         const wear = entry.wear && typeof entry.wear === 'object' ? entry.wear : null;
         if (wear && typeof wear.minVolume === 'number') {
-            addEl(block, 'span', 'view-item-meta', `wear.minVolume ${wear.minVolume}`);
+            parts.push('wear.minVolume ' + wear.minVolume);
+        }
+        if (parts.length > 0) {
+            addEl(extra, 'span', 'view-item-meta', parts.join(' · '));
         }
     }
 }
@@ -299,20 +382,24 @@ function renderEntity(detail, node) {
     const used = typeof inv.used === 'number' && Number.isFinite(inv.used) ? inv.used : 0;
     const capacity = typeof inv.capacity === 'number' && Number.isFinite(inv.capacity) ? inv.capacity : 0;
     const percent = typeof inv.percent === 'number' && Number.isFinite(inv.percent) ? inv.percent : 0;
-    const invBody = startSection(detail, 'Inventory').body;
+    const invBody = startSection(detail, 'Inventory', { static: true }).body;
     addRow(invBody, 'Capacity', `${used} / ${capacity} (${percent}%)`);
 
+    // Components: summary = name (always visible); detail (status, materials,
+    // organs, stored items) is collapsed behind each block's Reveal toggle.
     const components = Array.isArray(node.components) ? node.components : [];
     if (components.length > 0) {
-        const compBody = startSection(detail, `Components (${components.length})`).body;
+        const compBody = startSection(detail, `Components (${components.length})`, { rows: true }).body;
         components.forEach((comp) => renderComponentNode(compBody, comp, true));
     } else {
-        addEl(startSection(detail, 'Components').body, 'p', 'view-placeholder', 'none');
+        addEl(startSection(detail, 'Components', { static: true }).body, 'p', 'view-placeholder', 'none');
     }
 
+    // Full inventory: summary rows (name + vol + WORN) always visible; raw ids
+    // and "on comp-…" are reveal-only per-row extras.
     const items = Array.isArray(node.items) ? node.items : [];
     if (items.length > 0) {
-        const itemBody = startSection(detail, `Inventory contents (${items.length})`).body;
+        const itemBody = startSection(detail, `Inventory contents (${items.length})`, { rows: true }).body;
         items.forEach((it) => addItemRow(itemBody, it));
     }
 }
@@ -335,13 +422,27 @@ function renderClothing(detail, node) {
 }
 
 /**
- * Renders the item detail (item- / eq- ids resolve to kind 'item'):
- * registry data (description, materials, form, wear) plus live instance
- * data (volume, worn flag, owner, host component, container contents, traits).
+ * Renders the item detail (item- / eq- ids resolve to kind 'item'). Summary
+ * (always visible) is name + live volume + WORN. Everything else — description,
+ * type/owner, form, materials, wear, host, contents, traits — is inside the
+ * collapsed Details section and only appears on Reveal.
  */
 function renderItem(detail, node) {
+    const name = node.name || (node.itemType ?? 'item');
+    // Summary row (always visible): name + live volume + worn flag.
+    const summary = addEl(detail, 'div', 'view-item-row view-item-summary');
+    addEl(summary, 'span', 'view-item-name', name);
+    if (typeof node.volume === 'number' && Number.isFinite(node.volume)) {
+        addEl(summary, 'span', 'view-item-vol', 'vol ' + node.volume);
+    }
+    if (node.worn === true) {
+        addBadge(summary, 'view-badge worn', 'worn');
+    }
+
+    const body = startSection(detail, 'Details').body;
+
     if (node.description) {
-        addEl(detail, 'p', 'view-detail-sub', node.description);
+        addEl(body, 'p', 'view-detail-sub', node.description);
     }
     const parts = [];
     if (node.itemType) {
@@ -351,10 +452,9 @@ function renderItem(detail, node) {
         parts.push('owned by ' + node.entityType);
     }
     if (parts.length > 0) {
-        addEl(detail, 'p', 'view-detail-sub', parts.join(' · '));
+        addEl(body, 'p', 'view-detail-sub', parts.join(' · '));
     }
 
-    const body = startSection(detail, 'Data').body;
     const form = node.form && typeof node.form === 'object' ? node.form : null;
     if (form && typeof form.volume === 'number') {
         addRow(body, 'Form volume', form.volume);
@@ -364,21 +464,17 @@ function renderItem(detail, node) {
     if (wear && typeof wear.minVolume === 'number') {
         addRow(body, 'Wear minVolume', wear.minVolume);
     }
-    addRow(body, 'Volume (live)', typeof node.volume === 'number' ? node.volume : '—');
-    if (node.worn === true) {
-        addBadge(body, 'view-badge worn', 'worn');
-    }
     addRow(body, 'Worn', node.worn === true ? 'yes' : 'no');
     addRow(body, 'Host component', node.hostComponentId || '—');
 
     const contents = Array.isArray(node.contents) ? node.contents : [];
     if (contents.length > 0) {
-        const contBody = startSection(detail, `Contents (${contents.length})`).body;
+        const contBody = startSection(body, `Contents (${contents.length})`, { rows: true }).body;
         contents.forEach((c) => addItemRow(contBody, c));
     }
 
     if (node.traits && typeof node.traits === 'object') {
-        const traitBody = startSection(detail, 'Traits').body;
+        const traitBody = startSection(body, 'Traits').body;
         const traitParts = Object.entries(node.traits).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
         addEl(traitBody, 'p', 'view-row-value', traitParts.join(', '));
     }
@@ -423,8 +519,12 @@ function renderDetailHeader(container, node, askedId, isEquipped) {
         } else if (node.name) {
             name = node.name;
         }
-        if (!name && node.kind === 'clothing' && node.componentId) {
-            name = `Worn on ${node.componentId}`;
+        if (!name && node.kind === 'clothing') {
+            const worn = Array.isArray(node.worn) ? node.worn : [];
+            const first = worn.length > 0 ? worn[0] : null;
+            name = first
+                ? (first.name || first.itemType || 'clothing')
+                : 'Worn';
         }
     }
     if (name) {

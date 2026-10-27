@@ -361,3 +361,93 @@
 .view-clothing-entry .view-item-meta {
     display: block;
 }
+
+/*
+ * Summary-only policy (view tab): raw ids, materials, organs and other detail
+ * live inside hidden bodies/row-extras; only name + volume + WORN is shown at
+ * a glance. The Reveal toggle (per section / per component block) opens them.
+ */
+
+.view-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.view-section-label {
+    margin: 0;
+}
+
+.view-section-toggle {
+    font-size: 10px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.view-section-toggle:hover {
+    color: var(--text-main);
+    border-color: var(--text-secondary);
+}
+
+/* Non-row section: body hidden by default; rows sections keep their summary
+ * rows visible; static sections have no toggle and a visible body. */
+.view-section .view-section-body {
+    display: none;
+}
+
+.view-section-rows .view-section-body,
+.view-section.static .view-section-body {
+    display: block;
+}
+
+.view-section.open .view-section-body {
+    display: block;
+}
+
+/* Per-row reveal extras: raw id + host component, hidden by default. */
+.view-item-vol {
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.view-item-extra {
+    display: none;
+    font-size: 10px;
+    color: var(--text-dim);
+    word-break: break-word;
+}
+
+.view-section.open .view-item-extra,
+.view-component-block.open .view-item-extra {
+    display: inline-block;
+}
+
+.view-item-summary {
+    margin-bottom: 2px;
+}
+
+/* Collapsible component block: name always visible, detail hidden behind
+ * its own Reveal toggle. */
+.view-component-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.view-component-block .view-component-name::before {
+    display: none;
+}
+
+.view-component-detail {
+    display: none;
+}
+
+.view-component-block.open .view-component-detail {
+    display: block;
+}
