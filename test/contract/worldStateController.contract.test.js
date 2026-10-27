@@ -644,6 +644,7 @@ describe('WorldStateController.getAll() shape', () => {
         expect(roomIds.length).toBeGreaterThan(0);
         for (const roomId of roomIds) {
             expect(keysOf(state.rooms[roomId])).toEqual([
+                'atmosphere',
                 'connections',
                 'description',
                 'entities',

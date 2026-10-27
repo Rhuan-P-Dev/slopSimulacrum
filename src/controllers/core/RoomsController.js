@@ -3,6 +3,12 @@ import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 
 /**
+ * The light levels a room's `atmosphere.lightLevel` may declare. The single
+ * enum validated against in the data and mapped by the prose/LLM layer.
+ */
+const VALID_LIGHT_LEVELS = ['bright', 'dim', 'dark', 'flickering'];
+
+/**
  * RoomsController handles the storage and management of rooms and their connections.
  * It serves as the single source of truth for the world's spatial data.
  * 
@@ -49,6 +55,7 @@ class RoomsController {
                 y: data.y,
                 width: data.width,
                 height: data.height,
+                atmosphere: this._atmosphere(data),
                 objects: [],
                 entities: []
             };
@@ -139,6 +146,63 @@ class RoomsController {
             }
             if (typeof def.width !== 'number' || typeof def.height !== 'number') {
                 throw new TypeError(`Room '${logicalId}' must have numeric width, height`);
+            }
+            this._validateAtmosphere(logicalId, def.atmosphere);
+        }
+    }
+
+    /**
+     * Normalizes the room's `atmosphere` block (validated in
+     * _validateRoomDefinitions) into the stable shape exposed on the room
+     * record: all four keys always present, each null when absent from the
+     * data, so consumers read a deterministic shape. Returns null when the
+     * room carries no atmosphere.
+     * @private
+     * @param {Object|null} def
+     * @returns {{ temperature: number|null, lightLevel: string|null, smell: string|null, ambientSound: string|null }|null}
+     */
+    _atmosphere(def) {
+        if (!def || typeof def !== 'object' || def.atmosphere == null || typeof def.atmosphere !== 'object') {
+            return null;
+        }
+        const a = def.atmosphere;
+        return {
+            temperature: a.temperature == null ? null : Number(a.temperature),
+            lightLevel: a.lightLevel == null ? null : String(a.lightLevel),
+            smell: a.smell == null ? null : String(a.smell),
+            ambientSound: a.ambientSound == null ? null : String(a.ambientSound)
+        };
+    }
+
+    /**
+     * Validates the optional per-room `atmosphere` block. When present it must be
+     * a plain object with strictly typed fields: temperature a finite number,
+     * lightLevel one of VALID_LIGHT_LEVELS, smell and ambientSound strings.
+     * An absent field is fine; the block itself is optional. Mirrors the house
+     * style of _validatePosition (a named-field TypeError on any violation).
+     * @private
+     * @param {string} logicalId
+     * @param {*} atmosphere
+     * @throws {TypeError} naming the offending field on a violation.
+     */
+    _validateAtmosphere(logicalId, atmosphere) {
+        if (atmosphere == null) return;
+        if (typeof atmosphere !== 'object' || Array.isArray(atmosphere)) {
+            throw new TypeError(`Room '${logicalId}' atmosphere must be an object`);
+        }
+        const temperature = atmosphere.temperature;
+        if (temperature !== undefined && (typeof temperature !== 'number' || !Number.isFinite(temperature))) {
+            throw new TypeError(`Room '${logicalId}' atmosphere.temperature must be a finite number`);
+        }
+        const lightLevel = atmosphere.lightLevel;
+        if (lightLevel !== undefined && (typeof lightLevel !== 'string' || !VALID_LIGHT_LEVELS.includes(lightLevel))) {
+            throw new TypeError(
+                `Room '${logicalId}' atmosphere.lightLevel must be one of ${VALID_LIGHT_LEVELS.join(', ')}`
+            );
+        }
+        for (const [fieldName, value] of [['smell', atmosphere.smell], ['ambientSound', atmosphere.ambientSound]]) {
+            if (value !== undefined && typeof value !== 'string') {
+                throw new TypeError(`Room '${logicalId}' atmosphere.${fieldName} must be a string`);
             }
         }
     }

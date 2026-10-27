@@ -367,7 +367,7 @@ class LlmContextController {
      * the caller (computed once in buildContext).
      * @param {string|null} roomUid - Room UID (entity.location).
      * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
-     * @returns {{ id: string, name: string, description: string, width: number, height: number, x: number, y: number, exits: Array<{ door: string, targetRoomName: string }> }|null}
+     * @returns {{ id: string, name: string, description: string, width: number, height: number, x: number, y: number, exits: Array<{ door: string, targetRoomName: string }>, atmosphere: { temperature: number|null, lightLevel: string|null, smell: string|null, ambientSound: string|null }|null }|null}
      *   Null when the room cannot be resolved (degrade gracefully).
      * @private
      */
@@ -385,7 +385,8 @@ class LlmContextController {
             height: room.height,
             x: room.x,
             y: room.y,
-            exits
+            exits,
+            atmosphere: room.atmosphere || null
         };
     }
 
@@ -940,6 +941,15 @@ class LlmContextController {
                 ? `Your position: (${Math.round(entity.spatial.x)}, ${Math.round(entity.spatial.y)})`
                 : '';
             lines.push(`Room size: ${roomData.width} x ${roomData.height}${pos ? ` | ${pos}` : ''}`);
+            const atmo = roomData.atmosphere;
+            if (atmo) {
+                const atmoParts = [];
+                if (atmo.lightLevel != null) atmoParts.push(`light=${atmo.lightLevel}`);
+                if (atmo.temperature != null) atmoParts.push(`temperature=${atmo.temperature}`);
+                if (atmo.smell != null) atmoParts.push(`smell=${atmo.smell}`);
+                if (atmo.ambientSound != null) atmoParts.push(`sound=${atmo.ambientSound}`);
+                if (atmoParts.length > 0) lines.push(`Atmosphere: ${atmoParts.join(', ')}`);
+            }
             lines.push(roomData.exits.length > 0
                 ? `Exits: ${roomData.exits.map(ex => `${ex.door} → ${ex.targetRoomName}`).join(' | ')}`
                 : 'Exits: (none)');

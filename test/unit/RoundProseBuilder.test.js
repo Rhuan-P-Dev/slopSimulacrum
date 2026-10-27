@@ -126,6 +126,93 @@ describe('buildRoomProse (narrative prose)', () => {
         expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
     });
 
+    // Atmosphere (optional static room block, validated in RoomsController).
+    // Each present field becomes one lower-case clause after the description;
+    // absent fields (and a missing block) are simply dropped.
+    it('names the room with atmosphere when supplied (delta path)', () => {
+        const text = buildRoomProse({
+            roomName: 'The Entrance Hall',
+            room: {
+                name: 'The Entrance Hall',
+                description: 'a stone hall with a north door',
+                width: 20,
+                height: 12,
+                x: 4,
+                y: 7,
+                atmosphere: {
+                    temperature: 18.5,
+                    lightLevel: 'dim',
+                    smell: 'dust and old oil',
+                    ambientSound: 'distant dripping water',
+                },
+            },
+            entries: [
+                { actions: { performed: [ { action: 'droid punch', name: 'Test Droid' } ] } },
+            ],
+        });
+        expect(text).toBe(
+            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), a stone hall with a north door, ' +
+                'a temperature of 18.5, dim light, the smell of dust and old oil, and the sound of distant dripping water), ' +
+                'Test Droid threw a punch.'
+        );
+        expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
+    });
+
+    it('baseline renders atmosphere (Initial observation of)', () => {
+        const text = buildRoomProse({
+            roomName: 'The Entrance Hall',
+            room: {
+                name: 'The Entrance Hall',
+                description: 'a stone hall with a north door',
+                width: 20,
+                height: 12,
+                x: 4,
+                y: 7,
+                atmosphere: {
+                    temperature: 18.5,
+                    lightLevel: 'dim',
+                    smell: 'dust and old oil',
+                    ambientSound: 'distant dripping water',
+                },
+            },
+            entries: [
+                {
+                    kind: 'baseline',
+                    entities: { appeared: [ { id: 'e1', name: 'Test Droid' } ] },
+                    dropped: { added: [] },
+                },
+            ],
+        });
+        expect(text).toBe(
+            'Initial observation of The Entrance Hall (20 x 12, map position (4.00, 7.00), ' +
+                'a stone hall with a north door, a temperature of 18.5, dim light, the smell of dust and old oil, ' +
+                'and the sound of distant dripping water): Test Droid is in the room.'
+        );
+    });
+
+    it('drops missing atmosphere fields (partial block)', () => {
+        const text = buildRoomProse({
+            roomName: 'The Entrance Hall',
+            room: {
+                name: 'The Entrance Hall',
+                description: 'a stone hall with a north door',
+                width: 20,
+                height: 12,
+                x: 4,
+                y: 7,
+                atmosphere: { lightLevel: 'dark' },
+            },
+            entries: [
+                { actions: { performed: [ { action: 'droid punch', name: 'Test Droid' } ] } },
+            ],
+        });
+        expect(text).toBe(
+            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), a stone hall with a north door, and darkness), ' +
+                'Test Droid threw a punch.'
+        );
+        expect(text).not.toContain('temperature of');
+    });
+
     it('narrates a targeted action (against whom, powered by which components)', () => {
         const text = buildRoomProse({
             roomName: 'start room',

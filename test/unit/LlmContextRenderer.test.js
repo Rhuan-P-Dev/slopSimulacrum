@@ -425,8 +425,65 @@ describe('LlmContextController (context renderer)', () => {
             height: 200,
             x: 0,
             y: 0,
-            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }]
+            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }],
+            atmosphere: null
         });
+    });
+
+    // Atmosphere (optional static room block, validated in RoomsController).
+    // Rendered as a key=value line ("Atmosphere: light=dim, temperature=18.5, ...")
+    // and mirrored in data.room. The default world has no atmosphere, so the
+    // line is absent and data.room.atmosphere is null (the "exposes the enriched
+    // room detail" test above pins the null case).
+    it('renders an Atmosphere line (key=value style) and mirrors it in data.room when the room carries one', () => {
+        const atmoWorld = makeWorld({
+            getRooms: () => ({
+                'room-1': {
+                    id: 'room-1',
+                    name: 'The Entrance Hall',
+                    description: 'A dimly lit hall.',
+                    width: 300,
+                    height: 200,
+                    x: 0,
+                    y: 0,
+                    connections: { right_door: { target: 'room-2' } },
+                    atmosphere: {
+                        temperature: 18.5,
+                        lightLevel: 'dim',
+                        smell: 'dust and old oil',
+                        ambientSound: 'distant dripping water'
+                    }
+                },
+                'room-2': {
+                    id: 'room-2',
+                    name: 'The Deep Vault',
+                    description: 'Cold and metallic.',
+                    width: 320,
+                    height: 220,
+                    x: 900,
+                    y: 250,
+                    connections: { left_door: { target: 'room-1' } }
+                }
+            })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(atmoWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        expect(text).toContain(
+            'Atmosphere: light=dim, temperature=18.5, smell=dust and old oil, sound=distant dripping water'
+        );
+        expect(data.room.atmosphere).toEqual({
+            temperature: 18.5,
+            lightLevel: 'dim',
+            smell: 'dust and old oil',
+            ambientSound: 'distant dripping water'
+        });
+    });
+
+    it('omits the Atmosphere line when the room has none (default world)', () => {
+        const { text } = controller.buildContext('ent-self');
+        expect(text).not.toContain('Atmosphere:');
     });
 
     // L4-1: empty dropped-items case → no "Dropped items:" line, data.droppedItems === []

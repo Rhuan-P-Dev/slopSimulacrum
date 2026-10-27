@@ -10,7 +10,13 @@
     "x": 0,
     "y": 0,
     "width": 300,
-    "height": 200
+    "height": 200,
+    "atmosphere": {
+      "temperature": 18.5,
+      "lightLevel": "dim",
+      "smell": "dust and old oil",
+      "ambientSound": "distant dripping water"
+    }
   },
   "right_room": {
     "name": "The Eastern Corridor",
@@ -26,7 +32,13 @@
     "x": 400,
     "y": 250,
     "width": 250,
-    "height": 150
+    "height": 150,
+    "atmosphere": {
+      "temperature": 15,
+      "lightLevel": "flickering",
+      "smell": "hot metal and ozone",
+      "ambientSound": "a low electric buzz"
+    }
   },
   "far_right_room": {
     "name": "The Deep Vault",
@@ -39,6 +51,12 @@
     "x": 900,
     "y": 250,
     "width": 320,
-    "height": 220
+    "height": 220,
+    "atmosphere": {
+      "temperature": 8,
+      "lightLevel": "dark",
+      "smell": "rust and stagnant water",
+      "ambientSound": "the hum of ancient machinery"
+    }
   }
 }

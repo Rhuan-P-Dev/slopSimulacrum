@@ -271,10 +271,29 @@ function partList(rows) {
 }
 
 /**
+ * A lower-case light clause for the room suffix: "dim light" / "bright light"
+ * / "flickering light" / "darkness". Null (so the caller drops the clause)
+ * when the level is missing or empty. "dark" maps to "darkness" (a bare
+ * adjective would not fit the "<level> light" noun-phrase pattern); all other
+ * levels become "<level> light".
+ * @param {*} level
+ * @returns {string|null}
+ */
+function lightLevelPhrase(level) {
+    const lv = level && typeof level === 'string' ? level.trim() : '';
+    if (!lv) return null;
+    return lv === 'dark' ? 'darkness' : `${lv} light`;
+}
+
+/**
  * Room display name plus the context suffix used by the first sentence:
- * " (20 x 12, map position (4.00, 7.00), and a stone hall with a north door)".
- * Empty string when no room object (or none of name/width/height/x/y/description)
- * is supplied. Deterministic; raw id-valued fields are simply skipped.
+ * " (20 x 12, map position (4.00, 7.00), a temperature of 18.5, dim light,
+ * and a stone hall with a north door)". Each part is a lower-case property
+ * clause joined by joinChunk. Atmosphere is an optional static block (validated
+ * in RoomsController) rendered after the description, each present field
+ * becoming one clause. Empty string when no room object (or none of
+ * name/width/height/x/y/description/atmosphere) is supplied. Deterministic; raw
+ * id-valued fields are simply skipped.
  * @param {string|null} roomName
  * @param {Object|null} room
  * @returns {{ rn: string, suffix: string }}
@@ -294,6 +313,17 @@ function roomContext(roomName, room) {
     if (rx != null && ry != null) parts.push(`map position ${formatPosition(rx, ry)}`);
     const desc = typeof r.description === 'string' ? r.description.trim() : '';
     if (desc) parts.push(desc);
+    // Atmosphere (optional static room block): each present field becomes one
+    // lower-case property clause, appended after the description.
+    const a = r.atmosphere && typeof r.atmosphere === 'object' ? r.atmosphere : {};
+    const t = finiteNum(a.temperature);
+    if (t != null) parts.push(`a temperature of ${statValue(t)}`);
+    const level = lightLevelPhrase(a.lightLevel);
+    if (level) parts.push(level);
+    const smell = typeof a.smell === 'string' ? a.smell.trim() : '';
+    if (smell) parts.push(`the smell of ${smell}`);
+    const sound = typeof a.ambientSound === 'string' ? a.ambientSound.trim() : '';
+    if (sound) parts.push(`the sound of ${sound}`);
     return { rn, suffix: parts.length ? ` (${joinChunk(parts)})` : '' };
 }
 
