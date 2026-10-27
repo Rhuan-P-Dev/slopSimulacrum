@@ -32,6 +32,7 @@ import { CraftingPanel } from './CraftingPanel.js';
 import { KnowledgePanel } from './KnowledgePanel.js';
 import ObjectViewer from './ObjectViewer.js';
 import { AgentViewPanel } from './AgentViewPanel.js';
+import { AgentBodyPanel } from './AgentBodyPanel.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -112,6 +113,9 @@ export class ClientApp {
         // config, system prompt, tools, sectioned context, and last-round
         // transcript, fetched live from GET /llm/agent/:entityId.
         this.agentView = new AgentViewPanel({ worldStateManager: this.worldState });
+        // Agent Body: dev tab that asks the LLM to design a body from a
+        // character card (judgment-only — no write-back to the world).
+        this.agentBody = new AgentBodyPanel();
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -657,6 +661,9 @@ export class ClientApp {
             // Agent View (no numeric shortcut): dev LLM inspector — fetches live
             // on open and auto-refreshes while open.
             this.overlayManager.register('agent-view', this.agentView, 'btn-agent-view', null);
+            // Agent Body (no numeric shortcut): body designer — explicit Design
+            // body click (one LLM call per click), no auto-run on open.
+            this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle

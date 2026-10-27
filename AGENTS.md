@@ -59,6 +59,12 @@ committed file, translate it in a separate commit that touches nothing else.
   surface), `socket.io` (the realtime channel), `dotenv` (loads `.env` at boot).
   **LLM access goes through plain `fetch` against an OpenAI-compatible chat-completions
   endpoint — there is no LLM SDK dependency.** Do not add one to "simplify" a call.
+- **LLM prompt kinds** (RP-1) live in the networking controllers — each kind is a
+  named decision, not an ad-hoc `fetch`: `chat` (`LLMController.chat`,
+  `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
+  and `agent-body-design` (`AgentBodyController`, `/agent-body/create`, the dev tab
+  "Create Agent Body" — judgment-only, no write-back to `data/`; see
+  `wiki/decisions/agent-body-design.md`).
 - **Dev dependencies:** `@eslint/js`, `eslint` (v10 flat config),
   `eslint-plugin-unused-imports`, `vitest` (^4) and `@vitest/coverage-v8`. That is all.
 - **Lint:** `ESLint 10` flat config (`eslint.config.js`) built from `@eslint/js`

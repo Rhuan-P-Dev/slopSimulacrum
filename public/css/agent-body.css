@@ -1,0 +1,285 @@
+/*
+ * Agent Body — "Create Agent Body" dev overlay.
+ *
+ * Styles for the body-designer dev tab (id: agent-body-overlay). Follows the
+ * Agent View inspector (agent-view.css): same variables, same panel anatomy —
+ * the .overlay-panel is a flex column; .agent-body-controls stays fixed-height
+ * above the scrollable body; .agent-body-content (the result area) scrolls.
+ */
+
+/* Widen the designer: the rationale + body tree need horizontal room. */
+#agent-body-overlay {
+    min-width: 380px;
+    max-width: 680px;
+}
+
+/* Fixed-height controls row: card picker + design + save buttons. */
+#agent-body-overlay > .agent-body-controls {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 12px;
+    border-bottom: 1px solid var(--config-bar-border, #333);
+    background: var(--bg-black, #0a0a0a);
+}
+
+.agent-body-label {
+    color: var(--text-dim, #aaa);
+    font-size: 0.8em;
+    white-space: nowrap;
+    letter-spacing: 0.4px;
+}
+
+.agent-body-picker {
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--bg-black, #0a0a0a);
+    color: var(--text-main, #fff);
+    border: 1px solid var(--neon-green, #00ff00);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    cursor: pointer;
+}
+.agent-body-picker:hover,
+.agent-body-picker:focus {
+    border-color: var(--neon-green, #00ff00);
+    outline: none;
+}
+.agent-body-picker option {
+    background: var(--bg-black, #0a0a0a);
+    color: var(--text-main, #fff);
+}
+
+.agent-body-btn {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid var(--neon-green, #00ff00);
+    color: var(--neon-green, #00ff00);
+    cursor: pointer;
+    padding: 4px 9px;
+    border-radius: 2px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.agent-body-btn:hover {
+    background: rgba(0, 255, 0, 0.12);
+}
+.agent-body-btn:disabled {
+    color: var(--text-dim, #aaa);
+    border-color: #333;
+    cursor: default;
+    background: transparent;
+}
+
+/* One-line status above the result area. */
+.agent-body-layout {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.agent-body-status {
+    flex: 0 0 auto;
+    margin: 0 0 0 0;
+    padding: 6px 12px 4px 12px;
+    font-size: 0.8em;
+    color: var(--text-dim, #aaa);
+    border-bottom: 1px solid #2a2a2a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Scrollable result body. */
+#agent-body-overlay .agent-body-content {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 12px;
+    color: var(--text-main, #fff);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    line-height: 1.35;
+}
+.agent-body-content::-webkit-scrollbar {
+    width: 10px;
+}
+.agent-body-content::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 5px;
+}
+.agent-body-content::-webkit-scrollbar-track {
+    background: #0a0a0a;
+}
+
+.agent-body-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: baseline;
+    margin: 0 0 8px 0;
+    font-size: 1em;
+}
+.agent-body-header .agent-body-name {
+    color: var(--neon-green, #00ff00);
+    font-weight: bold;
+}
+.agent-body-header .agent-body-id {
+    color: var(--text-dim, #aaa);
+    font-size: 0.9em;
+}
+.agent-body-header .agent-body-desc {
+    color: var(--text-main, #fff);
+    font-size: 0.85em;
+    flex: 1 1 100%;
+}
+
+.agent-body-section {
+    margin-bottom: 18px;
+}
+.agent-body-section > h4 {
+    margin: 0 0 6px 0;
+    color: var(--neon-green, #00ff00);
+    font-size: 0.9em;
+    font-weight: bold;
+    border-bottom: 1px solid #2a2a2a;
+    padding-bottom: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.agent-body-subtitle {
+    margin: 6px 0 2px 0;
+    color: var(--text-dim, #aaa);
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.agent-body-empty {
+    color: var(--text-dim, #aaa);
+    font-size: 0.95em;
+    margin: 0;
+}
+.agent-body-placeholder {
+    color: var(--text-dim, #aaa);
+    text-align: center;
+    padding: 40px 12px;
+}
+.agent-body-error {
+    color: #ff6a6a;
+    margin: 4px 0;
+}
+.agent-body-note {
+    color: #ffaa00;
+    margin: 2px 0 0 0;
+    font-size: 0.85em;
+}
+
+.agent-body-id {
+    color: var(--text-dim, #aaa);
+    font-size: 0.85em;
+}
+.agent-body-id strong {
+    color: var(--text-main, #fff);
+}
+
+.agent-body-rationale {
+    background: #0d0d0d;
+    border-left: 2px solid var(--neon-green, #00ff00);
+    padding: 6px 10px;
+    margin: 4px 0 8px 0;
+}
+
+/* Body tree: nested divs (not <ul>) so indentation is controlled by the
+   nested level itself. */
+.agent-body-tree,
+.agent-body-node {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.agent-body-node {
+    border-left: 2px solid #333;
+    border-radius: 0 4px 4px 0;
+    padding-left: 8px;
+    margin-bottom: 2px;
+}
+.agent-body-node > .agent-body-component {
+    color: var(--neon-green, #00ff00);
+}
+.agent-body-slot {
+    color: var(--text-dim, #aaa);
+    font-size: 0.85em;
+}
+.agent-body-subtree {
+    margin: 2px 0 2px 12px;
+    padding: 0;
+    border-left: 1px dashed #333;
+    padding-left: 6px;
+}
+
+/* New component recipes — the part of the design that would be new world data
+   if applied. */
+.agent-body-recipe {
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    background: #0d0d0d;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+.agent-body-recipe .agent-body-component {
+    font-size: 0.95em;
+}
+.agent-body-stat {
+    display: inline-block;
+    color: var(--text-main, #fff);
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 3px 8px;
+    margin: 2px 4px 2px 0;
+    font-size: 0.8em;
+}
+.agent-body-badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+
+.agent-body-pre {
+    background: #0d0d0d;
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 8px 10px;
+    overflow: auto;
+    white-space: pre;
+    margin: 0;
+    max-height: 260px;
+}
+.agent-body-details {
+    margin: 6px 0;
+}
+.agent-body-details summary {
+    color: var(--text-dim, #aaa);
+    cursor: pointer;
+    font-size: 0.85em;
+    padding: 4px 6px;
+    border-radius: 2px;
+    background: #0d0d0d;
+    border: 1px solid #2a2a2a;
+}
+.agent-body-details summary:hover {
+    color: var(--neon-green, #00ff00);
+}
+.agent-body-details[open] summary {
+    color: var(--neon-green, #00ff00);
+}
+.agent-body-details .agent-body-pre {
+    max-height: 480px;
+}

@@ -18,6 +18,10 @@ import { register as registerMaterialRoutes } from './materialRoutes.js';
 import { register as registerCraftingRoutes } from './craftingRoutes.js';
 import { register as registerKnowledgeRoutes } from './knowledgeRoutes.js';
 import { register as registerObjectInspectRoutes } from './objectInspectRoutes.js';
+// Feature A (Create Agent Body, dev tab): body-designer from a character card
+// (RP-1 prompt kind `agent-body-design` in AgentBodyController). Judgment-only: the
+// designer writes nothing to data/.
+import { register as registerAgentBodyRoutes } from './agentBodyRoutes.js';
 // Feature G (perception): room-level delta reads + agent "what happened to me"
 // summary. Read-only observer surface — worldStateController passed through to
 // the perception controller the facade owns (null-tolerant, 503 when absent).
@@ -63,6 +67,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerCraftingRoutes(router, { worldStateController });
 	registerKnowledgeRoutes(router, { worldStateController });
 	registerObjectInspectRoutes(router, { worldStateController });
+	registerAgentBodyRoutes(router, { worldStateController });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);
