@@ -201,6 +201,11 @@ class EffectTracker {
             const delta = (applied != null && Number.isFinite(applied) && Number.isFinite(baseline))
                 ? (applied - baseline)
                 : null;
+            // Only register when the effect's own contribution is a finite number. A
+            // non-finite post-apply read means we cannot compute a safe delta, and we
+            // cannot restore safely either — skip tracking rather than record an effect
+            // we could not undo (keeps _restore's restore-by-contribution contract).
+            if (delta == null) continue;
             this._effects[`${effectKey}::${compId}`] = {
                 baseline,
                 delta,
@@ -261,16 +266,14 @@ class EffectTracker {
     _restore(entry) {
         const compController = this._facade?.componentController ?? null;
         if (!compController) return;
-        if (typeof entry.delta === 'number') {
-            compController.updateComponentStatDelta(entry.componentId, entry.trait, entry.stat, -entry.delta, true);
-        } else if (entry.baseline != null) {
-            compController.updateComponentStat(entry.componentId, entry.trait, entry.stat, entry.baseline, true);
-        }
+        // delta is always a finite number here (afterApply only registers a record when it
+        // can compute one), so restoring by contribution is the only path — it commutes
+        // with any other live effect on the same stat and never fires the damage pipeline.
+        if (typeof entry.delta !== 'number') return;
+        compController.updateComponentStatDelta(entry.componentId, entry.trait, entry.stat, -entry.delta, true);
         Logger.info(
             `[EffectTracker] Effect ${entry.trait}.${entry.stat} on component ${entry.componentId} expired - ` +
-            (typeof entry.delta === 'number'
-                ? `removed ${entry.delta} from ${entry.trait}.${entry.stat}`
-                : `restored ${entry.trait}.${entry.stat} to ${entry.baseline}`)
+            `removed ${entry.delta} from ${entry.trait}.${entry.stat}`
         );
     }
 

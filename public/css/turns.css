@@ -1,7 +1,6 @@
 /**
  * turns.css — Turn system HUD (Feature A, spec §5).
- * Scope: everything under #turn-hud in the config-bar center slot, plus the
- * .turn-queued-badges that ActionManager/NavActionsPanel append to action rows.
+ * Scope: everything under #turn-hud in the config-bar center slot.
  * Follows the split architecture: one CSS file per feature (BUG-030/BUG-053).
  * Only uses the existing design tokens from base.css.
  */
@@ -181,22 +180,4 @@
 
 .turn-mode-btn:hover {
     background: rgba(255, 255, 255, 0.08);
-}
-
-/* =========================================================================
- * Queued badges on action rows (visual feedback: "this is enqueued")
- * ========================================================================= */
-
-.turn-queued-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    margin-left: 8px;
-    padding: 0 6px;
-    border-radius: 8px;
-    border: 1px solid var(--neon-green);
-    background: rgba(0, 255, 128, 0.08);
-    color: var(--neon-green);
-    font-size: 0.9em;
-    vertical-align: middle;
 }

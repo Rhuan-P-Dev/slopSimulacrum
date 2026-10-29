@@ -610,8 +610,12 @@ class ConsequenceDispatcher {
                     const effectTracker = this.worldStateController.effectTracker;
                     declaredDuration = consequence.expiresInRounds ?? (action?.expiresInRounds ?? null);
                     if (typeof declaredDuration === 'number' && Number.isFinite(declaredDuration) && declaredDuration > 0) {
+                        // The per-consequence index disambiguates two stat-mutating
+                        // consequences in the same action that hit the same trait.stat;
+                        // without it they would share a key and the second would silently
+                        // reset/refresh the first's bookkeeping.
                         const effectKey =
-                            `${actionName}::${consequence.type}::${effectiveParams.trait}::${effectiveParams.stat}`;
+                            `${actionName}::${consequence.type}::${effectiveParams.trait}::${effectiveParams.stat}::${consequences.indexOf(consequence)}`;
                         const components = effectTracker.resolveComponents(
                             targetResult.targetId,
                             consequence.target,

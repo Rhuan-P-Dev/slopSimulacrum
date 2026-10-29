@@ -211,7 +211,7 @@ export class ClientApp {
         // 13. Setup listeners
         this._setupListeners();
 
-        // 13b-13d. Guarded panel inits (turn HUD, room chat, events) —
+        // 13b-13c. Guarded panel inits (turn HUD, room chat) —
         // implementation: AppBoot.js (initGuardedPanels); order and guards preserved.
         initGuardedPanels(this);
 
@@ -779,8 +779,6 @@ export class ClientApp {
             // Feature D: keep the chat panel scoped to the focused room
             // (the active droid's room). No-op when the room is unchanged.
             this.roomChat.setFocusedRoom(droid?.location || null);
-            // Refresh events panel if open (stays fresh on every world-state-update).
-            if (this.events?.isVisible()) this.events.refresh();
 
             // Refresh the crafting panel if open — the world-state-update
             // broadcast is the authoritative inventory update after a craft

@@ -550,10 +550,24 @@ class ActionController {
             return { success: true };
         }
 
-        // Entity-targeted range check (e.g. punch, cut): the client sent a
-        // target entity ID.
-        if (params.targetEntityId) {
-            const rangeCheck = this.rangeValidator.checkGrabRange(entityId, params.targetEntityId, action.range);
+        // Entity-targeted range check (e.g. punch, cut, grab). The client may send a
+        // target entity ID, or only a target component ID (component-targeted attacks
+        // such as grab send targetComponentId, not targetEntityId). Resolve the target
+        // entity from the component so the gate is enforced against the target entity's
+        // position — the client cannot skip the range by omitting targetEntityId
+        // (mirrors ConsequenceDispatcher._actionTarget's component -> entity resolution).
+        let targetEntityId = (typeof params.targetEntityId === 'string' && params.targetEntityId)
+            ? params.targetEntityId
+            : null;
+        if (!targetEntityId && typeof params.targetComponentId === 'string' && params.targetComponentId) {
+            try {
+                targetEntityId = this.worldStateController?.getComponent?.(params.targetComponentId)?.entityId ?? null;
+            } catch (_) {
+                targetEntityId = null; // an unresolvable target degrades to no entity gate (matches _actionTarget)
+            }
+        }
+        if (targetEntityId) {
+            const rangeCheck = this.rangeValidator.checkGrabRange(entityId, targetEntityId, action.range);
             if (!rangeCheck.success) {
                 const failureResults = this.consequenceDispatcher.executeFailure(actionName, entityId);
                 return { success: false, error: rangeCheck.error, failureResults };

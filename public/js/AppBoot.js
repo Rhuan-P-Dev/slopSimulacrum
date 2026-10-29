@@ -17,7 +17,7 @@
 import ClientLogger from '../utils/ClientLogger.js';
 
 /**
- * Initializes the optional boot-time panels (turn HUD, room chat, events),
+ * Initializes the optional boot-time panels (turn HUD, room chat),
  * each guarded so a missing slot / DOM issue can never break app startup.
  * @param {import('./App.js').ClientApp} app - the app instance (constructor, after all collaborators)
  */

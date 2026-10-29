@@ -138,4 +138,53 @@ describe('Feature: grab action drains the target move (contract, full round-trip
             'a failed grab must not fire its consequence (no move drained)'
         ).toBe(beforeVictimMove);
     });
+
+    it('rejects a grab sent with ONLY targetComponentId when the target is out of range (derived range gate)', () => {
+        const world = buildWorld();
+        const roomId = world.roomsController.getUidByLogicalId('start_room');
+        // Far apart: outside grab's range (50). The client sends ONLY the component id
+        // (no targetEntityId) — the case where the range gate must DERIVE the target
+        // entity from the component to enforce the range server-side. Without that
+        // derivation the gate is skipped and the consequence would wrongly fire.
+        const { attackerId, victimId } = spawnPair(world, roomId, 300);
+        const victimBall = ballOf(world, victimId);
+        const beforeVictimMove = moveOf(world, victimBall.id);
+        expect(beforeVictimMove, 'the target should start with a positive move stat').toBeGreaterThan(0);
+
+        const result = world.actionController.executeAction('grab', attackerId, {
+            // No targetEntityId on purpose: the gate must derive it from targetComponentId.
+            targetComponentId: victimBall.id
+        });
+        expect(
+            result.success,
+            'a component-id-only grab out of range must fail (the range gate derived the target entity)'
+        ).toBe(false);
+        expect(
+            moveOf(world, victimBall.id),
+            'a failed grab must not fire its consequence (no move drained)'
+        ).toBe(beforeVictimMove);
+    });
+
+    it('applies a grab sent with ONLY targetComponentId when the target is in range', () => {
+        const world = buildWorld();
+        const roomId = world.roomsController.getUidByLogicalId('start_room');
+        // In range (40 < 50). Proves the component-id-only path still applies the
+        // consequence, so the out-of-range rejection above is not passing vacuously.
+        const { attackerId, victimId } = spawnPair(world, roomId, 40);
+        const victimBall = ballOf(world, victimId);
+        const beforeVictimMove = moveOf(world, victimBall.id);
+        expect(beforeVictimMove, 'the target should start with a positive move stat').toBeGreaterThan(0);
+
+        const result = world.actionController.executeAction('grab', attackerId, {
+            targetComponentId: victimBall.id
+        });
+        expect(
+            result.success,
+            `a component-id-only grab in range should succeed: ${JSON.stringify(result.error)}`
+        ).toBe(true);
+        expect(
+            moveOf(world, victimBall.id),
+            'the target move should drop by exactly 5'
+        ).toBe(beforeVictimMove - 5);
+    });
 });
