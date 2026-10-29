@@ -23,6 +23,9 @@
  *   - RESOURCE stat, seeded and charged by an organ: `energy` (the coal
  *     generator's battery — charge-only, no material source, single organ
  *     source);
+ *   - WHOLE-ENTITY stat, seeded per blueprint (no organ, no material):
+ *     `pleasure` (the human droids' 0–100 meter — starts at 0 and never
+ *     drains; only world logic moves it).
  *   - named-trait FLAGS (gate and mark, never patch numbers): `flammable`,
  *     `conductive`, `corrosive`;
  *   - transient CONDITIONS (stored per instance): `burning`, `wet`, `corroded`;
@@ -53,6 +56,10 @@
  * The retired `Spatial` group is gone — a component's positioning offsets moved
  * out of the stat contract into recipe form data (see the recipe model), so
  * position is no longer a stat.
+ *
+ * The `Pleasure` group namespaces the whole-entity `pleasure` meter (seeded
+ * per blueprint in data/entities/entity_attributes.json) — like
+ * `Physical.energy`, it lives on the entity, never on a component.
  * @type {Object.<string, string>}
  */
 export const TRAIT_GROUPS = {
@@ -60,6 +67,7 @@ export const TRAIT_GROUPS = {
     MOVEMENT: 'Movement',
     MANIPULATION: 'Manipulation',
     MIND: 'Mind',
+    PLEASURE: 'Pleasure',
 };
 
 /**
@@ -73,6 +81,9 @@ export const TRAIT_GROUPS = {
  * Scale: 0–100 for every material property and every derived or organ-granted
  * stat (the existing convention across data files), EXCEPT `existence`, which
  * is a 0–1 ratio of remaining matter — a ratio, not a tuned quantity.
+ *
+ * `energy` (RESOURCE) and `pleasure` (WHOLE-ENTITY) are seeded per blueprint
+ * rather than derived — see the header's model list; both use the 0–100 scale.
  * @type {Object.<string, string>}
  */
 export const STAT_NAMES = {
@@ -91,6 +102,7 @@ export const STAT_NAMES = {
     FINE_CONTROLS: 'fine_controls',
     THINK_LEVEL: 'think_level',
     ENERGY: 'energy',
+    PLEASURE: 'pleasure',
 };
 
 /**
