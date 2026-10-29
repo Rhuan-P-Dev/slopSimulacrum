@@ -10,8 +10,8 @@
  *
  * Each event keeps its lean shape ({ tick, action, targetId, message, level,
  * ts }) and gains an additive `context` object describing the requesting
- * entity's current room (spec "better text & vision"): room identity,
- * description, size, the entity's position, other same-room entities with
+ * entity's current room (spec "better text & vision"): room identity, size,
+ * the entity's position, other same-room entities with
  * positions, dropped items with positions, and resolved exits. `context` is
  * null when no entity/room can be resolved, so the endpoint stays backward
  * compatible with consumers that ignore the field.
@@ -85,7 +85,6 @@ function buildEventContext(worldStateController, entityId) {
     return {
         roomId: roomUid,
         roomName: room.name || roomUid,
-        roomDescription: room.description || '',
         roomWidth: room.width,
         roomHeight: room.height,
         playerPosition: (entity.spatial?.x != null && entity.spatial?.y != null)

@@ -41,7 +41,6 @@ function makeWorldStubWithRoom(fallbackEvents = []) {
         'room-1': {
             id: 'room-1',
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall.',
             width: 300,
             height: 200,
             x: 0,
@@ -51,7 +50,6 @@ function makeWorldStubWithRoom(fallbackEvents = []) {
         'room-2': {
             id: 'room-2',
             name: 'The Deep Vault',
-            description: 'Cold and metallic.',
             width: 320,
             height: 220,
             x: 900,
@@ -228,7 +226,6 @@ describe('worldEventRoutes', () => {
         expect(ctx).not.toBeNull();
         expect(ctx.roomId).toBe('room-1');
         expect(ctx.roomName).toBe('The Entrance Hall');
-        expect(ctx.roomDescription).toBe('A dimly lit hall.');
         expect(ctx.roomWidth).toBe(300);
         expect(ctx.roomHeight).toBe(200);
         expect(ctx.playerPosition).toEqual({ x: 100, y: 100 });
@@ -305,7 +302,6 @@ describe('worldEventRoutes', () => {
             'room-1': {
                 id: 'room-1',
                 name: 'The Entrance Hall',
-                description: 'A dimly lit hall.',
                 width: 300,
                 height: 200,
                 x: 0,
@@ -318,7 +314,6 @@ describe('worldEventRoutes', () => {
             'room-2': {
                 id: 'room-2',
                 name: 'The Deep Vault',
-                description: 'Cold and metallic.',
                 width: 320,
                 height: 220,
                 x: 900,

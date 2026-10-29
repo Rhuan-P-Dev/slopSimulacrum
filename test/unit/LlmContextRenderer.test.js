@@ -88,7 +88,6 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         'room-1': {
             id: 'room-1',
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall.',
             width: 300,
             height: 200,
             x: 0,
@@ -98,7 +97,6 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         'room-2': {
             id: 'room-2',
             name: 'The Deep Vault',
-            description: 'Cold and metallic.',
             width: 320,
             height: 220,
             x: 900,
@@ -221,7 +219,7 @@ describe('LlmContextController (context renderer)', () => {
         const { text, data } = controller.buildContext('ent-self');
         expect(text).toContain('Name: Bolt the Merchant');
         // Enriched room block (spec: better text & vision).
-        expect(text).toContain('You are in: The Entrance Hall — A dimly lit hall.');
+        expect(text).toContain('You are in: The Entrance Hall');
         expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
         expect(text).toContain('Exits: right_door → The Deep Vault');
         // Body: every component of the droid in droid order (coreBall, head,
@@ -415,16 +413,18 @@ describe('LlmContextController (context renderer)', () => {
         });
     });
 
-    it('exposes the enriched room detail in data.room (name, size, description, resolved exits)', () => {
+    it('exposes the enriched room detail in data.room (name, size, environment, resolved exits)', () => {
         const { data } = controller.buildContext('ent-self');
         expect(data.room).toEqual({
             id: 'room-1',
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall.',
             width: 300,
             height: 200,
             x: 0,
             y: 0,
+            surface: null,
+            acoustic: null,
+            lightSource: null,
             exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }],
             atmosphere: null
         });
@@ -441,7 +441,6 @@ describe('LlmContextController (context renderer)', () => {
                 'room-1': {
                     id: 'room-1',
                     name: 'The Entrance Hall',
-                    description: 'A dimly lit hall.',
                     width: 300,
                     height: 200,
                     x: 0,
@@ -450,14 +449,18 @@ describe('LlmContextController (context renderer)', () => {
                     atmosphere: {
                         temperature: 18.5,
                         lightLevel: 'dim',
+                        lightColor: 'warm',
                         smell: 'dust and old oil',
-                        ambientSound: 'distant dripping water'
-                    }
+                        ambientSound: 'distant dripping water',
+                        humidity: 60
+                    },
+                    surface: 'stone',
+                    acoustic: 'echoey',
+                    lightSource: 'flickering lanterns'
                 },
                 'room-2': {
                     id: 'room-2',
                     name: 'The Deep Vault',
-                    description: 'Cold and metallic.',
                     width: 320,
                     height: 220,
                     x: 900,
@@ -471,14 +474,20 @@ describe('LlmContextController (context renderer)', () => {
 
         const { text, data } = ctrl.buildContext('ent-self');
         expect(text).toContain(
-            'Atmosphere: light=dim, temperature=18.5, smell=dust and old oil, sound=distant dripping water'
+            'Atmosphere: light=dim, color=warm, temperature=18.5, humidity=60%, smell=dust and old oil, sound=distant dripping water'
         );
+        expect(text).toContain('Surface: stone | Acoustic: echoey | Light source: flickering lanterns');
         expect(data.room.atmosphere).toEqual({
             temperature: 18.5,
             lightLevel: 'dim',
+            lightColor: 'warm',
             smell: 'dust and old oil',
-            ambientSound: 'distant dripping water'
+            ambientSound: 'distant dripping water',
+            humidity: 60
         });
+        expect(data.room.surface).toBe('stone');
+        expect(data.room.acoustic).toBe('echoey');
+        expect(data.room.lightSource).toBe('flickering lanterns');
     });
 
     it('omits the Atmosphere line when the room has none (default world)', () => {
@@ -504,7 +513,6 @@ describe('LlmContextController (context renderer)', () => {
                 'room-1': {
                     id: 'room-1',
                     name: 'The Entrance Hall',
-                    description: 'A dimly lit hall.',
                     width: 300,
                     height: 200,
                     x: 0,
@@ -514,7 +522,6 @@ describe('LlmContextController (context renderer)', () => {
                 'room-2': {
                     id: 'room-2',
                     name: 'The Deep Vault',
-                    description: 'Cold and metallic.',
                     width: 320,
                     height: 220,
                     x: 900,

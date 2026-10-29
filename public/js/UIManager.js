@@ -85,9 +85,10 @@ export class UIManager {
 
         const room = state.rooms[droid.location];
 
-        // Update Text Info
+        // Update Text Info (rooms no longer carry a free-form description; the
+        // header slot is kept clear — the empty-state message reuses it).
         this.elements.roomName.textContent = room.name;
-        this.elements.roomDesc.textContent = room.description;
+        this.elements.roomDesc.textContent = '';
         this.elements.roomCoords.textContent = `Room Size: ${room.width}x${room.height}`;
 
         // Render map layers

@@ -104,12 +104,11 @@ describe('buildRoomProse (narrative prose)', () => {
         expect(text).not.toContain(RAW_ENT_ID);
     });
 
-    it('names the room with its full context (name, size, map position, description)', () => {
+    it('names the room with its size and map position (no description, no atmosphere)', () => {
         const text = buildRoomProse({
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
-                description: 'a stone hall with a north door',
                 width: 20,
                 height: 12,
                 x: 4,
@@ -120,21 +119,20 @@ describe('buildRoomProse (narrative prose)', () => {
             ],
         });
         expect(text).toBe(
-            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), and a stone hall with a north door), ' +
+            'In The Entrance Hall (20 x 12 and map position (4.00, 7.00)), ' +
                 'Test Droid threw a punch.'
         );
         expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
     });
 
     // Atmosphere (optional static room block, validated in RoomsController).
-    // Each present field becomes one lower-case clause after the description;
-    // absent fields (and a missing block) are simply dropped.
+    // Each present field becomes one lower-case clause; absent fields (and a
+    // missing block) are simply dropped.
     it('names the room with atmosphere when supplied (delta path)', () => {
         const text = buildRoomProse({
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
-                description: 'a stone hall with a north door',
                 width: 20,
                 height: 12,
                 x: 4,
@@ -142,8 +140,10 @@ describe('buildRoomProse (narrative prose)', () => {
                 atmosphere: {
                     temperature: 18.5,
                     lightLevel: 'dim',
+                    lightColor: 'warm',
                     smell: 'dust and old oil',
                     ambientSound: 'distant dripping water',
+                    humidity: 60,
                 },
             },
             entries: [
@@ -151,8 +151,9 @@ describe('buildRoomProse (narrative prose)', () => {
             ],
         });
         expect(text).toBe(
-            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), a stone hall with a north door, ' +
-                'a temperature of 18.5, dim light, the smell of dust and old oil, and the sound of distant dripping water), ' +
+            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), ' +
+                'a temperature of 18.5, 60% humidity, dim warm light, the smell of dust and old oil, ' +
+                'and the sound of distant dripping water), ' +
                 'Test Droid threw a punch.'
         );
         expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
@@ -163,7 +164,6 @@ describe('buildRoomProse (narrative prose)', () => {
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
-                description: 'a stone hall with a north door',
                 width: 20,
                 height: 12,
                 x: 4,
@@ -171,8 +171,10 @@ describe('buildRoomProse (narrative prose)', () => {
                 atmosphere: {
                     temperature: 18.5,
                     lightLevel: 'dim',
+                    lightColor: 'warm',
                     smell: 'dust and old oil',
                     ambientSound: 'distant dripping water',
+                    humidity: 60,
                 },
             },
             entries: [
@@ -185,7 +187,7 @@ describe('buildRoomProse (narrative prose)', () => {
         });
         expect(text).toBe(
             'Initial observation of The Entrance Hall (20 x 12, map position (4.00, 7.00), ' +
-                'a stone hall with a north door, a temperature of 18.5, dim light, the smell of dust and old oil, ' +
+                'a temperature of 18.5, 60% humidity, dim warm light, the smell of dust and old oil, ' +
                 'and the sound of distant dripping water): Test Droid is in the room.'
         );
     });
@@ -195,7 +197,6 @@ describe('buildRoomProse (narrative prose)', () => {
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
-                description: 'a stone hall with a north door',
                 width: 20,
                 height: 12,
                 x: 4,
@@ -207,7 +208,7 @@ describe('buildRoomProse (narrative prose)', () => {
             ],
         });
         expect(text).toBe(
-            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), a stone hall with a north door, and darkness), ' +
+            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), and darkness), ' +
                 'Test Droid threw a punch.'
         );
         expect(text).not.toContain('temperature of');

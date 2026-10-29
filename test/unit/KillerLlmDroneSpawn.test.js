@@ -141,7 +141,6 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
                     return {
                         start_room: {
                             name: 'Start Room',
-                            description: 'A test room.',
                             x: 0,
                             y: 0,
                             width: 100,

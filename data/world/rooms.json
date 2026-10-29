@@ -1,7 +1,6 @@
 {
   "start_room": {
     "name": "The Entrance Hall",
-    "description": "A dimly lit hall. To your right, there is an open corridor.",
     "connections": {
       "right_door": {
         "target": "right_room"
@@ -14,13 +13,17 @@
     "atmosphere": {
       "temperature": 18.5,
       "lightLevel": "dim",
+      "lightColor": "warm",
       "smell": "dust and old oil",
-      "ambientSound": "distant dripping water"
-    }
+      "ambientSound": "distant dripping water",
+      "humidity": 55
+    },
+    "surface": "stone",
+    "acoustic": "echoey",
+    "lightSource": "flickering lanterns"
   },
   "right_room": {
     "name": "The Eastern Corridor",
-    "description": "A narrow corridor with flickering lights. To your left is the Entrance Hall, and to your right, another door leads deeper into the complex.",
     "connections": {
       "left_door": {
         "target": "start_room"
@@ -36,13 +39,17 @@
     "atmosphere": {
       "temperature": 15,
       "lightLevel": "flickering",
+      "lightColor": "cold",
       "smell": "hot metal and ozone",
-      "ambientSound": "a low electric buzz"
-    }
+      "ambientSound": "a low electric buzz",
+      "humidity": 40
+    },
+    "surface": "metal grating",
+    "acoustic": "hollow",
+    "lightSource": "flickering bulbs"
   },
   "far_right_room": {
     "name": "The Deep Vault",
-    "description": "A cold, metallic chamber echoing with the hum of ancient machinery. To your left is the Eastern Corridor.",
     "connections": {
       "left_door": {
         "target": "right_room"
@@ -56,7 +63,11 @@
       "temperature": 8,
       "lightLevel": "dark",
       "smell": "rust and stagnant water",
-      "ambientSound": "the hum of ancient machinery"
-    }
+      "ambientSound": "the hum of ancient machinery",
+      "humidity": 30
+    },
+    "surface": "metal",
+    "acoustic": "resonant",
+    "lightSource": "faint machine glow"
   }
 }

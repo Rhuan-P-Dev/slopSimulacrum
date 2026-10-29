@@ -272,28 +272,33 @@ function partList(rows) {
 
 /**
  * A lower-case light clause for the room suffix: "dim light" / "bright light"
- * / "flickering light" / "darkness". Null (so the caller drops the clause)
- * when the level is missing or empty. "dark" maps to "darkness" (a bare
- * adjective would not fit the "<level> light" noun-phrase pattern); all other
- * levels become "<level> light".
+ * / "flickering light" / "darkness", optionally coloured when the room carries
+ * a lightColor: "dim warm light" / "flickering cold light". Null (so the caller
+ * drops the clause) when the level is missing or empty. "dark" maps to
+ * "darkness" (a bare adjective would not fit the "<level> light" noun-phrase
+ * pattern, and a colour on no light is meaningless); all other levels become
+ * "<level> [colour] light".
  * @param {*} level
+ * @param {*} color
  * @returns {string|null}
  */
-function lightLevelPhrase(level) {
+function lightLevelPhrase(level, color) {
     const lv = level && typeof level === 'string' ? level.trim() : '';
     if (!lv) return null;
-    return lv === 'dark' ? 'darkness' : `${lv} light`;
+    const c = color && typeof color === 'string' ? color.trim() : '';
+    if (lv === 'dark') return 'darkness';
+    return c ? `${lv} ${c} light` : `${lv} light`;
 }
 
 /**
  * Room display name plus the context suffix used by the first sentence:
- * " (20 x 12, map position (4.00, 7.00), a temperature of 18.5, dim light,
- * and a stone hall with a north door)". Each part is a lower-case property
- * clause joined by joinChunk. Atmosphere is an optional static block (validated
- * in RoomsController) rendered after the description, each present field
- * becoming one clause. Empty string when no room object (or none of
- * name/width/height/x/y/description/atmosphere) is supplied. Deterministic; raw
- * id-valued fields are simply skipped.
+ * " (20 x 12, map position (4.00, 7.00), a temperature of 18.5, 55% humidity,
+ * dim warm light, the smell of dust and old oil, and the sound of distant
+ * dripping water)". Each part is a lower-case property clause joined by
+ * joinChunk. Atmosphere is an optional static block (validated in
+ * RoomsController) where each present field becomes one clause. Empty string
+ * when no room object (or none of name/width/height/x/y/atmosphere) is
+ * supplied. Deterministic; raw id-valued fields are simply skipped.
  * @param {string|null} roomName
  * @param {Object|null} room
  * @returns {{ rn: string, suffix: string }}
@@ -311,14 +316,14 @@ function roomContext(roomName, room) {
     const rx = finiteNum(r.x);
     const ry = finiteNum(r.y);
     if (rx != null && ry != null) parts.push(`map position ${formatPosition(rx, ry)}`);
-    const desc = typeof r.description === 'string' ? r.description.trim() : '';
-    if (desc) parts.push(desc);
     // Atmosphere (optional static room block): each present field becomes one
-    // lower-case property clause, appended after the description.
+    // lower-case property clause.
     const a = r.atmosphere && typeof r.atmosphere === 'object' ? r.atmosphere : {};
     const t = finiteNum(a.temperature);
     if (t != null) parts.push(`a temperature of ${statValue(t)}`);
-    const level = lightLevelPhrase(a.lightLevel);
+    const hum = finiteNum(a.humidity);
+    if (hum != null) parts.push(`${hum}% humidity`);
+    const level = lightLevelPhrase(a.lightLevel, a.lightColor);
     if (level) parts.push(level);
     const smell = typeof a.smell === 'string' ? a.smell.trim() : '';
     if (smell) parts.push(`the smell of ${smell}`);
@@ -693,12 +698,12 @@ function baselineText(entry, roomCtx) {
  * One room, as one paragraph: its delta entries (oldest → newest) turned into
  * flowing narrative sentences. The room is named once, at the front of the
  * first sentence, together with its full context (name, width x height, map
- * position, description — whatever the room record supplies); later sentences
+ * position, atmosphere — whatever the room record supplies); later sentences
  * continue without repeating it.
  * @param {{ entries: Array|null, roomName: string|null, room: Object|null }} ctx
  *   - entries: the room's delta entry stream (newest last)
  *   - roomName: the room's display name for the paragraph
- *   - room: the full room record (name, description, width/height, map x/y);
+ *   - room: the full room record (name, width/height, map x/y, atmosphere);
  *     every field is optional
  * @returns {string} — '' when the room had nothing worth saying
  */
