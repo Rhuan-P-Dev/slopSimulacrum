@@ -22,7 +22,7 @@
 //
 // RENDERED SECTIONS (top → bottom):
 //   1. Header row: server tick (`state.turns.currentTick`).
-//   2. Room: name · position · size · description.
+//   2. Room: name · position · size.
 //   3. What Changed (perception, async): the room's recent delta entries —
 //      "what changed since I last looked" (Feature G). Fetched from
 //      GET /perception/:roomId into a dedicated sub-container; entity movers
@@ -671,7 +671,6 @@ export class InTextPanel {
                 room
                     ? [
                         `<p class="in-text-row"><strong>${this.esc(room.name ?? '?')}</strong> · ${this.formatPosition(room.x, room.y)} · ${Number.isFinite(room.width) ? room.width : '?'} × ${Number.isFinite(room.height) ? room.height : '?'}</p>`,
-                        ...(room.description ? [`<p class="in-text-desc">${this.esc(room.description)}</p>`] : []),
                     ]
                     : ['<p class="in-text-none">No room data.</p>'],
             ])

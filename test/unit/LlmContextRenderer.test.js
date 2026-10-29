@@ -88,7 +88,6 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         'room-1': {
             id: 'room-1',
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall.',
             width: 300,
             height: 200,
             x: 0,
@@ -98,7 +97,6 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         'room-2': {
             id: 'room-2',
             name: 'The Deep Vault',
-            description: 'Cold and metallic.',
             width: 320,
             height: 220,
             x: 900,
@@ -221,7 +219,7 @@ describe('LlmContextController (context renderer)', () => {
         const { text, data } = controller.buildContext('ent-self');
         expect(text).toContain('Name: Bolt the Merchant');
         // Enriched room block (spec: better text & vision).
-        expect(text).toContain('You are in: The Entrance Hall — A dimly lit hall.');
+        expect(text).toContain('You are in: The Entrance Hall');
         expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
         expect(text).toContain('Exits: right_door → The Deep Vault');
         // Body: every component of the droid in droid order (coreBall, head,
@@ -415,18 +413,160 @@ describe('LlmContextController (context renderer)', () => {
         });
     });
 
-    it('exposes the enriched room detail in data.room (name, size, description, resolved exits)', () => {
+    it('exposes the enriched room detail in data.room (name, size, environment, resolved exits)', () => {
         const { data } = controller.buildContext('ent-self');
         expect(data.room).toEqual({
             id: 'room-1',
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall.',
             width: 300,
             height: 200,
             x: 0,
             y: 0,
-            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }]
+            surface: null,
+            acoustic: null,
+            lightSource: null,
+            ceiling: null,
+            condition: null,
+            power: null,
+            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }],
+            atmosphere: null
         });
+    });
+
+    // Atmosphere (optional static room block, validated in RoomsController).
+    // Rendered as a key=value line ("Atmosphere: light=dim, temperature=18.5, ...")
+    // and mirrored in data.room. The default world has no atmosphere, so the
+    // line is absent and data.room.atmosphere is null (the "exposes the enriched
+    // room detail" test above pins the null case).
+    it('renders an Atmosphere line (key=value style) and mirrors it in data.room when the room carries one', () => {
+        const atmoWorld = makeWorld({
+            getRooms: () => ({
+                'room-1': {
+                    id: 'room-1',
+                    name: 'The Entrance Hall',
+                    width: 300,
+                    height: 200,
+                    x: 0,
+                    y: 0,
+                    connections: { right_door: { target: 'room-2' } },
+                    atmosphere: {
+                        temperature: 18.5,
+                        lightLevel: 'dim',
+                        lightColor: 'warm',
+                        smell: 'dust and old oil',
+                        ambientSound: 'distant dripping water',
+                        humidity: 60,
+                        airQuality: 'stale',
+                        fog: 'hazy'
+                    },
+                    surface: 'stone',
+                    acoustic: 'echoey',
+                    lightSource: 'flickering lanterns',
+                    ceiling: 'high',
+                    condition: 'worn',
+                    power: 'flickering'
+                },
+                'room-2': {
+                    id: 'room-2',
+                    name: 'The Deep Vault',
+                    width: 320,
+                    height: 220,
+                    x: 900,
+                    y: 250,
+                    connections: { left_door: { target: 'room-1' } }
+                }
+            })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(atmoWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        expect(text).toContain(
+            'Atmosphere: light=dim, color=warm, temperature=18.5, humidity=60%, air=stale, fog=hazy, smell=dust and old oil, sound=distant dripping water'
+        );
+        expect(text).toContain('Surface: stone | Acoustic: echoey | Light source: flickering lanterns | Ceiling: high | Condition: worn | Power: flickering');
+        expect(data.room.atmosphere).toEqual({
+            temperature: 18.5,
+            lightLevel: 'dim',
+            lightColor: 'warm',
+            smell: 'dust and old oil',
+            ambientSound: 'distant dripping water',
+            humidity: 60,
+            airQuality: 'stale',
+            fog: 'hazy'
+        });
+        expect(data.room.surface).toBe('stone');
+        expect(data.room.acoustic).toBe('echoey');
+        expect(data.room.lightSource).toBe('flickering lanterns');
+        expect(data.room.ceiling).toBe('high');
+        expect(data.room.condition).toBe('worn');
+        expect(data.room.power).toBe('flickering');
+    });
+
+    it('renders only the present fields (mixed presence) for both Atmosphere and env lines', () => {
+        const mixedWorld = makeWorld({
+            getRooms: () => ({
+                'room-1': {
+                    id: 'room-1',
+                    name: 'The Entrance Hall',
+                    width: 300,
+                    height: 200,
+                    x: 0,
+                    y: 0,
+                    connections: { right_door: { target: 'room-2' } },
+                    atmosphere: {
+                        lightLevel: 'dim',
+                        temperature: 18.5,
+                        airQuality: 'stale'
+                    },
+                    surface: 'stone',
+                    power: 'dead'
+                },
+                'room-2': {
+                    id: 'room-2',
+                    name: 'The Deep Vault',
+                    width: 320,
+                    height: 220,
+                    x: 900,
+                    y: 250,
+                    connections: { left_door: { target: 'room-1' } }
+                }
+            })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(mixedWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        // Only light/temperature/air present -> color, humidity, fog, smell, sound omitted.
+        expect(text).toContain('Atmosphere: light=dim, temperature=18.5, air=stale');
+        // Only surface/power present -> acoustic, lightSource, ceiling, condition omitted.
+        expect(text).toContain('Surface: stone | Power: dead');
+        // No absent field may leak into either line.
+        expect(text).not.toContain('color=');
+        expect(text).not.toContain('humidity=');
+        expect(text).not.toContain('fog=');
+        expect(text).not.toContain('smell=');
+        expect(text).not.toContain('sound=');
+        expect(text).not.toContain('Acoustic:');
+        expect(text).not.toContain('Light source:');
+        expect(text).not.toContain('Ceiling:');
+        expect(text).not.toContain('Condition:');
+        expect(data.room.atmosphere).toEqual({
+            lightLevel: 'dim',
+            temperature: 18.5,
+            airQuality: 'stale'
+        });
+        expect(data.room.surface).toBe('stone');
+        expect(data.room.power).toBe('dead');
+        expect(data.room.acoustic).toBeNull();
+        expect(data.room.lightSource).toBeNull();
+        expect(data.room.ceiling).toBeNull();
+        expect(data.room.condition).toBeNull();
+    });
+
+    it('omits the Atmosphere line when the room has none (default world)', () => {
+        const { text } = controller.buildContext('ent-self');
+        expect(text).not.toContain('Atmosphere:');
     });
 
     // L4-1: empty dropped-items case → no "Dropped items:" line, data.droppedItems === []
@@ -447,7 +587,6 @@ describe('LlmContextController (context renderer)', () => {
                 'room-1': {
                     id: 'room-1',
                     name: 'The Entrance Hall',
-                    description: 'A dimly lit hall.',
                     width: 300,
                     height: 200,
                     x: 0,
@@ -457,7 +596,6 @@ describe('LlmContextController (context renderer)', () => {
                 'room-2': {
                     id: 'room-2',
                     name: 'The Deep Vault',
-                    description: 'Cold and metallic.',
                     width: 320,
                     height: 220,
                     x: 900,

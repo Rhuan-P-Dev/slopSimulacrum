@@ -32,6 +32,7 @@ import { CraftingPanel } from './CraftingPanel.js';
 import { KnowledgePanel } from './KnowledgePanel.js';
 import ObjectViewer from './ObjectViewer.js';
 import { AgentViewPanel } from './AgentViewPanel.js';
+import { RoundProsePanel } from './RoundProsePanel.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -113,6 +114,9 @@ export class ClientApp {
         // config, system prompt, tools, sectioned context, and last-round
         // transcript, fetched live from GET /llm/agent/:entityId.
         this.agentView = new AgentViewPanel({ worldStateManager: this.worldState });
+        // Round Prose: dev inspector — reads a round's perception prose on open
+        // and on refresh (GET /perception/round/:n); pre-filled with the live round.
+        this.roundProse = new RoundProsePanel({ worldStateManager: this.worldState });
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -690,6 +694,9 @@ export class ClientApp {
             // Agent View (no numeric shortcut): dev LLM inspector — fetches live
             // on open and auto-refreshes while open.
             this.overlayManager.register('agent-view', this.agentView, 'btn-agent-view', null);
+            // Round Prose (no numeric shortcut): dev inspector — fetches live on open,
+            // on interaction, and via the live-round refresh hook below.
+            this.overlayManager.register('round-prose', this.roundProse, 'btn-round-prose', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle
@@ -794,6 +801,11 @@ export class ClientApp {
                     .then((payload) => this.objectViewer.refresh(payload))
                     .catch(() => {});
             }
+
+            // Live-refresh the Round Prose inspector if open — the live round's
+            // prose grows each tick; a settled round is unchanged so it is cheap
+            // to refetch.
+            if (this.roundProse?.isVisible()) this.roundProse.refresh();
 
             // Update the visual world view
             this.ui.updateWorldView(

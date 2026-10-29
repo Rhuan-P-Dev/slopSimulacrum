@@ -362,12 +362,13 @@ class LlmContextController {
     }
 
     /**
-     * Room data for the "You are in" block: identity, description, size and
-     * resolved exits. Reads the room from the UID-keyed rooms map supplied by
-     * the caller (computed once in buildContext).
+     * Room data for the "You are in" block: identity, environment (surface,
+     * acoustic, light source, ceiling, condition, power), size and resolved
+     * exits. Reads the room from the
+     * UID-keyed rooms map supplied by the caller (computed once in buildContext).
      * @param {string|null} roomUid - Room UID (entity.location).
      * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
-     * @returns {{ id: string, name: string, description: string, width: number, height: number, x: number, y: number, exits: Array<{ door: string, targetRoomName: string }> }|null}
+     * @returns {{ id: string, name: string, width: number, height: number, x: number, y: number, surface: string|null, acoustic: string|null, lightSource: string|null, ceiling: string|null, condition: string|null, power: string|null, exits: Array<{ door: string, targetRoomName: string }>, atmosphere: { temperature: number|null, lightLevel: string|null, lightColor: string|null, smell: string|null, ambientSound: string|null, humidity: number|null, airQuality: string|null, fog: string|null }|null }|null}
      *   Null when the room cannot be resolved (degrade gracefully).
      * @private
      */
@@ -380,12 +381,18 @@ class LlmContextController {
         return {
             id: room.id,
             name: room.name || roomUid,
-            description: room.description || '',
             width: room.width,
             height: room.height,
             x: room.x,
             y: room.y,
-            exits
+            surface: room.surface || null,
+            acoustic: room.acoustic || null,
+            lightSource: room.lightSource || null,
+            ceiling: room.ceiling || null,
+            condition: room.condition || null,
+            power: room.power || null,
+            exits,
+            atmosphere: room.atmosphere || null
         };
     }
 
@@ -935,11 +942,32 @@ class LlmContextController {
         lines.push('=== YOUR STATE ===');
         lines.push(`Name: ${self.name}`);
         if (roomData) {
-            lines.push(`You are in: ${roomData.name} — ${roomData.description || ''}`);
+            lines.push(`You are in: ${roomData.name}`);
             const pos = (entity.spatial?.x != null && entity.spatial?.y != null)
                 ? `Your position: (${Math.round(entity.spatial.x)}, ${Math.round(entity.spatial.y)})`
                 : '';
             lines.push(`Room size: ${roomData.width} x ${roomData.height}${pos ? ` | ${pos}` : ''}`);
+            const atmo = roomData.atmosphere;
+            if (atmo) {
+                const atmoParts = [];
+                if (atmo.lightLevel != null) atmoParts.push(`light=${atmo.lightLevel}`);
+                if (atmo.lightColor != null) atmoParts.push(`color=${atmo.lightColor}`);
+                if (atmo.temperature != null) atmoParts.push(`temperature=${atmo.temperature}`);
+                if (atmo.humidity != null) atmoParts.push(`humidity=${atmo.humidity}%`);
+                if (atmo.airQuality != null) atmoParts.push(`air=${atmo.airQuality}`);
+                if (atmo.fog != null) atmoParts.push(`fog=${atmo.fog}`);
+                if (atmo.smell != null) atmoParts.push(`smell=${atmo.smell}`);
+                if (atmo.ambientSound != null) atmoParts.push(`sound=${atmo.ambientSound}`);
+                if (atmoParts.length > 0) lines.push(`Atmosphere: ${atmoParts.join(', ')}`);
+            }
+            const envParts = [];
+            if (roomData.surface != null) envParts.push(`Surface: ${roomData.surface}`);
+            if (roomData.acoustic != null) envParts.push(`Acoustic: ${roomData.acoustic}`);
+            if (roomData.lightSource != null) envParts.push(`Light source: ${roomData.lightSource}`);
+            if (roomData.ceiling != null) envParts.push(`Ceiling: ${roomData.ceiling}`);
+            if (roomData.condition != null) envParts.push(`Condition: ${roomData.condition}`);
+            if (roomData.power != null) envParts.push(`Power: ${roomData.power}`);
+            if (envParts.length > 0) lines.push(envParts.join(' | '));
             lines.push(roomData.exits.length > 0
                 ? `Exits: ${roomData.exits.map(ex => `${ex.door} → ${ex.targetRoomName}`).join(' | ')}`
                 : 'Exits: (none)');

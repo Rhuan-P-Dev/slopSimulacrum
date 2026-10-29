@@ -136,7 +136,6 @@ function makeState() {
         [roomId]: {
             id: roomId,
             name: 'The Entrance Hall',
-            description: 'A dimly lit hall. To your right, there is an open corridor.',
             connections: { right_door: { target: 'room_corridor' } },
             x: 0,
             y: 0,
@@ -1017,7 +1016,6 @@ describe('InTextPanel — full render (fake DOM)', () => {
         expect(html).toContain('The Entrance Hall');
         expect(html).toContain('(0.00, 0.00)');
         expect(html).toContain('300 × 200');
-        expect(html).toContain('A dimly lit hall.');
         // Doors — room-relative exit point (300x200 room at origin, neighbor
         // at (400, 250) → right edge at (300, 190))
         expect(html).toContain('right_door (300.00, 190.00) → The Eastern Corridor');

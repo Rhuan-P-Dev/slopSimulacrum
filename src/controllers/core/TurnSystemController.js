@@ -58,7 +58,7 @@ import Logger from '../../utils/Logger.js';
 import { TickJob } from '../../utils/UniversalTickSystem.js';
 import { generateQueueId } from '../../utils/idGenerator.js';
 import IdResolver from '../../utils/IdResolver.js';
-import { TURN_MAX_QUEUED_PER_ROUND } from '../../utils/Constants.js';
+import { TURN_MAX_QUEUED_PER_ROUND, ROUND_PROSE_HISTORY_LIMIT } from '../../utils/Constants.js';
 import { ID_PREFIXES, isPrefixed } from '../../../shared/IdPrefixes.js';
 
 /**
@@ -164,6 +164,9 @@ class TurnSystemController {
         this._lastBroadcastBarrier = null;
         /** @private {Map<string, {firedAtTick: number, settled: boolean, warned: boolean}>} In-memory agent-settlement watch (observability only — see _checkAgentSettlementWatchdog). Never persisted; rebuilt on every round start, reset, and restore. */
         this._agentFireWatch = new Map();
+
+        /** @private {Map<number, {startTick: number, endTick: number|null}>} Tick window per round, for round-prose reconstruction (reader bookkeeping: never persisted, bounded by ROUND_PROSE_HISTORY_LIMIT). Rounds are added in ascending order; `endTick` is null while the round is live and is stamped when its barrier closes. */
+        this._roundWindows = new Map();
     }
 
     // =========================================================================
@@ -343,6 +346,45 @@ class TurnSystemController {
      */
     getAll() {
         return this.getRoundState();
+    }
+
+    /**
+     * Tick window of a single round (reader bookkeeping for round-prose
+     * reconstruction, consumed by RoundProseController). `null` when the
+     * round is unknown or was evicted from the recent-history horizon (in
+     * memory; cleared on reset/restore). A live round has `endTick` equal to
+     * the current tick as of the read (a snapshot, not a promise).
+     * @param {number} round
+     * @returns {{ round: number, startTick: number, endTick: number, live: boolean } | null}
+     */
+    getRoundWindow(round) {
+        if (!Number.isFinite(round) || round < 0) {
+            return null;
+        }
+        const window = this._roundWindows.get(round);
+        if (!window) {
+            return null;
+        }
+        const live = window.endTick === null;
+        return {
+            round,
+            startTick: window.startTick,
+            endTick: live ? this._currentTick() : window.endTick,
+            live
+        };
+    }
+
+    /**
+     * Enumerates the round numbers whose tick window is held in the in-memory
+     * reader bookkeeping (ascending: rounds are only added in order and evicted
+     * from the oldest side), bounded by ROUND_PROSE_HISTORY_LIMIT. Rounds that
+     * did not start yet or fell out of the horizon have no number here; the
+     * caller reads absence as out of recent-history window. Read-only: copies
+     * the keys only, never the window objects.
+     * @returns {number[]}
+     */
+    getRoundWindowNumbers() {
+        return [...this._roundWindows.keys()];
     }
 
     // =========================================================================
@@ -611,6 +653,10 @@ class TurnSystemController {
             this._reset();
             return;
         }
+        // In-memory round history (reader bookkeeping) is discarded on
+        // restore — it is not persisted; a restored process starts with a
+        // fresh horizon.
+        this._roundWindows = new Map();
         this._lastRound = typeof snapshot.lastRound === 'number' ? snapshot.lastRound : -1;
         this._resolvedRound = typeof snapshot.resolvedRound === 'number' ? snapshot.resolvedRound : -1;
         this._queues = (snapshot.queues && typeof snapshot.queues === 'object')
@@ -792,6 +838,21 @@ class TurnSystemController {
         // (spec v2 §1.2): nothing derives it from the tick clock.
         const round = this._lastRound + 1;
         this._lastRound = round;
+        // Record the round's tick window (reader bookkeeping for round-prose
+        // reconstruction; never persisted). Live until its barrier closes —
+        // endTick stays null then and is stamped in _closePlanning.
+        this._roundWindows.set(round, { startTick: this._currentTick(), endTick: null });
+        if (this._roundWindows.size > ROUND_PROSE_HISTORY_LIMIT) {
+            // Evict the oldest round first (Map preserves insertion order; rounds
+            // are only ever added in ascending order). Once evicted the reader
+            // reports the round unknown: the perception ring keeps only the last
+            // PERCEPTION_MAX_LIMIT entries per room, so older rounds have no
+            // recoverable entries anyway.
+            const oldest = this._roundWindows.keys().next().value;
+            if (oldest !== undefined) {
+                this._roundWindows.delete(oldest);
+            }
+        }
         this._queues = {};
         this._actorOrder = this._computeActorOrder();
         return round;
@@ -1307,6 +1368,11 @@ class TurnSystemController {
         this._resolvedRound = round;
         this._barrierClosed = true;
         this._barrierClosedAtTick = this._currentTick();
+        // Stamp the round's window with the close tick (reader bookkeeping).
+        const window = this._roundWindows.get(round);
+        if (window) {
+            window.endTick = this._barrierClosedAtTick;
+        }
         this._barrierCloseReason = reason;
         this._phase = 'resolution';
         this._flipToResolution(round, this._currentTick(), reason);
@@ -1626,6 +1692,7 @@ class TurnSystemController {
         this._barrierRemovalWarned = new Set();
         this._lastBroadcastBarrier = null;
         this._agentFireWatch = new Map();
+        this._roundWindows = new Map();
     }
 }
 

@@ -1,0 +1,234 @@
+/*
+ * Round Prose — dev inspector overlay.
+ *
+ * Styles for the "Round Prose" tab (id: round-prose-overlay). Follows the project's
+ * floating-window overlay base (floating-windows.css / layout.css): the .overlay-panel
+ * is a flex column; the .overlay-header is the drag handle; each top-level content
+ * div gets flex:1 + overflow:auto by default. We override the CONTROLS row so it
+ * stays fixed-height above the scrollable body.
+ */
+
+/* Width suits a flowing prose paragraph plus the tick/entry badges. */
+#round-prose-overlay {
+    min-width: 360px;
+    max-width: 660px;
+}
+
+/* Fixed-height controls row: round input + Live + refresh, above the scrollable body. */
+#round-prose-overlay > .round-prose-controls {
+    flex: 0 0 auto;
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 12px;
+    border-bottom: 1px solid var(--config-bar-border, #333);
+    background: var(--bg-black, #0a0a0a);
+}
+
+.round-prose-label {
+    flex: 0 0 auto;
+    color: var(--text-dim, #aaa);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+.round-prose-input {
+    flex: 1 1 0;
+    min-width: 48px;
+    background: var(--bg-black, #0a0a0a);
+    color: var(--text-main, #fff);
+    border: 1px solid var(--neon-green, #00ff00);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    cursor: pointer;
+}
+.round-prose-input:hover,
+.round-prose-input:focus {
+    border-color: var(--neon-green, #00ff00);
+    outline: none;
+}
+/* Dim the numeric spinners to match the rest of the chrome. */
+.round-prose-input::-webkit-outer-spin-button,
+.round-prose-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.round-prose-btn {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid var(--neon-green, #00ff00);
+    color: var(--neon-green, #00ff00);
+    cursor: pointer;
+    padding: 4px 9px;
+    border-radius: 2px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.round-prose-btn:hover {
+    background: rgba(0, 255, 0, 0.12);
+}
+#round-prose-live {
+    font-weight: bold;
+}
+
+/* Scrollable body. */
+#round-prose-overlay .round-prose-content {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 12px;
+    color: var(--text-main, #fff);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+#round-prose-overlay .round-prose-content::-webkit-scrollbar {
+    width: 10px;
+}
+#round-prose-overlay .round-prose-content::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 5px;
+}
+#round-prose-overlay .round-prose-content::-webkit-scrollbar-track {
+    background: #0a0a0a;
+}
+
+/* Header: the round identity — round number + at-a-glance badges + the full
+   one-line summary the reader produced. */
+.round-prose-header {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0 0 6px 0;
+}
+.round-prose-round {
+    color: var(--neon-green, #00ff00);
+    font-size: 1.2em;
+    font-weight: bold;
+}
+.round-prose-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 8px 0;
+}
+.round-prose-badge {
+    font-size: 0.75em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid;
+    display: inline-block;
+    white-space: nowrap;
+}
+.round-prose-badge.neon {
+    color: var(--neon-green, #00ff00);
+    border-color: var(--neon-green, #00ff00);
+}
+.round-prose-badge.info {
+    color: #88bbff;
+    border-color: #88bbff;
+}
+.round-prose-stat {
+    display: inline-block;
+    color: var(--text-main, #fff);
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 3px 8px;
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+.round-prose-summary {
+    margin: 0 0 16px 0;
+    color: var(--text-dim, #bbb);
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+/* Per-room prose: one block per room that saw activity in the round. */
+.round-prose-room {
+    border-left: 2px solid #2a2a2a;
+    margin: 10px 0 14px 0;
+    padding: 4px 0 4px 10px;
+}
+.round-prose-room-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.round-prose-room-name {
+    color: var(--neon-green, #00ff00);
+    font-weight: bold;
+    font-size: 0.95em;
+}
+/* The prose itself — the reader's flowing paragraph. pre-wrap preserves any
+   newlines the summary text carries while still reading as prose. */
+.round-prose-text {
+    margin: 0;
+    color: var(--text-main, #fff);
+    font-size: 1em;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.round-prose-empty {
+    color: var(--text-dim, #aaa);
+    font-size: 0.95em;
+    margin: 0;
+}
+
+.round-prose-placeholder {
+    color: var(--text-dim, #aaa);
+    text-align: center;
+    padding: 40px 12px;
+}
+.round-prose-placeholder strong {
+    color: var(--neon-green, #00ff00);
+}
+
+/* Range read controls: the from/to inputs reuse the numeric-input styles; the
+   separator between them is a dim glyph. */
+.round-prose-range-sep {
+    flex: 0 0 auto;
+    color: var(--text-dim, #aaa);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8em;
+    white-space: nowrap;
+}
+
+/* Range read summary line: requested bounds + observed vs. missing. */
+.round-prose-range {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 10px 0;
+}
+.round-prose-stat.missing {
+    color: #ff7b4d;
+    border-color: #5a1e0f;
+    background: #261008;
+}
+
+/* Per-round section inside a range read; a rule separates sections. */
+.round-prose-round-item {
+    margin-top: 16px;
+    padding-top: 12px;
+}
+.round-prose-round-item + .round-prose-round-item,
+.round-prose-round-item + .round-prose-round-missing,
+.round-prose-round-missing + .round-prose-round-item {
+    border-top: 1px solid #2a2a2a;
+}
+.round-prose-round-missing {
+    color: var(--text-dim, #888);
+    font-style: italic;
+    padding: 6px 0;
+}

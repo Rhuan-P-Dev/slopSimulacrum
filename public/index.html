@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="css/chat.css">
     <link rel="stylesheet" href="css/in-text.css">
     <link rel="stylesheet" href="css/agent-view.css">
+    <link rel="stylesheet" href="css/round-prose.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -49,6 +50,7 @@
             <button id="btn-crafting" class="config-btn" title="Crafting">🔨</button>
             <button id="btn-knowledge" class="config-btn" title="Knowledge">📚</button>
             <button id="btn-agent-view" class="config-btn" title="Agent View — LLM inspector">🤖</button>
+            <button id="btn-round-prose" class="config-btn" title="Round Prose — read a range of rounds (dev tab)">📜</button>
         </div>
     </div>
 
@@ -238,6 +240,18 @@
         <div id="agent-view-controls" class="agent-view-controls"></div>
         <div id="agent-view-content" class="agent-view-content">
             <p class="agent-view-placeholder">Waiting for world state…</p>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Round Prose (dev tab — perception round as natural prose) -->
+    <div id="round-prose-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">📜 Round Prose</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="round-prose-controls" class="round-prose-controls"></div>
+        <div id="round-prose-content" class="round-prose-content">
+            <p class="round-prose-placeholder">Type a range (from&rarr;to, 0-based), or hit Live, to read the rounds in range.</p>
         </div>
     </div>
 
