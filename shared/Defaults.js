@@ -17,11 +17,14 @@
 
 /**
  * Blueprint name used to spawn the player droid when a client connects.
- * Anchored in `data/entities/blueprints.json` (and mirrored by the NPCs in
- * `data/entities/npcs.json`).
+ * Anchored in `data/entities/blueprints.json`.
+ *
+ * It is the male humanoid droid (maleDroid) — the full human anatomy with
+ * sensitive parts and a Pleasure.pleasure meter (data/components/sensitiveParts.json,
+ * data/entities/entity_attributes.json); it is NOT the coal-burning M1 droid.
  * @type {string}
  */
-export const DEFAULT_PLAYER_BLUEPRINT = 'm1Droid';
+export const DEFAULT_PLAYER_BLUEPRINT = 'maleDroid';
 
 /**
  * Fallback volume for an item whose `volume` field is missing or undefined.

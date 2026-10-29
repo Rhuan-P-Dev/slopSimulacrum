@@ -2,7 +2,7 @@
  * UNIT TEST — M1 shared contract (client/server shared modules + data wiring).
  *
  * Pins the two SHARED (browser-importable) contracts the M1 feature relies on:
- *   - the client's default player blueprint IS the M1 droid
+ *   - the client's default player blueprint IS the male humanoid droid
  *     (shared/Defaults.js — the spawn point for every new client), and
  *   - the new organ-seeded resource stat `Physical.energy` exists in the
  *     shared stat vocabulary (shared/StatVocabulary.js) under its wire name.
@@ -25,12 +25,12 @@ const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data'
 const readData = (file) => JSON.parse(readFileSync(join(dataDir, file), 'utf8'));
 
 describe('M1 shared contract', () => {
-    it('the client default player blueprint is m1Droid', () => {
-        expect(DEFAULT_PLAYER_BLUEPRINT).toBe('m1Droid');
+    it('the client default player blueprint is the male humanoid droid', () => {
+        expect(DEFAULT_PLAYER_BLUEPRINT).toBe('maleDroid');
         // ...and that blueprint actually exists in the data the server loads.
         const blueprints = readData('entities/blueprints.json');
-        expect(blueprints['m1Droid']).toBeDefined();
-        expect(blueprints['m1Droid'][0]).toBe('m1CentralBody');
+        expect(blueprints['maleDroid']).toBeDefined();
+        expect(blueprints['maleDroid'][0]).toBe('maleCentralBody');
     });
 
     it('the energy stat is part of the shared stat vocabulary', () => {
