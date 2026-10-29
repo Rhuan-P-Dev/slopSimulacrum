@@ -402,5 +402,31 @@
         "message": "Hand shotgun failed - fine_controls too low to aim the spread."
       }
     ]
+  },
+  "touch": {
+    "description": "Touch a specific body part of another droid (target the body-part component itself, close range). The droid whose part is touched gains pleasure equal to that part's sensitivity (glans/clitoris 100, penis/vulva 80, testicles 60, nipples 40); the meter decays 1 per round. Touching a non-sensitive part, or a droid without a pleasure meter, fails. You gain nothing from touching.",
+    "targetingType": "component",
+    "range": 50,
+    "requirements": [],
+    "consequences": [
+      {
+        "type": "stimulateSensitivePart",
+        "target": "target"
+      },
+      {
+        "type": "log",
+        "target": "self",
+        "level": "info",
+        "message": ":entityName touched :targetName's :targetCompPhrase - the touched droid feels the pleasure rise"
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Touch failed - that part is not sensitive (or the droid has no pleasure meter)."
+      }
+    ]
   }
 }

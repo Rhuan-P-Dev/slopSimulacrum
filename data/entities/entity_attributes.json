@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-entity-type attribute seeds and caps. Entity attributes are whole-entity stats, OWNED BY THE ENTITY (distinct from per-component stats, which live on component instances). Each attribute is keyed in the flat \"Group.stat\" wire form (identical to the organ-grant key form) and declares three things: the initial `value`, the hard `max` (capacity the value is clamped into, and the full-battery ceiling for fuel burners), and the per-turn `drainPerTurn` the global per-turn energy step subtracts from the value. Energy is a life pool: it is charged by a coal burner (the M1 central body's coalGenerator, consumeFuelGenerateStat) and drained every turn; when an entity's energy attribute reaches 0 it is eliminated — its contents spill to the floor and the entity is despawned. The M1 droid's 100-unit energy battery is the only seeded energy attribute. The two human droids (maleDroid, femaleDroid) additionally seed `Pleasure.pleasure`: a whole-entity 0–100 meter that starts at 0 and never drains (drainPerTurn 0) — its value only moves when world logic raises or lowers it, and a value of 0 is a state, never a death (the despawn rule applies to energy only). Balance levers (initial charge, cap, per-turn draw) are deliberately data-driven, not magic numbers in a controller.",
+  "_comment": "Per-entity-type attribute seeds and caps. Entity attributes are whole-entity stats, OWNED BY THE ENTITY (distinct from per-component stats, which live on component instances). Each attribute is keyed in the flat \"Group.stat\" wire form (identical to the organ-grant key form) and declares three things: the initial `value`, the hard `max` (capacity the value is clamped into, and the full-battery ceiling for fuel burners), and the per-turn `drainPerTurn` the global per-turn energy step subtracts from the value. Energy is a life pool: it is charged by a coal burner (the M1 central body's coalGenerator, consumeFuelGenerateStat) and drained every turn; when an entity's energy attribute reaches 0 it is eliminated — its contents spill to the floor and the entity is despawned. The M1 droid's 100-unit energy battery is the only seeded energy attribute. The two human droids (maleDroid, femaleDroid) additionally seed `Pleasure.pleasure`: a whole-entity 0-100 meter that starts at 0 and decays 1 per round (floor 0, never a death) — it is raised when a droid's sensitive part is touched (the `touch` action: per-part values from data/components/sensitiveParts.json, the sensitiveNerve organ marks the part), and a value of 0 is a state, never a death (the despawn rule applies to energy only). Balance levers (initial charge, cap, per-turn draw) are deliberately data-driven, not magic numbers in a controller.",
   "attributes": {
     "m1Droid": {
       "Physical.energy": {
@@ -12,14 +12,14 @@
       "Pleasure.pleasure": {
         "value": 0,
         "max": 100,
-        "drainPerTurn": 0
+        "drainPerTurn": 1
       }
     },
     "femaleDroid": {
       "Pleasure.pleasure": {
         "value": 0,
         "max": 100,
-        "drainPerTurn": 0
+        "drainPerTurn": 1
       }
     }
   }

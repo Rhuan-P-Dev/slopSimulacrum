@@ -731,6 +731,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'retrieveMachine',
             'selfHeal',
             'shootT1',
+            'touch',
         ]);
 
         for (const name of actionNames) {

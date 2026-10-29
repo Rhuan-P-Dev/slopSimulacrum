@@ -4,23 +4,24 @@
  * The pleasure stat is a WHOLE-ENTITY meter seeded at spawn from
  * data/entities/entity_attributes.json — like Physical.energy, it is owned by
  * the entity, never by a component. It is declared for the two human droid
- * blueprints (maleDroid, femaleDroid): 0–100 scale, starts at 0, and never
- * drains (drainPerTurn 0), so its value only moves when something in the
- * world deliberately changes it. The energy-life despawn rule must NOT apply
- * to it: a pleasure of 0 is a state, not a death.
+ * blueprints (maleDroid, femaleDroid): 0-100 scale, starts at 0, drains 1 per
+ * round (floor 0), and is raised when a droid's sensitive part is touched (the
+ * touch action; the per-part values live in data/components/sensitiveParts.json).
+ * The energy-life despawn rule must NOT apply to it: a pleasure of 0 is a
+ * state, not a death.
  *
  * Pins:
  *   - data contract: exactly maleDroid and femaleDroid declare the Pleasure
- *     group; each declaration is exactly { value: 0, max: 100, drainPerTurn: 0 }
+ *     group; each declaration is exactly { value: 0, max: 100, drainPerTurn: 1 }
  *     and its flat key matches the shared vocabulary
  *     (flatKey(TRAIT_GROUPS.PLEASURE, STAT_NAMES.PLEASURE) === 'Pleasure.pleasure');
  *   - spawn seeding: a spawned human droid carries attributes.Pleasure.pleasure
  *     === 0 with its declaration, and carries no energy attribute (the
  *     humanoids are not coal burners);
  *   - clamping: setEntityAttributeDelta keeps the value inside [0, 100];
- *   - lifecycle: the per-turn energy step never eliminates a human droid
- *     (the death check is wired to the energy attribute, which these
- *     blueprints do not declare);
+ *   - lifecycle: the per-turn step drains the meter 1 per round (floor 0) and
+ *     never eliminates a human droid (the death check is wired to the energy
+ *     attribute, which these blueprints do not declare);
  *   - serialization: the live value rides the world state (getEntities()).
  *
  * Driven the same house way as the coal-generator contract: build the world
@@ -41,7 +42,7 @@ import { TRAIT_GROUPS, STAT_NAMES, flatKey } from '../../shared/StatVocabulary.j
 const PLEASURE_GROUP = TRAIT_GROUPS.PLEASURE;
 const PLEASURE_STAT = STAT_NAMES.PLEASURE;
 const PLEASURE_KEY = flatKey(PLEASURE_GROUP, PLEASURE_STAT);
-const PLEASURE_DECL = { value: 0, max: 100, drainPerTurn: 0 };
+const PLEASURE_DECL = { value: 0, max: 100, drainPerTurn: 1 };
 const HUMAN_BLUEPRINTS = ['maleDroid', 'femaleDroid'];
 
 /** Builds a fresh world (non-started tick system) and spawns one entity. */
@@ -59,7 +60,7 @@ function pleasureOf(world, entityId) {
 }
 
 describe('pleasure attribute — whole-entity 0-100 meter (human droids)', () => {
-    it('data contract: exactly the two human droids declare Pleasure.pleasure, 0/100/0', () => {
+    it('data contract: exactly the two human droids declare Pleasure.pleasure, 0/100/1', () => {
         const file = DataLoader.loadJsonSafe('data/entities/entity_attributes.json', { attributes: {} });
         const declared = Object.entries(file.attributes)
             .filter(([, entry]) => entry && typeof entry === 'object' && PLEASURE_KEY in entry)
@@ -110,18 +111,26 @@ describe('pleasure attribute — whole-entity 0-100 meter (human droids)', () =>
         expect(world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, -1)).toBe(false);
     });
 
-    it('lifecycle: the per-turn energy step never eliminates a human droid (pleasure is not energy)', () => {
+    it('lifecycle: the per-turn step drains pleasure 1 per round (floor 0) and never eliminates a human droid', () => {
         const { world, entityId } = buildWorldWith('femaleDroid');
 
-        // Even with the meter at the floor, drain turns change nothing and
-        // kill no one: the death check is wired to the energy attribute,
-        // which these blueprints do not declare.
-        world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, -999); // 0 -> 0 (clamped)
+        // The per-turn step drains the declared Pleasure.pleasure meter by its
+        // drainPerTurn (1): two drain turns take 3 -> 1. The death check is
+        // wired to the energy attribute, which these blueprints do not declare
+        // — so the droid survives any pleasure value, including the floor.
+        world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, 3);
         world.entityEnergyController.processEnergyTurn(1);
         world.entityEnergyController.processEnergyTurn(2);
 
         expect(world.stateEntityController.getEntity(entityId), 'still alive after drain turns').not.toBeNull();
-        expect(pleasureOf(world, entityId), 'pleasure untouched by the energy step').toBe(0);
+        expect(pleasureOf(world, entityId), 'drained 1 per round').toBe(1);
+
+        // The floor is a state, never a death: drain to 0 and keep draining.
+        world.setEntityAttributeDelta(entityId, PLEASURE_GROUP, PLEASURE_STAT, -999); // 1 -> 0 (clamped)
+        world.entityEnergyController.processEnergyTurn(3);
+        world.entityEnergyController.processEnergyTurn(4);
+        expect(world.stateEntityController.getEntity(entityId), 'alive at the floor').not.toBeNull();
+        expect(pleasureOf(world, entityId), 'floors at 0').toBe(0);
     });
 
     it('serialization: the live value rides the world state (getEntities)', () => {
