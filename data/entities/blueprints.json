@@ -402,5 +402,215 @@
       "maleGlans",
       "tip"
     ]
+  ],
+  "maleBreast": [
+    [
+      "maleNipple",
+      "front"
+    ]
+  ],
+  "maleToe": [
+    [
+      "maleNail",
+      "tip"
+    ]
+  ],
+  "femaleDroid": [
+    "femaleCentralBody"
+  ],
+  "femaleCentralBody": [
+    [
+      "femaleHead",
+      "top"
+    ],
+    [
+      "femaleTorso",
+      "core"
+    ],
+    [
+      "femaleBreast",
+      "left"
+    ],
+    [
+      "femaleBreast",
+      "right"
+    ],
+    [
+      "femaleArm",
+      "left"
+    ],
+    [
+      "femaleArm",
+      "right"
+    ],
+    [
+      "femaleGenitals",
+      "lower"
+    ],
+    [
+      "femaleLeg",
+      "frontal_left"
+    ],
+    [
+      "femaleLeg",
+      "frontal_right"
+    ]
+  ],
+  "femaleHead": [
+    [
+      "femaleHair",
+      "top"
+    ],
+    [
+      "femaleEyebrow",
+      "left"
+    ],
+    [
+      "femaleEyebrow",
+      "right"
+    ],
+    [
+      "femaleEye",
+      "left"
+    ],
+    [
+      "femaleEye",
+      "right"
+    ],
+    [
+      "femaleEar",
+      "left"
+    ],
+    [
+      "femaleEar",
+      "right"
+    ],
+    [
+      "femaleNose",
+      "nose"
+    ],
+    [
+      "femaleMouth",
+      "mouth"
+    ]
+  ],
+  "femaleMouth": [
+    [
+      "femaleTooth",
+      "t1"
+    ],
+    [
+      "femaleTooth",
+      "t2"
+    ],
+    [
+      "femaleTooth",
+      "t3"
+    ],
+    [
+      "femaleTooth",
+      "t4"
+    ],
+    [
+      "femaleTooth",
+      "t5"
+    ],
+    [
+      "femaleTooth",
+      "t6"
+    ],
+    [
+      "femaleTooth",
+      "t7"
+    ],
+    [
+      "femaleTooth",
+      "t8"
+    ]
+  ],
+  "femaleTorso": [],
+  "femaleBreast": [
+    [
+      "femaleNipple",
+      "front"
+    ]
+  ],
+  "femaleGenitals": [
+    [
+      "femaleVulva",
+      "base"
+    ],
+    [
+      "femaleClitoris",
+      "top"
+    ]
+  ],
+  "femaleArm": [
+    [
+      "femaleHand",
+      "hand"
+    ]
+  ],
+  "femaleHand": [
+    [
+      "femaleFinger",
+      "f1"
+    ],
+    [
+      "femaleFinger",
+      "f2"
+    ],
+    [
+      "femaleFinger",
+      "f3"
+    ],
+    [
+      "femaleFinger",
+      "f4"
+    ],
+    [
+      "femaleFinger",
+      "f5"
+    ]
+  ],
+  "femaleFinger": [
+    [
+      "femaleNail",
+      "tip"
+    ]
+  ],
+  "femaleLeg": [
+    [
+      "femaleFoot",
+      "foot"
+    ]
+  ],
+  "femaleFoot": [
+    [
+      "femaleToe",
+      "toe1"
+    ],
+    [
+      "femaleToe",
+      "toe2"
+    ],
+    [
+      "femaleToe",
+      "toe3"
+    ],
+    [
+      "femaleToe",
+      "toe4"
+    ],
+    [
+      "femaleToe",
+      "toe5"
+    ]
+  ],
+  "femaleToe": [
+    [
+      "femaleNail",
+      "tip"
+    ]
   ]
 }

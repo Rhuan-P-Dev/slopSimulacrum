@@ -1119,5 +1119,479 @@
       }
     ],
     "internalComponents": []
+  },
+  "maleNipple": {
+    "name": "Male Nipple",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.8
+      },
+      {
+        "material": "wood",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleCentralBody": {
+    "name": "Female Central Body",
+    "form": {
+      "volume": 32,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.6
+      },
+      {
+        "material": "iron",
+        "fraction": 0.4
+      }
+    ],
+    "internalComponents": [
+      "thinkCore",
+      "coalGenerator"
+    ]
+  },
+  "femaleTorso": {
+    "name": "Female Torso",
+    "form": {
+      "volume": 18,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.95
+      },
+      {
+        "material": "iron",
+        "fraction": 0.05
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleHead": {
+    "name": "Female Head",
+    "form": {
+      "volume": 9,
+      "position": {
+        "x": 0,
+        "y": 6
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.6
+      },
+      {
+        "material": "wood",
+        "fraction": 0.4
+      }
+    ],
+    "internalComponents": [
+      "thinkCore"
+    ]
+  },
+  "femaleHair": {
+    "name": "Female Hair",
+    "form": {
+      "volume": 9,
+      "position": {
+        "x": 0,
+        "y": 7
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleEyebrow": {
+    "name": "Female Eyebrow",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "coal",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleEye": {
+    "name": "Female Eye",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.5
+      },
+      {
+        "material": "coal",
+        "fraction": 0.5
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleEar": {
+    "name": "Female Ear",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 1,
+        "y": 3
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleNose": {
+    "name": "Female Nose",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 2
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleMouth": {
+    "name": "Female Mouth",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleTooth": {
+    "name": "Female Tooth",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleBreast": {
+    "name": "Female Breast",
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.95
+      },
+      {
+        "material": "iron",
+        "fraction": 0.05
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleNipple": {
+    "name": "Female Nipple",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 0.8
+      },
+      {
+        "material": "wood",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleGenitals": {
+    "name": "Female Genitals",
+    "form": {
+      "volume": 12,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleVulva": {
+    "name": "Female Vulva",
+    "form": {
+      "volume": 6,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleClitoris": {
+    "name": "Female Clitoris",
+    "form": {
+      "volume": 3,
+      "position": {
+        "x": 0,
+        "y": -8
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleArm": {
+    "name": "Female Arm",
+    "form": {
+      "volume": 8,
+      "position": {
+        "x": 0,
+        "y": 2
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "strengthCore"
+    ]
+  },
+  "femaleHand": {
+    "name": "Female Hand",
+    "form": {
+      "volume": 5,
+      "position": {
+        "x": -2,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.7
+      },
+      {
+        "material": "iron",
+        "fraction": 0.3
+      }
+    ],
+    "internalComponents": [
+      "precisionCore"
+    ]
+  },
+  "femaleFinger": {
+    "name": "Female Finger",
+    "form": {
+      "volume": 2,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "iron",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleNail": {
+    "name": "Female Nail",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "materials": [
+      {
+        "material": "iron",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleLeg": {
+    "name": "Female Leg",
+    "form": {
+      "volume": 10,
+      "position": {
+        "x": 0,
+        "y": -4
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.8
+      },
+      {
+        "material": "coal",
+        "fraction": 0.2
+      }
+    ],
+    "internalComponents": [
+      "moveCore"
+    ]
+  },
+  "femaleFoot": {
+    "name": "Female Foot",
+    "form": {
+      "volume": 5,
+      "position": {
+        "x": 0,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 0.9
+      },
+      {
+        "material": "iron",
+        "fraction": 0.1
+      }
+    ],
+    "internalComponents": []
+  },
+  "femaleToe": {
+    "name": "Female Toe",
+    "form": {
+      "volume": 1,
+      "position": {
+        "x": 0,
+        "y": -6
+      }
+    },
+    "materials": [
+      {
+        "material": "wood",
+        "fraction": 1
+      }
+    ],
+    "internalComponents": []
   }
 }
