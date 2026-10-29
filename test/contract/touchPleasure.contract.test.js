@@ -24,7 +24,11 @@
  *   - touching a droid without a pleasure meter (m1Droid): same — the
  *     consequence fails and nothing changes (no energy lost either);
  *   - touching out of range (distance > 50) fails at the range gate (an
- *     action-level failure, like the other component-targeting actions).
+ *     action-level failure, like the other component-targeting actions);
+ *   - capability: touch declares no stat requirements, so the capability
+ *     engine must report it as CAPABLE for every droid — canExecute covers
+ *     all of the droid's body parts and cannotExecute stays empty (the UI
+ *     must never show "0 capable / N incapable" for it).
  *
  * @module test/contract/touchPleasure
  */
@@ -149,5 +153,26 @@ describe('touch — the pleasure mechanic (contract, full round-trip)', () => {
         const res = touch(world, attackerId, victimId, clitoris.id);
         expect(res.success, 'out of range — the action must fail').toBe(false);
         expect(pleasureOf(world, victimId), 'no pleasure was gained').toBe(0);
+    });
+
+    it('reports touch as CAPABLE in the per-entity action list (no-requirement action: every body part can perform it)', () => {
+        const world = buildWorld();
+        const { a: maleId, b: m1Id } = spawnPair(world, 'maleDroid', 'm1Droid', 0, 0, 20, 0);
+
+        const maleActions = world.getActionsForEntity(maleId);
+        expect(maleActions.touch, 'the action list must include touch').toBeTruthy();
+
+        const malePartIds = world.getEntity(maleId).components.map((c) => c.id).sort();
+        const capableIds = maleActions.touch.canExecute.map((e) => e.componentId).sort();
+        expect(capableIds, 'every body part of the droid is capable').toEqual(malePartIds);
+        expect(maleActions.touch.cannotExecute, 'no incapable entry').toHaveLength(0);
+
+        const m1Actions = world.getActionsForEntity(m1Id);
+        const m1PartIds = world.getEntity(m1Id).components.map((c) => c.id).sort();
+        expect(
+            m1Actions.touch.canExecute.map((e) => e.componentId).sort(),
+            'every body part of the m1 droid is capable too'
+        ).toEqual(m1PartIds);
+        expect(m1Actions.touch.cannotExecute, 'no incapable entry').toHaveLength(0);
     });
 });

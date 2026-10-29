@@ -1,8 +1,9 @@
 /**
  * EntityAttributeData — client-side access to WHOLE-ENTITY attributes.
  *
- * Whole-entity attributes (e.g. the M1 droid's `Physical.energy`) live on the
- * ENTITY object in the broadcast world state — NOT on a component instance.
+ * Whole-entity attributes (e.g. the M1 droid's `Physical.energy` or the human
+ * droid's `Pleasure.pleasure`) live on the ENTITY object in the broadcast world
+ * state — NOT on a component instance.
  *   - `entity.attributes[group][stat]`        -> the live per-stat value.
  *   - `entity.attributesConfig[group][stat]`  -> the declaration:
  *     { value, max, drainPerTurn }.
@@ -29,12 +30,23 @@ import { TRAIT_GROUPS } from '../../shared/StatVocabulary.js';
  * `energy` — the M1 droid's life fuel: drained 1/turn, refilled by the coal
  * generator burning coal, and the entity dies when it hits 0. Amber is the
  * "power/fuel" hue (the same as the Movement trait).
+ *
+ * `pleasure` — the human droid's pleasure meter: raised when a sensitive part
+ * is touched (by that part's sensitivity), drained 1/round, no death at 0.
+ * Pink is the "intimacy/pleasure" hue.
  */
 export const ATTRIBUTE_DISPLAY = Object.freeze({
     [`${TRAIT_GROUPS.PHYSICAL}.energy`]: {
         label: 'Energy',
         color: '#f59e0b',
         icon: '⚡',
+        tooltip: 'Whole-entity Energy: drains each turn, refilled by the coal generator. The entity dies at 0.',
+    },
+    [`${TRAIT_GROUPS.PLEASURE}.pleasure`]: {
+        label: 'Pleasure',
+        color: '#ec4899',
+        icon: '♥',
+        tooltip: 'Whole-entity Pleasure: rises when a sensitive part is touched, drains 1 per round.',
     },
 });
 

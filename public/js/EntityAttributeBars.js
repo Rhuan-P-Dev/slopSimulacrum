@@ -2,8 +2,9 @@
  * EntityAttributeBars — renders WHOLE-ENTITY attributes as bars.
  *
  * Distinct from StatBarsManager (per-component stat bars, user-configured):
- * this renders the attributes an entity declares on itself — currently the M1
- * droid's `Physical.energy` — in a dedicated section below the stat-bars panel.
+ * this renders the attributes an entity declares on itself — e.g. the M1
+ * droid's `Physical.energy` or the human droid's `Pleasure.pleasure` — in a
+ * dedicated section below the stat-bars panel.
  * It reads from the entity's `attributes` (live) + `attributesConfig`
  * (declaration) that ride on the entity in the broadcast world state, and only
  * renders attributes that have a display entry in ATTRIBUTE_DISPLAY
@@ -80,7 +81,7 @@ export class EntityAttributeBars {
     /**
      * Builds the HTML for a single whole-entity attribute bar.
      * @param {string} key - The flat "Group.stat" key.
-     * @param {{label: string, color: string, icon: string}} display
+     * @param {{label: string, color: string, icon: string, tooltip?: string}} display
      * @param {number} value - Current value.
      * @param {number} max - Maximum value.
      * @param {number} pct - Fill percentage (0-100).
@@ -92,7 +93,7 @@ export class EntityAttributeBars {
         return `
             <div class="entity-attribute-bar${low ? ' entity-attribute-bar--low' : ''}"
                  data-attribute="${key}" data-low="${low ? '1' : '0'}"
-                 title="Whole-entity ${display.label}: drains each turn, refilled by the coal generator. The entity dies at 0.">
+                 title="${display.tooltip || display.label}">
                 <span class="entity-attribute-icon" aria-hidden="true">${display.icon}</span>
                 <span class="entity-attribute-label" style="color: ${display.color};">${display.label}</span>
                 <div class="entity-attribute-track">
