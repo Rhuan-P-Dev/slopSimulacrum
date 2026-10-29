@@ -92,6 +92,27 @@
     color: #ff5555;
 }
 
+/* RECURRING toggle per queue chip (↻). Dim by default; highlighted neon when
+ * the entry is recurring (the action re-executes each round with same params). */
+.turn-queue-recurring {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 1em;
+    line-height: 1;
+}
+
+.turn-queue-recurring:hover {
+    color: var(--neon-green);
+}
+
+.turn-queue-recurring.recurring-on {
+    color: var(--neon-green);
+    text-shadow: 0 0 6px rgba(0, 255, 128, 0.6);
+}
+
 /* Barrier status line (two-phase: ready count + pending planners, close info) */
 .turn-hud-barrier {
     color: var(--text-dim);

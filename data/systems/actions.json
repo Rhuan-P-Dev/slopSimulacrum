@@ -13,7 +13,9 @@
       {
         "type": "deltaSpatial",
         "target": "entity",
-        "params": { "speed": ":Movement.move" }
+        "params": {
+          "speed": ":Movement.move"
+        }
       }
     ],
     "failureConsequences": [
@@ -44,12 +46,18 @@
       {
         "type": "deltaSpatial",
         "target": "entity",
-        "params": { "speed": ":Movement.move*2" }
+        "params": {
+          "speed": ":Movement.move*2"
+        }
       },
       {
         "type": "updateComponentStatDelta",
         "target": "self",
-        "params": { "trait": "Physical", "stat": "existence", "value": -0.05 }
+        "params": {
+          "trait": "Physical",
+          "stat": "existence",
+          "value": -0.05
+        }
       }
     ],
     "failureConsequences": [
@@ -80,7 +88,11 @@
       {
         "type": "updateComponentStatDelta",
         "target": "self",
-        "params": { "trait": "Physical", "stat": "existence", "value": 0.1 }
+        "params": {
+          "trait": "Physical",
+          "stat": "existence",
+          "value": 0.1
+        }
       }
     ],
     "failureConsequences": [
@@ -89,6 +101,38 @@
         "target": "entity",
         "level": "warn",
         "message": "Action 'selfHeal' failed - requirement not met"
+      }
+    ]
+  },
+  "grab": {
+    "description": "Lunge at the target and drag it back - the target loses 5 of its move. Requires strength.",
+    "targetingType": "component",
+    "range": 50,
+    "requirements": [
+      {
+        "trait": "Physical",
+        "stat": "strength",
+        "minValue": 1
+      }
+    ],
+    "consequences": [
+      {
+        "type": "updateComponentStatDelta",
+        "target": "target",
+        "params": {
+          "trait": "Movement",
+          "stat": "move",
+          "value": -5
+        },
+        "expiresInRounds": 1
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Action 'grab' failed - strength too low to grab."
       }
     ]
   },
@@ -159,7 +203,11 @@
       {
         "type": "updateComponentStatDelta",
         "target": "self",
-        "params": { "trait": "Physical", "stat": "sharpness", "value": -1 }
+        "params": {
+          "trait": "Physical",
+          "stat": "sharpness",
+          "value": -1
+        }
       },
       {
         "type": "log",
@@ -192,7 +240,13 @@
       {
         "type": "dropItem",
         "target": "target",
-        "params": { "entityId": ":entityId", "itemId": ":itemId", "itemType": ":itemType", "targetX": ":targetX", "targetY": ":targetY" }
+        "params": {
+          "entityId": ":entityId",
+          "itemId": ":itemId",
+          "itemType": ":itemType",
+          "targetX": ":targetX",
+          "targetY": ":targetY"
+        }
       },
       {
         "type": "log",
@@ -225,7 +279,10 @@
       {
         "type": "placeMachine",
         "target": "entity",
-        "params": { "entityId": ":entityId", "itemType": ":itemType" }
+        "params": {
+          "entityId": ":entityId",
+          "itemType": ":itemType"
+        }
       },
       {
         "type": "log",
@@ -258,7 +315,10 @@
       {
         "type": "retrieveMachine",
         "target": "entity",
-        "params": { "entityId": ":entityId", "machineType": ":machineType" }
+        "params": {
+          "entityId": ":entityId",
+          "machineType": ":machineType"
+        }
       },
       {
         "type": "log",
@@ -278,7 +338,6 @@
   },
   "pickUpItem": {
     "description": "Pick up an item that is lying on the map nearby, or take an item from another entity's hand.",
-
     "targetingType": "component",
     "range": 50,
     "groupPick": {

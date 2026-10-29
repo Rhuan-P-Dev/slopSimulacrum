@@ -323,6 +323,7 @@ describe('WorldStateController persistence (serialize/restore)', () => {
                 roundNumber: 0,
                 phase: 'planning',
                 queues: {},
+                recurring: {},
                 resolvedRound: -1,
                 lastRound: -1,
                 barrier: {

@@ -116,8 +116,10 @@ describe('TurnSystemController (Feature A)', () => {
         expect(state.currentTick).toBe(0);
 
         // v2 state.turns key set — planningDeadlineTick is gone (spec v2 §2.3).
+        // The additive `recurring` section (recurring-action re-queue plans) is
+        // present for every snapshot.
         expect(Object.keys(state).sort()).toEqual([
-            'actorOrder', 'barrier', 'currentTick', 'phase', 'queues', 'roundNumber'
+            'actorOrder', 'barrier', 'currentTick', 'phase', 'queues', 'recurring', 'roundNumber'
         ]);
 
         // The spawned droid has initiative 40 (2× droidRollingBall × move(20)).
@@ -317,8 +319,10 @@ describe('TurnSystemController (Feature A)', () => {
 
         const turnsState = world.getAll().turns;
         // Exactly the v2 key set — planningDeadlineTick is gone (spec v2 §2.3).
+        // The additive `recurring` section (recurring-action re-queue plans) is
+        // present for every snapshot.
         expect(Object.keys(turnsState).sort()).toEqual([
-            'actorOrder', 'barrier', 'currentTick', 'phase', 'queues', 'roundNumber'
+            'actorOrder', 'barrier', 'currentTick', 'phase', 'queues', 'recurring', 'roundNumber'
         ]);
         expect(typeof turnsState.phase).toBe('string');
         expect(['planning', 'resolution']).toContain(turnsState.phase);
@@ -347,7 +351,11 @@ describe('TurnSystemController (Feature A)', () => {
         const head = aHeadComponentId(world, entityId);
 
         stepTo(world, tick, turns, 100);
-        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+        const queued = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+        expect(queued.success).toBe(true);
+        // Mark it RECURRING so the additive `recurring` section has content
+        // to serialize/restore.
+        turns.setRecurring(entityId, queued.queueId, true);
 
         // Serialize mid-planning with a pending queue.
         const snapshot = world.serialize();
@@ -355,6 +363,15 @@ describe('TurnSystemController (Feature A)', () => {
         expect(snapshot.state.turns.roundNumber).toBe(0);
         expect(snapshot.state.turns.phase).toBe('planning');
         expect(Object.keys(snapshot.state.turns.queues)).toContain(entityId);
+        // The additive recurring plan is present and complete (schema v3, additive).
+        expect(snapshot.state.turns.recurring).toEqual({
+            [entityId]: {
+                selfHeal: {
+                    params: { targetComponentId: head },
+                    source: 'player'
+                }
+            }
+        });
         // The barrier round-trips: the NPC auto-signaled at round start, the
         // droid has not yet, planning is open.
         expect(snapshot.state.turns.barrier).toEqual(expect.objectContaining({
@@ -368,6 +385,9 @@ describe('TurnSystemController (Feature A)', () => {
         const { world: world2, turns: turns2 } = buildWorld();
         const restored = world2.restore(snapshot);
         expect(restored.success).toBe(true);
+
+        // The recurring plan survived the restore (additive section round-trip).
+        expect(world2.serialize().state.turns.recurring[entityId].selfHeal).toEqual(expect.anything());
 
         const q2 = turns2.getQueuedActions(entityId);
         expect(q2).toHaveLength(1);
@@ -384,6 +404,101 @@ describe('TurnSystemController (Feature A)', () => {
         expect(sig2.closed).toBe(true);
         expect(sig2.barrier.closeReason).toBe('all-ready');
         expect(world2.getComponentStats(head).Physical.existence).toBe(before2 + 0.1);
+    });
+
+    it('recurring: queue with recurring=true flags the entry + records a plan; the next round auto-requeues the same action/params; toggling off or cancelling stops it', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        const head = aHeadComponentId(world, entityId);
+
+        stepTo(world, tick, turns, 10);
+
+        // 1) queueAction(recurring=true) flags the entry and records the plan.
+        const q = turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player', true);
+        expect(q.success).toBe(true);
+        expect(q.queue[0].recurring).toBe(true);
+        expect(turns.getRoundState().recurring).toEqual({
+            [entityId]: {
+                selfHeal: {
+                    params: { targetComponentId: head },
+                    source: 'player'
+                }
+            }
+        });
+
+        // 2) setRecurring toggles the flag and the plan independently of the
+        //    entry (the entry stays queued either way).
+        const off = turns.setRecurring(entityId, q.queueId, false);
+        expect(off.success).toBe(true);
+        expect(off.recurring).toBe(false);
+        expect(off.actionName).toBe('selfHeal');
+        expect(turns.getRoundState().queues[entityId][0].recurring).toBe(false);
+        expect(turns.getRoundState().recurring).toEqual({});
+        const on = turns.setRecurring(entityId, q.queueId, true);
+        expect(on.success).toBe(true);
+        expect(on.recurring).toBe(true);
+        expect(turns.getRoundState().queues[entityId][0].recurring).toBe(true);
+        expect(turns.getRoundState().recurring[entityId].selfHeal.source).toBe('player');
+
+        // 3) toggle a missing queueId → NOT_IN_QUEUE (not a malformed ID).
+        const missing = turns.setRecurring(entityId, 'q-notreal', true);
+        expect(missing.success).toBe(false);
+        expect(missing.code).toBe('NOT_IN_QUEUE');
+
+        // 4) close round 0: resolution executes selfHeal ONCE and empties the queue.
+        const sig = turns.signalPlanComplete(entityId, 'player');
+        expect(sig.closed).toBe(true);
+        expect(sig.barrier.closeReason).toBe('all-ready');
+        // Empty player queue drops the entity key from the queues map — null-safe.
+        expect((turns.getRoundState().queues[entityId] || []).length).toBe(0);
+        const before = world.getComponentStats(head).Physical.existence;
+
+        // 5) round 1 (next tick): the recurring action is auto-requeued with
+        //    the SAME actionName/params, flagged recurring, and the plan persists.
+        const state1 = stepTo(world, tick, turns, 11);
+        expect(state1.phase).toBe('planning');
+        expect(state1.roundNumber).toBe(1);
+        expect(state1.queues[entityId]).toHaveLength(1);
+        expect(state1.queues[entityId][0]).toEqual(expect.objectContaining({
+            actionName: 'selfHeal',
+            params: { targetComponentId: head },
+            recurring: true,
+            source: 'player'
+        }));
+        expect(state1.recurring[entityId].selfHeal.params).toEqual({ targetComponentId: head });
+
+        // 6) toggling off during round 1 stops the re-queue for round 2.
+        turns.setRecurring(entityId, state1.queues[entityId][0].queueId, false);
+        expect(turns.getRoundState().recurring[entityId]).toBeUndefined();
+        const close1 = turns.signalPlanComplete(entityId, 'player'); // runs round-1 selfHeal
+        expect(close1.closed).toBe(true);
+        const after = world.getComponentStats(head).Physical.existence;
+        // selfHeal ran once in round 1 (already counted once in round 0, in `before`)
+        expect(after).toBe(before + 0.1);
+
+        const state2 = stepTo(world, tick, turns, 12);
+        expect(state2.phase).toBe('planning');
+        expect(state2.roundNumber).toBe(2);
+        // Not re-queued: the flag was off at the end of round 1.
+        expect((state2.queues[entityId] || []).length).toBe(0);
+
+        // 7) cancelAction on a recurring entry removes the plan too.
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player', true);
+        const q3 = turns.getRoundState().queues[entityId][0];
+        expect(q3.recurring).toBe(true);
+        expect(turns.getRoundState().recurring[entityId]).toBeDefined();
+        const cancel = turns.cancelAction(entityId, q3.queueId);
+        expect(cancel.removed).toBe(true);
+        expect(cancel.success).toBe(true);
+        expect(turns.getRoundState().recurring[entityId]).toBeUndefined();
+        expect((turns.getRoundState().queues[entityId] || []).length).toBe(0);
+        const close3 = turns.signalPlanComplete(entityId, 'player');
+        expect(close3.closed).toBe(true);
+        // round-2 queue was empty (entry cancelled) → nothing executed this round.
+        const round3 = stepTo(world, tick, turns, 13);
+        expect(round3.phase).toBe('planning');
+        expect(round3.roundNumber).toBe(3);
+        // The plan was cancelled → the action is not re-queued in round 3.
+        expect((round3.queues[entityId] || []).length).toBe(0);
     });
 
     it('TURNS_DISABLED when the tick system is absent (driven world with null tickSystem)', () => {

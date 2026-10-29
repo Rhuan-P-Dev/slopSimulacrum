@@ -74,6 +74,7 @@ export class ClientApp {
             getMyEntityId: () => this.worldState.getMyEntityId(),
             onModeChange: () => this.turns.update(),
             onCancelQueued: (entityId, queueId) => this._cancelQueuedAction(entityId, queueId),
+            onToggleRecurring: (entityId, queueId, enabled) => this._toggleRecurringAction(entityId, queueId, enabled),
             onReady: (entityId) => this._signalPlanReady(entityId)
         });
         this.actions = new ActionManager(this.ui, this.errorController, () => this.turns.shouldQueueForRound());
@@ -291,6 +292,38 @@ export class ClientApp {
             ClientLogger.error('App', `Failed to cancel queued action ${queueId}:`, error);
             this.errorController.handleError({
                 code: 'TURN_QUEUE_CANCEL_FAILED',
+                message: error.message
+            });
+        }
+    }
+
+    /**
+     * Toggles the RECURRING flag on a queued action for the client entity.
+     * Calls POST /turns/queue/:entityId/:queueId with { recurring: enabled },
+     * then refreshes so the HUD reflects the flag. Failures surface via the
+     * error controller; the UI never breaks.
+     * @param {string} entityId - Typed entity ID (ent-...).
+     * @param {string} queueId - Typed queue entry ID (q-...).
+     * @param {boolean} enabled - Desired RECURRING state.
+     * @private
+     */
+    async _toggleRecurringAction(entityId, queueId, enabled) {
+        try {
+            const response = await fetch(`${AppConfig.ENDPOINTS.TURNS_QUEUE}/${entityId}/${queueId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recurring: enabled === true })
+            });
+            const data = await response.json();
+            if (!response.ok || !data?.success) {
+                throw new Error(data?.error || `Recurring toggle failed (HTTP ${response.status})`);
+            }
+            ClientLogger.info('App', `RECURRING flag for ${queueId} set to ${data.recurring} for ${entityId}`);
+            await this.refreshWorldAndActions();
+        } catch (error) {
+            ClientLogger.error('App', `Failed to toggle RECURRING for queued action ${queueId}:`, error);
+            this.errorController.handleError({
+                code: 'TURN_QUEUE_RECURRING_FAILED',
                 message: error.message
             });
         }

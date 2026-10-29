@@ -590,6 +590,43 @@ class ConsequenceDispatcher {
                     ...(isEquippedItemSelf ? { resolvedSourceId: context.actionParams.attackerComponentId } : {}),
                     ...(extraHandlerContext || {})
                 };
+
+                // Temporal effect bookkeeping: the ConsequenceDispatcher is where the
+                // generic "an effect that expires after N rounds unless re-executed" is
+                // implemented. A consequence is durable when it declares a positive
+                // `expiresInRounds` (consequence-level, falling back to the action's).
+                // Only stat-mutating consequences are restorable, so only those are
+                // routed through the EffectTracker: beforeApply() resets a renewed effect
+                // to its first recorded baseline (flat, no stacking) and captures baselines;
+                // afterApply() (below) registers the expiration (this round +
+                // expiresInRounds).
+                let temporal = null;
+                let declaredDuration = null;
+                if (
+                    (consequence.type === 'updateComponentStatDelta' || consequence.type === 'updateStat') &&
+                    (this.worldStateController?.effectTracker ?? null) != null &&
+                    effectiveParams != null && effectiveParams.trait != null && effectiveParams.stat != null
+                ) {
+                    const effectTracker = this.worldStateController.effectTracker;
+                    declaredDuration = consequence.expiresInRounds ?? (action?.expiresInRounds ?? null);
+                    if (typeof declaredDuration === 'number' && Number.isFinite(declaredDuration) && declaredDuration > 0) {
+                        const effectKey =
+                            `${actionName}::${consequence.type}::${effectiveParams.trait}::${effectiveParams.stat}`;
+                        const components = effectTracker.resolveComponents(
+                            targetResult.targetId,
+                            consequence.target,
+                            effectiveParams.trait,
+                            effectiveParams.stat
+                        );
+                        temporal = effectTracker.beforeApply(
+                            effectKey,
+                            components,
+                            effectiveParams.trait,
+                            effectiveParams.stat
+                        );
+                    }
+                }
+
                 // Dispatch through the ConsequenceHandlers public API (BUG-122: no direct
                 // access to the internal handlers map from outside the handler system).
                 const dispatchResult = this.actionController.consequenceHandlers.dispatch(
@@ -603,6 +640,25 @@ class ConsequenceDispatcher {
                     continue;
                 }
                 const result = dispatchResult;
+
+                // Register the effect's expiration only when the handler actually applied
+                // it. A failed handler (no-handler or an error) leaves no expiration
+                // record, so nothing is auto-restored.
+                if (
+                    temporal != null &&
+                    declaredDuration != null &&
+                    dispatchResult != null &&
+                    dispatchResult.success === true
+                ) {
+                    this.worldStateController.effectTracker.afterApply(
+                        temporal.effectKey,
+                        temporal.components,
+                        temporal.trait,
+                        temporal.stat,
+                        temporal.baselineByComp,
+                        declaredDuration
+                    );
+                }
 
                 // Propagate handler-modified actionParams back to context so subsequent
                 // consequences in the same pipeline can see values set by earlier handlers

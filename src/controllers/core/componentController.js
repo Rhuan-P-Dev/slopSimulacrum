@@ -194,9 +194,13 @@ class ComponentController {
      * @param {string} traitId - The trait category (e.g., "Physical").
      * @param {string} statName - The stat to modify.
      * @param {number} delta - The value to add to the current stat.
+     * @param {boolean} [skipDamageEvent=false] - When true, a strict decrease via this
+     *   delta does NOT fire the damage-listener list (the same opt-out contract as
+     *   updateComponentStat): a negative delta that is not a real weakening. The
+     *   default keeps every existing call site bit-identical.
      * @returns {boolean}
      */
-    updateComponentStatDelta(instanceId, traitId, statName, delta) {
+    updateComponentStatDelta(instanceId, traitId, statName, delta, skipDamageEvent = false) {
         // Read current stats to get the old value
         const stats = this.statsController.getStats(instanceId);
         if (stats && stats[traitId] && typeof stats[traitId][statName] === 'number') {
@@ -204,9 +208,10 @@ class ComponentController {
             const newValue = oldValue + delta;
             // Apply the delta via setStats with just the changed trait/stat
             this.statsController.setStats(instanceId, { [traitId]: { [statName]: newValue } });
-            // Damage event hook (strict decrease only). The numeric guard above
-            // already guarantees a numeric oldValue; a negative delta is a weakening.
-            if (delta < 0) {
+            // Damage event hook (strict decrease only). A negative delta is a weakening;
+            // skipped when the writer declares it is not damage (skipDamageEvent). The
+            // numeric guard above already guarantees a numeric oldValue.
+            if (!skipDamageEvent && delta < 0) {
                 this._notifyDamageListeners(instanceId, traitId, statName, oldValue, newValue);
             }
             // Notify listeners of the stat change

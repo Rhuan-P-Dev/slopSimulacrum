@@ -89,6 +89,9 @@ import LlmAgentFeedbackController from '../controllers/networking/LlmAgentFeedba
 // Feature A: deterministic round/turn system (state owner; needs only the
 // tick system at construction — the facade is injected via setter below).
 import TurnSystemController from '../controllers/core/TurnSystemController.js';
+// Temporal effect system (reusable "expires after N rounds unless re-executed" engine
+// for stat consequences): facade-backed, injected post-construction.
+import EffectTracker from '../controllers/effects/EffectTracker.js';
 // Energy flow (wiki/subMDs/systems/energy_flow.md): cross-component Physical.energy
 // redistribution. Logic controller; constructed with its three named deps
 // (all already in scope — no new file I/O); the facade reference is injected
@@ -313,6 +316,14 @@ export function buildWorldState(tickSystem = null) {
     // Feature A: turn system (state owner; needs only the tick system here —
     // the facade + broadcaster + NPC agent are injected via setters below).
     const turnSystemController = new TurnSystemController({ tickSystem });
+    // Temporal effect system: makes stat consequences "durable" — they expire after N
+    // rounds unless re-executed (flat, restored to their first recorded baseline). A
+    // facade-backed service; the facade reference is injected post-construction below,
+    // and it is exposed on the facade (`worldStateController.effectTracker`) so the
+    // ConsequenceDispatcher (reaches it via the facade, forwarded from the
+    // ActionController) and the turn system both reach it with no dedicated setter
+    // on either controller.
+    const effectTracker = new EffectTracker();
  // Energy flow (wiki/subMDs/systems/energy_flow.md): the "blood system". Logic
     // controller with named deps only — the already-loaded componentRegistry
     // (data/components/components.json — used ONLY to resolve the optional per-recipe
@@ -429,6 +440,11 @@ export function buildWorldState(tickSystem = null) {
     consequenceHandlers.setWorldStateController(worldStateController);
     holdingCostController.setWorldStateController(worldStateController);
     turnSystemController.setWorldStateController(worldStateController);
+    // Temporal effect wiring: give the EffectTracker the facade and expose it on the
+    // facade. Both the ConsequenceDispatcher and the turn system read it via
+    // `facade.effectTracker` (no dedicated setter needed on those controllers).
+    effectTracker.setWorldStateController(worldStateController);
+    worldStateController.effectTracker = effectTracker;
     // onDamage listener: injected AFTER world init (below) so that the INIT
     // damage events fired by initializeWorld() / scanAllCapabilities() reach the
     // listener with its worldStateController still null (a no-op per the listener's

@@ -35,11 +35,13 @@ export class TurnController {
      * @param {Function} [deps.getMyEntityId] - Returns the client's own entity ID (from WorldStateManager).
      * @param {Function} [deps.onModeChange] - Called with the new mode ('turn'|'immediate') when the toggle flips.
      * @param {Function} [deps.onCancelQueued] - Called with (entityId, queueId) when a queue entry is cancelled.
+     * @param {Function} [deps.onToggleRecurring] - Called with (entityId, queueId,
+     *   enabled) when a queue entry's RECURRING flag is toggled in the HUD.
      * @param {Function} [deps.onReady] - Called with (entityId) when the player
      *   signals plan-complete. Used by the ✅ Lock in button and the Space (␣)
      *   keyboard shortcut — both fire the same request.
      */
-    constructor({ worldState, getMyEntityId = null, onModeChange = null, onCancelQueued = null, onReady = null } = {}) {
+    constructor({ worldState, getMyEntityId = null, onModeChange = null, onCancelQueued = null, onToggleRecurring = null, onReady = null } = {}) {
         /** @private */
         this._worldState = worldState;
         /** @private */
@@ -48,6 +50,8 @@ export class TurnController {
         this._onModeChange = onModeChange;
         /** @private */
         this._onCancelQueued = onCancelQueued;
+        /** @private */
+        this._onToggleRecurring = onToggleRecurring;
         /** @private */
         this._onReady = onReady;
         /** @private {'turn'|'immediate'} */
@@ -389,13 +393,30 @@ export class TurnController {
         // RoomChatController): no string interpolation of user-visible
         // values, so there is no HTML-escaping class of bug at all.
         for (const entry of entries) {
-            const chip = document.createElement('span');
+            const chip = document.createElement('div');
             chip.className = 'turn-queue-chip';
-            chip.title = `Queued at tick ${entry.queuedAtTick} (${entry.source})`;
+            chip.title = `Queued at tick ${entry.queuedAtTick} (${entry.source})${entry.recurring ? ' — RECURRING (re-executes each round)' : ''}`;
 
             const label = document.createElement('span');
             label.className = 'turn-queue-label';
-            label.textContent = `🕒 ${entry.actionName}`;
+            label.textContent = `${entry.recurring ? '↻ ' : ''}🕒 ${entry.actionName}`;
+
+            // RECURRING toggle: turns the queued action into a recurring one so
+            // the world re-queues the same action (same params) at the start of
+            // every following round until toggled off or cancelled.
+            const recurBtn = document.createElement('button');
+            recurBtn.className = `turn-queue-recurring${entry.recurring ? ' recurring-on' : ''}`;
+            recurBtn.dataset.queueId = entry.queueId;
+            recurBtn.title = entry.recurring
+                ? 'Turn off RECURRING — this action runs only this round'
+                : 'Turn on RECURRING — this action re-executes every round (same params)';
+            recurBtn.textContent = '↻';
+            recurBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const next = !entry.recurring;
+                ClientLogger.info('TurnController', `Toggling RECURRING on ${entry.actionName} (${entry.queueId}) to ${next}`);
+                if (this._onToggleRecurring) this._onToggleRecurring(myEntityId, entry.queueId, next);
+            });
 
             const btn = document.createElement('button');
             btn.className = 'turn-queue-cancel';
@@ -409,6 +430,7 @@ export class TurnController {
             });
 
             chip.appendChild(label);
+            chip.appendChild(recurBtn);
             chip.appendChild(btn);
             queueEl.appendChild(chip);
         }

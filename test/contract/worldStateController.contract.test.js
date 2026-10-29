@@ -370,6 +370,7 @@ describe('WorldStateController.getAll() shape', () => {
             'currentTick',
             'phase',
             'queues',
+            'recurring',
             'roundNumber',
         ]);
         expect(typeOf(state.turns.roundNumber)).toBe('number');
@@ -688,6 +689,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'dash',
             'droid punch',
             'dropItem',
+            'grab',
             'hand shotgun',
             'move',
             'pickUpItem',

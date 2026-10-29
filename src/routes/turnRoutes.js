@@ -8,6 +8,7 @@
  *   GET    /turns/state                 → { turns: <getRoundState()> }
  *   GET    /turns/queue/:entityId       → { entityId, phase, queue: [...] }
  *   DELETE /turns/queue/:entityId/:queueId → { success, removed }
+ *   POST   /turns/queue/:entityId/:queueId → { success, recurring, actionName, queueId } (body: { recurring: boolean })
  *   POST   /turns/ready/:entityId       → { success, alreadySignaled, closed, barrier }
  *
  * Rule-level outcomes (unknown entity, missing queue entry, ...) follow the
@@ -97,6 +98,35 @@ export function register(router, { worldStateController }) {
 			res.json(result);
 		} catch (error) {
 			sendRouteError(error, res, '/turns/queue DELETE');
+		}
+	});
+	/**
+	 * POST /turns/queue/:entityId/:queueId
+	 * Toggles a queued entry's RECURRENT (recurring) flag and its re-queue plan.
+	 * Body: { recurring: boolean }. Only the owner entity's own entries are
+	 * addressable; a missing queueId → { success: false } (200, not 404).
+	 */
+	router.post('/turns/queue/:entityId/:queueId', (req, res) => {
+		try {
+			const { entityId, queueId } = req.params;
+			if (!IdResolver.isEntityId(entityId)) {
+				return res.status(400).json({ error: `Invalid entityId "${entityId}". Expected typed ID format "${ID_PREFIXES.ENTITY}<uuid>".` });
+			}
+			if (!isPrefixed(queueId, ID_PREFIXES.QUEUE)) {
+				return res.status(400).json({ error: `Invalid queueId "${queueId}". Expected typed ID format "${ID_PREFIXES.QUEUE}<uuid>".` });
+			}
+
+			const turns = getTurns();
+			if (!turns) {
+				return res.status(503).json({ error: 'Turn system is not available.' });
+			}
+
+			const body = req.body || {};
+			const recurring = body.recurring === true;
+			const result = turns.setRecurring(entityId, queueId, recurring);
+			res.json(result);
+		} catch (error) {
+			sendRouteError(error, res, '/turns/queue POST');
 		}
 	});
 

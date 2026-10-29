@@ -91,6 +91,7 @@ export const DEFAULT_TURNS_SNAPSHOT = {
     queues: {},
     resolvedRound: -1,
     lastRound: -1,
+    recurring: {},
     barrier: {
         roster: [],
         signaled: [],
@@ -130,6 +131,15 @@ class TurnSystemController {
         this._queues = {};
         /** @private {Array} Cached initiative ordering for the current round. */
         this._actorOrder = [];
+        /** @private {Object} { [entityId]: { [actionName]: { params: Object, source: string } } } —
+         * Re-queue plans for RECURRENT (recurring) actions: after a recurring entry
+         * executes, the world re-queues the same action + params at the start of each
+         * following round (see _autoQueueRecurringActions) until the plan is removed
+         * (toggled off, cancelled, entity despawned, or action left the registry).
+         * Persisted via serialize()/restore(). */
+        this._recurringPlans = {};
+
+
 
         // Two-phase barrier (persisted via serialize()/restore() — design
         // spec §1.5). The roster is a round-start snapshot; the signaled set
@@ -319,6 +329,7 @@ class TurnSystemController {
             currentTick,
             actorOrder,
             queues,
+            recurring: JSON.parse(JSON.stringify(this._recurringPlans)),
             barrier: this._barrierView()
         };
     }
@@ -351,9 +362,13 @@ class TurnSystemController {
      * @param {string} actionName - Registry action name.
      * @param {Object} [params={}] - Action params (same shape as executeAction).
      * @param {'player'|'npc'} [source='player'] - Who queued the entry.
+     * @param {boolean} [recurring=false] - When true, the entry is flagged
+     *   RECURRENT for the HUD and a re-queue plan is recorded, so the world
+     *   re-queues the same action + params at the start of every following
+     *   round (see _autoQueueRecurringActions) until the plan is removed.
      * @returns {Object} { success: true, queueId, queue } | { success: false, code, error }
      */
-    queueAction(entityId, actionName, params = {}, source = 'player') {
+    queueAction(entityId, actionName, params = {}, source = 'player', recurring = false) {
         // Malformed input → caller maps to 400; here we validate shape only.
         if (!IdResolver.isEntityId(entityId)) {
             return { success: false, code: 'ENTITY_NOT_FOUND', error: `Invalid or unknown entityId: "${entityId}".` };
@@ -398,11 +413,15 @@ class TurnSystemController {
             actionName,
             params: { ...params },
             queuedAtTick: this._currentTick(),
-            source: source === 'npc' ? 'npc' : 'player'
+            source: source === 'npc' ? 'npc' : 'player',
+            recurring: recurring === true
         };
         this._queues[entityId] = [...existing, entry];
+        if (entry.recurring) {
+            this._recordRecurringPlan(entityId, entry);
+        }
 
-        Logger.info(`[TurnSystem] Queued "${actionName}" for ${entityId} (source=${entry.source}, tick ${entry.queuedAtTick}, queueId ${entry.queueId})`);
+        Logger.info(`[TurnSystem] Queued "${actionName}" for ${entityId} (source=${entry.source}, tick ${entry.queuedAtTick}, queueId ${entry.queueId})${entry.recurring ? ' [recurring]' : ''}`);
         return { success: true, queueId: entry.queueId, queue: this._queueCopy(entityId) };
     }
 
@@ -425,9 +444,16 @@ class TurnSystemController {
         if (index === -1) {
             return { success: false, removed: false, error: `Queue entry "${queueId}" not found for ${entityId}.` };
         }
+        const canceledEntry = entries[index];
         this._queues[entityId] = entries.filter((_, i) => i !== index);
         if (this._queues[entityId].length === 0) {
             delete this._queues[entityId];
+        }
+        // A recurring entry also owns a re-queue plan for following rounds —
+        // cancelling it must drop that plan, or the action would silently
+        // re-appear next round (toggle-off is the only other way to stop it).
+        if (canceledEntry.recurring) {
+            this._removeRecurringPlan(entityId, canceledEntry.actionName);
         }
         Logger.info(`[TurnSystem] Cancelled queued entry ${queueId} for ${entityId}`);
         return { success: true, removed: true };
@@ -440,6 +466,50 @@ class TurnSystemController {
      */
     getQueuedActions(entityId) {
         return this._queueCopy(entityId);
+    }
+
+    /**
+     * Toggles a queued entry's RECURRENT (recurring) flag and its re-queue plan.
+     *
+     * - recurring === true: marks the entry RECURRENT for this round and records/
+     *   overwrites the re-queue plan, so the action re-executes with the same
+     *   params at every following round start (see _autoQueueRecurringActions).
+     * - recurring === false: clears the flag and removes the re-queue plan, so
+     *   the entry stays queued for this round (executes as one-off) and is NOT
+     *   re-queued.
+     *
+     * Only the owner's own entries are addressable (same guard as cancelAction).
+     * A missing queueId fails with NOT_IN_QUEUE (a distinct code, so the client
+     * can tell "not in queue" apart from a malformed ID).
+     *
+     * @param {string} entityId - Typed entity ID (ent-...).
+     * @param {string} queueId - Typed queue entry ID (q-...).
+     * @param {boolean} recurring - Desired target state (coerced by === true).
+     * @returns {Object}
+     *   success: { success: true, recurring: boolean, actionName, queueId }
+     *   failure: { success: false, recurring: false, code, error }
+     */
+    setRecurring(entityId, queueId, recurring) {
+        if (!IdResolver.isEntityId(entityId) || !isPrefixed(queueId, ID_PREFIXES.QUEUE)) {
+            return { success: false, recurring: false, code: 'INVALID_ID', error: 'Invalid entityId or queueId.' };
+        }
+        const entries = this._queues[entityId];
+        if (!entries) {
+            return { success: false, recurring: false, code: 'NOT_IN_QUEUE', error: 'No queued entries for this entity.' };
+        }
+        const index = entries.findIndex(entry => entry.queueId === queueId);
+        if (index === -1) {
+            return { success: false, recurring: false, code: 'NOT_IN_QUEUE', error: `Queue entry "${queueId}" not found for ${entityId}.` };
+        }
+        const entry = entries[index];
+        entry.recurring = recurring === true;
+        if (entry.recurring) {
+            this._recordRecurringPlan(entityId, entry);
+        } else {
+            this._removeRecurringPlan(entityId, entry.actionName);
+        }
+        Logger.info(`[TurnSystem] Recurring flag for "${entry.actionName}" (${entry.queueId}, ${entityId}) set to ${entry.recurring ? 'true' : 'false'}`);
+        return { success: true, recurring: entry.recurring, actionName: entry.actionName, queueId: entry.queueId };
     }
 
     // =========================================================================
@@ -499,16 +569,19 @@ class TurnSystemController {
     // =========================================================================
 
     /**
-     * Snapshot of the round bookkeeping, including the barrier. Schema v3 is
-     * unchanged by spec v2 (spec v2 §8: nothing v2 removed was ever
-     * persisted).
-     * @returns {Object} { roundNumber, phase, queues, resolvedRound, lastRound, barrier }
+     * Snapshot of the round bookkeeping, including the barrier and the
+     * RECURRENT (recurring) re-queue plans. Schema v3 is unchanged by spec
+     * v2 (spec v2 §8: nothing v2 removed was ever persisted); the `recurring`
+     * section is additive (legacy v3 saves restore with `recurring: {}` via
+     * the restore() default).
+     * @returns {Object} { roundNumber, phase, queues, recurring, resolvedRound, lastRound, barrier }
      */
     serialize() {
         return {
             roundNumber: this._currentRound(),
             phase: this._currentPhase(),
             queues: JSON.parse(JSON.stringify(this._queues)),
+            recurring: JSON.parse(JSON.stringify(this._recurringPlans)),
             resolvedRound: this._resolvedRound,
             lastRound: this._lastRound,
             barrier: this._barrierSnapshot()
@@ -543,6 +616,9 @@ class TurnSystemController {
         this._queues = (snapshot.queues && typeof snapshot.queues === 'object')
             ? JSON.parse(JSON.stringify(snapshot.queues))
             : {};
+        this._recurringPlans = (snapshot.recurring && typeof snapshot.recurring === 'object')
+            ? JSON.parse(JSON.stringify(snapshot.recurring))
+            : {};
 
         this._phase = this._validateRestorePhase(snapshot.phase);
         // Fail-safe (M1): a null/invalid phase WITH round history means the
@@ -574,17 +650,117 @@ class TurnSystemController {
     // =========================================================================
 
     /**
-     * Round start (spec v2 §1.2) — a thin orchestrator over four single-
-     * purpose routines: round bookkeeping (round counter, queues, initiative
-     * actor order), the barrier reset (fresh roster snapshot + planning
-     * state), the round-start agent firing (§4), and — unless the barrier
-     * closed synchronously during agent firing — the `turn-round-update`
-     * transition (clients re-arm their ready button).
+     * Records (or overwrites) the RECURRENT re-queue plan for one queued entry:
+     * the plan is keyed by actionName and stores a deep copy of the entry's
+     * params plus who queued it, so following rounds can re-queue the same
+     * action with the same parameters.
+     * @private
+     */
+    _recordRecurringPlan(entityId, entry) {
+        this._recurringPlans[entityId] = this._recurringPlans[entityId] || {};
+        this._recurringPlans[entityId][entry.actionName] = {
+            params: { ...entry.params },
+            source: entry.source
+        };
+    }
+
+    /**
+     * Removes one action's RECURRENT re-queue plan (no-op when absent). Removes
+     * the empty entity bucket so serialize()/restore() stay lean.
+     * @private
+     */
+    _removeRecurringPlan(entityId, actionName) {
+        if (!entityId || !actionName) {
+            return false;
+        }
+        const byEntity = this._recurringPlans[entityId];
+        if (!byEntity || !Object.hasOwn(byEntity, actionName)) {
+            return false;
+        }
+        delete byEntity[actionName];
+        if (Object.keys(byEntity).length === 0) {
+            delete this._recurringPlans[entityId];
+        }
+        return true;
+    }
+
+    /**
+     * Re-queues every valid RECURRENT (recurring) action at round start, with
+     * the same parameters and source as before. For each (entity, actionName)
+     * plan we call queueAction(..., recurring: true); a plan whose entity is gone
+     * or whose action left the registry is dropped, a queue full (cap reached)
+     * is skipped for this round (the plan survives and retries next round), and
+     * any other failure (TURNS_DISABLED, PLANNING_CLOSED) drops the plan.
+     * @private
+     */
+    _autoQueueRecurringActions(round) {
+        if (!this._recurringPlans || Object.keys(this._recurringPlans).length === 0) {
+            return 0;
+        }
+        const registry = this.worldStateController?.actionController?.getRegistry?.() || {};
+        const entities = this._getEntities();
+        let requeued = 0;
+        for (const [entityId, byAction] of Object.entries(this._recurringPlans)) {
+            if (!entities || !entities[entityId]) {
+                delete this._recurringPlans[entityId];
+                Logger.info(`[TurnSystem] Round ${round}: dropped recurring plan for ${entityId} — entity no longer in world.`);
+                continue;
+            }
+            for (const [actionName, plan] of Object.entries(byAction)) {
+                if (!Object.hasOwn(registry, actionName)) {
+                    delete byAction[actionName];
+                    Logger.info(`[TurnSystem] Round ${round}: dropped recurring plan "${actionName}" for ${entityId} — action no longer in registry.`);
+                    continue;
+                }
+                const result = this.queueAction(entityId, actionName, { ...plan.params }, plan.source === 'npc' ? 'npc' : 'player', true);
+                if (result?.success) {
+                    requeued += 1;
+                } else {
+                    // PLANNING_CLOSED (impossible on the round-start path, but
+                    // defensive), TURNS_DISABLED and malformed-input paths drop
+                    // the plan; a full queue defers the re-queue to the next
+                    // round — the plan is left in place in that case.
+                    const dropPlan = result?.code && result.code !== 'QUEUE_FULL';
+                    if (dropPlan) {
+                        this._removeRecurringPlan(entityId, actionName);
+                    }
+                    Logger.info(`[TurnSystem] Round ${round}: recurring "${actionName}" for ${entityId} not re-queued (${result?.code || result?.error})${dropPlan ? '' : ' — plan kept, retries next round.'}`);
+                }
+            }
+            if (Object.keys(byAction).length === 0) {
+                delete this._recurringPlans[entityId];
+            }
+        }
+        if (requeued > 0) {
+            Logger.info(`[TurnSystem] Round ${round}: auto-queued ${requeued} recurring action(s).`);
+        }
+        return requeued;
+    }
+
+    /**
+     * Round start (spec v2 §1.2) — a thin orchestrator over single-purpose
+     * routines: round bookkeeping (round counter, queues, initiative actor
+     * order), the barrier reset (fresh roster snapshot + planning state), the
+     * RECURRENT re-queue of recurring actions (see _autoQueueRecurringActions),
+     * the round-start agent firing (§4), and — unless the barrier closed
+     * synchronously during agent firing — the `turn-round-update` transition
+     * (clients re-arm their ready button).
      * @private
      */
     _roundStart() {
         const round = this._beginRoundBookkeeping();
+        // Publish the live round to the effect engine so durable stat effects applied
+        // in Immediate mode (or by any non-queued path) during THIS round track their
+        // expiration against `round`. Best-effort: a missing tracker is a no-op. The
+        // queued path reads the same round in _resolveRound and is bit-identical.
+        const facade = this.worldStateController;
+        if (facade?.effectTracker && typeof facade.effectTracker.setCurrentRound === 'function') {
+            facade.effectTracker.setCurrentRound(round);
+        }
         this._resetBarrierForNewRound();
+        // RECURRENT actions are re-queued now, during planning, so the current
+        // round's HUD shows them and the agent sees them in its action list.
+        this._autoQueueRecurringActions(round);
         // Turn-driven IC effects fire at ROUND START, before agents plan
  // (spec: wiki/subMDs/systems/energy_flow.md). Guarded: a hook failure
         // must never break the round machine.
@@ -788,6 +964,11 @@ class TurnSystemController {
             Logger.warn(`[TurnSystem] Round ${round}: facade not injected — cannot resolve.`);
             return;
         }
+        // Temporal effect system (ConsequenceDispatcher + EffectTracker): the round is
+        // published at start (_roundStart). Here only the round-end pass
+        // (expireEffects) reverts any effect whose expiration round has passed.
+        // Best-effort: a missing tracker is a no-op.
+        const effectTracker = facade?.effectTracker ?? null;
 
         // 0.5. Grab the per-agent feedback store (Feature E) so the resolution
         // loop can record real outcomes for NPC agents.  Best-effort: missing
@@ -880,6 +1061,7 @@ class TurnSystemController {
                             });
                         } catch (_) { /* best-effort — must not break the round */ }
                     }
+
                 } else {
                     const reason = result?.error || 'unknown failure';
                     const line = `${actor.name}'s ${entry.actionName} discarded: ${reason}`;
@@ -909,6 +1091,18 @@ class TurnSystemController {
         // 3. Clear all queues (including actors with zero queued entries —
         //    the key set is empty anyway) and broadcast the settled world.
         this._queues = {};
+
+        // Temporal effect expiration: the generic engine (ConsequenceDispatcher routes
+        // stat consequences; EffectTracker owns the baseline + expiration). At the end
+        // of every round — before the settled broadcast so clients see restored values
+        // — revert any effect whose expiration round has passed. Effects re-executed
+        // this round were renewed, so their expiresRound is greater than this round and
+        // they survive; only effects NOT re-executed (expiresRound <= this round) expire
+        // and are restored to their first recorded baseline.
+        if (effectTracker && typeof effectTracker.expireEffects === 'function') {
+            effectTracker.expireEffects();
+        }
+
         if (this._broadcaster?.broadcast) {
             try {
                 this._broadcaster.broadcast();
@@ -1418,6 +1612,7 @@ class TurnSystemController {
         this._lastRound = def.lastRound;
         this._resolvedRound = def.resolvedRound;
         this._queues = { ...def.queues };
+        this._recurringPlans = {};
         this._actorOrder = [];
         // _phase intentionally stays null (NOT def.phase): null keeps the
         // public phase mapped to 'planning' before the first round start and
