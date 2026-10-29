@@ -1,5 +1,5 @@
 /**
- * RoomsController — room-definition validation unit tests.
+ * RoomsController - room-definition validation unit tests.
  *
  * Pins the new static room-environment enums from the "Add air, ceiling,
  * condition and power" change (commit 05dea00). `_validateRoomDefinitions`
@@ -27,7 +27,7 @@ import RoomsController from '../../src/controllers/core/RoomsController.js';
 // Fixture state (shared across all tests via the hoisted top-level vi.mock)
 // ---------------------------------------------------------------------------
 
-/** @type {Object|null} — room definitions served for data/world/rooms.json. */
+/** @type {Object|null} - room definitions served for data/world/rooms.json. */
 let fixtureRooms = null;
 
 function setRooms(rooms) {
@@ -40,7 +40,7 @@ function resetRooms() {
 
 /**
  * A minimal room definition that passes every validation branch except the one
- * the test overrides — the common base for the throw matrix.
+ * the test overrides - the common base for the throw matrix.
  * @param {Object} [overrides] Extra/overriding fields for `start_room`.
  * @returns {Object} A single-room definition map.
  */
@@ -104,7 +104,7 @@ function thrownTypeError(fn) {
     return caught;
 }
 
-describe('RoomsController — room-level constrained enums (ceiling/condition/power)', () => {
+describe('RoomsController - room-level constrained enums (ceiling/condition/power)', () => {
     it('rejects ceiling outside VALID_CEILING with a named TypeError', () => {
         setRooms(baseRoom({ ceiling: 'tall' }));
         const err = thrownTypeError(() => new RoomsController());
@@ -138,7 +138,7 @@ describe('RoomsController — room-level constrained enums (ceiling/condition/po
     });
 });
 
-describe('RoomsController — atmosphere constrained enums (airQuality/fog)', () => {
+describe('RoomsController - atmosphere constrained enums (airQuality/fog)', () => {
     it('rejects airQuality outside VALID_AIR_QUALITY with a named TypeError', () => {
         setRooms(baseRoom({ atmosphere: { airQuality: 'muddy' } }));
         const err = thrownTypeError(() => new RoomsController());
@@ -164,7 +164,7 @@ describe('RoomsController — atmosphere constrained enums (airQuality/fog)', ()
     });
 });
 
-describe('RoomsController — normalization (happy path)', () => {
+describe('RoomsController - normalization (happy path)', () => {
     it('accepts all new fields with in-enum values and normalizes them (no throw)', () => {
         setRooms(baseRoom({
             ceiling: 'vaulted',
