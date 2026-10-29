@@ -8,6 +8,8 @@
  * - DamageConsequenceHandler: Damage application to components
  * - LogConsequenceHandler: Logging of action events
  * - EventConsequenceHandler: Event triggering for logging/notification
+ * - SensitivePartConsequenceHandler: the touch action — raises the touched
+ *   droid's Pleasure.pleasure by the sensitivity of the touched body part
  *
  * @module ConsequenceHandlers
  */
@@ -19,6 +21,7 @@ import DamageConsequenceHandler from './DamageConsequenceHandler.js';
 import MaterialChunkDropHandler from './MaterialChunkDropHandler.js';
 import LogConsequenceHandler from './LogConsequenceHandler.js';
 import EventConsequenceHandler from './EventConsequenceHandler.js';
+import SensitivePartConsequenceHandler from './SensitivePartConsequenceHandler.js';
 import { handleDropItem } from './DropItemHandler.js';
 import { handlePickUpItem } from './PickUpItemHandler.js';
 import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
@@ -85,6 +88,10 @@ class ConsequenceHandlers {
             : null;
         this.logHandler = new LogConsequenceHandler(eventSink);
         this.eventHandler = new EventConsequenceHandler();
+        // The touch action (stimulateSensitivePart): the facade arrives via
+        // setWorldStateController below; the sensitivity file loads in the
+        // constructor (static world data).
+        this.sensitivePartHandler = new SensitivePartConsequenceHandler(controllers);
 
         // Cache the handler map once (it used to be rebuilt on every `handlers` access).
         // All handlers follow the normalized signature: (targetId, params, context)
@@ -103,6 +110,7 @@ class ConsequenceHandlers {
         this.statHandler.worldStateController = worldStateController;
         this.damageHandler.worldStateController = worldStateController;
         this.materialChunkDropHandler.worldStateController = worldStateController;
+        this.sensitivePartHandler.worldStateController = worldStateController;
     }
 
     /**
@@ -140,6 +148,9 @@ class ConsequenceHandlers {
             placeMachine: (targetId, params, context) => this._handlePlaceMachine(params, context),
             // Retrieve a previously-placed machine back into inventory (spills stored contents).
             retrieveMachine: (targetId, params, context) => this._handleRetrieveMachine(params, context),
+            // The touch action: raise the touched droid's Pleasure.pleasure by the
+            // sensitivity of the touched body-part component (validated sensitive flag).
+            stimulateSensitivePart: (targetId, params, context) => this.sensitivePartHandler._handleStimulateSensitivePart(targetId, params, context),
         };
     }
 

@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
 import LLMAgentController from './controllers/networking/LLMAgentController.js';
+import AgentBodyController from './controllers/networking/AgentBodyController.js';
 import NpcAIController from './controllers/ai/NpcAIController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
@@ -74,6 +75,15 @@ const llmAgentController = new LLMAgentController({
 //     describeAgentView() only. The agent is built AFTER registerRoutes(), so
 //     it cannot be a route dependency; the routes read it off the facade.
 worldStateController.llmAgentController = llmAgentController;
+
+// 7f. "Create Agent Body" (dev feature, Feature A — the new LLM prompt kind
+//     `agent-body-design`, versioned; RP-1/RP-2). Judgment-only: the designer
+//     writes nothing to data/ (wiki/decisions/agent-body-design.md). One LLM
+//     call per design request, rate-limited in the route (SEC-9); provider
+//     timeout is the seam's REQUEST_TIMEOUT_MS (env LLM_TIMEOUT_MS), same as
+//     /llm/chat — no second timeout knob.
+const agentBodyController = new AgentBodyController({ llmController });
+worldStateController.agentBodyController = agentBodyController;
 
 // Build the deterministic AI brain (outside composition root — spec §A6).
 const npcAIController = new NpcAIController({

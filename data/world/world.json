@@ -7,7 +7,7 @@
     },
     {
       "item": "coal",
-      "slot": "firstFit:m1CentralBody,centralBall",
+      "slot": "firstFit:maleCentralBody,maleTorso,m1CentralBody,centralBall",
       "count": 10
     },
     {
@@ -17,7 +17,7 @@
     },
     {
       "item": "knife",
-      "slot": "firstFit:m1Leg,droidRollingBall",
+      "slot": "firstFit:maleHand,m1Leg,droidRollingBall",
       "count": 5
     }
   ]

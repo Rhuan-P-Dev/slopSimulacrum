@@ -33,6 +33,7 @@ import { KnowledgePanel } from './KnowledgePanel.js';
 import ObjectViewer from './ObjectViewer.js';
 import { AgentViewPanel } from './AgentViewPanel.js';
 import { RoundProsePanel } from './RoundProsePanel.js';
+import { AgentBodyPanel } from './AgentBodyPanel.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -118,6 +119,9 @@ export class ClientApp {
         // Round Prose: dev inspector — reads a round's perception prose on open
         // and on refresh (GET /perception/round/:n); pre-filled with the live round.
         this.roundProse = new RoundProsePanel({ worldStateManager: this.worldState });
+        // Agent Body: dev tab that asks the LLM to design a body from a
+        // character card (judgment-only — no write-back to the world).
+        this.agentBody = new AgentBodyPanel();
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -710,6 +714,9 @@ export class ClientApp {
             // View tab (no numeric shortcut — only '1'–'4' are wired in
             // OverlayManager): list this room's objects or paste any typed id.
             this.overlayManager.register('view', this.viewPanel, 'btn-view', null);
+            // Agent Body (no numeric shortcut): body designer — explicit Design
+            // body click (one LLM call per click), no auto-run on open.
+            this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle

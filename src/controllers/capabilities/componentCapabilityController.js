@@ -19,6 +19,11 @@ import { TRAIT_GROUPS } from '../../../shared/StatVocabulary.js';
  * independently from entity components. This allows items like knives to unlock
  * actions (e.g., "cut") without merging traits into component stats.
  *
+ * Actions that declare no stat requirements (e.g. "touch") are UNIVERSAL:
+ * every component of an entity is capable of them (a fixed baseline score,
+ * no requirement values), and equipped items are never listed as performants
+ * — a universal action is performed by the entity's own body parts.
+ *
  * @example
  * // Cache structure (TYPED ID MIGRATION):
  * // {
@@ -128,7 +133,13 @@ class ComponentCapabilityController {
 
                 // Evaluate this component against every action
                 for (const [actionName, actionData] of Object.entries(actions)) {
-                    if (!actionData.requirements || actionData.requirements.length === 0) continue;
+                    if (this._hasNoRequirements(actionData)) {
+                        // Universal action: any component that exists can perform it.
+                        this._capabilityCache[actionName].push(
+                            this._makeUniversalEntry(entityId, actionData, component)
+                        );
+                        continue;
+                    }
 
                     const score = this._calculateComponentScore(componentStats, actionData.requirements);
                     if (score <= 0) continue; // Component doesn't satisfy this action
@@ -175,6 +186,46 @@ class ComponentCapabilityController {
     }
 
     /**
+     * Returns true when the action declares no stat requirements at all
+     * (missing key, empty array, or empty object). Such actions — e.g.
+     * "touch" — are universal: any component that exists can perform them,
+     * so the capability scans never skip them (see the class header).
+     * @param {Object} actionData - The registered action definition.
+     * @returns {boolean}
+     * @private
+     */
+    _hasNoRequirements(actionData) {
+        const reqs = actionData && actionData.requirements;
+        if (!reqs) return true;
+        if (Array.isArray(reqs)) return reqs.length === 0;
+        return Object.keys(reqs).length === 0;
+    }
+
+    /**
+     * Builds the capability entry for a zero-requirement (universal) action:
+     * a fixed positive score, no requirement values, no fulfilling components.
+     * @param {string} entityId - The entity that owns the component.
+     * @param {Object} actionData - The registered action definition.
+     * @param {Object} component - The component instance.
+     * @returns {ComponentCapabilityEntry}
+     * @private
+     */
+    _makeUniversalEntry(entityId, actionData, component) {
+        return {
+            entityId,
+            _entityId: entityId, // TYPED ID MIGRATION: Explicit _entityId field
+            componentId: component.id,
+            componentType: component.type,
+            componentIdentifier: component.identifier || 'default',
+            score: ACTION_SCORING.REQUIREMENT_MET,
+            requirementValues: {},
+            fulfillingComponents: {},
+            requirementsStatus: [],
+            _resolvedRole: this._resolveComponentRole(actionData, component),
+        };
+    }
+
+    /**
      * Re-evaluates a specific action for a specific component.
      * Called when a component stat changes. Finds the entry in the array and
      * updates or removes it. Only updates the affected action entry.
@@ -195,7 +246,43 @@ class ComponentCapabilityController {
      */
     reEvaluateActionForComponent(state, actionName, componentId) {
         const actionData = this.actionRegistry[actionName];
-        if (!actionData || !actionData.requirements || actionData.requirements.length === 0) return null;
+        if (!actionData) return null;
+
+        if (this._hasNoRequirements(actionData)) {
+            // Universal action: capability does not depend on stat values, so a
+            // stat change cannot make the component incapable — it stays capable
+            // as long as it still has stats.
+            let targetEntityId = null;
+            let component = null;
+            for (const [eid, entity] of Object.entries(state.entities || {})) {
+                const found = entity?.components?.find(c => c.id === componentId);
+                if (found) {
+                    targetEntityId = eid;
+                    component = found;
+                    break;
+                }
+            }
+            const hasStats =
+                targetEntityId != null &&
+                this.worldStateController?.componentController?.getComponentStats(componentId);
+            if (!hasStats) {
+                this._removeComponentFromActionCache(actionName, componentId);
+                return null;
+            }
+
+            const actionEntries = this._capabilityCache[actionName];
+            if (!actionEntries) return null;
+            const newEntry = this._makeUniversalEntry(targetEntityId, actionData, component);
+            const existingIndex = actionEntries.findIndex(e => e.componentId === componentId);
+            if (existingIndex !== -1) {
+                actionEntries[existingIndex] = newEntry;
+            } else {
+                actionEntries.push(newEntry);
+                actionEntries.sort((a, b) => b.score - a.score);
+            }
+            this._notifySubscribers(actionName, newEntry);
+            return newEntry;
+        }
 
         // Check if this component hosts an equipped item with relevant traits
         const hasEquippedItemWithRelevantTraits = this._getEquippedTraitsForHostComponent(componentId) != null;
@@ -389,11 +476,17 @@ class ComponentCapabilityController {
             if (!componentStats) continue;
 
             for (const [actionName, actionData] of Object.entries(actions)) {
-                if (!actionData.requirements || actionData.requirements.length === 0) continue;
-
                 // Ensure the action array exists
                 if (!this._capabilityCache[actionName]) {
                     this._capabilityCache[actionName] = [];
+                }
+
+                if (this._hasNoRequirements(actionData)) {
+                    // Universal action: any component that exists can perform it.
+                    const entry = this._makeUniversalEntry(entityId, actionData, component);
+                    this._capabilityCache[actionName].push(entry);
+                    updatedEntries.push(entry);
+                    continue;
                 }
 
                 const score = this._calculateComponentScore(componentStats, actionData.requirements);
@@ -1040,7 +1133,9 @@ class ComponentCapabilityController {
 
                 // Check each action against item traits
                 for (const [actionName, actionData] of Object.entries(actions)) {
-                    if (!actionData.requirements || actionData.requirements.length === 0) continue;
+                    // Universal actions are performed by the entity's own body parts
+                    // (the host-component scan), never by equipped items.
+                    if (this._hasNoRequirements(actionData)) continue;
 
                     const score = this._calculateComponentScore(itemStats, actionData.requirements);
                     if (score <= 0) continue;

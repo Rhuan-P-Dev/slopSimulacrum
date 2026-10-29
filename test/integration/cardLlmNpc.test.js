@@ -8,7 +8,7 @@
  * The full real world (buildWorldState) boots the card system during world
  * spawn, so this test drives the REAL spawn path (not a stub) and then:
  *
- *   - asserts each card PNG produced a live entity (blueprint `m1Droid`,
+ *   - asserts each card PNG produced a live entity (own saved body when present, else `m1Droid`,
  *     `isNPC: true`, display name == the card's embedded name, a per-entity
  *     `npcConfig.personality`), and that they ALL land in the *first* room
  *     (deterministic: the first spawnable room in world-definition order);
@@ -153,7 +153,7 @@ describe('data/cards → M1 LLM NPCs (first room, per-card identity)', () => {
         rooms = world.getRooms();
     });
 
-    it.skipIf(CARD_FILES.length === 0)('spawns one distinct entity per card PNG (m1Droid, isNPC, card display name)', () => {
+    it.skipIf(CARD_FILES.length === 0)('spawns one distinct entity per card PNG (own body or m1Droid, isNPC, card display name)', () => {
         const expectedNames = readCardNames();
         expect(expectedNames.length).toBeGreaterThanOrEqual(1);
 
@@ -165,10 +165,16 @@ describe('data/cards → M1 LLM NPCs (first room, per-card identity)', () => {
         }
 
         // Every card is a live NPC droid carrying its own per-entity personality.
+        // With the spawn-preference feature, a card spawns with its own saved
+        // body (keyed by its display name) when one exists, otherwise the
+        // generic M1 droid.
         for (const expected of expectedNames) {
             const card = entities.find((e) => e.name === expected);
             expect(card).toBeDefined();
-            expect(card.blueprint).toBe(CARD_BLUEPRINT);
+            expect(
+                [CARD_BLUEPRINT, expected].includes(card.blueprint),
+                `card "${expected}" spawned with blueprint "${card.blueprint}" (expected ${CARD_BLUEPRINT} or its own body)`
+            ).toBe(true);
             expect(card.isNPC).toBe(true);
             expect(card.npcConfig).toBeTypeOf('object');
             expect(typeof card.npcConfig.personality).toBe('string');

@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="css/in-text.css">
     <link rel="stylesheet" href="css/agent-view.css">
     <link rel="stylesheet" href="css/round-prose.css">
+    <link rel="stylesheet" href="css/agent-body.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
@@ -53,6 +54,7 @@
             <button id="btn-agent-view" class="config-btn" title="Agent View — LLM inspector">🤖</button>
             <button id="btn-round-prose" class="config-btn" title="Round Prose — read a range of rounds (dev tab)">📜</button>
             <button id="btn-view" class="config-btn" title="View — inspect any entity, component, or item in this room">🔍</button>
+            <button id="btn-agent-body" class="config-btn" title="Agent Body — design a character body from a card (dev)">🦾</button>
         </div>
     </div>
 
@@ -283,6 +285,18 @@
                 <p id="view-input-hint" class="view-input-hint" hidden></p>
             </div>
             <div id="view-detail" class="view-detail"></div>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: Agent Body (body designer from a character card — dev tab) -->
+    <div id="agent-body-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🦾 Agent Body</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="agent-body-controls" class="agent-body-controls"></div>
+        <div id="agent-body-content" class="agent-body-content">
+            <p class="agent-body-placeholder">No design yet. Pick a card and press Design body.</p>
         </div>
     </div>
 

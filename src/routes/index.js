@@ -24,6 +24,10 @@ import { register as registerObjectInspectRoutes } from './objectInspectRoutes.j
 // null-tolerant, 404 when the facade has no view controller). Classified once
 // at the boundary (id prefix → kind; 400 otherwise).
 import { register as registerViewRoutes } from './viewRoutes.js';
+// Feature A (Create Agent Body, dev tab): body-designer from a character card
+// (RP-1 prompt kind `agent-body-design` in AgentBodyController). Judgment-only: the
+// designer writes nothing to data/.
+import { register as registerAgentBodyRoutes } from './agentBodyRoutes.js';
 // Feature G (perception): room-level delta reads + agent "what happened to me"
 // summary. Read-only observer surface — worldStateController passed through to
 // the perception controller the facade owns (null-tolerant, 503 when absent).
@@ -70,6 +74,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerKnowledgeRoutes(router, { worldStateController });
 	registerObjectInspectRoutes(router, { worldStateController });
 	registerViewRoutes(router, { worldStateController });
+	registerAgentBodyRoutes(router, { worldStateController });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);

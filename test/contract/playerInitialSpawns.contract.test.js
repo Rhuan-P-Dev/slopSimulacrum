@@ -3,11 +3,12 @@
  * root), no network, no mocks.
  *
  * Regression guard for the "player droid spawns with 0 items" defect. The player
- * (a non-NPC smallBallDroid incarnated on the socket-connect path) is supposed to
+ * (a non-NPC droid incarnated on the socket-connect path as
+ * DEFAULT_PLAYER_BLUEPRINT — today the male humanoid droid) is supposed to
  * receive the declarative loadout from data/world/world.json's `initialSpawns`:
  *
  *     SocketLifecycleController._incarnatePlayer
- *       → WorldStateController.spawnEntity('smallBallDroid', roomId)
+ *       → WorldStateController.spawnEntity(DEFAULT_PLAYER_BLUEPRINT, roomId)
  *         → spawn observer → _applyInitialSpawns
  *           → _resolveInitialSpawnSlot (per entry) + InventoryManager.addItem
  *
@@ -32,6 +33,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import DataLoader from '../../src/utils/DataLoader.js';
 import Logger from '../../src/utils/Logger.js';
+import { DEFAULT_PLAYER_BLUEPRINT } from '../../shared/Defaults.js';
 
 describe('Player initial-spawn loadout (real world, data-driven)', () => {
     let wsc;
@@ -63,7 +65,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
             warnings.push(String(msg));
         });
         const startRoomId = wsc.getRoomUidByLogicalId('start_room');
-        const entityId = wsc.spawnEntity('smallBallDroid', startRoomId);
+        const entityId = wsc.spawnEntity(DEFAULT_PLAYER_BLUEPRINT, startRoomId);
         const entity = wsc.getEntity(entityId);
         return { entity, entityId, warnings };
     }
@@ -73,11 +75,11 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         const items = entity.items;
         expect(Array.isArray(items)).toBe(true);
 
-        // coal x10 (centralBall, volume 1 each — fills the ball exactly).
+        // coal x10 (firstFit:maleCentralBody,maleTorso — volume 1 each).
         const coals = items.filter(i => i.type === 'coal');
         expect(coals.length).toBe(10);
 
-        // t1 (bestAvailable:hand → a droidHand).
+        // t1 (bestAvailable:hand → a maleHand; footprint is its externalVolume 1).
         const t1 = items.find(i => i.type === 't1');
         expect(t1).toBeDefined();
 
@@ -85,7 +87,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         const t1Ammo = items.filter(i => i.type === 'knife' && i.hostComponentId === t1.id);
         expect(t1Ammo.length).toBe(1);
 
-        // Standalone knives (droidArm, not the one inside t1).
+        // Standalone knives (a maleHand, not the one inside t1).
         const standaloneKnives = items.filter(i => i.type === 'knife' && i.hostComponentId !== t1.id);
         expect(standaloneKnives.length).toBe(5);
 
@@ -126,7 +128,7 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         expect(equipped.some(eq => eq.itemId === worn[0].itemId && eq.componentId === worn[0].componentId)).toBe(true);
     });
 
-    it('resolves a valid slot for every data/world/world.json entry against a fresh smallBallDroid (unit-level)', () => {
+    it('resolves a valid slot for every data/world/world.json entry against a fresh player droid (unit-level)', () => {
         // Take the incarnated player and reset its items to [] so each entry is
         // resolved against the FRESH (empty) component capacities — the exact state
         // _applyInitialSpawns sees on first spawn. _resolveInitialSpawnSlot is a pure

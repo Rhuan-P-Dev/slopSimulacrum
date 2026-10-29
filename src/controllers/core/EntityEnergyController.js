@@ -1,13 +1,15 @@
 /**
- * EntityEnergyController — the whole-entity energy-life system (wiki/entity_attributes).
+ * EntityEnergyController — the whole-entity attribute lifecycle (wiki/entity_attributes).
  *
- * A per-turn (round-start) energy lifecycle for the world: every round it drains
- * each active entity's energy attribute by that attribute's `drainPerTurn` (a
- * per-attribute value carried on the entity's own declaration, seeded at spawn
- * from the blueprint's entry in data/entities/entity_attributes.json). Then it runs the
- * life-or-death check: when the energy attribute hits 0 the host is ELIMINATED —
+ * A per-turn (round-start) attribute step for the world: every round it drains
+ * each active entity's DECLARED attributes by each attribute's `drainPerTurn`
+ * (a per-attribute value carried on the entity's own declaration, seeded at spawn
+ * from the blueprint's entry in data/entities/entity_attributes.json) — the
+ * fuel-burning droids' energy and the human droids' Pleasure.pleasure. Then it runs the
+ * life-or-death check, which is ENERGY-ONLY: when the energy attribute hits 0 the host is ELIMINATED —
  * its carried contents spill to the floor and the entity is despawned, via the
  * facade's `eliminateEntityByEnergy` (which owns the spill + despawn atomically).
+ * A drained-to-zero non-energy attribute (pleasure) is a state, never a death.
  *
  * Design:
  *  - Reads/writes ONLY through the world-state facade's public API
@@ -17,11 +19,12 @@
  *     system dependency: driven from the turn system's round-start hook, same
  *     lifecycle as its peers (internalComponentController.processTurnEffects,
  *     energyFlowController.processFlowTurn).
- *  - Drain is data-driven: each entity carries its own `drainPerTurn`. Entities
- *     without an energy attribute (no entry in the data file, or no
- *     Physical.energy) drain nothing — legacy entities are untouched.
- *  - Death check: after the drain, if the live energy value hits 0, the controller
- *     calls eliminateEntityByEnergy. Double-elimination is safe (the facade
+ *  - Drain is data-driven: each entity carries its own `drainPerTurn` per
+ *     declared attribute. Entities without a declaration (or with a zero
+ *     drain) drain nothing — legacy entities are untouched.
+ *  - Death check: after the drain, if the live ENERGY value hits 0, the
+ *     controller calls eliminateEntityByEnergy. Energy is the only attribute
+ *     that kills; double-elimination is safe (the facade
  *     no-ops on absent/inactive entities).
  *
  * Construction: named deps only — no persistent world data. The already-ready
@@ -82,9 +85,10 @@ class EntityEnergyController {
     }
 
     /**
-     * Runs one turn of the energy lifecycle: for each active entity, drains its
-     * energy attribute by its per-turn drain, then eliminates the entity when
-     * its energy hits 0 (spill + despawn).
+     * Runs one turn of the attribute lifecycle: for each active entity, drains
+     * every declared attribute that declares a per-turn drain (clamped into
+     * [0, max] by the facade), then eliminates the entity when its energy —
+     * the only attribute that kills — hits 0 (spill + despawn).
      *
      * @param {number|string} round - The current round number (used for logging).
      * @returns {number} The number of entities eliminated this turn.
@@ -119,27 +123,41 @@ class EntityEnergyController {
             if (liveEntity.status !== 'active') continue;
 
             const energyAttr = this._findEnergyAttribute(entity);
-            if (!energyAttr) continue;
+            const energyDrain = energyAttr
+                ? this._getDrainPerTurn(entity.id, energyAttr.traitId, energyAttr.statName)
+                : 0;
 
-            const drainPerTurn = this._getDrainPerTurn(entity.id, energyAttr.traitId, energyAttr.statName);
-            if (!drainPerTurn || drainPerTurn <= 0) continue;
-
-            // Draining: clamped into [0, max] by setEntityAttributeDelta.
-            // broadcast:false — this is a per-droid per-turn write; coalesce it
-            // into the turn's single full-state broadcast (the drain mustn't
-            // force a full emit per droid per turn).
-            if (wsc.setEntityAttributeDelta(entity.id, energyAttr.traitId, energyAttr.statName, -drainPerTurn, false)) {
-                drainedCount++;
+            // Drain EVERY declared attribute with a per-turn drain (energy for
+            // the fuel-burning droids; Pleasure.pleasure for the human droids).
+            // Each write is clamped into [0, max] by setEntityAttributeDelta —
+            // the floor (0) is the natural stop for meters that are not life
+            // pools. broadcast:false — this is a per-droid per-turn write;
+            // coalesce it into the turn's single full-state broadcast (the
+            // drain mustn't force a full emit per droid per turn).
+            for (const [traitId, stats] of Object.entries(entity.attributesConfig || {})) {
+                for (const [statName] of Object.entries(stats || {})) {
+                    const drainPerTurn = this._getDrainPerTurn(entity.id, traitId, statName);
+                    if (!drainPerTurn || drainPerTurn <= 0) continue;
+                    if (wsc.setEntityAttributeDelta(entity.id, traitId, statName, -drainPerTurn, false)) {
+                        drainedCount++;
+                    }
+                }
             }
 
-            // Death check: after the drain, if the live energy value hit 0,
-            // eliminate the entity (spill + despawn).
-            const liveEnergy = wsc.getEntityAttribute(entity.id, energyAttr.traitId, energyAttr.statName) ?? 0;
-            if (liveEnergy <= 0) {
-                // Double-elimination is safe: the facade no-ops on absent/inactive
-                // entities (checked here and in eliminateEntityByEnergy).
-                if (wsc.eliminateEntityByEnergy(entity.id)) {
-                    eliminatedCount++;
+            // Death check: energy is the only attribute that kills. Same trigger
+            // as before the drain generalization (a declared energy drain > 0),
+            // so a drained-to-zero non-energy attribute (pleasure) is a state,
+            // never a death.
+            if (energyAttr && energyDrain > 0) {
+                // After the drain, if the live energy value hit 0, eliminate
+                // the entity (spill + despawn).
+                const liveEnergy = wsc.getEntityAttribute(entity.id, energyAttr.traitId, energyAttr.statName) ?? 0;
+                if (liveEnergy <= 0) {
+                    // Double-elimination is safe: the facade no-ops on absent/inactive
+                    // entities (checked here and in eliminateEntityByEnergy).
+                    if (wsc.eliminateEntityByEnergy(entity.id)) {
+                        eliminatedCount++;
+                    }
                 }
             }
         }

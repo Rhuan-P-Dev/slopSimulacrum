@@ -1,0 +1,10 @@
+{
+  "_comment": "Per-part sensitivity values (0-100) for the sensitive parts of the human droids — the body-part types that carry the sensitiveNerve organ (the 'sensitive' flag). Higher values mean more pleasure when the part is stimulated: the value is consumed by the pleasure mechanic to raise the owner's Pleasure.pleasure whole-entity attribute (data/entities/entity_attributes.json). Sensitivity is DATA, not a stat: it is never derived, drained, or clamped by the stat layer, and it carries no organ grants of its own.",
+  "maleGlans": 100,
+  "malePenis": 80,
+  "maleTesticle": 60,
+  "maleNipple": 40,
+  "femaleClitoris": 100,
+  "femaleVulva": 80,
+  "femaleNipple": 40
+}

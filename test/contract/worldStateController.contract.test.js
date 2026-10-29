@@ -30,9 +30,33 @@ import DataLoader from '../../src/utils/DataLoader.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readCharaCard } from '../../src/utils/PngCharaReader.js';
+import { getAttributes } from '../../src/utils/EntityAttributeData.js';
 
 // Card image extensions accepted by WorldStateController._readCardFiles().
 const CARD_IMAGE_EXTS = new Set(['.png', '.webp', '.jpg', '.jpeg', '.jpe', '.bmp', '.gif', '.apng']);
+
+/**
+ * Collects the display names of the card files in `data/cards/` that would spawn
+ * as LLM NPCs — the name-level twin of countSpawnableCards(). Used to recognize
+ * card entities by display name: with the spawn-preference feature a card spawns
+ * with its own saved body (not the m1Droid blueprint) when one exists, so the
+ * blueprint name is no longer the stable card marker.
+ */
+function readCardDisplayNames() {
+    const dir = path.resolve('data/cards');
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
+    const names = [];
+    for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith('.')) continue;
+        const ext = path.extname(f).toLowerCase();
+        if (!CARD_IMAGE_EXTS.has(ext)) continue;
+        const res = readCharaCard(path.join(dir, f));
+        if (res.success && typeof res.card?.name === 'string' && res.card.name.trim() !== '') {
+            names.push(res.card.name.trim());
+        }
+    }
+    return names;
+}
 
 /**
  * Counts the card files in `data/cards/` that would actually spawn as M1 LLM
@@ -179,9 +203,11 @@ beforeAll(() => {
     // _readCardFiles() + _spawnSingleCard()). Default runs have one card.
     const cardCount = countSpawnableCards();
 
+    const cardDisplayNames = readCardDisplayNames();
     // Stored for use in tests (1 test-spawned droid + the gate-aware spawnable
-    // count + the static-prop count + the card count + the raw registry for per-entry checks).
-    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, staticPropCount, cardCount, registry: npcRegistry };
+    // count + the static-prop count + the card count + the card display names +
+    // the raw registry for per-entry checks).
+    wsc._npcTestData = { npcEntryCount, spawnableNpcCount, staticPropCount, cardCount, cardNames: cardDisplayNames, registry: npcRegistry };
 
     // Spawn a test droid (the default world has zero pre-spawned droids after
     // removing the client/vault guardian spawns). This gives the contract tests
@@ -455,10 +481,11 @@ describe('WorldStateController.getAll() shape', () => {
                 expect(entity).not.toHaveProperty('items');
                 continue;
             }
-            // Cards are exactly the m1Droid NPCs (the registry has no m1Droid
-            // entry); they are the only spawned entities carrying both a loadout
-            // and the m1Droid energy attribute.
-            const isCard = isNpc && entity.blueprint === 'm1Droid';
+            // Cards are identified by display name (data/cards/), not blueprint:
+            // a card spawns with its own saved body (blueprint = its display name)
+            // when one exists, otherwise the generic m1Droid.
+            const cardNames = new Set(wsc._npcTestData?.cardNames ?? []);
+            const isCard = isNpc && cardNames.has(entity.name);
             const npcRegistryEntry = isNpc ? (wsc._npcTestData?.registry?.[entity.blueprint] ?? null) : null;
             const npcHasInitialItems = Boolean(
                 npcRegistryEntry
@@ -466,18 +493,27 @@ describe('WorldStateController.getAll() shape', () => {
                 && npcRegistryEntry.initialItems.length > 0
             );
             expect(entity).not.toHaveProperty('_skipInitialSpawns');
-            // Sorted key sets (keysOf() returns Object.keys(value).sort()).
-            const NPC_BASE = [
-                'blueprint', 'components', 'id', 'internalComponents', 'isNPC',
-                'location', 'name', 'npcConfig', 'spatial', 'status',
-            ];
-            const NPC_WITH_ITEMS = [...NPC_BASE, 'items'].sort();
-            const CARD_SHAPE = [...NPC_BASE, 'attributes', 'attributesConfig', 'items'].sort();
-            expect(keysOf(entity)).toEqual(isCard
-                ? CARD_SHAPE
-                : isNpc
-                    ? (npcHasInitialItems ? NPC_WITH_ITEMS : NPC_BASE)
-                    : ['blueprint', 'components', 'id', 'internalComponents', 'items', 'location', 'spatial', 'status']);
+            // Whole-entity attributes are present iff the blueprint has an entry
+            // in data/entities/entity_attributes.json.
+            const hasAttributes = Object.keys(getAttributes(entity.blueprint)).length > 0;
+            // Items are present for: player droids (world.json loadout), cards
+            // (per-card loadout), and registry NPCs that declare initialItems.
+            const expectsItems = !isNpc || isCard || npcHasInitialItems;
+            // Sorted key set (keysOf() returns Object.keys(value).sort()).
+            const BASE = ['blueprint', 'components', 'id', 'internalComponents', 'location', 'spatial', 'status'];
+            const expected = [...BASE];
+            if (isNpc) {
+                expected.push('isNPC');
+                expected.push('name');
+                expected.push('npcConfig');
+            }
+            if (expectsItems) expected.push('items');
+            if (hasAttributes) {
+                expected.push('attributes');
+                expected.push('attributesConfig');
+            }
+            // `expected` is a string array, not an object — compare its sorted elements.
+            expect(keysOf(entity)).toEqual(expected.sort());
             if (isNpc) {
                 expect(typeOf(entity.name)).toBe('string');
                 expect(typeOf(entity.npcConfig)).toBe('object');
@@ -711,6 +747,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
             'retrieveMachine',
             'selfHeal',
             'shootT1',
+            'touch',
         ]);
 
         for (const name of actionNames) {

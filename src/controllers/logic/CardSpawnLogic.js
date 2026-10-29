@@ -12,7 +12,9 @@
  * registry. Cards are ALWAYS spawned in the FIRST room (in world-definition
  * order — `start_room` in the default world) at a uniformly-random point
  * inside it — in contrast to `_spawnNpcs`, which pins each registry NPC at
- * its home-room center.
+ * its home-room center. Each card spawns with its own saved body (a blueprint
+ * keyed by the card's display name, created via the "Create Agent Body" Save
+ * action) when one exists in the world, otherwise the generic M1 blueprint.
  *
  * Extracted verbatim from WorldStateController (changes: `this.` became
  * `facade.` and the methods became plain functions; the module-level card
@@ -93,7 +95,7 @@ function spawnCards(facade) {
     for (const cardFile of cardFiles) {
         if (facade._spawnSingleCard(cardFile) !== null) spawned++;
     }
-    Logger.info(`[WorldStateController] ${spawned}/${cardFiles.length} card NPC(s) spawned from data/cards/ (blueprint ${CARD_BLUEPRINT}).`);
+    Logger.info(`[WorldStateController] ${spawned}/${cardFiles.length} card NPC(s) spawned from data/cards/ (generic blueprint ${CARD_BLUEPRINT} — or a card's own saved body when one exists).`);
 }
 
 /**
@@ -123,7 +125,9 @@ function readCardFiles(_facade) {
 }
 
 /**
- * Reads a single card PNG and spawns it as an M1 LLM NPC. The embedded
+ * Reads a single card PNG and spawns it as an M1 LLM NPC, using the card's
+ * own saved body (a blueprint keyed by its display name) when one exists,
+ * otherwise the generic M1 blueprint. The embedded
  * character payload defines the identity (name, personality, backstory,
  * caps); a missing/corrupt payload degrades to the default profile and the
  * file stem as the display name, so the entity still spawns (never fails).
@@ -138,6 +142,8 @@ function spawnSingleCard(facade, cardFile) {
     const displayName = (card && typeof card.name === 'string' && card.name.trim() !== '')
         ? card.name.trim()
         : cardFile.cardId;
+
+    const blueprint = blueprintForCard(facade, displayName);
 
     const profile = facade._buildCardProfile(card);
     const room = facade._pickFirstSpawnRoom();
@@ -155,7 +161,7 @@ function spawnSingleCard(facade, cardFile) {
         // personality/caps above are what the LLM prompt renders.
     };
     try {
-        const entityId = facade.stateEntityController.spawnEntity(CARD_BLUEPRINT, room.uid, {
+        const entityId = facade.stateEntityController.spawnEntity(blueprint, room.uid, {
             isNPC: true,
             name: displayName,
             npcConfig
@@ -236,4 +242,30 @@ function roomRandomPoint(facade, room) {
     };
 }
 
-export { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint };
+/**
+ * Blueprint to spawn a given card with: the card's own saved body (a blueprint
+ * keyed by the card's display name, created via the "Create Agent Body" Save
+ * action in the dev tab) when one exists, otherwise the generic M1 blueprint.
+ * The key is the trimmed card display name (same derivation as
+ * AgentBodyController.cardName), so a saved body is matched exactly by name.
+ * When the facade has no entityController (e.g. a light test double), it falls
+ * back to the generic blueprint so spawning never fails.
+ * @private
+ * @param {WorldStateController} facade
+ * @param {string} displayName
+ * @returns {string}
+ */
+function blueprintForCard(facade, displayName) {
+    if (displayName && typeof displayName === 'string') {
+        const blueprints =
+            (facade.entityController && typeof facade.entityController.getBlueprints === 'function')
+                ? (facade.entityController.getBlueprints() || {})
+                : {};
+        if (Object.prototype.hasOwnProperty.call(blueprints, displayName)) {
+            return displayName;
+        }
+    }
+    return CARD_BLUEPRINT;
+}
+
+export { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint, blueprintForCard };

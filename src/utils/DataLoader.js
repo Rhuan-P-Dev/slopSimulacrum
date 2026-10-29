@@ -43,6 +43,35 @@ class DataLoader {
             return defaultValue;
         }
     }
+
+    /**
+     * Saves a JSON-serializable value to the specified relative path. Atomic:
+     * writes to a sibling ".tmp" file then renames over the target, so a process
+     * that dies mid-write never leaves a half-written (corrupt) data file.
+     * @param {string} relativePath - Path relative to the project root (same
+     *   resolution as loadJson).
+     * @param {*} data - Value to serialize.
+     */
+    static saveJson(relativePath, data) {
+        const absolutePath = path.resolve(__dirname, '..', '..', relativePath);
+        const tempPath = absolutePath + '.tmp';
+        fs.writeFileSync(tempPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+        fs.renameSync(tempPath, absolutePath);
+    }
+
+    /**
+     * Copies one data file to another (used for timestamped pre-write backups).
+     * Returns the destination relative path.
+     * @param {string} fromRelative - Source path relative to the project root.
+     * @param {string} toRelative - Destination path relative to the project root.
+     * @returns {string} the destination relative path.
+     */
+    static copyFile(fromRelative, toRelative) {
+        const fromAbsolute = path.resolve(__dirname, '..', '..', fromRelative);
+        const toAbsolute = path.resolve(__dirname, '..', '..', toRelative);
+        fs.copyFileSync(fromAbsolute, toAbsolute);
+        return toRelative;
+    }
 }
 
 export default DataLoader;
