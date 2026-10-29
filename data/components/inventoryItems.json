@@ -83,6 +83,14 @@
     "materials": [ { "material": "iron", "fraction": 1.0 } ],
     "internalComponents": []
   },
+  "tshirt": {
+    "name": "T-Shirt",
+    "description": "A human t-shirt. Wearable: it declares wear.minVolume = 2 (its own volume), so it fits any component that has at least 2 free volume units, no matter who (or which species) owns the component. The fit is pure volume: no named layers, no species matching. Fabric is modeled as the lightest material in this world (wood, density 0.6): 2 volume units, 1.2 mass.",
+    "form": { "volume": 2 },
+    "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "internalComponents": [],
+    "wear": { "minVolume": 2 }
+  },
   "knifeGenerator": {
     "name": "Knife Generator",
     "description": "A self-running machine that forges one knife per turn into its own 10-slot belly, spilling the overflow onto the ground beside it. Carry it, then PLACE it in the world to run it, or RETRIEVE it to carry it again. 100% iron.",

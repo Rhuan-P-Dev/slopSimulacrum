@@ -43,6 +43,12 @@ import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
  *   types is tried first (first preferred type with enough capacity wins), mirroring
  *   the legacy "hand component first, then best available" weapon placement. Then
  *   load `ammo` knife projectile(s) into the item for weapons that fire stored items.
+ * - { item, slot, wear: true } (clothes feature): the added item is WORN on
+ *   the component the slot expression already resolved (WearLogic — pure
+ *   volume fit: that component must have at least the item's `wear.minVolume`
+ *   of free volume). The item stays in its inventory slot; wearing is the
+ *   equipped machinery on the caller-chosen component. A failed wear is
+ *   warn-only: the spawn never fails.
  *
  * @param {string} entityId - The entity ID to apply initial spawns to.
  * @param {Object} [spawnConfig] - Optional spawn config; defaults to data/world/world.json.
@@ -130,6 +136,19 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
                         if (!ammoResult.success) {
                             Logger.warn(`[WorldStateController] Initial spawn ammo #${j + 1} into "${entry.item}" failed (entity ${entityId}): ${ammoResult.message}`);
                         }
+                    }
+                }
+
+                // Clothes feature: `wear: true` wears the added item on the
+                // component the slot expression already resolved (WearLogic —
+                // pure volume fit: that component must have at least the
+                // item's `wear.minVolume` of free volume). Warn-only, like
+                // every other initial-spawn failure here: the item remains in
+                // the inventory; the spawn never fails.
+                if (entry.wear === true && addResult.item?.id) {
+                    const wearResult = facade.wearItem(entityId, addResult.item.id, target.component.id);
+                    if (!wearResult.success) {
+                        Logger.warn(`[WorldStateController] Initial spawn wear "${entry.item}" on ${entityId} failed: ${wearResult.message}`);
                     }
                 }
 

@@ -89,14 +89,41 @@ describe('Player initial-spawn loadout (real world, data-driven)', () => {
         const standaloneKnives = items.filter(i => i.type === 'knife' && i.hostComponentId !== t1.id);
         expect(standaloneKnives.length).toBe(5);
 
-        // Full expected count: coal(10) + t1(1) + t1 ammo(1) + knives(5) = 17.
-        expect(items.length).toBe(17);
+        // tshirt (clothes feature, world.json entry with `wear: true`):
+        // present exactly once.
+        const tshirts = items.filter(i => i.type === 'tshirt');
+        expect(tshirts.length).toBe(1);
+
+        // Full expected count: coal(10) + t1(1) + t1 ammo(1) + knives(5) +
+        // tshirt(1) = 18.
+        expect(items.length).toBe(18);
 
         // CORE REGRESSION ASSERTION: no initial-spawn entry was skipped for lack
         // of a valid slot. (Other startup warnings are allowed; only "no valid slot"
         // indicates the footprint resolver regressed.)
         const invalidSlotWarnings = warnings.filter(w => w.includes('no valid slot'));
         expect(invalidSlotWarnings).toEqual([]);
+    });
+
+    it('spawns the player WEARING the t-shirt on the body core (clothes feature)', () => {
+        const { entity, entityId } = incarnatePlayer();
+
+        const worn = wsc.getWornItems(entityId);
+        expect(worn.length).toBe(1);
+        expect(worn[0].itemType).toBe('tshirt');
+        expect(worn[0].name).toBe('T-Shirt');
+
+        // The fit is pure volume (wear.minVolume in the item registry):
+        // the item is worn on the component the slot expression resolved
+        // to — the same component that received the item's inventory slot.
+        const tshirt = (entity.items || []).find((i) => i.type === 'tshirt');
+        expect(tshirt).toBeTruthy();
+        expect(worn[0].componentId).toBe(tshirt.hostComponentId);
+
+        // Worn = equipped on that component (the equipped machinery
+        // underneath the feature).
+        const equipped = wsc.getEquippedItems(entityId);
+        expect(equipped.some(eq => eq.itemId === worn[0].itemId && eq.componentId === worn[0].componentId)).toBe(true);
     });
 
     it('resolves a valid slot for every data/world/world.json entry against a fresh smallBallDroid (unit-level)', () => {

@@ -14,6 +14,7 @@ import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVo
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
+import { wearItem, getWornItems } from './logic/WearLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
 import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListener, registerDamageListener, initializeTurnSystem, initializeEnergyFlow, registerEquippedStatsCallback } from './logic/FacadeInitLogic.js';
@@ -77,6 +78,13 @@ class WorldStateController {
      *   initialize() is called from this constructor right after the turn system's
      *   (same lifecycle as both peers); its OWN facade reference is injected
      *   post-construction by the composition root.
+     * @param {import('./core/ViewController.js')} [deps.viewController] - The
+     *   generic view reader behind GET /view/:id (read-only payload assembly for
+     *   items / objects / components / equipped entries). Null-tolerant like
+     *   craftingController / knowledgeController (a test may hand-build the
+     *   facade without it). Deliberately NOT in the subControllers broadcast map:
+     *   it has no persistent state to broadcast — its results are fetched, not
+     *   pushed.
      */
     constructor(deps) {
         if (!deps || typeof deps !== 'object') {
@@ -169,6 +177,14 @@ class WorldStateController {
         // reference is injected post-construction by the composition root.
         /** @private {import('./worldRules/OnDamageDropListener.js')|null} */
         this.onDamageDropListener = deps.onDamageDropListener ?? null;
+        // ViewController: generic read-only payload for GET /view/:id (see
+        // viewRoutes.js). No persistent world data, no getAll() → deliberately
+        // NOT in the subControllers broadcast map (same rule as
+        // knowledgeController / worldRulesController). Null-tolerant so tests
+        // may hand-build the facade without it; the composition root injects
+        // the facade below, just like perceptionController.
+        /** @private {import('./core/ViewController.js').default|null} */
+        this.viewController = deps.viewController ?? null;
         // EnergyFlowController: cross-component Physical.energy redistribution
  // (wiki/subMDs/systems/energy_flow.md). Logic controller — owns no persistent
         // world data, null-tolerant like worldRulesController (tests may build
@@ -1845,6 +1861,42 @@ class WorldStateController {
     }
 
     /**
+     * Clothes feature: wears a carried item on a caller-chosen component
+     * (like equipItem, but with the clothes fit rule: the component must
+     * have at least the item's `wear.minVolume` — item registry — of free
+     * volume; non-wearable items fail). Wearing reuses the equipped
+     * machinery, so a worn item is an equipped entry and unequipItem takes
+     * it off.
+     * Implementation: src/controllers/logic/WearLogic.js (`wearItem`). This thin
+     * delegator stays on the class so instance-level spies/mocks and direct
+     * calls (tests) keep working unchanged.
+     * @param {string} entityId - The entity that wears the item.
+     * @param {string} itemId - The carried item to wear (in the entity's inventory).
+     * @param {string} componentId - The target component (must belong to the entity).
+     * @returns {{ success: boolean, message: string, itemId?: string, itemType?: string,
+     *   componentId?: string }}
+     */
+    wearItem(entityId, itemId, componentId) {
+        const result = wearItem(this, entityId, itemId, componentId);
+        if (result?.success) {
+            this._markPerceptionDirty(this.stateEntityController.getEntity(entityId)?.location);
+        }
+        return result;
+    }
+
+    /**
+     * Clothes feature: lists the items currently worn by an entity (the
+     * equipped subset whose item type declares a `wear.minVolume`).
+     * Implementation: src/controllers/logic/WearLogic.js (`getWornItems`).
+     * @param {string} entityId - The entity to inspect.
+     * @returns {Array<{ itemId: string, itemType: string, name: string,
+     *   componentId: string, componentType: string|null }>}
+     */
+    getWornItems(entityId) {
+        return getWornItems(this, entityId);
+    }
+
+    /**
      * FASE 7 (facade logic extraction): Gets all equipped items for an entity.
      * Implementation: src/controllers/logic/EquipLogic.js (`getEquippedItems`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
@@ -2110,6 +2162,35 @@ class WorldStateController {
             takeOptions: this._inspectTakeOptions(entity.id)
         };
         return structuredClone(payload);
+    }
+
+    /**
+     * Generic view payload — the read-only aggregation behind GET /view/:id
+     * (viewRoutes.js). Resolves a typed id into the "what can be seen" node:
+     * an entity (components with live matter + organs + inventory), a single
+     * component (or a clothing node — see the clothing rule in the
+     * ViewController header: a component holding worn clothing shows that
+     * clothing's data instead of its own), or an item/equipped instance
+     * (registry data + live instance data).
+     *
+     * Contract: the route boundary classifies the id into a kind
+     * ('ENTITY' | 'COMPONENT' | 'ITEM' | 'EQUIPPED') before calling — the
+     * controller receives (id, kind), never an unclassified id. Returns a FRESH
+     * copy of the node (never a live reference), or null when the id does not
+     * resolve to a live object (the route maps null → 404). Null-tolerant like
+     * the static-controller payloads: a hand-built test facade without a view
+     * controller degrades to null, never to a 500.
+     *
+     * @param {string} id - The typed id (ent-/comp-/item-/eq- prefix, BUG-107).
+     * @param {'ENTITY'|'COMPONENT'|'ITEM'|'EQUIPPED'} kind - The id kind, classified at the route boundary.
+     * @returns {Object|null} The view node (`{ kind: 'entity' | 'component' | 'clothing' | 'item' }`),
+     *   or null when the id is unknown.
+     */
+    getViewData(id, kind) {
+        if (!this.viewController) {
+            return null;
+        }
+        return this.viewController.view(id, kind);
     }
 
     /**

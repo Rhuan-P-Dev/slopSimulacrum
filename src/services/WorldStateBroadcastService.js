@@ -175,6 +175,30 @@ class WorldStateBroadcastService {
 					const entity = transformed.entities?.[entityId];
 					if (entity) {
 						entity.equipped = equippedArray;
+
+						// Clothes feature: derived `worn` list — the equipped subset
+						// whose item type declares `wear.minVolume` (item registry).
+						// Clients render it directly (map labels, panels) without
+						// re-deriving the fit; the item registry is static after
+						// boot, so this read is cheap.
+						const itemRegistry = this._worldStateController.getItemRegistry?.() || {};
+						const worn = [];
+						for (const eq of equippedArray) {
+							const minVolume = itemRegistry[eq.itemType]?.wear?.minVolume;
+							if (typeof minVolume !== 'number') continue;
+							const item = Array.isArray(entity.items)
+								? entity.items.find((i) => i.id === eq.itemId)
+								: null;
+							worn.push({
+								itemId: eq.itemId,
+								itemType: eq.itemType,
+								name: item?.name || itemRegistry[eq.itemType]?.name || eq.itemType,
+								componentId: eq.componentId
+							});
+						}
+						if (worn.length > 0) {
+							entity.worn = worn;
+						}
 					}
 				}
 			}

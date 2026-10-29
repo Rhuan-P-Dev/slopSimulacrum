@@ -428,7 +428,12 @@ export class UIManager {
             label.setAttribute("fill", entity.isNPC ? "#ffaa00" : "#88bbff");
             label.setAttribute("font-size", "9");
             label.style.pointerEvents = 'none';
-            label.textContent = entity.name || 'Droid';
+            // Clothes feature: the broadcast attaches a derived `worn` list per
+            // entity (the equipped subset whose item type declares a
+            // wear.minVolume) — the map label shows what the entity has on.
+            label.textContent = (entity.name || 'Droid')
+                + (Array.isArray(entity.worn) && entity.worn.length > 0
+                    ? ' [👕 ' + entity.worn.map((w) => w.name).join(', ') + ']' : '');
 
             entitiesLayer.appendChild(label);
         });

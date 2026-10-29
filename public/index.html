@@ -22,6 +22,7 @@
     <link rel="stylesheet" href="css/floating-windows.css">
     <link rel="stylesheet" href="css/turns.css">
     <link rel="stylesheet" href="css/chat.css">
+    <link rel="stylesheet" href="css/view.css">
     <link rel="stylesheet" href="css/in-text.css">
     <link rel="stylesheet" href="css/agent-view.css">
     <link rel="stylesheet" href="css/round-prose.css">
@@ -51,6 +52,7 @@
             <button id="btn-knowledge" class="config-btn" title="Knowledge">📚</button>
             <button id="btn-agent-view" class="config-btn" title="Agent View — LLM inspector">🤖</button>
             <button id="btn-round-prose" class="config-btn" title="Round Prose — read a range of rounds (dev tab)">📜</button>
+            <button id="btn-view" class="config-btn" title="View — inspect any entity, component, or item in this room">🔍</button>
         </div>
     </div>
 
@@ -252,6 +254,35 @@
         <div id="round-prose-controls" class="round-prose-controls"></div>
         <div id="round-prose-content" class="round-prose-content">
             <p class="round-prose-placeholder">Type a range (from&rarr;to, 0-based), or hit Live, to read the rounds in range.</p>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: View (generic GET /view/:id inspector) -->
+    <div id="view-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 class="overlay-title" style="margin: 0;">🔍 View</h3>
+            <span id="view-room-label" class="view-room-label"></span>
+            <button class="overlay-close-btn" title="Close View panel">✕</button>
+        </div>
+        <div class="view-grid">
+            <div class="view-left">
+                <p class="view-list-label" style="margin: 0;">
+                    Room contents
+                    <span id="view-list-count" class="view-list-count"></span>
+                </p>
+                <ul id="view-list" class="view-list" role="list"></ul>
+                <p class="view-paste-label" style="margin: 0;">
+                    Or paste any id (ent- comp- item- eq-)
+                </p>
+                <div class="view-input-row">
+                    <input id="view-id-input" class="view-id-input" type="text"
+                           placeholder="ent-…  comp-…  item-…  eq-…"
+                           autocomplete="off" spellcheck="false">
+                    <button id="view-go" class="view-go-btn" title="Fetch the view payload">Go</button>
+                </div>
+                <p id="view-input-hint" class="view-input-hint" hidden></p>
+            </div>
+            <div id="view-detail" class="view-detail"></div>
         </div>
     </div>
 

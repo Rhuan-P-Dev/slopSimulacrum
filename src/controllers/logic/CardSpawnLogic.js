@@ -49,6 +49,11 @@ const CARD_DEFAULT_PROFILE = {
     maxWorldActionsPerRound: 2,
     maxChatMessagesPerRound: 1,
     initialItems: [
+        // Clothes feature: every card droid spawns wearing a human t-shirt
+        // (WearLogic — pure volume fit: the first component with at least
+        // wear.minVolume of free volume, the body core in practice).
+        // Declared first so it lands before the bulkier items.
+        { item: 'tshirt', count: 1, wear: true },
         { item: 'coal', count: 20 },
         { item: 't1', count: 1, equip: true, contents: [{ item: 'knife', count: 10 }] },
         { item: 'knife', count: 2, equip: true }
