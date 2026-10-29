@@ -161,6 +161,41 @@ describe('buildRoomProse (narrative prose)', () => {
         expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
     });
 
+    it('renders thick fog when fog is thick (Deep Vault case)', () => {
+        const text = buildRoomProse({
+            roomName: 'The Entrance Hall',
+            room: {
+                name: 'The Entrance Hall',
+                width: 20,
+                height: 12,
+                x: 4,
+                y: 7,
+                atmosphere: {
+                    temperature: 18.5,
+                    lightLevel: 'dim',
+                    lightColor: 'warm',
+                    smell: 'dust and old oil',
+                    ambientSound: 'distant dripping water',
+                    humidity: 60,
+                    airQuality: 'stale',
+                    fog: 'thick',
+                },
+            },
+            entries: [
+                { actions: { performed: [ { action: 'droid punch', name: 'Test Droid' } ] } },
+            ],
+        });
+        expect(text).toBe(
+            'In The Entrance Hall (20 x 12, map position (4.00, 7.00), ' +
+                'a temperature of 18.5, 60% humidity, stale air, dim warm light, thick fog, ' +
+                'the smell of dust and old oil, and the sound of distant dripping water), ' +
+                'Test Droid threw a punch.'
+        );
+        expect(text).toContain('thick fog');
+        expect(text).not.toContain('a haze');
+        expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);
+    });
+
     it('baseline renders atmosphere (Initial observation of)', () => {
         const text = buildRoomProse({
             roomName: 'The Entrance Hall',

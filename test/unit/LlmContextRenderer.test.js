@@ -503,6 +503,67 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.room.power).toBe('flickering');
     });
 
+    it('renders only the present fields (mixed presence) for both Atmosphere and env lines', () => {
+        const mixedWorld = makeWorld({
+            getRooms: () => ({
+                'room-1': {
+                    id: 'room-1',
+                    name: 'The Entrance Hall',
+                    width: 300,
+                    height: 200,
+                    x: 0,
+                    y: 0,
+                    connections: { right_door: { target: 'room-2' } },
+                    atmosphere: {
+                        lightLevel: 'dim',
+                        temperature: 18.5,
+                        airQuality: 'stale'
+                    },
+                    surface: 'stone',
+                    power: 'dead'
+                },
+                'room-2': {
+                    id: 'room-2',
+                    name: 'The Deep Vault',
+                    width: 320,
+                    height: 220,
+                    x: 900,
+                    y: 250,
+                    connections: { left_door: { target: 'room-1' } }
+                }
+            })
+        });
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(mixedWorld);
+
+        const { text, data } = ctrl.buildContext('ent-self');
+        // Only light/temperature/air present -> color, humidity, fog, smell, sound omitted.
+        expect(text).toContain('Atmosphere: light=dim, temperature=18.5, air=stale');
+        // Only surface/power present -> acoustic, lightSource, ceiling, condition omitted.
+        expect(text).toContain('Surface: stone | Power: dead');
+        // No absent field may leak into either line.
+        expect(text).not.toContain('color=');
+        expect(text).not.toContain('humidity=');
+        expect(text).not.toContain('fog=');
+        expect(text).not.toContain('smell=');
+        expect(text).not.toContain('sound=');
+        expect(text).not.toContain('Acoustic:');
+        expect(text).not.toContain('Light source:');
+        expect(text).not.toContain('Ceiling:');
+        expect(text).not.toContain('Condition:');
+        expect(data.room.atmosphere).toEqual({
+            lightLevel: 'dim',
+            temperature: 18.5,
+            airQuality: 'stale'
+        });
+        expect(data.room.surface).toBe('stone');
+        expect(data.room.power).toBe('dead');
+        expect(data.room.acoustic).toBeNull();
+        expect(data.room.lightSource).toBeNull();
+        expect(data.room.ceiling).toBeNull();
+        expect(data.room.condition).toBeNull();
+    });
+
     it('omits the Atmosphere line when the room has none (default world)', () => {
         const { text } = controller.buildContext('ent-self');
         expect(text).not.toContain('Atmosphere:');
