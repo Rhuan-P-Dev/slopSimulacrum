@@ -144,6 +144,8 @@ describe('buildRoomProse (narrative prose)', () => {
                     smell: 'dust and old oil',
                     ambientSound: 'distant dripping water',
                     humidity: 60,
+                    airQuality: 'stale',
+                    fog: 'hazy',
                 },
             },
             entries: [
@@ -152,8 +154,8 @@ describe('buildRoomProse (narrative prose)', () => {
         });
         expect(text).toBe(
             'In The Entrance Hall (20 x 12, map position (4.00, 7.00), ' +
-                'a temperature of 18.5, 60% humidity, dim warm light, the smell of dust and old oil, ' +
-                'and the sound of distant dripping water), ' +
+                'a temperature of 18.5, 60% humidity, stale air, dim warm light, a haze, ' +
+                'the smell of dust and old oil, and the sound of distant dripping water), ' +
                 'Test Droid threw a punch.'
         );
         expect(text.toLowerCase().split('the entrance hall').length - 1).toBe(1);

@@ -425,6 +425,9 @@ describe('LlmContextController (context renderer)', () => {
             surface: null,
             acoustic: null,
             lightSource: null,
+            ceiling: null,
+            condition: null,
+            power: null,
             exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }],
             atmosphere: null
         });
@@ -452,11 +455,16 @@ describe('LlmContextController (context renderer)', () => {
                         lightColor: 'warm',
                         smell: 'dust and old oil',
                         ambientSound: 'distant dripping water',
-                        humidity: 60
+                        humidity: 60,
+                        airQuality: 'stale',
+                        fog: 'hazy'
                     },
                     surface: 'stone',
                     acoustic: 'echoey',
-                    lightSource: 'flickering lanterns'
+                    lightSource: 'flickering lanterns',
+                    ceiling: 'high',
+                    condition: 'worn',
+                    power: 'flickering'
                 },
                 'room-2': {
                     id: 'room-2',
@@ -474,20 +482,25 @@ describe('LlmContextController (context renderer)', () => {
 
         const { text, data } = ctrl.buildContext('ent-self');
         expect(text).toContain(
-            'Atmosphere: light=dim, color=warm, temperature=18.5, humidity=60%, smell=dust and old oil, sound=distant dripping water'
+            'Atmosphere: light=dim, color=warm, temperature=18.5, humidity=60%, air=stale, fog=hazy, smell=dust and old oil, sound=distant dripping water'
         );
-        expect(text).toContain('Surface: stone | Acoustic: echoey | Light source: flickering lanterns');
+        expect(text).toContain('Surface: stone | Acoustic: echoey | Light source: flickering lanterns | Ceiling: high | Condition: worn | Power: flickering');
         expect(data.room.atmosphere).toEqual({
             temperature: 18.5,
             lightLevel: 'dim',
             lightColor: 'warm',
             smell: 'dust and old oil',
             ambientSound: 'distant dripping water',
-            humidity: 60
+            humidity: 60,
+            airQuality: 'stale',
+            fog: 'hazy'
         });
         expect(data.room.surface).toBe('stone');
         expect(data.room.acoustic).toBe('echoey');
         expect(data.room.lightSource).toBe('flickering lanterns');
+        expect(data.room.ceiling).toBe('high');
+        expect(data.room.condition).toBe('worn');
+        expect(data.room.power).toBe('flickering');
     });
 
     it('omits the Atmosphere line when the room has none (default world)', () => {

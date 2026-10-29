@@ -16,11 +16,16 @@
       "lightColor": "warm",
       "smell": "dust and old oil",
       "ambientSound": "distant dripping water",
-      "humidity": 55
+      "humidity": 55,
+      "airQuality": "stale",
+      "fog": "none"
     },
     "surface": "stone",
     "acoustic": "echoey",
-    "lightSource": "flickering lanterns"
+    "lightSource": "flickering lanterns",
+    "ceiling": "high",
+    "condition": "worn",
+    "power": "flickering"
   },
   "right_room": {
     "name": "The Eastern Corridor",
@@ -42,11 +47,16 @@
       "lightColor": "cold",
       "smell": "hot metal and ozone",
       "ambientSound": "a low electric buzz",
-      "humidity": 40
+      "humidity": 40,
+      "airQuality": "smoky",
+      "fog": "hazy"
     },
     "surface": "metal grating",
     "acoustic": "hollow",
-    "lightSource": "flickering bulbs"
+    "lightSource": "flickering bulbs",
+    "ceiling": "low",
+    "condition": "decaying",
+    "power": "flickering"
   },
   "far_right_room": {
     "name": "The Deep Vault",
@@ -64,10 +74,15 @@
       "lightLevel": "dark",
       "smell": "rust and stagnant water",
       "ambientSound": "the hum of ancient machinery",
-      "humidity": 30
+      "humidity": 30,
+      "airQuality": "toxic",
+      "fog": "thick"
     },
     "surface": "metal",
     "acoustic": "resonant",
-    "lightSource": "faint machine glow"
+    "lightSource": "faint machine glow",
+    "ceiling": "vaulted",
+    "condition": "derelict",
+    "power": "dead"
   }
 }

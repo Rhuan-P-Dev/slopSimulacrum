@@ -646,6 +646,8 @@ describe('WorldStateController.getAll() shape', () => {
             expect(keysOf(state.rooms[roomId])).toEqual([
                 'acoustic',
                 'atmosphere',
+                'ceiling',
+                'condition',
                 'connections',
                 'entities',
                 'height',
@@ -653,6 +655,7 @@ describe('WorldStateController.getAll() shape', () => {
                 'lightSource',
                 'name',
                 'objects',
+                'power',
                 'surface',
                 'width',
                 'x',

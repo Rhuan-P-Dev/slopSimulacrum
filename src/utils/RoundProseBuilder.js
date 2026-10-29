@@ -291,14 +291,28 @@ function lightLevelPhrase(level, color) {
 }
 
 /**
+ * The fog clause for the room-context prose: "hazy" becomes "a haze",
+ * "thick" becomes "thick fog"; "none" or an absent value yields null (so the
+ * caller drops the clause). Kept as a function to mirror lightLevelPhrase.
+ * @param {*} fog
+ * @returns {string|null}
+ */
+function fogPhrase(fog) {
+    const f = fog && typeof fog === 'string' ? fog.trim() : '';
+    if (f === 'hazy') return 'a haze';
+    if (f === 'thick') return 'thick fog';
+    return null;
+}
+
+/**
  * Room display name plus the context suffix used by the first sentence:
  * " (20 x 12, map position (4.00, 7.00), a temperature of 18.5, 55% humidity,
- * dim warm light, the smell of dust and old oil, and the sound of distant
- * dripping water)". Each part is a lower-case property clause joined by
- * joinChunk. Atmosphere is an optional static block (validated in
- * RoomsController) where each present field becomes one clause. Empty string
- * when no room object (or none of name/width/height/x/y/atmosphere) is
- * supplied. Deterministic; raw id-valued fields are simply skipped.
+ * stale air, dim warm light, a haze, the smell of dust and old oil, and the
+ * sound of distant dripping water)". Each part is a lower-case property
+ * clause joined by joinChunk. Atmosphere is an optional static block
+ * (validated in RoomsController) where each present field becomes one clause.
+ * Empty string when no room object (or none of name/width/height/x/y/atmosphere)
+ * is supplied. Deterministic; raw id-valued fields are simply skipped.
  * @param {string|null} roomName
  * @param {Object|null} room
  * @returns {{ rn: string, suffix: string }}
@@ -323,8 +337,12 @@ function roomContext(roomName, room) {
     if (t != null) parts.push(`a temperature of ${statValue(t)}`);
     const hum = finiteNum(a.humidity);
     if (hum != null) parts.push(`${hum}% humidity`);
+    const airQuality = typeof a.airQuality === 'string' ? a.airQuality.trim() : '';
+    if (airQuality) parts.push(`${airQuality} air`);
     const level = lightLevelPhrase(a.lightLevel, a.lightColor);
     if (level) parts.push(level);
+    const fog = fogPhrase(a.fog);
+    if (fog) parts.push(fog);
     const smell = typeof a.smell === 'string' ? a.smell.trim() : '';
     if (smell) parts.push(`the smell of ${smell}`);
     const sound = typeof a.ambientSound === 'string' ? a.ambientSound.trim() : '';
