@@ -347,12 +347,7 @@
     color: var(--text-dim);
     word-break: break-word;
 }
-
-.view-component-block .view-component-name::before {
-    content: "⚙ ";
-}
-
-/* Clothing node — the slot in the component list, or the whole payload. */
+/* Clothing node - the slot in the component list, or the whole payload. */
 .view-clothing-entry {
     padding: 2px 0;
     word-break: break-word;
@@ -409,7 +404,8 @@
     display: block;
 }
 
-/* Per-row reveal extras: raw id + host component, hidden by default. */
+/* Per-row reveal extras: raw id + host component, hidden by default, shown
+ * only when the row's own section (or its component block) opens. */
 .view-item-vol {
     font-size: 11px;
     color: var(--text-dim);
@@ -422,8 +418,8 @@
     word-break: break-word;
 }
 
-.view-section.open .view-item-extra,
-.view-component-block.open .view-item-extra {
+.view-section.open > .view-section-body > .view-item-row > .view-item-extra,
+.view-component-block.open > .view-component-detail > .view-item-row > .view-item-extra {
     display: inline-block;
 }
 

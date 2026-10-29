@@ -190,9 +190,7 @@ export class ClientApp {
         // callback: it owns its own live fetch and stays in step with each
         // world broadcast (syncWorldState) — same live contract as Object
         // Viewer / Agent View.
-        this.viewPanel = new ViewPanel({
-            getState: () => this.worldState.getState(),
-        });
+        this.viewPanel = new ViewPanel();
 
         // 10. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();

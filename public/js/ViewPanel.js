@@ -25,10 +25,10 @@
  *         #view-input-hint.view-input-hint
  *       #view-detail.view-detail
  *
- * Follows the client patterns: no app.locals (dependency-injected state
- * getter), no console.* (ClientLogger), no raw HTML strings (all rendered
- * text goes through textContent — the values are server data or user paste,
- * neither trusted as HTML).
+ * Follows the client patterns: no app.locals (world state arrives via
+ * syncWorldState() on each broadcast), no console.* (ClientLogger), no raw
+ * HTML strings (all rendered text goes through textContent — the values are
+ * server data or user paste, neither trusted as HTML).
  *
  * @module ViewPanel
  */
@@ -193,8 +193,8 @@ function addItemRow(container, item) {
     if (!item || typeof item !== 'object') return;
     const row = addEl(container, 'div', 'view-item-row');
     // Summary part (always visible): name + volume + worn flag. Raw ids and
-    // host component ids are the reveal-only extras (hidden by CSS until the
-    // containing section opens).
+    // host component ids are reveal-only extras, hidden by CSS until the
+    // reveal of the section (or component block) that holds this row opens.
     addEl(row, 'span', 'view-item-name', item.name || (item.type ?? item.itemType ?? 'item'));
     if (typeof item.volume === 'number' && Number.isFinite(item.volume)) {
         addEl(row, 'span', 'view-item-vol', 'vol ' + item.volume);
@@ -535,12 +535,10 @@ function renderDetailHeader(container, node, askedId, isEquipped) {
 
 export default class ViewPanel {
     /**
-     * Creates the panel. The world-state getter is injected (default: none).
-     * @param {{ getState?: Function }} [deps]
-     * @param {() => Object|null} [deps.getState] - Returns the latest world state.
+     * Creates the panel. World state arrives via App.syncWorldState() on each
+     * broadcast; nothing is injected.
      */
-    constructor({ getState } = {}) {
-        this._getState = typeof getState === 'function' ? getState : (() => null);
+    constructor() {
         this._initialized = false;
 
         /** @type {HTMLElement|null} */
@@ -573,8 +571,6 @@ export default class ViewPanel {
         this._pendingId = null;
         /** @type {string|null} Kind key of the in-flight fetch (badge on reload). */
         this._pendingKindKey = null;
-        /** @type {boolean} A fetch is in flight. */
-        this._fetchInFlight = false;
         /** @type {number} Monotonic fetch token — only the latest fetch for
          * this detail slot may render its response.
          */
@@ -655,6 +651,14 @@ export default class ViewPanel {
     }
 
     /**
+     * OverlayManager contract (drag + z-index), same public shape as the
+     * other panels (ObjectViewer, KnowledgePanel, CraftingPanel, ...).
+     */
+    get overlay() {
+        return this._overlay;
+    }
+
+    /**
      * Called by App.refreshWorldAndActions() on every world-state broadcast.
      * Re-lists the room contents (entities + dropped items move every turn)
      * and re-fetches the selected id's payload while the panel is open (live
@@ -687,7 +691,9 @@ export default class ViewPanel {
 
     /**
      * Builds the room-contents list from the latest world state: every entity
-     * in `state.entities`, then every dropped item of the focused room.
+     * in the focused room (ent.location === roomId), then every dropped item
+     * of that room. Without a focused room (no active droid), falls back to
+     * all entities / all dropped items.
      * @param {Object|null} state
      * @param {string|null} roomId
      * @returns {Array<{ id: string, label: string, kind: 'entity'|'item' }>}
@@ -699,6 +705,7 @@ export default class ViewPanel {
         const entities = (state.entities && typeof state.entities === 'object') ? state.entities : {};
         for (const [id, ent] of Object.entries(entities)) {
             if (!ent || typeof ent !== 'object') continue;
+            if (roomId && ent.location !== roomId) continue;
             rows.push({
                 id,
                 label: (typeof ent.name === 'string' && ent.name) ? ent.name : 'Droid',
@@ -769,15 +776,14 @@ export default class ViewPanel {
         this._pendingId = id;
         this._pendingKindKey = kindKey;
         const token = ++this._viewFetchToken;
-        this._fetchInFlight = true;
         this._renderLoading(id);
 
         const url = AppConfig.ENDPOINTS.VIEW_LOOKUP + '/' + encodeURIComponent(id);
         fetch(url)
             .then((res) => res.json()
-                .then((json) => ({ ok: res.ok, body: json }))
-                .catch(() => ({ ok: res.ok, body: null })))
-            .then(({ ok, body }) => {
+                .then((json) => ({ ok: res.ok, body: json, status: res.status }))
+                .catch(() => ({ ok: res.ok, body: null, status: res.status })))
+            .then(({ ok, body, status }) => {
                 if (token !== this._viewFetchToken) return;
                 if (ok) {
                     const node = (body && typeof body === 'object' && 'view' in body) ? body.view : null;
@@ -790,20 +796,25 @@ export default class ViewPanel {
                     const details = (bodyMsg && typeof bodyMsg.details === 'string')
                         ? bodyMsg.details
                         : null;
-                    this._renderNotFound(id, message, details);
+                    const heading = status === 404
+                        ? 'Not found'
+                        : status === 400
+                            ? 'Invalid id'
+                            : 'Request failed';
+                    this._renderNotFound(id, message, details, heading);
                 }
             })
             .catch((error) => {
                 if (token !== this._viewFetchToken) return;
                 ClientLogger.error('ViewPanel', `failed to fetch view payload for "${id}":`, error);
-                this._renderNotFound(id, `Could not reach the server: ${error?.message ?? String(error)}`);
+                this._renderNotFound(id, `Could not reach the server: ${error?.message ?? String(error)}`,
+                    null, 'Network error');
             })
             .finally(() => {
                 if (token === this._viewFetchToken) {
                     this._pendingId = null;
                     this._pendingKindKey = null;
                 }
-                this._fetchInFlight = false;
             });
     }
 
@@ -851,18 +862,19 @@ export default class ViewPanel {
     }
 
     /**
-     * Renders the "not found / unknown prefix / network" state (404 / 400 /
+     * Renders the "not found / invalid id / network" state (404 / 400 /
      * fetch failure).
      * @param {string} id
      * @param {string} message
      * @param {string|null} [details] - Optional second error line from the
      *   server payload (404 `details`).
+     * @param {string} [heading='Not found']
      */
-    _renderNotFound(id, message, details) {
+    _renderNotFound(id, message, details, heading = 'Not found') {
         if (!this._detailEl) return;
         this._detailId = id;
         this._detailEl.replaceChildren();
-        const title = addEl(this._detailEl, 'h3', 'view-detail-title', 'Not found');
+        const title = addEl(this._detailEl, 'h3', 'view-detail-title', heading);
         addBadge(title, 'view-badge kind-entity', 'view');
         addEl(this._detailEl, 'p', 'view-error', message);
         if (typeof details === 'string' && details.length > 0) {
