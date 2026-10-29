@@ -130,13 +130,17 @@ export const DAMAGE_CHANNELS = {
  * stat value (that would give a stat a second source and break derivation).
  *   - `flammable`, `conductive`: derived on read whenever a material property
  *     crosses a threshold declared in `data/materials/propertyTraitMapping.json`;
- *   - `corrosive`: granted by a specific internal component (organ).
+ *   - `corrosive`: granted by a specific internal component (organ);
+ *   - `sensitive`: granted by the sensitiveNerve organ — marks a body part
+ *     as a sensitive part; the per-part sensitivity value (0-100) is data in
+ *     data/components/sensitiveParts.json, not part of the flag.
  * @type {Object.<string, string>}
  */
 export const FLAG_NAMES = {
     FLAMMABLE: 'flammable',
     CONDUCTIVE: 'conductive',
     CORROSIVE: 'corrosive',
+    SENSITIVE: 'sensitive',
 };
 
 /**

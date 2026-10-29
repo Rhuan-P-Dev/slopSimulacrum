@@ -918,7 +918,7 @@
         "fraction": 0.2
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "maleGlans": {
     "name": "Male Glans",
@@ -939,7 +939,7 @@
         "fraction": 0.1
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "maleScrotum": {
     "name": "Male Scrotum",
@@ -973,7 +973,7 @@
         "fraction": 1
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "maleArm": {
     "name": "Male Arm",
@@ -1139,7 +1139,7 @@
         "fraction": 0.2
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "femaleCentralBody": {
     "name": "Female Central Body",
@@ -1384,7 +1384,7 @@
         "fraction": 0.2
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "femaleGenitals": {
     "name": "Female Genitals",
@@ -1426,7 +1426,7 @@
         "fraction": 0.2
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "femaleClitoris": {
     "name": "Female Clitoris",
@@ -1447,7 +1447,7 @@
         "fraction": 0.1
       }
     ],
-    "internalComponents": []
+    "internalComponents": ["sensitiveNerve"]
   },
   "femaleArm": {
     "name": "Female Arm",
