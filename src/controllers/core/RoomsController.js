@@ -155,7 +155,7 @@ class RoomsController {
                     throw new TypeError(`Room '${logicalId}' ${fieldName} must be a non-empty string when present`);
                 }
             }
-            // Environment (optional): ceiling, condition, power — constrained enums.
+            // Environment (optional): ceiling, condition, power (constrained enums).
             for (const [fieldName, value, valid] of [
                 ['ceiling', def.ceiling, VALID_CEILING],
                 ['condition', def.condition, VALID_CONDITION],
