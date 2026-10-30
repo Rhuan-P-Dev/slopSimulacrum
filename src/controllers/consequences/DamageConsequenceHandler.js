@@ -472,6 +472,12 @@ class DamageConsequenceHandler {
         let totalLoss = 0;
         let updatedCount = 0;
         const hitIds = [];
+        // Existence directly billed per struck component (pre-rounding). Needed
+        // by the cascade reconciliation below: a struck component that survives
+        // its own hit and is later cascade-removed by another pellet (or hand)
+        // has only its direct portion in totalLoss — the remainder must come
+        // from cascadeLoss.
+        const directByComp = new Map();
 
         for (const comp of hitComponents) {
             const stats = world.componentController.getComponentStats(comp.id);
@@ -484,6 +490,7 @@ class DamageConsequenceHandler {
             const success = world.componentController.updateComponentStatDelta(comp.id, 'Physical', 'existence', -loss);
             if (success && appliedLoss > 0) {
                 totalLoss += appliedLoss;
+                directByComp.set(comp.id, (directByComp.get(comp.id) ?? 0) + appliedLoss);
                 updatedCount++;
                 hitIds.push(comp.id);
                 this._publishChannelLoss(context, { targetId: comp.id, appliedLoss });
@@ -497,12 +504,26 @@ class DamageConsequenceHandler {
         // cascadeLoss reports that uncharged mass — existence lost by components
         // NOT in hitIds — so consumers can reconcile: direct loss (totalLoss) +
         // cascade loss (cascadeLoss) = the victim's true existence delta.
+        // Reconcile every component's post-shot mass against preShot (BUG-139
+        // two-handed flake). Cases:
+        //   (a) struck + broken by its own hit -> totalLoss already bills its
+        //       full clamped prior; nothing extra to charge.
+        //   (b) struck + surviving its own hit, then removed by a cascade
+        //       triggered by a later pellet or a later hand -> totalLoss bills
+        //       only its direct portion; charge the remainder (lost - billed).
+        //   (c) never struck, removed by cascade -> bill in full.
+        // (b) was the uncharged gap: the pre-fix loop skipped every hit component
+        //       entirely, so its remaining mass was lost from both books.
         const hitIdSet = new Set(hitIds);
         let cascadeLoss = 0;
         for (const [id, prior] of preShot) {
-            if (hitIdSet.has(id) || !(prior > 0)) continue;
+            if (!(prior > 0)) continue;
             const now = world.componentController.getComponentStats(id)?.Physical?.existence ?? 0;
-            if (prior - now > 0) cascadeLoss += prior - now;
+            const lost = prior - now;
+            if (lost <= 0) continue;
+            cascadeLoss += hitIdSet.has(id)
+                ? Math.max(0, lost - (directByComp.get(id) ?? 0))
+                : lost;
         }
 
         return {
