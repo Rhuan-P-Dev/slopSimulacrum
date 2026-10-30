@@ -147,6 +147,11 @@ const PT_WORDS = [
   'for\xe7a',         // força
   'sa\xfade',         // saúde
   'sanidade',
+  // PT-only words the original list missed (found in the BUG-139 review);
+  // kept ASCII so the file stays byte-clean (this file is self-skipped).
+  'defensivo',
+  'injetado',
+  'sem',
 ];
 
 // Pre-compile word-boundary regexes for PT words (case-insensitive).
