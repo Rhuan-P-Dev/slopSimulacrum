@@ -77,8 +77,14 @@ function removeBrokenComponentCascade(facade, payload) {
             }
         }
 
-        // === (b) Desequip + remove instance — UNGUARDED (primary path) ===
-        facade._removeComponentOrItem(entity, payload);
+        // === (b) Desequip + remove instance (primary path) ===
+        try {
+            facade._removeComponentOrItem(entity, payload);
+        } catch (error) {
+            Logger.error(`[removeBrokenComponent] Phase (b) _removeComponentOrItem failed for component ${componentId} of entity ${entityId}: ${error.message}`, { payload });
+            // Continue to next phase — a failed primary path must not block
+            // cleanup or the root exit, so the entity is not left a zombie
+        }
 
         // === (c) Cleanup ===
         try {
