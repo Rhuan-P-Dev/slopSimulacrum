@@ -1778,7 +1778,7 @@ class WorldStateController {
      */
     setBroadcastService(broadcastService) {
         this._broadcastService = broadcastService;
-        // Also inject broadcaster into TriggerController (fallback defensivo).
+        // Also inject the broadcaster into the trigger controller (defensive fallback).
         if (this.triggerController) {
             this.triggerController.setBroadcaster(() => broadcastService.broadcast());
         }

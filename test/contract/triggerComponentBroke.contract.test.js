@@ -498,7 +498,7 @@ describe('Trigger system — dependency cascade (tests 16–21)', () => {
         expect(updatedEntity.components.some(c => c.id === compChild.id)).toBe(false);
     });
 
-    it('Test 21b: Dependente sem stat Physical.existence → skip seguro', () => {
+    it('Test 21b: Dependent without Physical.existence stat -> safe skip', () => {
         const { world } = buildWorld();
         const { entity } = spawnDroid(world);
 

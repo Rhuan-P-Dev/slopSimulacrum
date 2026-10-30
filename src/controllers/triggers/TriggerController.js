@@ -77,7 +77,7 @@ class TriggerController {
     emit(event, payload) {
         const handlers = this._handlers.get(event);
         if (!handlers || handlers.length === 0) {
-            // fallback defensivo: sem handlers → invocar _broadcaster (se injetado)
+            // Defensive fallback: no handlers -> call the injected broadcaster if present
             if (this._broadcaster && typeof this._broadcaster === 'function') {
                 try {
                     this._broadcaster();

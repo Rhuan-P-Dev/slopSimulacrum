@@ -614,7 +614,7 @@ describe('NpcAIController.think (AI system, spec §9.1)', () => {
         expect(turns.queued).toHaveLength(0);
     });
 
-    it('L3c. alvo em alcance sem components[0] → {acted:false, reason:"idle"}', () => {
+    it('L3c. target in range without components[0] -> {acted:false, reason:"idle"}', () => {
         const targetNoCore = { ...TARGET_ENTITY, components: [] };
         const entities = { [NPC_ID]: NPC_ENTITY, [TARGET_ID]: targetNoCore };
         const facade = makeFacade({
