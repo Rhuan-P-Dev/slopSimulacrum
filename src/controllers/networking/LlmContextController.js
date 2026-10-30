@@ -44,6 +44,23 @@
  * first). Empty sections still print their header plus "(none)" so weak
  * local models always see the same structure.
  *
+ * Inside === YOUR STATE ===, the stable "Body attributes:" line lists the
+ * whole-entity stats declared for the entity's blueprint in
+ * data/entities/entity_attributes.json — flat "Group.stat" keys with
+ * current/max (current is the live value; ceiling and per-turn drain come
+ * from the declaration itself, read fresh each build), plus "(drain N/turn)"
+ * when the file declares a nonzero per-turn drain. A blueprint with no entry
+ * prints "(none)" — "no data, no stats" (the line is always present, so the
+ * agent always sees the stat space, and a legacy entity without live
+ * attributes still renders its declared stats at 0). Two deliberate seams:
+ * (a) a malformed decl (non-finite max/drainPerTurn — reachable only with an
+ * unvalidated facade, since the production facade validates through
+ * EntityAttributeData) is guarded: the stat renders as "Group.stat=current"
+ * with no "/max" suffix; (b) displayed caps follow the data file while live
+ * clamping follows the spawn-snapshot attributesConfig, so the two can
+ * diverge only if a user edits the gitignored data file after an entity
+ * exists.
+ *
  * @module LlmContextController
  */
 
@@ -259,7 +276,9 @@ class LlmContextController {
      * Self section data: name, body (every component, each with its existence
      * current/max when it carries a Physical.existence stat, and its side
      * label `identifier` when it is not the blueprint's default label), key
-     * stats, equipped items, inventory grouped by host component.
+     * stats, whole-entity attributes declared for the blueprint (the
+     * "Body attributes:" line, from data/entities/entity_attributes.json),
+     * equipped items, inventory grouped by host component.
      * @param {Object} entity
      * @returns {Object}
      * @private
@@ -350,11 +369,39 @@ class LlmContextController {
             conditions: (facade.getComponentConditions?.(comp.id) ?? facade.componentController?.getComponentConditions?.(comp.id)) || []
         }));
 
+        // Whole-entity attributes declared for the entity's blueprint
+        // (data/entities/entity_attributes.json): entity-owned stats (energy,
+        // pleasure, ...), distinct from the component-derived key stats above.
+        // `current` reads the live value off the entity's own `attributes`
+        // (seeded at spawn, moved by world logic); `max` and `drainPerTurn`
+        // come from the facade declaration registry — the data file itself —
+        // so a declared stat still renders when a legacy entity lost its seed.
+        // Displayed caps follow the data file; live clamping follows the
+        // spawn-snapshot `attributesConfig` (module header: seam (b)).
+        const attrDecls = facade.getEntityAttributeDeclarations?.(entity.blueprint) || {};
+        const attrLive = entity.attributes || {};
+        const entityAttributes = {};
+        for (const keyDecl of Object.keys(attrDecls)) {
+            const [group, stat] = keyDecl.split('.');
+            const decl = attrDecls[keyDecl];
+            const rawCurrent = attrLive[group]?.[stat];
+            // The production facade validates every decl (EntityAttributeData,
+            // drops non-finite numbers); the finite guards below are a
+            // defensive no-op for it — they only stop an unvalidated decl
+            // from leaking "/undefined" into the LLM text (seam (a)).
+            entityAttributes[keyDecl] = {
+                current: Number.isFinite(rawCurrent) ? rawCurrent : 0,
+                max: Number.isFinite(decl.max) ? decl.max : null,
+                drainPerTurn: Number.isFinite(decl.drainPerTurn) ? decl.drainPerTurn : 0
+            };
+        }
+
         return {
             name: entity.name || 'Droid',
             isNPC: Boolean(entity.isNPC),
             existence,
             stats: statsLines,
+            entityAttributes,
             equipped,
             inventory,
             componentStates
@@ -990,6 +1037,25 @@ class LlmContextController {
             self.stats['Mind.think_level'] !== null && `think=${self.stats['Mind.think_level']}`
         ].filter(Boolean);
         lines.push(statParts.length > 0 ? `Key stats: ${statParts.join(' ')}` : 'Key stats: (none)');
+        // Body attributes: whole-entity stats declared for the blueprint
+        // (data/entities/entity_attributes.json), rendered separately from the
+        // component-derived key stats because they are owned by the entity,
+        // not by components. One flat "Group.stat" key with current/max, plus
+        // "(drain N/turn)" when the file declares a nonzero per-turn drain.
+        const attrParts = Object.entries(self.entityAttributes || {})
+            .map(([keyDecl, a]) => {
+                // A malformed decl (max null, seam (a)) omits the "/max"
+                // suffix instead of printing "/null".
+                const maxPart = a.max == null ? '' : '/' + a.max;
+                const parts = [`${keyDecl}=${a.current}${maxPart}`];
+                if (a.drainPerTurn > 0) {
+                    parts.push(`(drain ${a.drainPerTurn}/turn)`);
+                }
+                return parts.join(' ');
+            });
+        lines.push(attrParts.length > 0
+            ? `Body attributes: ${attrParts.join(', ')}`
+            : 'Body attributes: (none)');
         lines.push(self.equipped.length > 0
             ? `Equipped: ${self.equipped.map(eq => eq.type).join(', ')}`
             : 'Equipped: (none)');

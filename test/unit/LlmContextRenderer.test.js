@@ -59,6 +59,11 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         id: 'ent-self',
         name: 'Bolt the Merchant',
         isNPC: true,
+        // Blueprint pinned to the real facade path: the reachable legacy case
+        // is "has blueprint, no live attributes" (see the "defaults to 0"
+        // test). Stub worlds never define getEntityAttributeDeclarations, so
+        // the blueprint changes nothing for every other test.
+        blueprint: 'm1Droid',
         location: 'room-1',
         spatial: { x: 100, y: 100 },
         components: [
@@ -305,6 +310,130 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.self.existence[3]).toEqual({
             component: 'm1Toe', identifier: 'left_frontal_left', current: 1, max: 1, ratio: 1
         });
+    });
+
+    // Whole-entity attributes declared for the blueprint
+    // (data/entities/entity_attributes.json) must reach the agent context so
+    // the LLM knows the stat exists (energy, pleasure, ...). Current comes
+    // from the entity's live attributes; ceiling/drain from the facade
+    // declaration registry (the data file itself).
+    it('renders declared whole-entity attributes as the Body attributes line (flat key, current/max, drain per turn)', () => {
+        const attrAgent = {
+            id: 'ent-attr',
+            name: 'Spark',
+            isNPC: true,
+            blueprint: 'm1Droid',
+            location: 'room-1',
+            spatial: { x: 50, y: 50 },
+            components: [makeComponent('comp-a-core', 'coreBall')],
+            // Live values: energy was drained by the per-turn energy step.
+            attributes: { Physical: { energy: 87 }, Pleasure: { pleasure: 32 } }
+        };
+        const attrWorld = makeWorld({
+            getEntity: (id) => (id === 'ent-attr' ? attrAgent : null),
+            getComponentStats: () => ({ Physical: { existence: 100 }, Spatial: { x: 0, y: 0 } }),
+            // The declaration registry: the per-entity-type seeds from
+            // data/entities/entity_attributes.json (m1Droid gets energy).
+            getEntityAttributeDeclarations: () => ({
+                'Physical.energy': { value: 100, max: 100, drainPerTurn: 1 },
+                'Pleasure.pleasure': { value: 0, max: 100, drainPerTurn: 1 }
+            })
+        });
+        const attrCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        attrCtrl.setWorldStateController(attrWorld);
+        const { text, data } = attrCtrl.buildContext('ent-attr');
+        // Both declared stats render, in declaration order, with the flat
+        // Group.stat key, current/max, and the nonzero per-turn drain.
+        expect(text).toContain(
+            'Body attributes: Physical.energy=87/100 (drain 1/turn), Pleasure.pleasure=32/100 (drain 1/turn)'
+        );
+        expect(text).not.toContain('Body attributes: (none)');
+        // The data mirror carries the same shape (dev view / inspector).
+        expect(data.self.entityAttributes).toEqual({
+            'Physical.energy': { current: 87, max: 100, drainPerTurn: 1 },
+            'Pleasure.pleasure': { current: 32, max: 100, drainPerTurn: 1 }
+        });
+    });
+
+    it('defaults a declared but unseeded stat to 0 (legacy entity without live attributes)', () => {
+        const attrWorld = makeWorld({
+            // ent-self carries a blueprint but no live `attributes` — the
+            // reachable legacy case: a declared stat must still appear, at
+            // its floor of 0.
+            getEntityAttributeDeclarations: () => ({ 'Physical.energy': { value: 100, max: 100, drainPerTurn: 1 } })
+        });
+        const attrCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        attrCtrl.setWorldStateController(attrWorld);
+        const { text, data } = attrCtrl.buildContext('ent-self');
+        expect(text).toContain('Body attributes: Physical.energy=0/100 (drain 1/turn)');
+        expect(data.self.entityAttributes).toEqual({ 'Physical.energy': { current: 0, max: 100, drainPerTurn: 1 } });
+    });
+
+    it('omits the Body attributes line contents when the blueprint declares no whole-entity attributes', () => {
+        const noneWorld = makeWorld({
+            // No declaration map → no attribute may render; the stable line
+            // prints its (none) fallback like the other self-section lines.
+            getEntityAttributeDeclarations: () => ({})
+        });
+        const noneCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        noneCtrl.setWorldStateController(noneWorld);
+        const { text, data } = noneCtrl.buildContext('ent-self');
+        expect(text).toContain('Body attributes: (none)');
+        expect(data.self.entityAttributes).toEqual({});
+    });
+
+    it('renders the Body attributes line without a drain suffix when drainPerTurn is 0', () => {
+        const noDrainAgent = {
+            id: 'ent-self',
+            name: 'Bolt the Merchant',
+            isNPC: true,
+            blueprint: 'm1Droid',
+            location: 'room-1',
+            spatial: { x: 100, y: 100 },
+            components: [
+                makeComponent('comp-core', 'coreBall'),
+                makeComponent('comp-head', 'head'),
+                makeComponent('comp-hand', 'hand'),
+                makeComponent('comp-roller', 'roller')
+            ],
+            attributes: { Physical: { energy: 55 } }
+        };
+        const noDrainWorld = makeWorld({
+            getEntity: (id) => (id === 'ent-self' ? noDrainAgent : null),
+            getComponentStats: () => ({ Physical: { existence: 100 }, Spatial: { x: 0, y: 0 } }),
+            getEntityAttributeDeclarations: () => ({
+                'Physical.energy': { value: 100, max: 100, drainPerTurn: 0 }
+            })
+        });
+        const noDrainCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        noDrainCtrl.setWorldStateController(noDrainWorld);
+        const { text } = noDrainCtrl.buildContext('ent-self');
+        // drainPerTurn 0 is "no drain" and is never rendered. The negative
+        // check is scoped to the Body attributes line: the full context may
+        // legitimately contain "drain" in other sections (e.g. a later
+        // failure event) without that being a regression of this line.
+        const bodyLine = text.split('\n').find((l) => l.startsWith('Body attributes:'));
+        expect(bodyLine).toBe('Body attributes: Physical.energy=55/100');
+    });
+
+    it('renders a malformed decl defensively (non-finite max -> no "/max" suffix, no crash)', () => {
+        // Only reachable with an unvalidated facade — the production facade
+        // drops non-finite decls in EntityAttributeData._parseAttributeDecl.
+        // Pins the defensive guard (seam (a)) so a future unvalidated facade
+        // cannot leak "/undefined" into the LLM text.
+        const malformedWorld = makeWorld({
+            getEntityAttributeDeclarations: () => ({
+                'Physical.energy': { value: 100, max: 'oops', drainPerTurn: 1 }
+            })
+        });
+        const malformedCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        malformedCtrl.setWorldStateController(malformedWorld);
+        const { text, data } = malformedCtrl.buildContext('ent-self');
+        expect(data.self.entityAttributes).toEqual({
+            'Physical.energy': { current: 0, max: null, drainPerTurn: 1 }
+        });
+        const bodyLine = text.split('\n').find((l) => l.startsWith('Body attributes:'));
+        expect(bodyLine).toBe('Body attributes: Physical.energy=0 (drain 1/turn)');
     });
 
     it('lists same-room entities with distance + position and other-room entities room-named', () => {
