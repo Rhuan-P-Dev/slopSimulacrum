@@ -1,6 +1,7 @@
 {
     "id": "core-synergy",
     "version": "1.0.0",
+    "description": "How actions reinforce each other: which component groups an action draws on, how it scales and where it caps.",
     "content": [
         "synergy"
     ]

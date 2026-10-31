@@ -1,6 +1,7 @@
 {
     "id": "core-components",
     "version": "1.0.0",
+    "description": "Body-part recipes: the form, the material composition and the organs pre-installed in each part. A droid torso, head or hand the world can spawn is one key here.",
     "content": [
         "components"
     ],

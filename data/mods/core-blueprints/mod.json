@@ -1,6 +1,7 @@
 {
     "id": "core-blueprints",
     "version": "1.0.0",
+    "description": "The blueprints things are built from - ball droids, droid limbs and hands, machine frames - each naming the parts it is assembled from.",
     "content": [
         "blueprints"
     ]

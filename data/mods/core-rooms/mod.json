@@ -1,6 +1,7 @@
 {
     "id": "core-rooms",
     "version": "1.0.0",
+    "description": "The rooms of the world, where they sit, what they connect to and what they are made of.",
     "content": [
         "rooms"
     ]

@@ -539,6 +539,11 @@ export class ModService {
             loadOrder: mod.loadOrder,
             content: mod.manifest.content,
             requires: mod.manifest.requires,
+            // The author's own sentence about the package, narrowed by the loader. It is
+            // the only text in this answer that says what a package is FOR. It is `''`
+            // when the manifest declares none, and the panel renders nothing for an empty
+            // string rather than inventing a sentence the author never wrote.
+            description: mod.manifest.description,
             // Why a package contributes nothing although it is enabled, or null.
             blocked: mod.blocked ?? null
         }));

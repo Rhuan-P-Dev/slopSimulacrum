@@ -1,6 +1,7 @@
 {
     "id": "core-sensitive-parts",
     "version": "1.0.0",
+    "description": "Sensitivity values for the body parts that carry the sensitiveNerve organ - the 0 to 100 scale the touch mechanic reads.",
     "content": [
         "sensitiveParts"
     ]

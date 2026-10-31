@@ -1,6 +1,7 @@
 {
     "id": "core-property-trait-mapping",
     "version": "1.0.0",
+    "description": "Where material properties become named traits: the derived stats and the flag thresholds that turn properties into traits such as flammable or conductive.",
     "content": [
         "propertyTraitMapping"
     ]

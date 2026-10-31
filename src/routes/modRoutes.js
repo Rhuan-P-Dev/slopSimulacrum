@@ -57,10 +57,14 @@ export function register(router, { modService }) {
 	/**
 	 * GET /mods
 	 * The installed packages and what the world currently runs.
-	 * `{ scanned, mods: [{ id, version, official, enabled, loadOrder, content }],
-	 *    invalid: [{ dir, code, message }], live: { version, definitionCounts } }`
+	 * `{ scanned, mods: [{ id, version, official, enabled, loadOrder, content, requires,
+	 *    description, blocked }], invalid: [{ dir, code, message }],
+	 *    live: { version, definitionCounts } }`
 	 * `official` is derived from the reserved `core-` prefix, so this is the line
-	 * between shipped content and somebody else's package.
+	 * between shipped content and somebody else's package. `description` is the manifest's
+	 * own sentence about what the package is for, and `requires` the ids it will not load
+	 * without: both are read off the manifest, and both are what an operator needs next to
+	 * the id to tell 22 packages apart.
 	 */
 	router.get('/mods', (req, res) => {
 		try {

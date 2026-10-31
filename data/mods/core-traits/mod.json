@@ -1,6 +1,7 @@
 {
     "id": "core-traits",
     "version": "1.0.0",
+    "description": "The named traits that gate and mark a component - which damage channels and interactions apply to it. Traits never set a stat value; matter and form do that.",
     "content": [
         "traits"
     ]

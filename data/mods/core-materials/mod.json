@@ -1,6 +1,7 @@
 {
     "id": "core-materials",
     "version": "1.0.0",
+    "description": "The materials things are made of - wood, iron, coal - with the density and the properties every derived stat comes from.",
     "content": [
         "materials"
     ]

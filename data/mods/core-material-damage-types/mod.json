@@ -1,6 +1,7 @@
 {
     "id": "core-material-damage-types",
     "version": "1.0.0",
+    "description": "How each material spreads an incoming hit across the damage channels - impact, cut, burn, blast, wear.",
     "content": [
         "materialDamageTypes"
     ],

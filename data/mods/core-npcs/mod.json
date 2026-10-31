@@ -1,6 +1,7 @@
 {
     "id": "core-npcs",
     "version": "1.0.0",
+    "description": "The NPC types shipped with the world and how they behave: room, personality, objective and per-round action budget. A card brings its own NPC; this is the server's own cast.",
     "content": [
         "npcs"
     ]

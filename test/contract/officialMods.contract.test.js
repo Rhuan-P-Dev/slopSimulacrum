@@ -83,6 +83,20 @@ describe('the official mod set', () => {
         }
     });
 
+    it('says what each official package is, in the manifest itself', () => {
+        // The Mods panel renders this sentence as the only thing in the list that says
+        // what a package is FOR; the id alone does not, and 22 rows of ids is not an
+        // explanation. A shipped package with nothing to say is a silent content gap, so
+        // it is a rule here rather than a UI nicety. `description` is narrowed by the
+        // loader: absent means `''`, and `''` fails this.
+        for (const mod of official) {
+            const text = mod.manifest.description;
+            expect(text, `mod ${mod.manifest.id} ships no description`).not.toBe('');
+            expect(text, mod.manifest.id).toBe(text.trim());
+            expect(text.length, `description of ${mod.manifest.id} is a stub`).toBeGreaterThan(40);
+        }
+    });
+
     it('declares exactly one kind each, and the kind is named by the id', () => {
         for (const mod of official) {
             expect(mod.manifest.content).toHaveLength(1);

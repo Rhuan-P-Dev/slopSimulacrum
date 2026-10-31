@@ -1,6 +1,7 @@
 {
     "id": "core-crafting",
     "version": "1.0.0",
+    "description": "The crafting recipes - inputs, outputs and what each transformation costs: knives into a tool kit, wood and coal chunks into fuel, a knife generator built by hand.",
     "content": [
         "crafting"
     ],

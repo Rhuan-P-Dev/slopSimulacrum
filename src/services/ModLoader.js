@@ -140,14 +140,15 @@ export function isOfficialModId(id) {
  *
  * @param {unknown} raw - Parsed `mod.json`.
  * @param {string} dirName - The directory the manifest was found in.
- * @returns {{ id: string, version: string, content: Array<string>, official: boolean }}
+ * @returns {{ id: string, version: string, content: Array<string>, requires: Array<string>,
+ *   description: string, official: boolean }}
  * @throws {GameError} MOD_ID_INVALID | MOD_ID_DIR_MISMATCH | MOD_MANIFEST_INVALID
  */
 export function parseManifest(raw, dirName) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new GameError(`${MANIFEST_FILE} must be a JSON object`, MOD_ERROR_CODES.MANIFEST_INVALID);
     }
-    const { id, version, content, requires } = raw;
+    const { id, version, content, requires, description } = raw;
 
     if (typeof id !== 'string' || !MOD_ID_PATTERN.test(id)) {
         throw new GameError(
@@ -190,16 +191,47 @@ export function parseManifest(raw, dirName) {
     // order does not depend on how the manifest happened to be written.
     const kinds = REGISTRY_KIND_LIST.filter((kind) => contentList.includes(kind));
 
+    const summary = parseDescription(description, id);
+
     return Object.freeze({
         id,
         version,
         content: Object.freeze(kinds),
+        // The author's own sentence about the package. Prose, not a load-bearing field:
+        // absent means "nobody wrote one", which the operator is told rather than shown
+        // as a blank hole. A present value is narrowed to a string here, because past
+        // this point it becomes a text node in somebody's browser.
+        description: summary,
         // Package ids this package's content references definitions from. Declared by the
         // author, narrowed here, and the only input to `resolveRequirements`.
         requires: Object.freeze(parseRequires(requires, id)),
         // Derived, never trusted from the manifest (decision 2).
         official: isOfficialModId(id)
     });
+}
+
+/**
+ * Narrow `description` to a string, or say why it cannot be one.
+ *
+ * Absent stays absent-as-nothing (`''`): the manifest is one file per package and a
+ * package that only moves data files need no blurb. A present non-string is a manifest
+ * bug and is rejected at the one place fields are narrowed (`T-1`), instead of arriving
+ * downstream as `[object Object]`.
+ *
+ * @param {unknown} description - The declared field.
+ * @param {string} id - The package it was written in, for the message.
+ * @returns {string}
+ * @throws {GameError} MOD_MANIFEST_INVALID
+ */
+function parseDescription(description, id) {
+    if (description === undefined || description === null) return '';
+    if (typeof description !== 'string') {
+        throw new GameError(
+            `mod "${id}" has a "description" that is not a string`,
+            MOD_ERROR_CODES.MANIFEST_INVALID
+        );
+    }
+    return description.trim();
 }
 
 /**

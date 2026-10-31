@@ -1,6 +1,7 @@
 {
     "id": "core-material-drop-rates",
     "version": "1.0.0",
+    "description": "What a damaged material sheds: the minimum chunk volume and the per-material balance of what drops.",
     "content": [
         "materialDropRates"
     ],

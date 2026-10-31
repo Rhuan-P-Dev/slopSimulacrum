@@ -1,6 +1,7 @@
 {
     "id": "core-entity-attributes",
     "version": "1.0.0",
+    "description": "Attribute seeds per entity type: the whole-entity stats a spawn is born with, their caps and their per-round drain (energy for the droids, pleasure for the human ones).",
     "content": [
         "entityAttributes"
     ]

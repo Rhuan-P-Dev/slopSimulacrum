@@ -1,6 +1,7 @@
 {
     "id": "core-machines",
     "version": "1.0.0",
+    "description": "The machine registry: what each machine is built from, the item it produces and the recipe that built it.",
     "content": [
         "machines"
     ],

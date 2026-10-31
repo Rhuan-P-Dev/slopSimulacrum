@@ -606,6 +606,25 @@ describe('requires', () => {
         });
     });
 
+    describe('description narrowing', () => {
+        it('reads an absent description as nobody wrote one, not as an error', () => {
+            expect(parseManifest({ id: 'x', version: '1.0.0' }, 'x').description).toBe('');
+            expect(parseManifest({ id: 'x', version: '1.0.0', description: null }, 'x').description).toBe('');
+        });
+
+        it('trims the prose instead of shipping the whitespace it was written with', () => {
+            expect(parseManifest({ id: 'x', version: '1.0.0', description: '  Adds parts.  ' }, 'x').description)
+                .toBe('Adds parts.');
+        });
+
+        it('rejects a description that is not a string, before it reaches a text node', () => {
+            expect(codeOf(() => parseManifest({ id: 'x', version: '1.0.0', description: { en: 'hi' } }, 'x')))
+                .toBe(MOD_ERROR_CODES.MANIFEST_INVALID);
+            expect(codeOf(() => parseManifest({ id: 'x', version: '1.0.0', description: 7 }, 'x')))
+                .toBe(MOD_ERROR_CODES.MANIFEST_INVALID);
+        });
+    });
+
     describe('resolution', () => {
         it('leaves a package whose requirements are met alone', () => {
             const mods = resolveRequirements([entry('base'), entry('child', ['base'])]);

@@ -1,6 +1,7 @@
 {
     "id": "core-internal-components",
     "version": "1.0.0",
+    "description": "The organ types a body part is built around - strength, move, precision and think cores - and the function stats each grants its host. Matter with no organs is inert.",
     "content": [
         "internalComponents"
     ]

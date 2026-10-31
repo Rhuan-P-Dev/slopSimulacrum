@@ -1,6 +1,7 @@
 {
     "id": "core-actions",
     "version": "1.0.0",
+    "description": "The actions a droid can attempt - move, dash, grab, cut, heal, place a machine - each with its targeting, its requirements and the consequences it produces.",
     "content": [
         "actions"
     ]

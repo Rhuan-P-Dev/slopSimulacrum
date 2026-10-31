@@ -1,6 +1,7 @@
 {
     "id": "core-holding-cost",
     "version": "1.0.0",
+    "description": "The single carrying-cost lever: how equipped mass becomes a burden, what gates an equip, and which stats degrade when a droid is overloaded.",
     "content": [
         "holdingCost"
     ]

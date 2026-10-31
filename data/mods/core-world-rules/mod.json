@@ -1,6 +1,7 @@
 {
     "id": "core-world-rules",
     "version": "1.0.0",
+    "description": "The world rule switches and their configuration - torn material that takes damage, effects that fire on damage. A rule absent here is a rule that is off.",
     "content": [
         "worldRules"
     ]

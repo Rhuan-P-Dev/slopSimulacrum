@@ -1,6 +1,7 @@
 {
     "id": "core-world",
     "version": "1.0.0",
+    "description": "What the world starts with: the boot-time spawns, what is placed, in which slot, and whether it starts worn.",
     "content": [
         "world"
     ]

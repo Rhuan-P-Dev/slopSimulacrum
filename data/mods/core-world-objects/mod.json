@@ -1,6 +1,7 @@
 {
     "id": "core-world-objects",
     "version": "1.0.0",
+    "description": "Props placed in rooms at boot, materialised as static entities built from a named blueprint.",
     "content": [
         "worldObjects"
     ]
