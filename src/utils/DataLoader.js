@@ -116,6 +116,39 @@ class DataLoader {
     }
 
     /**
+     * Names the entries of a directory under the project root, sorted, each with
+     * the kind flag the caller needs.
+     *
+     * This exists for mod discovery (`wiki/decisions/mod-system.md`): the loader
+     * must see which packages are installed without importing `fs` itself, which
+     * stays inside the data seam (`CR B-3`). An absent directory returns an EMPTY
+     * list rather than throwing — "no mods installed" is the normal state of a
+     * fresh checkout, not a failure.
+     * @param {string} relativePath - Path relative to the project root.
+     * @returns {Array<{name: string, isDirectory: boolean}>} Sorted by name.
+     */
+    static listDir(relativePath) {
+        const absolutePath = path.resolve(__dirname, '..', '..', relativePath);
+        let names;
+        try {
+            names = fs.readdirSync(absolutePath);
+        } catch (error) {
+            Logger.debug(`[DataLoader] No directory at ${relativePath}: ${error.message}`);
+            return [];
+        }
+        return names.sort().map((name) => {
+            let isDirectory = false;
+            try {
+                isDirectory = fs.statSync(path.join(absolutePath, name)).isDirectory();
+            } catch (error) {
+                // A dangling entry is not a mod directory; report it as a file.
+                Logger.debug(`[DataLoader] Cannot stat ${relativePath}/${name}: ${error.message}`);
+            }
+            return { name, isDirectory };
+        });
+    }
+
+    /**
      * Saves a JSON-serializable value to the specified relative path. Atomic:
      * writes to a sibling ".tmp" file then renames over the target, so a process
      * that dies mid-write never leaves a half-written (corrupt) data file.
