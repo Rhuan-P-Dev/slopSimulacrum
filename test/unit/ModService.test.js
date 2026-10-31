@@ -202,6 +202,107 @@ describe('the kind vocabulary', () => {
     });
 });
 
+describe('enable, disable, and the queue', () => {
+    /** An in-memory state store: a unit test of "what is enabled" must not write the file
+     *  the next boot reads. `store.state` is what was saved, `store.saves` how often. */
+    const memState = (initial = {}) => {
+        const store = { state: { ...initial }, saves: 0 };
+        return {
+            load: () => ({ ...store.state }),
+            save: (next) => { store.state = JSON.parse(JSON.stringify(next)); store.saves += 1; },
+            store
+        };
+    };
+
+    it('writes the wish, not the world', () => {
+        const applied = storeFrom();
+        const ss = memState();
+        const s = new ModService({ registryStore: applied, loader: loader({}), stateStore: ss });
+        const result = s.disable('extra-parts');
+
+        expect(result).toMatchObject({
+            id: 'extra-parts', enabled: false, pending: true, appliesAt: 'next round boundary'
+        });
+        expect(ss.store.state['extra-parts']).toEqual({ enabled: false });
+        // The world still runs the package it booted with. This is the whole point of the
+        // boundary, so it is pinned hardest here.
+        expect(applied.read(REGISTRY_KINDS.COMPONENTS).crowbar).toBeDefined();
+        expect(applied.version()).toBe(1);
+    });
+
+    it('refuses a package that is not installed', () => {
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: memState() });
+        expect(() => s.disable('no-such-mod')).toThrowError(/no mod package named "no-such-mod"/);
+        expect(() => s.enable('')).toThrowError(/non-empty string/);
+    });
+
+    it('is idempotent: the same answer for a package already in that state', () => {
+        const ss = memState({ 'extra-parts': { enabled: false } });
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: ss });
+        const result = s.disable('extra-parts');
+        expect(result).toMatchObject({ enabled: false, pending: false });
+    });
+
+    it('swaps at the boundary, reports what it swapped, and drains the queue', () => {
+        const applied = storeFrom();
+        const s = new ModService({ registryStore: applied, loader: loader({}), stateStore: memState() });
+        s.disable('extra-parts');
+        const report = s.applyPending();
+
+        expect(report.ok).toBe(true);
+        expect(report.version).toBe(2);
+        expect(report.swappedKinds).toContain(REGISTRY_KINDS.COMPONENTS);
+        // The disabled package is out; everything else is where it was.
+        expect(applied.read(REGISTRY_KINDS.COMPONENTS).crowbar).toBeUndefined();
+        expect(applied.read(REGISTRY_KINDS.COMPONENTS).knife).toBeDefined();
+        expect(applied.read(REGISTRY_KINDS.MATERIALS).steel).toBeUndefined();
+        // Drained: the next boundary does nothing and says so.
+        expect(s.pending).toBe(false);
+        expect(s.applyPending()).toBeNull();
+        expect(applied.version()).toBe(2);
+    });
+
+    it('brings the content back when the package is enabled again', () => {
+        const applied = storeFrom();
+        const s = new ModService({ registryStore: applied, loader: loader({}), stateStore: memState() });
+        s.disable('extra-parts');
+        s.applyPending();
+        s.enable('extra-parts');
+        s.applyPending();
+        expect(applied.read(REGISTRY_KINDS.COMPONENTS).crowbar).toBeDefined();
+        expect(applied.version()).toBe(3);
+    });
+
+    it('records a refused apply instead of retrying it at every boundary', () => {
+        const refusing = {
+            read: () => ({}),
+            version: () => 1,
+            definitionCounts: () => ({}),
+            replace: () => { throw new Error('candidate refused'); }
+        };
+        const s = new ModService({ registryStore: refusing, loader: loader({}), stateStore: memState() });
+        s.disable('extra-parts');
+        const report = s.applyPending();
+        expect(report.ok).toBe(false);
+        expect(report.error).toMatch(/candidate refused/);
+        // Not retried: a candidate the world refuses would otherwise be rebuilt at every
+        // round, and a warning every round is how a real problem gets tuned out.
+        expect(s.applyPending()).toBeNull();
+        expect(s.list().lastApply.error).toMatch(/candidate refused/);
+    });
+
+    it('lists the queue so an operator can tell wished from running', () => {
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: memState() });
+        expect(s.list().pending).toBe(false);
+        s.disable('extra-parts');
+        const list = s.list();
+        expect(list.pending).toBe(true);
+        expect(list.appliesAt).toBe('next round boundary');
+        expect(list.lastApply).toBeNull();
+        expect(list.mods.find((m) => m.id === 'extra-parts').enabled).toBe(false);
+    });
+});
+
 describe('diffRegistry', () => {
     it('does not call key order a change', () => {
         const live = { thing: { a: 1, b: { c: 2, d: 3 } } };

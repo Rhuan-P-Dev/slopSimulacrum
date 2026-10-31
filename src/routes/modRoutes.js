@@ -18,7 +18,25 @@
  *
  * @module routes/modRoutes
  */
-import { sendRouteError } from '../utils/routeError.js';
+import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
+import { createRateLimiter } from '../utils/rateLimiter.js';
+
+/**
+ * Enable and disable are writes (they persist `data/mods/loadorder.json`), so they are
+ * rate limited like the other write routes (`CR SEC-2`). The budget is an operator's, not
+ * a client's: toggling a package set a few dozen times a minute is already unusual.
+ */
+const writeLimiter = createRateLimiter({
+	windowMs: 60000,
+	max: 30,
+	name: 'mod-write-route'
+});
+
+/** Domain error code -> HTTP status. Anything unmapped stays a 500. */
+const ERROR_STATUS = {
+	MOD_NOT_FOUND: 404,
+	MOD_ID_INVALID: 400
+};
 
 /**
  * Registers mod-package routes with the given Express router.
@@ -93,4 +111,44 @@ export function register(router, { modService }) {
 			sendRouteError(error, res, '/mods/plan');
 		}
 	});
+
+	/**
+	 * POST /mods/:id/enable and POST /mods/:id/disable
+	 * Ask for an installed package to be in or out of the world.
+	 *
+	 * `{ success: true, id, enabled, pending, appliesAt }`. The change is written to
+	 * `data/mods/loadorder.json` and queued; the world swaps its definition at the next
+	 * round boundary, so `pending: true` is the normal answer and `appliesAt` says when.
+	 * This is not a failure and not a delay to poll away — on a server whose turn loop is
+	 * stopped the change stays pending until a round opens, and the file already says what
+	 * the next boot will do.
+	 *
+	 * Idempotent (`CR H-3`): enabling an enabled package answers the same and queues no new
+	 * work. An unknown id is a 404 `MOD_NOT_FOUND` — a typo must not create state for a
+	 * package that does not exist.
+	 */
+	const toggle = (routeLabel, enabled) => (req, res) => {
+		try {
+			const result = enabled
+				? modService.enable(req.params.id)
+				: modService.disable(req.params.id);
+			res.json({ success: true, ...result });
+		} catch (error) {
+			const status = ERROR_STATUS[error?.code];
+			if (status) {
+				sendRouteErrorBody(
+					error,
+					res,
+					routeLabel,
+					{ success: false, error: error.code, message: error.message },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, routeLabel);
+		}
+	};
+
+	router.post('/mods/:id/enable', writeLimiter, toggle('POST /mods/:id/enable', true));
+	router.post('/mods/:id/disable', writeLimiter, toggle('POST /mods/:id/disable', false));
 }

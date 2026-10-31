@@ -7,7 +7,6 @@ import NpcAIController from './controllers/ai/NpcAIController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
 import WorldStateBroadcastService from './services/WorldStateBroadcastService.js';
-import ModService from './services/ModService.js';
 import { registerRoutes } from './routes/index.js';
 import Logger from './utils/Logger.js';
 import { UniversalTickSystem } from './utils/UniversalTickSystem.js';
@@ -29,7 +28,7 @@ const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 const llmController = new LLMController();
 // FASE 5: the world state graph (facade + all sub-controllers) is built by the
 // composition root, which handles topological construction and facade injection.
-const { worldStateController, subControllers, registryStore } = buildWorldState(tickSystem);
+const { worldStateController, subControllers, modService } = buildWorldState(tickSystem);
 
 // 4. Initialize broadcast service
 const broadcastService = new WorldStateBroadcastService(io, worldStateController);
@@ -42,7 +41,6 @@ socketLifecycle.registerHandlers();
 // it would change. Scanned once here so GET /mods answers without touching the disk
 // and so the startup log names the package set the world was built from — the
 // official ones and anything somebody else added.
-const modService = new ModService({ registryStore });
 const bootScan = modService.rescan();
 Logger.info(
     `[server] mod packages: ${bootScan.mods.length} installed`

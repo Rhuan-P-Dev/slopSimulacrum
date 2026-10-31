@@ -89,9 +89,18 @@ worth knowing before you write an override:
 - among packages at the default order, a package whose id sorts **after** the one it
   wants to override is the one that wins — `core-` sorts early, so ordinary names
   override it;
-- to be explicit, the package needs a `loadOrder` in the per-mod state file. The loader
-  accepts that state (`{ id: { enabled, loadOrder } }`) and there is **no endpoint or
-  file reader for it yet** — see the status below.
+- to be explicit, the package needs a `loadOrder` in the per-mod state file,
+  `data/mods/loadorder.json`:
+
+  ```json
+  { "mods": [ { "id": "deep-geology", "enabled": true, "loadOrder": 500 } ] }
+  ```
+
+  Both fields are optional and every entry needs an `id`. The loader narrows it: a field of
+  the wrong type is ignored (that entry falls back to its defaults), and a file that is not
+  this shape is read as empty. It is user-editable tuning data, so a typo in it must not
+  keep the server from starting — but it does take a `POST /mods/rescan`, or a restart, to be
+  seen. No endpoint writes `loadOrder`; `enable` / `disable` write only `enabled`.
 
 A package that fails to load does not take the world with it: it is skipped by name,
 with a code and a message, and reported in `invalid` by both `GET /mods` and
@@ -131,6 +140,13 @@ malformed official file stops the server rather than booting a world with holes 
 | GET    | `/mods/kinds`     | The vocabulary a `content` array is written in, with the file behind each kind and how many definitions of it are live. |
 | POST   | `/mods/rescan`    | Read the package directory again. Installs nothing. |
 | POST   | `/mods/plan`      | What an apply would change, per kind: added, removed and changed definition names, who provides each, what is shadowed. Mutates nothing; `applied` is always `false`. |
+| POST   | `/mods/:id/enable`  | Enable an installed package. `{ success, id, enabled, pending, appliesAt }`. Rate limited (it writes a file). |
+| POST   | `/mods/:id/disable` | Disable an installed package; same envelope. Idempotent. Unknown id → `404 MOD_NOT_FOUND`. |
+
+`pending: true` is the normal success answer, not a warning: the change is written to
+`data/mods/loadorder.json` and takes effect at the **next round boundary** (`appliesAt`). A
+round never has its definition changed underneath it. On a server whose turn loop is stopped
+the change stays pending — and the file already says what the next boot will do.
 
 The paths carry no `/api` prefix: routes are mounted at `/`, same as the rest of the
 server (`src/routes/index.js`).
@@ -140,16 +156,20 @@ server (`src/routes/index.js`).
 Built and tested: discovery, manifest validation, narrowing to declared kinds,
 field-level merge with a shadowing report, the official set packaged as `core-*`, the
 boot path assembling the world from those packages instead of 21 separate file loads, the
-non-throwing composition classifier behind the plan's `quarantine` report, and the four
-endpoints above.
+non-throwing composition classifier behind the plan's `quarantine` report, the
+`loadorder.json` state file (read at boot, so a disabled package does not contribute),
+enable / disable applied at the round boundary, and the six endpoints above.
 
 Not built:
 
-- **Apply.** Nothing swaps the running world's definition. A package on disk becomes
-  part of the world at the next boot; `POST /mods/plan` shows what an apply would do,
-  including what it would drop.
-- **Enable/disable and load order over HTTP.** `GET /mods` reports `enabled: true` for
-  every package because nothing can set it to false yet.
+- **Cross-package dependencies.** Packages are not independent and the store does not know
+  it: disabling `core-materials` yields an empty-but-valid `materials` registry that the
+  store accepts, and the world then refuses the result (`MaterialController` rejects a
+  damage type whose material is gone). The rules exist, but they are cross-kind references
+  checked in owners' constructors, which the classifier does not walk. See
+  `wiki/decisions/mod-system.md` → Open questions for the readings on the table.
+- **Load order over HTTP.** `loadOrder` is read from `data/mods/loadorder.json`; editing
+  that file by hand (then `POST /mods/rescan`) is currently the only way to set it.
 - **Quarantine at boot.** The classifier exists and the plan uses it; the boot path still
   throws on malformed data instead of booting around it. Switching boot over is the
   change that makes "the world always comes up" true rather than a plan-time property.

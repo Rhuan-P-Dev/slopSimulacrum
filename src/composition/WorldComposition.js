@@ -44,6 +44,8 @@
 import Logger from '../utils/Logger.js';
 import RegistryStore from '../services/RegistryStore.js';
 import ModLoader from '../services/ModLoader.js';
+import DataLoader from '../utils/DataLoader.js';
+import ModService from '../services/ModService.js';
 import { setRegistries as setComponentNamingRegistries } from '../utils/ComponentNaming.js';
 import { setRegistries as setEntityAttributeRegistries } from '../utils/EntityAttributeData.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
@@ -141,10 +143,15 @@ import WorldStateController from '../controllers/WorldStateController.js';
  * applies a new candidate at a round boundary, and until it exists a mod needs a
  * restart to take effect.
  *
+ * @param {ModLoader} [loader] - The package reader to build from. One loader is shared
+ *   with the mod service, so the boot definition and the runtime pipeline agree on the
+ *   enable / load-order state: a package disabled in the state file does not contribute
+ *   at boot, and `GET /mods` can never claim a package is off while the world runs its
+ *   content.
  * @returns {Object.<string, Object>} Content for every registry kind.
  */
-function buildBootRegistries() {
-    const { registries, invalid } = new ModLoader().build();
+function buildBootRegistries(loader = new ModLoader()) {
+    const { registries, invalid } = loader.build();
     for (const entry of invalid) {
         Logger.warn(
             `[WorldComposition] mod "${entry.modId ?? entry.dir}"`
@@ -178,11 +185,18 @@ function buildBootRegistries() {
  * @param {RegistryStore|null} [registryStore] - Pre-built registries (a test, or a
  *   caller that already resolved the world definition). Built from the data seam
  *   when omitted.
- * @returns {{ worldStateController: WorldStateController, subControllers: Object, registryStore: RegistryStore }}
+ * @param {Object} [options]
+ * @param {ModLoader|null} [options.modLoader] - Package reader for the mod service.
+ *   Defaults to a loader over `data/mods/`; a test passes a fixture-backed one.
+ * @param {{ load: Function, save: Function }|null} [options.modStateStore] - Where the
+ *   enable / load-order state lives. Defaults to the data seam; a test injects an
+ *   in-memory pair so it does not write the file the next boot reads.
+ * @returns {{ worldStateController: WorldStateController, subControllers: Object, registryStore: RegistryStore, modService: ModService }}
  *   The assembled facade, a named map of every sub-controller (for
- *   inspection/testing), and the registry store that owns the world definition.
+ *   inspection/testing), the registry store that owns the world definition, and the mod
+ *   service whose apply runs at the round boundary.
  */
-export function buildWorldState(tickSystem = null, registryStore = null) {
+export function buildWorldState(tickSystem = null, registryStore = null, { modLoader = null, modStateStore = null } = {}) {
     // =========================================================================
     // 0. Load Configuration Data (registries)
     //
@@ -191,7 +205,10 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // from the swapped definition: when the mod pipeline replaces content, these very
     // objects change contents (see RegistryStore's identity rule).
     // =========================================================================
-    const store = registryStore ?? new RegistryStore(buildBootRegistries());
+    // One package reader for the whole graph. The state file is read here, at boot, so the
+    // definition this world starts from already honors it.
+    const packageLoader = modLoader ?? new ModLoader({ state: DataLoader.loadModState() });
+    const store = registryStore ?? new RegistryStore(buildBootRegistries(packageLoader));
 
     // Two utility modules cache their registry at module level (they are imported
     // by name, not injected). Handing them the store keeps them on the live
@@ -547,7 +564,26 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     //        can never skip the NPC agents that fire after this hook.
     //   L3 — the turn system's own round-start hook invocation is wrapped in a
     //        try/catch (the hook can never take down the round).
+    // The mod pipeline: what is installed, what applying it would change, and the swap
+    // itself. It lives here rather than in the server entry point because the round
+    // boundary is a wiring fact of this graph, not of HTTP.
+    const modService = new ModService({
+        registryStore: store,
+        loader: packageLoader,
+        stateStore: modStateStore
+    });
+
     turnSystemController.setTurnStartHook((round) => {
+        // FIRST, before any turn step: a queued enable/disable swaps the world definition
+        // here so the round that is opening resolves against the definition it starts
+        // with, never against one that changes underneath it. Guarded like every other
+        // step in this hook (L2) — and specifically so a refused candidate cannot stop
+        // the round: `applyPending` records and reports the failure itself.
+        try {
+            modService.applyPending();
+        } catch (err) {
+            Logger.warn(`[WorldComposition] Round ${round}: mod apply failed: ${err && err.message ? err.message : err}`);
+        }
         try {
             internalComponentController.processTurnEffects(round);
         } catch (err) {
@@ -648,6 +684,9 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
         // The mod pipeline swaps content here; every reader above is already
         // looking at these holders.
         registryStore: store,
+        // The same service the HTTP surface reads: one owner of "what is installed" and
+        // of the queue that the round boundary drains.
+        modService,
         subControllers: {
             statsController,
             traitsController,

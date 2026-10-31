@@ -31,10 +31,20 @@
 import ModLoader from './ModLoader.js';
 import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
+import Logger from '../utils/Logger.js';
+import { GameError } from '../utils/CustomErrors.js';
 import { REGISTRY_KIND_LIST, isRegistryKind } from '../../shared/RegistryKinds.js';
 
 /** How many key names per kind a plan lists before saying `truncated`. */
 export const MAX_KEYS_PER_KIND = 50;
+
+/**
+ * When a queued change takes effect. There is exactly one answer, by owner decision:
+ * a definition swap never happens mid-round, so an enable is confirmed at the next round
+ * boundary and `pending` is the honest answer until then — including on a server whose
+ * turn loop is stopped, where it stays pending until someone starts a round.
+ */
+export const APPLY_AT = 'next round boundary';
 
 /**
  * Structural equality for JSON-shaped values. `JSON.stringify` is not enough: the
@@ -95,28 +105,89 @@ export class ModService {
      *   loader's job.
      * @param {ModLoader} [options.loader] - Package reader. A fresh loader by
      *   default, over the default package directory.
+     * @param {{ load: Function, save: Function }} [options.stateStore] - Where the
+     *   enable / load-order state lives. Defaults to the data seam
+     *   (`DataLoader.loadModState` / `saveModState`, i.e. `data/mods/loadorder.json`);
+     *   a test injects an in-memory pair, because a unit test of "what is enabled" has no
+     *   business writing the file the next boot reads.
      */
-    constructor({ registryStore, loader = new ModLoader() } = {}) {
+    constructor({ registryStore, loader = new ModLoader(), stateStore = null } = {}) {
         if (!registryStore || typeof registryStore.read !== 'function') {
             throw new TypeError('ModService: registryStore is required');
         }
         this.registryStore = registryStore;
         this.loader = loader;
+        this.stateStore = stateStore ?? {
+            load: () => DataLoader.loadModState(),
+            save: (state) => DataLoader.saveModState(state)
+        };
         /** @type {Array<Object>|null} discovery result, null until the first scan */
         this.discovered = null;
         /** @type {Array<Object>} */
         this.invalid = [];
+        /**
+         * State handed in by the caller (a test, or a caller that keeps its own state
+         * object). Kept apart from the on-disk state so the two can be merged without one
+         * silently becoming the other: whatever the caller injected always wins.
+         * @type {Object.<string, Object>}
+         * @private
+         */
+        this.injectedState = loader.state ? { ...loader.state } : {};
+        /** @type {Object.<string, Object>|null} effective per-mod state, null until loaded */
+        this.state = null;
+        /** @type {boolean} a change that has been written but not yet swapped in */
+        this.pending = false;
+        /** @type {Object|null} the report of the last apply this service performed */
+        this.lastApply = null;
     }
 
     /**
-     * Look at the package directory again. Installs nothing, changes nothing.
+     * The effective per-mod state, read from the seam on first use.
+     *
+     * Lazy on purpose: the composition root constructs this service every time it builds a
+     * world, which is in every integration test, and a disk read at construction would be
+     * paid then and explained nowhere.
+     * @returns {Object.<string, {enabled?: boolean, loadOrder?: number}>}
+     */
+    currentState() {
+        if (this.state === null) {
+            this.state = { ...this.stateStore.load(), ...this.injectedState };
+        }
+        return this.state;
+    }
+
+    /**
+     * Discover with the effective state. The loader reads `loader.state`, so this is the
+     * one place that pushes the service's state into it — a second writer would make
+     * "what is enabled" depend on who called last.
+     * @returns {{ discovered: Array<Object>, invalid: Array<Object> }}
+     */
+    discover() {
+        this.loader.state = { ...this.currentState() };
+        return this.loader.discover();
+    }
+
+    /**
+     * Look at the package directory again — including the state file, so an edit to
+     * `data/mods/loadorder.json` without a restart is picked up here. Installs nothing,
+     * changes nothing.
      * @returns {{ scanned: true, mods: Array<Object>, invalid: Array<Object> }}
      */
     rescan() {
-        const result = this.loader.discover();
+        this.state = null;
+        this.remember(this.discover());
+        return { scanned: true, mods: this.view(), invalid: this.invalid };
+    }
+
+    /**
+     * @param {{ discovered: Array<Object>, invalid: Array<Object> }} result
+     * @returns {{ discovered: Array<Object>, invalid: Array<Object> }} the same result
+     * @private
+     */
+    remember(result) {
         this.discovered = result.discovered;
         this.invalid = result.invalid;
-        return { scanned: true, mods: this.view(), invalid: this.invalid };
+        return result;
     }
 
     /**
@@ -128,6 +199,12 @@ export class ModService {
             scanned: this.discovered !== null,
             mods: this.view(),
             invalid: this.invalid,
+            // Whether a written change is still waiting for the boundary, and what the
+            // last swap did. Without `pending` an operator who disabled a mod would see
+            // `enabled: false` and no way to tell whether the world had taken it yet.
+            pending: this.pending,
+            appliesAt: APPLY_AT,
+            lastApply: this.lastApply,
             live: this.liveView()
         };
     }
@@ -148,7 +225,7 @@ export class ModService {
      * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object> }}
      */
     plan() {
-        const { discovered, invalid } = this.loader.discover();
+        const { discovered, invalid } = this.discover();
         const built = this.loader.build(discovered);
         // The diff is computed against the definitions that would SURVIVE composition, not
         // against the raw merge: an apply installs the classified candidate, so a plan
@@ -173,6 +250,117 @@ export class ModService {
     }
 
     // =========================================================================
+    // Enable / disable, and the swap at the round boundary
+    // =========================================================================
+
+    /**
+     * Enable or disable an installed package.
+     *
+     * This writes the wish, not the world: the state file is updated and the change is
+     * queued, and `pending` stays true until a round boundary swaps the definition. That
+     * is the whole point of the boundary (`wiki/decisions/mod-system.md` decision 4) - a
+     * round resolves against one definition, and nothing changes underneath it. A server
+     * whose turn loop is idle leaves the change pending; it is not lost, it is written.
+     *
+     * Idempotent by state (`H-3`): enabling what is already enabled writes the same value
+     * and queues nothing new to apply.
+     * @param {string} id - A package id, as `GET /mods` lists it.
+     * @param {boolean} enabled
+     * @returns {{ id: string, enabled: boolean, pending: boolean, appliesAt: string }}
+     * @throws {GameError} MOD_ID_INVALID - not a non-empty string.
+     * @throws {GameError} MOD_NOT_FOUND - no package with that id is installed. A typo
+     *   must not create a state entry for a mod that does not exist.
+     */
+    setEnabled(id, enabled) {
+        if (typeof id !== 'string' || id.length === 0) {
+            throw new GameError('ModService: mod id must be a non-empty string', 'MOD_ID_INVALID');
+        }
+        // Installed means discovered now, not remembered from an earlier scan: the
+        // directory may have been removed since, and queueing a change for a package that
+        // is gone would be a state entry nothing can ever apply. The result is also
+        // remembered, so `list()` after an action describes the world that action saw
+        // rather than asking the caller to rescan before it can see anything.
+        const { discovered } = this.remember(this.discover());
+        const mod = discovered.find((candidate) => candidate.manifest.id === id);
+        if (!mod) {
+            throw new GameError(`ModService: no mod package named "${id}" is installed`, 'MOD_NOT_FOUND');
+        }
+        const state = this.currentState();
+        const already = mod.enabled === enabled;
+        this.state = { ...state, [id]: { ...(state[id] ?? {}), enabled } };
+        this.stateStore.save(this.state);
+        if (!already) this.pending = true;
+        Logger.info(`[ModService] mod "${id}" ${enabled ? 'enabled' : 'disabled'}${already ? ' (already in that state)' : ''}; applies at the ${APPLY_AT}`);
+        return { id, enabled, pending: this.pending, appliesAt: APPLY_AT };
+    }
+
+    /**
+     * @param {string} id - A package id.
+     * @returns {{ id: string, enabled: boolean, pending: boolean, appliesAt: string }}
+     */
+    enable(id) {
+        return this.setEnabled(id, true);
+    }
+
+    /**
+     * @param {string} id - A package id.
+     * @returns {{ id: string, enabled: boolean, pending: boolean, appliesAt: string }}
+     */
+    disable(id) {
+        return this.setEnabled(id, false);
+    }
+
+    /**
+     * Swap in the queued change if there is one. This is the round-boundary entry point:
+     * the turn system calls it as the first thing it does when a round opens, so the round
+     * resolves against the definition it starts with.
+     *
+     * A failed apply is recorded and reported, not retried every round: a candidate that
+     * the world refuses would otherwise be rebuilt and refused again at every boundary,
+     * and a hot loop of warnings is how a real problem gets tuned out. The state file
+     * still says what was asked, so `plan` keeps showing the mismatch.
+     * @returns {Object|null} the apply report, or null when nothing was queued
+     */
+    applyPending() {
+        if (!this.pending) return null;
+        this.pending = false;
+        try {
+            this.lastApply = this.applyNow();
+            Logger.info(
+                `[ModService] applied at round boundary: version ${this.lastApply.version}, `
+                + `${this.lastApply.swappedKinds.length} kind(s), ${this.lastApply.quarantined.length} definition(s) quarantined`
+            );
+        } catch (error) {
+            this.lastApply = { ok: false, error: error?.message ?? String(error) };
+            Logger.warn(`[ModService] apply at round boundary failed: ${this.lastApply.error}`);
+        }
+        return this.lastApply;
+    }
+
+    /**
+     * Build the candidate from the packages on disk and install it in one swap.
+     *
+     * No diffing, no partial write: `RegistryStore.replace` validates the whole candidate
+     * before touching anything, so a candidate with one unusable kind leaves every registry
+     * as it was. What is installed is the CLASSIFIED candidate - definitions the world's
+     * own composition rules refuse are dropped, and the report names them.
+     * @returns {{ ok: true, version: number, swappedKinds: Array<string>, quarantined: Array<Object>, mods: number }}
+     */
+    applyNow() {
+        const { discovered } = this.remember(this.discover());
+        const built = this.loader.build(discovered);
+        const { valid, quarantined } = classifyComposition(built.registries);
+        const swapped = this.registryStore.replace(valid);
+        return {
+            ok: true,
+            version: swapped.version,
+            swappedKinds: swapped.swappedKinds,
+            quarantined,
+            mods: discovered.filter((mod) => mod.enabled !== false).length
+        };
+    }
+
+    // =========================================================================
     // View helpers
     // =========================================================================
 
@@ -187,7 +375,10 @@ export class ModService {
             version: mod.manifest.version,
             // Derived by the loader from the reserved prefix, never from the manifest.
             official: mod.manifest.official,
-            enabled: mod.enabled,
+            // The wish, resolved from this service's state, falling back to what the loader
+            // derived. Reading state here rather than the scan entry is what lets `list()`
+            // answer correctly right after an enable, without scanning the disk twice.
+            enabled: this.state?.[mod.manifest.id]?.enabled ?? mod.enabled,
             loadOrder: mod.loadOrder,
             content: mod.manifest.content
         }));

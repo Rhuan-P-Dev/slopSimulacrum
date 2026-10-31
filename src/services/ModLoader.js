@@ -17,7 +17,7 @@
  * FAILURES ARE REPORTED, NEVER THROWN AT THE WORLD. A mod whose manifest is
  * broken, or whose content file is not JSON, is REJECTED and named in
  * `invalid[]`; the other mods still load. That is the model decision 6 chose:
- * the world always builds, and `GET /api/mods/:id/report` says what is missing.
+ * the world always builds, and `GET /mods/:id/report` says what is missing.
  * A throw here would mean one bad directory in `data/mods/` can brick a server,
  * which is the failure mode the decision exists to remove.
  *
@@ -254,7 +254,7 @@ export class ModLoader {
      * Returns the mods that loaded (`discovered`), the ones that did not
      * (`invalid`, each with a code and a reason), and nothing else. Applying
      * nothing is deliberate: the caller decides when a candidate becomes the
-     * world (`POST /api/mods/rescan` calls this and changes nothing).
+     * world (`POST /mods/rescan` calls this and changes nothing).
      * @returns {{ discovered: Array<Object>, invalid: Array<{ dir: string, code: string, message: string }> }}
      */
     discover() {

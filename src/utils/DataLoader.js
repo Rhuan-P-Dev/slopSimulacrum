@@ -57,6 +57,13 @@ const REGISTRY_SOURCE_PATHS = Object.freeze({
 });
 
 /**
+ * Where the mod enable / load-order state lives. User-visible and user-editable
+ * (`wiki/decisions/mod-system.md` §7), which is why reading it degrades instead of
+ * throwing and writing it goes through the same atomic path as everything else here.
+ */
+export const MOD_STATE_PATH = 'data/mods/loadorder.json';
+
+/**
  * DataLoader provides a centralized way to load JSON configuration files.
  * This ensures that controllers remain generic interpreters of data
  * and are not tightly coupled to the filesystem.
@@ -158,6 +165,69 @@ class DataLoader {
             }
             return { name, isDirectory };
         });
+    }
+
+    /**
+     * Reads the mod state: which packages are enabled and in what order.
+     *
+     * The file is user-editable tuning data, so it degrades rather than throwing:
+     * absent means "everything enabled at the default order", and an entry whose fields
+     * are the wrong type has that field ignored (with a warn) instead of taking the
+     * server down. What it never does is fail silently — every deviation is logged, and
+     * `POST /mods/rescan` shows the resulting per-package truth (`WR-1` reasoning, and
+     * the opposite of `AP-3`: this is a documented default for a config file, not a
+     * catch-and-`{}` around a computation).
+     * @returns {Object.<string, {enabled?: boolean, loadOrder?: number}>} keyed by mod id
+     */
+    static loadModState() {
+        const raw = this.loadJsonSafe(MOD_STATE_PATH, null);
+        const state = {};
+        if (raw === null || raw === undefined) return state;
+        if (typeof raw !== 'object' || Array.isArray(raw)) {
+            Logger.warn(`[DataLoader] Mod state at ${MOD_STATE_PATH} is not an object; using defaults`);
+            return state;
+        }
+        if (!Array.isArray(raw.mods)) {
+            Logger.warn(`[DataLoader] Mod state at ${MOD_STATE_PATH} has no "mods" array; using defaults`);
+            return state;
+        }
+        for (const entry of raw.mods) {
+            if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || entry.id.length === 0) {
+                Logger.warn(`[DataLoader] Mod state entry without an id in ${MOD_STATE_PATH}; skipped`);
+                continue;
+            }
+            const perMod = {};
+            if (typeof entry.enabled === 'boolean') perMod.enabled = entry.enabled;
+            else if (entry.enabled !== undefined) {
+                Logger.warn(`[DataLoader] Mod "${entry.id}" has a non-boolean "enabled"; ignored`);
+            }
+            if (typeof entry.loadOrder === 'number' && Number.isFinite(entry.loadOrder)) perMod.loadOrder = entry.loadOrder;
+            else if (entry.loadOrder !== undefined) {
+                Logger.warn(`[DataLoader] Mod "${entry.id}" has a non-numeric "loadOrder"; ignored`);
+            }
+            state[entry.id] = perMod;
+        }
+        return state;
+    }
+
+    /**
+     * Writes the mod state (atomic, like every write through the seam).
+     *
+     * Sorted by id so the file has a stable diff: the state is written by the server on
+     * an enable/disable, and a file whose entries shuffle on every write turns a review
+     * into a guess.
+     * @param {Object.<string, {enabled?: boolean, loadOrder?: number}>} state - keyed by mod id
+     * @returns {string} the relative path written
+     */
+    static saveModState(state = {}) {
+        const mods = Object.keys(state).sort().map((id) => {
+            const entry = { id };
+            if (typeof state[id]?.enabled === 'boolean') entry.enabled = state[id].enabled;
+            if (typeof state[id]?.loadOrder === 'number') entry.loadOrder = state[id].loadOrder;
+            return entry;
+        });
+        this.saveJson(MOD_STATE_PATH, { mods });
+        return MOD_STATE_PATH;
     }
 
     /**
