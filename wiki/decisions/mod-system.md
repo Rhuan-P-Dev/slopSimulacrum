@@ -333,16 +333,57 @@ data seam: either new `DataLoader` methods (`listDir`, `readText`), or a seam en
 - **Pulling mods from a URL.** Rejected for now: it is SSRF surface (`SEC-3`) plus a supply
   chain question, and the requirement was runtime add, not distribution.
 
+## Implemented so far
+
+Steps 1 to 3 are in `main`, each landed with `npm run check` green. What they changed,
+and the four points the loader settled that this document had left open:
+
+- **Kind vocabulary and store** (`shared/RegistryKinds.js`, `src/services/RegistryStore.js`).
+  One holder per kind, `read(kind)`, `version()`, `replace(candidate)`. The holder identity
+  never changes; `replace()` writes contents in one step, so a construction-time reader
+  observes a swap without knowing about it.
+- **No path literals left in `src/`.** Readers ask `DataLoader.loadRegistry(kind)`; the one
+  kind-to-file table lives in the seam (`REGISTRY_SOURCE_PATHS`). The composition injects the
+  store's holders, the self-loading stores take the store, `ComponentNaming` and
+  `EntityAttributeData` take it through `setRegistries()`, and the facade gained
+  `getRegistry(kind)` for call-time readers (its pinned public surface grew by one,
+  deliberately). The two derived caches (sensitivity table, recipe names) key on
+  `version()`. A test in `test/unit/RegistryStore.test.js` proves the propagation through the
+  real composition: same holder, swap lands, disabling a kind does not fall back to the file.
+- **`ModLoader`** (`src/services/ModLoader.js`): discovery in `data/mods/`, manifest
+  narrowing, load-order merge, shadowing report. It computes a candidate and touches nothing.
+
+The loader's open points, now decisions:
+
+1. **A manifest's `id` must equal its directory name.** Paths are therefore never built from
+   untrusted content (`SEC-7`), and two packages cannot claim one identity - so there is no
+   duplicate-id guard, because there is nothing for one to catch.
+2. **`content` is a list of registry kinds**, and the content file is `<kind>.json` inside the
+   mod directory. A manifest never names a file, which closes the escape surface entirely
+   rather than validating an untrusted path.
+3. **`official` is never read from a manifest.** It is derived from the reserved `core-`
+   prefix. A third-party package declaring `official: true` is simply not official.
+4. **A broken mod is reported, not thrown.** Malformed manifest, unreadable or non-object
+   content file: that mod contributes nothing and is named in `invalid[]`; the rest still
+   build. This is decision 6 applied at the package level, one step above definition-level
+   quarantine (step 5).
+
+The seam grew by one method (`DataLoader.listDir`) rather than by a new entry in
+`DATA_SEAM_FS_FILES`, so `fs` stays in one file and the lint allowlist is unchanged.
+
 ## Next change (when the owner asks for it)
 
 Ordered so each step leaves `npm run check` green. `CHG-7`: steps 2 and 5 are
 behavior-bearing and get a test pinning the current behavior first.
 
-1. `shared/RegistryKinds.js` + `RegistryStore` with a single in-memory snapshot built by the
-   composition root. No file moves yet; behavior must be bit-identical.
-2. Point the 49 `src/` references (and the tests that name paths) at kind lookups.
-3. `ModLoader` in the data seam: discovery, manifest narrowing, `data/mods/*` gitignore with
-   the `!data/mods/core-*/` negation, `check:lang` still green.
+1. Done. `shared/RegistryKinds.js` + `RegistryStore`, built by the composition root, behavior
+   bit-identical.
+2. Done for `src/` (no path literal left, and readers are on the live definition). The `test/`
+   references that name paths still work because the shipped files have not moved yet; they
+   follow step 4.
+3. Partly done. `ModLoader` ships (discovery, narrowing, merge, shadowing). Still missing from
+   this step: the `data/mods/*` gitignore with the `!data/mods/core-*/` negation - it lands
+   with step 4, since there is nothing in `data/mods/` until the files move.
 4. `git mv` the 21 files, add the 21 manifests, add `data/mods/loadorder.json`. Move the
    `AgentBodyController` write targets and their backups.
 5. `classifyComposition` beside the existing `validateComposition`; composition root and mod
