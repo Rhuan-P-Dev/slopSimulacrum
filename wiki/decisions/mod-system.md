@@ -433,6 +433,101 @@ Still open from step 4: the write path writes the official file only, so an over
 a user package survives a save but is not what a subsequent read of the core file sees -
 which is correct, and is the behavior step 8's plan/quarantine report has to describe.
 
+### Enable, disable, and the round boundary (step 8, landed)
+
+`data/mods/loadorder.json` exists now, because there is finally an action that writes it.
+Shape, as decided above, with the field narrowing done at the seam:
+
+```json
+{ "mods": [ { "id": "core-materials", "enabled": false, "loadOrder": 500 } ] }
+```
+
+- `DataLoader.loadModState()` / `saveModState()` are the only readers/writers, and the read
+  never throws: a hand-edited file yields defaults for the entries whose fields are not of
+  the declared type, and `{}` for the whole file if it is not the documented shape. It is
+  user-editable tuning data, so a typo in it must not keep the server from starting.
+  Writes go through the existing atomic `saveJson` (temp + rename), sorted by id, so the
+  file diffs cleanly.
+- `ModService.enable/disable(id)` writes the wish and queues the change; `applyPending()`
+  drains the queue and is the FIRST step of the composed turn-start hook in
+  `WorldComposition`, before the IC step, the flow step and the energy step. That ordering
+  is the decision, not an optimization: a round resolves against the definition it opened
+  with, so nothing swaps underneath it. A server whose loop is idle leaves the change
+  pending - the file already says what the next boot will do.
+- One `ModLoader` instance is shared by the boot build and the service, so the definition a
+  world starts from and the definition `GET /mods` reports cannot disagree: a package
+  disabled in the state file does not contribute at boot.
+- The state store is injectable (`buildWorldState(tick, store, { modLoader, modStateStore })`).
+  Not for production - for the tests, which must not write the file the next boot reads.
+- Routes: `POST /mods/:id/enable`, `POST /mods/:id/disable`, rate limited (writes, `CR SEC-2`),
+  answering `{ success, id, enabled, pending, appliesAt }`. `pending: true` is the normal
+  success answer. Unknown id is 404 `MOD_NOT_FOUND` - a typo must not create state for a
+  package that does not exist.
+- A failed apply is recorded and NOT retried at every boundary. A candidate the world
+  refuses would otherwise be rebuilt at every round, and a warning every round is how a real
+  problem gets tuned out.
+
+Note on paths: the routers mount at `/` (`app.use('/', authMiddleware, router)`), so the
+routes are `/mods`, `/mods/plan`, not `/api/mods/...`. Earlier text in this document said
+`/api/...`; the code is the correction.
+
+### Packages are not independent: `requires` in the manifest (owner decision)
+
+The step above exposed a hole the store could not see. Disabling `core-materials` produced a
+valid candidate (`materials` is a well-formed empty registry), the store accepted it, and the
+world then died where the reference is resolved: `MaterialController` rejects a damage type
+whose material is gone. At boot that is fatal; at a boundary it would have emptied the
+materials holder that live controllers already reference, in place. `CompositionClassifier`
+cannot catch it - it validates definitions, and this is a reference from one kind into
+another.
+
+**The owner chose: `requires` in `mod.json`** - dependencies declared by the author, disable
+refused while another enabled package needs them. The alternatives and why they lost:
+reference-aware apply (validate the candidate against the world's rules before swapping) is
+the most correct and needs a validator entry point that does not construct the world; a
+plan-time warning tells the operator and still lets them break the world; boot fallback to
+the shipped set keeps the server alive but leaves the boundary unsafe. `requires` was chosen
+as the one that is also a *feature* for user packages, and the residue it leaves is named
+below rather than hidden.
+
+What it means in the code, and the rule for adding an edge:
+
+- `ModLoader.parseManifest` narrows `requires` (array of mod ids, deduplicated, sorted, no
+  self-reference - `MOD_REQUIRES_SELF`).
+- `ModLoader.resolveRequirements` decides who may contribute. A requirement is met when the
+  required package is installed, enabled **and** contributing, so one disabled package
+  cascades. The fixpoint starts satisfied and only removes, which is what makes a mutual
+  requirement - `core-components` and `core-internal-components` reference each other - settle
+  as satisfied instead of being reported as a cycle.
+- `ModService.requirementRefusal` does **not** walk a second graph. It applies the intended
+  change to the discovered set, runs the loader's resolver, and reads the answer: still
+  blocked -> `MOD_REQUIREMENT_UNMET`; some other enabled package became blocked -> 
+  `MOD_REQUIREMENT_HELD`, naming them. One graph, one walker (`CR H-1`).
+- Routes answer `409` for both. The request is well-formed; the install is what objects.
+
+**The declared edges were derived, not written from intuition.** Two probes built the world
+with packages off, one per package and then per combination, and the surviving edges are the
+ones where a validator throws:
+
+| Package | Requires | Evidence |
+| ------- | -------- | -------- |
+| `core-material-damage-types` | `core-materials` | `MaterialController:144`, probe |
+| `core-material-drop-rates` | `core-materials` | `MaterialController:319` |
+| `core-inventory-items` | `core-materials` | `WorldComposition:271` (`validateComposition`) |
+| `core-components` | `core-internal-components`, `core-materials` | probe ("declares unknown organ type"), `WorldComposition:268` |
+| `core-crafting` | `core-inventory-items` | `CraftingController:116`, probe |
+| `core-machines` | `core-blueprints`, `core-crafting`, `core-inventory-items` | `MachineRegistryController:66,69,72`, probe |
+
+Everything else was left undeclared on purpose, including real references nobody validates
+(`internalComponents.hostComponentType`, entity blueprints naming components). Declaring an
+edge the code does not enforce would make `requires` mean two things at once.
+
+Verified over HTTP after the change: `POST /mods/core-materials/disable` -> `409` naming the
+six packages that would stop contributing; unwinding the chain (machines, crafting, items,
+components, damage types, drop rates) makes the disable succeed; and booting with
+`core-materials` disabled in the state file - the exact case that used to be fatal - comes up
+with `materials: 0, components: 0` and six named `blocked` entries.
+
 ## Next change (when the owner asks for it)
 
 Ordered so each step leaves `npm run check` green. `CHG-7`: steps 2 and 5 are
@@ -460,17 +555,45 @@ behavior-bearing and get a test pinning the current behavior first.
    boots" is a plan-time property until step 8, not a boot-time one. `validateComposition`
    keeps its throwing contract and the four pinned assertions in
    `test/unit/MaterialController.test.js` were not touched.
-6. `GET /api/mods` + `POST /api/mods/rescan` (read-only, no apply).
-7. `POST /api/mods/plan` (candidate build, shadowing, quarantine).
-8. Enable / disable, apply at `_roundStart()`, rescan, reassemble, broadcast. Snapshot
-   `mods` section and the mismatch warning.
+6. Done. `GET /mods`, `GET /mods/kinds` and `POST /mods/rescan` (read-only, no apply).
+7. Done. `POST /mods/plan` (candidate build, shadowing, quarantine).
+8. Done: enable / disable, apply at the round boundary (`applyPending` first in the
+   turn-start hook), the state file, the two routes. Still open inside this step: the
+   mismatch warning, the `mods` section in the snapshot and the Socket.IO broadcast. The
+   cross-kind reference question was decided here too - `requires`, above.
 9. A fixture mod (`test/`) proving: add a component plus item plus action at runtime, enable
    it, see the capability appear; disable it, see the quarantine report name the dependents
    and the live instance survive.
 
 Verification for the whole change: `npm run check` (lint + `check:lang` + tests), plus a real
-`POST /api/mods/plan` and `POST /api/mods/:id/enable` against a running server, watched over
+`POST /mods/plan` and `POST /mods/:id/enable` against a running server, watched over
 Socket.IO, per the Definition of done.
+
+## Open questions
+
+Nothing here is decided, and nothing here should be guessed by whoever picks this up.
+
+1. ~~A package that another package's content depends on.~~ **Decided and built:** `requires`
+   in the manifest, see the section above. What it deliberately does not cover is question 2.
+2. **A registry the world cannot do without at all.** `core-holding-cost` validates its own
+   file at boot and refuses to start when it is empty - `"model" must be a non-empty string`.
+   Nothing references it, so no `requires` can protect it: disabling it is allowed and bricks
+   the boot. Options not agreed: a `requiredRegistry: true` word in the manifest (a privilege,
+   like the `core-` prefix, so probably official-only and therefore odd); a self-check that a
+   disabled package is not one the seam knows the world requires (the seam would need to own
+   a rule that belongs to an owner); or accepting it, since it takes a deliberate hand-edit to
+   disable a package nothing requires.
+3. **Undeclared references.** `internalComponents.hostComponentType` names a component type
+   and entity blueprints name components; neither is validated at boot, so neither is declared
+   in `requires`. If those rules ever become enforced, the edges get declared with them - and
+   until then a package set can hold content pointing at definitions that do not exist, with
+   no report to show it.
+4. **Snapshot and broadcast.** Whether the `mods` section belongs in the world snapshot, and
+   what the client should be told when the live definition and the installed set disagree
+   (step 8's remaining half).
+5. **Reassembly of live state.** Entities that carry a component a disable removes: keep the
+   instance and quarantine its definition (the plan in step 9), or drop it. Not implemented,
+   not chosen.
 
 ## Rule touchpoints
 
