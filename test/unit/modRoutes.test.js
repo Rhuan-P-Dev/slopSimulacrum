@@ -269,3 +269,48 @@ describe('POST /mods/apply and GET /mods/:id/files', () => {
         close();
     });
 });
+
+describe('POST /mods/plan', () => {
+    /** A service stub whose plan reports a refused package. */
+    function makePlanStub(unsafeKeys) {
+        const calls = [];
+        const service = {
+            plan: () => {
+                calls.push(['plan']);
+                return {
+                    applied: false,
+                    fromVersion: 7,
+                    kinds: [],
+                    quarantine: [],
+                    shadowed: [],
+                    invalid: [],
+                    blocked: [],
+                    unsafeKeys
+                };
+            }
+        };
+        return { service, calls };
+    }
+
+    it('carries the unsafe-key findings through the JSON envelope', async () => {
+        const findings = [{
+            modId: 'poison-parts',
+            dir: 'poison-parts',
+            kind: 'components',
+            key: '__proto__',
+            at: '$.evil.detail.__proto__'
+        }];
+        const { service, calls } = makePlanStub(findings);
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/plan');
+
+        expect(status).toBe(200);
+        expect(calls).toEqual([['plan']]);
+        // Worth pinning at the route: a non-serialisable value in this field (a Set, a
+        // function) would disappear on the way out without failing anything server-side, and
+        // the operator would read a clean plan.
+        expect(body.plan.unsafeKeys).toEqual(findings);
+        expect(body.plan.applied).toBe(false);
+        close();
+    });
+});

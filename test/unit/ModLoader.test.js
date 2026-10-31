@@ -12,7 +12,10 @@
  *   - official-ness comes from the reserved id prefix, never from the manifest;
  *   - order is total (loadOrder, then id), so the merge never depends on readdir;
  *   - merge is field-level, last writer wins per top-level key, and every
- *     overwrite is reported with both owners.
+ *     overwrite is reported with both owners;
+ *   - a key that is never data (`__proto__` and friends) refuses its whole package, is
+ *     reported with its location (including inside a list), and never reaches
+ *     `Object.prototype` - nor becomes a definition named `constructor`.
  *
  * @module test/unit/ModLoader
  */
@@ -265,6 +268,263 @@ describe('mergeRegistryPatch', () => {
     it('returns the top-level keys it touched', () => {
         const touched = mergeRegistryPatch({}, { a: 1, _comment: 'skipped', b: 2 });
         expect(touched).toEqual(['a', 'b']);
+    });
+});
+
+// The exploit this pins: `JSON.parse` keeps `"__proto__"` as an OWN enumerable key, and the
+// nested merge asked `target["__proto__"]` — which answers `Object.prototype`, not
+// `undefined` — decided "this already exists as an object", and merged into the ancestor of
+// every object in the process. A mod of pure data changed program-wide semantics without any
+// code involved, which is exactly what `wiki/decisions/mod-system.md` decision 1 promises is
+// impossible.
+describe('unsafe keys in a merge', () => {
+    it('refuses a nested "__proto__" instead of writing into Object.prototype', () => {
+        const target = { knife: { name: 'Knife', form: { volume: 2 } } };
+        const patch = JSON.parse('{"knife":{"name":"Mod Knife","__proto__":{"pollutedByMod":true}}}');
+
+        mergeRegistryPatch(target, patch);
+
+        expect({}.pollutedByMod).toBeUndefined();
+        expect(target.knife.name).toBe('Mod Knife');
+    });
+
+    it('keeps every other field of a definition that also carries an unsafe key', () => {
+        const target = { knife: { name: 'Knife', form: { volume: 2 } } };
+        const patch = JSON.parse(
+            '{"knife":{"name":"Mod Knife","__proto__":{"x":1},"form":{"volume":5}}}'
+        );
+
+        mergeRegistryPatch(target, patch);
+
+        expect(target.knife).toEqual({ name: 'Mod Knife', form: { volume: 5 } });
+        expect({}.x).toBeUndefined();
+    });
+
+    it('refuses constructor and prototype on a first contribution, not only on an override', () => {
+        const target = {};
+        const patch = JSON.parse(
+            '{"torch":{"constructor":{"pollutedByMod":true},"prototype":{"alsoBad":true},"name":"Torch"}}'
+        );
+
+        mergeRegistryPatch(target, patch);
+
+        expect(target.torch).toEqual({ name: 'Torch' });
+        expect({}.pollutedByMod).toBeUndefined();
+        expect({}.alsoBad).toBeUndefined();
+    });
+
+    it('refuses an unsafe key nested below the second level', () => {
+        const target = { knife: { name: 'Knife', form: { volume: 2 } } };
+        const patch = JSON.parse(
+            '{"knife":{"form":{"volume":2,"detail":{"__proto__":{"deepBad":true}}}}}'
+        );
+
+        mergeRegistryPatch(target, patch);
+
+        expect({}.deepBad).toBeUndefined();
+        expect(target.knife.form.volume).toBe(2);
+    });
+
+    it('still treats a leading-underscore key as data below the top level', () => {
+        // The metadata skip is a top-level rule only; `_shelf` inside a definition is data,
+        // and the unsafe-key rule must not quietly narrow it to `_`-prefixed keys.
+        const target = { knife: { name: 'Knife' } };
+        mergeRegistryPatch(target, { knife: { _shelf: 'carved', _proto_hint: 'not a real proto' } });
+        expect(target.knife).toEqual({ name: 'Knife', _shelf: 'carved', _proto_hint: 'not a real proto' });
+    });
+
+    it('refuses a top-level constructor or prototype as a definition name, not only as a polluted prototype', () => {
+        // A distinct failure mode, invisible to every prototype-clean assertion above.
+        // `target.constructor` is a function, so the merge's "already an object?" test says
+        // NO and the value is ASSIGNED: the registry holder gains an own key named
+        // `constructor`, which the store then holds as a definition - while Object.prototype
+        // stays untouched. The top-level `_` metadata skip does not cover it either, since
+        // neither name begins with an underscore.
+        const target = { knife: { name: 'Knife' } };
+        const patch = JSON.parse(
+            '{"constructor":{"name":"Sneaky"},"prototype":{"name":"Also"},"legit":{"name":"Ok"}}'
+        );
+
+        const touched = mergeRegistryPatch(target, patch);
+
+        expect(touched).toEqual(['legit']);
+        expect(Object.keys(target)).toEqual(['knife', 'legit']);
+    });
+});
+
+// A payload can hide inside a list. The merge REPLACES an array rather than merging into it,
+// so the value is carried by `deepClone` and not by the nested merge - which means the scan
+// is the only thing that would refuse the package. An array-blind scan installs it unreported.
+describe('unsafe keys hidden inside an array', () => {
+    const ARRAY_ROOT = path.resolve('data', `.mod-unsafe-array-${process.pid}`);
+
+    beforeAll(() => {
+        fs.rmSync(ARRAY_ROOT, { recursive: true, force: true });
+        const dir = path.join(ARRAY_ROOT, 'array-pack');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'mod.json'),
+            JSON.stringify(MANIFEST('array-pack', '1.0.0', [REGISTRY_KINDS.COMPONENTS])),
+            'utf8'
+        );
+        fs.writeFileSync(
+            path.join(dir, `${REGISTRY_KINDS.COMPONENTS}.json`),
+            '{\n  "knife": {\n    "name": "Knife",\n    "slots": [ { "ok": 1 }, { "__proto__": { "pollutedByMod": true } } ]\n  }\n}\n',
+            'utf8'
+        );
+    });
+
+    afterAll(() => fs.rmSync(ARRAY_ROOT, { recursive: true, force: true }));
+
+    it('names a key hidden in a list element, located by its index', () => {
+        const built = new ModLoader({ baseDir: path.relative(process.cwd(), ARRAY_ROOT), state: {} }).build();
+
+        expect(built.unsafeKeys).toHaveLength(1);
+        expect(built.unsafeKeys[0].at).toBe('$.knife.slots.1.__proto__');
+        expect(built.invalid.some((e) => e.code === MOD_ERROR_CODES.UNSAFE_KEY)).toBe(true);
+        expect(built.registries[REGISTRY_KINDS.COMPONENTS]).toEqual({});
+        expect({}.pollutedByMod).toBeUndefined();
+    });
+});
+
+// Package-level rejection has a fixture root of its own: the shared one is asserted
+// package-by-package elsewhere, and a rejected package would move those counts.
+describe('unsafe keys reject a whole package', () => {
+    const UNSAFE_ROOT = path.resolve('data', `.mod-unsafe-${process.pid}`);
+    const relRoot = () => path.relative(process.cwd(), UNSAFE_ROOT);
+
+    function writeAt(name, manifest, contents = {}) {
+        const dir = path.join(UNSAFE_ROOT, name);
+        fs.mkdirSync(dir, { recursive: true });
+        if (manifest !== null) {
+            fs.writeFileSync(path.join(dir, 'mod.json'), JSON.stringify(manifest), 'utf8');
+        }
+        for (const [kind, value] of Object.entries(contents)) {
+            const text = typeof value === 'string' ? value : JSON.stringify(value);
+            fs.writeFileSync(path.join(dir, `${kind}.json`), text, 'utf8');
+        }
+    }
+
+    beforeAll(() => {
+        fs.rmSync(UNSAFE_ROOT, { recursive: true, force: true });
+        fs.mkdirSync(UNSAFE_ROOT, { recursive: true });
+
+        writeAt('safe-pack', MANIFEST('safe-pack', '1.0.0', [REGISTRY_KINDS.COMPONENTS]), {
+            [REGISTRY_KINDS.COMPONENTS]: { good: { name: 'Good' } }
+        });
+        // Carries one poisoned key deep inside a definition. Its other files are clean, and
+        // it still contributes nothing: a hostile key is a property of the package, so the
+        // package is refused whole rather than half-installed.
+        // The poisoned file is written as raw text on purpose: in a JS object literal
+        // `__proto__:` SETS the prototype instead of creating an own key, so `JSON.stringify`
+        // would drop it and the fixture would carry no payload at all - the test would pass
+        // for no reason. `JSON.parse` of this text is what creates the own `__proto__` key.
+        const POISONED_COMPONENTS = [
+            '{',
+            '  "good": { "name": "Hijacked" },',
+            '  "evil": {',
+            '    "name": "Evil",',
+            '    "form": { "volume": 1 },',
+            '    "detail": { "__proto__": { "pollutedByMod": true } }',
+            '  }',
+            '}'
+        ].join('\n');
+
+        writeAt(
+            'poisoned-pack',
+            MANIFEST('poisoned-pack', '1.0.0', [REGISTRY_KINDS.COMPONENTS, REGISTRY_KINDS.MATERIALS]),
+            {
+                [REGISTRY_KINDS.COMPONENTS]: POISONED_COMPONENTS,
+                [REGISTRY_KINDS.MATERIALS]: {
+                    unobtainium: { name: 'Unobtainium', density: 1, properties: {} }
+                }
+            }
+        );
+    });
+
+    afterAll(() => fs.rmSync(UNSAFE_ROOT, { recursive: true, force: true }));
+
+    it('refuses the package and names the offending content file, without aborting the build', () => {
+        const built = new ModLoader({ baseDir: relRoot(), state: {} }).build();
+
+        const rejected = built.invalid.filter((e) => e.code === MOD_ERROR_CODES.UNSAFE_KEY);
+        expect([...new Set(rejected.map((e) => e.modId))]).toEqual(['poisoned-pack']);
+        expect(rejected.every((e) => /skipped entirely/.test(e.message))).toBe(true);
+        // The clean kind of the same package is refused too - the package, not the file.
+        expect(rejected.map((e) => e.kind).sort()).toEqual(
+            [REGISTRY_KINDS.COMPONENTS, REGISTRY_KINDS.MATERIALS].sort()
+        );
+    });
+
+    it('installs no definition of the refused package, including no override', () => {
+        const built = new ModLoader({ baseDir: relRoot(), state: {} }).build();
+
+        expect(built.registries[REGISTRY_KINDS.COMPONENTS]).toEqual({ good: { name: 'Good' } });
+        expect(built.registries[REGISTRY_KINDS.MATERIALS]).toEqual({});
+        expect(built.providers[REGISTRY_KINDS.COMPONENTS]).toEqual(['safe-pack']);
+    });
+
+    it('reports each unsafe key with the location it was found at', () => {
+        const built = new ModLoader({ baseDir: relRoot(), state: {} }).build();
+
+        expect(built.unsafeKeys).toHaveLength(1);
+        expect(built.unsafeKeys[0]).toMatchObject({
+            modId: 'poisoned-pack',
+            kind: REGISTRY_KINDS.COMPONENTS,
+            key: '__proto__',
+            at: '$.evil.detail.__proto__'
+        });
+    });
+
+    it('leaves no polluted key behind in the process', () => {
+        new ModLoader({ baseDir: relRoot(), state: {} }).build();
+        expect({}.pollutedByMod).toBeUndefined();
+    });
+});
+
+// A cap that is not asserted is a cap that silently drops findings, so the bounded report is
+// pinned here (`A-7`): the count, the disclosure that it was truncated, and WHICH findings
+// survive the cut.
+describe('the unsafe-key report is bounded', () => {
+    const CAP_ROOT = path.resolve('data', `.mod-unsafe-cap-${process.pid}`);
+
+    beforeAll(() => {
+        fs.rmSync(CAP_ROOT, { recursive: true, force: true });
+        const dir = path.join(CAP_ROOT, 'many-keys');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'mod.json'),
+            JSON.stringify(MANIFEST('many-keys', '1.0.0', [REGISTRY_KINDS.COMPONENTS])),
+            'utf8'
+        );
+        const deep = Array.from({ length: 12 }, (_, i) => `  "d${i}": { "x": { "__proto__": { "pollutedByMod": true } } }`);
+        // One shallow finding, written last in the file, to pin which findings survive.
+        fs.writeFileSync(
+            path.join(dir, `${REGISTRY_KINDS.COMPONENTS}.json`),
+            `{
+${deep.join(',\n')},
+  "__proto__": { "pollutedByMod": true }
+}
+`,
+            'utf8'
+        );
+    });
+
+    afterAll(() => fs.rmSync(CAP_ROOT, { recursive: true, force: true }));
+
+    it('names ten findings and says the rest were dropped', () => {
+        const built = new ModLoader({ baseDir: path.relative(process.cwd(), CAP_ROOT), state: {} }).build();
+
+        expect(built.unsafeKeys).toHaveLength(10);
+        const entry = built.invalid.find((e) => e.code === MOD_ERROR_CODES.UNSAFE_KEY);
+        expect(entry.message).toMatch(/further occurrences not listed/);
+        expect({}.pollutedByMod).toBeUndefined();
+    });
+
+    it('reports the shallowest finding first, not whichever the walk reached first', () => {
+        const built = new ModLoader({ baseDir: path.relative(process.cwd(), CAP_ROOT), state: {} }).build();
+
+        expect(built.unsafeKeys[0].at).toBe('$.__proto__');
     });
 });
 

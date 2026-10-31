@@ -98,6 +98,88 @@ describe('list and rescan', () => {
     });
 });
 
+// Its own fixture root: the shared one is asserted package-by-package above, and a refused
+// package would move those counts.
+describe('a package carrying an unsafe key', () => {
+    const ROOT = path.resolve('data', `.mod-service-unsafe-${process.pid}`);
+    const REL = () => path.relative(process.cwd(), ROOT);
+
+    function writeAt(name, content, files) {
+        const dir = path.join(ROOT, name);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'mod.json'), JSON.stringify({ id: name, version: '1.0.0', content }), 'utf8');
+        for (const [kind, value] of Object.entries(files)) {
+            const text = typeof value === 'string' ? value : JSON.stringify(value);
+            fs.writeFileSync(path.join(dir, `${kind}.json`), text, 'utf8');
+        }
+    }
+
+    // Raw text because `JSON.stringify` of a literal cannot carry an own `__proto__` key.
+    const POISONED = [
+        '{',
+        '  "good": { "name": "Hijacked" },',
+        '  "evil": { "name": "Evil", "detail": { "__proto__": { "pollutedByMod": true } } }',
+        '}'
+    ].join('\n');
+
+    let store;
+
+    beforeAll(() => {
+        fs.rmSync(ROOT, { recursive: true, force: true });
+        fs.mkdirSync(ROOT, { recursive: true });
+        writeAt('good-parts', [REGISTRY_KINDS.COMPONENTS], {
+            [REGISTRY_KINDS.COMPONENTS]: { good: { name: 'Good' } }
+        });
+        writeAt(
+            'poison-parts',
+            [REGISTRY_KINDS.COMPONENTS, REGISTRY_KINDS.MATERIALS],
+            {
+                [REGISTRY_KINDS.COMPONENTS]: POISONED,
+                [REGISTRY_KINDS.MATERIALS]: { bedrock: { name: 'Bedrock', density: 5, properties: {} } }
+            }
+        );
+        // The world runs the good package only.
+        store = new RegistryStore({ [REGISTRY_KINDS.COMPONENTS]: { good: { name: 'Good' } } });
+    });
+
+    afterAll(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+
+    const serviceFor = () => new ModService({ registryStore: store, loader: new ModLoader({ baseDir: REL() }) });
+
+    it('is named by plan, and contributes nothing to the kinds an apply would install', () => {
+        const plan = serviceFor().plan();
+
+        expect(plan.unsafeKeys).toHaveLength(1);
+        expect(plan.unsafeKeys[0]).toMatchObject({
+            modId: 'poison-parts',
+            kind: REGISTRY_KINDS.COMPONENTS,
+            key: '__proto__',
+            at: '$.evil.detail.__proto__'
+        });
+        // Nothing of the refused package in the diff, and no override of the good definition.
+        expect(plan.kinds).toEqual([]);
+    });
+
+    it('leaves the store untouched when planning', () => {
+        const before = store.version();
+        serviceFor().plan();
+        expect(store.version()).toBe(before);
+        expect(store.read(REGISTRY_KINDS.MATERIALS)).toEqual({});
+    });
+
+    it('applies the world without it, and says so in the report', () => {
+        const report = serviceFor().applyNow();
+
+        expect(report.ok).toBe(true);
+        expect(report.unsafeKeys).toHaveLength(1);
+        expect(report.unsafeKeys[0].modId).toBe('poison-parts');
+        // The clean file of the refused package is gone with the package.
+        expect(store.read(REGISTRY_KINDS.MATERIALS)).toEqual({});
+        expect(store.read(REGISTRY_KINDS.COMPONENTS).good).toEqual({ name: 'Good' });
+        expect({}.pollutedByMod).toBeUndefined();
+    });
+});
+
 describe('plan', () => {
     it('is empty against a world built from the same packages', () => {
         const s = new ModService({ registryStore: storeFrom(), loader: loader({}) });

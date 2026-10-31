@@ -21,6 +21,12 @@
  * A throw here would mean one bad directory in `data/mods/` can brick a server,
  * which is the failure mode the decision exists to remove.
  *
+ * AN UNSAFE KEY REFUSES THE WHOLE PACKAGE. `__proto__`, `constructor` and `prototype` are
+ * not data and never become definitions (`UNSAFE_KEYS` below). A content file that carries
+ * one is a defect of the package, not of that one file, so the package contributes nothing
+ * and every one of its kinds is named in `invalid` — half-installing a package somebody
+ * poisoned would ship the half that was not refused.
+ *
  * DETERMINISM. Directory listing is sorted, kinds are iterated in
  * `REGISTRY_KIND_LIST` order (never in manifest order), and mods are ordered by
  * ascending `loadOrder` with ties broken by id. Two runs over the same
@@ -58,6 +64,30 @@ export const OFFICIAL_ID_PREFIX = 'core-';
 /** Load order applied to a mod the state file says nothing about. */
 export const DEFAULT_LOAD_ORDER = 1000;
 
+/**
+ * Keys that are never a definition, and never data.
+ *
+ * WHY THESE THREE. `JSON.parse` creates an OWN enumerable `__proto__` key, so a mod file can
+ * carry one, and `target["__proto__"]` then answers `Object.prototype` instead of
+ * `undefined`. A recursive merge that asks "does this key already exist, and is it an
+ * object?" therefore gets "yes" — and merges into the ancestor of every object in the
+ * process. A package of pure data would change program-wide semantics without executing a
+ * line of code, which is exactly what `wiki/decisions/mod-system.md` decision 1 promises is
+ * impossible. `constructor` and `prototype` are refused with it because they reach the same
+ * objects by other routes.
+ *
+ * THE CHECK IS ON THE KEY, NOT ON THE VALUE. Hardening `isPlainObject` instead does not
+ * work: `Object.getPrototypeOf(Object.prototype)` is `null`, so the intuitive "a plain
+ * object is one whose prototype is `Object.prototype` or `null`" test still accepts
+ * `Object.prototype`, and the recursion walks straight into it.
+ *
+ * This is not a generalisation of the metadata skip. `mergeRegistryPatch` drops top-level
+ * `_`-prefixed keys for `_comment`-style headers, which happened to reject a top-level
+ * `__proto__` by coincidence; `mergeNested` drops that rule on purpose, because a `_`-prefixed
+ * key inside a definition is data. This guard is the rule; the metadata skip is not one.
+ */
+const UNSAFE_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 /** Stable machine-readable codes for everything this module can reject. */
 export const MOD_ERROR_CODES = Object.freeze({
     MANIFEST_INVALID: 'MOD_MANIFEST_INVALID',
@@ -76,8 +106,18 @@ export const MOD_ERROR_CODES = Object.freeze({
     REQUIREMENT_UNMET: 'MOD_REQUIREMENT_UNMET',
     REQUIREMENT_MISSING: 'MOD_REQUIREMENT_MISSING',
     REQUIREMENT_DISABLED: 'MOD_REQUIREMENT_DISABLED',
-    REQUIREMENT_BLOCKED: 'MOD_REQUIREMENT_BLOCKED'
+    REQUIREMENT_BLOCKED: 'MOD_REQUIREMENT_BLOCKED',
+    // A content file carrying a key that is never data (`UNSAFE_KEYS`). Not a parse failure:
+    // the file is readable and is valid JSON, which is what makes it worth naming.
+    UNSAFE_KEY: 'MOD_UNSAFE_KEY'
 });
+
+/**
+ * How many unsafe-key findings one build reports. A poisoned file can carry thousands, and a
+ * report that grows with the payload is not a report (`A-7`); when the cap is hit the
+ * message says so instead of going quiet.
+ */
+const MAX_UNSAFE_KEY_REPORTS = 10;
 
 /**
  * The reserved prefix is a privilege, so a manifest may not lie about it. What
@@ -297,6 +337,53 @@ export function sortModsForLoad(mods) {
 }
 
 /**
+ * Is this key one that must never be written, read as an existing object, or cloned?
+ * @param {unknown} key
+ * @returns {boolean}
+ */
+function isUnsafeKey(key) {
+    return typeof key === 'string' && UNSAFE_KEYS.includes(key);
+}
+
+/**
+ * Walk one parsed content file and name every unsafe key it carries, before any of it is
+ * merged. This is the edge (`SEC-2`): the file is user content, and the merge below is the
+ * mechanism an unsafe key would exploit.
+ *
+ * Iterative rather than recursive — this walks a file nobody has validated, and a recursive
+ * descent here would add a stack-overflow surface of its own — and breadth-first, so when the
+ * cap is reached it drops the deepest findings and the operator is shown the shallowest, most
+ * likely deliberate ones first. A finding is the key plus its location, with `$` as the file
+ * root, so `$.knife.detail.__proto__` names the definition that hid it. Findings are capped at
+ * `MAX_UNSAFE_KEY_REPORTS` and `truncated` says so.
+ *
+ * @param {unknown} value - Parsed `<kind>.json`.
+ * @returns {{ found: Array<{ key: string, at: string }>, truncated: boolean }}
+ */
+function findUnsafeKeys(value) {
+    const found = [];
+    const queue = [{ node: value, at: '$' }];
+    while (queue.length > 0) {
+        const { node, at } = queue.shift();
+        if (node === null || typeof node !== 'object') continue;
+        for (const key of Object.keys(node)) {
+            // Never read `node[key]` for these: reading `__proto__` is how a merge gets
+            // `Object.prototype` in the first place.
+            if (isUnsafeKey(key)) {
+                if (found.length >= MAX_UNSAFE_KEY_REPORTS) return { found, truncated: true };
+                found.push({ key, at: `${at}.${key}` });
+                continue;
+            }
+            const child = node[key];
+            if (child !== null && typeof child === 'object') {
+                queue.push({ node: child, at: `${at}.${key}` });
+            }
+        }
+    }
+    return { found, truncated: false };
+}
+
+/**
  * Field-level deep merge of one mod's patch onto an accumulated registry.
  *
  * Plain objects merge recursively; anything else (array, scalar, null) REPLACES.
@@ -313,6 +400,7 @@ export function mergeRegistryPatch(target, patch) {
     const touched = [];
     for (const [key, value] of Object.entries(patch)) {
         if (key.startsWith('_')) continue; // `_comment`-style metadata, as in the shipped files
+        if (isUnsafeKey(key)) continue;    // never a definition: see UNSAFE_KEYS
         touched.push(key);
         const existing = target[key];
         if (isPlainObject(existing) && isPlainObject(value)) {
@@ -346,6 +434,7 @@ function isPlainObject(value) {
  */
 function mergeNested(target, patch) {
     for (const [key, value] of Object.entries(patch)) {
+        if (isUnsafeKey(key)) continue; // `target[key]` answers a prototype, not `undefined`
         const existing = target[key];
         if (isPlainObject(existing) && isPlainObject(value)) {
             mergeNested(existing, value);
@@ -353,6 +442,26 @@ function mergeNested(target, patch) {
             target[key] = deepClone(value);
         }
     }
+}
+
+/**
+ * Why a package was refused for an unsafe key, in one line.
+ *
+ * The kind that carries the key names where it is; a clean kind of the same package names
+ * the file that did it, so no kind of a refused package reads as silently accepted.
+ * @param {string} modId
+ * @param {Object} entry - The kind being reported (`{ kind, scan? }`).
+ * @param {Array<Object>} poisoned - The kinds of that package which carried a key.
+ * @returns {string}
+ */
+function unsafePackageMessage(modId, entry, poisoned) {
+    const located = (item) => `${item.kind}.json: ${item.scan.found.map((hit) => hit.at).join(', ')}`;
+    if (entry.scan) {
+        const more = entry.scan.truncated ? ' (further occurrences not listed)' : '';
+        return `unsafe key at ${entry.scan.found.map((hit) => hit.at).join(', ')}${more}; `
+            + `package "${modId}" is skipped entirely`;
+    }
+    return `package "${modId}" is skipped entirely: ${poisoned.map(located).join('; ')}`;
 }
 
 /**
@@ -365,7 +474,10 @@ function deepClone(value) {
     if (value === null || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map(deepClone);
     const out = {};
-    for (const [key, item] of Object.entries(value)) out[key] = deepClone(item);
+    for (const [key, item] of Object.entries(value)) {
+        if (isUnsafeKey(key)) continue; // assigning it would SET the clone's prototype
+        out[key] = deepClone(item);
+    }
     return out;
 }
 
@@ -444,6 +556,49 @@ export class ModLoader {
     }
 
     /**
+     * Read and classify one package's content files WITHOUT merging any of them.
+     *
+     * Reading is separated from merging because a refusal decided after the merge cannot be
+     * undone: `mergeRegistryPatch` mutates the accumulated candidate in place. So every file
+     * of the package is read first, and only a package with nothing refused is merged.
+     *
+     * Each entry is one kind, in manifest (vocabulary) order: `{ kind, patch }` when usable,
+     * `{ kind, defect }` when it cannot be read or is not a JSON object, and
+     * `{ kind, patch, scan }` when it carries an unsafe key.
+     * @param {Object} mod - A discovered package.
+     * @returns {Array<Object>} one entry per content kind.
+     */
+    _readPackage(mod) {
+        const entries = [];
+        for (const kind of mod.manifest.content) {
+            const contentPath = `${this.baseDir}/${mod.dir}/${kind}.json`;
+            let patch;
+            try {
+                patch = DataLoader.loadJson(contentPath);
+            } catch (error) {
+                entries.push({
+                    kind,
+                    defect: { code: MOD_ERROR_CODES.CONTENT_UNREADABLE, message: error.message }
+                });
+                continue;
+            }
+            if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+                entries.push({
+                    kind,
+                    defect: {
+                        code: MOD_ERROR_CODES.CONTENT_UNREADABLE,
+                        message: `${contentPath} is not a JSON object`
+                    }
+                });
+                continue;
+            }
+            const scan = findUnsafeKeys(patch);
+            entries.push(scan.found.length > 0 ? { kind, patch, scan } : { kind, patch });
+        }
+        return entries;
+    }
+
+    /**
      * Build the candidate world definition from a discovered mod list.
      *
      * Only ENABLED mods contribute. For each kind, mods apply in load order and
@@ -459,8 +614,13 @@ export class ModLoader {
      * `blocked` with the requirement that broke: shipping half a package set is how a world
      * gets content that references definitions nobody provides.
      *
+     * A content file carrying an unsafe key (`UNSAFE_KEYS`) refuses its whole package: the
+     * key is a property of the package, not of the one file, and shipping the other half is
+     * shipping what the poisoned half was meant to drag in. Every kind of that package is
+     * named in `invalid`, and each finding is listed in `unsafeKeys` with its location.
+     *
      * @param {Array<Object>} [mods] - Result of `discover()` when omitted.
-     * @returns {{ registries: Object.<string, Object>, providers: Object.<string, Array<string>>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object> }}
+     * @returns {{ registries: Object.<string, Object>, providers: Object.<string, Array<string>>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object>, unsafeKeys: Array<Object> }}
      */
     build(mods) {
         const modList = mods ?? this.discover().discovered;
@@ -468,6 +628,8 @@ export class ModLoader {
         const providers = {};
         const shadowed = [];
         const invalid = [];
+        // Every unsafe key found, one entry per finding, in mod order then kind order.
+        const unsafeKeys = [];
         // Requirement-blocked only. A package the operator switched off is not blocked and
         // does not belong in a report named after a failure - `enabled: false` is the record
         // of that decision.
@@ -488,32 +650,55 @@ export class ModLoader {
             // `enabled === false` is the operator's decision; `blocked` is the consequence of
             // a `requires` this install cannot satisfy. Either one keeps the content out.
             if (mod.enabled === false || mod.blocked) continue;
-            for (const kind of mod.manifest.content) {
-                const contentPath = `${this.baseDir}/${mod.dir}/${kind}.json`;
-                let patch;
-                try {
-                    patch = DataLoader.loadJson(contentPath);
-                } catch (error) {
-                    invalid.push({
-                        dir: mod.dir,
-                        modId: mod.manifest.id,
-                        kind,
-                        code: MOD_ERROR_CODES.CONTENT_UNREADABLE,
-                        message: error.message
-                    });
-                    continue;
-                }
-                if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
-                    invalid.push({
-                        dir: mod.dir,
-                        modId: mod.manifest.id,
-                        kind,
-                        code: MOD_ERROR_CODES.CONTENT_UNREADABLE,
-                        message: `${contentPath} is not a JSON object`
-                    });
-                    continue;
-                }
 
+            const entries = this._readPackage(mod);
+            const poisoned = entries.filter((entry) => entry.scan);
+            if (poisoned.length > 0) {
+                for (const entry of poisoned) {
+                    for (const hit of entry.scan.found) {
+                        unsafeKeys.push({
+                            modId: mod.manifest.id,
+                            dir: mod.dir,
+                            kind: entry.kind,
+                            key: hit.key,
+                            at: hit.at
+                        });
+                    }
+                }
+                // One entry per kind of the refused package. A kind of it that is perfectly
+                // fine contributed nothing either, and a silence here would read as an install.
+                for (const entry of entries) {
+                    if (entry.defect) {
+                        invalid.push({
+                            dir: mod.dir,
+                            modId: mod.manifest.id,
+                            kind: entry.kind,
+                            ...entry.defect
+                        });
+                        continue;
+                    }
+                    invalid.push({
+                        dir: mod.dir,
+                        modId: mod.manifest.id,
+                        kind: entry.kind,
+                        code: MOD_ERROR_CODES.UNSAFE_KEY,
+                        message: unsafePackageMessage(mod.manifest.id, entry, poisoned)
+                    });
+                }
+                continue;
+            }
+
+            for (const entry of entries) {
+                if (entry.defect) {
+                    invalid.push({
+                        dir: mod.dir,
+                        modId: mod.manifest.id,
+                        kind: entry.kind,
+                        ...entry.defect
+                    });
+                    continue;
+                }
+                const { kind, patch } = entry;
                 const target = registries[kind];
                 const previousOwners = {};
                 for (const key of Object.keys(patch)) {
@@ -539,7 +724,13 @@ export class ModLoader {
         for (const entry of blocked) {
             Logger.warn(`[ModLoader] mod "${entry.modId}" contributes nothing: ${entry.message}`);
         }
-        return { registries, providers, shadowed, invalid, blocked };
+        for (const entry of unsafeKeys) {
+            Logger.warn(
+                `[ModLoader] mod "${entry.modId}" refused: unsafe key "${entry.key}" at ${entry.at} ` +
+                `(${entry.kind}) - a key of this name is never world data`
+            );
+        }
+        return { registries, providers, shadowed, invalid, blocked, unsafeKeys };
     }
 }
 

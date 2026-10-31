@@ -235,7 +235,11 @@ export class ModService {
      * NOT in the `kinds` diff, because an apply installs the classified candidate. A plan
      * can therefore answer the two different questions an operator has — what lands, and
      * what was dropped for cause.
-     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object> }}
+     *
+     * `unsafeKeys` lists every `__proto__`-class key found in a package, with its location.
+     * Such a package is refused whole, so it appears nowhere in `kinds`: the plan would
+     * otherwise promise an install that the loader already said no to.
+     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object>, unsafeKeys: Array<Object> }}
      */
     plan() {
         const { discovered, invalid } = this.discover();
@@ -262,7 +266,10 @@ export class ModService {
             // Packages that are installed and enabled but contribute nothing, because a
             // `requires` of theirs cannot be met in this install. Without this line an
             // operator reads "enabled" and waits for content that will never arrive.
-            blocked: built.blocked
+            blocked: built.blocked,
+            // Refused outright, not composed: a package carrying a key that is never data
+            // (`ModLoader` `UNSAFE_KEYS`). Named here so the answer is not just "nothing".
+            unsafeKeys: built.unsafeKeys
         };
     }
 
@@ -424,7 +431,9 @@ export class ModService {
      * before touching anything, so a candidate with one unusable kind leaves every registry
      * as it was. What is installed is the CLASSIFIED candidate - definitions the world's
      * own composition rules refuse are dropped, and the report names them.
-     * @returns {{ ok: true, version: number, swappedKinds: Array<string>, quarantined: Array<Object>, mods: number }}
+     * A package refused for an unsafe key never reaches the candidate, so an apply succeeds
+     * without it and `unsafeKeys` names what was left out.
+     * @returns {{ ok: true, version: number, swappedKinds: Array<string>, quarantined: Array<Object>, mods: number, unsafeKeys: Array<Object> }}
      */
     applyNow() {
         const { discovered } = this.remember(this.discover());
@@ -436,7 +445,8 @@ export class ModService {
             version: swapped.version,
             swappedKinds: swapped.swappedKinds,
             quarantined,
-            mods: discovered.filter((mod) => mod.enabled !== false).length
+            mods: discovered.filter((mod) => mod.enabled !== false).length,
+            unsafeKeys: built.unsafeKeys
         };
     }
 

@@ -159,7 +159,25 @@ A package that fails to load does not take the world with it: it is skipped by n
 with a code and a message, and reported in `invalid` by both `GET /mods` and
 `POST /mods/plan`. The remaining packages load. Codes: `MOD_MANIFEST_MISSING`,
 `MOD_MANIFEST_INVALID`, `MOD_ID_INVALID`, `MOD_ID_DIR_MISMATCH`,
-`MOD_CONTENT_KIND_UNKNOWN`, `MOD_CONTENT_UNREADABLE`.
+`MOD_CONTENT_KIND_UNKNOWN`, `MOD_CONTENT_UNREADABLE`, `MOD_UNSAFE_KEY`.
+
+### Keys a package may not carry
+
+`__proto__`, `constructor` and `prototype` are never world data. A `<kind>.json` file that
+carries one of them anywhere inside it is refused, and the refusal takes the **whole
+package**, not only the file: the key is a property of what somebody shipped, and installing
+the other half of it would install the part they did not get refused for. Every kind of that
+package is named in `invalid`, and `POST /mods/plan` lists each finding under `unsafeKeys`
+with where it was found:
+
+```json
+{ "unsafeKeys": [ { "modId": "my-mod", "dir": "my-mod", "kind": "components",
+                   "key": "__proto__", "at": "$.knife.detail.__proto__" } ] }
+```
+
+`$` is the root of the file. The check is on the key, not on the value, and it is not
+connected to the `_` convention: a `_`-prefixed key is a header at the top level of a
+content file (skipped, like `_comment`) and ordinary data everywhere below it.
 
 ## Quarantine: definitions the world will not hold
 
@@ -192,10 +210,10 @@ malformed official file stops the server rather than booting a world with holes 
 | GET    | `/mods`           | Installed packages (id, version, official, enabled, loadOrder, content kinds), rejected packages, and the definition counts the world is running. |
 | GET    | `/mods/kinds`     | The vocabulary a `content` array is written in, with the file behind each kind and how many definitions of it are live. |
 | POST   | `/mods/rescan`    | Read the package directory again. Installs nothing. |
-| POST   | `/mods/plan`      | What an apply would change, per kind: added, removed and changed definition names, who provides each, what is shadowed. Mutates nothing; `applied` is always `false`. |
+| POST   | `/mods/plan`      | What an apply would change, per kind: added, removed and changed definition names, who provides each, what is shadowed, and what was refused outright (`unsafeKeys`). Mutates nothing; `applied` is always `false`. |
 | POST   | `/mods/:id/enable`  | Enable an installed package. `{ success, id, enabled, pending, appliesAt }`. Rate limited (it writes a file). |
 | POST   | `/mods/:id/disable` | Disable an installed package; same envelope. Idempotent. Unknown id → `404 MOD_NOT_FOUND`. |
-| POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods } }`. |
+| POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods, unsafeKeys } }`. |
 | GET    | `/mods/:id/files` | The package's own files as they are on disk: `{ id, dir, manifest, files: [{ name, kind, json, content }] }`, `kind` being the registry a JSON file feeds. The "why is my definition quarantined" view. Unknown id → `404`. |
 
 `pending: true` is the normal success answer, not a warning: the change is written to

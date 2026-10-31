@@ -65,6 +65,12 @@ requirements, world rules, triggers, recipes, materials, components, blueprints,
 rooms, NPCs. A mod can *compose* mechanics; it cannot invent a new mechanic. Adding a new
 consequence type is a core change, and stays one.
 
+This promise is only as strong as the merge that implements it. A recursive merge of parsed
+JSON will, unless it refuses the key by name, merge a `__proto__` from a mod file into
+`Object.prototype` — no code executed, program-wide semantics changed. A package carrying
+such a key is refused whole; the reasoning, and why the intuitive type-side repair does not
+work, is in [`mod-unsafe-keys.md`](./mod-unsafe-keys.md).
+
 ### 2. The shipped content becomes 21 official mods, physically relocated.
 
 One official mod per current data file. The mod id is a kebab-case slug with a reserved
