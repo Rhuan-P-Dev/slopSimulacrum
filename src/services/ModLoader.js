@@ -124,8 +124,14 @@ export function parseManifest(raw, dirName) {
     const contentList = Array.isArray(content) ? content : [];
     for (const kind of contentList) {
         if (!isRegistryKind(kind)) {
+            // The whole vocabulary, not a "did you mean": kind ids are inherited from
+            // the data file ids, so the concept rarely matches the name (entity
+            // blueprints are the `npcs` kind) and no spelling distance closes that gap.
+            // This message is read once, by a human installing a package, and naming the
+            // ids is the shortest road to the right one.
             throw new GameError(
-                `mod "${id}" declares content kind "${String(kind)}", which is not a registry kind`,
+                `mod "${id}" declares content kind "${String(kind)}", which is not a registry kind. `
+                + `Registry kinds: ${REGISTRY_KIND_LIST.join(', ')} (see GET /mods/kinds).`,
                 MOD_ERROR_CODES.CONTENT_KIND_UNKNOWN
             );
         }

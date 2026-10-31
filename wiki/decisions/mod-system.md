@@ -248,6 +248,16 @@ the machine-readable shape of `H-2`:
 | `POST /api/mods/:id/disable` | queue the disable at the next round boundary (idempotent by state) |
 | `GET /api/mods/:id/report` | current quarantine and shadowing for that mod |
 
+Shipped paths (6 and 7, this change): the server mounts its routes at `/`, not at `/api`
+(`src/routes/index.js`), so the implemented surface is `GET /mods`, `GET /mods/kinds`,
+`POST /mods/rescan`, `POST /mods/plan`. `GET /mods/kinds` was not in the original table:
+a mod author needs the registry kind vocabulary and the file behind each kind to write a
+manifest, and the kind ids are inherited from data file ids, so guessing is not an option.
+The committed author reference is `MODS.md` at the repository root (`wiki/` is gitignored,
+so the ADR cannot be the only place this is written down). Enable/disable and apply are
+not built, so `data/mods/loadorder.json` has no reader yet: the loader accepts the state
+object, nothing produces it.
+
 `MOD_NOT_FOUND`, `MOD_MANIFEST_INVALID`, `MOD_RESERVED_ID`, `MOD_PATH_ESCAPE`,
 `MOD_CONTENT_KIND_UNKNOWN` and `MOD_SET_MISMATCH` are the stable codes.
 

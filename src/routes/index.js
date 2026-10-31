@@ -28,6 +28,10 @@ import { register as registerViewRoutes } from './viewRoutes.js';
 // (RP-1 prompt kind `agent-body-design` in AgentBodyController). Judgment-only: the
 // designer writes nothing to data/.
 import { register as registerAgentBodyRoutes } from './agentBodyRoutes.js';
+// Mod packages: GET /mods, POST /mods/rescan, POST /mods/plan. Read-only over the
+// package directory (data/mods/) — the apply point is a separate change. Dependency
+// is the ModService, not the world facade.
+import { register as registerModRoutes } from './modRoutes.js';
 // Feature G (perception): room-level delta reads + agent "what happened to me"
 // summary. Read-only observer surface — worldStateController passed through to
 // the perception controller the facade owns (null-tolerant, 503 when absent).
@@ -51,8 +55,9 @@ import { register as registerPerceptionRoutes } from './perceptionRoutes.js';
  * @param {Object} llmController - LLM controller instance
  * @param {Object} worldStateController - World state controller instance
  * @param {Object} broadcastService - Broadcast service instance
+ * @param {Object} modService - The mod package view (installed packages, plan).
  */
-export function registerRoutes(app, llmController, worldStateController, broadcastService) {
+export function registerRoutes(app, llmController, worldStateController, broadcastService, modService) {
 	const router = express.Router();
 
 	registerChatRoutes(router, { llmController });
@@ -75,6 +80,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerObjectInspectRoutes(router, { worldStateController });
 	registerViewRoutes(router, { worldStateController });
 	registerAgentBodyRoutes(router, { worldStateController });
+	registerModRoutes(router, { modService });
 
 	// Single mount point for all API routes (auth gate kept).
 	app.use('/', authMiddleware, router);

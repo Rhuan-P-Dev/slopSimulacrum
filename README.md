@@ -20,8 +20,10 @@ npm run dev            # http://localhost:3001
 ```
 
 The server boots with zero configuration: the world is built from the official mod
-packages under `data/mods/core-*/` (NPCs come from `core-npcs`), and the client connects
-over Socket.IO. A `.env` file, when present, is auto-loaded at boot (shell-
+packages under `data/mods/core-*/` (the LLM NPC roster comes from `core-npcs`), and the
+client connects over Socket.IO. To add content, drop a package directory next to them —
+see [MODS.md](./MODS.md) for the manifest format, the registry kind vocabulary and the
+endpoints that list and diff what is installed. A `.env` file, when present, is auto-loaded at boot (shell-
 exported values win over file entries), so no launcher setup is required.
 
 Run the test suite (vitest, unit + contract; the run prints the file and test counts):
