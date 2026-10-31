@@ -303,6 +303,70 @@ describe('enable, disable, and the queue', () => {
     });
 });
 
+describe('requestApply: the apply button, gated on a round', () => {
+    const memState = (initial = {}) => {
+        const store = { state: { ...initial } };
+        return { load: () => ({ ...store.state }), save: (next) => { store.state = next; } };
+    };
+
+    it('defers while a round is open, and keeps the ask', () => {
+        const applied = storeFrom();
+        const s = new ModService({
+            registryStore: applied, loader: loader({}), stateStore: memState(), roundGate: () => true
+        });
+        const answer = s.requestApply();
+
+        expect(answer).toMatchObject({ applied: false, pending: true, appliesAt: 'next round boundary', reason: 'ROUND_ACTIVE' });
+        // The deferral is a no-op on the world: agents are reading the definition the
+        // round opened with (`CR D-6`).
+        expect(applied.version()).toBe(1);
+    });
+
+    it('swaps when no round is open, and reports what it swapped', () => {
+        const applied = storeFrom();
+        const s = new ModService({
+            registryStore: applied, loader: loader({}), stateStore: memState(), roundGate: () => false
+        });
+        const answer = s.requestApply();
+
+        expect(answer.applied).toBe(true);
+        expect(answer.pending).toBe(false);
+        expect(answer.report.ok).toBe(true);
+        expect(applied.version()).toBe(2);
+    });
+
+    it('swaps when no gate was given at all (a world built without a turn system)', () => {
+        const applied = storeFrom();
+        const s = new ModService({ registryStore: applied, loader: loader({}), stateStore: memState() });
+        expect(s.requestApply().applied).toBe(true);
+        expect(applied.version()).toBe(2);
+    });
+});
+
+describe('packageFiles: what an operator installed', () => {
+    it('lists the manifest and every content file with the kind it feeds', () => {
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: { load: () => ({}), save: () => {} } });
+        s.rescan();
+        const view = s.packageFiles('extra-parts');
+
+        expect(view.id).toBe('extra-parts');
+        expect(view.manifest).toMatchObject({ id: 'extra-parts', version: '1.0.0' });
+        const byName = Object.fromEntries(view.files.map((file) => [file.name, file]));
+        expect(byName['mod.json'].kind).toBeNull();
+        expect(byName[`${REGISTRY_KINDS.COMPONENTS}.json`].kind).toBe(REGISTRY_KINDS.COMPONENTS);
+        expect(byName[`${REGISTRY_KINDS.COMPONENTS}.json`].content).toEqual({ crowbar: { name: 'Crowbar' } });
+    });
+
+    it('names a package that is not installed instead of reading a path', () => {
+        const s = new ModService({ registryStore: storeFrom(), loader: loader({}), stateStore: { load: () => ({}), save: () => {} } });
+        s.rescan();
+        expect(() => s.packageFiles('no-such-mod')).toThrowError(/no mod package named "no-such-mod"/);
+        // A traversal attempt is not an installed id either: the id is matched against
+        // the discovery scan, never joined to a path.
+        expect(() => s.packageFiles('../../etc')).toThrowError(/no mod package named/);
+    });
+});
+
 describe('diffRegistry', () => {
     it('does not call key order a change', () => {
         const live = { thing: { a: 1, b: { c: 2, d: 3 } } };

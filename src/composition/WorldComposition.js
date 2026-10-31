@@ -570,7 +570,12 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     const modService = new ModService({
         registryStore: store,
         loader: packageLoader,
-        stateStore: modStateStore
+        stateStore: modStateStore,
+        // The round gate: an HTTP "apply now" asks the turn system whether a round is
+        // open before swapping the definition. The gate is injected as a plain
+        // predicate so ModService never learns about turns - the boundary belongs to
+        // this graph, not to the package manager (CR B-1).
+        roundGate: () => turnSystemController.isRoundActive()
     });
 
     turnSystemController.setTurnStartHook((round) => {

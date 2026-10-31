@@ -344,6 +344,11 @@ describe('WorldStateController public method surface', () => {
         // per-agent cursor without reading a delta) — used by the UI polling
         // path and tests that want to control the cursor independently.
         'recordAgentObservation',
+        // Added deliberately (wiki/decisions/mod-system.md): the one entry point that
+        // replaces the running world with a new one, from the cards the operator chose.
+        // It is a composition-root operation exposed on the facade on purpose - the
+        // client must not orchestrate despawn/seed/spawn itself (CR AP-13).
+        'recreateWorld',
         'registerSelection',
         'registerSelections',
         'releaseSelection',

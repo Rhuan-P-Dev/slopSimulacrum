@@ -27,9 +27,19 @@
     <link rel="stylesheet" href="css/agent-view.css">
     <link rel="stylesheet" href="css/round-prose.css">
     <link rel="stylesheet" href="css/agent-body.css">
+    <link rel="stylesheet" href="css/menu.css">
 </head>
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
+
+    <!-- TOP: the menu. The brand and the two things an operator does to the world
+         itself: create it, and manage the mods that define it. Everything else on
+         this page is a window into a world that is already running. -->
+    <div id="app-menu">
+        <span class="app-menu-brand">SIMULACRUM</span>
+        <button id="btn-menu-create-world" class="app-menu-btn" type="button" title="Build a new world from the cards on disk">Create world</button>
+        <button id="btn-menu-mods" class="app-menu-btn" type="button" title="See and manage the installed mod packages">Mods</button>
+    </div>
 
     <!-- TOP: Config Bar -->
     <div id="config-bar">
@@ -354,7 +364,58 @@
     </div>
     <div id="add-stat-dialog-overlay" class="add-stat-dialog-overlay" style="display:none;"></div>
 
+    <!-- LAUNCHER: covers the game; the simulation keeps running underneath it
+         (the server does not pause because a browser opened a menu). -->
+    <div id="launcher-screen" class="sim-screen">
+        <div class="sim-screen-inner launcher-inner">
+            <h1 class="launcher-brand">SIMULACRUM</h1>
+            <p class="launcher-tagline">A world of data files, run by agents. Create it, mod it, enter it.</p>
+            <div class="launcher-actions">
+                <button id="btn-launcher-create" class="sim-btn sim-btn-primary" type="button">Create world</button>
+                <button id="btn-launcher-mods" class="sim-btn" type="button">Mods</button>
+                <button id="btn-launcher-enter" class="sim-btn sim-btn-ghost" type="button">Enter world</button>
+            </div>
+            <p id="launcher-status" class="sim-status sim-status--dim"></p>
+        </div>
+    </div>
+
+    <!-- CREATE WORLD: choose the cards, then one POST to /world/create. The
+         server decides what is a card and what the new world replaces. -->
+    <div id="create-world-screen" class="sim-screen" style="display:none;">
+        <div class="sim-screen-inner">
+            <div class="sim-screen-head">
+                <h2 class="sim-screen-title">Create world</h2>
+                <span class="sim-screen-note">Despawns every entity, clears the old world's memory (items on the floor, room chat, event log), then seeds the map and the cards you choose. The round counter does not go backwards.</span>
+                <button id="btn-create-world-close" class="sim-btn sim-btn-ghost" type="button">Close</button>
+            </div>
+            <div id="create-world-content"></div>
+            <div class="sim-screen-foot">
+                <button id="btn-create-world-go" class="sim-btn sim-btn-primary" type="button">Create world</button>
+                <p id="create-world-status" class="sim-status sim-status--dim"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODS: the installed packages, the live definition, and the four actions
+         (rescan, plan, enable/disable, apply). Reads the server; computes nothing. -->
+    <div id="mods-screen" class="sim-screen" style="display:none;">
+        <div class="sim-screen-inner">
+            <div class="sim-screen-head">
+                <h2 class="sim-screen-title">Mods</h2>
+                <span class="sim-screen-note">Packages in <code>data/mods/</code>. A change takes effect at the next round boundary - the world is never redefined in the middle of a round.</span>
+                <button id="btn-mods-close" class="sim-btn sim-btn-ghost" type="button">Close</button>
+            </div>
+            <div class="sim-screen-foot">
+                <button id="btn-mods-rescan" class="sim-btn sim-btn-small" type="button">Rescan</button>
+                <button id="btn-mods-plan" class="sim-btn sim-btn-small" type="button">Plan</button>
+                <button id="btn-mods-apply" class="sim-btn sim-btn-small" type="button">Apply now</button>
+                <p id="mods-status" class="sim-status sim-status--dim"></p>
+            </div>
+            <div id="mods-content"></div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="js/App.js?v=3"></script>
+    <script type="module" src="js/App.js?v=4"></script>
 </body>
 </html>

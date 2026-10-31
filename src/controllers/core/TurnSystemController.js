@@ -349,6 +349,22 @@ class TurnSystemController {
     }
 
     /**
+     * Whether a round is open in this process right now - from the moment a round
+     * starts planning until its resolution has run.
+     *
+     * Read by the mod pipeline (`ModService.requestApply`): a world definition
+     * swap must not land inside a round, because the agents planning and the
+     * actions resolving are reading the definition the round opened with
+     * (`CR D-6`). It reads the raw phase, not `_currentPhase()`, which reports
+     * `planning` as a default and would answer "open" before the first round ever
+     * started.
+     * @returns {boolean}
+     */
+    isRoundActive() {
+        return this._phase === 'planning' || this._phase === 'resolution';
+    }
+
+    /**
      * Tick window of a single round (reader bookkeeping for round-prose
      * reconstruction, consumed by RoundProseController). `null` when the
      * round is unknown or was evicted from the recent-history horizon (in

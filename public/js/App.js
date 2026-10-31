@@ -34,6 +34,7 @@ import ObjectViewer from './ObjectViewer.js';
 import { AgentViewPanel } from './AgentViewPanel.js';
 import { RoundProsePanel } from './RoundProsePanel.js';
 import { AgentBodyPanel } from './AgentBodyPanel.js';
+import { AppMenu } from './AppMenu.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
 import { DropSelectorController } from './DropSelectorController.js';
@@ -122,6 +123,11 @@ export class ClientApp {
         // Agent Body: dev tab that asks the LLM to design a body from a
         // character card (judgment-only — no write-back to the world).
         this.agentBody = new AgentBodyPanel();
+        // The top menu and its two full-screen views (create world, mods). Owned by
+        // AppMenu, not OverlayManager: these are not windows inside the world, they
+        // are the launcher in front of it, and they must not compete with the
+        // overlay windows for visibility.
+        this.appMenu = new AppMenu();
 
         // 5. Socket connection (must be before EventDispatcher)
         this.socket = io();
@@ -648,6 +654,10 @@ export class ClientApp {
      */
     async init() {
         try {
+            // First, before anything that talks to the world: the menu is how you
+            // get to "create world", and a world that fails to load is exactly when
+            // that has to be reachable.
+            this.appMenu.init();
             // Initialize modules
             this.statBars.init();
             this.entityAttributeBars.init();

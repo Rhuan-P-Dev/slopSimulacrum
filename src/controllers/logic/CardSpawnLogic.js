@@ -83,19 +83,37 @@ const CARD_DEFAULT_PROFILE = {
  * which cards exist; a file that is not a PNG or carries no character
  * payload is logged and skipped, so one bad file never derails the whole
  * population or fails boot.
+ *
+ * `options.only` narrows the listing to a chosen set of card ids. This is what
+ * "create world" uses: the operator picks which cards populate the world
+ * instead of taking everything in `data/cards/`. Filtering the *listing* (and
+ * not iterating the request) keeps the spawn order the same one boot uses -
+ * `readCardFiles()` order - so a chosen subset spawns in the same relative
+ * order as the full set would (`CR D-1`: the population must not depend on the
+ * order the browser happened to send the checkboxes in).
  * @private
+ * @param {{ only?: string[] }} [options] - `only`: card ids to spawn (absent ->
+ *   every card file).
+ * @returns {{ total: number, spawned: number, entities: Array<{cardId: string, entityId: string}> }}
  */
-function spawnCards(facade) {
-    const cardFiles = facade._readCardFiles();
+function spawnCards(facade, options = {}) {
+    const all = facade._readCardFiles();
+    let cardFiles = all;
+    if (Array.isArray(options.only)) {
+        const chosen = new Set(options.only);
+        cardFiles = all.filter((cardFile) => chosen.has(cardFile.cardId));
+    }
     if (cardFiles.length === 0) {
-        Logger.info('[WorldStateController] No card files in data/cards/ — nothing to spawn.');
-        return;
+        Logger.info('[WorldStateController] No card files to spawn in data/cards/.');
+        return { total: 0, spawned: 0, entities: [] };
     }
-    let spawned = 0;
+    const entities = [];
     for (const cardFile of cardFiles) {
-        if (facade._spawnSingleCard(cardFile) !== null) spawned++;
+        const entityId = facade._spawnSingleCard(cardFile);
+        if (entityId !== null) entities.push({ cardId: cardFile.cardId, entityId });
     }
-    Logger.info(`[WorldStateController] ${spawned}/${cardFiles.length} card NPC(s) spawned from data/cards/ (generic blueprint ${CARD_BLUEPRINT} — or a card's own saved body when one exists).`);
+    Logger.info(`[WorldStateController] ${entities.length}/${cardFiles.length} card NPC(s) spawned from data/cards/ (generic blueprint ${CARD_BLUEPRINT} - or a card's own saved body when one exists).`);
+    return { total: cardFiles.length, spawned: entities.length, entities };
 }
 
 /**

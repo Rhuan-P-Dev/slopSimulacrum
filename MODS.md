@@ -195,6 +195,8 @@ malformed official file stops the server rather than booting a world with holes 
 | POST   | `/mods/plan`      | What an apply would change, per kind: added, removed and changed definition names, who provides each, what is shadowed. Mutates nothing; `applied` is always `false`. |
 | POST   | `/mods/:id/enable`  | Enable an installed package. `{ success, id, enabled, pending, appliesAt }`. Rate limited (it writes a file). |
 | POST   | `/mods/:id/disable` | Disable an installed package; same envelope. Idempotent. Unknown id → `404 MOD_NOT_FOUND`. |
+| POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods } }`. |
+| GET    | `/mods/:id/files` | The package's own files as they are on disk: `{ id, dir, manifest, files: [{ name, kind, json, content }] }`, `kind` being the registry a JSON file feeds. The "why is my definition quarantined" view. Unknown id → `404`. |
 
 `pending: true` is the normal success answer, not a warning: the change is written to
 `data/mods/loadorder.json` and takes effect at the **next round boundary** (`appliesAt`). A
@@ -204,6 +206,26 @@ the change stays pending — and the file already says what the next boot will d
 The paths carry no `/api` prefix: routes are mounted at `/`, same as the rest of the
 server (`src/routes/index.js`).
 
+## From the browser (the launcher)
+
+The page opens on a launcher with two entries, and neither of them is a settings drawer
+over the game: they are full-screen views, and the world keeps running underneath while
+you are in one.
+
+- **Mods** — the packages, the live definition and its per-kind counts, what is waiting
+  for a boundary, and the four actions (`Rescan`, `Plan`, `Enable`/`Disable`, `Apply now`).
+  It reads `GET /mods` and renders; the only thing it computes is the sum of the server's
+  own per-kind counts. A row and its status line change together, so the button never says
+  the opposite of the line next to it.
+- **Create world** — one checkbox per card in `data/cards/`, then `POST /world/create`.
+  Everything is selected by default because that is what a world has always meant here;
+  an empty selection is allowed and says what it produces (props, nobody in the room).
+  On success the page reloads: every client cache belongs to the world that just ended.
+
+`Enter world` removes the cover. Nothing in the client decides what a card is, what a
+package contributes, or whether a change can land in the middle of a round - the server
+answers all of that, and this client is disposable by design (`README.md`).
+
 ## Status — what is and is not built
 
 Built and tested: discovery, manifest validation, narrowing to declared kinds,
@@ -212,7 +234,8 @@ boot path assembling the world from those packages instead of 21 separate file l
 non-throwing composition classifier behind the plan's `quarantine` report, the
 `loadorder.json` state file (read at boot, so a disabled package does not contribute),
 enable / disable applied at the round boundary, package dependencies (`requires`: resolution,
-blocked reporting, and the `409` refusals), and the six endpoints above.
+blocked reporting, and the `409` refusals), the eight endpoints above, and the launcher in
+the browser (menu, mod manager, card picker for a new world).
 
 Not built:
 

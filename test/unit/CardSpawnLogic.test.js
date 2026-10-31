@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readCharaCard } from '../../src/utils/PngCharaReader.js';
-import { blueprintForCard, spawnSingleCard } from '../../src/controllers/logic/CardSpawnLogic.js';
+import { blueprintForCard, spawnSingleCard, spawnCards } from '../../src/controllers/logic/CardSpawnLogic.js';
 
 // The stub applies to every importer of the reader (including CardSpawnLogic),
 // so spawnSingleCard reads the controlled payload instead of a disk PNG.
@@ -149,6 +149,61 @@ describe('CardSpawnLogic', () => {
 
             expect(id).toBe(null);
             expect(facade.stateEntityController.spawnEntity).not.toHaveBeenCalled();
+        });
+    });
+
+    /**
+     * The subset a "create world" request chooses.
+     *
+     * The claim worth pinning is not that filtering works but *where* it happens:
+     * the chosen ids narrow the listing, so the spawn order stays the card-file
+     * order and never the order the browser sent its checkboxes (`CR D-1`). A
+     * request that names nothing is not a filter, it is "every card" - boot's
+     * behavior - and `[]` is its opposite, not the same thing.
+     */
+    describe('spawnCards with a chosen subset', () => {
+        /** A facade whose only job is the listing and the spawn spy. */
+        function listingFacade(cardIds) {
+            const spawned = [];
+            return {
+                spawned,
+                _readCardFiles: () => cardIds.map((cardId) => ({ cardId, fullPath: `data/cards/${cardId}.png` })),
+                _spawnSingleCard: (cardFile) => {
+                    spawned.push(cardFile.cardId);
+                    return `entity-${cardFile.cardId}`;
+                }
+            };
+        }
+
+        it('spawns only the chosen cards, in card-file order whatever the request order was', () => {
+            const facade = listingFacade(['a', 'b', 'c']);
+            const report = spawnCards(facade, { only: ['c', 'a'] });
+
+            expect(facade.spawned).toEqual(['a', 'c']);
+            expect(report).toEqual({ total: 2, spawned: 2, entities: [{ cardId: 'a', entityId: 'entity-a' }, { cardId: 'c', entityId: 'entity-c' }] });
+        });
+
+        it('spawns every card file when no subset was given (boot)', () => {
+            const facade = listingFacade(['a', 'b']);
+            expect(spawnCards(facade).total).toBe(2);
+            expect(facade.spawned).toEqual(['a', 'b']);
+        });
+
+        it('spawns nothing when the subset is empty, and says so with zeroes', () => {
+            const facade = listingFacade(['a', 'b']);
+            const report = spawnCards(facade, { only: [] });
+
+            expect(facade.spawned).toEqual([]);
+            expect(report).toEqual({ total: 0, spawned: 0, entities: [] });
+        });
+
+        it('reports the cards it tried, not the ones it skipped: a null spawn is counted, not listed', () => {
+            const facade = listingFacade(['a', 'b']);
+            facade._spawnSingleCard = (cardFile) => (cardFile.cardId === 'a' ? null : `entity-${cardFile.cardId}`);
+
+            const report = spawnCards(facade);
+            expect(report.total).toBe(2);
+            expect(report.entities).toEqual([{ cardId: 'b', entityId: 'entity-b' }]);
         });
     });
 });

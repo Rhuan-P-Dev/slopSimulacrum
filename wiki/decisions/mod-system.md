@@ -528,6 +528,66 @@ components, damage types, drop rates) makes the disable succeed; and booting wit
 `core-materials` disabled in the state file - the exact case that used to be fatal - comes up
 with `materials: 0, components: 0` and six named `blocked` entries.
 
+### The operator surface: a launcher, a create-world verb, and the apply gate (landed)
+
+The owner asked for a top menu ("SIMULACRUM", entries *Create world* and *Mods*), the Mods
+entry able to see and manage the packages, and Create world able to choose which cards are
+spawned. Four decisions came out of that, all taken before code:
+
+| Question | Decision | Why |
+| -------- | -------- | --- |
+| What does "create world" do with the running one? | Clean slate + chosen cards | A new world that inherits the dead one's dropped items, transcripts and event log is a haunted room, and "choose the cards" was the ask, not "re-seed the same population". |
+| Where does the UI live? | Full-screen launcher, on load | It is a launcher, not a settings drawer: you decide something about the world, then enter it. The simulation is **not** paused by the cover - the server is the product, and a browser looking at a menu is not a reason to stop the rounds. |
+| How much does the Mods view do? | Full manager: list, enable/disable, apply now, package files | Half a manager is worse than none: an operator who can disable a package but not see what the world is running cannot tell a deferral from a failure. |
+| Labels | English | The committed tree is English (`AGENTS.md`, language policy). |
+
+**`POST /world/create` is not a mod verb.** It changes the *population*; the world definition
+in the `RegistryStore` is untouched, and a mod change keeps its own rules and its own
+endpoint. It runs in place on the one `WorldStateController` (`src/controllers/logic/
+WorldRecreateLogic.js`): every route and every live socket already holds that reference, so
+constructing a second world would strand them. It despawns every entity, clears the three
+places the previous world left its memory (`droppedItems`, room chat, the world-event log -
+the floor and the two transcripts a client reads back), re-runs the **one** seeding order
+boot uses (`initializeWorld({ cardIds })`), and re-runs the capability scan boot runs. The
+round counter is inherited, never reset (`CR D-6`), which is why the response names it.
+
+Validation happens **before anything is destroyed**: `WORLD_CREATE_CARD_ID_INVALID`,
+`WORLD_CREATE_CARD_UNKNOWN` (naming the ids with no file), `WORLD_CREATE_TOO_MANY_CARDS` - all
+three raised with the world untouched, pinned by `test/unit/WorldRecreateLogic.test.js`. An
+empty selection is a legal request (props, no actors); hiding it behind a disabled button
+would be the client inventing a rule the server does not have.
+
+**The apply gate.** `POST /mods/apply` is a second door to the same `applyNow()` the round
+boundary uses - one apply mechanism, two moments. Before swapping, `ModService`
+asks `roundGate()`, a plain predicate injected by the composition root from
+`TurnSystemController.isRoundActive()`: the service never learns that turns exist
+(`CR B-1`), and the turn system reads its **raw** phase, not the round display, which defaults
+to `planning` and would defer forever in a process that has never started a round. With a round
+open the answer is `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }`: a
+deferral with a named moment, and the panel says so instead of pretending the world changed.
+
+**`GET /mods/:id/files`** reads the manifest and every JSON file of one package, each tagged
+with the registry kind it feeds. It is locked to the package directory by construction: the id
+is matched against the discovery scan - which only ever admits directories whose name is a
+valid mod id - and never joined to a path.
+
+**The client reloads after a create.** Every cache in the page (world state, inventory, chat,
+capability views) belongs to the world that just ended; reconciling them is more work than
+re-reading them, and the server has already broadcast the new full state.
+
+Verified in a real browser (headless Chromium, driven from outside the repo - no dependency
+added): launcher on load, Mods list with the live per-kind counts, plan, apply deferred with a
+round open, package files drawer, disable -> row and line flip together -> re-enable, install
+left with all 21 packages enabled and no blocked entry; create world with all cards selected,
+`4 entity(ies) removed, 1/1 card(s) spawned`, reload into the launcher, `Enter world` back to
+the game. Zero console and page errors.
+
+That browser pass found one real bug, worth recording because the unit tests could not: the
+panel's single in-flight guard is not reentrant, so an action that re-read the list through
+`refresh()` from inside its own guard was silently doing nothing - a disabled package whose row
+still said "on", next to a button that still said "Disable". The read is now a separate
+`_load()`; the guard stays where it is.
+
 ## Next change (when the owner asks for it)
 
 Ordered so each step leaves `npm run check` green. `CHG-7`: steps 2 and 5 are
@@ -558,9 +618,11 @@ behavior-bearing and get a test pinning the current behavior first.
 6. Done. `GET /mods`, `GET /mods/kinds` and `POST /mods/rescan` (read-only, no apply).
 7. Done. `POST /mods/plan` (candidate build, shadowing, quarantine).
 8. Done: enable / disable, apply at the round boundary (`applyPending` first in the
-   turn-start hook), the state file, the two routes. Still open inside this step: the
-   mismatch warning, the `mods` section in the snapshot and the Socket.IO broadcast. The
-   cross-kind reference question was decided here too - `requires`, above.
+   turn-start hook), the state file, the routes, `POST /mods/apply` behind the round gate,
+   `GET /mods/:id/files`, and the launcher in the browser (menu, mod manager, card picker).
+   Still open inside this step: the mismatch warning and the `mods` section in the snapshot /
+   Socket.IO broadcast - the client re-reads `GET /mods` instead, which is one truth but not a
+   pushed one. The cross-kind reference question was decided here too - `requires`, above.
 9. A fixture mod (`test/`) proving: add a component plus item plus action at runtime, enable
    it, see the capability appear; disable it, see the quarantine report name the dependents
    and the live instance survive.

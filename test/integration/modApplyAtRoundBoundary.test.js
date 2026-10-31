@@ -203,3 +203,33 @@ describe('the official dependency graph', () => {
         expect(store.read(REGISTRY_KINDS.MATERIALS).wood).toBeDefined();  // still pending, not applied
     });
 });
+
+/**
+ * The HTTP half of the gate.
+ *
+ * `POST /mods/apply` calls `ModService.requestApply()`, which asks an injected
+ * `roundGate` before swapping anything. A unit test can prove the service honors
+ * the answer; only the composition root can prove the answer it gets is the turn
+ * system's. Before the first round, `isRoundActive()` must be false even though
+ * the round *display* defaults to "planning" - otherwise an apply would defer
+ * forever in a process that has never started a round.
+ */
+describe('the composition root gates an apply on the round', () => {
+    it('wires the turn system as the apply gate', () => {
+        const { modService, turns } = buildWorld();
+
+        expect(typeof modService.roundGate).toBe('function');
+        expect(turns.isRoundActive()).toBe(false);
+        expect(modService.roundGate()).toBe(turns.isRoundActive());
+    });
+
+    it('applies on request while no round is open, in the same store the world reads', () => {
+        const { store, modService, turns } = buildWorld();
+        const versionAtBoot = store.version();
+
+        const answer = modService.requestApply();
+        expect(answer).toMatchObject({ applied: true, pending: false, appliesAt: 'immediate' });
+        expect(store.version()).toBe(versionAtBoot + 1);
+        expect(turns.isRoundActive()).toBe(false);
+    });
+});

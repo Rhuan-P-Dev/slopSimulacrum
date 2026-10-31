@@ -40,7 +40,10 @@ const ERROR_STATUS = {
 	// 409 because the conflict is with the state of the world, not with the request body
 	// (which is what 400 would claim).
 	MOD_REQUIREMENT_HELD: 409,
-	MOD_REQUIREMENT_UNMET: 409
+	MOD_REQUIREMENT_UNMET: 409,
+	// The candidate the packages on disk describe cannot be installed as-is. Not a bad
+	 // request - a package set the world will not take.
+	REGISTRY_CANDIDATE_INVALID: 409
 };
 
 /**
@@ -114,6 +117,66 @@ export function register(router, { modService }) {
 			res.json({ plan: modService.plan() });
 		} catch (error) {
 			sendRouteError(error, res, '/mods/plan');
+		}
+	});
+
+	/**
+	 * POST /mods/apply
+	 * Ask for the packages on disk to become the world's definition now.
+	 *
+	 * There is one apply mechanism, and this is not a second one: it queues the same
+	 * change and calls the same swap the round boundary calls. What it adds is the
+	 * gate. If a round is open, the answer is `{ applied: false, pending: true,
+	 * appliesAt: 'round-boundary', reason: 'ROUND_ACTIVE' }` - the ask stands and the
+	 * swap happens at the boundary that is already coming, because a definition that
+	 * changes mid-round is a different world than the one the round's agents are
+	 * reading (`CR D-6`). If no round is open, the swap happens here and `report`
+	 * carries the version, the kinds written and what was quarantined for cause.
+	 *
+	 * `applied: false` is therefore not a failure. The client shows `appliesAt`.
+	 */
+	router.post('/mods/apply', writeLimiter, (req, res) => {
+		try {
+			res.json({ success: true, ...modService.requestApply() });
+		} catch (error) {
+			const status = ERROR_STATUS[error?.code];
+			if (status) {
+				sendRouteErrorBody(
+					error,
+					res,
+					'POST /mods/apply',
+					{ success: false, error: error.code, message: error.message },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, '/mods/apply');
+		}
+	});
+
+	/**
+	 * GET /mods/:id/files
+	 * The package's own files as they are on disk: `{ id, dir, manifest, files:
+	 * [{ name, kind, json, content }] }`, where `kind` is the registry a JSON file
+	 * feeds (`entities.json` -> `entities`) and null when it feeds none. Non-JSON
+	 * files are listed by name with `content: null`. An unknown id is a 404.
+	 */
+	router.get('/mods/:id/files', (req, res) => {
+		try {
+			res.json(modService.packageFiles(req.params.id));
+		} catch (error) {
+			const status = ERROR_STATUS[error?.code];
+			if (status) {
+				sendRouteErrorBody(
+					error,
+					res,
+					'GET /mods/:id/files',
+					{ success: false, error: error.code, message: error.message },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, '/mods/:id/files');
 		}
 	});
 

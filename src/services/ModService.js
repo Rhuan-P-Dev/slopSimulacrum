@@ -28,7 +28,7 @@
  * @module ModService
  */
 
-import ModLoader, { resolveRequirements, MOD_ERROR_CODES } from './ModLoader.js';
+import ModLoader, { resolveRequirements, MOD_ERROR_CODES, MANIFEST_FILE } from './ModLoader.js';
 import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
@@ -113,13 +113,18 @@ export class ModService {
      *   (`DataLoader.loadModState` / `saveModState`, i.e. `data/mods/loadorder.json`);
      *   a test injects an in-memory pair, because a unit test of "what is enabled" has no
      *   business writing the file the next boot reads.
+     * @param {() => boolean} [options.roundGate] - Whether a round is open right now,
+     *   asked by `requestApply()` before it swaps a definition, so an operator's
+     *   "apply now" cannot land in the middle of a round (`CR D-6`). Absent means
+     *   "no round is open" - a test, or a world built without a turn system.
      */
-    constructor({ registryStore, loader = new ModLoader(), stateStore = null } = {}) {
+    constructor({ registryStore, loader = new ModLoader(), stateStore = null, roundGate = null } = {}) {
         if (!registryStore || typeof registryStore.read !== 'function') {
             throw new TypeError('ModService: registryStore is required');
         }
         this.registryStore = registryStore;
         this.loader = loader;
+        this.roundGate = roundGate;
         this.stateStore = stateStore ?? {
             load: () => DataLoader.loadModState(),
             save: (state) => DataLoader.saveModState(state)
@@ -433,6 +438,73 @@ export class ModService {
             quarantined,
             mods: discovered.filter((mod) => mod.enabled !== false).length
         };
+    }
+
+    /**
+     * Apply on request - now, or at the next round boundary, and never in the
+     * middle of a round.
+     *
+     * This is the HTTP verb behind an operator's "apply now" button. It is not a
+     * second apply mechanism: it queues the same ask and calls the same `applyNow()`
+     * the round boundary calls. The gate is the point. A round is open from the
+     * moment it starts planning until its resolution closes, and a definition that
+     * changes while agents are planning or actions are resolving is a different
+     * world than the one those agents were reading - so when a round is open the
+     * answer is `applied: false, pending: true, appliesAt: 'round-boundary'`, which
+     * is a deferral with a named moment, not a failure. When no round is open
+     * (a process that has not started one, or a world with no turn system) the
+     * swap happens here and the report comes back.
+     * @returns {{ applied: boolean, pending: boolean, appliesAt: string, reason?: string, report?: Object }}
+     */
+    requestApply() {
+        const roundActive = typeof this.roundGate === 'function' ? !!this.roundGate() : false;
+        if (roundActive) {
+            this.pending = true;
+            return { applied: false, pending: true, appliesAt: APPLY_AT, reason: 'ROUND_ACTIVE' };
+        }
+        const report = this.applyNow();
+        this.lastApply = report;
+        this.pending = false;
+        return { applied: true, pending: false, appliesAt: 'immediate', report };
+    }
+
+    /**
+     * The package's own files, as they are on disk right now.
+     *
+     * The "show me what I installed" view: the manifest and every JSON file of the
+     * package, each tagged with the registry kind it feeds (`entities.json` feeds
+     * `entities`). A mod author debugging a quarantined definition reads this
+     * instead of the directory on the server.
+     *
+     * Only `.json` content comes back; any other file in the package is listed by
+     * name. Nothing is read outside the package directory - the id is matched
+     * against the discovery scan, which only admits directories whose name is a
+     * valid mod id (`MOD_ID_PATTERN`).
+     * @param {string} id
+     * @returns {{ id: string, dir: string, manifest: Object|null, files: Array<{name: string, json: boolean, kind: string|null, content: Object|null}> }}
+     * @throws {GameError} MOD_NOT_FOUND - no installed package with that id.
+     */
+    packageFiles(id) {
+        const mod = (this.discovered ?? []).find((entry) => entry.manifest.id === id);
+        if (!mod) {
+            throw new GameError(`ModService: no mod package named "${id}" is installed`, 'MOD_NOT_FOUND');
+        }
+        const dir = `${this.loader.baseDir}/${mod.dir}`;
+        const files = [];
+        for (const entry of DataLoader.listDir(dir)) {
+            if (entry.isDirectory) continue;
+            const json = entry.name.toLowerCase().endsWith('.json');
+            const stem = entry.name.slice(0, -'.json'.length);
+            files.push({
+                name: entry.name,
+                json,
+                kind: json && isRegistryKind(stem) ? stem : null,
+                content: json ? DataLoader.loadJsonSafe(`${dir}/${entry.name}`, null) : null
+            });
+        }
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        const manifestFile = files.find((file) => file.name === MANIFEST_FILE);
+        return { id, dir, manifest: manifestFile ? manifestFile.content : null, files };
     }
 
     // =========================================================================

@@ -64,6 +64,19 @@ class WorldEventLogController {
     }
 
     /**
+     * Drops every buffered event.
+     *
+     * Used when a new world is created in place: the log is what the old world
+     * did, and `GET /world-events` answering with a dead world's history would
+     * read as if it had just happened. The round counter is NOT touched - a
+     * round number never goes backwards (`CR D-6`).
+     * @returns {void}
+     */
+    clear() {
+        this._buffer.clear();
+    }
+
+    /**
      * Returns the buffered events for persistence (schema v2 "events" section).
      * @returns {Array}
      */

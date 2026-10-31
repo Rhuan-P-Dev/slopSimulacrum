@@ -3,6 +3,25 @@ import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { handlePlaceMachine } from '../controllers/core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../controllers/core/RetrieveMachineHandler.js';
+import { createRateLimiter } from '../utils/rateLimiter.js';
+import { WORLD_CREATE_ERROR_CODES } from '../controllers/logic/WorldRecreateLogic.js';
+
+/**
+ * Creating a world destroys the one that is running, so the route is rate limited
+ * like the other writes (`CR SEC-2`). Five per minute is an operator rebuilding a
+ * world by hand; anything above that is a script, and a script that wipes the world
+ * in a loop should be stopped by the server, not by the client.
+ */
+const createWorldLimiter = createRateLimiter({ windowMs: 60000, max: 5, name: 'world-create-route' });
+
+/**
+ * Every refusal `recreateWorld()` raises is about the requested cards, before
+ * anything was destroyed - so all three are a 400 about the body, not a conflict
+ * with the world.
+ */
+const WORLD_CREATE_STATUS = Object.fromEntries(
+    Object.values(WORLD_CREATE_ERROR_CODES).map((code) => [code, 400])
+);
 
 /**
  * Registers world state-related routes with the given Express router.
@@ -230,6 +249,54 @@ export function register(router, { worldStateController, broadcastService }) {
 	    } catch (error) {
 	        sendRouteError(error, res, '/move-entity');
 	    }
+	});
+
+	// =========================================================================
+	// CREATE WORLD - populate a fresh world from chosen cards
+	// =========================================================================
+
+	/**
+	 * POST /world/create
+	 * Build a new world inside the running server: every live entity is despawned,
+	 * the previous world's runtime memory (dropped items, room chat, world-event
+	 * log) is cleared, and the map is seeded again the way boot seeds it - static
+	 * props, data-driven NPCs, then the cards named in the request.
+	 *
+	 * Body: `{ cardIds?: string[] }`. Absent or null means every card in
+	 * `data/cards/` (the boot behavior); an array means exactly those card ids, and
+	 * `[]` means an unpopulated world.
+	 *
+	 * What it is NOT: not a mod change (the world definition in the store is
+	 * untouched - that is `/mods/apply`), and not a round reset. The round counter
+	 * never goes backwards (`CR D-6`); the new world inherits the round it was
+	 * created in, which is also why the response names it.
+	 *
+	 * Response: `{ success: true, despawned, cards: { total, spawned, entities },
+	 * round }`. `cards.entities` maps each spawned card id to its entity id, so the
+	 * operator can find the droid they just chose. Unknown card ids are refused with
+	 * a 400 naming them - before anything is destroyed, so a typo cannot empty a
+	 * running world on its way to an error message.
+	 */
+	router.post('/world/create', createWorldLimiter, (req, res) => {
+		try {
+			const cardIds = req.body && Object.hasOwn(req.body, 'cardIds') ? req.body.cardIds : null;
+			const result = worldStateController.recreateWorld({ cardIds });
+			if (broadcastService) broadcastService.broadcast();
+			res.json({ success: true, ...result });
+		} catch (error) {
+			const status = WORLD_CREATE_STATUS[error?.code];
+			if (status) {
+				sendRouteErrorBody(
+					error,
+					res,
+					'POST /world/create',
+					{ success: false, error: { code: error.code, message: error.message } },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, '/world/create');
+		}
 	});
 
 	// =========================================================================

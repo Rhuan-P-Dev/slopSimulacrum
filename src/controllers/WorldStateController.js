@@ -14,6 +14,7 @@ import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDir
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
+import { recreateWorld as recreateWorldLogic } from './logic/WorldRecreateLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { wearItem, getWornItems } from './logic/WearLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
@@ -263,8 +264,19 @@ class WorldStateController {
     /**
      * Sets up initial world state. NPCs are spawned via _spawnNpcs();
      * player droids are incarnated only via socket connection.
+     *
+     * This is the one seeding order of a world: boot calls it with nothing and
+     * gets every card in `data/cards/`; `recreateWorld()` (POST /world/create)
+     * calls it with the cards the operator chose. Keeping both on this path is
+     * what makes "a new world" mean the same thing in both places.
+     *
+     * @param {Object} [options]
+     * @param {string[]} [options.cardIds] - Cards to spawn (absent -> every card
+     *   file). Validated by the caller (`WorldRecreateLogic`); this method does
+     *   not re-validate, it seeds.
+     * @returns {{total: number, spawned: number, entities: Array}} the card-spawn report.
      */
-    initializeWorld() {
+    initializeWorld(options = {}) {
         // Static world objects (props) declared in data/mods/core-world-objects/worldObjects.json are
         // materialized as isStatic entities (see _spawnStaticProps). Spawned
         // first so they are settled scenery before the actors arrive.
@@ -275,12 +287,14 @@ class WorldStateController {
         this._spawnNpcs();
         // Card droids (data/cards/ → LLM M1 NPCs, random room + point):
         // spawned alongside the registry NPCs so a new PNG auto-appears on boot.
-        this._spawnCards();
+        const cards = this._spawnCards({ only: options.cardIds });
 
         // Perception: a freshly initialized world has no meaningful "since last
         // observation" history — reset the observer's per-room snapshots and
         // per-agent cursors so the first perception read is an honest baseline.
         this.perceptionController?.reset();
+
+        return cards;
     }
 
     /**
@@ -439,14 +453,29 @@ class WorldStateController {
     }
 
     /**
-     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, always in the first room (in world-definition order) at a uniformly-random point inside it.
+     * FASE 7 (facade logic extraction): Spawns every image file in `data/cards/` as a distinct LLM-routed M1 droid, always in the first room (in world-definition order) at a uniformly-random point inside it. `options.only` narrows the spawn to chosen card ids (create-world); absent it spawns every card file, which is what boot does.
      * Implementation: src/controllers/logic/CardSpawnLogic.js (`spawnCards`). This thin
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
      * @private
+     * @param {{only?: string[]}} [options]
+     * @returns {{total: number, spawned: number, entities: Array}}
      */
-    _spawnCards() {
-        return spawnCards(this);
+    _spawnCards(options = {}) {
+        return spawnCards(this, options);
+    }
+
+    /**
+     * Create a new world inside this running server: despawn every entity, clear
+     * the previous world's runtime memory, and re-seed the map with the chosen
+     * cards. The definition (mod packages) and the round counter are not reset.
+     * Implementation: src/controllers/logic/WorldRecreateLogic.js.
+     * @param {Object} [options]
+     * @param {string[]} [options.cardIds] - Cards to populate the world with.
+     * @returns {{despawned: number, cards: Object, round: number|null}}
+     */
+    recreateWorld(options = {}) {
+        return recreateWorldLogic(this, options);
     }
 
     /**

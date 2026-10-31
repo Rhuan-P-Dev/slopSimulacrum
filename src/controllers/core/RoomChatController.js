@@ -138,6 +138,19 @@ class RoomChatController {
     }
 
     /**
+     * Drops every room's chat history.
+     *
+     * Used when a new world is created in place: a transcript belongs to the
+     * speakers who said it, and an empty world with the dead world's
+     * conversation in the chat panel is a lie the client would keep telling
+     * until it was reloaded.
+     * @returns {void}
+     */
+    clear() {
+        this._rooms = {};
+    }
+
+    /**
      * Returns the complete chat store for persistence (schema v2 "roomChat"
      * section — added by Feature D; the section is additive on v2).
      * @returns {Object<string, Array>}

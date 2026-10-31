@@ -51,6 +51,18 @@ async function withServer(deps) {
             const res = await fetch(`http://localhost:${port}${path}`, { method: 'POST' });
             return { status: res.status, body: await res.json() };
         },
+        get: async (path) => {
+            const res = await fetch(`http://localhost:${port}${path}`);
+            return { status: res.status, body: await res.json() };
+        },
+        postJson: async (path, payload) => {
+            const res = await fetch(`http://localhost:${port}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            return { status: res.status, body: await res.json() };
+        },
         close: () => server.close()
     };
 }
@@ -149,6 +161,111 @@ describe('POST /mods/:id/enable and /disable', () => {
         expect(status).toBe(500);
         expect(body.error).toBe('Internal Server Error');
         expect(body.details).toBe('disk is gone');
+        close();
+    });
+});
+
+/**
+ * `POST /mods/apply` and `GET /mods/:id/files`.
+ *
+ * The apply contract is the one a human clicks, so it is worth pinning: the route
+ * forwards the service's answer unchanged, and `applied: false` with an
+ * `appliesAt` is a deferral the client must be able to show. A 200 with a body
+ * that only says `ok` would hide the difference between "the world changed" and
+ * "a round is open, be patient", which is the difference the round boundary
+ * exists to make.
+ */
+describe('POST /mods/apply and GET /mods/:id/files', () => {
+    /** A service stub whose apply / files answers each test sets. */
+    function makeApplyStub() {
+        const calls = [];
+        return {
+            calls,
+            service: {
+                requestApply: () => {
+                    calls.push(['requestApply']);
+                    if (behavior?.applyThrows) throw behavior.applyThrows;
+                    return behavior?.applyResult ?? { applied: false, pending: true, appliesAt: 'next round boundary', reason: 'ROUND_ACTIVE' };
+                },
+                packageFiles: (id) => {
+                    calls.push(['packageFiles', id]);
+                    if (behavior?.filesThrows) throw behavior.filesThrows;
+                    return behavior?.filesResult ?? { id, dir: `data/mods/${id}`, manifest: { id }, files: [] };
+                }
+            }
+        };
+    }
+
+    beforeEach(() => { behavior = null; });
+
+    it('answers a deferred apply with the moment it will land, not with a failure', async () => {
+        const { service, calls } = makeApplyStub();
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/apply');
+        expect(status).toBe(200);
+        expect(body).toEqual({
+            success: true, applied: false, pending: true, appliesAt: 'next round boundary', reason: 'ROUND_ACTIVE'
+        });
+        expect(calls).toEqual([['requestApply']]);
+        close();
+    });
+
+    it('answers an immediate apply with the swap report', async () => {
+        behavior = {
+            applyResult: {
+                applied: true, pending: false, appliesAt: 'immediate',
+                report: { ok: true, version: 4, swappedKinds: ['materials'], quarantined: [], mods: 21 }
+            }
+        };
+        const { service } = makeApplyStub();
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/apply');
+        expect(status).toBe(200);
+        expect(body.applied).toBe(true);
+        expect(body.report.version).toBe(4);
+        expect(body.report.swappedKinds).toEqual(['materials']);
+        close();
+    });
+
+    it('maps a candidate the world will not take to 409, with the code', async () => {
+        behavior = { applyThrows: new GameError('candidate is not installable', 'REGISTRY_CANDIDATE_INVALID') };
+        const { service } = makeApplyStub();
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/apply');
+        expect(status).toBe(409);
+        expect(body.error).toBe('REGISTRY_CANDIDATE_INVALID');
+        close();
+    });
+
+    it('lists a package\'s own files', async () => {
+        behavior = {
+            filesResult: {
+                id: 'core-materials',
+                dir: 'data/mods/core-materials',
+                manifest: { id: 'core-materials', version: '1.0.0', content: ['materials'] },
+                files: [
+                    { name: 'materials.json', json: true, kind: 'materials', content: { steel: {} } },
+                    { name: 'mod.json', json: true, kind: null, content: { id: 'core-materials' } }
+                ]
+            }
+        };
+        const { service, calls } = makeApplyStub();
+        const { get, close } = await withServer({ modService: service });
+        const { status, body } = await get('/mods/core-materials/files');
+        expect(status).toBe(200);
+        expect(body.dir).toBe('data/mods/core-materials');
+        expect(body.files.map((f) => [f.name, f.kind])).toEqual([['materials.json', 'materials'], ['mod.json', null]]);
+        expect(calls).toEqual([['packageFiles', 'core-materials']]);
+        close();
+    });
+
+    it('404s the files of a package that is not installed', async () => {
+        behavior = { filesThrows: new GameError('ModService: no mod package named "nope" is installed', 'MOD_NOT_FOUND') };
+        const { service } = makeApplyStub();
+        const { get, close } = await withServer({ modService: service });
+        const { status, body } = await get('/mods/nope/files');
+        expect(status).toBe(404);
+        expect(body.error).toBe('MOD_NOT_FOUND');
         close();
     });
 });

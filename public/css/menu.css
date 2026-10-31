@@ -1,0 +1,310 @@
+/*
+ * menu.css - the top menu, the launcher, and the two full-screen views.
+ *
+ * The bar is the only permanent chrome this client has that is not a panel: it
+ * stays where the config bar used to be reachable from, and the views it opens
+ * cover the game rather than floating over it, because they are decisions about
+ * the world, not windows inside it.
+ *
+ * The z-index is far above OverlayManager's (Z_INDEX_BASE 100): a view covering
+ * the game covers its overlays too, and a settings window that outlives the
+ * launcher looks like a bug in the launcher.
+ */
+
+/* The bar stays above the full-screen views (z-index 5100 vs 5000): the launcher
+ * covers the game, not the way out of itself. Its buttons switch views, so a
+ * user inside Mods can jump to Create world without closing anything, and the
+ * brand never disappears. The screens pad their own top so a header - with its
+ * Close button - never sits behind the bar. */
+#app-menu {
+    position: relative;
+    z-index: 5100;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 10px;
+    background: var(--config-bar-bg, #1a1a1a);
+    border-bottom: 1px solid var(--config-bar-border, #333);
+    flex: 0 0 auto;
+}
+
+.app-menu-brand {
+    color: var(--neon-green);
+    text-shadow: var(--glow);
+    font-weight: bold;
+    letter-spacing: 0.2em;
+    font-size: 1.1em;
+    margin-right: 6px;
+    user-select: none;
+}
+
+.app-menu-btn {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--neon-green);
+    padding: 4px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9em;
+}
+
+.app-menu-btn:hover {
+    background: var(--dark-green);
+    box-shadow: var(--glow);
+}
+
+/* ---------------------------------------------------------------- full screens */
+
+.sim-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background: rgba(6, 6, 6, 0.97);
+    overflow-y: auto;
+    /* 56px clears the menu bar that paints above this screen. */
+    padding: 56px 16px 48px;
+}
+
+.sim-screen-inner {
+    width: min(980px, 100%);
+    color: var(--text-main);
+}
+
+.sim-screen-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    border-bottom: 1px solid var(--config-bar-border, #333);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+}
+
+.sim-screen-title {
+    color: var(--neon-green);
+    text-shadow: var(--glow);
+    margin: 0;
+    font-size: 1.3em;
+    letter-spacing: 0.08em;
+}
+
+.sim-screen-note {
+    color: var(--text-dim);
+    font-size: 0.85em;
+    flex: 1 1 auto;
+}
+
+.sim-btn {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--neon-green);
+    padding: 6px 14px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.sim-btn:hover:not(:disabled) {
+    background: var(--dark-green);
+}
+
+.sim-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.sim-btn-primary {
+    background: var(--neon-green);
+    color: var(--bg-black);
+    font-weight: bold;
+}
+
+.sim-btn-ghost {
+    border-color: var(--config-bar-border, #444);
+    color: var(--text-dim);
+}
+
+.sim-btn-small {
+    padding: 2px 8px;
+    font-size: 0.85em;
+}
+
+.sim-screen-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.sim-status {
+    margin: 0;
+    font-size: 0.9em;
+    color: var(--text-dim);
+}
+
+.sim-status--ok { color: var(--neon-green); }
+.sim-status--warn { color: var(--neon-orange, #ff6600); }
+.sim-status--error { color: var(--neon-red, #ff0044); }
+.sim-status--dim { color: var(--text-dim); }
+
+/* ------------------------------------------------------------------- launcher */
+
+.launcher-inner {
+    text-align: center;
+    padding-top: 12vh;
+}
+
+.launcher-brand {
+    color: var(--neon-green);
+    text-shadow: var(--glow);
+    font-size: clamp(2em, 7vw, 4.5em);
+    letter-spacing: 0.3em;
+    margin: 0 0 4px;
+}
+
+.launcher-tagline {
+    color: var(--text-dim);
+    margin: 0 0 28px;
+    font-size: 0.95em;
+}
+
+.launcher-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.launcher-actions .sim-btn {
+    min-width: 160px;
+    padding: 10px 18px;
+}
+
+/* -------------------------------------------------------------- create world */
+
+.cw-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.cw-hint {
+    color: var(--text-dim);
+    font-size: 0.82em;
+}
+
+.cw-list {
+    border: 1px solid var(--config-bar-border, #333);
+}
+
+.cw-row {
+    display: grid;
+    grid-template-columns: 18px minmax(110px, 1fr) minmax(90px, 1fr) 3fr;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #1f1f1f;
+    cursor: pointer;
+}
+
+.cw-row:hover { background: #121212; }
+.cw-row:last-child { border-bottom: none; }
+
+.cw-name { color: var(--neon-green); }
+.cw-id { color: var(--text-dim); font-size: 0.85em; }
+.cw-desc { color: var(--text-dim); font-size: 0.82em; }
+.cw-empty { color: var(--text-dim); padding: 10px; }
+
+/* ----------------------------------------------------------------------- mods */
+
+.mods-summary { margin-bottom: 12px; }
+.mods-live { margin: 0 0 6px; color: var(--text-main); }
+.mods-pending {
+    margin: 6px 0 0;
+    color: var(--neon-orange, #ff6600);
+    font-size: 0.9em;
+}
+.mods-pending--bad { color: var(--neon-red, #ff0044); }
+
+.mods-chip {
+    display: inline-block;
+    border: 1px solid var(--dark-green);
+    color: var(--neon-green);
+    font-size: 0.75em;
+    padding: 0 5px;
+    margin: 1px 3px 1px 0;
+}
+.mods-chip--none { border-color: var(--config-bar-border, #444); color: var(--text-dim); }
+.mods-counts { margin: 0; }
+
+.mods-h {
+    color: var(--text-main);
+    font-size: 0.95em;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--config-bar-border, #333);
+    padding-bottom: 4px;
+    margin: 18px 0 8px;
+}
+.mods-h--bad { color: var(--neon-red, #ff0044); }
+
+.mods-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    border-bottom: 1px solid #1f1f1f;
+    padding: 7px 4px;
+}
+.mods-row-main { flex: 1 1 auto; }
+.mods-row-actions { display: flex; gap: 6px; padding-top: 2px; }
+
+.mods-id { color: var(--neon-green); margin-right: 6px; }
+.mods-version { color: var(--text-dim); font-size: 0.85em; margin-right: 6px; }
+.mods-kinds { margin-top: 3px; }
+.mods-requires { color: var(--text-dim); font-size: 0.8em; margin-left: 6px; }
+.mods-order { color: var(--text-dim); font-size: 0.8em; margin-left: 6px; }
+.mods-blocked { color: var(--neon-red, #ff0044); font-size: 0.82em; margin-top: 3px; }
+
+.mods-flag {
+    display: inline-block;
+    border: 1px solid var(--config-bar-border, #444);
+    color: var(--text-dim);
+    font-size: 0.75em;
+    padding: 0 5px;
+    margin-left: 4px;
+}
+.mods-flag--on { border-color: var(--neon-green); color: var(--neon-green); }
+.mods-flag--bad { border-color: var(--neon-red, #ff0044); color: var(--neon-red, #ff0044); }
+.mods-flag--official { border-color: var(--neon-orange, #ff6600); color: var(--neon-orange, #ff6600); }
+
+.mods-bad { color: var(--text-dim); font-size: 0.85em; padding: 2px 0; }
+.mods-more { color: var(--text-dim); font-size: 0.8em; }
+.mods-empty { color: var(--text-dim); font-size: 0.9em; }
+
+.mods-plan-row {
+    display: grid;
+    grid-template-columns: 160px 70px 1fr;
+    gap: 8px;
+    font-size: 0.85em;
+    padding: 2px 0;
+}
+.mods-plan-kind { color: var(--neon-green); }
+.mods-plan-diff { color: var(--neon-orange, #ff6600); }
+.mods-plan-names { color: var(--text-dim); }
+
+.mods-files { margin-top: 16px; }
+.mods-dir { color: var(--text-dim); font-size: 0.8em; font-weight: normal; }
+.mods-file { border: 1px solid #222; padding: 6px; margin-bottom: 8px; }
+.mods-file-head { margin-bottom: 4px; }
+.mods-pre {
+    margin: 0;
+    max-height: 260px;
+    overflow: auto;
+    background: var(--bg-black);
+    color: var(--text-dim);
+    font-size: 0.78em;
+    padding: 6px;
+    white-space: pre-wrap;
+}
