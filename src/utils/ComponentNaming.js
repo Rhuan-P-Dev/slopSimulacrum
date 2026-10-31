@@ -24,11 +24,31 @@ import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 let recipes = null;
 
 /**
- * Loads data/components/components.json via the shared safe loader (never
- * throws; returns the default on failure).
+ * The live world definition, injected once by the composition root. While it is
+ * set, the recipe names come from the store's holder — identity-stable, content
+ * swapped as one step — so a mod that renames a component shows up in the next
+ * message rather than after a restart. Unset (a test, a utility used outside the
+ * composition) falls back to the cached seam read below.
+ * @type {import('../services/RegistryStore.js').RegistryStore|null}
+ */
+let registries = null;
+
+/**
+ * Inject the live world definition (`RegistryStore`). Called from the
+ * composition root; passing null restores the seam-read fallback.
+ * @param {import('../services/RegistryStore.js').RegistryStore|null} store
+ */
+export function setRegistries(store) {
+    registries = store ?? null;
+}
+
+/**
+ * Loads the component recipe registry (kind `components`) via the shared safe
+ * loader (never throws; returns the default on failure).
  * @returns {Object<string, Object<string, {name?: string}>>|null}
  */
 function loadRecipes() {
+    if (registries) return registries.read(REGISTRY_KINDS.COMPONENTS);
     if (recipes) return recipes;
     const loaded = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS, null);
     if (loaded && typeof loaded === 'object' && Object.keys(loaded).length > 0) {

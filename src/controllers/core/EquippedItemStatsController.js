@@ -10,9 +10,9 @@
  *
  * @module EquippedItemStatsController
  */
-import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { readRegistryFrom } from '../../services/RegistryStore.js';
 
 /**
  * @typedef {Object} TraitStats
@@ -35,7 +35,11 @@ class EquippedItemStatsController {
      * never read) — it has been removed. This is now a pure data store with no
      * controller dependencies.
      */
-    constructor() {
+    /**
+     * @param {import('../../services/RegistryStore.js').RegistryStore|null} [registries]
+     *   The live world definition; null reads the data seam (hand-built in tests).
+     */
+    constructor(registries = null) {
         /**
          * Callback triggered whenever an item stat changes (delta or absolute).
          * Receives (eqId, traitId, statName, newValue, oldValue).
@@ -53,11 +57,11 @@ class EquippedItemStatsController {
         this._itemStats = {};
 
         /**
-         * Item definitions loaded from data/components/inventoryItems.json.
+         * Item definitions (registry kind `inventoryItems`).
          * Format: { [itemType]: { name, description, volume, traits, ... } }
          * @type {Object<string, Object>}
          */
-        this._itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
+        this._itemDefinitions = readRegistryFrom(registries, REGISTRY_KINDS.INVENTORY_ITEMS);
 
         Logger.info(`[EquippedItemStatsController] Initialized with ${Object.keys(this._itemDefinitions).length} item type definitions`);
 

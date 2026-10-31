@@ -311,6 +311,11 @@ describe('WorldStateController public method surface', () => {
         // newest); resolves logical room names and supplies the tick.
         'getPerceptionDeltasForRoom',
         'getRecentEvents',
+        // Added deliberately (wiki/decisions/mod-system.md): the live registry
+        // accessor. Readers that run at call time (routes, consequence handlers,
+        // spawn helpers) ask the facade for a registry KIND instead of parsing a
+        // data file of their own, so a mod applied at a round boundary reaches them.
+        'getRegistry',
         'getRoomChatMessages',
         'getRoomUidByLogicalId',
         'getRooms',

@@ -15,10 +15,10 @@
  *
  * @module HoldingCostController
  */
-import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 import { generateEquippedId } from '../../utils/idGenerator.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { readRegistryFrom } from '../../services/RegistryStore.js';
 
 /**
  * @typedef {Object} HoldingCostEntry
@@ -39,8 +39,10 @@ class HoldingCostController {
      * @param {Object} deps.worldStateController - WorldStateController for component stats access
      * @param {Object} deps.actionController - ActionController for capability re-evaluation
      * @param {EquippedItemStatsController} deps.equippedItemStats - EquippedItemStatsController for in-memory item stats
+     * @param {import('../../services/RegistryStore.js').RegistryStore|null} [deps.registries]
+     *   The live world definition; null reads the data seam (hand-built in tests).
      */
-    constructor({ actionController, equippedItemStats } = {}) {
+    constructor({ actionController, equippedItemStats, registries = null } = {}) {
         /**
          * @type {WorldStateController|null} Injected post-construction via
          * setWorldStateController() (FASE 5: the facade is no longer passed at
@@ -51,14 +53,14 @@ class HoldingCostController {
         this.equippedItemStats = equippedItemStats;
 
         /**
-         * Holding cost definitions loaded from data/components/holdingCost.json
+         * Holding cost definitions (registry kind `holdingCost`).
          * Format: { [itemType]: HoldingCostDefinition }
          * @type {Object<string, HoldingCostDefinition>}
          */
         // The data file is a single mass-lever MODEL (not a per-item map): it
         // gates equipping on a strength-to-mass ratio and burdens the function
         // stats (move / fine_controls) by the carried item's mass.
-        this._model = DataLoader.loadRegistry(REGISTRY_KINDS.HOLDING_COST);
+        this._model = readRegistryFrom(registries, REGISTRY_KINDS.HOLDING_COST);
         this._itemMassCache = {};
 
         Logger.info(`[HoldingCostController] Initialized massBurden model (equipable: ${JSON.stringify(this._model.equipableItems || [])})`);

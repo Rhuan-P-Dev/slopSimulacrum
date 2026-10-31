@@ -1,5 +1,4 @@
 import Logger from '../utils/Logger.js';
-import DataLoader from '../utils/DataLoader.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 
@@ -26,7 +25,7 @@ export function register(router, { worldStateController }) {
      */
     router.get('/internal-components/registry', (req, res) => {
         try {
-            const registry = DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
+            const registry = worldStateController.getRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
             return res.json(registry);
         } catch (error) {
             Logger.error(`[InternalComponentRoutes] GET /registry error: ${error.message}`);

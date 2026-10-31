@@ -17,7 +17,6 @@
  * instance and each function only uses the members named in its JSDoc.
  */
 
-import DataLoader from '../../utils/DataLoader.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
@@ -284,7 +283,7 @@ function precheckCraftVolume(facade, recipe, entity, componentId, items) {
     // Self-contained available-volume computation (does not rely on the InventoryManager
     // capacity check, which is intentionally non-enforcing). maxVolume comes from the
     // component definition's form.volume; usedVolume sums the items on the component.
-    const componentDefs = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
+    const componentDefs = facade.getRegistry(REGISTRY_KINDS.COMPONENTS);
     const comp = entity.components?.find(c => c.id === componentId);
     const compDef = comp ? (componentDefs[comp.type] || {}) : {};
     const maxVolume = (typeof compDef.form?.volume === 'number')

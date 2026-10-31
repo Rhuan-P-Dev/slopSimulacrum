@@ -1,7 +1,7 @@
 import { generateUID } from '../../utils/idGenerator.js';
-import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { readRegistryFrom } from '../../services/RegistryStore.js';
 
 /**
  * The light levels a room's `atmosphere.lightLevel` may declare. The single
@@ -46,9 +46,12 @@ const VALID_POWER = ['live', 'flickering', 'dead'];
 class RoomsController {
     /**
      * Creates a new RoomsController instance.
-     * Loads room definitions from data/world/rooms.json and initializes the internal room store.
+     * Loads the room definitions (registry kind `rooms`) and initializes the
+     * internal room store.
+     * @param {import('../../services/RegistryStore.js').RegistryStore|null} [registries]
+     *   The live world definition; null reads the data seam (hand-built in tests).
      */
-    constructor() {
+    constructor(registries = null) {
         // Internal storage for rooms.
         // Format: { roomId: { id, name, surface, acoustic, lightSource, ceiling, condition, power, connections: { doorId: { target: destinationRoomUid } }, x, y, width, height, atmosphere, objects: [], entities: [] } }
         this.rooms = {};
@@ -61,7 +64,7 @@ class RoomsController {
         this.doorPositions = {};
 
         // Load room definitions from external data file (per DataLoader pattern used by WorldStateController)
-        const roomDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.ROOMS);
+        const roomDefinitions = readRegistryFrom(registries, REGISTRY_KINDS.ROOMS);
 
         // Validate loaded definitions before initialization
         this._validateRoomDefinitions(roomDefinitions);

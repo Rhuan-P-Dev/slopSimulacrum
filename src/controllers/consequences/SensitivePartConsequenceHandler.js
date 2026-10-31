@@ -26,7 +26,6 @@
  * @module SensitivePartConsequenceHandler
  */
 import Logger from '../../utils/Logger.js';
-import DataLoader from '../../utils/DataLoader.js';
 import { FLAG_NAMES } from '../../../shared/StatVocabulary.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
@@ -38,14 +37,44 @@ class SensitivePartConsequenceHandler {
     constructor(controllers) {
         this.worldStateController = controllers.worldStateController || null;
 
-        // Static world data: per-part sensitivity values (0-100) for the
-        // sensitive parts. Loaded once; the `_comment` key is skipped.
-        const file = DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS);
-        this._sensitivityByPartType = {};
+        /** @private {Object<string, number>|null} Derived per-part sensitivity table. */
+        this._sensitivityByPartType = null;
+        /** @private {number} RegistryStore version the cached table was derived from. */
+        this._sensitivityVersion = -1;
+        /** @private {Object|null} Facade instance the cached table was derived through. */
+        this._sensitivitySource = null;
+    }
+
+    /**
+     * Per-part sensitivity values (registry kind `sensitiveParts`), `_comment`
+     * skipped — the table the touch outcome is computed from.
+     *
+     * Derived lazily and re-derived when the world definition swaps: the
+     * `RegistryStore` version is the cache key, so a mod that retunes a
+     * sensitivity takes effect on the next touch rather than at the next restart.
+     * The facade itself is part of the key because it is injected after
+     * construction, and an empty table built before injection must not stick.
+     * @returns {Object<string, number>}
+     * @private
+     */
+    _sensitivityTable() {
+        const facade = this.worldStateController;
+        const version = facade?.registryStore?.version() ?? 0;
+        if (this._sensitivityByPartType
+            && this._sensitivityVersion === version
+            && this._sensitivitySource === facade) {
+            return this._sensitivityByPartType;
+        }
+        const file = facade?.getRegistry?.(REGISTRY_KINDS.SENSITIVE_PARTS) ?? {};
+        const table = {};
         for (const [partType, value] of Object.entries(file)) {
             if (partType === '_comment') continue;
-            this._sensitivityByPartType[partType] = value;
+            table[partType] = value;
         }
+        this._sensitivityByPartType = table;
+        this._sensitivityVersion = version;
+        this._sensitivitySource = facade;
+        return table;
     }
 
     /**
@@ -97,7 +126,7 @@ class SensitivePartConsequenceHandler {
             };
         }
 
-        const sensitivity = this._sensitivityByPartType[component.type];
+        const sensitivity = this._sensitivityTable()[component.type];
         if (typeof sensitivity !== 'number' || !Number.isFinite(sensitivity) || sensitivity <= 0) {
             return {
                 success: false,

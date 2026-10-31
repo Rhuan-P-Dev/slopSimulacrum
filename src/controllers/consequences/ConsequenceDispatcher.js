@@ -43,10 +43,11 @@ class ConsequenceDispatcher {
          * can query it. When null (bare/test builds) execution is unchanged.
          */
         this.actionAttributionStore = null;
-        // Lazy cache for recipe files (data/components/components.json,
-        // data/components/inventoryItems.json) used to name components/weapons in
-        // log messages (BUG-140 follow-up).
+        // Lazy cache for recipe registries (kinds `components`, `inventoryItems`)
+        // used to name components/weapons in log messages (BUG-140 follow-up).
         this._recipeCache = null;
+        /** @private {number} RegistryStore version the recipe cache was filled from. */
+        this._recipeCacheVersion = -1;
     }
 
     /**
@@ -918,6 +919,13 @@ class ConsequenceDispatcher {
      */
     _recipeName(kind, type) {
         if (!type || typeof type !== 'string') return null;
+        // The cache is keyed by kind only, so a swap has to clear it: the store
+        // version is a counter, and comparing against it costs one property read.
+        const version = this.worldStateController?.registryStore?.version() ?? 0;
+        if (this._recipeCacheVersion !== version) {
+            this._recipeCache = null;
+            this._recipeCacheVersion = version;
+        }
         let recipes = this._recipeCache && this._recipeCache[kind];
         if (!recipes) {
             recipes = DataLoader.loadRegistry(kind);

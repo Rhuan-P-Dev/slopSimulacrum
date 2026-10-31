@@ -44,6 +44,8 @@
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import RegistryStore from '../services/RegistryStore.js';
+import { setRegistries as setComponentNamingRegistries } from '../utils/ComponentNaming.js';
+import { setRegistries as setEntityAttributeRegistries } from '../utils/EntityAttributeData.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import {
     WORLD_EVENTS_MAX_LIMIT,
@@ -181,6 +183,13 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
         [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: DataLoader.loadRegistry(REGISTRY_KINDS.ENTITY_ATTRIBUTES, { attributes: {} })
     });
 
+    // Two utility modules cache their registry at module level (they are imported
+    // by name, not injected). Handing them the store keeps them on the live
+    // definition; without this they would keep serving the boot-time parse after a
+    // mod swap — the half-applied world this store exists to prevent.
+    setComponentNamingRegistries(store);
+    setEntityAttributeRegistries(store);
+
     const actionRegistry = store.read(REGISTRY_KINDS.ACTIONS);
     const componentRegistry = store.read(REGISTRY_KINDS.COMPONENTS);
     const traitsRegistry = store.read(REGISTRY_KINDS.TRAITS);
@@ -279,12 +288,15 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
         recipes: craftingRegistry,
         items: inventoryItemRegistry
     });
-    const internalComponentController = new InternalComponentController(null, tickSystem);
-    const roomsController = new RoomsController();
+    // The `store` argument below hands each data store the LIVE registry holder
+    // (identity-stable, content swapped as one step), so a mod applied at a round
+    // boundary reaches a controller that captured its registry at construction.
+    const internalComponentController = new InternalComponentController(null, tickSystem, store);
+    const roomsController = new RoomsController(store);
     // World objects (props) are spawned as isStatic entities by the facade's
     // initializeWorld() → _spawnStaticProps() (see
     // wiki/subMDs/systems/world_objects.md); no separate controller is needed.
-    const inventoryManager = new InventoryManager({ materialController });
+    const inventoryManager = new InventoryManager({ materialController, registries: store });
     // Feature B: world event ring buffer (state owner; capacity WORLD_EVENTS_MAX_LIMIT per spec §4.1)
     const worldEventLogController = new WorldEventLogController(WORLD_EVENTS_MAX_LIMIT);
     // Feature E: per-agent action-outcome feedback store (capacity AGENT_FEEDBACK_CAPACITY per agent).
@@ -320,7 +332,7 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     const actionAttributionStore = new ActionAttributionStore();
     // NOTE: EquippedItemStatsController no longer takes the facade (its reference was
     // dead code — it was stored but never read). It is a pure data store.
-    const equippedItemStats = new EquippedItemStatsController();
+    const equippedItemStats = new EquippedItemStatsController(store);
 
     // --- Layer 1: logic controllers (depend on data stores + registries) ---
     const componentController = new ComponentController(statsController, traitsController, componentRegistry, materialController);
@@ -357,7 +369,7 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // stateEntityController: pure named deps (entityController, actionController, internalComponentController).
     const stateEntityControllerInstance = new stateEntityController(entityController, actionController, internalComponentController);
     // HoldingCostController: needs actionController + equippedItemStats (named); facade injected later.
-    const holdingCostController = new HoldingCostController({ actionController, equippedItemStats });
+    const holdingCostController = new HoldingCostController({ actionController, equippedItemStats, registries: store });
     // Feature B: LLM context renderer (logic controller; reads the facade's
     // public API — facade injected later, same pattern as the other readers).
     const llmContextController = new LlmContextController({ actionRegistry });
@@ -406,6 +418,10 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // =========================================================================
     const worldStateController = new WorldStateController({
         tickSystem,
+        // The live world definition. Readers that need a registry at call time go
+        // through facade.getRegistry(kind); see src/services/RegistryStore.js and
+        // wiki/decisions/mod-system.md.
+        registryStore: store,
         statsController,
         traitsController,
         internalComponentController,

@@ -6,7 +6,6 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import DataLoader from '../../utils/DataLoader.js';
 import { generateUID } from '../../utils/idGenerator.js';
 import { DEFAULT_HOST_VOLUME_FALLBACK } from '../../utils/Constants.js';
 import { channelLossFromResistance } from '../../utils/channelLoss.js';
@@ -14,20 +13,23 @@ import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '..
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
 import { writeDroppedItem } from '../consequences/DropItemHandler.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { readRegistryFrom } from '../../services/RegistryStore.js';
 
 class InternalComponentController {
     /**
      * @param {Object} [internalComponentRegistry] - Pre-loaded internal component definitions.
      *   If not provided, loads from data/components/internalComponents.json.
      * @param {UniversalTickSystem} [tickSystem] - The global tick system instance.
+     * @param {import('../../services/RegistryStore.js').RegistryStore|null} [registries]
+     *   The live world definition; null reads the data seam (hand-built in tests).
      */
-    constructor(internalComponentRegistry = null, tickSystem = null) {
+    constructor(internalComponentRegistry = null, tickSystem = null, registries = null) {
         // Load registry from data file
-        this.registry = internalComponentRegistry || DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
+        this.registry = internalComponentRegistry || readRegistryFrom(registries, REGISTRY_KINDS.INTERNAL_COMPONENTS);
         this._validateRegistry(this.registry);
 
         // Load component definitions for trait checking
-        this.componentDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
+        this.componentDefinitions = readRegistryFrom(registries, REGISTRY_KINDS.COMPONENTS);
         this._validateComponentDeclarations();
 
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }

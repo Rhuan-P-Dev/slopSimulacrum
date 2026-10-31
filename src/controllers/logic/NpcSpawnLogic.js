@@ -15,7 +15,6 @@
  * instance and each function only uses the members named in its JSDoc.
  */
 
-import DataLoader from '../../utils/DataLoader.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { isEnvFlagOn } from '../../utils/Constants.js';
@@ -74,7 +73,7 @@ import { isEnvFlagOn } from '../../utils/Constants.js';
 
 
 function spawnDataDrivenNpcs(facade) {
-    const raw = DataLoader.loadRegistry(REGISTRY_KINDS.NPCS);
+    const raw = facade.getRegistry(REGISTRY_KINDS.NPCS);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return; // no NPC registry configured — not an error
     }

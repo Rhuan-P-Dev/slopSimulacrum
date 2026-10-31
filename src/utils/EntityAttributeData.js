@@ -30,6 +30,24 @@ import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 let _cache = null;
 
 /**
+ * The live world definition, injected once by the composition root. While it is
+ * set the catalog is read from the store's holder, so enabling or disabling the
+ * attribute mod takes effect on the next spawn; unset (a test, or use outside the
+ * composition) keeps the cached seam read.
+ * @type {import('../services/RegistryStore.js').RegistryStore|null}
+ */
+let _registries = null;
+
+/**
+ * Inject the live world definition (`RegistryStore`). Called from the
+ * composition root; passing null restores the seam-read fallback.
+ * @param {import('../services/RegistryStore.js').RegistryStore|null} store
+ */
+export function setRegistries(store) {
+    _registries = store ?? null;
+}
+
+/**
  * Returns the attribute declarations for one entity type (blueprint name).
  * @param {string|null|undefined} [blueprintName] - The blueprint/entity type name.
  * @returns {Object<string, { value: number, max: number, drainPerTurn: number }>}
@@ -61,6 +79,7 @@ export function getAttributes(blueprintName) {
  * @private
  */
 function _loadFile() {
+    if (_registries) return _registries.read(REGISTRY_KINDS.ENTITY_ATTRIBUTES);
     if (_cache === null) {
         _cache = DataLoader.loadRegistry(REGISTRY_KINDS.ENTITY_ATTRIBUTES, { attributes: {} });
     }

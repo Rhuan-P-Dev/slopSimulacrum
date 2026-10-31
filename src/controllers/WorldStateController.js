@@ -171,6 +171,14 @@ class WorldStateController {
         // aggregation (same rule as craftingController / knowledgeController).
         /** @private {import('./worldRules/WorldRulesController.js')|null} */
         this.worldRulesController = deps.worldRulesController ?? null;
+        // RegistryStore: the live world definition (wiki/decisions/mod-system.md).
+        // Null-tolerant like the readers above — a hand-built test facade with no
+        // store falls back to a seam read, which is the same content at boot. The
+        // two differ the moment a mod is applied, which is why call-time readers go
+        // through getRegistry() instead of parsing a file of their own. NOT in the
+        // subControllers broadcast map: a definition is not world state (H-6).
+        /** @type {import('../services/RegistryStore.js').RegistryStore|null} */
+        this.registryStore = deps.registryStore ?? null;
         // OnDamageDropListener: enforcement arm of the onDamage world-event rule.
         // A null-tolerant actor (no getAll()) — deliberately NOT in the subControllers
         // broadcast map (same rule as worldRulesController). The facade registers it
@@ -301,7 +309,7 @@ class WorldStateController {
      * @private
      */
     _spawnStaticProps() {
-        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_OBJECTS);
+        const raw = this.getRegistry(REGISTRY_KINDS.WORLD_OBJECTS);
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             return; // no world-object registry configured — not an error
         }
@@ -1437,6 +1445,24 @@ class WorldStateController {
     // =========================================================================
     // INVENTORY PUBLIC API (for server.js access)
     // =========================================================================
+
+    /**
+     * The LIVE content of one registry kind (`shared/RegistryKinds.js`).
+     *
+     * This is how a reader that runs at call time — a route, a consequence
+     * handler, a spawn helper — gets the world definition instead of parsing a
+     * file of its own. With a store injected it returns the store's holder, whose
+     * identity never changes and whose contents change only inside a swap, so the
+     * answer is always the world the server is actually running. Without a store
+     * (a hand-built test facade) it reads the data seam.
+     * @param {string} kind - A registry kind from `shared/RegistryKinds.js`.
+     * @returns {Object} The registry content.
+     */
+    getRegistry(kind) {
+        return this.registryStore
+            ? this.registryStore.read(kind)
+            : DataLoader.loadRegistry(kind);
+    }
 
     /**
      * Gets the item type definitions (registry).

@@ -4,12 +4,12 @@
  *
  * @module InventoryManager
  */
-import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { getDefinitionVolume, getDefinitionFootprint } from './definitionVolume.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+import { readRegistryFrom } from '../services/RegistryStore.js';
 
 class InventoryManager {
     constructor(options = {}) {
@@ -21,18 +21,26 @@ class InventoryManager {
         this._materialController = options.materialController ?? null;
 
         /**
-         * Item type definitions loaded from data/components/inventoryItems.json
+         * The live world definition (`RegistryStore`), or null to read the seam.
+         * Held because the registries below are captured here: reading the store's
+         * holder keeps them live across a mod swap (identity rule).
+         * @type {import('../services/RegistryStore.js').RegistryStore|null}
+         */
+        this._registries = options.registries ?? null;
+
+        /**
+         * Item type definitions (registry kind `inventoryItems`).
          * Format: { [itemType]: { name, description, volume, traits } }
          * @type {Object}
          */
-        this._itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
+        this._itemDefinitions = readRegistryFrom(this._registries, REGISTRY_KINDS.INVENTORY_ITEMS);
 
         /**
-         * Component definitions loaded from data/components/components.json
+         * Component definitions (registry kind `components`).
          * Format: { [componentType]: { name, traits } }
          * @type {Object}
          */
-        this._componentDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
+        this._componentDefinitions = readRegistryFrom(this._registries, REGISTRY_KINDS.COMPONENTS);
 
         Logger.info(`InventoryManager initialized with ${Object.keys(this._itemDefinitions).length} item types`);
 

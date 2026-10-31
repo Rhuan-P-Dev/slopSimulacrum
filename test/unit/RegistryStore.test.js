@@ -16,6 +16,8 @@ import {
     REGISTRY_KIND_COUNT,
     isRegistryKind
 } from '../../shared/RegistryKinds.js';
+import buildWorldState from '../../src/composition/WorldComposition.js';
+import SensitivePartConsequenceHandler from '../../src/controllers/consequences/SensitivePartConsequenceHandler.js';
 import { describe, it, expect } from 'vitest';
 
 describe('RegistryStore construction', () => {
@@ -182,5 +184,55 @@ describe('shared RegistryKinds vocabulary', () => {
     it('the kind vocabulary is frozen against runtime edits', () => {
         expect(Object.isFrozen(REGISTRY_KINDS)).toBe(true);
         expect(Object.isFrozen(REGISTRY_KIND_LIST)).toBe(true);
+    });
+});
+
+describe('a swap reaches the readers (the reason the store exists)', () => {
+    it('keeps the facade on the same holder, and a swap lands there', () => {
+        const { worldStateController, registryStore } = buildWorldState();
+        const liveItems = registryStore.read(REGISTRY_KINDS.INVENTORY_ITEMS);
+
+        // The facade does not keep its own parse: it reads the store's holder.
+        expect(worldStateController.getRegistry(REGISTRY_KINDS.COMPONENTS))
+            .toBe(registryStore.read(REGISTRY_KINDS.COMPONENTS));
+
+        const before = registryStore.version();
+        registryStore.replace({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...liveItems, probe_torch: { name: 'Torch', volume: 2 } }
+        });
+
+        expect(registryStore.version()).toBe(before + 1);
+        // Call-time readers see the new world...
+        expect(worldStateController.getRegistry(REGISTRY_KINDS.INVENTORY_ITEMS).probe_torch?.name)
+            .toBe('Torch');
+        // ...and so does a controller that captured its registry at construction,
+        // because the holder identity never changed (no re-injection, no restart).
+        expect(worldStateController.getItemRegistry().probe_torch).toBeDefined();
+    });
+
+    it('empties a registry when the mod providing it is disabled', () => {
+        const { worldStateController, registryStore } = buildWorldState();
+        // Disabling a mod means its kind has no content: the world loses those
+        // definitions, it does not fall back to the file on disk
+        // (wiki/decisions/mod-system.md, decision 6).
+        registryStore.replace({ [REGISTRY_KINDS.SENSITIVE_PARTS]: {} });
+        expect(worldStateController.getRegistry(REGISTRY_KINDS.SENSITIVE_PARTS)).toEqual({});
+    });
+
+    it('re-derives a cached view when the definition changes', () => {
+        const { worldStateController, registryStore } = buildWorldState();
+        const handler = new SensitivePartConsequenceHandler({ worldStateController });
+        const known = Object.keys(registryStore.read(REGISTRY_KINDS.SENSITIVE_PARTS))
+            .filter((k) => k !== '_comment')[0];
+
+        expect(handler._sensitivityTable()[known]).toBe(
+            registryStore.read(REGISTRY_KINDS.SENSITIVE_PARTS)[known]
+        );
+
+        registryStore.replace({
+            [REGISTRY_KINDS.SENSITIVE_PARTS]: { ...registryStore.read(REGISTRY_KINDS.SENSITIVE_PARTS), [known]: 99 }
+        });
+        // The cache is keyed on the store version, so the retuned value is live.
+        expect(handler._sensitivityTable()[known]).toBe(99);
     });
 });

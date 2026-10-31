@@ -33,8 +33,29 @@
  */
 
 import Logger from '../utils/Logger.js';
+import DataLoader from '../utils/DataLoader.js';
 import { GameError } from '../utils/CustomErrors.js';
 import { REGISTRY_KIND_LIST, isRegistryKind } from '../../shared/RegistryKinds.js';
+
+/**
+ * Read one registry from a store when a store was injected, and from the data
+ * seam when it was not.
+ *
+ * Controllers that pre-load a registry at construction take their collaborators
+ * null-tolerantly (a hand-built facade in a test omits them), and this is the
+ * same idiom applied to world definition: the production composition passes the
+ * live `RegistryStore`, a test passes nothing and gets the same content read
+ * from the file. The two are equivalent at boot; they differ the moment a mod
+ * swaps a registry, which is exactly why the store is the one true source.
+ *
+ * @param {RegistryStore|null|undefined} registries - The injected store, if any.
+ * @param {string} kind - A registry kind from `shared/RegistryKinds.js`.
+ * @param {any} defaultValue - Seam fallback when the source is unreadable.
+ * @returns {any} The registry content.
+ */
+export function readRegistryFrom(registries, kind, defaultValue = {}) {
+    return registries ? registries.read(kind) : DataLoader.loadRegistry(kind, defaultValue);
+}
 
 /**
  * The top-level JSON shape every registry has. Verified against all 21 shipped
