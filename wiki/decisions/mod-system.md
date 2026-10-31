@@ -93,27 +93,43 @@ mapping is mechanical and `git mv` is reviewable:
 | `core-rooms` | `data/world/rooms.json` | `data/mods/core-rooms/rooms.json` |
 | `core-world` | `data/world/world.json` | `data/mods/core-world/world.json` |
 | `core-world-objects` | `data/world/worldObjects.json` | `data/mods/core-world-objects/worldObjects.json` |
-| `core-world-rules` | `data/world/world_rules.json` | `data/mods/core-world-rules/world_rules.json` |
+| `core-world-rules` | `data/world/world_rules.json` | `data/mods/core-world-rules/worldRules.json` |
+
+Two rows differ from the file's old name: inside a package a content file is `<kind>.json`
+and nothing else, so `world_rules.json` became `worldRules.json` and
+`entity_attributes.json` became `entityAttributes.json`. The uniformity is the point - see
+decision 2's file-naming rule below.
 
 Each mod directory carries a `mod.json` manifest:
 
 ```json
 {
   "id": "core-actions",
-  "official": true,
   "version": "1.0.0",
-  "engine": { "minSchema": 1 },
-  "loadOrder": 100,
-  "content": { "actions": "actions.json" }
+  "content": ["actions"]
 }
 ```
 
-`official: true` is derived from the reserved `core-` prefix by the loader, never trusted
-from the file, so a user mod cannot claim to be shipped content (`T-1`, `SEC-7`).
+That is the whole manifest, and every field in it is checked at the edge. Two fields this
+document originally sketched are NOT in it:
 
-**Write targets move with the files.** `AgentBodyController`'s `COMPONENTS_FILE` and
-`BLUEPRINTS_FILE` (`AgentBodyController.js:68-69`) point at the new core paths, and so does
-its backup path scheme.
+- **`official`**. It is derived from the reserved `core-` prefix by the loader, never read
+  from the file, so a user mod cannot claim to be shipped content (`T-1`, `SEC-7`). A field
+  nobody reads is a field somebody will trust by mistake.
+- **`content` as a `{ kind: file }` map** and **`loadOrder`**. A manifest names KINDS, and
+  the file is always `<kind>.json` inside the package directory. A manifest that names files
+  is a path built from untrusted content, which is a class of bug this removes rather than
+  validates. Load order is LOCAL state (`data/mods/loadorder.json`, written by the enable
+  action), because a package must not be able to promote itself to last-writer.
+
+`engine.minSchema` is dropped until a schema version exists to compare against.
+
+**Write targets moved with the files, without a literal.** `AgentBodyController` already
+derives `COMPONENTS_FILE` and `BLUEPRINTS_FILE` from `DataLoader.registrySourcePath(kind)`,
+so the save action followed the move on its own - and its timestamped backups landed next to
+the new files. What the save does is also worth pinning: it re-reads the OFFICIAL file and
+merges onto that content, not onto the merged live world. A mod's override is therefore
+never baked into shipped content by a save, and a save never erases one either.
 
 ### 3. Registry kinds replace path literals; a `RegistryStore` owns the swap.
 
@@ -371,6 +387,35 @@ The loader's open points, now decisions:
 The seam grew by one method (`DataLoader.listDir`) rather than by a new entry in
 `DATA_SEAM_FS_FILES`, so `fs` stays in one file and the lint allowlist is unchanged.
 
+### The shipped content IS the official mod set
+
+Step 4 landed too. The 21 world files are now 21 packages (`git mv`, contents untouched),
+each with the manifest above, and `buildWorldState` builds its definition through
+`ModLoader.build()` instead of 21 `loadRegistry` calls. A directory dropped into
+`data/mods/` with a valid manifest is therefore in the world from the next boot; making it
+take effect without a restart is step 8. `.gitignore` ignores `data/mods/*` with the
+`!data/mods/core-*/` negation, so a user package stays local and the official set ships.
+
+Three consequences worth having written down:
+
+- **`_comment` was never a component.** The shipped files carry a top-level `_comment`
+  header; the loader treats `_`-prefixed keys as file metadata and keeps them out of the
+  definition (six readers in `src/` already skipped them individually). Boot reported
+  "79 components" for exactly that phantom; it now reports 78. Item counts moved the same
+  way, so an unrelated +1 in a log line was this -1 wearing a hat.
+- **A seam mock must subclass, not enumerate.** Static methods are non-enumerable, so
+  `{ ...DataLoader }` copies NOTHING, and five test mocks built the seam that way. The
+  failure was not a TypeError in an obvious place: discovery returned no packages and the
+  world built from whatever the mock happened to list. All five now extend the real class and
+  override the two read paths they intercept.
+- **The move was verified as mechanical, not reviewed as mechanical.** 383 path references
+  changed in 114 files; the check was to undo every substitution and diff against `HEAD`, so
+  "only paths changed" is a result rather than a claim.
+
+Still open from step 4: the write path writes the official file only, so an override kept in
+a user package survives a save but is not what a subsequent read of the core file sees -
+which is correct, and is the behavior step 8's plan/quarantine report has to describe.
+
 ## Next change (when the owner asks for it)
 
 Ordered so each step leaves `npm run check` green. `CHG-7`: steps 2 and 5 are
@@ -378,14 +423,15 @@ behavior-bearing and get a test pinning the current behavior first.
 
 1. Done. `shared/RegistryKinds.js` + `RegistryStore`, built by the composition root, behavior
    bit-identical.
-2. Done for `src/` (no path literal left, and readers are on the live definition). The `test/`
-   references that name paths still work because the shipped files have not moved yet; they
-   follow step 4.
-3. Partly done. `ModLoader` ships (discovery, narrowing, merge, shadowing). Still missing from
-   this step: the `data/mods/*` gitignore with the `!data/mods/core-*/` negation - it lands
-   with step 4, since there is nothing in `data/mods/` until the files move.
-4. `git mv` the 21 files, add the 21 manifests, add `data/mods/loadorder.json`. Move the
-   `AgentBodyController` write targets and their backups.
+2. Done. No path literal left in `src/`, readers on the live definition, and the `test/`
+   references follow the same kinds (five tests that named paths now read through the seam).
+3. Done. `ModLoader` ships (discovery, narrowing, merge, shadowing), and the `data/mods/*`
+   gitignore with the `!data/mods/core-*/` negation landed with the move.
+4. Done, in two parts: the 21 files moved with manifests and the seam table re-pointed
+   (a commit that moves bytes and nothing else), then the boot path switched to
+   `ModLoader.build()`. `data/mods/loadorder.json` is deliberately NOT there yet - writing a
+   state file nobody reads is speculative, and it arrives with the enable action that writes
+   it (step 8). Until then every package loads, in id order.
 5. `classifyComposition` beside the existing `validateComposition`; composition root and mod
    pipeline both use it. Old asserts stay, new quarantine tests ship.
 6. `GET /api/mods` + `POST /api/mods/rescan` (read-only, no apply).

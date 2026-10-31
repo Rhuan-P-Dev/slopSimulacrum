@@ -41,9 +41,9 @@
  * @module WorldComposition
  */
 
-import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import RegistryStore from '../services/RegistryStore.js';
+import ModLoader from '../services/ModLoader.js';
 import { setRegistries as setComponentNamingRegistries } from '../utils/ComponentNaming.js';
 import { setRegistries as setEntityAttributeRegistries } from '../utils/EntityAttributeData.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
@@ -128,12 +128,46 @@ import InstinctController from '../controllers/ai/InstinctController.js';
 import WorldStateController from '../controllers/WorldStateController.js';
 
 /**
+ * The world definition at boot: every enabled mod package, merged by the loader.
+ *
+ * This is where "packages on disk" becomes "the world". The shipped content is the
+ * 21 official `core-*` packages; a directory dropped into `data/mods/` with a valid
+ * manifest contributes to the same registries from here on, in load order, and what
+ * it overrode is reported rather than silent (`wiki/decisions/mod-system.md`).
+ *
+ * A package that failed to load is logged and skipped, never fatal: one broken
+ * directory must not keep the server from booting. The result is a candidate this
+ * function adopts; the runtime pipeline (enable / disable while the world runs)
+ * applies a new candidate at a round boundary, and until it exists a mod needs a
+ * restart to take effect.
+ *
+ * @returns {Object.<string, Object>} Content for every registry kind.
+ */
+function buildBootRegistries() {
+    const { registries, invalid } = new ModLoader().build();
+    for (const entry of invalid) {
+        Logger.warn(
+            `[WorldComposition] mod "${entry.modId ?? entry.dir}"`
+            + ` contributed nothing${entry.kind ? ` for ${entry.kind}` : ''}: ${entry.message}`
+        );
+    }
+    // The attribute catalog keeps its wrapper even when nothing ships it, so readers
+    // see an empty catalog rather than a shape they must re-check.
+    registries[REGISTRY_KINDS.ENTITY_ATTRIBUTES] = {
+        attributes: {},
+        ...(registries[REGISTRY_KINDS.ENTITY_ATTRIBUTES] ?? {})
+    };
+    return registries;
+}
+
+/**
  * Builds the fully-wired world state graph.
  *
  * This is the ONLY supported construction path for a WorldStateController.
  * It performs:
- *   1. Loading of data registries into the `RegistryStore` (read by kind, swapped
- *      as one step — see `src/services/RegistryStore.js`).
+ *   1. Building the world definition from the mod packages and handing it to the
+ *      `RegistryStore` (read by kind, swapped as one step — see
+ *      `src/services/RegistryStore.js` and `buildBootRegistries` above).
  *   2. Topological construction of every sub-controller (named deps, no facade).
  *   3. Construction of the facade with the built sub-controllers.
  *   4. Post-construction facade injection into the facade-dependent sub-controllers.
@@ -152,36 +186,12 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // =========================================================================
     // 0. Load Configuration Data (registries)
     //
-    // One load per registry, into a RegistryStore, and every local below is the
-    // store's LIVE holder for its kind. Readers therefore cannot drift from the
-    // swapped definition: when the mod pipeline replaces content, these very
+    // The mod packages build one definition, the store holds it, and every local
+    // below is the store's LIVE holder for its kind. Readers therefore cannot drift
+    // from the swapped definition: when the mod pipeline replaces content, these very
     // objects change contents (see RegistryStore's identity rule).
     // =========================================================================
-    const store = registryStore ?? new RegistryStore({
-        [REGISTRY_KINDS.ACTIONS]: DataLoader.loadRegistry(REGISTRY_KINDS.ACTIONS),
-        [REGISTRY_KINDS.COMPONENTS]: DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS),
-        [REGISTRY_KINDS.TRAITS]: DataLoader.loadRegistry(REGISTRY_KINDS.TRAITS),
-        [REGISTRY_KINDS.BLUEPRINTS]: DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS),
-        [REGISTRY_KINDS.SYNERGY]: DataLoader.loadRegistry(REGISTRY_KINDS.SYNERGY),
-        [REGISTRY_KINDS.MATERIALS]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIALS),
-        [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: DataLoader.loadRegistry(REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING),
-        [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES),
-        [REGISTRY_KINDS.MATERIAL_DROP_RATES]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIAL_DROP_RATES),
-        [REGISTRY_KINDS.WORLD_RULES]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_RULES),
-        [REGISTRY_KINDS.INVENTORY_ITEMS]: DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS),
-        [REGISTRY_KINDS.CRAFTING]: DataLoader.loadRegistry(REGISTRY_KINDS.CRAFTING),
-        [REGISTRY_KINDS.MACHINES]: DataLoader.loadRegistry(REGISTRY_KINDS.MACHINES),
-        [REGISTRY_KINDS.ROOMS]: DataLoader.loadRegistry(REGISTRY_KINDS.ROOMS),
-        [REGISTRY_KINDS.WORLD]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD),
-        [REGISTRY_KINDS.WORLD_OBJECTS]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_OBJECTS),
-        [REGISTRY_KINDS.HOLDING_COST]: DataLoader.loadRegistry(REGISTRY_KINDS.HOLDING_COST),
-        [REGISTRY_KINDS.SENSITIVE_PARTS]: DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS),
-        [REGISTRY_KINDS.INTERNAL_COMPONENTS]: DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS),
-        [REGISTRY_KINDS.NPCS]: DataLoader.loadRegistry(REGISTRY_KINDS.NPCS),
-        // The attribute catalog keeps its wrapper when the file is unreadable, so
-        // readers see an empty catalog rather than a shape they must re-check.
-        [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: DataLoader.loadRegistry(REGISTRY_KINDS.ENTITY_ATTRIBUTES, { attributes: {} })
-    });
+    const store = registryStore ?? new RegistryStore(buildBootRegistries());
 
     // Two utility modules cache their registry at module level (they are imported
     // by name, not injected). Handing them the store keeps them on the live

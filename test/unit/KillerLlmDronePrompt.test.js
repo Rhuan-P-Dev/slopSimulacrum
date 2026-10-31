@@ -67,26 +67,38 @@ const FIXTURE_NPCS = {
 // Top-level DataLoader mock (hoisted by vitest)
 // =========================================================================
 
+/**
+ * The fixture content served for one data path, or `undefined` to fall through to
+ * the real seam.
+ * @param {string} relativePath
+ * @returns {Object|undefined}
+ */
+function fixtureFor(relativePath) {
+    if (relativePath === 'data/mods/core-npcs/npcs.json') return FIXTURE_NPCS;
+    return undefined;
+}
+
 vi.mock('../../src/utils/DataLoader.js', async () => {
     const actual = await vi.importActual('../../src/utils/DataLoader.js');
-    const realDefault = actual.default || {};
 
+    // SUBCLASS, never enumerate. Static methods are non-enumerable, so spreading the
+    // real seam copies nothing, and a method this mock forgot is not an error - it is
+    // a world silently built from nothing. Inheriting keeps every seam method working
+    // including ones added later, and the real loadRegistry already routes through the
+    // overridden loadJsonSafe below.
     return {
-        default: {
-            // A registry read is a path read by another name: route it through
-            // this mock own loadJsonSafe, so the fixtures below keep being served.
-            loadRegistry(kind, defaultValue) {
-                return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
-            },
-            loadJsonSafe(path, defaultValue) {
-                if (path === 'data/mods/core-npcs/npcs.json') {
-                    return FIXTURE_NPCS;
-                }
-                // Delegate all other paths to the real DataLoader
-                if (realDefault.loadJsonSafe) {
-                    return realDefault.loadJsonSafe(path, defaultValue);
-                }
-                return defaultValue;
+        ...actual,
+        default: class FixtureDataLoader extends actual.default {
+            // The ModLoader reads package manifests and content with the throwing
+            // variant, so both read paths must serve the fixtures.
+            static loadJson(relativePath) {
+                const fixture = fixtureFor(relativePath);
+                return fixture !== undefined ? fixture : super.loadJson(relativePath);
+            }
+
+            static loadJsonSafe(relativePath, defaultValue) {
+                const fixture = fixtureFor(relativePath);
+                return fixture !== undefined ? fixture : super.loadJsonSafe(relativePath, defaultValue);
             }
         }
     };

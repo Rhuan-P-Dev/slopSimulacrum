@@ -62,27 +62,37 @@ function baseRoom(overrides = {}) {
 // Top-level DataLoader mock (hoisted by vitest)
 // ---------------------------------------------------------------------------
 
+/**
+ * The fixture content served for one data path, or `undefined` to fall through to
+ * the real seam.
+ * @param {string} relativePath
+ * @returns {Object|undefined}
+ */
+function fixtureFor(relativePath) {
+    if (relativePath === 'data/mods/core-rooms/rooms.json') return fixtureRooms ?? {};
+    return undefined;
+}
+
 vi.mock('../../src/utils/DataLoader.js', async () => {
     const actual = await vi.importActual('../../src/utils/DataLoader.js');
-    const realDefault = actual.default || {};
+
+    // SUBCLASS, never enumerate. Static methods are non-enumerable, so spreading the
+    // real seam copies nothing, and a method this mock forgot is not an error - it is
+    // a world silently built from nothing. Inheriting keeps every seam method working
+    // including ones added later, and the real loadRegistry already routes through the
+    // overridden loadJsonSafe below.
     return {
-        default: {
-            // A registry read is a path read by another name: route it through
-            // this mock own loadJsonSafe, so the fixtures below keep being served.
-            loadRegistry(kind, defaultValue) {
-                return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
-            },
-            loadJsonSafe(path, defaultValue) {
-                if (path === 'data/mods/core-rooms/rooms.json') {
-                    return fixtureRooms !== null ? fixtureRooms : defaultValue;
-                }
-                // Delegate every other path to the real DataLoader.
-                if (realDefault.loadJsonSafe) {
-                    return realDefault.loadJsonSafe(path, defaultValue);
-                }
-                return defaultValue;
-            },
-            loadJson: realDefault.loadJson
+        ...actual,
+        default: class FixtureDataLoader extends actual.default {
+            static loadJson(relativePath) {
+                const fixture = fixtureFor(relativePath);
+                return fixture !== undefined ? fixture : super.loadJson(relativePath);
+            }
+
+            static loadJsonSafe(relativePath, defaultValue) {
+                const fixture = fixtureFor(relativePath);
+                return fixture !== undefined ? fixture : super.loadJsonSafe(relativePath, defaultValue);
+            }
         }
     };
 });
