@@ -1,5 +1,6 @@
 import { generateCompId } from '../../utils/idGenerator.js';
 import DataLoader from '../../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 /**
  * EntityController is responsible for storing entity blueprints and
@@ -18,7 +19,7 @@ class EntityController {
         
         // Load blueprints from data file (decoupled from code).
         // If blueprints are injected (e.g., for testing), use those instead.
-        this.blueprints = blueprints || DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
+        this.blueprints = blueprints || DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
     }
 
     /**

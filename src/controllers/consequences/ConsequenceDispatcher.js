@@ -907,23 +907,25 @@ class ConsequenceDispatcher {
     }
 
     /**
-     * Lazily loads and caches a recipe file, returning the human-readable `name`
-     * for a recipe key (component or item type). Used by _getComponentDisplayName().
-     * @param {'components'|'inventoryItems'} file - data/components/<file>.json to read.
+     * Lazily loads and caches a recipe registry, returning the human-readable
+     * `name` for a recipe key (component or item type). Used by
+     * _getComponentDisplayName().
+     * @param {'components'|'inventoryItems'} kind - Registry kind to read (both
+     *   are registry kinds, so no caller names a file).
      * @param {string} type - The recipe key (component / item type).
      * @returns {string|null}
      * @private
      */
-    _recipeName(file, type) {
+    _recipeName(kind, type) {
         if (!type || typeof type !== 'string') return null;
-        let recipes = this._recipeCache && this._recipeCache[file];
+        let recipes = this._recipeCache && this._recipeCache[kind];
         if (!recipes) {
-            recipes = DataLoader.loadJsonSafe(`data/components/${file}.json`, {});
+            recipes = DataLoader.loadRegistry(kind);
             // Only cache a successful (non-empty) load so a transient read failure
             // (loadJsonSafe returning the {} default) can be retried on the next call
             // instead of being cached for the dispatcher's lifetime.
             if (recipes && Object.keys(recipes).length > 0) {
-                this._recipeCache = { ...(this._recipeCache || {}), [file]: recipes };
+                this._recipeCache = { ...(this._recipeCache || {}), [kind]: recipes };
             }
         }
         const def = recipes && recipes[type];

@@ -9,6 +9,7 @@
 
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 const DEFAULT_SYNERGY_CONFIG = {
     enabled: false,
@@ -27,7 +28,7 @@ class SynergyConfigManager {
      * @returns {Object} The synergy registry.
      */
     load() {
-        this.synergyRegistry = DataLoader.loadJsonSafe('data/systems/synergy.json') || {};
+        this.synergyRegistry = DataLoader.loadRegistry(REGISTRY_KINDS.SYNERGY);
         Logger.info('[SynergyConfigManager] Synergy config loaded', {
             actionCount: Object.keys(this.synergyRegistry).length
         });

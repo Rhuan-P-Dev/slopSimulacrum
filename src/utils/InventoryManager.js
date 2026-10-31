@@ -9,6 +9,7 @@ import Logger from './Logger.js';
 import { generateItemId } from './idGenerator.js';
 import { ID_PREFIXES, isPrefixed } from '../../shared/IdPrefixes.js';
 import { getDefinitionVolume, getDefinitionFootprint } from './definitionVolume.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 
 class InventoryManager {
     constructor(options = {}) {
@@ -24,14 +25,14 @@ class InventoryManager {
          * Format: { [itemType]: { name, description, volume, traits } }
          * @type {Object}
          */
-        this._itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+        this._itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
 
         /**
          * Component definitions loaded from data/components/components.json
          * Format: { [componentType]: { name, traits } }
          * @type {Object}
          */
-        this._componentDefinitions = DataLoader.loadJsonSafe('data/components/components.json', {});
+        this._componentDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
 
         Logger.info(`InventoryManager initialized with ${Object.keys(this._itemDefinitions).length} item types`);
 

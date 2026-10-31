@@ -1,4 +1,5 @@
 import DataLoader from '../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import Logger from '../utils/Logger.js';
 import InternalComponentUtils from '../utils/InternalComponentUtils.js';
 import WorldGraphBuilder from '../utils/WorldGraphBuilder.js';
@@ -300,7 +301,7 @@ class WorldStateController {
      * @private
      */
     _spawnStaticProps() {
-        const raw = DataLoader.loadJsonSafe('data/world/worldObjects.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_OBJECTS);
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             return; // no world-object registry configured — not an error
         }

@@ -2,9 +2,47 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Logger from './Logger.js';
+import { GameError } from './CustomErrors.js';
+import { REGISTRY_KINDS, isRegistryKind } from '../../shared/RegistryKinds.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Where each registry kind lives on disk, relative to the project root.
+ *
+ * This is the ONLY place in the codebase that maps a registry kind to a file.
+ * Readers ask for a kind (`loadRegistry(REGISTRY_KINDS.MATERIALS)`), never for a
+ * path, so the world definition can be re-homed (a mod package becoming the
+ * source of a kind) without touching a single reader. Before this table, 49
+ * references in `src/` named paths and the filesystem was the interface of the
+ * world.
+ *
+ * @type {Object.<string, string>}
+ */
+const REGISTRY_SOURCE_PATHS = Object.freeze({
+    [REGISTRY_KINDS.COMPONENTS]: 'data/components/components.json',
+    [REGISTRY_KINDS.HOLDING_COST]: 'data/components/holdingCost.json',
+    [REGISTRY_KINDS.INTERNAL_COMPONENTS]: 'data/components/internalComponents.json',
+    [REGISTRY_KINDS.INVENTORY_ITEMS]: 'data/components/inventoryItems.json',
+    [REGISTRY_KINDS.SENSITIVE_PARTS]: 'data/components/sensitiveParts.json',
+    [REGISTRY_KINDS.TRAITS]: 'data/components/traits.json',
+    [REGISTRY_KINDS.BLUEPRINTS]: 'data/entities/blueprints.json',
+    [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: 'data/entities/entity_attributes.json',
+    [REGISTRY_KINDS.NPCS]: 'data/entities/npcs.json',
+    [REGISTRY_KINDS.MATERIALS]: 'data/materials/materials.json',
+    [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: 'data/materials/materialDamageTypes.json',
+    [REGISTRY_KINDS.MATERIAL_DROP_RATES]: 'data/materials/materialDropRates.json',
+    [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: 'data/materials/propertyTraitMapping.json',
+    [REGISTRY_KINDS.ACTIONS]: 'data/systems/actions.json',
+    [REGISTRY_KINDS.CRAFTING]: 'data/systems/crafting.json',
+    [REGISTRY_KINDS.MACHINES]: 'data/systems/machines.json',
+    [REGISTRY_KINDS.SYNERGY]: 'data/systems/synergy.json',
+    [REGISTRY_KINDS.ROOMS]: 'data/world/rooms.json',
+    [REGISTRY_KINDS.WORLD]: 'data/world/world.json',
+    [REGISTRY_KINDS.WORLD_OBJECTS]: 'data/world/worldObjects.json',
+    [REGISTRY_KINDS.WORLD_RULES]: 'data/world/world_rules.json'
+});
 
 /**
  * DataLoader provides a centralized way to load JSON configuration files.
@@ -27,6 +65,39 @@ class DataLoader {
             Logger.error(`[DataLoader] Failed to load file at ${relativePath}:`, error.stack || error);
             throw new Error(`[DataLoader] Failed to load file at ${relativePath}: ${error.message}`, { cause: error });
         }
+    }
+
+    /**
+     * The file a registry kind is read from today. Exposed for reports and for
+     * the mod loader's provenance output; readers never need it.
+     * @param {string} kind - A registry kind from `shared/RegistryKinds.js`.
+     * @returns {string} Path relative to the project root.
+     * @throws {GameError} REGISTRY_KIND_UNKNOWN - the kind is not in the vocabulary.
+     */
+    static registrySourcePath(kind) {
+        if (!isRegistryKind(kind)) {
+            throw new GameError(
+                `DataLoader: unknown registry kind "${kind}"`,
+                'REGISTRY_KIND_UNKNOWN'
+            );
+        }
+        return REGISTRY_SOURCE_PATHS[kind];
+    }
+
+    /**
+     * Loads one registry by KIND (the safe variant: a missing or unreadable
+     * source yields `defaultValue`, and that part of the world is simply empty).
+     *
+     * This is what a reader calls. Naming a kind rather than a path is what
+     * lets the same registry come from a mod package while the server runs
+     * (`wiki/decisions/mod-system.md`); the live definition is the one the
+     * `RegistryStore` holds, and this method is how the boot path fills it.
+     * @param {string} kind - A registry kind from `shared/RegistryKinds.js`.
+     * @param {any} defaultValue - Value returned when the source cannot be read.
+     * @returns {any}
+     */
+    static loadRegistry(kind, defaultValue = {}) {
+        return this.loadJsonSafe(this.registrySourcePath(kind), defaultValue);
     }
 
     /**

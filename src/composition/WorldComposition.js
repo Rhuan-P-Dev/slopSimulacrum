@@ -156,27 +156,29 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // objects change contents (see RegistryStore's identity rule).
     // =========================================================================
     const store = registryStore ?? new RegistryStore({
-        [REGISTRY_KINDS.ACTIONS]: DataLoader.loadJsonSafe('data/systems/actions.json'),
-        [REGISTRY_KINDS.COMPONENTS]: DataLoader.loadJsonSafe('data/components/components.json'),
-        [REGISTRY_KINDS.TRAITS]: DataLoader.loadJsonSafe('data/components/traits.json'),
-        [REGISTRY_KINDS.BLUEPRINTS]: DataLoader.loadJsonSafe('data/entities/blueprints.json', {}),
-        [REGISTRY_KINDS.SYNERGY]: DataLoader.loadJsonSafe('data/systems/synergy.json', {}),
-        [REGISTRY_KINDS.MATERIALS]: DataLoader.loadJsonSafe('data/materials/materials.json', {}),
-        [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: DataLoader.loadJsonSafe('data/materials/propertyTraitMapping.json', {}),
-        [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: DataLoader.loadJsonSafe('data/materials/materialDamageTypes.json', {}),
-        [REGISTRY_KINDS.MATERIAL_DROP_RATES]: DataLoader.loadJsonSafe('data/materials/materialDropRates.json', {}),
-        [REGISTRY_KINDS.WORLD_RULES]: DataLoader.loadJsonSafe('data/world/world_rules.json', {}),
-        [REGISTRY_KINDS.INVENTORY_ITEMS]: DataLoader.loadJsonSafe('data/components/inventoryItems.json', {}),
-        [REGISTRY_KINDS.CRAFTING]: DataLoader.loadJsonSafe('data/systems/crafting.json', {}),
-        [REGISTRY_KINDS.MACHINES]: DataLoader.loadJsonSafe('data/systems/machines.json', {}),
-        [REGISTRY_KINDS.ROOMS]: DataLoader.loadJsonSafe('data/world/rooms.json', {}),
-        [REGISTRY_KINDS.WORLD]: DataLoader.loadJsonSafe('data/world/world.json', {}),
-        [REGISTRY_KINDS.WORLD_OBJECTS]: DataLoader.loadJsonSafe('data/world/worldObjects.json', {}),
-        [REGISTRY_KINDS.HOLDING_COST]: DataLoader.loadJsonSafe('data/components/holdingCost.json', {}),
-        [REGISTRY_KINDS.SENSITIVE_PARTS]: DataLoader.loadJsonSafe('data/components/sensitiveParts.json', {}),
-        [REGISTRY_KINDS.INTERNAL_COMPONENTS]: DataLoader.loadJsonSafe('data/components/internalComponents.json', {}),
-        [REGISTRY_KINDS.NPCS]: DataLoader.loadJsonSafe('data/entities/npcs.json', {}),
-        [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: DataLoader.loadJsonSafe('data/entities/entity_attributes.json', { attributes: {} })
+        [REGISTRY_KINDS.ACTIONS]: DataLoader.loadRegistry(REGISTRY_KINDS.ACTIONS),
+        [REGISTRY_KINDS.COMPONENTS]: DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS),
+        [REGISTRY_KINDS.TRAITS]: DataLoader.loadRegistry(REGISTRY_KINDS.TRAITS),
+        [REGISTRY_KINDS.BLUEPRINTS]: DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS),
+        [REGISTRY_KINDS.SYNERGY]: DataLoader.loadRegistry(REGISTRY_KINDS.SYNERGY),
+        [REGISTRY_KINDS.MATERIALS]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIALS),
+        [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: DataLoader.loadRegistry(REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING),
+        [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES),
+        [REGISTRY_KINDS.MATERIAL_DROP_RATES]: DataLoader.loadRegistry(REGISTRY_KINDS.MATERIAL_DROP_RATES),
+        [REGISTRY_KINDS.WORLD_RULES]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_RULES),
+        [REGISTRY_KINDS.INVENTORY_ITEMS]: DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS),
+        [REGISTRY_KINDS.CRAFTING]: DataLoader.loadRegistry(REGISTRY_KINDS.CRAFTING),
+        [REGISTRY_KINDS.MACHINES]: DataLoader.loadRegistry(REGISTRY_KINDS.MACHINES),
+        [REGISTRY_KINDS.ROOMS]: DataLoader.loadRegistry(REGISTRY_KINDS.ROOMS),
+        [REGISTRY_KINDS.WORLD]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD),
+        [REGISTRY_KINDS.WORLD_OBJECTS]: DataLoader.loadRegistry(REGISTRY_KINDS.WORLD_OBJECTS),
+        [REGISTRY_KINDS.HOLDING_COST]: DataLoader.loadRegistry(REGISTRY_KINDS.HOLDING_COST),
+        [REGISTRY_KINDS.SENSITIVE_PARTS]: DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS),
+        [REGISTRY_KINDS.INTERNAL_COMPONENTS]: DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS),
+        [REGISTRY_KINDS.NPCS]: DataLoader.loadRegistry(REGISTRY_KINDS.NPCS),
+        // The attribute catalog keeps its wrapper when the file is unreadable, so
+        // readers see an empty catalog rather than a shape they must re-check.
+        [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: DataLoader.loadRegistry(REGISTRY_KINDS.ENTITY_ATTRIBUTES, { attributes: {} })
     });
 
     const actionRegistry = store.read(REGISTRY_KINDS.ACTIONS);

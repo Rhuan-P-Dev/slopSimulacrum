@@ -13,6 +13,7 @@
  * @module ComponentNaming
  */
 import DataLoader from './DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 
 /**
  * Module-level recipe cache. Only a successful (non-empty) load is cached, so
@@ -29,7 +30,7 @@ let recipes = null;
  */
 function loadRecipes() {
     if (recipes) return recipes;
-    const loaded = DataLoader.loadJsonSafe('data/components/components.json', null);
+    const loaded = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS, null);
     if (loaded && typeof loaded === 'object' && Object.keys(loaded).length > 0) {
         recipes = loaded;
     }

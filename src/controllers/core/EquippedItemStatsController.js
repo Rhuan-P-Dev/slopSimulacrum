@@ -12,6 +12,7 @@
  */
 import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 /**
  * @typedef {Object} TraitStats
@@ -56,7 +57,7 @@ class EquippedItemStatsController {
          * Format: { [itemType]: { name, description, volume, traits, ... } }
          * @type {Object<string, Object>}
          */
-        this._itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+        this._itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
 
         Logger.info(`[EquippedItemStatsController] Initialized with ${Object.keys(this._itemDefinitions).length} item type definitions`);
 

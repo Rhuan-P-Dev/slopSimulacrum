@@ -22,6 +22,7 @@
 
 import DataLoader from './DataLoader.js';
 import Logger from './Logger.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 
 /**
  * @type {Record<string, { value: number, max: number, drainPerTurn: number }> | null}
@@ -61,7 +62,7 @@ export function getAttributes(blueprintName) {
  */
 function _loadFile() {
     if (_cache === null) {
-        _cache = DataLoader.loadJsonSafe('data/entities/entity_attributes.json', { attributes: {} });
+        _cache = DataLoader.loadRegistry(REGISTRY_KINDS.ENTITY_ATTRIBUTES, { attributes: {} });
     }
     return _cache;
 }

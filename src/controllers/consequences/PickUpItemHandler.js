@@ -15,6 +15,7 @@ import { PICK_UP_RANGE_FALLBACK, recoverChunkMaterial } from '../../utils/Consta
 import { resolveRange } from '../../../shared/RangeResolver.js';
 import { ACTION_NAMES } from '../../../shared/ActionVocabulary.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 /**
  * Handles the "pickUpItem" consequence type for dropped items.
@@ -130,7 +131,7 @@ function handlePickUpItem(deps, params) {
     // recovered from the type string (`chunk_<material>`). A chunk's composition is 100%
     // the recovered material, so its traits derive through the existing material pipeline
     // downstream (InventoryManager._mergeItemTraits).
-    const itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+    const itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
     let itemDef = itemDefinitions[droppedItem.itemType];
     const chunkMaterial = recoverChunkMaterial(droppedItem.itemType);
     if (!itemDef && chunkMaterial) {
@@ -163,7 +164,7 @@ function handlePickUpItem(deps, params) {
     const itemDescription = itemDef.description || '';
 
     // Check if the target component has enough free volume
-    const componentDefinitions = DataLoader.loadJsonSafe('data/components/components.json', {});
+    const componentDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
     const componentDef = componentDefinitions[component.type];
     const maxVolume = _getComponentMaxVolume(componentDef) || 0;
 

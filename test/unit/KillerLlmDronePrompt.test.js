@@ -73,6 +73,11 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
 
     return {
         default: {
+            // A registry read is a path read by another name: route it through
+            // this mock own loadJsonSafe, so the fixtures below keep being served.
+            loadRegistry(kind, defaultValue) {
+                return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
+            },
             loadJsonSafe(path, defaultValue) {
                 if (path === 'data/entities/npcs.json') {
                     return FIXTURE_NPCS;

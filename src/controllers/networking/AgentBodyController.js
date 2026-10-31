@@ -39,6 +39,7 @@ import DataLoader from '../../utils/DataLoader.js';
 import { LLM_DEFAULT_MAX_TOKENS, LLM_DEFAULT_TEMPERATURE } from '../../utils/Constants.js';
 import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { performance } from 'node:perf_hooks';
 
 const PROMPT_KIND = 'agent-body-design';
@@ -64,9 +65,10 @@ const MATERIAL_FRACTION_TOLERANCE = 0.005;
 const LLM_AGENT_BODY_MAX_TOKENS = LLM_DEFAULT_MAX_TOKENS * 10;
 
 // Files the save action (saveDesign) persists to (CR B-3: writes go only through
-// this module's DataLoader seam, never raw fs).
-const COMPONENTS_FILE = 'data/components/components.json';
-const BLUEPRINTS_FILE = 'data/entities/blueprints.json';
+// this module's DataLoader seam, never raw fs). The paths come from the seam's
+// kind table, so this module never names a data file itself.
+const COMPONENTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.COMPONENTS);
+const BLUEPRINTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.BLUEPRINTS);
 
 /**
  * Thrown when cardId does not match any card PNG under data/cards/.
@@ -306,8 +308,8 @@ class AgentBodyController {
 
         // Re-read the live data files (source of truth; the in-memory vocab is
         // frozen at boot) and merge the design on top of the current content.
-        const freshComponents = DataLoader.loadJsonSafe(COMPONENTS_FILE, {});
-        const freshBlueprints = DataLoader.loadJsonSafe(BLUEPRINTS_FILE, {});
+        const freshComponents = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
+        const freshBlueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
 
         const nextComponents = this._mergeComponentRecipes(freshComponents, normalized.components || []);
         const blueprintWritten = Object.keys(entries);
@@ -898,7 +900,7 @@ class AgentBodyController {
      * @returns {Object<string, {name: string, volume: number|null, materials: Array<{material: string, fraction: number}>, organs: Array<string>, energyCapacity: number|null}>}
      */
     _loadComponents() {
-        const raw = DataLoader.loadJsonSafe('data/components/components.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
         const components = {};
         for (const [name, recipe] of Object.entries(raw)) {
             if (name.startsWith('_') || !recipe || typeof recipe !== 'object') {
@@ -926,7 +928,7 @@ class AgentBodyController {
      * @returns {Object<string, {name: string, density: number|null}>}
      */
     _loadMaterials() {
-        const raw = DataLoader.loadJsonSafe('data/materials/materials.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.MATERIALS);
         const materials = {};
         for (const [name, recipe] of Object.entries(raw)) {
             if (name.startsWith('_') || !recipe || typeof recipe !== 'object') {
@@ -944,7 +946,7 @@ class AgentBodyController {
      * @returns {Object<string, {name: string, grants: Object|null}>}
      */
     _loadOrgans() {
-        const raw = DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
         const organs = {};
         for (const [name, recipe] of Object.entries(raw)) {
             if (name.startsWith('_') || !recipe || typeof recipe !== 'object') {
@@ -963,7 +965,7 @@ class AgentBodyController {
      * @returns {Object<string, Array>}
      */
     _loadBlueprints() {
-        const raw = DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
         const blueprints = {};
         for (const [name, tree] of Object.entries(raw)) {
             if (name.startsWith('_') || !Array.isArray(tree)) {

@@ -18,6 +18,7 @@
 import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
 import { generateEquippedId } from '../../utils/idGenerator.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 /**
  * @typedef {Object} HoldingCostEntry
@@ -57,7 +58,7 @@ class HoldingCostController {
         // The data file is a single mass-lever MODEL (not a per-item map): it
         // gates equipping on a strength-to-mass ratio and burdens the function
         // stats (move / fine_controls) by the carried item's mass.
-        this._model = DataLoader.loadJsonSafe('data/components/holdingCost.json', {});
+        this._model = DataLoader.loadRegistry(REGISTRY_KINDS.HOLDING_COST);
         this._itemMassCache = {};
 
         Logger.info(`[HoldingCostController] Initialized massBurden model (equipable: ${JSON.stringify(this._model.equipableItems || [])})`);

@@ -1,6 +1,7 @@
 import { generateUID } from '../../utils/idGenerator.js';
 import DataLoader from '../../utils/DataLoader.js';
 import Logger from '../../utils/Logger.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 /**
  * The light levels a room's `atmosphere.lightLevel` may declare. The single
@@ -60,7 +61,7 @@ class RoomsController {
         this.doorPositions = {};
 
         // Load room definitions from external data file (per DataLoader pattern used by WorldStateController)
-        const roomDefinitions = DataLoader.loadJsonSafe('data/world/rooms.json', {});
+        const roomDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.ROOMS);
 
         // Validate loaded definitions before initialization
         this._validateRoomDefinitions(roomDefinitions);

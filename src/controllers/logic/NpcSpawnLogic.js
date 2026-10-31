@@ -16,6 +16,7 @@
  */
 
 import DataLoader from '../../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { isEnvFlagOn } from '../../utils/Constants.js';
 
@@ -73,7 +74,7 @@ import { isEnvFlagOn } from '../../utils/Constants.js';
 
 
 function spawnDataDrivenNpcs(facade) {
-    const raw = DataLoader.loadJsonSafe('data/entities/npcs.json', {});
+    const raw = DataLoader.loadRegistry(REGISTRY_KINDS.NPCS);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         return; // no NPC registry configured — not an error
     }

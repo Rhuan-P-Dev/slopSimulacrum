@@ -13,6 +13,7 @@ import { channelLossFromResistance } from '../../utils/channelLoss.js';
 import { EXISTENCE_GONE_AT, TRAIT_GROUPS, STAT_NAMES, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 import { sampleDiskPoint, DEFAULT_TRIGGER_RADIUS } from '../../utils/DiskSampler.js';
 import { writeDroppedItem } from '../consequences/DropItemHandler.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 class InternalComponentController {
     /**
@@ -22,11 +23,11 @@ class InternalComponentController {
      */
     constructor(internalComponentRegistry = null, tickSystem = null) {
         // Load registry from data file
-        this.registry = internalComponentRegistry || DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
+        this.registry = internalComponentRegistry || DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
         this._validateRegistry(this.registry);
 
         // Load component definitions for trait checking
-        this.componentDefinitions = DataLoader.loadJsonSafe('data/components/components.json', {});
+        this.componentDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
         this._validateComponentDeclarations();
 
         // State storage: { [entityId]: { [hostComponentId]: [internalComponentInstances] } }

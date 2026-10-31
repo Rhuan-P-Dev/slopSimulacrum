@@ -15,6 +15,7 @@
  */
 
 import DataLoader from '../../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
 
@@ -74,7 +75,7 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
 
     let config = spawnConfig;
     if (!config) {
-        config = DataLoader.loadJsonSafe('data/world/world.json', {});
+        config = DataLoader.loadRegistry(REGISTRY_KINDS.WORLD);
     }
 
     const entries = config?.initialSpawns;

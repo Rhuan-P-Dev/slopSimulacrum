@@ -43,6 +43,7 @@ import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
 import { CHAT_MESSAGE_MAX_LENGTH, LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUNDS } from '../../utils/Constants.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
 
 /** Default per-round world-action cap (spec §6.5); npcs.json may override. */
@@ -2270,7 +2271,7 @@ class LLMAgentController {
      * @returns {Object<string, Object>}
      */
     _loadNpcRegistry() {
-        const raw = DataLoader.loadJsonSafe('data/entities/npcs.json', {});
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.NPCS);
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
             Logger.info('[LLMAgent] No NPC registry (data/entities/npcs.json) — the agent has no configured NPCs (no-op until Feature D).');
             return {};

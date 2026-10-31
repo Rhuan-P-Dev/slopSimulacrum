@@ -1,6 +1,7 @@
 import express from 'express';
 import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import DataLoader from '../utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { handlePlaceMachine } from '../controllers/core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../controllers/core/RetrieveMachineHandler.js';
 
@@ -52,7 +53,7 @@ export function register(router, { worldStateController, broadcastService }) {
 
 			// Transform dropped items into a flat array with item type info
 			const droppedItemsArray = [];
-			const itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+			const itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
 
 			for (const [id, item] of Object.entries(droppedItems)) {
 				const itemDef = itemDefinitions[item.itemType];
@@ -87,7 +88,7 @@ export function register(router, { worldStateController, broadcastService }) {
 
 			// Transform dropped items into a flat array with item type info
 			const droppedItemsArray = [];
-			const itemDefinitions = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+			const itemDefinitions = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
 
 			for (const [id, item] of Object.entries(droppedItems)) {
 				const itemDef = itemDefinitions[item.itemType];

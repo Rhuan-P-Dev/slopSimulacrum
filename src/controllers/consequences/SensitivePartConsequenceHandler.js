@@ -28,6 +28,7 @@
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import { FLAG_NAMES } from '../../../shared/StatVocabulary.js';
+import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 
 class SensitivePartConsequenceHandler {
     /**
@@ -39,7 +40,7 @@ class SensitivePartConsequenceHandler {
 
         // Static world data: per-part sensitivity values (0-100) for the
         // sensitive parts. Loaded once; the `_comment` key is skipped.
-        const file = DataLoader.loadJsonSafe('data/components/sensitiveParts.json', {});
+        const file = DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS);
         this._sensitivityByPartType = {};
         for (const [partType, value] of Object.entries(file)) {
             if (partType === '_comment') continue;

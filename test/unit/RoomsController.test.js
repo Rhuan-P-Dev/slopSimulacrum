@@ -67,6 +67,11 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
     const realDefault = actual.default || {};
     return {
         default: {
+            // A registry read is a path read by another name: route it through
+            // this mock own loadJsonSafe, so the fixtures below keep being served.
+            loadRegistry(kind, defaultValue) {
+                return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
+            },
             loadJsonSafe(path, defaultValue) {
                 if (path === 'data/world/rooms.json') {
                     return fixtureRooms !== null ? fixtureRooms : defaultValue;
