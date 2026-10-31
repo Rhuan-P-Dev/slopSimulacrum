@@ -1,0 +1,194 @@
+/**
+ * UNIT TEST — CompositionClassifier: the same rules as boot, collected instead of thrown.
+ *
+ * Everything here is a real candidate over the real owners: the failures are produced by
+ * `MaterialController`, `CraftingController` and `MachineRegistryController` themselves,
+ * never by a copy of their rules. Which is also why the fixtures below look like the real
+ * data files and not like sketches — `materials` is an ARRAY of `{ material, fraction }`,
+ * a recipe's inputs and outputs are ITEM types with integer quantities, and a machine
+ * binds blueprint, item and recipe. A fixture that got the shape wrong would "pass" by
+ * tripping a different error than the one it claims to test.
+ *
+ * What is pinned: one entry per bad definition, with a reason, and the good definitions
+ * still in `valid`; the material family reported once as unusable rather than blamed
+ * across every component; and the dependency chain, which is the only reason this is not
+ * four try/catch blocks in a row.
+ *
+ * @module test/unit/CompositionClassifier
+ */
+
+import { describe, it, expect } from 'vitest';
+import classifyComposition, { QUARANTINE_SCOPE } from '../../src/services/CompositionClassifier.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+
+const wood = { wood: { name: 'Wood', density: 0.6, properties: {} } };
+const nailItem = { nail: { name: 'Nail', form: { volume: 1 }, materials: [{ material: 'wood', fraction: 1 }] } };
+
+/** A candidate where every checked kind defaults to a minimal valid registry. */
+const candidate = (over = {}) => ({
+    [REGISTRY_KINDS.MATERIALS]: wood,
+    [REGISTRY_KINDS.COMPONENTS]: { _comment: 'docs', bowl: { name: 'Bowl', materials: [{ material: 'wood', fraction: 1 }] } },
+    [REGISTRY_KINDS.INVENTORY_ITEMS]: { ...nailItem },
+    [REGISTRY_KINDS.CRAFTING]: {},
+    [REGISTRY_KINDS.MACHINES]: {},
+    ...over
+});
+
+const recipe = (id, outputs) => ({
+    id,
+    name: `Recipe ${id}`,
+    description: 'test recipe',
+    inputs: [{ type: 'nail', quantity: 1 }],
+    outputs
+});
+
+describe('a well-formed candidate', () => {
+    it('passes everything through and quarantines nothing', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.CRAFTING]: { make_two_nails: recipe('make_two_nails', [{ type: 'nail', quantity: 2 }]) },
+            [REGISTRY_KINDS.BLUEPRINTS]: { press: ['pressBody'] },
+            [REGISTRY_KINDS.MACHINES]: { pressMachine: { name: 'Press', blueprint: 'press', itemKey: 'nail', recipeId: 'make_two_nails' } }
+        }));
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.COMPONENTS].bowl).toBeDefined();
+        expect(result.valid[REGISTRY_KINDS.MACHINES].pressMachine).toBeDefined();
+    });
+
+    it('keeps documentation keys where the owner treats them as metadata', () => {
+        // components.json carries a `_comment`; the component checks skip it, exactly as
+        // the boot checks do.
+        const result = classifyComposition(candidate());
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.COMPONENTS]._comment).toBe('docs');
+    });
+
+    it('reports a documentation key where the owner does not skip them', () => {
+        // The materials owner rejects a `_comment` entry outright, and today that fails
+        // the boot. The classifier reproduces that, rather than quietly stripping the key
+        // and promising a plan the boot would refuse (plan and boot must disagree about
+        // nothing).
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.MATERIALS]: { _comment: 'a very long comment', ...wood }
+        }));
+        expect(result.quarantined.map((q) => [q.kind, q.scope])).toEqual([[REGISTRY_KINDS.MATERIALS, QUARANTINE_SCOPE.REGISTRY]]);
+    });
+
+    it('does not touch the candidate it was given', () => {
+        const input = candidate({
+            [REGISTRY_KINDS.COMPONENTS]: { _comment: 'x', bowl: { name: 'Bowl', materials: [{ material: 'unobtainium', fraction: 1 }] } }
+        });
+        const before = JSON.stringify(input);
+        classifyComposition(input);
+        expect(JSON.stringify(input)).toBe(before);
+    });
+});
+
+describe('a defect in one definition', () => {
+    it('quarantines that definition, names it, and keeps its neighbours', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.COMPONENTS]: {
+                _comment: 'docs',
+                bowl: { name: 'Bowl', materials: [{ material: 'wood', fraction: 1 }] },
+                // The owner's own rule: fractions may not exceed one.
+                heavy: { name: 'Heavy', materials: [{ material: 'wood', fraction: 1.5 }] },
+                // And: every material must exist in the materials registry.
+                alien: { name: 'Alien', materials: [{ material: 'unobtainium', fraction: 1 }] },
+                // And: the composition must be the array the owner reads.
+                legacy: { name: 'Legacy', materials: { wood: 1 } }
+            }
+        }));
+        const keys = result.quarantined.map((q) => q.key).sort();
+        expect(keys).toEqual(['alien', 'heavy', 'legacy']);
+        expect(result.quarantined.every((q) => q.scope === QUARANTINE_SCOPE.DEFINITION)).toBe(true);
+        expect(result.quarantined.every((q) => q.kind === REGISTRY_KINDS.COMPONENTS)).toBe(true);
+        expect(result.quarantined.every((q) => typeof q.reason === 'string' && q.reason.length > 0)).toBe(true);
+        expect(Object.keys(result.valid[REGISTRY_KINDS.COMPONENTS])).toEqual(['_comment', 'bowl']);
+    });
+
+    it('carries the message from the owner itself, so the report says what is wrong', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { cup: { name: 'Cup', materials: [{ material: 'wood', fraction: 3 }] } }
+        }));
+        expect(result.quarantined[0].reason).toMatch(/sum to 3/i);
+        expect(result.quarantined[0].kind).toBe(REGISTRY_KINDS.INVENTORY_ITEMS);
+    });
+});
+
+describe('the dependency chain', () => {
+    it('takes a machine down when its recipe is quarantined', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.BLUEPRINTS]: { press: ['pressBody'] },
+            [REGISTRY_KINDS.CRAFTING]: {
+                make_nails: recipe('make_nails', [{ type: 'nail', quantity: 2 }]),
+                // Outputs an item that does not exist: this recipe is quarantined.
+                make_ghost: recipe('make_ghost', [{ type: 'ghost', quantity: 1 }])
+            },
+            [REGISTRY_KINDS.MACHINES]: {
+                pressMachine: { name: 'Press', blueprint: 'press', itemKey: 'nail', recipeId: 'make_nails' },
+                // Bound to the recipe that is about to be quarantined.
+                ghostMachine: { name: 'Ghost press', blueprint: 'press', itemKey: 'nail', recipeId: 'make_ghost' }
+            }
+        }));
+        const byKind = (kind) => result.quarantined.filter((q) => q.kind === kind).map((q) => q.key);
+        expect(byKind(REGISTRY_KINDS.CRAFTING)).toEqual(['make_ghost']);
+        expect(byKind(REGISTRY_KINDS.MACHINES)).toEqual(['ghostMachine']);
+        expect(result.valid[REGISTRY_KINDS.MACHINES].pressMachine).toBeDefined();
+    });
+
+    it('names a machine whose blueprint is simply missing', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.BLUEPRINTS]: {},
+            [REGISTRY_KINDS.MACHINES]: { pressMachine: { name: 'Press', blueprint: 'press', itemKey: 'nail', recipeId: 'nope' } }
+        }));
+        expect(result.quarantined.some((q) => q.kind === REGISTRY_KINDS.MACHINES && q.key === 'pressMachine')).toBe(true);
+    });
+
+    it('drops a machine whose item definition was quarantined upstream', () => {
+        // The item is defined, the recipe is valid, the machine is bound to both — and the
+        // item's material does not exist. Everything downstream of a quarantined
+        // definition has to follow, with a reason that names what it lost.
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { nail: { name: 'Nail', materials: [{ material: 'unobtainium', fraction: 1 }] } },
+            [REGISTRY_KINDS.BLUEPRINTS]: { press: ['pressBody'] },
+            [REGISTRY_KINDS.CRAFTING]: { press_nails: recipe('press_nails', [{ type: 'nail', quantity: 1 }]) },
+            [REGISTRY_KINDS.MACHINES]: { pressMachine: { name: 'Press', blueprint: 'press', itemKey: 'nail', recipeId: 'press_nails' } }
+        }));
+        const byKind = (kind) => result.quarantined.filter((q) => q.kind === kind).map((q) => q.key);
+        expect(byKind(REGISTRY_KINDS.INVENTORY_ITEMS)).toEqual(['nail']);
+        expect(byKind(REGISTRY_KINDS.CRAFTING)).toEqual(['press_nails']);
+        const machine = result.quarantined.find((q) => q.kind === REGISTRY_KINDS.MACHINES);
+        expect(machine.key).toBe('pressMachine');
+        expect(machine.reason).toMatch(/nail/);
+    });
+});
+
+describe('a material registry that cannot be used', () => {
+    it('reports the family once, instead of blaming every component', () => {
+        const result = classifyComposition(candidate({
+            // A damage-type table for a material that does not exist: the owner refuses
+            // the whole unit, so no component-level verdict is trustworthy.
+            [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: { _comment: 'x', glass: { impact: 1 } }
+        }));
+        expect(result.quarantined).toHaveLength(1);
+        const entry = result.quarantined[0];
+        expect(entry.scope).toBe(QUARANTINE_SCOPE.REGISTRY);
+        expect(entry.kind).toBe(REGISTRY_KINDS.MATERIALS);
+        // Which files were part of the unit that failed, named in the message.
+        expect(entry.reason).toMatch(/materialDamageTypes/);
+        // The bowl was NOT quarantined: with no trustworthy base, no component verdict is
+        // reported at all — silence here is honest, mass quarantine is not.
+        expect(result.valid[REGISTRY_KINDS.COMPONENTS].bowl).toBeDefined();
+    });
+});
+
+describe('kinds with no composition rule today', () => {
+    it('pass through untouched, including kinds the classifier has never heard of', () => {
+        const result = classifyComposition({
+            [REGISTRY_KINDS.WORLD_RULES]: { rules: { anything: true } },
+            someFutureKind: { a: 1 }
+        });
+        expect(result.quarantined).toEqual([]);
+        expect(result.valid[REGISTRY_KINDS.WORLD_RULES]).toEqual({ rules: { anything: true } });
+        expect(result.valid.someFutureKind).toEqual({ a: 1 });
+    });
+});

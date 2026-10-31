@@ -99,6 +99,30 @@ with a code and a message, and reported in `invalid` by both `GET /mods` and
 `MOD_MANIFEST_INVALID`, `MOD_ID_INVALID`, `MOD_ID_DIR_MISMATCH`,
 `MOD_CONTENT_KIND_UNKNOWN`, `MOD_CONTENT_UNREADABLE`.
 
+## Quarantine: definitions the world will not hold
+
+Some definitions are refused by the world's own composition rules — material fractions
+that exceed one, a material that does not exist, a recipe whose output item is not
+defined, a machine bound to a blueprint, item or recipe that is missing. Those rules live
+with their owners (`MaterialController`, `CraftingController`, `MachineRegistryController`)
+and the plan runs them through `CompositionClassifier`, reporting one entry per definition
+with the owner's own message.
+
+Two things follow, and both are deliberate:
+
+- **The chain runs downstream.** A recipe is checked against the items that survived, a
+  machine against the recipes that survived. Quarantine a material and everything built on
+  it is named in order, each with the reason it fell.
+- **A broken material family is reported once**, as a registry-scope entry naming the
+  registries involved — not as a quarantine notice for every component in the game. With
+  no trustworthy base there is no component-level verdict to give.
+
+`POST /mods/plan` returns these under `quarantine`; the `kinds` diff lists only what would
+actually install, so a definition appears in one or the other, never both.
+
+Today the classifier feeds the **plan only**. The boot path still validates fail-fast: a
+malformed official file stops the server rather than booting a world with holes in it.
+
 ## HTTP surface
 
 | Method | Path              | What it does |
@@ -115,14 +139,17 @@ server (`src/routes/index.js`).
 
 Built and tested: discovery, manifest validation, narrowing to declared kinds,
 field-level merge with a shadowing report, the official set packaged as `core-*`, the
-boot path assembling the world from those packages instead of 21 separate file loads, and
-the four endpoints above.
+boot path assembling the world from those packages instead of 21 separate file loads, the
+non-throwing composition classifier behind the plan's `quarantine` report, and the four
+endpoints above.
 
 Not built:
 
 - **Apply.** Nothing swaps the running world's definition. A package on disk becomes
-  part of the world at the next boot; `POST /mods/plan` shows what an apply would do.
+  part of the world at the next boot; `POST /mods/plan` shows what an apply would do,
+  including what it would drop.
 - **Enable/disable and load order over HTTP.** `GET /mods` reports `enabled: true` for
   every package because nothing can set it to false yet.
-- **Quarantine.** A mod whose definition references a component that does not exist is
-  reported by the plan's diff, not removed from the world.
+- **Quarantine at boot.** The classifier exists and the plan uses it; the boot path still
+  throws on malformed data instead of booting around it. Switching boot over is the
+  change that makes "the world always comes up" true rather than a plan-time property.

@@ -52,7 +52,10 @@ beforeAll(() => {
     });
     writeMod('extra-parts', [REGISTRY_KINDS.COMPONENTS, REGISTRY_KINDS.MATERIALS], {
         [REGISTRY_KINDS.COMPONENTS]: { crowbar: { name: 'Crowbar' } },
-        [REGISTRY_KINDS.MATERIALS]: { steel: { name: 'Steel' } }
+        // A complete material entry: the materials owner requires name, density and
+        // properties, and an incomplete one would quarantine the whole material family
+        // and hide every component-level verdict below it.
+        [REGISTRY_KINDS.MATERIALS]: { steel: { name: 'Steel', density: 7.8, properties: {} } }
     });
     writeMod('broken', ['not-a-kind'], {});
 });
@@ -147,6 +150,32 @@ describe('plan', () => {
         expect(components.changedCount).toBe(1);
         expect(plan.shadowed.some((s) => s.key === 'knife' && s.to === 'zz-nerf')).toBe(true);
         fs.rmSync(path.join(FIXTURE_ROOT, 'zz-nerf'), { recursive: true, force: true });
+    });
+
+    it('quarantines a definition the world would refuse, and does not count it as added', () => {
+        // The store is built BEFORE the broken package is written, so the plan's only
+        // subject is that package.
+        const applied = storeFrom();
+        writeMod('zz-broken', [REGISTRY_KINDS.INVENTORY_ITEMS], {
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: {
+                goodBolt: { name: 'Good Bolt', materials: [{ material: 'steel', fraction: 1 }] },
+                rustyBolt: { name: 'Rusty Bolt', materials: [{ material: 'unobtainium', fraction: 1 }] }
+            }
+        });
+        const plan = new ModService({ registryStore: applied, loader: loader({}) }).plan();
+
+        expect(plan.quarantine).toHaveLength(1);
+        const entry = plan.quarantine[0];
+        expect([entry.kind, entry.key, entry.scope]).toEqual([REGISTRY_KINDS.INVENTORY_ITEMS, 'rustyBolt', 'definition']);
+        expect(entry.reason).toMatch(/unobtainium/);
+        // The good definition lands; the broken one is not in the diff, because an apply
+        // installs the classified candidate.
+        const items = plan.kinds.find((k) => k.kind === REGISTRY_KINDS.INVENTORY_ITEMS);
+        expect(items.added).toEqual(['goodBolt']);
+        expect(items.removedCount).toBe(0);
+        // And nothing was written by asking.
+        expect(applied.read(REGISTRY_KINDS.INVENTORY_ITEMS).rustyBolt).toBeUndefined();
+        fs.rmSync(path.join(FIXTURE_ROOT, 'zz-broken'), { recursive: true, force: true });
     });
 
     it('names rejects in the plan too, so an apply is not blind to them', () => {

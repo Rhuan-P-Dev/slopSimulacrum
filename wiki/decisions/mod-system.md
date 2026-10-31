@@ -156,6 +156,13 @@ read manifests -> order -> build candidate registries -> validate candidate
   -> (fail) reject with a report; the live world is untouched
 ```
 
+- **Ordering precedence, kept as designed** (owner decision, recorded while writing
+  `MODS.md`): every package defaults to `loadOrder` 1000 and ties break by id ascending,
+  with last-writer-wins per key. So whether a third-party package overrides an official one
+  at the default order depends on where its name sorts - `core-` sorts early, so ordinary
+  names win and a name like `aaa-extra` loses silently. The owner chose to keep this and
+  document it rather than special-case officiality, because explicit `loadOrder` is the
+  mechanism the decision already provides. `MODS.md` says so where an author will read it.
 - **Ordering**: `data/mods/loadorder.json`, ascending `loadOrder`, ties broken by id so the
   order is total and deterministic (`D-*`).
 - **Validation**: the same validators the boot path uses today, run against the *candidate*,
@@ -442,8 +449,17 @@ behavior-bearing and get a test pinning the current behavior first.
    `ModLoader.build()`. `data/mods/loadorder.json` is deliberately NOT there yet - writing a
    state file nobody reads is speculative, and it arrives with the enable action that writes
    it (step 8). Until then every package loads, in id order.
-5. `classifyComposition` beside the existing `validateComposition`; composition root and mod
-   pipeline both use it. Old asserts stay, new quarantine tests ship.
+5. Done, with two owner decisions recorded. `src/services/CompositionClassifier.js` runs
+   ALL the boot rules (materials, crafting recipes, machines, damage types / drop rates) -
+   the owner chose the full set over the materials-only literal reading of this line. It
+   reuses the owners rather than restating their rules: one whole-registry construction in
+   the happy case, per-definition constructions only to name the culprit after that threw.
+   Order is the dependency chain: materials -> components/items -> crafting -> machines,
+   each checked against what survived. Boot still fails fast: the owner chose to wire the
+   classifier into `plan` first and switch boot when apply exists, so "the world always
+   boots" is a plan-time property until step 8, not a boot-time one. `validateComposition`
+   keeps its throwing contract and the four pinned assertions in
+   `test/unit/MaterialController.test.js` were not touched.
 6. `GET /api/mods` + `POST /api/mods/rescan` (read-only, no apply).
 7. `POST /api/mods/plan` (candidate build, shadowing, quarantine).
 8. Enable / disable, apply at `_roundStart()`, rescan, reassemble, broadcast. Snapshot

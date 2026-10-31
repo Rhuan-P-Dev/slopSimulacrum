@@ -81,7 +81,10 @@ export function register(router, { modService }) {
 	 * whether the world moved since.
 	 * `{ applied: false, fromVersion, kinds: [{ kind, added, removed, changed,
 	 *    addedCount, removedCount, changedCount, unchanged, truncated, providers }],
-	 *    shadowed, invalid }`
+	 *    quarantine: [{ kind, key, scope, reason }], shadowed, invalid }`
+	 * The `kinds` diff is the candidate that survives composition; `quarantine` lists what
+	 * was dropped and why, in the words of the owner whose rule it broke. A definition
+	 * appears in one or the other, never both.
 	 */
 	router.post('/mods/plan', (req, res) => {
 		try {

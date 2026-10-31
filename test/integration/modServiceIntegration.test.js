@@ -75,6 +75,9 @@ describe('the mod view of a real world', () => {
         expect(plan.fromVersion).toBe(world.registryStore.version());
         expect(plan.kinds, JSON.stringify(plan.kinds.map((k) => k.kind))).toEqual([]);
         expect(plan.shadowed).toEqual([]);
+        // The shipped content survives the composition rules the plan applies: if this
+        // ever fires on an official definition, the classifier is wrong or the data is.
+        expect(plan.quarantine, JSON.stringify(plan.quarantine)).toEqual([]);
     });
 
     it('names what the world has that the packages do not, without swapping anything', () => {

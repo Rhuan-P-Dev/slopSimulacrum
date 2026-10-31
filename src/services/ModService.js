@@ -29,6 +29,7 @@
  */
 
 import ModLoader from './ModLoader.js';
+import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
 import { REGISTRY_KIND_LIST, isRegistryKind } from '../../shared/RegistryKinds.js';
 
@@ -138,15 +139,26 @@ export class ModService {
      * must describe the disk as it is now, and the cached scan can be hours old.
      * `enabled` is read from the loader's state exactly as an apply would read it, so
      * a disabled package contributes nothing here and nothing there.
-     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, shadowed: Array<Object>, invalid: Array<Object> }}
+     *
+     * `quarantine` comes from `CompositionClassifier`: definitions that would not survive
+     * the world's own composition rules, each with the reason its owner gave. They are
+     * NOT in the `kinds` diff, because an apply installs the classified candidate. A plan
+     * can therefore answer the two different questions an operator has — what lands, and
+     * what was dropped for cause.
+     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object> }}
      */
     plan() {
         const { discovered, invalid } = this.loader.discover();
         const built = this.loader.build(discovered);
+        // The diff is computed against the definitions that would SURVIVE composition, not
+        // against the raw merge: an apply installs the classified candidate, so a plan
+        // that counted a quarantined definition as "added" would promise a definition the
+        // world refuses to hold.
+        const { valid, quarantined } = classifyComposition(built.registries);
         const kinds = [];
         for (const kind of REGISTRY_KIND_LIST) {
             if (!isRegistryKind(kind)) continue;
-            const diff = diffRegistry(this.registryStore.read(kind), built.registries[kind]);
+            const diff = diffRegistry(this.registryStore.read(kind), valid[kind]);
             if (diff.addedCount === 0 && diff.removedCount === 0 && diff.changedCount === 0) continue;
             kinds.push({ kind, ...diff, providers: built.providers[kind] });
         }
@@ -154,6 +166,7 @@ export class ModService {
             applied: false,
             fromVersion: this.registryStore.version(),
             kinds,
+            quarantine: quarantined,
             shadowed: built.shadowed,
             invalid
         };
