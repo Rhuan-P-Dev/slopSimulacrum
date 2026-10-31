@@ -43,6 +43,8 @@
 
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
+import RegistryStore from '../services/RegistryStore.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import {
     WORLD_EVENTS_MAX_LIMIT,
     AGENT_FEEDBACK_CAPACITY,
@@ -128,7 +130,8 @@ import WorldStateController from '../controllers/WorldStateController.js';
  *
  * This is the ONLY supported construction path for a WorldStateController.
  * It performs:
- *   1. Loading of data registries.
+ *   1. Loading of data registries into the `RegistryStore` (read by kind, swapped
+ *      as one step — see `src/services/RegistryStore.js`).
  *   2. Topological construction of every sub-controller (named deps, no facade).
  *   3. Construction of the facade with the built sub-controllers.
  *   4. Post-construction facade injection into the facade-dependent sub-controllers.
@@ -136,18 +139,51 @@ import WorldStateController from '../controllers/WorldStateController.js';
  *   6. World initialization + initial capability scan.
  *
  * @param {UniversalTickSystem|null} [tickSystem] - The global tick system (may be null in tests).
- * @returns {{ worldStateController: WorldStateController, subControllers: Object }}
- *   The assembled facade plus a named map of every sub-controller (for inspection/testing).
+ * @param {RegistryStore|null} [registryStore] - Pre-built registries (a test, or a
+ *   caller that already resolved the world definition). Built from the data seam
+ *   when omitted.
+ * @returns {{ worldStateController: WorldStateController, subControllers: Object, registryStore: RegistryStore }}
+ *   The assembled facade, a named map of every sub-controller (for
+ *   inspection/testing), and the registry store that owns the world definition.
  */
-export function buildWorldState(tickSystem = null) {
+export function buildWorldState(tickSystem = null, registryStore = null) {
     // =========================================================================
     // 0. Load Configuration Data (registries)
+    //
+    // One load per registry, into a RegistryStore, and every local below is the
+    // store's LIVE holder for its kind. Readers therefore cannot drift from the
+    // swapped definition: when the mod pipeline replaces content, these very
+    // objects change contents (see RegistryStore's identity rule).
     // =========================================================================
-    const actionRegistry = DataLoader.loadJsonSafe('data/systems/actions.json');
-    const componentRegistry = DataLoader.loadJsonSafe('data/components/components.json');
-    const traitsRegistry = DataLoader.loadJsonSafe('data/components/traits.json');
-    const blueprintRegistry = DataLoader.loadJsonSafe('data/entities/blueprints.json', {});
-    const synergyRegistry = DataLoader.loadJsonSafe('data/systems/synergy.json') || {};
+    const store = registryStore ?? new RegistryStore({
+        [REGISTRY_KINDS.ACTIONS]: DataLoader.loadJsonSafe('data/systems/actions.json'),
+        [REGISTRY_KINDS.COMPONENTS]: DataLoader.loadJsonSafe('data/components/components.json'),
+        [REGISTRY_KINDS.TRAITS]: DataLoader.loadJsonSafe('data/components/traits.json'),
+        [REGISTRY_KINDS.BLUEPRINTS]: DataLoader.loadJsonSafe('data/entities/blueprints.json', {}),
+        [REGISTRY_KINDS.SYNERGY]: DataLoader.loadJsonSafe('data/systems/synergy.json', {}),
+        [REGISTRY_KINDS.MATERIALS]: DataLoader.loadJsonSafe('data/materials/materials.json', {}),
+        [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: DataLoader.loadJsonSafe('data/materials/propertyTraitMapping.json', {}),
+        [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: DataLoader.loadJsonSafe('data/materials/materialDamageTypes.json', {}),
+        [REGISTRY_KINDS.MATERIAL_DROP_RATES]: DataLoader.loadJsonSafe('data/materials/materialDropRates.json', {}),
+        [REGISTRY_KINDS.WORLD_RULES]: DataLoader.loadJsonSafe('data/world/world_rules.json', {}),
+        [REGISTRY_KINDS.INVENTORY_ITEMS]: DataLoader.loadJsonSafe('data/components/inventoryItems.json', {}),
+        [REGISTRY_KINDS.CRAFTING]: DataLoader.loadJsonSafe('data/systems/crafting.json', {}),
+        [REGISTRY_KINDS.MACHINES]: DataLoader.loadJsonSafe('data/systems/machines.json', {}),
+        [REGISTRY_KINDS.ROOMS]: DataLoader.loadJsonSafe('data/world/rooms.json', {}),
+        [REGISTRY_KINDS.WORLD]: DataLoader.loadJsonSafe('data/world/world.json', {}),
+        [REGISTRY_KINDS.WORLD_OBJECTS]: DataLoader.loadJsonSafe('data/world/worldObjects.json', {}),
+        [REGISTRY_KINDS.HOLDING_COST]: DataLoader.loadJsonSafe('data/components/holdingCost.json', {}),
+        [REGISTRY_KINDS.SENSITIVE_PARTS]: DataLoader.loadJsonSafe('data/components/sensitiveParts.json', {}),
+        [REGISTRY_KINDS.INTERNAL_COMPONENTS]: DataLoader.loadJsonSafe('data/components/internalComponents.json', {}),
+        [REGISTRY_KINDS.NPCS]: DataLoader.loadJsonSafe('data/entities/npcs.json', {}),
+        [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: DataLoader.loadJsonSafe('data/entities/entity_attributes.json', { attributes: {} })
+    });
+
+    const actionRegistry = store.read(REGISTRY_KINDS.ACTIONS);
+    const componentRegistry = store.read(REGISTRY_KINDS.COMPONENTS);
+    const traitsRegistry = store.read(REGISTRY_KINDS.TRAITS);
+    const blueprintRegistry = store.read(REGISTRY_KINDS.BLUEPRINTS);
+    const synergyRegistry = store.read(REGISTRY_KINDS.SYNERGY);
 
     if (!actionRegistry || Object.keys(actionRegistry).length === 0) {
         Logger.warn('Action registry is empty or missing. Actions will not be available.');
@@ -164,24 +200,24 @@ export function buildWorldState(tickSystem = null) {
     // Hoisted to named consts so both the MaterialController and the
     // KnowledgeController read the SAME loaded registries — one load, N readers
     // (zero new file I/O; the controller itself never loads).
-    const materialsRegistry = DataLoader.loadJsonSafe('data/materials/materials.json', {});
-    const propertyTraitMappingRegistry = DataLoader.loadJsonSafe('data/materials/propertyTraitMapping.json', {});
+    const materialsRegistry = store.read(REGISTRY_KINDS.MATERIALS);
+    const propertyTraitMappingRegistry = store.read(REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING);
     // Feature 1: per-material damage-type distributions (data/materials/materialDamageTypes.json).
     // Loaded here (one load, N readers) and injected into the MaterialController, which
     // validates it (cross-checking material keys against the materials registry) and
     // serves it to the damage handler. Absent/empty file → feature off (graceful).
-    const materialDamageTypesRegistry = DataLoader.loadJsonSafe('data/materials/materialDamageTypes.json', {});
+    const materialDamageTypesRegistry = store.read(REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES);
     // Feature 2: per-material chunk-drop rates (data/materials/materialDropRates.json). Same
     // one-load/N-readers pattern; the MaterialController validates it (minChunkVolume,
     // per-material dropRate/chunkFraction in [0,1], material-key cross-check) and serves
     // it to the chunk-drop handler. Absent/empty file → feature off (graceful — no drops).
-    const materialDropRatesRegistry = DataLoader.loadJsonSafe('data/materials/materialDropRates.json', {});
+    const materialDropRatesRegistry = store.read(REGISTRY_KINDS.MATERIAL_DROP_RATES);
     const materialController = new MaterialController(materialsRegistry, propertyTraitMappingRegistry, materialDamageTypesRegistry, materialDropRatesRegistry);
     // World-rules layer (WR-4): a new Layer-0 data owner for world-level rules.
     // Loaded here (one load, N readers) and injected into the WorldRulesController,
     // which validates it (WR-1/WR-5: "off, never crash" degradation). Absent/empty
     // file → all rules off (legacy behavior, bit-identical world).
-    const worldRulesRegistry = DataLoader.loadJsonSafe('data/world/world_rules.json', {});
+    const worldRulesRegistry = store.read(REGISTRY_KINDS.WORLD_RULES);
     const worldRulesController = new WorldRulesController(worldRulesRegistry);
 
     // =========================================================================
@@ -189,7 +225,7 @@ export function buildWorldState(tickSystem = null) {
     //      not mid-game. Component and inventory-item registries are loaded;
     //      any data defect throws TypeError here (boot failure).
     // =========================================================================
-    const inventoryItemRegistry = DataLoader.loadJsonSafe('data/components/inventoryItems.json', {});
+    const inventoryItemRegistry = store.read(REGISTRY_KINDS.INVENTORY_ITEMS);
     for (const [type, def] of Object.entries(componentRegistry)) {
         if (def.materials) materialController.validateComposition(type, def.materials);
     }
@@ -201,7 +237,7 @@ export function buildWorldState(tickSystem = null) {
     // Hoisted so the KnowledgeController below can reuse the SAME recipe
     // registry (one load, N readers). CraftingController's behavior is
     // unchanged: it receives the identical parsed object.
-    const craftingRegistry = DataLoader.loadJsonSafe('data/systems/crafting.json', {});
+    const craftingRegistry = store.read(REGISTRY_KINDS.CRAFTING);
     // CraftingController: state controller owning the recipe registry
     // (data/systems/crafting.json). Receives the already-loaded item registry so every
     // recipe input/output type is cross-validated against inventoryItems.json
@@ -220,7 +256,7 @@ export function buildWorldState(tickSystem = null) {
     // Deliberately kept OUT of the broadcast subControllers map below: static
     // config data must stay out of the full-state aggregation (same rule).
     const machineRegistryController = new MachineRegistryController(
-        DataLoader.loadJsonSafe('data/systems/machines.json', {}),
+        store.read(REGISTRY_KINDS.MACHINES),
         blueprintRegistry,
         inventoryItemRegistry,
         craftingRegistry
@@ -580,6 +616,10 @@ export function buildWorldState(tickSystem = null) {
     // =========================================================================
     return {
         worldStateController,
+        // The store that owns the world definition this facade was built from.
+        // The mod pipeline swaps content here; every reader above is already
+        // looking at these holders.
+        registryStore: store,
         subControllers: {
             statsController,
             traitsController,
