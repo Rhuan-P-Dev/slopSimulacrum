@@ -37,7 +37,7 @@ import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
  * Builds a fresh world wired to a (non-started) tick system. Returns the
  * facade, the tick system, the turn system controller, and spawns a test droid.
  *
- * The roster is kept DETERMINISTIC against data/entities/npcs.json: any NPCs
+ * The roster is kept DETERMINISTIC against data/mods/core-npcs/npcs.json: any NPCs
  * spawned during world boot (cards in data/cards/, gitignored local image
  * content, spawned as M1 LLM NPCs) are despawned, so the round-start roster
  * is always [one NPC, test droid] = 2 planners — the invariant the barrier

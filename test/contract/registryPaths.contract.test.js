@@ -10,13 +10,16 @@
  * This contract fails when:
  *   - a declared kind has no source (a reader would throw at boot);
  *   - two kinds share one source (a swap of one would silently change the other);
- *   - the table names a path that is not the data-file layout (a stray prefix
- *     would resolve outside the data tree);
+ *   - the table names a path that is not the content file of an OFFICIAL mod
+ *     package (a stray prefix would resolve outside the data tree, and a source
+ *     outside `data/mods/` would be a registry the mod pipeline cannot replace);
  *   - `loadRegistry` accepts an unknown kind instead of refusing it (a typo would
  *     return the empty default and make part of the world vanish quietly).
  *
- * It does NOT pin which file each kind reads — that is the table's content, and
- * moving a data file is a deliberate change to the table, not to this test.
+ * It does NOT pin which package each kind reads — that is the table's content, and
+ * re-homing a data file is a deliberate change to the table, not to this test. What
+ * it does pin is the FORM a source must have, which since the move is: the content
+ * file of a `core-*` package under `data/mods/`.
  *
  * @module test/contract/registryPaths
  */
@@ -30,7 +33,10 @@ describe('registry path table (the only kind -> file mapping)', () => {
         for (const kind of REGISTRY_KIND_LIST) {
             const source = DataLoader.registrySourcePath(kind);
             expect(typeof source, `source of "${kind}"`).toBe('string');
-            expect(source, `source of "${kind}"`).toMatch(/^data\/[A-Za-z0-9_/]+\.json$/);
+            // data/mods/<official package id>/<bare file name>.json — the reserved
+            // prefix is required because a WRITE through this table (the save action)
+            // must land in shipped content, never in a third-party overlay.
+            expect(source, `source of "${kind}"`).toMatch(/^data\/mods\/core-[a-z0-9._-]*\/[A-Za-z0-9_]+\.json$/);
         }
     });
 

@@ -33,7 +33,7 @@ class ConsequenceHandlers {
      * @param {Object} [deps] - Named dependencies.
      * @param {EquippedItemStatsController} [deps.equippedItemStats] - Mutable equipped-item stats.
      * @param {MaterialController|null} [deps.materialController] - Feature 1: owns the
-     *   per-material damage-type split (data/materials/materialDamageTypes.json); forwarded to the
+     *   per-material damage-type split (data/mods/core-material-damage-types/materialDamageTypes.json); forwarded to the
      *   damage handler. Null-tolerant (the feature degrades to the declared channel).
      * @param {WorldEventLogController|null} [deps.worldEventLog] - World event ring buffer
      *   (Feature B): the log handler forwards every resolved log message to it.
@@ -47,13 +47,13 @@ class ConsequenceHandlers {
         /** @type {WorldStateController|null} Injected post-construction. */
         this.worldStateController = null;
         this.equippedItemStats = equippedItemStats || null;
-        // Machine registry (data/systems/machines.json): forwarded to the
+        // Machine registry (data/mods/core-machines/machines.json): forwarded to the
         // place/retrieve machine handlers (data-driven item <-> machine bindings).
         // Null-tolerant (tests can omit it). Stored, not in setWorldStateController,
         // because it is static config data, not the mutable facade.
         this.machineRegistry = machineRegistry || null;
         // Feature 1: MaterialController owns the per-material damage-type split
-        // (data/materials/materialDamageTypes.json); forwarded to the damage handler below.
+        // (data/mods/core-material-damage-types/materialDamageTypes.json); forwarded to the damage handler below.
         this.materialController = materialController || null;
         // World-rules layer (WR-6): forwarded to the chunk-drop handler so the
         // torn-material step can read the active percentage. Null-tolerant.
@@ -71,7 +71,7 @@ class ConsequenceHandlers {
         this.damageHandler = new DamageConsequenceHandler(damageControllers);
         // Feature 2: chunk drop on punch. Named deps only (the facade arrives via
         // setWorldStateController below); materialController is forwarded so the handler
-        // can read the drop-rates registry (data/materials/materialDropRates.json).
+        // can read the drop-rates registry (data/mods/core-material-drop-rates/materialDropRates.json).
         // World-rules layer (WR-6): worldRulesController is forwarded so the handler
         // can read the active torn-material percentage.
         const chunkControllers = { worldStateController: this.worldStateController, materialController: this.materialController, worldRulesController: this.worldRulesController };

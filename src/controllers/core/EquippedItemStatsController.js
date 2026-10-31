@@ -6,7 +6,7 @@
  * stats are loaded from inventoryItems.json and stored as a mutable copy that can be
  * modified independently (e.g., sharpness decreases with use, existence degrades).
  *
- * Data-driven: base stats loaded from data/components/inventoryItems.json
+ * Data-driven: base stats loaded from data/mods/core-inventory-items/inventoryItems.json
  *
  * @module EquippedItemStatsController
  */

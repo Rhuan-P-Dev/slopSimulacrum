@@ -6,9 +6,9 @@
  * A touch is a component-targeting action: the LLM targets a specific
  * component of a victim droid, and this handler validates that the component
  * is a sensitive part (the `sensitive` flag granted by the sensitiveNerve
- * organ — data/components/internalComponents.json) and that its part type
- * carries a sensitivity value in data/components/sensitiveParts.json. The
- * touched droid's pleasure meter (data/entities/entity_attributes.json) is
+ * organ — data/mods/core-internal-components/internalComponents.json) and that its part type
+ * carries a sensitivity value in data/mods/core-sensitive-parts/sensitiveParts.json. The
+ * touched droid's pleasure meter (data/mods/core-entity-attributes/entityAttributes.json) is
  * raised by that value and clamped into [0, max] by the facade. The toucher
  * gains nothing (agreed design: only the touched droid gains).
  *

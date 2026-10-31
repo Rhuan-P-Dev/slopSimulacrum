@@ -13,7 +13,7 @@
  *     `npcConfig.personality`), and that they ALL land in the *first* room
  *     (deterministic: the first spawnable room in world-definition order);
  *   - asserts the `LLMAgentController` resolves each card's identity through
- *     `_resolveNpcConfig` (live `npcConfig` over the static `data/entities/npcs.json`
+ *     `_resolveNpcConfig` (live `npcConfig` over the static `data/mods/core-npcs/npcs.json`
  *     registry — the cards have no registry entry, so the live config IS their
  *     config, and no card inherits a shared registry "personality" from another
  *     droid);

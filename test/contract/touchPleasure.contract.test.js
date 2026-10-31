@@ -5,8 +5,8 @@
  * specific body-part component of a victim droid. Its consequence
  * (`stimulateSensitivePart`) validates that the part is a sensitive part (the
  * `sensitive` flag granted by the sensitiveNerve organ —
- * data/components/internalComponents.json) and that its type carries a
- * declared sensitivity value (data/components/sensitiveParts.json), then
+ * data/mods/core-internal-components/internalComponents.json) and that its type carries a
+ * declared sensitivity value (data/mods/core-sensitive-parts/sensitiveParts.json), then
  * raises the TOUCHED droid's whole-entity Pleasure.pleasure by that value
  * (clamped into [0, max] by the facade). The toucher gains nothing (agreed
  * design: only the touched droid gains). The meter decays 1 per round —

@@ -1,5 +1,5 @@
 /**
- * Spawn-time organ gate — `targetBlueprintTypes` (data/components/internalComponents.json).
+ * Spawn-time organ gate — `targetBlueprintTypes` (data/mods/core-internal-components/internalComponents.json).
  *
  * Pins which entity blueprints an organ may install on, and reproduces the
  * "humanoid droid is born paralyzed" defect: the humanoid recipes declare their
@@ -35,7 +35,7 @@ const HOST_VOLUME = 10;
  * `worldStateController.componentController.componentRegistry` and fails closed
  * when it is unwired, so the double below is what makes this a unit test instead
  * of a whole-world run: the registry it exposes is the real
- * `data/components/components.json` map the controller already loaded, and the two
+ * `data/mods/core-components/components.json` map the controller already loaded, and the two
  * stat writers are recorded-and-ignored (the stat side of the contract is covered
  * by test/contract/humanoidSpawnCapabilities.contract.test.js).
  *

@@ -58,7 +58,7 @@ import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
  *  10. return { success, recipeId, consumed, produced }
  *
  * @param {string} entityId - Typed entity ID (ent-<uuid>).
- * @param {string} recipeId - Recipe ID from data/systems/crafting.json.
+ * @param {string} recipeId - Recipe ID from data/mods/core-crafting/crafting.json.
  * @param {string} componentId - Typed component ID (comp-<uuid>) receiving the produced outputs; the consumed inputs may be hosted on any of the entity's components (the named component is the outputs' address, not a required input host).
  * @param {string[]} itemIds - Exact item instance IDs (item-<uuid>) to consume; must exactly satisfy the recipe inputs.
  * @returns {{ success: boolean, code?: string, message?: string, recipeId?: string, consumed?: string[], produced?: Object[] }}

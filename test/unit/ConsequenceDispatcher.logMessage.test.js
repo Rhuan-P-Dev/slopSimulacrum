@@ -1,7 +1,7 @@
 /**
  * UNIT test for ConsequenceDispatcher log-message resolution (top-level `message`/`level`).
  *
- * data/systems/actions.json declares free-text log messages at the consequence level — a
+ * data/mods/core-actions/actions.json declares free-text log messages at the consequence level — a
  * top-level `message`/`level` on the `log` consequence, with NO `params` object.
  * The template is the SHARED generic shape used by every damage action:
  *
@@ -25,7 +25,7 @@
  * same PlaceholderResolver used for the damage `value`, with a context that carries
  * the actor, the attacker's component, the action name, the resolved damage, and the
  * victim entity + component. Component display names are resolved from
- * data/components/components.json (body parts) and data/components/inventoryItems.json (equipped weapons);
+ * data/mods/core-components/components.json (body parts) and data/mods/core-inventory-items/inventoryItems.json (equipped weapons);
  * the possessive phrases degrade to '' when a component cannot be resolved, so the
  * sentence stays grammatical.
  *
@@ -47,7 +47,7 @@ import { describe, it, expect } from 'vitest';
 import ConsequenceDispatcher from '../../src/controllers/consequences/ConsequenceDispatcher.js';
 import DataLoader from '../../src/utils/DataLoader.js';
 
-// The shared damage template as now stored in data/systems/actions.json (one for every
+// The shared damage template as now stored in data/mods/core-actions/actions.json (one for every
 // damage action): it names the actor, the attacker's component, the action, the
 // concrete damage, the victim entity, and the victim's component.
 const PUNCH_TEMPLATE =
@@ -55,7 +55,7 @@ const PUNCH_TEMPLATE =
     ':damageChannel damage to :targetName (:targetId):targetCompPhrase';
 
 /**
- * The punch action shape exactly as in data/systems/actions.json (two-attacker eligible:
+ * The punch action shape exactly as in data/mods/core-actions/actions.json (two-attacker eligible:
  * a strength requirement + a per-attacker damage + a top-level log message).
  */
 function makePunchAction() {
@@ -122,9 +122,9 @@ function makeDispatcher(handlers, extra = {}) {
  * getEquippedItem (equipped weapon itemType). `componentStats` backs the
  * multi-attacker per-attacker stat path.
  *
- * `components` is a map compId -> { id, type } (type is a data/components/components.json key).
+ * `components` is a map compId -> { id, type } (type is a data/mods/core-components/components.json key).
  * `equipped` is a map entityId -> { eqId -> { eqId, itemType } } (itemType is a
- * data/components/inventoryItems.json key).
+ * data/mods/core-inventory-items/inventoryItems.json key).
  */
 function makeWorld({ entities = {}, components = {}, equipped = {}, componentStats } = {}) {
     return {
@@ -140,7 +140,7 @@ function makeWorld({ entities = {}, components = {}, equipped = {}, componentSta
 
 // A punch world: attacker "Rusty" (a Droid Hand does the punching) hits "Vex" on
 // a Droid Arm. Named entities exercise the entity-name path; the body-part types
-// resolve to their data/components/components.json names ("Droid Hand", "Droid Arm").
+// resolve to their data/mods/core-components/components.json names ("Droid Hand", "Droid Arm").
 const PUNCH_WORLD = () => makeWorld({
     entities: { 'ent-abc123': { name: 'Rusty' }, 'ent-target': { name: 'Vex' } },
     components: {
@@ -466,7 +466,7 @@ describe('ConsequenceDispatcher log-message resolution (top-level message/level)
                 'comp-h'
             );
             // 5 fine_controls * 2 = 10 per pellet, x 3 pellets = 30 total. The victim
-            // component type centralBall resolves to its data/components/components.json name.
+            // component type centralBall resolves to its data/mods/core-components/components.json name.
             expect(msg).toBe(
                 "Rusty (ent-gun)'s Droid Hand performed hand shotgun dealing 30 impact damage " +
                 "to Vex (ent-target)'s Central Ball"
@@ -518,7 +518,7 @@ describe('ConsequenceDispatcher log-message resolution (top-level message/level)
 });
 
 describe('data-lint: shared damage template requires channel-based damage', () => {
-    const actions = DataLoader.loadJsonSafe('data/systems/actions.json', {});
+    const actions = DataLoader.loadJsonSafe('data/mods/core-actions/actions.json', {});
 
     it('every action whose log uses the damage template declares a channel damage consequence', () => {
         const damageTypes = ['damageComponent', 'consumeItemAndDamage', 'damageRandomComponents'];

@@ -3,7 +3,7 @@
  *
  * Builds a real world (buildWorldState, tick system NOT started) and asserts, with a
  * full action round-trip, that the new "grab" action (declared in
- * data/systems/actions.json) drains the TARGET's locomotion:
+ * data/mods/core-actions/actions.json) drains the TARGET's locomotion:
  *
  *   - grab is a close-range, component-targeting action (range 50, targetingType
  *     "component") gated on Physical.strength >= 1.
@@ -45,7 +45,7 @@ function buildWorld() {
     return world;
 }
 
-const GRAB = readJson('data/systems/actions.json').grab;
+const GRAB = readJson('data/mods/core-actions/actions.json').grab;
 const moveOf = (world, compId) => world.getComponentStats(compId)?.Movement?.move;
 
 /** First droidRollingBall (moveCore host) of an entity. */
@@ -62,7 +62,7 @@ function spawnPair(world, roomId, vx = 50) {
 
 describe('Feature: grab action drains the target move (contract, full round-trip)', () => {
     it('the registry declares grab with the expected contract', () => {
-        expect(GRAB, 'the grab action must be declared in data/systems/actions.json').toBeTruthy();
+        expect(GRAB, 'the grab action must be declared in data/mods/core-actions/actions.json').toBeTruthy();
         expect(GRAB.targetingType, 'grab must be a component-targeting action').toBe('component');
         expect(Number.isFinite(GRAB.range), 'grab must declare a range').toBe(true);
         expect(

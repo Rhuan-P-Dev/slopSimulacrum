@@ -2,7 +2,7 @@
  * RegistryStore — the owner of the live world definition.
  *
  * WHY THIS EXISTS. The world is built from 21 JSON registries. Until now each
- * reader named a *path* (`'data/components/components.json'`) and captured the
+ * reader named a *path* (`'data/mods/core-components/components.json'`) and captured the
  * parsed object at construction time. That made the world definition immutable
  * in practice: swapping the data underneath a running server would leave the
  * six controllers that captured `actionRegistry` (and every controller that

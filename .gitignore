@@ -12,3 +12,9 @@ coverage/
 .env.*
 !.env.example
 data/cards/*
+
+# mod packages: user-installed ones stay local, the official core-* set ships
+data/mods/*
+!data/mods/core-*/
+# pre-write backups the save action takes next to a data file
+*.bak-*

@@ -481,7 +481,7 @@ describe('default section and empty shape', () => {
 describe('shared/StatVocabulary pin (spec §5.2 / §3.2 canonical values)', () => {
     it('pins the exact trait group names, stat names, and existence boundaries', () => {
         // Pleasure: the whole-entity pleasure meter (seeded for the human
-        // droids; see data/entities/entity_attributes.json).
+        // droids; see data/mods/core-entity-attributes/entityAttributes.json).
         expect(Object.values(TRAIT_GROUPS)).toEqual(['Physical', 'Movement', 'Manipulation', 'Mind', 'Pleasure']);
         expect(Object.values(STAT_NAMES)).toEqual([
             'existence', 'cut_resistance', 'impact_resistance', 'wear_resistance',

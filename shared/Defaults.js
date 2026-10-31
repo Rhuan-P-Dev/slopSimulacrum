@@ -17,11 +17,11 @@
 
 /**
  * Blueprint name used to spawn the player droid when a client connects.
- * Anchored in `data/entities/blueprints.json`.
+ * Anchored in `data/mods/core-blueprints/blueprints.json`.
  *
  * It is the male humanoid droid (maleDroid) — the full human anatomy with
- * sensitive parts and a Pleasure.pleasure meter (data/components/sensitiveParts.json,
- * data/entities/entity_attributes.json); it is NOT the coal-burning M1 droid.
+ * sensitive parts and a Pleasure.pleasure meter (data/mods/core-sensitive-parts/sensitiveParts.json,
+ * data/mods/core-entity-attributes/entityAttributes.json); it is NOT the coal-burning M1 droid.
  * @type {string}
  */
 export const DEFAULT_PLAYER_BLUEPRINT = 'maleDroid';
@@ -29,7 +29,7 @@ export const DEFAULT_PLAYER_BLUEPRINT = 'maleDroid';
 /**
  * Fallback volume for an item whose `volume` field is missing or undefined.
  * 0 was chosen deliberately:
- *   - every entry in `data/components/inventoryItems.json` defines a volume, so this
+ *   - every entry in `data/mods/core-inventory-items/inventoryItems.json` defines a volume, so this
  *     fallback only ever fires on malformed/missing data;
  *   - 0 is the safe direction: it can never falsely block an inventory
  *     from accepting an item (capacity) or inflate holding cost, whereas

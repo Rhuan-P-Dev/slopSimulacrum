@@ -267,9 +267,9 @@ class AgentBodyController {
     /**
      * saveDesign — the "Save" action. Re-validates the design against the live
      * vocabulary and persists it into the world:
-     *   - new component recipes are merged into data/components/components.json
+     *   - new component recipes are merged into data/mods/core-components/components.json
      *     (an existing recipe is never overwritten);
-     *   - the body tree is written into data/entities/blueprints.json as the
+     *   - the body tree is written into data/mods/core-blueprints/blueprints.json as the
      *     droid-type pointer plus every component's sub-tree under its own key.
      *     Every blueprint entry the design touches is overwritten (a droid id
      *     reusing an existing one, or a part redefining its sub-tree, changes
@@ -342,7 +342,7 @@ class AgentBodyController {
 
     /**
      * Flatten the normalized nested body tree into the flat blueprint-registry
-     * format used by data/entities/blueprints.json:
+     * format used by data/mods/core-blueprints/blueprints.json:
      *   - the droid-type key holds a single [rootComponent] pointer;
      *   - every component that has children holds its direct children as
      *     [comp, slot?] items under its OWN key.
@@ -467,8 +467,8 @@ class AgentBodyController {
             'You are the BODY DESIGNER for slopSimulacrum, a persistent world simulation in which LLM-driven droids live as NPCs.\n' +
             'You must design how one character\'s BODY is constructed, from the character identity in the user message and the anatomy facts below.\n\n' +
             'ANATOMY FACTS\n' +
-            '- An NPC entity is a BLUEPRINT: a tree of components (data/entities/blueprints.json). Each node is a component; nodes may have children (sub-components).\n' +
-            '- A COMPONENT (data/components/components.json) is defined by its FORM (volume + position), its MATERIALS (fractions that sum to 1.0) and its INTERNAL COMPONENTS (organs). A component without organs is inert.\n' +
+            '- An NPC entity is a BLUEPRINT: a tree of components (data/mods/core-blueprints/blueprints.json). Each node is a component; nodes may have children (sub-components).\n' +
+            '- A COMPONENT (data/mods/core-components/components.json) is defined by its FORM (volume + position), its MATERIALS (fractions that sum to 1.0) and its INTERNAL COMPONENTS (organs). A component without organs is inert.\n' +
             '- VOLUME is a component\'s physical capacity; an ORGAN is what makes a component functional (it grants stat values).\n\n' +
             'YOUR OUTPUT\n' +
             'Respond with a single JSON object with exactly these fields:\n' +
@@ -961,7 +961,7 @@ class AgentBodyController {
     }
 
     /**
-     * Blueprint trees present in the world (data/entities/blueprints.json).
+     * Blueprint trees present in the world (data/mods/core-blueprints/blueprints.json).
      * @returns {Object<string, Array>}
      */
     _loadBlueprints() {

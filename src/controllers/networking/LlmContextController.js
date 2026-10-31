@@ -4,8 +4,8 @@
  * Feature B (spec §4.3): a local LLM can only reason about the world
  * through text. This controller composes a bounded, sectioned narrative
  * (hard cap of 5000 chars) from the live world state: entity self-state,
- * executable actions (with the natural-language descriptions from data/systems/
- * actions.json), world failures (the warn-level event tail), its world
+ * executable actions (with the natural-language descriptions the actions
+ * registry ships), world failures (the warn-level event tail), its world
  * (current room state + the perception delta stream), and (when the
  * room-chat layer exists) the room chat.
  *
@@ -46,7 +46,7 @@
  *
  * Inside === YOUR STATE ===, the stable "Body attributes:" line lists the
  * whole-entity stats declared for the entity's blueprint in
- * data/entities/entity_attributes.json — flat "Group.stat" keys with
+ * data/mods/core-entity-attributes/entityAttributes.json — flat "Group.stat" keys with
  * current/max (current is the live value; ceiling and per-turn drain come
  * from the declaration itself, read fresh each build), plus "(drain N/turn)"
  * when the file declares a nonzero per-turn drain. A blueprint with no entry
@@ -105,7 +105,7 @@ class LlmContextController {
 
     /**
      * @param {Object} deps
-     * @param {Object} deps.actionRegistry - data/systems/actions.json (loaded by the composition root).
+     * @param {Object} deps.actionRegistry - data/mods/core-actions/actions.json (loaded by the composition root).
      */
     constructor({ actionRegistry }) {
         this.actionRegistry = actionRegistry && typeof actionRegistry === 'object' ? actionRegistry : {};
@@ -277,7 +277,7 @@ class LlmContextController {
      * current/max when it carries a Physical.existence stat, and its side
      * label `identifier` when it is not the blueprint's default label), key
      * stats, whole-entity attributes declared for the blueprint (the
-     * "Body attributes:" line, from data/entities/entity_attributes.json),
+     * "Body attributes:" line, from data/mods/core-entity-attributes/entityAttributes.json),
      * equipped items, inventory grouped by host component.
      * @param {Object} entity
      * @returns {Object}
@@ -370,7 +370,7 @@ class LlmContextController {
         }));
 
         // Whole-entity attributes declared for the entity's blueprint
-        // (data/entities/entity_attributes.json): entity-owned stats (energy,
+        // (data/mods/core-entity-attributes/entityAttributes.json): entity-owned stats (energy,
         // pleasure, ...), distinct from the component-derived key stats above.
         // `current` reads the live value off the entity's own `attributes`
         // (seeded at spawn, moved by world logic); `max` and `drainPerTurn`
@@ -1038,7 +1038,7 @@ class LlmContextController {
         ].filter(Boolean);
         lines.push(statParts.length > 0 ? `Key stats: ${statParts.join(' ')}` : 'Key stats: (none)');
         // Body attributes: whole-entity stats declared for the blueprint
-        // (data/entities/entity_attributes.json), rendered separately from the
+        // (data/mods/core-entity-attributes/entityAttributes.json), rendered separately from the
         // component-derived key stats because they are owned by the entity,
         // not by components. One flat "Group.stat" key with current/max, plus
         // "(drain N/turn)" when the file declares a nonzero per-turn drain.
@@ -1184,7 +1184,7 @@ class LlmContextController {
     // =========================================================================
 
     /**
-     * Component type definition from data/components/components.json (via the registry
+     * Component type definition from data/mods/core-components/components.json (via the registry
      * held by the component controller — same source the server merges stats
      * from, per spec §3: "mesma fonte do server").
      * @param {string} componentType

@@ -313,7 +313,7 @@ describe('LlmContextController (context renderer)', () => {
     });
 
     // Whole-entity attributes declared for the blueprint
-    // (data/entities/entity_attributes.json) must reach the agent context so
+    // (data/mods/core-entity-attributes/entityAttributes.json) must reach the agent context so
     // the LLM knows the stat exists (energy, pleasure, ...). Current comes
     // from the entity's live attributes; ceiling/drain from the facade
     // declaration registry (the data file itself).
@@ -333,7 +333,7 @@ describe('LlmContextController (context renderer)', () => {
             getEntity: (id) => (id === 'ent-attr' ? attrAgent : null),
             getComponentStats: () => ({ Physical: { existence: 100 }, Spatial: { x: 0, y: 0 } }),
             // The declaration registry: the per-entity-type seeds from
-            // data/entities/entity_attributes.json (m1Droid gets energy).
+            // data/mods/core-entity-attributes/entityAttributes.json (m1Droid gets energy).
             getEntityAttributeDeclarations: () => ({
                 'Physical.energy': { value: 100, max: 100, drainPerTurn: 1 },
                 'Pleasure.pleasure': { value: 0, max: 100, drainPerTurn: 1 }

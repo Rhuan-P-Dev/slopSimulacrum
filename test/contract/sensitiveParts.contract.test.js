@@ -3,13 +3,13 @@
  * per-part sensitivity values.
  *
  * A "sensitive part" is a body-part recipe that declares the sensitiveNerve
- * internal component (data/components/internalComponents.json) — a SENSORY
+ * internal component (data/mods/core-internal-components/internalComponents.json) — a SENSORY
  * organ that grants no function stat and has no overTime effect; it only
  * marks its host with the `sensitive` flag (stored in the component's
  * Physical.grantedFlags), which the world — and the NPC LLM context — can
  * query via getComponentFlags. The per-part sensitivity value (0-100) that
  * the pleasure mechanic will consume to raise the owner's Pleasure.pleasure
- * whole-entity attribute lives in data/components/sensitiveParts.json —
+ * whole-entity attribute lives in data/mods/core-sensitive-parts/sensitiveParts.json —
  * data, not a stat.
  *
  * Pins:
@@ -75,7 +75,7 @@ function sensitiveInstancesByType(world, entityId) {
 
 describe('sensitive parts — sensitiveNerve organ + per-part sensitivity', () => {
     it('data: sensitiveNerve is a sensory organ (no grants, no overTime, only the sensitive flag)', () => {
-        const registry = DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
+        const registry = DataLoader.loadJsonSafe('data/mods/core-internal-components/internalComponents.json', {});
         const def = registry[SENSITIVE_NERVE];
         expect(def, 'sensitiveNerve is a registered organ type').toBeDefined();
         expect(def.grants, 'a sensory organ grants no function stat').toEqual({});
@@ -86,7 +86,7 @@ describe('sensitive parts — sensitiveNerve organ + per-part sensitivity', () =
     });
 
     it('data: exactly the seven classic zones declare the organ, and sensitiveParts.json matches 1:1', () => {
-        const recipes = DataLoader.loadJsonSafe('data/components/components.json', {});
+        const recipes = DataLoader.loadJsonSafe('data/mods/core-components/components.json', {});
         const declaring = Object.entries(recipes)
             .filter(([type, def]) =>
                 type !== '_comment'
@@ -100,7 +100,7 @@ describe('sensitive parts — sensitiveNerve organ + per-part sensitivity', () =
             Object.keys(EXPECTED_SENSITIVE_PARTS).sort()
         );
 
-        const sensitivity = DataLoader.loadJsonSafe('data/components/sensitiveParts.json', {});
+        const sensitivity = DataLoader.loadJsonSafe('data/mods/core-sensitive-parts/sensitiveParts.json', {});
         const entries = Object.entries(sensitivity).filter(([key]) => key !== '_comment');
         for (const [type, value] of entries) {
             expect(value, `${type}: sensitivity is a 0-100 number`).toBeGreaterThanOrEqual(0);
@@ -157,7 +157,7 @@ describe('sensitive parts — sensitiveNerve organ + per-part sensitivity', () =
     });
 
     it('renderer: the data-driven organ description reads "Marks the host as sensitive."', () => {
-        const registry = DataLoader.loadJsonSafe('data/components/internalComponents.json', {});
+        const registry = DataLoader.loadJsonSafe('data/mods/core-internal-components/internalComponents.json', {});
         expect(InternalComponentUtils.generateDescription(registry[SENSITIVE_NERVE])).toBe(
             'Marks the host as sensitive.'
         );

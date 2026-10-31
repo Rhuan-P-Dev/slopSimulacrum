@@ -6,8 +6,8 @@
  *
  * Construction/mock seam:
  *   - A single top-level vi.mock of '../../src/utils/DataLoader.js' uses a mutable `fixtureNpcs`
- *     variable set per-test. The mock returns fixtureNPCs for 'data/entities/npcs.json' and a minimal
- *     valid room definition for 'data/world/rooms.json', delegating all other paths to the real DataLoader.
+ *     variable set per-test. The mock returns fixtureNPCs for 'data/mods/core-npcs/npcs.json' and a minimal
+ *     valid room definition for 'data/mods/core-rooms/rooms.json', delegating all other paths to the real DataLoader.
  *   - The full controller is built via buildWorldState(tickSystem) from the composition root,
  *     then initializeWorld() is called — which invokes _spawnNpcs() with our fixture NPC data.
  *   - Logger.warn is spied on to capture validation warnings.
@@ -36,7 +36,7 @@ let fixtureNpcs = null;
  * @returns {Object} Keyed map: { [blueprint]: npcEntry }
  */
 function buildNpcRegistry(npcs) {
-    // Always use 'smallBallDroid' as the blueprint key — it exists in data/entities/blueprints.json.
+    // Always use 'smallBallDroid' as the blueprint key — it exists in data/mods/core-blueprints/blueprints.json.
     // The blueprint KEY (object key in npcs.json) is what gets passed to spawnEntity,
     // NOT the `blueprint` property inside the entry.
     const registry = {};
@@ -84,10 +84,10 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
                 return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
             },
             loadJsonSafe(path, defaultValue) {
-                if (path === 'data/entities/npcs.json') {
+                if (path === 'data/mods/core-npcs/npcs.json') {
                     return fixtureNpcs !== null ? fixtureNpcs : defaultValue;
                 }
-                if (path === 'data/world/rooms.json') {
+                if (path === 'data/mods/core-rooms/rooms.json') {
                     // Minimal room definition that passes RoomsController validation
                     return {
                         start_room: {

@@ -474,8 +474,8 @@ describe('AgentBodyController', () => {
     });
 
     describe('saveDesign (the "Save" action — persists a validated design)', () => {
-        const SAVE_BLUEPRINTS_FILE = 'data/entities/blueprints.json';
-        const SAVE_COMPONENTS_FILE = 'data/components/components.json';
+        const SAVE_BLUEPRINTS_FILE = 'data/mods/core-blueprints/blueprints.json';
+        const SAVE_COMPONENTS_FILE = 'data/mods/core-components/components.json';
 
         // Every saveDesign here runs against a disposable scratch copy of the world
         // data, so the committed data files are never written to by the suite.

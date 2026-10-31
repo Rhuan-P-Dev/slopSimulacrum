@@ -13,7 +13,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 
-// The drone in data/entities/npcs.json is gated by KILLER_LLM_DRONE_ENABLED;
+// The drone in data/mods/core-npcs/npcs.json is gated by KILLER_LLM_DRONE_ENABLED;
 // its initialItems include a worn t-shirt (the clothes feature) plus
 // equipped tools.
 const DRONE_NAME = 'Killer LLM Drone';

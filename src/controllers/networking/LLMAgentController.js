@@ -105,7 +105,7 @@ class LLMAgentController {
         this.instinctController = instinctController;
 
         /**
-         * NPC registry (data/entities/npcs.json, spec §7.1): key = blueprint name,
+         * NPC registry (data/mods/core-npcs/npcs.json, spec §7.1): key = blueprint name,
          * value = { displayName, room, personality, objective?,
          * initialItems?, maxWorldActionsPerRound?, maxChatMessagesPerRound? }.
          *
@@ -2229,7 +2229,7 @@ class LLMAgentController {
     /**
      * Resolves the LLM config for one live NPC entity: the entity's own
      * `npcConfig` (set at spawn, carrying per-entity personality/caps for
-     * dynamically-spawned cards) merged over the static `data/entities/npcs.json`
+     * dynamically-spawned cards) merged over the static `data/mods/core-npcs/npcs.json`
      * registry entry for its blueprint, with the live values taking
      * precedence.
      *
@@ -2265,7 +2265,7 @@ class LLMAgentController {
     }
 
     /**
-     * Loads + validates data/entities/npcs.json. Tolerant of a missing file (Feature C
+     * Loads + validates data/mods/core-npcs/npcs.json. Tolerant of a missing file (Feature C
      * ships before Feature D creates it) and of malformed entries.
      * @private
      * @returns {Object<string, Object>}
@@ -2273,7 +2273,7 @@ class LLMAgentController {
     _loadNpcRegistry() {
         const raw = DataLoader.loadRegistry(REGISTRY_KINDS.NPCS);
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            Logger.info('[LLMAgent] No NPC registry (data/entities/npcs.json) — the agent has no configured NPCs (no-op until Feature D).');
+            Logger.info('[LLMAgent] No NPC registry (data/mods/core-npcs/npcs.json) — the agent has no configured NPCs (no-op until Feature D).');
             return {};
         }
 

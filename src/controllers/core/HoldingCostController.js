@@ -11,7 +11,7 @@
  * - Debuffs are reversed on the host component
  * - The capability controller re-evaluates, removing equipped item action entries
  *
- * Data-driven: configuration loaded from data/components/holdingCost.json
+ * Data-driven: configuration loaded from data/mods/core-holding-cost/holdingCost.json
  *
  * @module HoldingCostController
  */

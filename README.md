@@ -19,8 +19,8 @@ cp .env.example .env   # optional — every variable has a safe default
 npm run dev            # http://localhost:3001
 ```
 
-The server boots with zero configuration: the world builds itself from
-`data/*.json`, NPCs spawn from `data/entities/npcs.json`, and the client connects
+The server boots with zero configuration: the world is built from the official mod
+packages under `data/mods/core-*/` (NPCs come from `core-npcs`), and the client connects
 over Socket.IO. A `.env` file, when present, is auto-loaded at boot (shell-
 exported values win over file entries), so no launcher setup is required.
 

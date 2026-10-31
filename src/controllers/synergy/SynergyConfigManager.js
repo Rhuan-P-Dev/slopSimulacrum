@@ -1,5 +1,5 @@
 /**
- * SynergyConfigManager — Loads and manages synergy configurations from data/systems/synergy.json.
+ * SynergyConfigManager — Loads and manages synergy configurations from data/mods/core-synergy/synergy.json.
  * Single Responsibility: Load, validate, and provide synergy config for actions.
  *
  * Extracted from SynergyController to adhere to the Single Responsibility Principle.
@@ -24,7 +24,7 @@ class SynergyConfigManager {
     }
 
     /**
-     * Load synergy config from data/systems/synergy.json.
+     * Load synergy config from data/mods/core-synergy/synergy.json.
      * @returns {Object} The synergy registry.
      */
     load() {

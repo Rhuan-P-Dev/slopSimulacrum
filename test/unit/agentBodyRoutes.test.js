@@ -236,8 +236,8 @@ describe('agentBodyRoutes', () => {
             blueprintWritten: ['minakoRunner', 'm1CentralBody', 'm1Leg'],
             blueprintOverwritten: ['m1CentralBody', 'm1Leg'],
             backups: {
-                components: 'data/components/components.json.bak-1',
-                blueprints: 'data/entities/blueprints.json.bak-1'
+                components: 'data/mods/core-components/components.json.bak-1',
+                blueprints: 'data/mods/core-blueprints/blueprints.json.bak-1'
             }
         };
         const { worldStateController } = makeDesignerStub({

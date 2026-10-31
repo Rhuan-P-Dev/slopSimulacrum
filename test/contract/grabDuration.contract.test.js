@@ -45,7 +45,7 @@ const readJson = (rel) =>
     JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf-8'));
 
 // Grab contract — asserted once so a registry change fails loudly.
-const GRAB = readJson('data/systems/actions.json').grab;
+const GRAB = readJson('data/mods/core-actions/actions.json').grab;
 
 /** Builds a two-droid world: an attacker at (0,0) and a target within grab range. */
 function buildTurnWorld() {
@@ -242,7 +242,7 @@ describe('Feature: grab duration (flat, renewed, expires — driven through the 
 
 describe('grab duration — registry guard', () => {
     it('grab is still declared in the registry (so queueAction never rejects it)', () => {
-        expect(GRAB, 'grab must be declared in data/systems/actions.json').toBeTruthy();
+        expect(GRAB, 'grab must be declared in data/mods/core-actions/actions.json').toBeTruthy();
         expect(GRAB.targetingType, 'grab must remain a component-targeting action').toBe('component');
         expect(Number.isFinite(GRAB.range), 'grab must keep a data-driven finite range').toBe(true);
     });

@@ -67,7 +67,7 @@ const CARD_DEFAULT_PROFILE = {
  * always in the first room (in world-definition order) at a uniformly-random
  * point inside it.
  *
- * WHY a dedicated path (not reusing the `data/entities/npcs.json` registry):
+ * WHY a dedicated path (not reusing the `data/mods/core-npcs/npcs.json` registry):
  * a card's identity is per-file — it lives embedded in each PNG's metadata
  * (`readCharaCard`), so there is no static registry entry keyed by blueprint
  * for it. Two cards share the `m1Droid` blueprint yet must keep distinct

@@ -12,7 +12,7 @@
  * Cause: an organ allowlist that never learned the new blueprint keys. The
  * humanoid recipes declare their function organs (`maleArm: ["strengthCore"]`,
  * `maleLeg: ["moveCore"]`), but `strengthCore`/`moveCore` in
- * data/components/internalComponents.json listed only the older blueprint keys, and
+ * data/mods/core-internal-components/internalComponents.json listed only the older blueprint keys, and
  * `InternalComponentController.autoInstallOnEntitySpawn` vetoes the install when the
  * entity's top-level blueprint key is missing. Matter stats (existence, sharpness,
  * mass) are derived from the material, so `cut` / `shootT1` / `touch` kept working;

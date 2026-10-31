@@ -4,7 +4,7 @@
  * A per-turn (round-start) attribute step for the world: every round it drains
  * each active entity's DECLARED attributes by each attribute's `drainPerTurn`
  * (a per-attribute value carried on the entity's own declaration, seeded at spawn
- * from the blueprint's entry in data/entities/entity_attributes.json) — the
+ * from the blueprint's entry in data/mods/core-entity-attributes/entityAttributes.json) — the
  * fuel-burning droids' energy and the human droids' Pleasure.pleasure. Then it runs the
  * life-or-death check, which is ENERGY-ONLY: when the energy attribute hits 0 the host is ELIMINATED —
  * its carried contents spill to the floor and the entity is despawned, via the
@@ -56,7 +56,7 @@ class EntityEnergyController {
     /**
      * Returns the per-turn drain for a specific entity/attribute. Reads from the
      * entity's own attributesConfig (seeded at spawn from the blueprint entry in
-     * data/entities/entity_attributes.json). Returns 0 when there is no attribute / no
+     * data/mods/core-entity-attributes/entityAttributes.json). Returns 0 when there is no attribute / no
      * drain declared.
      * @param {string} entityId
      * @param {string} traitId

@@ -6,7 +6,7 @@ import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
  * EntityController is responsible for storing entity blueprints and
  * managing the composition of entities.
  * 
- * Blueprints are data-driven: loaded from data/entities/blueprints.json at runtime
+ * Blueprints are data-driven: loaded from data/mods/core-blueprints/blueprints.json at runtime
  * via the DataLoader utility, following the data-driven design principle.
  * 
  * dependsOn: expandBlueprint builds a tree structure with parent

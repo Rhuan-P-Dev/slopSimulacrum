@@ -9,7 +9,7 @@
  *
  * Construction/mock seam (mirrors test/unit/WorldStateController.npcValidation.test.js):
  *   - A single top-level `vi.mock` of '../../src/utils/DataLoader.js' serves a
- *     mutable `fixtureRooms` for 'data/world/rooms.json' (the only path
+ *     mutable `fixtureRooms` for 'data/mods/core-rooms/rooms.json' (the only path
  *     RoomsController loads) and delegates every other path to the real
  *     DataLoader.
  *   - The real controller is built via `new RoomsController()` (the public
@@ -27,7 +27,7 @@ import RoomsController from '../../src/controllers/core/RoomsController.js';
 // Fixture state (shared across all tests via the hoisted top-level vi.mock)
 // ---------------------------------------------------------------------------
 
-/** @type {Object|null} - room definitions served for data/world/rooms.json. */
+/** @type {Object|null} - room definitions served for data/mods/core-rooms/rooms.json. */
 let fixtureRooms = null;
 
 function setRooms(rooms) {
@@ -73,7 +73,7 @@ vi.mock('../../src/utils/DataLoader.js', async () => {
                 return this.loadJsonSafe(realDefault.registrySourcePath(kind), defaultValue);
             },
             loadJsonSafe(path, defaultValue) {
-                if (path === 'data/world/rooms.json') {
+                if (path === 'data/mods/core-rooms/rooms.json') {
                     return fixtureRooms !== null ? fixtureRooms : defaultValue;
                 }
                 // Delegate every other path to the real DataLoader.

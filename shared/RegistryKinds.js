@@ -3,7 +3,7 @@
  *
  * SINGLE SOURCE OF TRUTH for the names of the world-definition registries
  * (the parsed contents of the world data files). Before this module, every
- * reader named a *path* (`'data/components/components.json'`), which made the
+ * reader named a *path* (`'data/mods/core-components/components.json'`), which made the
  * filesystem the interface of the world definition: 49 references in `src/`
  * and 89 in `test/`, and no way to change what the world is made of while the
  * server runs.
@@ -34,28 +34,28 @@
  * @type {Object.<string, string>}
  */
 export const REGISTRY_KINDS = Object.freeze({
-    // data/components/ — how a component recipe, an organ, an item is defined.
+    // The part family: how a component recipe, an organ, an item is defined.
     COMPONENTS: 'components',
     HOLDING_COST: 'holdingCost',
     INTERNAL_COMPONENTS: 'internalComponents',
     INVENTORY_ITEMS: 'inventoryItems',
     SENSITIVE_PARTS: 'sensitiveParts',
     TRAITS: 'traits',
-    // data/entities/ — bodies (blueprint = component tree) and their inhabitants.
+    // The body family: blueprint = component tree, and its inhabitants.
     BLUEPRINTS: 'blueprints',
     ENTITY_ATTRIBUTES: 'entityAttributes',
     NPCS: 'npcs',
-    // data/materials/ — matter, its damage split, its chunk drops, its derived stats.
+    // Matter: its damage split, its chunk drops, its derived stats.
     MATERIALS: 'materials',
     MATERIAL_DAMAGE_TYPES: 'materialDamageTypes',
     MATERIAL_DROP_RATES: 'materialDropRates',
     PROPERTY_TRAIT_MAPPING: 'propertyTraitMapping',
-    // data/systems/ — the verbs, the recipes, the machines, the synergy curves.
+    // The verb family: the verbs, the recipes, the machines, the synergy curves.
     ACTIONS: 'actions',
     CRAFTING: 'crafting',
     MACHINES: 'machines',
     SYNERGY: 'synergy',
-    // data/world/ — the map, the props, the world-level rules.
+    // The world family: the map, the props, the world-level rules.
     ROOMS: 'rooms',
     WORLD: 'world',
     WORLD_OBJECTS: 'worldObjects',

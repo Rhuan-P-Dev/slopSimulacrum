@@ -213,12 +213,12 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // (zero new file I/O; the controller itself never loads).
     const materialsRegistry = store.read(REGISTRY_KINDS.MATERIALS);
     const propertyTraitMappingRegistry = store.read(REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING);
-    // Feature 1: per-material damage-type distributions (data/materials/materialDamageTypes.json).
+    // Feature 1: per-material damage-type distributions (data/mods/core-material-damage-types/materialDamageTypes.json).
     // Loaded here (one load, N readers) and injected into the MaterialController, which
     // validates it (cross-checking material keys against the materials registry) and
     // serves it to the damage handler. Absent/empty file → feature off (graceful).
     const materialDamageTypesRegistry = store.read(REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES);
-    // Feature 2: per-material chunk-drop rates (data/materials/materialDropRates.json). Same
+    // Feature 2: per-material chunk-drop rates (data/mods/core-material-drop-rates/materialDropRates.json). Same
     // one-load/N-readers pattern; the MaterialController validates it (minChunkVolume,
     // per-material dropRate/chunkFraction in [0,1], material-key cross-check) and serves
     // it to the chunk-drop handler. Absent/empty file → feature off (graceful — no drops).
@@ -250,7 +250,7 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     // unchanged: it receives the identical parsed object.
     const craftingRegistry = store.read(REGISTRY_KINDS.CRAFTING);
     // CraftingController: state controller owning the recipe registry
-    // (data/systems/crafting.json). Receives the already-loaded item registry so every
+    // (data/mods/core-crafting/crafting.json). Receives the already-loaded item registry so every
     // recipe input/output type is cross-validated against inventoryItems.json
     // right here (fail-fast at boot). No controller deps —
     // no setWorldStateController() needed (it never reads world state).
@@ -259,7 +259,7 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
         inventoryItemRegistry
     );
     // MachineRegistryController: state controller owning the machine registry
-    // (data/systems/machines.json). Binds each machine's three forms (item ↔
+    // (data/mods/core-machines/machines.json). Binds each machine's three forms (item ↔
     // blueprint ↔ recipe) and validates them against the already-loaded registries
     // at boot (fail-fast — a machine with a missing blueprint/item/recipe fails
     // startup, never mid-game). No controller deps and no setWorldStateController()
@@ -390,7 +390,7 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
     const effectTracker = new EffectTracker();
  // Energy flow (wiki/subMDs/systems/energy_flow.md): the "blood system". Logic
     // controller with named deps only — the already-loaded componentRegistry
-    // (data/components/components.json — used ONLY to resolve the optional per-recipe
+    // (data/mods/core-components/components.json — used ONLY to resolve the optional per-recipe
     // `energyCapacity` bound) and the worldRulesController (the flow reads the
     // validated rule via getRule('energyFlow'), never the file). No tick-system
     // dependency: the flow runs once per turn, driven from the turn system's
@@ -459,18 +459,18 @@ export function buildWorldState(tickSystem = null, registryStore = null) {
         // MaterialController: provides static material definitions + compositions
         // to the client via getMaterialRegistry() / GET /materials/registry.
         materialController,
-        // CraftingController: recipe registry (data/systems/crafting.json). The facade
+        // CraftingController: recipe registry (data/mods/core-crafting/crafting.json). The facade
         // reads it via getRecipe()/getRecipes() inside craftItems(); null-tolerant
         // so tests that hand-build the facade can omit it.
         craftingController,
-        // MachineRegistryController: machine registry (data/systems/machines.json).
+        // MachineRegistryController: machine registry (data/mods/core-machines/machines.json).
         // Null-tolerant like craftingController — the place/retrieve routes read
         // it via the facade; deliberately NOT in the subControllers broadcast map.
         machineRegistry: machineRegistryController,
         // Null-tolerant like craftingController — a test may hand-build
         // the facade without it; the facade stores it and exposes getKnowledge().
         knowledgeController,
-        // WorldRulesController: world-level rules registry (data/world/world_rules.json).
+        // WorldRulesController: world-level rules registry (data/mods/core-world-rules/worldRules.json).
         // Null-tolerant like craftingController/knowledgeController — a test may
         // hand-build the facade without it. Deliberately NOT in the subControllers
         // broadcast map: static config data must stay out of the full-state

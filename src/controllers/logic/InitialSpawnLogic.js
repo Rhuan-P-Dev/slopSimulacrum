@@ -1,7 +1,7 @@
 /**
  * InitialSpawnLogic — FASE 6 (facade logic extraction).
  *
- * Applies the declarative initial spawns from data/world/world.json (initialSpawns)
+ * Applies the declarative initial spawns from data/mods/core-world/world.json (initialSpawns)
  * to a just-spawned entity: slot resolution (type / firstFit: /
  * bestAvailable[:prefs] / fallback), top-level count, container children,
  * weapon ammo. Generic interpreter of the data file — no hardcoded loads.
@@ -19,10 +19,10 @@ import Logger from '../../utils/Logger.js';
 import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
 
 /**
- * Applies the declarative initial spawns from data/world/world.json to a spawned entity.
+ * Applies the declarative initial spawns from data/mods/core-world/world.json to a spawned entity.
  * Generic replacement of the former hardcoded spawn methods (_spawnMetalBoxWithKnives,
  * _addKnifeToClientEntity, _addTestItemToClientEntity, _addT1WeaponToEntity): the exact
- * item composition is now declared in data/world/world.json (initialSpawns) and this method
+ * item composition is now declared in data/mods/core-world/world.json (initialSpawns) and this method
  * only interprets it.
  *
  * Supported entry fields:
@@ -51,7 +51,7 @@ import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
  *   warn-only: the spawn never fails.
  *
  * @param {string} entityId - The entity ID to apply initial spawns to.
- * @param {Object} [spawnConfig] - Optional spawn config; defaults to data/world/world.json.
+ * @param {Object} [spawnConfig] - Optional spawn config; defaults to data/mods/core-world/world.json.
  * @returns {{ applied: number, failed: number }} Summary of applied/failed spawn entries.
  * @private
  */
@@ -100,7 +100,7 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
                 continue;
             }
 
-            // Optional top-level multiplicity (data/world/world.json `count`, default
+            // Optional top-level multiplicity (data/mods/core-world/world.json `count`, default
             // 1): mirrors the children count loop one level up so a loadout
             // entry can add the same item several times (e.g. the M1 coal
             // loadout). Entries without `count` add exactly one item —
@@ -172,7 +172,7 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
 }
 
 /**
- * Resolves the target component for an initial-spawn entry (data/world/world.json).
+ * Resolves the target component for an initial-spawn entry (data/mods/core-world/world.json).
  *
  * Slot forms:
  * - "<type>": the first component of that type.

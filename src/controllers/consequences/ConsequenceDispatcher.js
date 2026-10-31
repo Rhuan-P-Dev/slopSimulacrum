@@ -396,7 +396,7 @@ class ConsequenceDispatcher {
         const results = [];
         for (const consequence of action.failureConsequences) {
             const resolvedParams = this._resolveParams(consequence.params, {}, {});
-            // Failure log consequences in data/systems/actions.json store message/level
+            // Failure log consequences in data/mods/core-actions/actions.json store message/level
             // at the top level (no params object). Resolve the template (carrying
             // :entityId) so the logged line names the acting entity instead of leaking
             // raw placeholder tokens.
@@ -516,7 +516,7 @@ class ConsequenceDispatcher {
 
             try {
                 let effectiveParams = this._applySynergy(resolvedParams, synergyResult);
-                // Log consequences in data/systems/actions.json store message/level at
+                // Log consequences in data/mods/core-actions/actions.json store message/level at
                 // the top level (no params object). The message is a data-driven
                 // template — resolve it (like the damage value it mirrors) so the
                 // concrete actor and damage number appear in the log and LLM event
@@ -864,10 +864,10 @@ class ConsequenceDispatcher {
      *
      * Two kinds of IDs arrive here:
      *   - a body-part component (comp-...): resolved through the owning entity's
-     *     component list to its `type`, then named from data/components/components.json
+     *     component list to its `type`, then named from data/mods/core-components/components.json
      *     (e.g. droidHand -> "Droid Hand").
      *   - an equipped weapon (eq-...): resolved through the holder's equipped
-     *     inventory to its `itemType`, then named from data/components/inventoryItems.json
+     *     inventory to its `itemType`, then named from data/mods/core-inventory-items/inventoryItems.json
      *     (e.g. t1 -> "T1", knife -> "Knife").
      *
      * Falls back to a prettified recipe/type key, and to null when nothing can be

@@ -3,7 +3,7 @@
  *
  * A machine is a world entity built from a named blueprint whose component carries a
  * self-sustaining organ (e.g. `knifeGeneratorIC` — forges a knife every interval).
- * The registry (data/systems/machines.json) binds the three forms of the same thing:
+ * The registry (data/mods/core-machines/machines.json) binds the three forms of the same thing:
  *   - `itemKey`   — the inventory item type a player carries and crafts,
  *   - `blueprint` — the entity blueprint materialized in the world when PLACED,
  *   - `recipeId`  — the crafting recipe that produces the item form.
@@ -27,13 +27,13 @@ import Logger from '../../utils/Logger.js';
 
 class MachineRegistryController {
     /**
-     * @param {Object} machineRegistry - Raw data from data/systems/machines.json:
+     * @param {Object} machineRegistry - Raw data from data/mods/core-machines/machines.json:
      *   `{ [machineKey]: { name, blueprint, itemKey, recipeId } }`.
-     * @param {Object} blueprintRegistry - Raw data from data/entities/blueprints.json,
+     * @param {Object} blueprintRegistry - Raw data from data/mods/core-blueprints/blueprints.json,
      *   to validate each machine's blueprint is known.
-     * @param {Object} itemRegistry - Raw data from data/components/inventoryItems.json,
+     * @param {Object} itemRegistry - Raw data from data/mods/core-inventory-items/inventoryItems.json,
      *   to validate each machine's itemKey exists.
-     * @param {Object} craftingRegistry - Raw data from data/systems/crafting.json,
+     * @param {Object} craftingRegistry - Raw data from data/mods/core-crafting/crafting.json,
      *   to validate each machine's recipeId exists.
      */
     constructor(machineRegistry, blueprintRegistry = {}, itemRegistry = {}, craftingRegistry = {}) {

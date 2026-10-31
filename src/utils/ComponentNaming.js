@@ -2,7 +2,7 @@
  * ComponentNaming — shared component-type → display-name resolution.
  *
  * A component's display name derives from its *type* (the recipe key in
- * data/components/components.json, e.g. `centralBall` → "Central Ball"),
+ * data/mods/core-components/components.json, e.g. `centralBall` → "Central Ball"),
  * falling back to a prettified camelCase form when the recipe has no explicit
  * `name` (e.g. `droidHand` → "Droid Hand").
  *

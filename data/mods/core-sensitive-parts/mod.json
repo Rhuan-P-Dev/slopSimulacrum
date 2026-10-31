@@ -1,0 +1,7 @@
+{
+    "id": "core-sensitive-parts",
+    "version": "1.0.0",
+    "content": [
+        "sensitiveParts"
+    ]
+}

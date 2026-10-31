@@ -2,11 +2,11 @@
  * CONTRACT TEST — the whole-entity `pleasure` attribute (Pleasure.pleasure).
  *
  * The pleasure stat is a WHOLE-ENTITY meter seeded at spawn from
- * data/entities/entity_attributes.json — like Physical.energy, it is owned by
+ * data/mods/core-entity-attributes/entityAttributes.json — like Physical.energy, it is owned by
  * the entity, never by a component. It is declared for the two human droid
  * blueprints (maleDroid, femaleDroid): 0-100 scale, starts at 0, drains 1 per
  * round (floor 0), and is raised when a droid's sensitive part is touched (the
- * touch action; the per-part values live in data/components/sensitiveParts.json).
+ * touch action; the per-part values live in data/mods/core-sensitive-parts/sensitiveParts.json).
  * The energy-life despawn rule must NOT apply to it: a pleasure of 0 is a
  * state, not a death.
  *
@@ -61,7 +61,7 @@ function pleasureOf(world, entityId) {
 
 describe('pleasure attribute — whole-entity 0-100 meter (human droids)', () => {
     it('data contract: exactly the two human droids declare Pleasure.pleasure, 0/100/1', () => {
-        const file = DataLoader.loadJsonSafe('data/entities/entity_attributes.json', { attributes: {} });
+        const file = DataLoader.loadJsonSafe('data/mods/core-entity-attributes/entityAttributes.json', { attributes: {} });
         const declared = Object.entries(file.attributes)
             .filter(([, entry]) => entry && typeof entry === 'object' && PLEASURE_KEY in entry)
             .map(([blueprint]) => blueprint)

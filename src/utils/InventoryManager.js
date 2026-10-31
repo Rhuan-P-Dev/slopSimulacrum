@@ -146,7 +146,7 @@ class InventoryManager {
 
     /**
      * Gets the component's max volume from the component type definition.
-     * Looks up the volume from data/components/components.json by component type.
+     * Looks up the volume from data/mods/core-components/components.json by component type.
      * @param {string} componentType - The component type name (e.g., 'centralBall').
      * @returns {number} The max volume, or 0 if not found.
      * @private

@@ -9,39 +9,51 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Where each registry kind lives on disk, relative to the project root.
+ * Where each registry kind lives ON DISK, relative to the project root: the
+ * file of the OFFICIAL mod package that ships it (`data/mods/core-<id>/`).
  *
  * This is the ONLY place in the codebase that maps a registry kind to a file.
  * Readers ask for a kind (`loadRegistry(REGISTRY_KINDS.MATERIALS)`), never for a
- * path, so the world definition can be re-homed (a mod package becoming the
- * source of a kind) without touching a single reader. Before this table, 49
- * references in `src/` named paths and the filesystem was the interface of the
- * world.
+ * path, so the world definition can be re-homed without touching a single
+ * reader. Before the table, 49 references in `src/` named paths and the
+ * filesystem was the interface of the world.
+ *
+ * WHAT THIS TABLE IS NOT: it is not the live world definition. The live one is
+ * what the `RegistryStore` holds, merged from every enabled mod package. This
+ * table is the *shipped* source of a kind, which is what a WRITE needs — the
+ * component recipes and blueprints `AgentBodyController.saveDesign` persists
+ * must land in the official package, not in some overlay, and they take the
+ * path from here so the two can never disagree.
+ *
+ * The two snake_case files this table used to name are renamed to the kind
+ * (`worldRules.json`, `entityAttributes.json`): inside a mod package a content
+ * file is `<kind>.json`, always, so a manifest never names a file and no path
+ * is ever built from package content (`SEC-7`).
  *
  * @type {Object.<string, string>}
  */
 const REGISTRY_SOURCE_PATHS = Object.freeze({
-    [REGISTRY_KINDS.COMPONENTS]: 'data/components/components.json',
-    [REGISTRY_KINDS.HOLDING_COST]: 'data/components/holdingCost.json',
-    [REGISTRY_KINDS.INTERNAL_COMPONENTS]: 'data/components/internalComponents.json',
-    [REGISTRY_KINDS.INVENTORY_ITEMS]: 'data/components/inventoryItems.json',
-    [REGISTRY_KINDS.SENSITIVE_PARTS]: 'data/components/sensitiveParts.json',
-    [REGISTRY_KINDS.TRAITS]: 'data/components/traits.json',
-    [REGISTRY_KINDS.BLUEPRINTS]: 'data/entities/blueprints.json',
-    [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: 'data/entities/entity_attributes.json',
-    [REGISTRY_KINDS.NPCS]: 'data/entities/npcs.json',
-    [REGISTRY_KINDS.MATERIALS]: 'data/materials/materials.json',
-    [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: 'data/materials/materialDamageTypes.json',
-    [REGISTRY_KINDS.MATERIAL_DROP_RATES]: 'data/materials/materialDropRates.json',
-    [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: 'data/materials/propertyTraitMapping.json',
-    [REGISTRY_KINDS.ACTIONS]: 'data/systems/actions.json',
-    [REGISTRY_KINDS.CRAFTING]: 'data/systems/crafting.json',
-    [REGISTRY_KINDS.MACHINES]: 'data/systems/machines.json',
-    [REGISTRY_KINDS.SYNERGY]: 'data/systems/synergy.json',
-    [REGISTRY_KINDS.ROOMS]: 'data/world/rooms.json',
-    [REGISTRY_KINDS.WORLD]: 'data/world/world.json',
-    [REGISTRY_KINDS.WORLD_OBJECTS]: 'data/world/worldObjects.json',
-    [REGISTRY_KINDS.WORLD_RULES]: 'data/world/world_rules.json'
+    [REGISTRY_KINDS.COMPONENTS]: 'data/mods/core-components/components.json',
+    [REGISTRY_KINDS.HOLDING_COST]: 'data/mods/core-holding-cost/holdingCost.json',
+    [REGISTRY_KINDS.INTERNAL_COMPONENTS]: 'data/mods/core-internal-components/internalComponents.json',
+    [REGISTRY_KINDS.INVENTORY_ITEMS]: 'data/mods/core-inventory-items/inventoryItems.json',
+    [REGISTRY_KINDS.SENSITIVE_PARTS]: 'data/mods/core-sensitive-parts/sensitiveParts.json',
+    [REGISTRY_KINDS.TRAITS]: 'data/mods/core-traits/traits.json',
+    [REGISTRY_KINDS.BLUEPRINTS]: 'data/mods/core-blueprints/blueprints.json',
+    [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: 'data/mods/core-entity-attributes/entityAttributes.json',
+    [REGISTRY_KINDS.NPCS]: 'data/mods/core-npcs/npcs.json',
+    [REGISTRY_KINDS.MATERIALS]: 'data/mods/core-materials/materials.json',
+    [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: 'data/mods/core-material-damage-types/materialDamageTypes.json',
+    [REGISTRY_KINDS.MATERIAL_DROP_RATES]: 'data/mods/core-material-drop-rates/materialDropRates.json',
+    [REGISTRY_KINDS.PROPERTY_TRAIT_MAPPING]: 'data/mods/core-property-trait-mapping/propertyTraitMapping.json',
+    [REGISTRY_KINDS.ACTIONS]: 'data/mods/core-actions/actions.json',
+    [REGISTRY_KINDS.CRAFTING]: 'data/mods/core-crafting/crafting.json',
+    [REGISTRY_KINDS.MACHINES]: 'data/mods/core-machines/machines.json',
+    [REGISTRY_KINDS.SYNERGY]: 'data/mods/core-synergy/synergy.json',
+    [REGISTRY_KINDS.ROOMS]: 'data/mods/core-rooms/rooms.json',
+    [REGISTRY_KINDS.WORLD]: 'data/mods/core-world/world.json',
+    [REGISTRY_KINDS.WORLD_OBJECTS]: 'data/mods/core-world-objects/worldObjects.json',
+    [REGISTRY_KINDS.WORLD_RULES]: 'data/mods/core-world-rules/worldRules.json'
 });
 
 /**

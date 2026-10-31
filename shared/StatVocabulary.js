@@ -6,7 +6,7 @@
  * Node server and the browser. These strings form a WIRE CONTRACT: world-state
  * stat maps (the nested `stats[<group>][<stat>]` form and the flat
  * `stats['<group>.<stat>']` form), the requirement definitions in
- * `data/systems/actions.json`, the derived-stat keys in `data/materials/propertyTraitMapping.json`,
+ * `data/mods/core-actions/actions.json`, the derived-stat keys in `data/mods/core-property-trait-mapping/propertyTraitMapping.json`,
  * and the range expressions in `shared/RangeResolver.js` all key off exactly
  * these strings, so a spelling that drifts from the data files silently breaks
  * stat lookups and damage application. The data files under `data/*.json` must
@@ -58,7 +58,7 @@
  * position is no longer a stat.
  *
  * The `Pleasure` group namespaces the whole-entity `pleasure` meter (seeded
- * per blueprint in data/entities/entity_attributes.json) — like
+ * per blueprint in data/mods/core-entity-attributes/entityAttributes.json) — like
  * `Physical.energy`, it lives on the entity, never on a component.
  * @type {Object.<string, string>}
  */
@@ -109,10 +109,10 @@ export const STAT_NAMES = {
  * Damage-channel names. Damage arrives with a channel and consumes matter one
  * material at a time, starting with the material least resistant to that
  * channel, so a cut is trivial on iron and fatal on a cable. The six channels
- * map one-to-one onto the six material properties in `data/materials/materials.json` —
+ * map one-to-one onto the six material properties in `data/mods/core-materials/materials.json` —
  * three as direct resistance, three as susceptibility inverted at conversion —
  * so no new material science is invented; the translation lives in
- * `data/materials/propertyTraitMapping.json`, the single balance lever.
+ * `data/mods/core-property-trait-mapping/propertyTraitMapping.json`, the single balance lever.
  * @type {Object.<string, string>}
  */
 export const DAMAGE_CHANNELS = {
@@ -129,11 +129,11 @@ export const DAMAGE_CHANNELS = {
  * channels and interactions apply to a component; they never add or multiply a
  * stat value (that would give a stat a second source and break derivation).
  *   - `flammable`, `conductive`: derived on read whenever a material property
- *     crosses a threshold declared in `data/materials/propertyTraitMapping.json`;
+ *     crosses a threshold declared in `data/mods/core-property-trait-mapping/propertyTraitMapping.json`;
  *   - `corrosive`: granted by a specific internal component (organ);
  *   - `sensitive`: granted by the sensitiveNerve organ — marks a body part
  *     as a sensitive part; the per-part sensitivity value (0-100) is data in
- *     data/components/sensitiveParts.json, not part of the flag.
+ *     data/mods/core-sensitive-parts/sensitiveParts.json, not part of the flag.
  * @type {Object.<string, string>}
  */
 export const FLAG_NAMES = {

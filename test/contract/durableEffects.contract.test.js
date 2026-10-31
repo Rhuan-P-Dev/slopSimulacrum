@@ -36,7 +36,7 @@ const readJson = (rel) =>
 
 // The live grab registry entry (so our synthetic reducer can be declared the same
 // way and the grab's own declared duration (1 round) is the single source of truth).
-const GRAB = readJson('data/systems/actions.json').grab;
+const GRAB = readJson('data/mods/core-actions/actions.json').grab;
 
 /** Builds a two-droid world: attacker at (0,0) and a target within grab range. */
 function buildTurnWorld() {

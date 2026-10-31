@@ -1,6 +1,6 @@
 /**
  * EntityAttributeData — loads and exposes the per-entity-type attribute seeds
- * (data/entities/entity_attributes.json).
+ * (data/mods/core-entity-attributes/entityAttributes.json).
  *
  * Entity attributes are WHOLE-ENTITY stats, owned by the ENTITY (seeded from
  * the blueprint's entry at spawn) and distinct from per-component stats, which
@@ -73,8 +73,8 @@ export function getAttributes(blueprintName) {
 }
 
 /**
- * Reads data/entities/entity_attributes.json once, caching the parse. Returns a plain
- * object (never the parsed `data/entities/entity_attributes.json` reference is mutated
+ * Reads data/mods/core-entity-attributes/entityAttributes.json once, caching the parse. Returns a plain
+ * object (never the parsed `data/mods/core-entity-attributes/entityAttributes.json` reference is mutated
  * downstream: getAttributes deep-copies the per-decl shape it hands back).
  * @private
  */

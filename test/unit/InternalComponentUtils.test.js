@@ -6,7 +6,7 @@
  * (no hardcoded prose per organ type), so shipping a new organ JSON entry
  * yields a correct description with zero code changes. Every expected string
  * is byte-accurate — derived by running the real util over the shipped
- * `data/components/internalComponents.json` plus hand-crafted fixtures, then pinned here
+ * `data/mods/core-internal-components/internalComponents.json` plus hand-crafted fixtures, then pinned here
  * so any wording or data regression fails loudly.
  *
  * Scope:
@@ -22,13 +22,11 @@
  * @module test/unit/InternalComponentUtils
  */
 
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import InternalComponentUtils from '../../src/utils/InternalComponentUtils.js';
+import DataLoader from '../../src/utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const util = InternalComponentUtils;
 
 /**
@@ -36,9 +34,9 @@ const util = InternalComponentUtils;
  * it is documentation, not an organ type).
  */
 const REGISTRY = (() => {
-    const raw = JSON.parse(
-        readFileSync(path.join(__dirname, '..', '..', 'data', 'components', 'internalComponents.json'), 'utf8')
-    );
+    // Read through the seam, by kind: where the registry lives is the table's
+    // business, not this test's.
+    const raw = DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS);
     const registry = {};
     for (const [key, def] of Object.entries(raw)) {
         if (typeof def === 'object' && def !== null && !key.startsWith('_')) registry[key] = def;
@@ -69,7 +67,7 @@ describe('generateDescription — shipped organ data', () => {
     });
 
     it('renders coalGenerator (burns coal to charge the host entity\'s energy)', () => {
-        // The energy mechanic is data-driven (data/entities/entity_attributes.json):
+        // The energy mechanic is data-driven (data/mods/core-entity-attributes/entityAttributes.json):
         // the organ stays installable and describes its fuel -> energy overTime
         // effect. It charges the HOST ENTITY's energy attribute (a whole-entity
         // stat), not a per-component stat, so no grant clause is declared.
