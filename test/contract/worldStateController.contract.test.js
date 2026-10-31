@@ -333,6 +333,9 @@ describe('WorldStateController public method surface', () => {
         'getWornItems',
         'hasInternalComponent',
         'initializeWorld',
+        // Added deliberately (README §World lifecycle): "is this server simulating"
+        // read from the tick system itself, so no layer keeps a second guess.
+        'isWorldRunning',
         'moveEntity',
         'moveItemInEntity',
         'moveItemIntoContainer',
@@ -367,6 +370,12 @@ describe('WorldStateController public method surface', () => {
         // updateComponentStatDelta facade API.
         'setEntityAttributeDelta',
         'spawnEntity',
+        // Added deliberately (README §World lifecycle): the two operator actions of
+        // one world - create it and run it, stand it down - delegated to
+        // WorldRecreateLogic like `recreateWorld` is. The tick, not the routes, is
+        // what these start and stop (CR AP-13: no orchestration in a handler).
+        'startWorld',
+        'stopWorld',
         // Added deliberately (object viewer): cross-entity item transfer
         // (world object → another entity's component), the facade
         // counterpart of moveItemInEntity (wiki object_viewer.md §7).

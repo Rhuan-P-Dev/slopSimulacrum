@@ -122,11 +122,26 @@ if (worldStateController.llmAgentFeedbackController) {
     Logger.info('[Server] LLM Agent feedback store wired (LLMAgentController → setFeedbackController)');
 }
 
-// 8. Trigger initial broadcast to sync full initial state (including spawn items) to connected clients
-worldStateController.triggerInitialBroadcast();
+// 8. STAND THE WORLD DOWN: this server boots IDLE. `buildWorldState()` above
+//    assembles the world definition (mod packages, map, controllers) and seeds a
+//    population the way the composition root always has; this step removes it
+//    again through the same action the "Stop world" button calls, so "a world
+//    that is not running" has one definition (`WorldRecreateLogic`). Nothing
+//    ticks, no round starts, and the LLM provider is not called until the
+//    operator creates a world (`POST /world/create` -> `startWorld`).
+//    Why the stand-down happens HERE and not behind a `seed: false` argument of
+//    `buildWorldState()`: that function is also how the suite builds a working
+//    world, and a boolean that switches the behavior of a 500-line root is the
+//    shape `CHG-4` refuses. The tick system is deliberately never started here;
+//    `gracefulShutdown` stopping it is a no-op on an idle server.
+const bootStandDown = worldStateController.stopWorld();
+Logger.info(
+    `[server] idle: ${bootStandDown.despawned} boot-spawn entity(ies) stood down;`
+    + ' no world runs until POST /world/create'
+);
 
-// 9. START THE WORLD (Start the Tick System)
-tickSystem.start();
+// 9. Broadcast the initial state — which, on an idle server, is an empty world.
+worldStateController.triggerInitialBroadcast();
 
 // 10. Graceful shutdown for unified tick system
 let isShuttingDown = false;

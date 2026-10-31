@@ -15,6 +15,13 @@ import { WORLD_CREATE_ERROR_CODES } from '../controllers/logic/WorldRecreateLogi
 const createWorldLimiter = createRateLimiter({ windowMs: 60000, max: 5, name: 'world-create-route' });
 
 /**
+ * Stopping a world destroys as much as creating one does, so it gets the same
+ * budget as its own limiter - a shared counter would let an operator who has
+ * been rebuilding a world be refused for asking to stop one.
+ */
+const stopWorldLimiter = createRateLimiter({ windowMs: 60000, max: 5, name: 'world-stop-route' });
+
+/**
  * Every refusal `recreateWorld()` raises is about the requested cards, before
  * anything was destroyed - so all three are a 400 about the body, not a conflict
  * with the world.
@@ -33,14 +40,21 @@ const WORLD_CREATE_STATUS = Object.fromEntries(
 export function register(router, { worldStateController, broadcastService }) {
 	/**
 	 * GET /world-state
-	 * Returns the current state of the world (with typed-ID transformation applied).
+	 * Returns the current state of the world (with typed-ID transformation applied)
+	 * plus `running` — whether the server is simulating it.
+	 *
+	 * On an idle server (no world created yet, or one that was stopped) the state is
+	 * simply empty and `running` is false: no error, no separate "no world" endpoint.
+	 * `running` is the tick system's own state, so the launcher can say "no world
+	 * running" without inferring it from an empty entity map (`README §World
+	 * lifecycle`). Additive field: every existing reader reads `state`.
 	 */
 	router.get('/world-state', (req, res) => {
 		try {
 			const worldState = worldStateController.getAll();
 			// Apply the same transformation used by broadcast to ensure entity.equipped is populated
 			const transformedState = broadcastService._transformForBroadcast(worldState);
-			res.json({ state: transformedState });
+			res.json({ state: transformedState, running: worldStateController.isWorldRunning() });
 		} catch (error) {
 			sendRouteError(error, res, '/world-state');
 		}
@@ -271,16 +285,22 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * never goes backwards (`CR D-6`); the new world inherits the round it was
 	 * created in, which is also why the response names it.
 	 *
+	 * This is also the ONLY thing that starts a world. The server boots idle - it
+	 * loads the definition and stands the population down - so until this request
+	 * succeeds nothing ticks, no round runs and the LLM provider is never called.
+	 * `POST /world/stop` returns the process to that state.
+	 *
 	 * Response: `{ success: true, despawned, cards: { total, spawned, entities },
-	 * round }`. `cards.entities` maps each spawned card id to its entity id, so the
-	 * operator can find the droid they just chose. Unknown card ids are refused with
-	 * a 400 naming them - before anything is destroyed, so a typo cannot empty a
-	 * running world on its way to an error message.
+	 * round, running }`. `cards.entities` maps each spawned card id to its entity id,
+	 * so the operator can find the droid they just chose, and `running: true` is the
+	 * tick actually going. Unknown card ids are refused with a 400 naming them -
+	 * before anything is destroyed and before the tick is started, so a typo cannot
+	 * empty a running world on its way to an error message.
 	 */
 	router.post('/world/create', createWorldLimiter, (req, res) => {
 		try {
 			const cardIds = req.body && Object.hasOwn(req.body, 'cardIds') ? req.body.cardIds : null;
-			const result = worldStateController.recreateWorld({ cardIds });
+			const result = worldStateController.startWorld({ cardIds });
 			if (broadcastService) broadcastService.broadcast();
 			res.json({ success: true, ...result });
 		} catch (error) {
@@ -296,6 +316,35 @@ export function register(router, { worldStateController, broadcastService }) {
 				return;
 			}
 			sendRouteError(error, res, '/world/create');
+		}
+	});
+
+	/**
+	 * POST /world/stop — stand the world down.
+	 *
+	 * The tick halts first (so no round advances into the teardown), then every
+	 * entity is despawned and the runtime memory of the world is dropped: items on
+	 * the floor, room chat, the event log. The map, the mod definition and this
+	 * process survive — reads keep answering 200 with an empty world and
+	 * `running: false`, and `POST /world/create` starts another one.
+	 *
+	 * No body. Idempotent: stopping a stopped world is a no-op that answers the same
+	 * thing, which is deliberate — the launcher offers it without knowing, from the
+	 * client side, what the last click did.
+	 *
+	 * In-flight LLM rounds are not awaited. A round that resolves over a despawned
+	 * population is the case `WorldRecreateLogic` documents as tolerated for
+	 * mid-round despawns; the log names each entity that could not be removed.
+	 *
+	 * Response: `{ success: true, despawned, running: false }`.
+	 */
+	router.post('/world/stop', stopWorldLimiter, (req, res) => {
+		try {
+			const result = worldStateController.stopWorld();
+			if (broadcastService) broadcastService.broadcast();
+			res.json({ success: true, ...result });
+		} catch (error) {
+			sendRouteError(error, res, '/world/stop');
 		}
 	});
 

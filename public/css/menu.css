@@ -36,6 +36,14 @@
     font-size: 1.1em;
     margin-right: 6px;
     user-select: none;
+    /* The brand is the way back to the launcher, where "Stop world" lives. A
+       clickable thing whose pointer never changes is an affordance nobody
+       finds, so it says "clickable" the way the buttons beside it do. */
+    cursor: pointer;
+}
+
+.app-menu-brand:hover {
+    color: var(--text-main);
 }
 
 .app-menu-btn {

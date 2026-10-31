@@ -201,7 +201,10 @@ malformed official file stops the server rather than booting a world with holes 
 `pending: true` is the normal success answer, not a warning: the change is written to
 `data/mods/loadorder.json` and takes effect at the **next round boundary** (`appliesAt`). A
 round never has its definition changed underneath it. On a server whose turn loop is stopped
-the change stays pending — and the file already says what the next boot will do.
+the change stays pending — and the file already says what the next boot will do. Since the
+server boots idle (`README §World lifecycle`), that is the ordinary state of a server nobody
+has created a world on yet: a change queued from the Mods screen waits, and lands on the
+first round of the world you then create.
 
 The paths carry no `/api` prefix: routes are mounted at `/`, same as the rest of the
 server (`src/routes/index.js`).
@@ -209,8 +212,9 @@ server (`src/routes/index.js`).
 ## From the browser (the launcher)
 
 The page opens on a launcher with two entries, and neither of them is a settings drawer
-over the game: they are full-screen views, and the world keeps running underneath while
-you are in one.
+over the game: they are full-screen views. Nothing runs behind them until **Create world**
+starts a world; once one is running it keeps running while you are in a screen, and
+**Stop world** (the launcher again, reached by clicking the brand) ends it.
 
 - **Mods** — the packages, the live definition and its per-kind counts, what is waiting
   for a boundary, and the four actions (`Rescan`, `Plan`, `Enable`/`Disable`, `Apply now`).

@@ -97,8 +97,10 @@ export class CreateWorldPanel {
             if (!res.ok) throw new Error(payload?.error?.message || `create failed (${res.status})`);
             const spawned = payload.cards?.spawned ?? 0;
             const total = payload.cards?.total ?? 0;
+            // `running` is in the answer because it is the point of the button:
+            // before this request the server was idle, and now it is simulating.
             this._setStatus(
-                `World created: ${payload.despawned ?? 0} entity(ies) removed, ${spawned}/${total} card(s) spawned, round ${payload.round}.`,
+                `World ${payload.running === false ? 'created (no round is running)' : 'created and running'}: ${payload.despawned ?? 0} entity(ies) removed, ${spawned}/${total} card(s) spawned, round ${payload.round}.`,
                 'ok'
             );
             setTimeout(() => this._onCreated(), RELOAD_DELAY_MS);

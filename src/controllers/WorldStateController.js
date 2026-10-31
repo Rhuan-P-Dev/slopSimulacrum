@@ -14,7 +14,7 @@ import { removeBrokenComponentCascade, spillContent, cascadeDependents, forceDir
 import { TRAIT_GROUPS, STAT_NAMES, EXISTENCE_GONE_AT } from '../../shared/StatVocabulary.js';
 import { PERSISTENCE_SCHEMA_VERSION, serialize, restore } from './logic/PersistenceLogic.js';
 import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirstSpawnRoom, roomRandomPoint } from './logic/CardSpawnLogic.js';
-import { recreateWorld as recreateWorldLogic } from './logic/WorldRecreateLogic.js';
+import { recreateWorld as recreateWorldLogic, startWorld as startWorldLogic, stopWorld as stopWorldLogic, isWorldRunning as isWorldRunningLogic } from './logic/WorldRecreateLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { wearItem, getWornItems } from './logic/WearLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
@@ -476,6 +476,43 @@ class WorldStateController {
      */
     recreateWorld(options = {}) {
         return recreateWorldLogic(this, options);
+    }
+
+    /**
+     * Create a world AND run it: the population the operator chose, then the tick
+     * that advances rounds. This is `POST /world/create`; boot does NOT call it —
+     * a process that has just started stands the world down instead (see
+     * `stopWorld()`), so nothing simulates and no provider is called until the
+     * operator asks for a world. Implementation:
+     * src/controllers/logic/WorldRecreateLogic.js.
+     * @param {Object} [options]
+     * @param {string[]} [options.cardIds] - Cards to populate the world with.
+     * @returns {{despawned: number, cards: Object, round: number|null, running: boolean}}
+     */
+    startWorld(options = {}) {
+        return startWorldLogic(this, options);
+    }
+
+    /**
+     * Stop simulating: the tick halts, every entity is despawned, and the runtime
+     * memory of what the world did is dropped. The map and the mod definition stay,
+     * and so does this facade — every route, socket and sub-controller holds it.
+     * Idempotent, which is what lets the boot sequence use it as its initial state.
+     * Implementation: src/controllers/logic/WorldRecreateLogic.js.
+     * @returns {{despawned: number, running: false}}
+     */
+    stopWorld() {
+        return stopWorldLogic(this);
+    }
+
+    /**
+     * Whether this server is simulating right now — the tick system's own state,
+     * deliberately not a parallel flag. Reads answer an empty world when this is
+     * false; nothing advances while it is false.
+     * @returns {boolean}
+     */
+    isWorldRunning() {
+        return isWorldRunningLogic(this);
     }
 
     /**

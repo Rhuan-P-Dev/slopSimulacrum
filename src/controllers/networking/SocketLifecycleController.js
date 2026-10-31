@@ -34,6 +34,16 @@ class SocketLifecycleController {
 				this._handleDisconnect(socket);
 			});
 
+			// No world, no body to incarnate. The server boots idle and stays idle
+			// until POST /world/create, so a browser sitting on the launcher has
+			// nowhere to put a player — spawning here is the "No valid room found"
+			// critical this guard replaces. The launcher reloads the page after a
+			// create, and that connection incarnates normally.
+			if (!this._worldStateController.isWorldRunning()) {
+				Logger.info(`Socket connected while no world is running - no player incarnated: ${socket.id}`);
+				return;
+			}
+
 			this._incarnatePlayer(socket);
 		});
 	}

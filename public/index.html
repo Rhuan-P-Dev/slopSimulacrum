@@ -36,7 +36,7 @@
          itself: create it, and manage the mods that define it. Everything else on
          this page is a window into a world that is already running. -->
     <div id="app-menu">
-        <span class="app-menu-brand">SIMULACRUM</span>
+        <span id="menu-brand" class="app-menu-brand" title="Back to the launcher">SIMULACRUM</span>
         <button id="btn-menu-create-world" class="app-menu-btn" type="button" title="Build a new world from the cards on disk">Create world</button>
         <button id="btn-menu-mods" class="app-menu-btn" type="button" title="See and manage the installed mod packages">Mods</button>
     </div>
@@ -373,9 +373,14 @@
             <div class="launcher-actions">
                 <button id="btn-launcher-create" class="sim-btn sim-btn-primary" type="button">Create world</button>
                 <button id="btn-launcher-mods" class="sim-btn" type="button">Mods</button>
-                <button id="btn-launcher-enter" class="sim-btn sim-btn-ghost" type="button">Enter world</button>
+                <button id="btn-launcher-enter" class="sim-btn sim-btn-ghost" type="button" disabled>Enter world</button>
+                <button id="btn-launcher-stop" class="sim-btn sim-btn-ghost" type="button" style="display:none;">Stop world</button>
             </div>
-            <p id="launcher-status" class="sim-status sim-status--dim"></p>
+            <!-- The honest default while the first /world-state answer is in
+                 flight. "Enter world" starts disabled: a button that leads to an
+                 empty canvas is worse than one that lights up when there is a
+                 world behind it. -->
+            <p id="launcher-status" class="sim-status sim-status--dim">Reading the server...</p>
         </div>
     </div>
 
@@ -385,7 +390,7 @@
         <div class="sim-screen-inner">
             <div class="sim-screen-head">
                 <h2 class="sim-screen-title">Create world</h2>
-                <span class="sim-screen-note">Despawns every entity, clears the old world's memory (items on the floor, room chat, event log), then seeds the map and the cards you choose. The round counter does not go backwards.</span>
+                <span class="sim-screen-note">Seeds the map and the cards you choose, and starts the world running: until this request succeeds the server is idle, and nothing is simulated. Rebuilding an existing world despawns every entity and clears its memory (items on the floor, room chat, event log). The round counter does not go backwards.</span>
                 <button id="btn-create-world-close" class="sim-btn sim-btn-ghost" type="button">Close</button>
             </div>
             <div id="create-world-content"></div>
