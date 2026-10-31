@@ -111,6 +111,36 @@ describe('POST /mods/:id/enable and /disable', () => {
         close();
     });
 
+    it('refuses to remove a package the world still references, with 409', async () => {
+        behavior = {
+            throwOn: new GameError(
+                'ModService: cannot disable "core-materials": core-components requires it - disable those first',
+                'MOD_REQUIREMENT_HELD'
+            )
+        };
+        const { service } = makeStub();
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/core-materials/disable');
+        // 409, not 400: the request is fine, the install is what objects. The body names who
+        // blocks it, which is the whole instruction the operator needs.
+        expect(status).toBe(409);
+        expect(body.error).toBe('MOD_REQUIREMENT_HELD');
+        expect(body.message).toContain('core-components');
+        close();
+    });
+
+    it('refuses an enable whose own requirement is unmet, with 409', async () => {
+        behavior = {
+            throwOn: new GameError('ModService: cannot enable "addon": requires "core-base", which is disabled', 'MOD_REQUIREMENT_UNMET')
+        };
+        const { service } = makeStub();
+        const { post, close } = await withServer({ modService: service });
+        const { status, body } = await post('/mods/addon/enable');
+        expect(status).toBe(409);
+        expect(body.error).toBe('MOD_REQUIREMENT_UNMET');
+        close();
+    });
+
     it('keeps the shared 500 contract for a failure it does not understand', async () => {
         behavior = { throwOn: new Error('disk is gone') };
         const { service } = makeStub();

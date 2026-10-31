@@ -26,6 +26,8 @@ import ModLoader, {
     OFFICIAL_ID_PREFIX,
     DEFAULT_LOAD_ORDER,
     parseManifest,
+    resolveRequirements,
+    contributingMods,
     sortModsForLoad,
     mergeRegistryPatch,
     isOfficialModId
@@ -263,5 +265,167 @@ describe('mergeRegistryPatch', () => {
     it('returns the top-level keys it touched', () => {
         const touched = mergeRegistryPatch({}, { a: 1, _comment: 'skipped', b: 2 });
         expect(touched).toEqual(['a', 'b']);
+    });
+});
+
+describe('requires', () => {
+    // A fixture root of its own: the shared one is asserted package-by-package elsewhere,
+    // and a package that contributes nothing would move those counts.
+    const REQ_ROOT = path.resolve('data', `.mod-req-${process.pid}`);
+    const relRoot = () => path.relative(process.cwd(), REQ_ROOT);
+
+    function writeAt(name, manifest, contents = {}) {
+        const dir = path.join(REQ_ROOT, name);
+        fs.mkdirSync(dir, { recursive: true });
+        if (manifest !== null) fs.writeFileSync(path.join(dir, 'mod.json'), JSON.stringify(manifest), 'utf8');
+        for (const [kind, value] of Object.entries(contents)) {
+            fs.writeFileSync(path.join(dir, `${kind}.json`), JSON.stringify(value), 'utf8');
+        }
+    }
+
+    /** The domain code of what a call threw (vitest matches messages, not custom fields). */
+    const codeOf = (fn) => {
+        try {
+            fn();
+        } catch (error) {
+            return error.code;
+        }
+        throw new Error('expected the call to throw');
+    };
+
+    /** A discovery entry, for the resolver, which needs no disk. */
+    const entry = (id, requires = [], enabled = true) => ({
+        manifest: { id, requires: [...requires] },
+        enabled,
+        blocked: null
+    });
+
+    beforeAll(() => {
+        fs.rmSync(REQ_ROOT, { recursive: true, force: true });
+        fs.mkdirSync(REQ_ROOT, { recursive: true });
+        const man = (id, requires) => ({
+            id,
+            version: '1.0.0',
+            content: [REGISTRY_KINDS.COMPONENTS],
+            ...(requires ? { requires } : {})
+        });
+        writeAt('base', man('base'), { [REGISTRY_KINDS.COMPONENTS]: { knife: { name: 'Knife' } } });
+        writeAt('needs-base', man('needs-base', ['base']), { [REGISTRY_KINDS.COMPONENTS]: { crowbar: { name: 'Crowbar' } } });
+        writeAt('needs-needs-base', man('needs-needs-base', ['needs-base']), { [REGISTRY_KINDS.COMPONENTS]: { torch: { name: 'Torch' } } });
+        writeAt('orphan', man('orphan', ['not-installed']), { [REGISTRY_KINDS.COMPONENTS]: { ghost: { name: 'Ghost' } } });
+        writeAt('mutual-a', man('mutual-a', ['mutual-b']), { [REGISTRY_KINDS.COMPONENTS]: { a: { name: 'A' } } });
+        writeAt('mutual-b', man('mutual-b', ['mutual-a']), { [REGISTRY_KINDS.COMPONENTS]: { b: { name: 'B' } } });
+    });
+
+    afterAll(() => {
+        fs.rmSync(REQ_ROOT, { recursive: true, force: true });
+    });
+
+    describe('manifest narrowing', () => {
+        it('reads an absent requires as requiring nothing', () => {
+            expect(parseManifest({ id: 'x', version: '1.0.0' }, 'x').requires).toEqual([]);
+        });
+
+        it('deduplicates and sorts, so what contributes does not depend on how the file was written', () => {
+            expect(parseManifest({ id: 'x', version: '1.0.0', requires: ['b', 'a', 'b'] }, 'x').requires)
+                .toEqual(['a', 'b']);
+        });
+
+        it('rejects a requires that is not a list of mod ids', () => {
+            expect(() => parseManifest({ id: 'x', version: '1.0.0', requires: 'core-materials' }, 'x'))
+                .toThrowError(/is not an array of mod ids/);
+            expect(codeOf(() => parseManifest({ id: 'x', version: '1.0.0', requires: [42] }, 'x')))
+                .toBe(MOD_ERROR_CODES.REQUIRES_INVALID);
+            expect(codeOf(() => parseManifest({ id: 'x', version: '1.0.0', requires: ['../escape'] }, 'x')))
+                .toBe(MOD_ERROR_CODES.REQUIRES_INVALID);
+        });
+
+        it('rejects a package requiring itself, the one cycle nothing else can satisfy', () => {
+            expect(codeOf(() => parseManifest({ id: 'x', version: '1.0.0', requires: ['x'] }, 'x')))
+                .toBe(MOD_ERROR_CODES.REQUIRES_SELF);
+        });
+    });
+
+    describe('resolution', () => {
+        it('leaves a package whose requirements are met alone', () => {
+            const mods = resolveRequirements([entry('base'), entry('child', ['base'])]);
+            expect(mods.map((m) => [m.manifest.id, m.blocked])).toEqual([['base', null], ['child', null]]);
+        });
+
+        it('blocks the dependent of a disabled package, naming the requirement', () => {
+            const mods = resolveRequirements([entry('base'), entry('child', ['base'], true), entry('base-off', [], false)]);
+            expect(mods.find((m) => m.manifest.id === 'base-off').blocked).toBeNull();
+            const off = resolveRequirements([entry('base', [], false), entry('child', ['base'])]);
+            const child = off.find((m) => m.manifest.id === 'child');
+            expect(child.blocked.code).toBe(MOD_ERROR_CODES.REQUIREMENT_DISABLED);
+            expect(child.blocked.message).toContain('"base"');
+            expect(child.blocked.message).toContain('disabled');
+        });
+
+        it('blocks a package whose requirement is not installed at all', () => {
+            const mods = resolveRequirements([entry('orphan', ['not-installed'])]);
+            expect(mods[0].blocked.code).toBe(MOD_ERROR_CODES.REQUIREMENT_MISSING);
+            expect(mods[0].blocked.message).toContain('not installed');
+        });
+
+        it('cascades through the chain and names the closest break, not the whole trace', () => {
+            const mods = resolveRequirements([
+                entry('root', [], false),
+                entry('mid', ['root']),
+                entry('leaf', ['mid'])
+            ]);
+            const mid = mods.find((m) => m.manifest.id === 'mid');
+            const leaf = mods.find((m) => m.manifest.id === 'leaf');
+            expect(mid.blocked.code).toBe(MOD_ERROR_CODES.REQUIREMENT_DISABLED);
+            expect(leaf.blocked.code).toBe(MOD_ERROR_CODES.REQUIREMENT_BLOCKED);
+            // The sentence starts at the closest break - that is what the operator acts on -
+            // and keeps the cause in parentheses, so the chain is still readable.
+            expect(leaf.blocked.message).toMatch(/^requires "mid", which cannot contribute /);
+            expect(leaf.blocked.message).toContain('requires "root", which is disabled');
+        });
+
+        it('is not afraid of mutual requires, which is how the official set is built', () => {
+            // core-components and core-internal-components reference each other's definitions.
+            // A cycle that is installed and enabled is satisfied, so resolution must not
+            // report it - the fixpoint starts satisfied and only removes.
+            const mods = resolveRequirements([entry('a', ['b']), entry('b', ['a'])]);
+            expect(mods.every((m) => m.blocked === null)).toBe(true);
+        });
+
+        it('reports the contributing set in input order', () => {
+            const mods = resolveRequirements([entry('a'), entry('b', ['a'], false), entry('c', ['b'])]);
+            expect(contributingMods(mods).map((m) => m.manifest.id)).toEqual(['a']);
+        });
+    });
+
+    describe('build', () => {
+        it('keeps a blocked package out of the candidate and says why', () => {
+            const built = new ModLoader({ baseDir: relRoot() }).build();
+            // `base` is enabled, so its dependents contribute too.
+            expect(built.registries[REGISTRY_KINDS.COMPONENTS].ghost).toBeUndefined();
+            expect(built.registries[REGISTRY_KINDS.COMPONENTS].crowbar).toBeDefined();
+            const orphan = built.blocked.find((entry2) => entry2.modId === 'orphan');
+            expect(orphan.code).toBe(MOD_ERROR_CODES.REQUIREMENT_MISSING);
+            expect(orphan.requires).toEqual(['not-installed']);
+            expect(orphan.message).toMatch(/not installed/);
+        });
+
+        it('cascades when the base of the chain is disabled', () => {
+            const built = new ModLoader({ baseDir: relRoot(), state: { base: { enabled: false } } }).build();
+            const items = built.registries[REGISTRY_KINDS.COMPONENTS];
+            expect(items.knife).toBeUndefined();
+            expect(items.crowbar).toBeUndefined();
+            expect(items.torch).toBeUndefined();
+            // `orphan` requires a package nobody installed, so it is blocked in every case.
+            expect(built.blocked.map((e) => e.modId).sort()).toEqual(['needs-base', 'needs-needs-base', 'orphan']);
+            // The transitive one is reported as blocked by the nearest break.
+            expect(built.blocked.find((e) => e.modId === 'needs-needs-base').code)
+                .toBe(MOD_ERROR_CODES.REQUIREMENT_BLOCKED);
+        });
+
+        it('does not report a package that is merely disabled', () => {
+            const built = new ModLoader({ baseDir: relRoot(), state: { orphan: { enabled: false } } }).build();
+            expect(built.blocked.map((e) => e.modId)).not.toContain('orphan');
+        });
     });
 });

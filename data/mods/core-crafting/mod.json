@@ -3,5 +3,8 @@
     "version": "1.0.0",
     "content": [
         "crafting"
+    ],
+    "requires": [
+        "core-inventory-items"
     ]
 }

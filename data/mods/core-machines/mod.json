@@ -3,5 +3,10 @@
     "version": "1.0.0",
     "content": [
         "machines"
+    ],
+    "requires": [
+        "core-blueprints",
+        "core-crafting",
+        "core-inventory-items"
     ]
 }

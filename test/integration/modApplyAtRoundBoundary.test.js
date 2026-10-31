@@ -144,3 +144,62 @@ describe('the round boundary applies a queued mod change', () => {
         expect(modService.lastApply).toBeNull();
     });
 });
+
+describe('the official dependency graph', () => {
+    /** The code that a call threw, or null. */
+    const codeOf = (fn) => {
+        try {
+            fn();
+        } catch (error) {
+            return error.code;
+        }
+        return null;
+    };
+
+    it('refuses to pull a load-bearing package out from under the world', () => {
+        const { store, modService } = buildWorld();
+        const versionAtBoot = store.version();
+
+        let thrown = null;
+        try {
+            modService.disable('core-materials');
+        } catch (error) {
+            thrown = error;
+        }
+
+        expect(thrown?.code).toBe('MOD_REQUIREMENT_HELD');
+        // The refusal names what blocks it, in the same breath as what to do about it.
+        expect(thrown.message).toContain('core-components');
+        expect(thrown.message).toContain('core-material-damage-types');
+        expect(thrown.message).toContain('disable those first');
+        // And it is the whole effect: no write, no queue, no swap.
+        expect(modService.list().pending).toBe(false);
+        expect(store.version()).toBe(versionAtBoot);
+        expect(store.read(REGISTRY_KINDS.MATERIALS).wood).toBeDefined();
+    });
+
+    it('lets the operator reach a world without them, in dependency order', () => {
+        const { store, modService } = buildWorld();
+
+        // items are held by crafting and by machines; crafting is held by machines. So the
+        // chain has to be unwound from the top, and each refusal says so.
+        expect(codeOf(() => modService.disable('core-inventory-items'))).toBe('MOD_REQUIREMENT_HELD');
+        expect(codeOf(() => modService.disable('core-machines'))).toBeNull();
+        expect(codeOf(() => modService.disable('core-crafting'))).toBeNull();
+        expect(codeOf(() => modService.disable('core-inventory-items'))).toBeNull();
+
+        // materials are still held by the definitions that name a material.
+        expect(codeOf(() => modService.disable('core-materials'))).toBe('MOD_REQUIREMENT_HELD');
+        modService.disable('core-components');
+        modService.disable('core-material-damage-types');
+        modService.disable('core-material-drop-rates');
+        expect(codeOf(() => modService.disable('core-materials'))).toBeNull();
+
+        // The candidate this leaves is one the world's own rules can classify, and the plan
+        // reports the removals rather than crashing on them.
+        const plan = modService.plan();
+        const removed = plan.kinds.find((kind) => kind.kind === REGISTRY_KINDS.MATERIALS);
+        expect(removed && removed.removedCount).toBeGreaterThan(0);
+        expect(store.read(REGISTRY_KINDS.MATERIALS).wood).toBeDefined();  // still pending, not applied
+    });
+});

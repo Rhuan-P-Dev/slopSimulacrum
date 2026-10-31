@@ -35,7 +35,12 @@ const writeLimiter = createRateLimiter({
 /** Domain error code -> HTTP status. Anything unmapped stays a 500. */
 const ERROR_STATUS = {
 	MOD_NOT_FOUND: 404,
-	MOD_ID_INVALID: 400
+	MOD_ID_INVALID: 400,
+	// The request is well-formed and the package exists; the install will not allow it.
+	// 409 because the conflict is with the state of the world, not with the request body
+	// (which is what 400 would claim).
+	MOD_REQUIREMENT_HELD: 409,
+	MOD_REQUIREMENT_UNMET: 409
 };
 
 /**

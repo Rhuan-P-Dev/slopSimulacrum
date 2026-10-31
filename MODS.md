@@ -33,6 +33,7 @@ kind named in it needs its file in the same directory, named `<kind>.json`.
 | `version`     | yes      | A non-empty string. |
 | `content`     | yes      | The list of registry kind ids this package provides (see the table below). Each one is read from `<kind>.json` next to the manifest. |
 | `description` | no       | Free text, shown by `GET /mods`. |
+| `requires`    | no       | Mod ids this package's content references definitions from. Absent means "requires nothing". |
 
 `official` is **derived** from the `core-` prefix and never read from the manifest, so
 third-party content cannot mark itself as shipped with the server.
@@ -45,6 +46,58 @@ third-party content cannot mark itself as shipped with the server.
   "content": ["blueprints", "components"]
 }
 ```
+
+## Dependencies: `requires`
+
+```json
+{ "id": "my-droids", "version": "0.1.0", "content": ["components"], "requires": ["core-materials"] }
+```
+
+A `requires` entry is a claim about the content, not a load hint: "my definitions name things
+this package provides, and the world cannot be built without them". Two things follow, both
+reported rather than guessed at:
+
+- **A package whose requirement is not met contributes nothing.** Not installed, disabled, or
+  itself blocked — in every case the dependent is skipped and named in `GET /mods` under
+  `blocked` and in `POST /mods/plan`, with the closest break first
+  (`requires "core-crafting", which cannot contribute (requires "core-materials", which is
+  disabled)`). This is also what makes *deleting* a directory survivable: its dependents drop
+  out with a reason instead of shipping content that references definitions nobody provides.
+- **`enable` / `disable` refuse what the install cannot honor**, with `409` and a message that
+  names the packages involved. Disabling `core-materials` answers
+  `cannot disable "core-materials": core-components, … require it - disable those first`;
+  enabling a package whose own requirement is off answers `cannot enable "addon": requires
+  "core-base", which is disabled`. Unwinding the chain in dependency order always works, and
+  each refusal names the next step.
+
+A **cycle is not an error.** `core-components` and `core-internal-components` reference each
+other's definitions, and with both installed and enabled both are satisfied. Resolution
+starts from "everything is satisfied" and only ever removes, so mutual requires settle the
+way they should. A package requiring *itself* is rejected at parse time (`MOD_REQUIRES_SELF`),
+because that is the one cycle nothing else can satisfy.
+
+The official set declares exactly the edges the code enforces — each one verified by the
+validator that throws and by building the world with the required package off:
+
+| Package                        | Requires                                                              |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `core-material-damage-types`   | `core-materials`                                                       |
+| `core-material-drop-rates`     | `core-materials`                                                       |
+| `core-inventory-items`         | `core-materials`                                                       |
+| `core-components`              | `core-internal-components`, `core-materials`                          |
+| `core-crafting`                | `core-inventory-items`                                                 |
+| `core-machines`                | `core-blueprints`, `core-crafting`, `core-inventory-items`             |
+
+What `requires` does **not** cover, stated because it is load-bearing anyway:
+
+- **A registry the world cannot do without at all.** `core-holding-cost` validates its own
+  file and refuses to start when it is empty. No package references it, so no `requires` can
+  protect it — disabling it is allowed and bricks the boot. This needs a different word
+  (`requiredRegistry`, or a self-check at the seam), and it is an open question.
+- **References nobody validates.** `internalComponents.hostComponentType` names a component
+  type and nothing checks it; entity blueprints name components and the boot tolerates their
+  absence. Those edges are real and undeclared, because declaring an edge the code does not
+  enforce would make `requires` mean two different things.
 
 ## The kind vocabulary
 
@@ -158,16 +211,16 @@ field-level merge with a shadowing report, the official set packaged as `core-*`
 boot path assembling the world from those packages instead of 21 separate file loads, the
 non-throwing composition classifier behind the plan's `quarantine` report, the
 `loadorder.json` state file (read at boot, so a disabled package does not contribute),
-enable / disable applied at the round boundary, and the six endpoints above.
+enable / disable applied at the round boundary, package dependencies (`requires`: resolution,
+blocked reporting, and the `409` refusals), and the six endpoints above.
 
 Not built:
 
-- **Cross-package dependencies.** Packages are not independent and the store does not know
-  it: disabling `core-materials` yields an empty-but-valid `materials` registry that the
-  store accepts, and the world then refuses the result (`MaterialController` rejects a
-  damage type whose material is gone). The rules exist, but they are cross-kind references
-  checked in owners' constructors, which the classifier does not walk. See
-  `wiki/decisions/mod-system.md` → Open questions for the readings on the table.
+- **What `requires` cannot say.** Two residues, both in `wiki/decisions/mod-system.md`
+  (Open questions): a registry the world cannot do without at all — `core-holding-cost`
+  validates its own file and nothing references it, so disabling it is allowed and bricks the
+  boot — and references no code validates (`hostComponentType`, entity blueprints naming
+  components), which are real edges and deliberately undeclared.
 - **Load order over HTTP.** `loadOrder` is read from `data/mods/loadorder.json`; editing
   that file by hand (then `POST /mods/rescan`) is currently the only way to set it.
 - **Quarantine at boot.** The classifier exists and the plan uses it; the boot path still

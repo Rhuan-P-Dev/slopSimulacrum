@@ -66,7 +66,17 @@ export const MOD_ERROR_CODES = Object.freeze({
     CONTENT_KIND_UNKNOWN: 'MOD_CONTENT_KIND_UNKNOWN',
     ID_INVALID: 'MOD_ID_INVALID',
     ID_DIR_MISMATCH: 'MOD_ID_DIR_MISMATCH',
-    RESERVED_ID: 'MOD_RESERVED_ID'
+    RESERVED_ID: 'MOD_RESERVED_ID',
+    // `requires` written wrong (a field of the manifest, so the manifest codes cover it):
+    REQUIRES_INVALID: 'MOD_REQUIRES_INVALID',
+    REQUIRES_SELF: 'MOD_REQUIRES_SELF',
+    // `requires` written right but not satisfiable in this install (a state of the world,
+    // not of the file, so they are reported and never fatal):
+    REQUIREMENT_HELD: 'MOD_REQUIREMENT_HELD',
+    REQUIREMENT_UNMET: 'MOD_REQUIREMENT_UNMET',
+    REQUIREMENT_MISSING: 'MOD_REQUIREMENT_MISSING',
+    REQUIREMENT_DISABLED: 'MOD_REQUIREMENT_DISABLED',
+    REQUIREMENT_BLOCKED: 'MOD_REQUIREMENT_BLOCKED'
 });
 
 /**
@@ -97,7 +107,7 @@ export function parseManifest(raw, dirName) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new GameError(`${MANIFEST_FILE} must be a JSON object`, MOD_ERROR_CODES.MANIFEST_INVALID);
     }
-    const { id, version, content } = raw;
+    const { id, version, content, requires } = raw;
 
     if (typeof id !== 'string' || !MOD_ID_PATTERN.test(id)) {
         throw new GameError(
@@ -144,9 +154,135 @@ export function parseManifest(raw, dirName) {
         id,
         version,
         content: Object.freeze(kinds),
+        // Package ids this package's content references definitions from. Declared by the
+        // author, narrowed here, and the only input to `resolveRequirements`.
+        requires: Object.freeze(parseRequires(requires, id)),
         // Derived, never trusted from the manifest (decision 2).
         official: isOfficialModId(id)
     });
+}
+
+/**
+ * Narrow `requires` to a sorted, deduplicated list of mod ids.
+ *
+ * Absent means "requires nothing", which is the common case and must stay writable as
+ * nothing at all - a manifest is one file per package and every required field is one more
+ * thing an author gets wrong.
+ *
+ * @param {unknown} requires - The declared field.
+ * @param {string} id - The requiring package, for the self-reference check.
+ * @returns {Array<string>}
+ * @throws {GameError} MOD_MANIFEST_INVALID | MOD_REQUIRES_INVALID | MOD_REQUIRES_SELF
+ */
+function parseRequires(requires, id) {
+    if (requires === undefined) return [];
+    if (!Array.isArray(requires)) {
+        throw new GameError(
+            `mod "${id}" has a "requires" that is not an array of mod ids`,
+            MOD_ERROR_CODES.MANIFEST_INVALID
+        );
+    }
+    for (const dep of requires) {
+        if (typeof dep !== 'string' || !MOD_ID_PATTERN.test(dep)) {
+            throw new GameError(
+                `mod "${id}" requires "${String(dep)}", which is not a mod id`,
+                MOD_ERROR_CODES.REQUIRES_INVALID
+            );
+        }
+        // A package requiring itself is not a dependency, it is a typo - and it is the one
+        // cycle that can never be satisfied by anything else being enabled.
+        if (dep === id) {
+            throw new GameError(`mod "${id}" requires itself`, MOD_ERROR_CODES.REQUIRES_SELF);
+        }
+    }
+    // Sorted, not manifest order: what contributes must not depend on how the file happens
+    // to be written (`D-*`).
+    return [...new Set(requires)].sort();
+}
+
+/**
+ * Decide which discovered packages may contribute, from their declared `requires`.
+ *
+ * A requirement is satisfied when the required package is installed, enabled, and itself
+ * contributing - so disabling one package cascades to whatever references its definitions,
+ * which is the honest answer and the one that keeps the world buildable. A disabled
+ * package's dependents are reported, not silently dropped.
+ *
+ * The fixpoint starts from "everything is satisfied" and only ever removes, on purpose:
+ * two packages that require each other and are both installed and enabled stay satisfied,
+ * exactly as they should - mutual requirement is normal here (`core-components` and
+ * `core-internal-components` reference each other's definitions), so a cycle is not an
+ * error and must not be treated as one. Only a requirement that cannot be met - not
+ * installed, or disabled, or blocked through the chain - removes a package.
+ *
+ * Entries get `blocked: null` or `blocked: { code, message }`; the array is returned for
+ * chaining.
+ * @param {Array<{ manifest: { id: string, requires: Array<string> }, enabled: boolean }>} discovered
+ * @returns {Array<Object>} the same entries, each with `blocked` set
+ */
+export function resolveRequirements(discovered) {
+    const byId = new Map(discovered.map((mod) => [mod.manifest.id, mod]));
+    // Start satisfied; disabled packages start not. Iterating to a stable state over this
+    // monotone removal is the fixpoint, and it terminates: each pass can only turn
+    // satisfied into unsatisfied, never the reverse.
+    const contributing = new Map(
+        discovered.map((mod) => [mod.manifest.id, mod.enabled !== false])
+    );
+    /** @type {Map<string, { code: string, message: string }>} first reason wins, for the report */
+    const reasons = new Map();
+
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const mod of discovered) {
+            if (!contributing.get(mod.manifest.id)) continue;
+            for (const dep of mod.manifest.requires) {
+                const required = byId.get(dep);
+                if (!required) {
+                    reasons.set(mod.manifest.id, {
+                        code: MOD_ERROR_CODES.REQUIREMENT_MISSING,
+                        message: `requires "${dep}", which is not installed`
+                    });
+                } else if (!contributing.get(dep)) {
+                    // The sentence leads with the closest break - that is what the operator
+                    // acts on - and keeps the root cause in parentheses, so the chain is
+                    // still readable without being the headline.
+                    const requiredReason = reasons.get(dep);
+                    reasons.set(mod.manifest.id, requiredReason
+                        ? {
+                            code: MOD_ERROR_CODES.REQUIREMENT_BLOCKED,
+                            message: `requires "${dep}", which cannot contribute (${requiredReason.message})`
+                        }
+                        : {
+                            code: MOD_ERROR_CODES.REQUIREMENT_DISABLED,
+                            message: `requires "${dep}", which is disabled`
+                        });
+                } else {
+                    continue;
+                }
+                contributing.set(mod.manifest.id, false);
+                changed = true;
+                break;
+            }
+        }
+    }
+
+    // `blocked` names a requirement that cannot be met. A package that is simply disabled
+    // is not blocked - `enabled: false` already says what happened, and a second word for
+    // the same fact is how a report starts disagreeing with itself.
+    for (const mod of discovered) {
+        mod.blocked = reasons.get(mod.manifest.id) ?? null;
+    }
+    return discovered;
+}
+
+/**
+ * The packages that may contribute: enabled, and with every requirement met.
+ * @param {Array<Object>} discovered
+ * @returns {Array<Object>}
+ */
+export function contributingMods(discovered) {
+    return discovered.filter((mod) => mod.enabled !== false && !mod.blocked);
 }
 
 /**
@@ -295,11 +431,16 @@ export class ModLoader {
                 manifest,
                 dir: entry.name,
                 enabled: state.enabled !== false,
-                loadOrder: typeof state.loadOrder === 'number' ? state.loadOrder : DEFAULT_LOAD_ORDER
+                loadOrder: typeof state.loadOrder === 'number' ? state.loadOrder : DEFAULT_LOAD_ORDER,
+                // Set by resolveRequirements below: null, or the requirement that cannot be
+                // met. Written here so every entry has the field, whatever resolved it.
+                blocked: null
             });
         }
 
-        return { discovered: sortModsForLoad(discovered), invalid };
+        // Requirements are resolved over the full set, after sorting, so the answer does not
+        // depend on readdir order.
+        return { discovered: resolveRequirements(sortModsForLoad(discovered)), invalid };
     }
 
     /**
@@ -314,8 +455,12 @@ export class ModLoader {
      * the build: that one mod contributes nothing for that kind and is named in
      * `invalid`. The alternative — throwing — is a missing file bricking the world.
      *
+     * A package whose `requires` cannot be met contributes nothing either, and is named in
+     * `blocked` with the requirement that broke: shipping half a package set is how a world
+     * gets content that references definitions nobody provides.
+     *
      * @param {Array<Object>} [mods] - Result of `discover()` when omitted.
-     * @returns {{ registries: Object.<string, Object>, providers: Object.<string, Array<string>>, shadowed: Array<Object>, invalid: Array<Object> }}
+     * @returns {{ registries: Object.<string, Object>, providers: Object.<string, Array<string>>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object> }}
      */
     build(mods) {
         const modList = mods ?? this.discover().discovered;
@@ -323,6 +468,16 @@ export class ModLoader {
         const providers = {};
         const shadowed = [];
         const invalid = [];
+        // Requirement-blocked only. A package the operator switched off is not blocked and
+        // does not belong in a report named after a failure - `enabled: false` is the record
+        // of that decision.
+        const blocked = modList.filter((mod) => mod.blocked).map((mod) => ({
+            modId: mod.manifest.id,
+            dir: mod.dir,
+            code: mod.blocked.code,
+            message: `${mod.manifest.id} ${mod.blocked.message}`,
+            requires: mod.manifest.requires
+        }));
 
         for (const kind of REGISTRY_KIND_LIST) {
             registries[kind] = {};
@@ -330,7 +485,9 @@ export class ModLoader {
         }
 
         for (const mod of sortModsForLoad(modList)) {
-            if (mod.enabled === false) continue;
+            // `enabled === false` is the operator's decision; `blocked` is the consequence of
+            // a `requires` this install cannot satisfy. Either one keeps the content out.
+            if (mod.enabled === false || mod.blocked) continue;
             for (const kind of mod.manifest.content) {
                 const contentPath = `${this.baseDir}/${mod.dir}/${kind}.json`;
                 let patch;
@@ -379,7 +536,10 @@ export class ModLoader {
         if (shadowed.length > 0) {
             Logger.info(`[ModLoader] ${shadowed.length} definition(s) shadowed by load order`);
         }
-        return { registries, providers, shadowed, invalid };
+        for (const entry of blocked) {
+            Logger.warn(`[ModLoader] mod "${entry.modId}" contributes nothing: ${entry.message}`);
+        }
+        return { registries, providers, shadowed, invalid, blocked };
     }
 }
 

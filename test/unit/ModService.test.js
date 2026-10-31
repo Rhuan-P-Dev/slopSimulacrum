@@ -331,3 +331,102 @@ describe('diffRegistry', () => {
         expect(diffRegistry({ a: 1 }, undefined).removed).toEqual(['a']);
     });
 });
+
+describe('requires: refusing a change the install cannot honor', () => {
+    // Its own fixture root, for the same reason as the loader's: the packages here
+    // contribute nothing in some cases, and the shared fixture is counted elsewhere.
+    const REQ_ROOT = path.resolve('data', `.mod-service-req-${process.pid}`);
+    const relRoot = () => path.relative(process.cwd(), REQ_ROOT);
+
+    function writeAt(name, content, files, requires) {
+        const dir = path.join(REQ_ROOT, name);
+        fs.mkdirSync(dir, { recursive: true });
+        const manifest = { id: name, version: '1.0.0', content };
+        if (requires) manifest.requires = requires;
+        fs.writeFileSync(path.join(dir, 'mod.json'), JSON.stringify(manifest), 'utf8');
+        for (const [kind, value] of Object.entries(files)) {
+            fs.writeFileSync(path.join(dir, `${kind}.json`), JSON.stringify(value), 'utf8');
+        }
+    }
+
+    /** In-memory state store (the one in the other describe is not in scope here). */
+    const memState = () => {
+        const holder = { state: {} };
+        return { load: () => ({ ...holder.state }), save: (next) => { holder.state = { ...next }; }, holder };
+    };
+
+    const codeOf = (fn) => {
+        try {
+            fn();
+        } catch (error) {
+            return error.code;
+        }
+        throw new Error('expected the call to throw');
+    };
+
+    const service = (state = {}) => new ModService({
+        registryStore: new RegistryStore(new ModLoader({ baseDir: relRoot(), state }).build().registries),
+        loader: new ModLoader({ baseDir: relRoot(), state }),
+        stateStore: memState()
+    });
+
+    beforeAll(() => {
+        fs.rmSync(REQ_ROOT, { recursive: true, force: true });
+        fs.mkdirSync(REQ_ROOT, { recursive: true });
+        writeAt('core-base', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { knife: { name: 'Knife' } } });
+        writeAt('addon', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { gasket: { name: 'Gasket' } } }, ['core-base']);
+        writeAt('needs-gone', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { ghost: { name: 'Ghost' } } }, ['not-installed']);
+    });
+
+    afterAll(() => {
+        fs.rmSync(REQ_ROOT, { recursive: true, force: true });
+    });
+
+    it('refuses to disable a package another enabled package requires, naming who', () => {
+        const s = service();
+        expect(codeOf(() => s.disable('core-base'))).toBe('MOD_REQUIREMENT_HELD');
+        expect(() => s.disable('core-base')).toThrowError(/cannot disable "core-base": addon requires it/);
+        // The refusal is the whole effect: nothing written, nothing queued.
+        expect(s.list().pending).toBe(false);
+        expect(memStateOf(s).state['core-base']).toBeUndefined();
+    });
+
+    it('allows it once the dependents are out', () => {
+        const s = service();
+        s.disable('addon');
+        expect(() => s.disable('core-base')).not.toThrow();
+        expect(s.pending).toBe(true);
+    });
+
+    it('refuses to enable a package whose own requirement is not met', () => {
+        const s = service();
+        expect(codeOf(() => s.enable('needs-gone'))).toBe('MOD_REQUIREMENT_UNMET');
+        expect(() => s.enable('needs-gone')).toThrowError(/cannot enable "needs-gone"/);
+    });
+
+    it('lists what is installed, enabled, and contributing nothing', () => {
+        const s = service();
+        s.rescan();
+        const blocked = s.list().blocked;
+        expect(blocked.map((entry) => entry.id)).toEqual(['needs-gone']);
+        expect(blocked[0].code).toBe('MOD_REQUIREMENT_MISSING');
+        expect(blocked[0].requires).toEqual(['not-installed']);
+        expect(s.list().mods.find((m) => m.id === 'addon').requires).toEqual(['core-base']);
+        expect(s.list().mods.find((m) => m.id === 'core-base').blocked).toBeNull();
+    });
+
+    it('carries the blocked packages into the plan', () => {
+        const plan = service().plan();
+        expect(plan.blocked.map((entry) => entry.modId)).toContain('needs-gone');
+        // The store above was built from the same packages, so the candidate matches it and
+        // the diff is empty - which is the claim that matters here: a blocked package's
+        // definitions are not in the candidate, so they are never offered as "added".
+        expect(plan.kinds).toEqual([]);
+        expect(JSON.stringify(plan)).not.toContain('ghost');
+    });
+});
+
+/** The state store a service was constructed with, when it is the test's own. */
+function memStateOf(service) {
+    return service.stateStore.holder;
+}

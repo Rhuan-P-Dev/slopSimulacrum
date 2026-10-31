@@ -28,12 +28,15 @@
  * @module ModService
  */
 
-import ModLoader from './ModLoader.js';
+import ModLoader, { resolveRequirements, MOD_ERROR_CODES } from './ModLoader.js';
 import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
 import { GameError } from '../utils/CustomErrors.js';
 import { REGISTRY_KIND_LIST, isRegistryKind } from '../../shared/RegistryKinds.js';
+
+/** How many blocking packages a refusal names before saying "and N more". */
+export const MAX_HOLDERS_NAMED = 6;
 
 /** How many key names per kind a plan lists before saying `truncated`. */
 export const MAX_KEYS_PER_KIND = 50;
@@ -205,6 +208,11 @@ export class ModService {
             pending: this.pending,
             appliesAt: APPLY_AT,
             lastApply: this.lastApply,
+            // Enabled, installed, and contributing nothing - see `view()`. Derived from the
+            // same scan `mods` came from, so the two lists cannot disagree.
+            blocked: (this.discovered ?? [])
+                .filter((mod) => mod.blocked)
+                .map((mod) => ({ id: mod.manifest.id, requires: mod.manifest.requires, ...mod.blocked })),
             live: this.liveView()
         };
     }
@@ -222,7 +230,7 @@ export class ModService {
      * NOT in the `kinds` diff, because an apply installs the classified candidate. A plan
      * can therefore answer the two different questions an operator has — what lands, and
      * what was dropped for cause.
-     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object> }}
+     * @returns {{ applied: false, fromVersion: number, kinds: Array<Object>, quarantine: Array<Object>, shadowed: Array<Object>, invalid: Array<Object>, blocked: Array<Object> }}
      */
     plan() {
         const { discovered, invalid } = this.discover();
@@ -245,7 +253,11 @@ export class ModService {
             kinds,
             quarantine: quarantined,
             shadowed: built.shadowed,
-            invalid
+            invalid,
+            // Packages that are installed and enabled but contribute nothing, because a
+            // `requires` of theirs cannot be met in this install. Without this line an
+            // operator reads "enabled" and waits for content that will never arrive.
+            blocked: built.blocked
         };
     }
 
@@ -285,6 +297,10 @@ export class ModService {
         if (!mod) {
             throw new GameError(`ModService: no mod package named "${id}" is installed`, 'MOD_NOT_FOUND');
         }
+        const refusal = this.requirementRefusal(discovered, id, enabled);
+        if (refusal) {
+            throw new GameError(`ModService: ${refusal.message}`, refusal.code);
+        }
         const state = this.currentState();
         const already = mod.enabled === enabled;
         this.state = { ...state, [id]: { ...(state[id] ?? {}), enabled } };
@@ -292,6 +308,65 @@ export class ModService {
         if (!already) this.pending = true;
         Logger.info(`[ModService] mod "${id}" ${enabled ? 'enabled' : 'disabled'}${already ? ' (already in that state)' : ''}; applies at the ${APPLY_AT}`);
         return { id, enabled, pending: this.pending, appliesAt: APPLY_AT };
+    }
+
+    /**
+     * Would this change leave a package that cannot work? The question is asked once, in
+     * the one place the requirement graph lives.
+     *
+     * The change is applied to the discovered set, `resolveRequirements` runs on the result,
+     * and the answer is read off it:
+     *   - enabling a package that STILL cannot contribute -> `MOD_REQUIREMENT_UNMET`. Without
+     *     this, enabling A while a package it requires is off would write a state the loader
+     *     then refuses, and the operator would see `enabled: true` next to content that never
+     *     arrived;
+     *   - disabling a package another enabled package requires -> `MOD_REQUIREMENT_HELD`,
+     *     naming who. That is the whole point of `requires`: it is what stops an operator
+     *     from removing `core-materials` from under the damage types that name a material.
+     *     Disable the dependents first, in dependency order.
+     * Nothing here restates a rule the loader already has - a second graph walks a different
+     * path the day someone edits one of them (`CODE_RULES.md` H-1).
+     *
+     * @param {Array<Object>} discovered - The pre-change scan.
+     * @param {string} id - The package being switched.
+     * @param {boolean} enabled - The state it is being switched to.
+     * @returns {{ code: string, message: string }|null}
+     */
+    requirementRefusal(discovered, id, enabled) {
+        // Packages already unable to contribute before this change are not this change's
+        // doing, and naming them would blame the wrong action.
+        const wasBlocked = new Set(discovered.filter((mod) => mod.blocked).map((mod) => mod.manifest.id));
+        const prospective = discovered.map((mod) => ({
+            ...mod,
+            blocked: null,
+            enabled: mod.manifest.id === id ? enabled : mod.enabled
+        }));
+        resolveRequirements(prospective);
+
+        if (enabled) {
+            const self = prospective.find((candidate) => candidate.manifest.id === id);
+            if (self?.blocked) {
+                return {
+                    code: MOD_ERROR_CODES.REQUIREMENT_UNMET,
+                    message: `cannot enable "${id}": ${self.blocked.message}`
+                };
+            }
+            return null;
+        }
+
+        const holders = prospective.filter((candidate) => candidate.enabled !== false
+            && candidate.blocked
+            && candidate.manifest.id !== id
+            && !wasBlocked.has(candidate.manifest.id));
+        if (holders.length === 0) return null;
+
+        const names = holders.slice(0, MAX_HOLDERS_NAMED).map((candidate) => candidate.manifest.id);
+        const more = holders.length > names.length ? ` (+${holders.length - names.length} more)` : '';
+        return {
+            code: MOD_ERROR_CODES.REQUIREMENT_HELD,
+            message: `cannot disable "${id}": ${names.join(', ')}${more} require${holders.length === 1 ? 's' : ''} it`
+                + ' - disable those first'
+        };
     }
 
     /**
@@ -380,7 +455,10 @@ export class ModService {
             // answer correctly right after an enable, without scanning the disk twice.
             enabled: this.state?.[mod.manifest.id]?.enabled ?? mod.enabled,
             loadOrder: mod.loadOrder,
-            content: mod.manifest.content
+            content: mod.manifest.content,
+            requires: mod.manifest.requires,
+            // Why a package contributes nothing although it is enabled, or null.
+            blocked: mod.blocked ?? null
         }));
     }
 
