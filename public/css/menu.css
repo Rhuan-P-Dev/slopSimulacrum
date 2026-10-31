@@ -258,22 +258,143 @@
 }
 .mods-h--bad { color: var(--neon-red, #ff0044); }
 
-.mods-row {
+/* ---------------------------------------------------------------------
+   The package list IS a stack. The load order is what decides which
+   definition the world runs when two packages ship the same key, so it is
+   the first thing in the row (a gutter number), not a chip at the end of a
+   sentence. Requirements are chips with a state, because an off or absent
+   package is the difference between a mod that does something and one that
+   is inert - and the chip jumps to the package it names.
+   --------------------------------------------------------------------- */
+
+.mods-h--stack {
     display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    border-bottom: 1px solid #1f1f1f;
-    padding: 7px 4px;
+    align-items: baseline;
+    gap: 10px;
 }
-.mods-row-main { flex: 1 1 auto; }
+.mods-sort {
+    margin-left: auto;
+    background: none;
+    border: 1px solid var(--config-bar-border, #333);
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 0.72em;
+    letter-spacing: 0.08em;
+    padding: 1px 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+}
+.mods-sort:hover { color: var(--neon-green); border-color: var(--neon-green); }
+
+.mods-legend {
+    color: var(--text-dim);
+    font-size: 0.78em;
+    margin: 0 0 10px;
+}
+.mods-legend code { color: var(--neon-green); }
+
+.mods-stack { border-left: 1px solid #222; }
+
+.mods-row {
+    display: grid;
+    grid-template-columns: 3.4ch minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    align-items: start;
+    border-bottom: 1px solid #1f1f1f;
+    border-left: 2px solid transparent;
+    padding: 8px 6px 8px 0;
+}
+.mods-row:hover { border-left-color: #2a2a2a; }
+.mods-row--off { opacity: 0.45; }
+.mods-row--flash { animation: mods-flash 0.9s ease-out; }
+@keyframes mods-flash {
+    from { background: rgba(0, 255, 0, 0.16); border-left-color: var(--neon-green); }
+    to { background: transparent; }
+}
+.mods-row-main { min-width: 0; }
+.mods-row-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
 .mods-row-actions { display: flex; gap: 6px; padding-top: 2px; }
 
-.mods-id { color: var(--neon-green); margin-right: 6px; }
-.mods-version { color: var(--text-dim); font-size: 0.85em; margin-right: 6px; }
-.mods-kinds { margin-top: 3px; }
-.mods-requires { color: var(--text-dim); font-size: 0.8em; margin-left: 6px; }
-.mods-order { color: var(--text-dim); font-size: 0.8em; margin-left: 6px; }
+/* The ordinal gutter: load order, the number that wins a shared key. */
+.mods-ordinal {
+    grid-row: 1 / -1;
+    color: var(--neon-green);
+    font-size: 1.15em;
+    line-height: 1.1;
+    text-align: right;
+    padding-top: 1px;
+    opacity: 0.75;
+    cursor: help;
+}
+.mods-row--off .mods-ordinal { color: var(--text-dim); }
+
+.mods-id { color: var(--neon-green); }
+.mods-version { color: var(--text-dim); font-size: 0.85em; }
+.mods-kinds { margin-top: 4px; }
 .mods-blocked { color: var(--neon-red, #ff0044); font-size: 0.82em; margin-top: 3px; }
+
+/* Description: always present, two lines, opens in place on click. */
+.mods-desc {
+    color: var(--text-dim);
+    font-size: 0.82em;
+    line-height: 1.35;
+    margin: 4px 0 0;
+    cursor: pointer;
+}
+.mods-desc--clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.mods-desc:hover { color: var(--text-main); }
+/* The absence, said rather than left as a blank hole. Not clickable. */
+.mods-desc--none { font-style: italic; opacity: 0.6; cursor: default; }
+.mods-desc--none:hover { color: var(--text-dim); }
+
+/* Requirements: one chip each, colored by whether the install meets it. */
+.mods-reqs { margin-left: 8px; }
+.mods-req-label {
+    color: var(--text-dim);
+    font-size: 0.72em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 4px;
+}
+.mods-req {
+    font: inherit;
+    font-size: 0.75em;
+    background: none;
+    border: 1px solid var(--config-bar-border, #333);
+    color: var(--text-dim);
+    padding: 0 5px;
+    margin: 0 3px;
+    cursor: pointer;
+}
+.mods-req:hover { border-color: var(--neon-green); color: var(--neon-green); }
+.mods-req--on { border-color: var(--dark-green, #004400); color: var(--neon-green); }
+.mods-req--off { color: var(--text-dim); text-decoration: line-through; }
+.mods-req--missing { border-color: var(--neon-red, #ff0044); color: var(--neon-red, #ff0044); }
+.mods-req-state {
+    margin-left: 4px;
+    font-size: 0.9em;
+    letter-spacing: 0.06em;
+    opacity: 0.8;
+}
+
+/* Who wins a shared key, once a plan has been read. */
+.mods-shadow {
+    font-size: 0.7em;
+    letter-spacing: 0.06em;
+    padding: 0 5px;
+    border: 1px dashed var(--neon-orange, #ff6600);
+    color: var(--neon-orange, #ff6600);
+    text-transform: uppercase;
+}
+.mods-shadow--over { border-style: solid; }
+.mods-shadow--under { opacity: 0.7; }
+/* A package somebody moved out of the default load order. */
+.mods-shadow--level { border-color: var(--neon-green); color: var(--neon-green); border-style: solid; }
 
 .mods-flag {
     display: inline-block;
@@ -286,6 +407,8 @@
 .mods-flag--on { border-color: var(--neon-green); color: var(--neon-green); }
 .mods-flag--bad { border-color: var(--neon-red, #ff0044); color: var(--neon-red, #ff0044); }
 .mods-flag--official { border-color: var(--neon-orange, #ff6600); color: var(--neon-orange, #ff6600); }
+.mods-flag--third { border-color: #666; color: var(--text-dim); }
+.mods-flag--off { border-style: dashed; }
 
 .mods-bad { color: var(--text-dim); font-size: 0.85em; padding: 2px 0; }
 .mods-more { color: var(--text-dim); font-size: 0.8em; }
