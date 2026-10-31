@@ -6,8 +6,14 @@
  * definition through the ModLoader, from the committed `core-*` packages) and the real
  * loader over `data/mods/`. What that buys, pinned:
  *
- *   - the installed set IS the official set: 21 packages, every one official, none
- *     rejected;
+ *   - the shipped content IS the official set: `REGISTRY_KIND_LIST.length` official
+ *     packages, none of the official ones rejected;
+ *
+ * The scope is the OFFICIAL set, not the install directory (same scoping as
+ * `test/contract/officialMods.contract.test.js`, same reason): `data/mods/` can hold a
+ * third-party package on the machine running this, and that package is neither part of the
+ * shipped content nor a defect in it. Order, by contrast, IS asserted over everything
+ * installed: a total order is a property of the merge, whoever the participants are.
  *   - every registry kind the world reads has a non-zero definition count live, so the
  *     service cannot report an empty world as a healthy one;
  *   - a plan against the world it was built from is empty — disk and world agree, and
@@ -23,6 +29,7 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import ModService from '../../src/services/ModService.js';
+import ModLoader, { OFFICIAL_ID_PREFIX } from '../../src/services/ModLoader.js';
 import { REGISTRY_KIND_LIST } from '../../shared/RegistryKinds.js';
 
 /** A real world (tick system not started) and the mod view over its store. */
@@ -36,12 +43,14 @@ describe('the mod view of a real world', () => {
     it('sees the shipped content as the official package set', () => {
         const { service } = worldWithModService();
         const { mods, invalid } = service.rescan();
+        const official = mods.filter((mod) => mod.official);
 
-        expect(invalid, JSON.stringify(invalid)).toEqual([]);
-        expect(mods).toHaveLength(REGISTRY_KIND_LIST.length);
-        expect(mods.every((mod) => mod.official)).toBe(true);
-        // Order is total and deterministic (loadOrder, then id): the world's merge
-        // cannot depend on a readdir.
+        expect(invalid.filter((entry) => String(entry.dir).startsWith(OFFICIAL_ID_PREFIX)),
+            JSON.stringify(invalid)).toEqual([]);
+        expect(official).toHaveLength(REGISTRY_KIND_LIST.length);
+        expect(official.every((mod) => mod.id.startsWith(OFFICIAL_ID_PREFIX))).toBe(true);
+        // Order is total and deterministic (loadOrder, then id) over EVERYTHING installed,
+        // overlays included: the world's merge cannot depend on a readdir.
         expect(mods.map((mod) => mod.id)).toEqual([...mods.map((mod) => mod.id)].sort());
     });
 
@@ -74,7 +83,11 @@ describe('the mod view of a real world', () => {
         expect(plan.applied).toBe(false);
         expect(plan.fromVersion).toBe(world.registryStore.version());
         expect(plan.kinds, JSON.stringify(plan.kinds.map((k) => k.kind))).toEqual([]);
-        expect(plan.shadowed).toEqual([]);
+        // Shadowing is not a pending change. An overlay installed on this machine
+        // overwrites official keys at boot too, so the plan that agrees with the world
+        // still lists those overwrites, and it must list the loader's report verbatim,
+        // not a second opinion computed on the way to the endpoint.
+        expect(plan.shadowed).toEqual(new ModLoader().build().shadowed);
         // The shipped content survives the composition rules the plan applies: if this
         // ever fires on an official definition, the classifier is wrong or the data is.
         expect(plan.quarantine, JSON.stringify(plan.quarantine)).toEqual([]);

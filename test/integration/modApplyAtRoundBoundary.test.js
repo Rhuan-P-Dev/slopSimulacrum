@@ -181,6 +181,14 @@ describe('the official dependency graph', () => {
     it('lets the operator reach a world without them, in dependency order', () => {
         const { store, modService } = buildWorld();
 
+        // Unofficial overlays hold the official packages they require, and that IS what
+        // `requires` is for, and a refusal from one is the rule working, not a defect in it.
+        // This test unwinds the OFFICIAL graph, so every overlay installed on this machine
+        // is set aside first (this test's own fixture package among them).
+        for (const overlay of modService.rescan().mods.filter((mod) => !mod.official)) {
+            expect(codeOf(() => modService.disable(overlay.id)), overlay.id).toBeNull();
+        }
+
         // items are held by crafting and by machines; crafting is held by machines. So the
         // chain has to be unwound from the top, and each refusal says so.
         expect(codeOf(() => modService.disable('core-inventory-items'))).toBe('MOD_REQUIREMENT_HELD');

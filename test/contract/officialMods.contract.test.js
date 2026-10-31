@@ -8,8 +8,17 @@
  * kind the file does not hold, a package whose id is not its directory, a kind
  * nobody ships.
  *
+ * THE SCOPE IS THE OFFICIAL SET, NOT THE INSTALL DIRECTORY. `data/mods/` also holds
+ * third-party packages: the tree is gitignored and only the `core-` directories are
+ * re-included, so CI never sees
+ * them, and any machine with a mod installed would fail a pin written against the whole
+ * directory. This contract speaks for the content this repository ships; an overlay's
+ * shadowing, its extra kinds and its own defects are not official content and are excluded
+ * by `official` (derived by the loader from the reserved prefix, never read from a
+ * manifest). A broken overlay is still not allowed inside the official set's own report.
+ *
  * Pins, against the REAL `data/mods/` (read-only — nothing is written here):
- *   - discovery finds exactly `REGISTRY_KIND_COUNT` packages and rejects none;
+ *   - discovery finds exactly `REGISTRY_KIND_COUNT` official packages and rejects none;
  *   - every shipped package is official, i.e. carries the reserved `core-` prefix;
  *   - each package declares exactly one kind, matching its own file name;
  *   - every kind has exactly one provider, so no official content shadows another;
@@ -56,14 +65,18 @@ function stripFileMetadata(value) {
 
 describe('the official mod set', () => {
     const { discovered, invalid } = loader.discover();
+    /** The shipped content: whatever carries the reserved prefix. */
+    const official = discovered.filter((mod) => mod.manifest.official);
+    /** A rejection inside the official set: an overlay's own defects are not this contract's. */
+    const officialInvalid = invalid.filter((entry) => String(entry.dir).startsWith(OFFICIAL_ID_PREFIX));
 
     it('is discovered whole, with no package rejected', () => {
-        expect(invalid, JSON.stringify(invalid)).toEqual([]);
-        expect(discovered).toHaveLength(REGISTRY_KIND_COUNT);
+        expect(officialInvalid, JSON.stringify(officialInvalid)).toEqual([]);
+        expect(official).toHaveLength(REGISTRY_KIND_COUNT);
     });
 
     it('is official by identity, and enabled by default', () => {
-        for (const mod of discovered) {
+        for (const mod of official) {
             expect(mod.manifest.id.startsWith(OFFICIAL_ID_PREFIX), mod.manifest.id).toBe(true);
             expect(mod.manifest.official, mod.manifest.id).toBe(true);
             expect(mod.enabled, mod.manifest.id).toBe(true);
@@ -71,24 +84,28 @@ describe('the official mod set', () => {
     });
 
     it('declares exactly one kind each, and the kind is named by the id', () => {
-        for (const mod of discovered) {
+        for (const mod of official) {
             expect(mod.manifest.content).toHaveLength(1);
             expect(mod.manifest.content[0], mod.manifest.id).toBe(kindFromOfficialId(mod.manifest.id));
         }
     });
 
     it('provides every registry kind exactly once', () => {
-        const { providers } = loader.build(discovered);
+        // Official packages only: an overlay is a SECOND provider of the kind it patches,
+        // which is the whole point of an overlay and not a violation of anything.
+        const { providers } = loader.build(official);
         for (const kind of REGISTRY_KIND_LIST) {
             expect(providers[kind], `providers of ${kind}`).toHaveLength(1);
         }
         // And no provider claims a kind outside the vocabulary.
-        const declared = discovered.flatMap((m) => m.manifest.content);
+        const declared = official.flatMap((m) => m.manifest.content);
         expect(declared).toHaveLength(REGISTRY_KIND_COUNT);
     });
 
     it('builds the same registries the boot path reads today', () => {
-        const { registries } = loader.build(discovered);
+        // Official packages only: an overlay patches definitions, so comparing a merged
+        // overlay against `loadRegistry` would compare the patch to the file it overrode.
+        const { registries } = loader.build(official);
         for (const kind of REGISTRY_KIND_LIST) {
             const fromMods = registries[kind];
             const fromFile = stripFileMetadata(DataLoader.loadRegistry(kind));
@@ -103,7 +120,7 @@ describe('the official mod set', () => {
         for (const kind of REGISTRY_KIND_LIST) {
             const source = DataLoader.registrySourcePath(kind);
             const [modId, fileName] = source.replace('data/mods/', '').split('/');
-            const mod = discovered.find((m) => m.manifest.id === modId);
+            const mod = official.find((m) => m.manifest.id === modId);
             expect(mod, `no official package at ${source}`).toBeDefined();
             expect(fileName).toBe(`${kind}.json`);
             expect(mod.manifest.content).toEqual([kind]);
@@ -113,7 +130,7 @@ describe('the official mod set', () => {
     it('ships the kind vocabulary and the package set as the same list', () => {
         // A kind added to the vocabulary without a package, or a package without a
         // kind, lands here rather than in an empty registry at runtime.
-        const shipped = discovered.flatMap((m) => m.manifest.content);
+        const shipped = official.flatMap((m) => m.manifest.content);
         expect([...new Set(shipped)].sort()).toEqual([...REGISTRY_KIND_LIST].sort());
         expect(REGISTRY_KINDS.COMPONENTS).toBe('components');
     });
