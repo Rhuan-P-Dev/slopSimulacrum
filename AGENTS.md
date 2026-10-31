@@ -39,8 +39,10 @@ A second, narrower guard — **`cr/no-accented-text`** (an ESLint rule, `tools/e
 the `commit-msg` hook rejects **non-ASCII commit subjects**.
 
 The one exception: user-authored world content (card JSON, NPC dialogue, chat text typed
-by end users) is never translated, rewritten or language-filtered. Local planning notes and
-`wiki/` are gitignored working artifacts, not part of the committed gate.
+by end users) is never translated, rewritten or language-filtered. Local planning notes
+(`plans/`, `docs/`) are gitignored working artifacts, not part of the committed gate.
+`wiki/` is **not** gitignored: the notes under `wiki/decisions/` are committed, and
+`check:lang` walks them, so they are written in English ASCII like everything else.
 
 Do not introduce Portuguese or non-ASCII into source, comments or docs, even when the
 surrounding conversation happens in another language. If you find non-English content in a
@@ -65,6 +67,11 @@ committed file, translate it in a separate commit that touches nothing else.
   and `agent-body-design` (`AgentBodyController`, `/agent-body/create`, the dev tab
   "Create Agent Body" — judgment-only, no write-back to `data/`; see
   `wiki/decisions/agent-body-design.md`).
+- **Mods** are data-only packages (JSON fragments in existing registry shapes, no code, no
+  new dependency) that can be added, enabled and disabled **at runtime**, applied at the
+  round boundary by build-validate-swap. The shipped world is 21 *official* mods under
+  `data/mods/`. Layout, apply pipeline, override order and the quarantine contract: see
+  `wiki/decisions/mod-system.md`.
 - **Dev dependencies:** `@eslint/js`, `eslint` (v10 flat config),
   `eslint-plugin-unused-imports`, `vitest` (^4) and `@vitest/coverage-v8`. That is all.
 - **Lint:** `ESLint 10` flat config (`eslint.config.js`) built from `@eslint/js`
@@ -322,8 +329,8 @@ only in the `public/**/*.js` block. Imports always carry the `.js` extension.
 ## Git
 
 - Branch `main`. **Never** commit `node_modules/`, `.env*` (except `.env.example`),
-  `data/cards/*`, or the gitignored artifacts (`coverage/`, `plans/`, `docs/`, `wiki/`)
-  — see the committed `.gitignore`.
+  `data/cards/*`, or the gitignored artifacts (`coverage/`, `plans/`, `docs/`) — see the
+  committed `.gitignore`. `wiki/` is tracked: a decision note is a commit-worthy artifact.
 - Format only the files your change touched. There is no formatter to batch-run; if a
   mechanical reformat is unavoidable, make it its own commit (`CHG-8`).
 
