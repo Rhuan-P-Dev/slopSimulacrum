@@ -88,6 +88,56 @@ describe('LLMController.chatFull (Feature C, spec §6.1)', () => {
         expect(payload.stream).toBe(false);
     });
 
+    // The reasoning switch. The kwarg spelling is the one llama.cpp honours;
+    // `reasoning_effort` and a `thinking` kwarg are accepted with a 200 and ignored,
+    // which is why nothing else is sent (wiki/decisions/llm-agent-thinking.md).
+    it('thinkingEnabled:false reaches the wire as enable_thinking false — false IS the instruction', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await llm.chatFull([{ role: 'user', content: 'go' }], { thinkingEnabled: false });
+
+        const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(payload.chat_template_kwargs).toEqual({ enable_thinking: false });
+    });
+
+    it('thinkingEnabled:true reaches the wire as enable_thinking true', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await llm.chatFull([{ role: 'user', content: 'go' }], { thinkingEnabled: true });
+
+        const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(payload.chat_template_kwargs).toEqual({ enable_thinking: true });
+    });
+
+    it('absent thinkingEnabled: no chat_template_kwargs at all, so the other prompt kinds are byte-unchanged', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE));
+        vi.stubGlobal('fetch', fetchMock);
+
+        // Room chat and agent-body-design send no opinion on reasoning; a server
+        // that does not know the field must never be sent one.
+        await llm.chatFull([{ role: 'user', content: 'go' }], { tool_choice: 'auto' });
+        await llm.chat([{ role: 'user', content: 'go' }]);
+
+        for (const call of fetchMock.mock.calls) {
+            expect(JSON.parse(call[1].body)).not.toHaveProperty('chat_template_kwargs');
+        }
+    });
+
+    it('a non-boolean thinkingEnabled is not sent — no value is invented for a caller bug', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE));
+        vi.stubGlobal('fetch', fetchMock);
+
+        // "false" as a string is not the boolean false; sending {enable_thinking:
+        // "false"} would depend on how the server coerces it. Same shape as the
+        // existing `tools` handling: a value of the wrong type is simply not sent.
+        await llm.chatFull([{ role: 'user', content: 'go' }], { thinkingEnabled: 'false' });
+
+        const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(payload).not.toHaveProperty('chat_template_kwargs');
+    });
+
     it('resolves a plain content response with the content string and empty toolCalls', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE)));
 

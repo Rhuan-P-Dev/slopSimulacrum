@@ -48,6 +48,7 @@ All variables are optional (see `.env.example` for the full annotated list).
 | `LLM_API_KEY` | *(none)* | Bearer token; unset = no auth header |
 | `LLM_MODEL` | `gpt-3.5-turbo` | Default model id |
 | `LLM_TIMEOUT_MS` | `30000` | Per-LLM-call timeout |
+| `LLM_AGENT_THINKING_ENABLED` | *(off)* | Lets the NPC agent round reason before it acts. Off sends `chat_template_kwargs.enable_thinking=false` (on the llama.cpp/Qwen3 backend: 0.5 s instead of 3.6 s for the same short reply); `"true"` sends `true`. Read on every round, so an exported change lands on the next one. Only the agent round is gated — room chat and the agent-body designer keep their current body ([decision](wiki/decisions/llm-agent-thinking.md)) |
 | `KILLER_LLM_DRONE_ENABLED` | *(off)* | Spawns the `killerLlmDrone` NPC when `"true"`; read once at boot |
 | `REQUIRE_AUTH` / `API_TOKEN` | *(off)* | Bearer-token gate for every API request (production) |
 | `LOG_LEVEL` | `DEBUG` | Minimum server log level (DEBUG < INFO < WARN < ERROR < CRITICAL); messages at the level or more severe are emitted — unrecognized/empty values fall back to DEBUG (all emitted) |

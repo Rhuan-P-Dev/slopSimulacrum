@@ -156,6 +156,13 @@ class LLMController {
      *   (positive finite number). The NPC agent passes 450000 ms (7.5 min; LLM_ROUND_TIMEOUT_MS in
      *   LLMAgentController) because a full local-model reasoning turn can take tens of seconds.
      *   Absent/invalid → `REQUEST_TIMEOUT_MS` (env default).
+     * @param {boolean} [options.thinkingEnabled] - Reasoning switch, sent as the
+     *   chat-template kwarg `chat_template_kwargs: { enable_thinking: <boolean> }`
+     *   (the spelling llama.cpp and vLLM honour). Absent means the payload does not
+     *   mention reasoning at all, so a caller with no opinion keeps the server's own
+     *   default, and a server that does not know the field is never sent one. Only
+     *   `true` / `false` are sent; see the note at the assembly site for why `false`
+     *   must not be tested for truthiness.
      * @returns {Promise<{
      *   content: string|null,
      *   toolCalls: Array<{ id: string, type: 'function', function: { name: string, arguments: string } }>,
@@ -190,6 +197,19 @@ class LLMController {
         }
         if (options.tool_choice !== undefined) {
             payload.tool_choice = options.tool_choice;
+        }
+
+        // The reasoning switch. Sent only when the caller states a boolean: `false`
+        // IS the instruction ("do not reason, answer directly"), so a truthiness
+        // test would drop exactly the case the caller asked for; an absent option
+        // stays absent, which is how the other prompt kinds (room chat, body design)
+        // keep sending the body they send today. Measured on the llama.cpp Qwen3
+        // backend this repo runs: this kwarg is the only spelling that actually
+        // stops the model reasoning - `reasoning_effort` and a `thinking` kwarg are
+        // both accepted with a 200 and silently ignored. See
+        // wiki/decisions/llm-agent-thinking.md.
+        if (typeof options.thinkingEnabled === 'boolean') {
+            payload.chat_template_kwargs = { enable_thinking: options.thinkingEnabled };
         }
 
         const timeoutMs = this._resolveTimeoutMs(options.timeout_ms);

@@ -41,7 +41,7 @@ import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
 import IdResolver from '../../utils/IdResolver.js';
 import { hasDeterministicBrain } from '../../utils/npcAiUtils.js';
-import { CHAT_MESSAGE_MAX_LENGTH, LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUNDS } from '../../utils/Constants.js';
+import { CHAT_MESSAGE_MAX_LENGTH, LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUNDS, isEnvFlagOn } from '../../utils/Constants.js';
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
@@ -64,7 +64,12 @@ const LLM_ROUND_TIMEOUT_MS = 450000;
  * it finally acts, so a smaller cap truncated the reasoning (finishReason
  * "length") before the (now generous) timeout would settle. 51200 gives the
  * thinking budget ample headroom; the outer bound on a round is the
- * timeout, not this cap (see LLM_ROUND_TIMEOUT_MS). */
+ * timeout, not this cap (see LLM_ROUND_TIMEOUT_MS).
+ * Sized for a round that thinks. Thinking is now OFF unless the operator turns it
+ * on (LLM_AGENT_THINKING_ENABLED), so a default round never spends this budget on
+ * reasoning; the cap stays where the reasoning state needs it rather than being
+ * lowered for the off state, which would have to be raised again on the first
+ * opt-in. */
 const LLM_ROUND_MAX_TOKENS = 51200;
 /**
  * Per-call sampling temperature — deliberately below the global 0.7 default
@@ -74,6 +79,40 @@ const LLM_ROUND_MAX_TOKENS = 51200;
  * ran at 0.7). See spec §6.5.
  */
 const LLM_ROUND_TEMPERATURE = 0.5;
+/**
+ * The environment variable that lets the operator turn the model's reasoning on
+ * and off for the NPC agent round. OFF is the default: unset, empty, or any value
+ * that is not "true" (the relaxed `isEnvFlagOn` reading, same convention as
+ * KILLER_LLM_DRONE_ENABLED) sends `enable_thinking: false`.
+ *
+ * Scoped to the agent round on purpose, and not to the whole `LLMController`:
+ * the round is the call the world fires every turn, and it is a constrained
+ * choice (one tool out of a fixed set, or silence) - which is what the operator
+ * pays reasoning tokens for. Room chat and `agent-body-design` keep their
+ * current behaviour untouched; the body designer was raised to 10x tokens
+ * precisely because it needs the thinking budget (see AgentBodyController).
+ * Decision and measurements: wiki/decisions/llm-agent-thinking.md.
+ * @constant
+ */
+const LLM_AGENT_THINKING_ENV_VAR = 'LLM_AGENT_THINKING_ENABLED';
+
+/**
+ * Reads the thinking gate for one LLM call.
+ *
+ * Read per call, not once at import, like every other LLM knob in this stack
+ * (`LLMController` resolves `LLM_ENDPOINT` / `LLM_MODEL` / `LLM_TIMEOUT_MS`
+ * inside `chatFull`): a world runs for hours and the gate is the kind of thing
+ * flipped between rounds to compare what the model does with and without
+ * reasoning. This deliberately differs from the KILLER_LLM_DRONE_ENABLED gate,
+ * which is read once at spawn because spawning is a one-shot event. Note that
+ * dotenv loads `.env` once at boot, so editing the file still needs a restart;
+ * exporting the variable in the shell does not.
+ * @returns {boolean} true only when the variable reads "true".
+ */
+function isAgentThinkingEnabled() {
+    return isEnvFlagOn(process.env[LLM_AGENT_THINKING_ENV_VAR]);
+}
+
 /**
  * The in-round agent loop is the model's own turn budget, not a retry
  * mechanism (spec §6.5): up to LLM_AGENT_MAX_ITERATIONS chatFull calls per
@@ -283,7 +322,12 @@ class LLMAgentController {
                 tool_choice: 'auto',
                 temperature: LLM_ROUND_TEMPERATURE,
                 timeout_ms: LLM_ROUND_TIMEOUT_MS,
-                max_tokens: LLM_ROUND_MAX_TOKENS
+                max_tokens: LLM_ROUND_MAX_TOKENS,
+                // Always a boolean, never absent: the gate has a default (off), so a
+                // round states its position instead of leaving reasoning to whatever
+                // the server happens to do. Read per round, so flipping the variable
+                // takes effect on the next round of the same running world.
+                thinkingEnabled: isAgentThinkingEnabled()
             };
 
             let executedActions = 0;
