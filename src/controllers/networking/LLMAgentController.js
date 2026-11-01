@@ -162,8 +162,10 @@ class LLMAgentController {
          * "Agent View" inspector window (all of it is exposed by
          * describeAgentView). The LLM's conversation memory (spec §6.5) is
          * a view over the TAIL of this same buffer: _transcriptFor replays
-         * only the last LLM_REPLAY_ROUNDS (10) rounds, so the deeper
-         * inspector history never changes what the model sees.
+         * only the last LLM_REPLAY_ROUNDS rounds. The two windows are equal
+         * today (both 10000, owner request 2026-11-01), so this cap is the
+         * only bound on how much an NPC remembers — and it is a round COUNT,
+         * not a size budget: see wiki/decisions/llm-memory-window.md.
          * @private {Map<string, Array>}
          */
         this._transcripts = new Map();
@@ -982,13 +984,14 @@ class LLMAgentController {
 
     // =========================================================================
     // TRANSCRIPT (per-NPC round history: the Agent View shows every stored
-    // round; the model replays only the last LLM_REPLAY_ROUNDS = 10 — spec §6.5)
+    // round; the model replays only the last LLM_REPLAY_ROUNDS rounds — spec §6.5.
+    // The window is a count, not a size budget — llm-memory-window.md)
     // =========================================================================
 
     /**
      * Returns the replayable message history for the LLM: for each of the
-     * LAST LLM_REPLAY_ROUNDS (10) stored rounds — the replay tail of the
-     * deeper inspector buffer — every group (one per in-round LLM call —
+     * LAST LLM_REPLAY_ROUNDS stored rounds — the replay tail of the inspector
+     * buffer — every group (one per in-round LLM call —
      * the agent loop, spec §6.5) with its assistant tool-call message,
      * followed by one tool-role result per call. Legacy entries
      * ({ assistant, results? } / { error }) are still playable as
@@ -998,9 +1001,11 @@ class LLMAgentController {
      * @private
      */
     _transcriptFor(npcEntityId) {
-        // Only the last LLM_REPLAY_ROUNDS rounds of the deeper inspector
-        // buffer are ever replayed (spec §6.5) — the model's conversation
-        // memory is unchanged by how many rounds the Agent View keeps.
+        // Only the last LLM_REPLAY_ROUNDS rounds of the inspector buffer are
+        // ever replayed (spec §6.5). Nothing here is shed by size: a round that
+        // wrote a lot costs a lot on every later replay, and LLMController sends
+        // the assembled body as-is — so this slice, not a budget, is what bounds
+        // the prompt.
         const rounds = (this._transcripts.get(npcEntityId) || []).slice(-LLM_REPLAY_ROUNDS);
         const messages = [];
         for (const entry of rounds) {

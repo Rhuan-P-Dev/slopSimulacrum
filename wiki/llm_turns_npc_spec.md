@@ -205,7 +205,7 @@ A new LLM-orchestration controller (lives with the LLM flow; constructed with th
 - Parses tool calls, **pre-validates** each (known action; ID hygiene; live capability gate; **actor forced to the NPC's entity id**), and dispatches (queue during planning, else immediate).
 - **Retries at most once** on a pre-validation/execution failure, feeding the error back into history.
 - On **LLM failure**, the NPC is **silent for that round** — it never throws out of the tick-driven hook. Prose-only (no tool call) is treated as "the model chose silence" and does **not** burn the retry.
-- Stores a **capped transcript** (last LLM_REPLAY_ROUNDS rounds — 10; spec v2's default was 2) for replay.
+- Stores a **capped transcript** (last `LLM_REPLAY_ROUNDS` rounds — 2 in spec v2, 10 later, 10000 since 2026-11-01; a round COUNT with no size budget, costs in `decisions/llm-memory-window.md`) for replay.
 
 ### 6.4 System prompt
 

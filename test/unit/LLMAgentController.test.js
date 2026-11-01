@@ -2514,51 +2514,55 @@ describe('describeAgentView — transcript history (all rounds + subcalls)', () 
         expect(r2.groups[1].results[0].success).toBe(true);
     });
 
-    it('caps the inspector window at LLM_AGENT_VIEW_HISTORY_ROUNDS while the replay stays at the last LLM_REPLAY_ROUNDS rounds (spec §6.5)', async () => {
+    it('caps the transcript buffer at LLM_AGENT_VIEW_HISTORY_ROUNDS while the replay stays at the last LLM_REPLAY_ROUNDS rounds (spec §6.5)', () => {
         const CAP = LLM_AGENT_VIEW_HISTORY_ROUNDS;
-        let callCount = 0;
-        const seenMessages = [];
+        const REPLAY = LLM_REPLAY_ROUNDS;
         const { agent } = makeAgent({
-            chatFullImpl: (messages) => {
-                callCount += 1;
-                seenMessages.push(messages);
-                const thought = `thought ${callCount}`;
-                return {
-                    content: thought,
-                    toolCalls: [],
-                    finishReason: 'tool_calls',
-                    message: {
-                        role: 'assistant',
-                        content: thought,
-                        tool_calls: [{ id: `call-${callCount}`, type: 'function', function: { name: 'done', arguments: '{}' } }]
-                    }
-                };
-            }
+            chatFullImpl: () => ({
+                content: 'unused', toolCalls: [], finishReason: 'stop',
+                message: { role: 'assistant', content: 'unused' }
+            })
         });
 
+        // The buffer is filled directly rather than by running CAP+2 real
+        // rounds. With both windows at 10000 (owner request, 2026-11-01) the
+        // old shape ran 10002 rounds through context + tools + instincts to
+        // prove a slice - minutes of suite time. What is pinned here is the
+        // window mechanics; the round runner's use of the replay tail is pinned
+        // by the round tests above, at a depth that costs nothing.
         for (let r = 1; r <= CAP + 2; r += 1) {
-            await agent.runRound(NPC_ID, r);
+            const callId = `call-${r}`;
+            agent._storeTranscript(NPC_ID, r, {
+                note: 'done',
+                groups: [{
+                    assistant: {
+                        role: 'assistant',
+                        content: `thought ${r}`,
+                        tool_calls: [{ id: callId, type: 'function', function: { name: 'done', arguments: '{}' } }]
+                    },
+                    results: [{ id: callId, success: true }]
+                }]
+            });
         }
 
+        // The buffer cap is the only memory bound an NPC has: rounds 1 and 2 are
+        // gone, the tail is the newest, the inspector sees exactly CAP.
         const view = agent.describeAgentView(NPC_ID);
         expect(view.transcriptRounds).toHaveLength(CAP);
         expect(view.transcriptRounds[0].round).toBe(3);
         expect(view.transcriptRounds[CAP - 1].round).toBe(CAP + 2);
 
-        // The replay to the NEXT round still carries only the last
-        // LLM_REPLAY_ROUNDS rounds, no matter how deep the inspector window
-        // is (spec §6.5): one group per replayed round here, so exactly
-        // LLM_REPLAY_ROUNDS assistant + tool replays, oldest tail entry
-        // first.
-        const REPLAY = LLM_REPLAY_ROUNDS;
-        await agent.runRound(NPC_ID, CAP + 3);
-        const last = seenMessages[seenMessages.length - 1];
-        const assistantReplays = last.filter((m) => m.role === 'assistant');
-        const toolReplays = last.filter((m) => m.role === 'tool');
-        expect(assistantReplays).toHaveLength(REPLAY);
-        expect(toolReplays).toHaveLength(REPLAY);
-        expect(assistantReplays[0].content).toBe(`thought ${CAP + 2 - (REPLAY - 1)}`);
-        expect(assistantReplays[REPLAY - 1].content).toBe(`thought ${CAP + 2}`);
-        expect(last.at(-1).role).toBe('user');
+        // The replay is the tail of that SAME buffer (spec §6.5), oldest first,
+        // one assistant + one tool message per stored round. It is a COUNT, not
+        // a size budget - nothing here is shed by length - and REPLAY > CAP can
+        // only ever return what is stored.
+        const replay = agent._transcriptFor(NPC_ID);
+        const assistantReplays = replay.filter((m) => m.role === 'assistant');
+        const toolReplays = replay.filter((m) => m.role === 'tool');
+        const expected = Math.min(REPLAY, CAP);
+        expect(assistantReplays).toHaveLength(expected);
+        expect(toolReplays).toHaveLength(expected);
+        expect(assistantReplays[0].content).toBe(`thought ${CAP + 2 - (expected - 1)}`);
+        expect(assistantReplays[expected - 1].content).toBe(`thought ${CAP + 2}`);
     });
 });

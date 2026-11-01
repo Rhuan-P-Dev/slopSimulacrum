@@ -391,32 +391,45 @@ export const LLM_LOG_TRUNCATION_CHARS = 500;
 
 /**
  * How many of the NPC's most recent rounds the LLM replays as conversation
- * memory — the transcript replay tail of the _transcripts buffer (spec §6.5).
+ * memory - the transcript replay tail of the _transcripts buffer (spec 6.5).
  *
- * Decision (DOC-3): spec v2's default was 2 rounds; the owner requested 10,
- * so the model now sees a longer recent history. The replay is a view over
+ * Decision (DOC-3): spec v2's default was 2 rounds, the owner then asked for
+ * 10, and on 2026-11-01 the owner asked for 10000 with the costs measured and
+ * stated (see wiki/decisions/llm-memory-window.md). The replay is a view over
  * the TAIL of the same buffer the Agent View inspector reads
  * (LLM_AGENT_VIEW_HISTORY_ROUNDS) and must stay <= that window: one buffer
  * serves both readers, and the inspector never changes what the model sees.
+ *
+ * The window is a COUNT, not a budget: _transcriptFor sheds nothing by size,
+ * and LLMController sends the body as assembled. Measured on this repo's data,
+ * a round adds ~3.8 KB of replay, so a long-running world sends a prompt that
+ * grows with the rounds - which is what the provider measurement in the note
+ * above is about. If this number is raised again, raise it together with a
+ * size budget or the binding limit becomes the provider, silently.
  * @type {number}
  */
-export const LLM_REPLAY_ROUNDS = 10;
+export const LLM_REPLAY_ROUNDS = 10000;
 
 /**
  * Hard cap on the round history the "Agent View" inspector keeps per NPC
  * (GET /llm/agent/:entityId — the LLMAgentController._transcripts buffer).
  *
- * Decision (DOC-3): this buffer is deliberately DEEPER than the LLM's
- * replay memory (LLM_REPLAY_ROUNDS — the tail of this SAME buffer). One
- * buffer serves both readers: the round runner replays the tail (bounded
- * conversation memory), while the dev tab shows every stored round with all
- * of its in-round LLM calls (subcalls) and per-call results. The
- * alternative — a second, separate buffer for the inspector — would store
- * the same data twice for no gain; an unbounded buffer would grow memory
- * forever in a long-running world (A-7 / AP-14), hence the named cap.
+ * Decision (DOC-3): one buffer serves both readers - the round runner replays
+ * the tail (LLM_REPLAY_ROUNDS), the dev tab shows every stored round with all
+ * of its in-round LLM calls (subcalls) and per-call results. The alternative -
+ * a second, separate buffer for the inspector - would store the same data twice
+ * for no gain; an unbounded buffer would grow memory forever in a long-running
+ * world (A-7 / AP-14), hence the named cap.
+ *
+ * This used to be deliberately DEEPER than the replay window (50 vs 10). It is
+ * now EQUAL to it, on the owner's request of 2026-11-01, which means the two
+ * numbers carry the same weight and this cap is the only memory bound left: at
+ * ~3.8 KB of transcript per stored round (measured), 10000 rounds is tens of MB
+ * per NPC. It is also what GET /llm/agent/:entityId returns in one response,
+ * and AgentViewPanel renders every round it is given.
  * @type {number}
  */
-export const LLM_AGENT_VIEW_HISTORY_ROUNDS = 50;
+export const LLM_AGENT_VIEW_HISTORY_ROUNDS = 10000;
 
 // =========================================================================
 // LLM CONTEXT CONSTANTS (LlmContextController token budget)
