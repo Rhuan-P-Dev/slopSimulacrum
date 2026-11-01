@@ -2,7 +2,7 @@
  * ModsPanel - see the packages, manage them.
  *
  * The view behind the menu's **Mods**. It renders what the server says about the
- * install (`GET /mods`) and offers the four things an operator can actually do:
+ * install (`GET /mods`) and offers the five things an operator can actually do:
  *
  *   - **Rescan** - read the package directory again (a package was added, edited
  *     or deleted on disk since the last look).
@@ -11,6 +11,9 @@
  *   - **Enable / Disable** - flip one package. The answer is `pending`, and the
  *     panel shows it as what it is: a change that takes effect at the next round
  *     boundary. Nothing here pretends the world changed the moment the box moved.
+ *   - **Move up / down** - one slot in the stack. `up` composes earlier and so LOSES a shared
+ *     key, `down` composes last and wins it. The answer names the keys whose owner the move
+ *     changed, because that is the only visible consequence of a reorder.
  *   - **Apply now** - ask for that boundary instead of waiting for it
  *     (`POST /mods/apply`). If a round is open the server says so and the change
  *     still lands at the boundary that was already coming; `applied: false` is a
@@ -60,6 +63,8 @@ export const SORT_STACK = 'stack';
 export const SORT_NAME = 'name';
 /** How long a jumped-to row stays lit (the row is replaced by the next render anyway). */
 const FLASH_MS = 900;
+/** How many keys a move's status line names before "+N more". */
+const MOVE_KEY_CAP = 6;
 
 export class ModsPanel {
     /**
@@ -200,6 +205,35 @@ export class ModsPanel {
                 (payload.pending ? `takes effect at the ${payload.appliesAt}` : 'the world already matches'),
                 'ok'
             );
+        });
+    }
+
+    /**
+     * Move one package one slot in the stack.
+     *
+     * `up` composes earlier and so LOSES a shared key; `down` composes last and wins it. The
+     * legend says which way the stack runs and the status line repeats it, because the
+     * direction is the opposite of the "top of the list wins" intuition - a move that reads
+     * like a promotion is a demotion.
+     *
+     * Like enable/disable the answer is `pending`, and the list is re-read before the line is
+     * written for the same reason (`toggle`): the ranks on screen must be the server's, not
+     * the ones this click assumed.
+     * @param {string} id
+     * @param {'up'|'down'} direction
+     * @returns {Promise<void>}
+     */
+    async move(id, direction) {
+        await this._run(async () => {
+            const res = await fetch(`/mods/${encodeURIComponent(id)}/move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ direction })
+            });
+            const payload = await readJson(res);
+            if (!res.ok) throw new Error(messageOf(payload, res.status));
+            await this._load();
+            this._setStatus(moveSummary(id, payload), 'ok');
         });
     }
 
@@ -396,6 +430,11 @@ export class ModsPanel {
                 this.toggle(button.dataset.toggle, button.dataset.enabled === '1');
             });
         }
+        for (const button of this._content.querySelectorAll('[data-move]')) {
+            button.addEventListener('click', () => {
+                this.move(button.dataset.move, button.dataset.direction);
+            });
+        }
         for (const button of this._content.querySelectorAll('[data-files]')) {
             button.addEventListener('click', () => {
                 this.showFiles(button.dataset.files);
@@ -542,8 +581,58 @@ function renderShadow(mod, shadows) {
     return took + lost;
 }
 
+/**
+ * The two position buttons, in the ordinal gutter. They belong to the rank rather than to
+ * the actions column: an operator aiming a package aims at its number.
+ *
+ * The glyphs are ASCII (`^`, `v`) because the committed tree is ASCII, which is exactly why
+ * the direction has to be said in the title instead of drawn - `^` composes EARLIER and so
+ * loses a shared key, which is not what an upward arrow suggests. An edge keeps its button
+ * and disables it, because "already at the top" is a fact about the stack the control should
+ * show rather than a control that quietly disappeared.
+ * @param {Object} mod
+ * @param {number} rank - 1-based position in the stack.
+ * @param {number} total - Installed packages, so the same counting.
+ * @returns {string} HTML
+ */
+function renderMove(mod, rank, total) {
+    const id = escapeText(mod.id);
+    const at = (direction, glyph, words, enabled) => `<button type="button" class="mods-move"`
+        + (enabled ? '' : ' disabled')
+        + ` data-move="${id}" data-direction="${direction}"`
+        + ` title="${escapeText(enabled
+            ? `Move ${mod.id} ${direction} in the stack: ${words}`
+            : `${mod.id} is already at the ${direction === 'up' ? 'top' : 'bottom'} of the stack`)}`
+        + ` aria-label="${escapeText(`Move ${mod.id} ${direction}`)}">${glyph}</button>`;
+    return '<span class="mods-move-group">'
+        + at('up', '^', 'it composes one package earlier, so it loses a shared key to anything above it', rank > 1)
+        + at('down', 'v', 'it composes one package later, so it wins any shared key it ships', rank < total)
+        + '</span>';
+}
+
+/**
+ * What a move did, in one line: where the package landed, when it takes effect, and which
+ * keys changed owner. The last part is the reason the endpoint composes the stack twice -
+ * without it, a reorder is a number moving and nothing else the operator can check.
+ * @param {string} id
+ * @param {Object} payload - the `POST /mods/:id/move` answer
+ * @returns {string}
+ */
+export function moveSummary(id, payload) {
+    const landed = `moved ${payload.direction} to position ${payload.rank} of ${payload.total}`;
+    const when = payload.pending
+        ? `takes effect at the ${payload.appliesAt}`
+        : 'the world already matches';
+    const changed = payload.shadowChanged ?? [];
+    if (changed.length === 0) return `${id} ${landed} - ${when}. No shared key changed hands.`;
+    const names = changed.slice(0, MOVE_KEY_CAP)
+        .map((entry) => `${entry.kind}/${entry.key} now ${entry.now ?? 'nobody'}`);
+    const more = changed.length > names.length ? ` (+${changed.length - names.length} more)` : '';
+    return `${id} ${landed} - ${when}. Owner changed: ${names.join(', ')}${more}.`;
+}
+
 /** One package: ordinal, identity, description, what it feeds and needs. */
-function renderPackage(mod, { byId, shadows, expanded, rank, total, explicit }) {
+function renderPackage(mod, { byId, shadows, expanded, rank, total, explicit, movable }) {
     const state = mod.blocked
         ? '<span class="mods-flag mods-flag--bad" title="installed, enabled, contributing nothing">blocked</span>'
         : (mod.enabled === false ? '<span class="mods-flag mods-flag--off">off</span>' : '<span class="mods-flag mods-flag--on">on</span>');
@@ -567,7 +656,8 @@ function renderPackage(mod, { byId, shadows, expanded, rank, total, explicit }) 
         ? `<span class="mods-shadow mods-shadow--level" title="This package was given a load order of ${escapeText(mod.loadOrder)}, so it composes at that level rather than with the rest">load order ${escapeText(mod.loadOrder)}</span>`
         : '';
     return `<div class="mods-row${mod.enabled === false ? ' mods-row--off' : ''}" data-row="${escapeText(mod.id)}">` +
-        `<div class="mods-ordinal" title="Stack position ${escapeText(rank)} of ${escapeText(total)} (load order ${escapeText(mod.loadOrder)}): the stack composes top to bottom, and the highest package that ships a key is the one the world runs">${escapeText(String(rank ?? '?').padStart(2, '0'))}</div>` +
+        `<div class="mods-ordinal" title="Stack position ${escapeText(rank)} of ${escapeText(total)} (load order ${escapeText(mod.loadOrder)}): the stack composes top to bottom, and the last package that ships a key is the definition the world runs">` 
+        + `${escapeText(String(rank ?? '?').padStart(2, '0'))}${movable ? renderMove(mod, rank, total) : ''}</div>` +
         '<div class="mods-row-main">' +
         `<div class="mods-row-head"><span class="mods-id">${escapeText(mod.id)}</span>` +
         `<span class="mods-version">v${escapeText(mod.version)}</span>${official}${state}${level}${renderShadow(mod, shadows)}</div>` +
@@ -650,7 +740,11 @@ export function renderPackageList({ mods = [], plan = null, sortMode = SORT_STAC
         expanded,
         rank: rankOf.get(mod.id),
         total: model.total,
-        explicit: outOfLevel(mod, model)
+        explicit: outOfLevel(mod, model),
+        // Position controls only where position is what the list shows. In alphabetical order
+        // the rows are drawn one way and ranked another, and an arrow there would move a
+        // package relative to neighbours that are not its neighbours in the stack.
+        movable: sortMode !== SORT_NAME
     }));
     return '<div class="mods-packages"><h3 class="mods-h mods-h--stack">Packages (' + mods.length + ')' +
         `<button type="button" class="mods-sort" data-sort="1" title="Switch between the stack (load order) and the alphabet">` +

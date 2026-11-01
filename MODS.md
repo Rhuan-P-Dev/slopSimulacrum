@@ -153,13 +153,47 @@ worth knowing before you write an override:
   the wrong type is ignored (that entry falls back to its defaults), and a file that is not
   this shape is read as empty. It is user-editable tuning data, so a typo in it must not
   keep the server from starting — but it does take a `POST /mods/rescan`, or a restart, to be
-  seen. No endpoint writes `loadOrder`; `enable` / `disable` write only `enabled`.
+  seen. `enable` / `disable` write only `enabled`; `POST /mods/:id/move` is what writes
+  `loadOrder`, and it renumbers the whole stack rather than one entry (below).
 
 A package that fails to load does not take the world with it: it is skipped by name,
 with a code and a message, and reported in `invalid` by both `GET /mods` and
 `POST /mods/plan`. The remaining packages load. Codes: `MOD_MANIFEST_MISSING`,
 `MOD_MANIFEST_INVALID`, `MOD_ID_INVALID`, `MOD_ID_DIR_MISMATCH`,
 `MOD_CONTENT_KIND_UNKNOWN`, `MOD_CONTENT_UNREADABLE`, `MOD_UNSAFE_KEY`.
+
+### The stack's one ordering rule, and moving a package in it
+
+A package composes **below** (after) everything it `requires`. `requires` means "my definitions
+name things that package provides", so a provider that composed last would stamp its own
+definitions over the dependent's edits and silently undo the package written on top of it. The
+rule is about shadow precedence, not about availability: whether a package can contribute at all
+is what `requires` resolution decides, and that has never cared about order.
+
+`POST /mods/:id/move` with `{ "direction": "up" | "down" }` moves a package one slot, in the
+direction the launcher draws the stack — and the direction is the opposite of the intuition:
+
+- `up` is toward the top, which composes **earlier**, so it **loses** a shared key;
+- `down` is toward the bottom, which composes **last**, so it **wins** one.
+
+A move renumbers the whole stack (`1000, 2000, 3000, …` by rank) and queues the recomposition,
+so it answers `pending` like enable and disable do. Renumbering everything is what keeps ties
+out: a tie falls to the id, so a half-numbered stack is one where an unrelated package name
+silently decides who wins a key. The answer carries `shadowChanged` — the keys whose **owner**
+the move reassigned — because that is the only visible consequence of a reorder.
+
+The refusal is `409 MOD_MOVE_BREAKS_REQUIRES` when the move would carry the package *further*
+above something it requires, naming the provider and both positions. "Further", not "is": the
+default stack already composes six of the shipped edges the wrong way round (everything sits at
+`1000`, so the tiebreak is the id, and `core-components` sorts above `core-materials`), and a
+rule that refused every inverted state would freeze those five packages in place — neither
+direction legal, the only good destination twenty steps away. Depth makes it monotone instead:
+walking a package toward its providers is progress and is allowed, carrying it further above
+them is not. From the shipped state, 31 legal `down` moves put all six edges right.
+
+`409 MOD_MOVE_AT_EDGE` says the package is already at that end; `400 MOD_MOVE_DIRECTION_INVALID`
+says the body did not say `up` or `down`. Official (`core-`) packages move like any other —
+overriding shipped content with shipped content is what a stack is for.
 
 ### Keys a package may not carry
 
@@ -213,6 +247,7 @@ malformed official file stops the server rather than booting a world with holes 
 | POST   | `/mods/plan`      | What an apply would change, per kind: added, removed and changed definition names, who provides each, what is shadowed, and what was refused outright (`unsafeKeys`). Mutates nothing; `applied` is always `false`. |
 | POST   | `/mods/:id/enable`  | Enable an installed package. `{ success, id, enabled, pending, appliesAt }`. Rate limited (it writes a file). |
 | POST   | `/mods/:id/disable` | Disable an installed package; same envelope. Idempotent. Unknown id → `404 MOD_NOT_FOUND`. |
+| POST   | `/mods/:id/move` | Body `{ "direction": "up" \| "down" }`. One slot in the stack (`up` composes earlier and loses a shared key, `down` composes last and wins one). `{ success, id, moved, direction, rank, total, loadOrder, previousLoadOrder, pending, appliesAt, shadowChanged, shadowChangedTruncated }`. `409` for `MOD_MOVE_AT_EDGE` / `MOD_MOVE_BREAKS_REQUIRES`, `400` for `MOD_MOVE_DIRECTION_INVALID`. Rate limited (it writes a file). |
 | POST   | `/mods/apply`     | Ask for the packages on disk to become the world's definition now. A round open → `{ applied: false, pending: true, appliesAt, reason: "ROUND_ACTIVE" }` (a deferral, not a failure). No round open → `{ applied: true, report: { ok, version, swappedKinds, quarantined, mods, unsafeKeys } }`. |
 | GET    | `/mods/:id/files` | The package's own files as they are on disk: `{ id, dir, manifest, files: [{ name, kind, json, content }] }`, `kind` being the registry a JSON file feeds. The "why is my definition quarantined" view. Unknown id → `404`. |
 
@@ -235,7 +270,10 @@ starts a world; once one is running it keeps running while you are in a screen, 
 **Stop world** (the launcher again, reached by clicking the brand) ends it.
 
 - **Mods** — the packages, the live definition and its per-kind counts, what is waiting
-  for a boundary, and the four actions (`Rescan`, `Plan`, `Enable`/`Disable`, `Apply now`).
+  for a boundary, and the five actions (`Rescan`, `Plan`, `Enable`/`Disable`, `Move up`/`down`,
+  `Apply now`). The rank gutter carries the two position buttons beside the number they move; at
+  either end the button is disabled rather than missing, because "already at the top" is a fact
+  the control should show.
   It reads `GET /mods` and renders; the only thing it computes is the sum of the server's
   own per-kind counts. A row and its status line change together, so the button never says
   the opposite of the line next to it.
@@ -266,8 +304,12 @@ Not built:
   validates its own file and nothing references it, so disabling it is allowed and bricks the
   boot — and references no code validates (`hostComponentType`, entity blueprints naming
   components), which are real edges and deliberately undeclared.
-- **Load order over HTTP.** `loadOrder` is read from `data/mods/loadorder.json`; editing
-  that file by hand (then `POST /mods/rescan`) is currently the only way to set it.
+- **Load order beyond one slot at a time.** `POST /mods/:id/move` moves a package one slot and
+  the launcher exposes it, so the stack is editable without opening a file. What is not built is
+  the coarser gesture: drag a package to an arbitrary depth in one action, set a numeric level
+  by hand (`500`, to sit deliberately below everything an untuned drop-in falls back to), or a
+  per-package "pin" that survives a neighbour's move. Each of those is a different verb from the
+  one now here, not a missing polish of it.
 - **Quarantine at boot.** The classifier exists and the plan uses it; the boot path still
   throws on malformed data instead of booting around it. Switching boot over is the
   change that makes "the world always comes up" true rather than a plan-time property.

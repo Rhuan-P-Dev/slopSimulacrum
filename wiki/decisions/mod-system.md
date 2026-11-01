@@ -594,6 +594,69 @@ panel's single in-flight guard is not reentrant, so an action that re-read the l
 still said "on", next to a button that still said "Disable". The read is now a separate
 `_load()`; the guard stays where it is.
 
+### Moving a package in the stack: the ordering rule becomes enforceable (owner decision, landed)
+
+The owner asked for the priority order to be changeable. `loadOrder` was already persisted, it
+already ordered the merge, and the launcher already showed it in the rank gutter - what did not
+exist was a verb. `MODS.md` recorded exactly that ("Load order over HTTP ... editing that file by
+hand is currently the only way to set it"), and this closes it.
+
+Four decisions, taken by the owner rather than inferred:
+
+- **The verb is `POST /mods/:id/move` with `{ direction: "up" | "down" }`, one slot at a time**.
+  Not a full ordered list (a partial one silently drops a package from the stack it claims to
+  describe), and not a numeric level (below, Rejected).
+- **API and launcher both.** The panel already rendered the stack, the ranks and the `load order`
+  badge; a number an operator can read but not change is the half that was already built. The two
+  buttons sit in the ordinal gutter, beside the number they move.
+- **`core-` packages move like any other.** `official` stays a derived prefix and not a write
+  privilege (`decision 2`). Overriding shipped content with shipped content is what a stack is
+  for, and a third-party override needs its provider to compose above it, which is a move.
+- **The stack gained one ordering rule, enforced with a 409:** a package composes below
+  (after) everything it `requires`. The owner chose refusal over reporting it as a warning.
+
+The rule is about **shadow precedence**, and that distinction is worth keeping because `requires`
+has never been about order: `resolveRequirements` answers *whether* a package can contribute,
+through a monotone fixpoint, and a package's content merely *names* definitions another provides.
+If a provider composed last it would stamp its own definitions over the dependent's edits - the
+dependency silently reverting the package written on top of it. The dependent composes below, so
+the dependent wins, and nothing about availability moved.
+
+**What measuring the shipped data changed about the rule.** The reading that reads best - refuse
+whenever the moved package would sit above something it requires - is degenerate here, and the
+shipped set proved it rather than the argument: every package sits at the default `loadOrder`, so
+the tiebreak is the id, and **6 of the 13 declared edges are already inverted on a fresh
+install**. A package in that state has no legal move at all: up is still inverted, down is still
+inverted and one step short. Five of the 22 official packages would arrive frozen, their only
+legal destination twenty steps away - unreachable, though every step of the way is legal.
+
+So the refusal is `depth_after > depth_before`, where depth is how many positions the package
+sits above the packages it requires. Depth makes the rule monotone: walking toward a provider is
+progress and is allowed, being carried further above one is not. Two properties were measured
+through the real service on the real package set, not assumed - no package is frozen from the
+shipped state, and **31 legal `down` moves repair all six inherited inversions**, every one of
+them issued through the same endpoint the launcher calls. On a stack with nothing inverted
+(`depth_before` 0), which is what this rule was written for, it refuses exactly the same moves as
+the post-state reading - including the example the owner approved. Refusing an inversion the
+operator did not create would blame them for a stack they inherited (`CR H-4`).
+
+Two consequences the rule forced, both paid for rather than hidden:
+
+- **A move renumbers the whole stack** (rank x 1000) instead of slipping one number between two
+  neighbours. Ties fall to the id, so a half-numbered stack is one where an unrelated rename
+  decides who wins a key. The cost is written in `MODS.md`: a package dropped in *after* a move
+  has no state entry, so it takes the default `1000` and ties with rank 1.
+- **The endpoint composes the stack twice** and answers with `shadowChanged` - the keys whose
+  *owner* the move reassigned. `ModLoader.build()` is the only thing that knows who wins a key
+  (disabled packages, refused packages and three-way overlaps are all inside its answer), and a
+  second, narrower model of the merge here would disagree with it the day someone edits the real
+  one (`CR H-1`). Two scans of the package set for a rate-limited operator action is the cheap
+  half of that trade.
+
+Rejected: a numeric `loadOrder` endpoint (`{ "loadOrder": 500 }`). Smaller, and it makes every
+tie the operator's problem - including the tie that decides a key. Also rejected as a shape: a
+full ordered array, for the partial-list reason above.
+
 ## Next change (when the owner asks for it)
 
 Ordered so each step leaves `npm run check` green. `CHG-7`: steps 2 and 5 are
@@ -632,6 +695,10 @@ behavior-bearing and get a test pinning the current behavior first.
 9. A fixture mod (`test/`) proving: add a component plus item plus action at runtime, enable
    it, see the capability appear; disable it, see the quarantine report name the dependents
    and the live instance survive.
+10. Done. `POST /mods/:id/move` - the stack is editable over HTTP and from the launcher, with the
+    `requires` precedence rule enforced per move. See the section above. What is still not built
+    is named there and in `MODS.md` "Not built": drag-to-depth, a hand-set numeric level, and a
+    per-package pin that survives a neighbour's move.
 
 Verification for the whole change: `npm run check` (lint + `check:lang` + tests), plus a real
 `POST /mods/plan` and `POST /mods/:id/enable` against a running server, watched over

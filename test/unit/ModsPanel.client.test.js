@@ -21,7 +21,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { renderPackageList, requirementState, shadowIndex, sortMods, SORT_NAME, SORT_STACK } from '../../public/js/ModsPanel.js';
+import {
+    renderPackageList, requirementState, shadowIndex, sortMods, moveSummary,
+    SORT_NAME, SORT_STACK
+} from '../../public/js/ModsPanel.js';
 
 /** A package row in the shape `GET /mods` returns. */
 const mod = (id, loadOrder, extra = {}) => ({
@@ -78,7 +81,10 @@ describe('the mod package list', () => {
         // nothing. The number itself is in the tooltip, where it is still readable.
         expect(ordinals(html)).toEqual(['01', '02', '03', '04']);
         expect(html).toContain('Stack position 1 of 4 (load order 0)');
-        expect(html).toContain('the highest package that ships a key is the one the world runs');
+        // "the last one", not "the highest": the highest load order is drawn at the BOTTOM of
+        // the stack, so "highest" read as "the one on top" - the opposite of the truth. The
+        // position buttons make the direction clickable, so the tooltip has to say it plainly.
+        expect(html).toContain('the last package that ships a key is the definition the world runs');
         expect(html).toContain('Ties in <code>loadOrder</code> break by id');
     });
 
@@ -202,5 +208,103 @@ describe('the mod package list', () => {
 
     it('keeps the empty install honest', () => {
         expect(renderPackageList({ mods: [] })).toContain('No package in');
+    });
+});
+
+describe('the position controls: moving a package in the stack', () => {
+    /** Every rendered move button, in DOM order. */
+    const moveButtons = (html) => [...html.matchAll(/<button[^>]*class="mods-move"[^>]*>/g)].map((m) => ({
+        id: /data-move="([^"]+)"/.exec(m[0])?.[1],
+        direction: /data-direction="([^"]+)"/.exec(m[0])?.[1],
+        disabled: /\sdisabled(\s|>)/.test(m[0]),
+        title: /title="([^"]*)"/.exec(m[0])?.[1] ?? ''
+    }));
+
+    /** The move buttons of one package. */
+    const buttonsFor = (html, id) => moveButtons(html).filter((b) => b.id === id);
+
+    const rows = [
+        mod('core-atlas', 1000),
+        mod('core-forge', 2000),
+        mod('extra-glyph', 3000)
+    ];
+
+    it('puts one button per direction under the rank, not in the actions column', () => {
+        const html = renderPackageList({ mods: rows });
+        const glyphs = buttonsFor(html, 'extra-glyph');
+        expect(glyphs.map((b) => b.direction)).toEqual(['up', 'down']);
+        // They live in the ordinal gutter: an operator aiming a package aims at its number.
+        const gutter = html.match(/class="mods-ordinal"[^>]*>\d+<span class="mods-move-group">/);
+        expect(gutter).not.toBeNull();
+    });
+
+    it('says in the title which way the stack runs, because the arrow says the opposite', () => {
+        const html = renderPackageList({ mods: rows });
+        const [up, down] = buttonsFor(html, 'core-forge');
+        // `^` is a demotion and `v` a promotion: the list composes top to bottom and the LAST
+        // package that ships a key is the one the world runs. A bare arrow would lie.
+        expect(up.title).toMatch(/earlier.*loses a shared key/);
+        expect(down.title).toMatch(/later.*wins any shared key/);
+    });
+
+    it('disables the button at each end and says why', () => {
+        const html = renderPackageList({ mods: rows });
+        const top = buttonsFor(html, 'core-atlas');
+        expect(top.find((b) => b.direction === 'up').disabled).toBe(true);
+        expect(top.find((b) => b.direction === 'up').title).toMatch(/already at the top/);
+        expect(top.find((b) => b.direction === 'down').disabled).toBe(false);
+        const bottom = buttonsFor(html, 'extra-glyph');
+        expect(bottom.find((b) => b.direction === 'down').disabled).toBe(true);
+        expect(bottom.find((b) => b.direction === 'down').title).toMatch(/already at the bottom/);
+    });
+
+    it('offers no position control in alphabetical order', () => {
+        // In that view the rows are drawn one way and ranked another, so an arrow would move a
+        // package relative to neighbours that are not its neighbours in the stack.
+        const html = renderPackageList({ mods: rows, sortMode: SORT_NAME });
+        expect(moveButtons(html)).toEqual([]);
+        expect(renderPackageList({ mods: rows, sortMode: SORT_STACK })).not.toBe(html);
+    });
+
+    it('escapes an id written by somebody else, in the attribute and the title', () => {
+        const hostile = [mod('e"x><img', 1000)];
+        const html = renderPackageList({ mods: hostile });
+        expect(html).not.toContain('<img');
+        expect(html).toContain('e&quot;x&gt;&lt;img');
+    });
+
+    describe('moveSummary', () => {
+        const payload = (extra) => ({
+            id: 'extra-glyph', direction: 'down', rank: 2, total: 6, pending: true,
+            appliesAt: 'next round boundary', shadowChanged: [], shadowChangedTruncated: false,
+            ...extra
+        });
+
+        it('says where it landed, when it applies, and that nothing was reassigned', () => {
+            expect(moveSummary('extra-glyph', payload()))
+                .toBe('extra-glyph moved down to position 2 of 6 - takes effect at the next '
+                    + 'round boundary. No shared key changed hands.');
+        });
+
+        it('names the keys that changed owner, both sides of the change', () => {
+            const line = moveSummary('x', payload({
+                shadowChanged: [{ kind: 'components', key: 'knife', was: 'glyph', now: 'forge' }]
+            }));
+            expect(line).toContain('Owner changed: components/knife now forge');
+        });
+
+        it('caps the names and says how many it dropped', () => {
+            const many = Array.from({ length: 9 }, (_, i) => ({
+                kind: 'components', key: `k${i}`, was: 'a', now: 'b'
+            }));
+            const line = moveSummary('x', payload({ shadowChanged: many }));
+            expect(line).toContain('components/k5');
+            expect(line).not.toContain('components/k6');
+            expect(line).toContain('(+3 more)');
+        });
+
+        it('does not claim a boundary for a change the server did not queue', () => {
+            expect(moveSummary('x', payload({ pending: false }))).toContain('the world already matches');
+        });
     });
 });

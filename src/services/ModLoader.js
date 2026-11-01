@@ -109,7 +109,13 @@ export const MOD_ERROR_CODES = Object.freeze({
     REQUIREMENT_BLOCKED: 'MOD_REQUIREMENT_BLOCKED',
     // A content file carrying a key that is never data (`UNSAFE_KEYS`). Not a parse failure:
     // the file is readable and is valid JSON, which is what makes it worth naming.
-    UNSAFE_KEY: 'MOD_UNSAFE_KEY'
+    UNSAFE_KEY: 'MOD_UNSAFE_KEY',
+    // Reordering the stack (`ModService.moveMod`). All three are a conflict with the shape of
+    // the install, not with the request: the packages are readable and the move is well
+    // formed, the stack simply will not take it.
+    MOVE_DIRECTION_INVALID: 'MOD_MOVE_DIRECTION_INVALID',
+    MOVE_AT_EDGE: 'MOD_MOVE_AT_EDGE',
+    MOVE_BREAKS_REQUIRES: 'MOD_MOVE_BREAKS_REQUIRES'
 });
 
 /**

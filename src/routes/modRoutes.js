@@ -1,10 +1,14 @@
 /**
  * Mods API routes — what is installed, and what applying it would change.
  *
- * Three read-only endpoints over the package directory (`data/mods/`). None of
- * them changes the world: `apply` is a separate change (the round boundary), and the
- * reason `plan` exists at all is that an operator can ask it repeatedly with no
- * consequence (`wiki/decisions/mod-system.md`, decision 6).
+ * The read side answers over the package directory (`data/mods/`) and changes nothing:
+ * `apply` is a separate change (the round boundary), and the reason `plan` exists at all is
+ * that an operator can ask it repeatedly with no consequence
+ * (`wiki/decisions/mod-system.md`, decision 6).
+ *
+ * The write side (enable, disable, move) writes the state file and queues the swap. None of
+ * them changes the world in the request either — that happens at the round boundary — which
+ * is why all three answer `pending` and name the moment.
  *
  * WHY POST FOR A READ. `POST /mods/rescan` and `POST /mods/plan` trigger a disk
  * scan rather than serve a cached answer, and rescan updates this service's view of
@@ -22,7 +26,7 @@ import { sendRouteError, sendRouteErrorBody } from '../utils/routeError.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
 
 /**
- * Enable and disable are writes (they persist `data/mods/loadorder.json`), so they are
+ * Enable, disable and move are writes (they persist `data/mods/loadorder.json`), so they are
  * rate limited like the other write routes (`CR SEC-2`). The budget is an operator's, not
  * a client's: toggling a package set a few dozen times a minute is already unusual.
  */
@@ -41,6 +45,12 @@ const ERROR_STATUS = {
 	// (which is what 400 would claim).
 	MOD_REQUIREMENT_HELD: 409,
 	MOD_REQUIREMENT_UNMET: 409,
+	// The stack will not take the move: the package is already at that end, or the move would
+	// compose it above something it requires. Both conflict with the shape of the install.
+	MOD_MOVE_AT_EDGE: 409,
+	MOD_MOVE_BREAKS_REQUIRES: 409,
+	// The body did not say `up` or `down`. This one IS about the request.
+	MOD_MOVE_DIRECTION_INVALID: 400,
 	// The candidate the packages on disk describe cannot be installed as-is. Not a bad
 	 // request - a package set the world will not take.
 	REGISTRY_CANDIDATE_INVALID: 409
@@ -223,4 +233,50 @@ export function register(router, { modService }) {
 
 	router.post('/mods/:id/enable', writeLimiter, toggle('POST /mods/:id/enable', true));
 	router.post('/mods/:id/disable', writeLimiter, toggle('POST /mods/:id/disable', false));
+
+	/**
+	 * POST /mods/:id/move   body: { direction: 'up' | 'down' }
+	 * One slot in the stack, in the direction the launcher draws it: `up` composes earlier and
+	 * so LOSES a shared key, `down` composes last and wins it (the panel's ordinal gutter is the
+	 * same numbering — position 1 is the top).
+	 *
+	 * `{ success: true, id, moved, direction, rank, total, loadOrder, previousLoadOrder,
+	 * pending, appliesAt, shadowChanged, shadowChangedTruncated }`. `shadowChanged` names the
+	 * keys whose OWNER the move changed — the only consequence worth reading after a reorder —
+	 * and is capped at 50 with `shadowChangedTruncated` saying so.
+	 *
+	 * `409 MOD_MOVE_AT_EDGE` when the package is already at that end, and `409
+	 * MOD_MOVE_BREAKS_REQUIRES` when the move would compose it above a package it requires;
+	 * both carry `mod`, `requires`, `from`, `to` where they apply. `400
+	 * MOD_MOVE_DIRECTION_INVALID` for any other body. Like enable/disable the change is written
+	 * and queued, so `pending: true` is the normal answer.
+	 */
+	router.post('/mods/:id/move', writeLimiter, (req, res) => {
+		try {
+			res.json({ success: true, ...modService.moveMod(req.params.id, req.body?.direction) });
+		} catch (error) {
+			const status = ERROR_STATUS[error?.code];
+			if (status) {
+				// `mod`/`requires`/`from`/`to` are set by the service on the refusals that have
+				// something specific to say, and only the ones actually set travel (an `undefined`
+				// in a JSON body is dropped anyway, but a route that invents fields the service
+				// never set would describe a shape that does not exist). The client needs the
+				// package id and the positions to explain a refusal; a message alone makes it parse
+				// prose back out.
+				const conflict = {};
+				for (const field of ['mod', 'requires', 'from', 'to']) {
+					if (error[field] !== undefined) conflict[field] = error[field];
+				}
+				sendRouteErrorBody(
+					error,
+					res,
+					'POST /mods/:id/move',
+					{ success: false, error: error.code, message: error.message, ...conflict },
+					status
+				);
+				return;
+			}
+			sendRouteError(error, res, 'POST /mods/:id/move');
+		}
+	});
 }

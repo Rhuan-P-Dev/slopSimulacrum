@@ -1,10 +1,15 @@
 /**
- * UNIT TEST — the mod HTTP surface around enable / disable.
+ * UNIT TEST — the mod HTTP surface around enable / disable / move.
  *
  * The contract the client depends on:
  *   - `POST /mods/:id/enable` and `POST /mods/:id/disable` answer
  *     `{ success: true, id, enabled, pending, appliesAt }` — the last two being the whole
  *     point: a queued change is not a failed one, and the response says when it lands.
+ *   - `POST /mods/:id/move` reads `{ direction }` from the body and answers with the service's
+ *     whole result, including `shadowChanged` — the keys whose owner the move reassigned, which
+ *     is the only consequence of a reorder an operator can check.
+ *   - A refusal carries the fields the service set (`mod`, `requires`, `from`, `to`) and no
+ *     others: a route that invented them would describe a wire shape that does not exist.
  *   - A package that is not installed is a 404 with the domain code, not a 500 and not a
  *     silently created state entry.
  *   - An unexpected failure keeps the shared 500 contract (`{ error, details }`).
@@ -35,6 +40,15 @@ function makeStub() {
             calls.push(['disable', id]);
             if (behavior?.throwOn) throw behavior.throwOn;
             return behavior?.result ?? { id, enabled: false, pending: true, appliesAt: 'next round boundary' };
+        },
+        moveMod: (id, direction) => {
+            calls.push(['move', id, direction]);
+            if (behavior?.throwOn) throw behavior.throwOn;
+            return behavior?.result ?? {
+                id, moved: true, direction, rank: 4, total: 22, loadOrder: 4000,
+                previousLoadOrder: 5000, pending: true, appliesAt: 'next round boundary',
+                shadowChanged: [], shadowChangedTruncated: false
+            };
         }
     };
     return { service, calls };
@@ -43,7 +57,10 @@ function makeStub() {
 async function withServer(deps) {
     const router = express.Router();
     register(router, deps);
-    const app = express().use(router);
+    // The JSON body parser the real server installs (`src/utils/serverBootstrap.js`), because
+    // `POST /mods/:id/move` reads `{ direction }` from the body. A harness without it would
+    // pass a route test by reading `undefined` where the real server reads the request.
+    const app = express().use(express.json()).use(router);
     const server = await new Promise((resolve) => resolve(app.listen(0)));
     const port = server.address().port;
     return {
@@ -66,6 +83,112 @@ async function withServer(deps) {
         close: () => server.close()
     };
 }
+
+describe('POST /mods/:id/move', () => {
+    beforeEach(() => { behavior = null; });
+
+    /** A move refuses with fields, not only with a sentence. */
+    const refusal = (message, code, fields) => Object.assign(
+        new GameError(message, code),
+        fields
+    );
+
+    it('sends the body direction to the service and answers with its whole result', async () => {
+        const { service, calls } = makeStub();
+        const { postJson, close } = await withServer({ modService: service });
+        const { status, body } = await postJson('/mods/deep-geology/move', { direction: 'up' });
+        expect(status).toBe(200);
+        expect(calls).toEqual([['move', 'deep-geology', 'up']]);
+        expect(body).toMatchObject({
+            success: true,
+            id: 'deep-geology',
+            moved: true,
+            direction: 'up',
+            rank: 4,
+            total: 22,
+            pending: true,
+            appliesAt: 'next round boundary',
+            shadowChanged: [],
+            shadowChangedTruncated: false
+        });
+        close();
+    });
+
+    it('names the keys the move reassigned, which is the whole point of the answer', async () => {
+        behavior = {
+            result: {
+                id: 'x', moved: true, direction: 'down', rank: 1, total: 6, loadOrder: 1000,
+                previousLoadOrder: 2000, pending: true, appliesAt: 'next round boundary',
+                shadowChanged: [{ kind: 'components', key: 'knife', was: 'glyph', now: 'forge' }],
+                shadowChangedTruncated: false
+            }
+        };
+        const { service } = makeStub();
+        const { postJson, close } = await withServer({ modService: service });
+        const { status, body } = await postJson('/mods/x/move', { direction: 'down' });
+        expect(status).toBe(200);
+        expect(body.shadowChanged).toEqual([{ kind: 'components', key: 'knife', was: 'glyph', now: 'forge' }]);
+        close();
+    });
+
+    it('answers 409 with the edge it hit, and no invented fields', async () => {
+        behavior = { throwOn: new GameError('ModService: "x" is already at the top of the stack', 'MOD_MOVE_AT_EDGE') };
+        const { service } = makeStub();
+        const { postJson, close } = await withServer({ modService: service });
+        const { status, body } = await postJson('/mods/x/move', { direction: 'up' });
+        expect(status).toBe(409);
+        expect(body).toMatchObject({ success: false, error: 'MOD_MOVE_AT_EDGE' });
+        // The service set none of `mod`/`requires`/`from`/`to` here, so none of them appears.
+        expect(body).not.toHaveProperty('requires');
+        close();
+    });
+
+    it('answers 409 with the requires edge, the positions and the name', async () => {
+        behavior = {
+            throwOn: refusal(
+                'ModService: cannot move "forge" up: it requires "atlas"',
+                'MOD_MOVE_BREAKS_REQUIRES',
+                { mod: 'forge', requires: 'atlas', from: 3, to: 2 }
+            )
+        };
+        const { service } = makeStub();
+        const { postJson, close } = await withServer({ modService: service });
+        const { status, body } = await postJson('/mods/forge/move', { direction: 'up' });
+        expect(status).toBe(409);
+        expect(body).toMatchObject({
+            success: false,
+            error: 'MOD_MOVE_BREAKS_REQUIRES',
+            mod: 'forge',
+            requires: 'atlas',
+            from: 3,
+            to: 2
+        });
+        close();
+    });
+
+    it('answers 400 for a direction that is not up or down, and for no body at all', async () => {
+        behavior = { throwOn: new GameError('ModService: move direction must be "up" or "down"', 'MOD_MOVE_DIRECTION_INVALID') };
+        const { service, calls } = makeStub();
+        const { postJson, post, close } = await withServer({ modService: service });
+        const bad = await postJson('/mods/x/move', { direction: 'sideways' });
+        expect(bad.status).toBe(400);
+        // A POST with no body reaches the same refusal, because there is no direction to read.
+        const empty = await post('/mods/x/move');
+        expect(empty.status).toBe(400);
+        expect(calls.map((c) => c[2])).toEqual(['sideways', undefined]);
+        close();
+    });
+
+    it('keeps the shared 500 contract for anything the service did not code', async () => {
+        behavior = { throwOn: new Error('disk on fire') };
+        const { service } = makeStub();
+        const { postJson, close } = await withServer({ modService: service });
+        const { status, body } = await postJson('/mods/x/move', { direction: 'up' });
+        expect(status).toBe(500);
+        expect(body.error).toBe('Internal Server Error');
+        close();
+    });
+});
 
 describe('POST /mods/:id/enable and /disable', () => {
     beforeEach(() => { behavior = null; });

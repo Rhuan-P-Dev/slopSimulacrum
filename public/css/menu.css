@@ -297,7 +297,7 @@
 
 .mods-row {
     display: grid;
-    grid-template-columns: 3.4ch minmax(0, 1fr) auto;
+    grid-template-columns: 4.8ch minmax(0, 1fr) auto;
     gap: 4px 12px;
     align-items: start;
     border-bottom: 1px solid #1f1f1f;
@@ -327,6 +327,30 @@
     cursor: help;
 }
 .mods-row--off .mods-ordinal { color: var(--text-dim); }
+
+/* Position controls live with the rank, not with the actions: an operator aiming a package
+   aims at its number, and `^`/`v` under the number reads as "of this stack". */
+.mods-ordinal {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+.mods-move-group { display: flex; gap: 2px; }
+.mods-move {
+    font: inherit;
+    font-size: 0.72em;
+    line-height: 1;
+    padding: 1px 4px;
+    color: var(--neon-green);
+    background: transparent;
+    border: 1px solid #2c2c2c;
+    cursor: pointer;
+}
+.mods-move:hover:not(:disabled) { border-color: var(--neon-green); }
+/* An edge says so: "already at the top" is a fact about the stack, not a missing control. */
+.mods-move:disabled { color: #3a3a3a; border-color: #1f1f1f; cursor: default; }
+.mods-row--off .mods-move { opacity: 0.6; }
 
 .mods-id { color: var(--neon-green); }
 .mods-version { color: var(--text-dim); font-size: 0.85em; }

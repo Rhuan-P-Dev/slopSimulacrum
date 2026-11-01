@@ -28,7 +28,9 @@
  * @module ModService
  */
 
-import ModLoader, { resolveRequirements, MOD_ERROR_CODES, MANIFEST_FILE } from './ModLoader.js';
+import ModLoader, {
+    resolveRequirements, sortModsForLoad, DEFAULT_LOAD_ORDER, MOD_ERROR_CODES, MANIFEST_FILE
+} from './ModLoader.js';
 import classifyComposition from './CompositionClassifier.js';
 import DataLoader from '../utils/DataLoader.js';
 import Logger from '../utils/Logger.js';
@@ -48,6 +50,69 @@ export const MAX_KEYS_PER_KIND = 50;
  * turn loop is stopped, where it stays pending until someone starts a round.
  */
 export const APPLY_AT = 'next round boundary';
+
+/** `moveMod`: toward the top of the stack — composes earlier, so it LOSES a shared key. */
+export const MOVE_UP = 'up';
+
+/** `moveMod`: toward the bottom of the stack — composes last, so it WINS a shared key. */
+export const MOVE_DOWN = 'down';
+
+/**
+ * The gap between two stack levels; rank 1 sits at exactly this number, so the top of a
+ * renumbered stack stays on the level an untuned install sits at.
+ *
+ * The consequence is worth knowing before dropping a package in: a package with no state
+ * entry takes `DEFAULT_LOAD_ORDER` (the loader's fallback), which is this same number, so a
+ * package added AFTER a move ties with rank 1 and composes near the top of the stack. The
+ * move control is what places it; nothing infers a level from a package's content.
+ */
+export const LOAD_ORDER_STRIDE = DEFAULT_LOAD_ORDER;
+
+/**
+ * Group shadow facts by owner: `kind -> key -> the package the world runs for it`.
+ *
+ * `shadowed` only carries keys somebody else also ships, so this map is exactly "the keys
+ * whose owner a reorder can change" — a key no other package ships has no owner to move and
+ * is not in it.
+ * @param {Array<{ kind: string, key: string, to: string }>} shadowed - from `ModLoader.build`
+ * @returns {Map<string, Map<string, string>>}
+ */
+export function ownersOf(shadowed) {
+    const owners = new Map();
+    for (const entry of shadowed) {
+        if (!owners.has(entry.kind)) owners.set(entry.kind, new Map());
+        owners.get(entry.kind).set(entry.key, entry.to);
+    }
+    return owners;
+}
+
+/**
+ * Keys whose owner differs between two stacks — the honest headline for "what did that move
+ * do?". A key present on only one side means the move also changed who ships it at all, which
+ * happens when a move crosses a package that was refused: `was`/`now` is then `null`.
+ * @param {Map<string, Map<string, string>>} before
+ * @param {Map<string, Map<string, string>>} after
+ * @returns {Array<{ kind: string, key: string, was: string|null, now: string|null }>}
+ */
+export function ownerChanges(before, after) {
+    const changed = [];
+    for (const [kind, keys] of after) {
+        const wasKeys = before.get(kind);
+        for (const [key, now] of keys) {
+            const was = wasKeys?.get(key) ?? null;
+            if (was !== now) changed.push({ kind, key, was, now });
+        }
+    }
+    for (const [kind, keys] of before) {
+        const nowKeys = after.get(kind);
+        for (const [key, was] of keys) {
+            if (nowKeys?.has(key)) continue;
+            changed.push({ kind, key, was, now: null });
+        }
+    }
+    // kind then key, so the list does not depend on insertion order (`CR D-1`).
+    return changed.sort((a, b) => a.kind.localeCompare(b.kind) || a.key.localeCompare(b.key));
+}
 
 /**
  * Structural equality for JSON-shaped values. `JSON.stringify` is not enough: the
@@ -395,6 +460,240 @@ export class ModService {
      */
     disable(id) {
         return this.setEnabled(id, false);
+    }
+
+    // =========================================================================
+    // Moving a package in the stack
+    // =========================================================================
+
+    /**
+     * Move one package one slot in the stack, and queue the recomposition.
+     *
+     * Place is what a package means: for any key two packages ship, the world runs the
+     * definition of the one that composes LAST (`ModLoader.build`). So moving a package moves
+     * who wins, and `direction` is written the way the launcher draws the stack — `up` is
+     * toward the top, which composes FIRST and therefore loses; `down` composes last and wins.
+     * The ordinal gutter in the panel is the same numbering: rank 1 is the top.
+     *
+     * Like enable/disable, this writes the wish, not the world. `data/mods/loadorder.json` is
+     * rewritten and `pending` says when it lands; nothing is swapped here, so a round in
+     * progress resolves against one definition (`wiki/decisions/mod-system.md` decision 4).
+     *
+     * The whole stack is renumbered, not just the moved package (`reassignLoadOrders`).
+     *
+     * @param {string} id - A package id, as `GET /mods` lists it.
+     * @param {'up'|'down'} direction - Which way it moves in the drawn stack.
+     * @returns {{ id: string, moved: true, direction: string, rank: number, total: number,
+     *   loadOrder: number, previousLoadOrder: number, pending: boolean, appliesAt: string,
+     *   shadowChanged: Array<Object>, shadowChangedTruncated: boolean }}
+     * @throws {GameError} MOD_ID_INVALID - not a non-empty string.
+     * @throws {GameError} MOD_MOVE_DIRECTION_INVALID - anything other than `up` / `down`.
+     * @throws {GameError} MOD_NOT_FOUND - no package with that id is installed.
+     * @throws {GameError} MOD_MOVE_AT_EDGE - it is already at that end of the stack.
+     * @throws {GameError} MOD_MOVE_BREAKS_REQUIRES - the move would compose it above something
+     *   it requires. Carries `mod`, `requires`, `from`, `to` for the client.
+     */
+    moveMod(id, direction) {
+        if (typeof id !== 'string' || id.length === 0) {
+            throw new GameError('ModService: mod id must be a non-empty string', MOD_ERROR_CODES.ID_INVALID);
+        }
+        if (direction !== MOVE_UP && direction !== MOVE_DOWN) {
+            throw new GameError(
+                `ModService: move direction must be "${MOVE_UP}" or "${MOVE_DOWN}", ` 
+                + `got ${typeof direction === 'string' ? `"${direction}"` : String(direction)}`,
+                MOD_ERROR_CODES.MOVE_DIRECTION_INVALID
+            );
+        }
+        // Discovered now, exactly as `setEnabled` does: queueing a position for a package that
+        // was deleted since the last scan would write a state entry nothing can ever apply.
+        const { discovered } = this.remember(this.discover());
+        const ordered = sortModsForLoad(discovered);
+        const from = ordered.findIndex((mod) => mod.manifest.id === id);
+        if (from === -1) {
+            throw new GameError(`ModService: no mod package named "${id}" is installed`, 'MOD_NOT_FOUND');
+        }
+        const to = direction === MOVE_UP ? from - 1 : from + 1;
+        if (to < 0 || to >= ordered.length) {
+            throw new GameError(
+                `ModService: "${id}" is already at the ${direction === MOVE_UP ? 'top' : 'bottom'} of the `
+                + `stack (${ordered.length} package(s), position ${from + 1})`,
+                MOD_ERROR_CODES.MOVE_AT_EDGE
+            );
+        }
+        const moved = ordered[from];
+        const refusal = this.moveOrderRefusal(ordered, moved, from, to, direction);
+        if (refusal) {
+            const error = new GameError(`ModService: ${refusal.message}`, MOD_ERROR_CODES.MOVE_BREAKS_REQUIRES);
+            // The route forwards these, so the client names the package and the positions
+            // instead of parsing them back out of a sentence.
+            error.mod = id;
+            error.requires = refusal.requires;
+            error.from = from + 1;
+            error.to = to + 1;
+            throw error;
+        }
+        // Composed twice — as it stands, and as it will be — so the answer can name the keys
+        // whose owner the move changes. `build()` is the only thing that knows who wins a key:
+        // it accounts for disabled packages, refused packages and three-way overlaps, and a
+        // second, narrower model of the merge here would disagree with it the day someone
+        // edits the real one (`CR H-1`). Two scans of the package set for a rate-limited
+        // operator action is the cheap half of that trade.
+        const ownersBefore = this.ownersByLevel();
+        this.state = this.reassignLoadOrders(ordered, from, to);
+        this.stateStore.save(this.state);
+        this.pending = true;
+        const changed = ownerChanges(ownersBefore, this.ownersByLevel());
+        const rank = to + 1;
+        Logger.info(`[ModService] mod "${id}" moved ${direction} to stack position ${rank} of `
+            + `${ordered.length}; applies at the ${APPLY_AT}`);
+        return {
+            id,
+            moved: true,
+            direction,
+            rank,
+            total: ordered.length,
+            loadOrder: rank * LOAD_ORDER_STRIDE,
+            previousLoadOrder: moved.loadOrder,
+            pending: this.pending,
+            appliesAt: APPLY_AT,
+            shadowChanged: changed.slice(0, MAX_KEYS_PER_KIND),
+            shadowChangedTruncated: changed.length > MAX_KEYS_PER_KIND
+        };
+    }
+
+    /**
+     * Does this move break the one ordering rule the stack has?
+     *
+     * A package composes BELOW (after) everything it `requires`. `requires` means "my
+     * definitions name things that package provides", so a provider composing last would
+     * stamp its own definitions over the dependent's edits and silently undo the package
+     * written on top of it. This is a rule about shadow precedence, not about availability:
+     * `resolveRequirements` still decides whether a package can contribute at all, and still
+     * does not care about order.
+     *
+     * Only the moved package's own edges are read, and only to required packages that actually
+     * compose. That keeps the refusal about THIS move.
+     *
+     * WHAT IS COMPARED, AND WHY THE POST-MOVE STATE ALONE IS NOT ENOUGH. The refusal is
+     * `depth_after > depth_before`, where depth counts how many positions the package sits
+     * ABOVE the packages it requires. The obvious rule — refuse if the post-move state has the
+     * package above a provider at all — is the one that reads best and does not work: the
+     * shipped install already composes six edges the wrong way round (every package sits at the
+     * default level, so the tiebreak is the id and `core-components` sorts above
+     * `core-materials`), so those five packages would be frozen in place — unable to move up
+     * (still inverted) and unable to move down (still inverted, one step short). No move is
+     * illegal per step, yet the only legal destination is twenty steps away. Depth makes the
+     * rule monotone: a move that walks a package toward its providers is progress and is
+     * allowed, a move that carries it further above them is refused. On a package with nothing
+     * inverted — the state this rule was written for — depth_before is 0 and the two rules
+     * refuse exactly the same moves.
+     *
+     * Refusing an inversion the operator did not create would blame them for a stack they
+     * inherited (`CR H-4`); refusing one they are deepening is the whole point.
+     *
+     * @param {Array<Object>} ordered - The stack as it is, in load order.
+     * @param {Object} moved - The package being moved (an entry of `ordered`).
+     * @param {number} from - Its index now.
+     * @param {number} to - Its index after the move (always adjacent).
+     * @param {string} direction - `up` or `down`, for the message.
+     * @returns {{ message: string, requires: string }|null}
+     */
+    moveOrderRefusal(ordered, moved, from, to, direction) {
+        // Who composes at all. A required package that is off or blocked composes nowhere, so
+        // there is no precedence to protect against it; the index is the position in the
+        // STACK, not in the filtered list, because rank is what the operator is shown.
+        const composes = new Set(
+            ordered.filter((mod) => mod.enabled !== false && !mod.blocked).map((mod) => mod.manifest.id)
+        );
+        // The moved package contributes nothing, so ordering it protects nothing.
+        if (!composes.has(moved.manifest.id)) return null;
+
+        const ids = ordered.map((mod) => mod.manifest.id);
+        // Positions are only ever read through these two maps, so the crossing (an adjacent
+        // move SWAPS the two packages, it does not jump past them) is the loader's own
+        // `splice` semantics and not a second guess at it.
+        const positionsAt = (hasMoved) => {
+            const list = ids.slice();
+            if (hasMoved) list.splice(to, 0, list.splice(from, 1)[0]);
+            return list;
+        };
+        const depthAbove = (list) => {
+            const index = new Map();
+            list.forEach((modId, i) => {
+                if (composes.has(modId)) index.set(modId, i);
+            });
+            const mine = index.get(moved.manifest.id);
+            let depth = 0;
+            let deepest = null;
+            for (const dep of moved.manifest.requires) {
+                const depIndex = index.get(dep);
+                if (depIndex === undefined) continue;
+                const over = depIndex - mine;
+                if (over > 0) {
+                    depth += over;
+                    // Named for the message: the provider the package is sitting on top of.
+                    if (!deepest || depIndex > index.get(deepest)) deepest = dep;
+                }
+            }
+            return { depth, deepest };
+        };
+
+        const before = depthAbove(positionsAt(false));
+        // `depth > 0` wherever the refusal fires, so `deepest` is a named package here.
+        const after = depthAbove(positionsAt(true));
+        if (after.depth <= before.depth) return null;
+
+        // The provider named is the one being moved further away from, which is the fact the
+        // operator can act on: going the other way is always legal from here. Its position is
+        // read off the moved stack, because that is the stack the message describes.
+        const depIndex = positionsAt(true).indexOf(after.deepest);
+        return {
+            requires: after.deepest,
+            message: `cannot move "${moved.manifest.id}" ${direction}: it requires "${after.deepest}", `
+                + `and a package composes below everything it requires. This move would carry it `
+                + `further above it — to position ${to + 1}, with "${after.deepest}" at position `
+                + `${depIndex + 1}. Moving it down is allowed from here.`
+        };
+    }
+
+    /**
+     * The state after the move: EVERY installed package renumbered to its rank times
+     * `LOAD_ORDER_STRIDE`.
+     *
+     * Renumbering the whole stack instead of slipping one number between two neighbours is
+     * what keeps ties out. Ties are not neutral here: they fall to the id (`sortModsForLoad`),
+     * so a half-numbered stack is one where an unrelated package name silently decides who
+     * wins a key. `enabled` is spread over, never recomputed — this moves position and
+     * nothing else.
+     * @param {Array<Object>} ordered - The stack as it is, in load order.
+     * @param {number} from - Index of the moving package.
+     * @param {number} to - Index it moves to (adjacent).
+     * @returns {Object.<string, {enabled?: boolean, loadOrder: number}>} a new state object
+     * @private
+     */
+    reassignLoadOrders(ordered, from, to) {
+        const next = ordered.slice();
+        next.splice(to, 0, next.splice(from, 1)[0]);
+        const state = { ...this.currentState() };
+        next.forEach((mod, index) => {
+            const modId = mod.manifest.id;
+            state[modId] = { ...(state[modId] ?? {}), loadOrder: (index + 1) * LOAD_ORDER_STRIDE };
+        });
+        return state;
+    }
+
+    /**
+     * Who the world runs for each shared key, under the state the loader currently holds.
+     *
+     * Goes through the same seam as `plan()` (`discover()` then `loader.build()`), so there is
+     * one path from "what is on disk" to "who wins". The discovery is remembered, as every
+     * other verb does, so a `list()` right after a move describes the world that move saw.
+     * @returns {Map<string, Map<string, string>>} kind -> key -> the package the world runs
+     * @private
+     */
+    ownersByLevel() {
+        const { discovered } = this.remember(this.discover());
+        return ownersOf(this.loader.build(discovered).shadowed);
     }
 
     /**

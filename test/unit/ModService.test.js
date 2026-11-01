@@ -17,7 +17,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import ModService, { diffRegistry, MAX_KEYS_PER_KIND } from '../../src/services/ModService.js';
+import ModService, {
+    diffRegistry, MAX_KEYS_PER_KIND, APPLY_AT, LOAD_ORDER_STRIDE, ownerChanges, ownersOf
+} from '../../src/services/ModService.js';
 import ModLoader from '../../src/services/ModLoader.js';
 import RegistryStore from '../../src/services/RegistryStore.js';
 import { REGISTRY_KINDS, REGISTRY_KIND_LIST } from '../../shared/RegistryKinds.js';
@@ -569,6 +571,237 @@ describe('requires: refusing a change the install cannot honor', () => {
         // definitions are not in the candidate, so they are never offered as "added".
         expect(plan.kinds).toEqual([]);
         expect(JSON.stringify(plan)).not.toContain('ghost');
+    });
+});
+
+describe('moving a package in the stack', () => {
+    // Its own fixture root, and a shape chosen to hold every case at once. The stack is
+    // alphabetical (every package at the default level, so `sortModsForLoad` breaks the tie by
+    // id), which gives:
+    //   aaa-needs, atlas, forge, glyph, quarry, zzz-provider
+    // - `forge requires atlas` is satisfied (atlas composes first), so lifting forge is a real
+    //   break and must be refused;
+    // - `aaa-needs requires zzz-provider` is INVERTED from birth, the same inherited break the
+    //   shipped install has, and is what proves an inversion can still be walked out;
+    // - `forge` and `glyph` both ship `components/knife`, adjacent, so one move changes its
+    //   owner and `shadowChanged` has something true to report.
+    const MOVE_ROOT = path.resolve('data', `.mod-service-move-${process.pid}`);
+    const relRoot = () => path.relative(process.cwd(), MOVE_ROOT);
+
+    function writeAt(name, content, files, requires) {
+        const dir = path.join(MOVE_ROOT, name);
+        fs.mkdirSync(dir, { recursive: true });
+        const manifest = { id: name, version: '1.0.0', content };
+        if (requires) manifest.requires = requires;
+        fs.writeFileSync(path.join(dir, 'mod.json'), JSON.stringify(manifest), 'utf8');
+        for (const [kind, value] of Object.entries(files)) {
+            fs.writeFileSync(path.join(dir, `${kind}.json`), JSON.stringify(value), 'utf8');
+        }
+    }
+
+    const memState = (initial = {}) => {
+        const holder = { state: { ...initial } };
+        return { load: () => ({ ...holder.state }), save: (next) => { holder.state = { ...next }; }, holder };
+    };
+
+    /**
+     * A service over the fixture packages, already scanned.
+     *
+     * Seeded through the STATE STORE, not the loader: `ModService.discover()` pushes
+     * `currentState()` into `loader.state`, and `rescan()` reloads it from the store, so a
+     * scenario written into the loader is quietly overwritten before it is read. Scanned on the
+     * way out because a service that has not looked at the disk answers `view()` with an empty
+     * list, and every rank assertion below reads that.
+     */
+    const service = (state = {}) => {
+        const s = new ModService({
+            registryStore: new RegistryStore(new ModLoader({ baseDir: relRoot(), state }).build().registries),
+            loader: new ModLoader({ baseDir: relRoot() }),
+            stateStore: memState(state)
+        });
+        s.rescan();
+        return s;
+    };
+
+    /** Stack ranks as the next boundary would compose them: id at the level it now carries. */
+    const stackOf = (s) => s.view()
+        .slice()
+        .sort((a, b) => a.loadOrder - b.loadOrder)
+        .map((m) => m.id);
+
+    /** The thrown error of a refused call (the whole error: these refusals carry fields). */
+    const refusalOf = (fn) => {
+        try {
+            fn();
+        } catch (error) {
+            return error;
+        }
+        throw new Error('expected the call to throw');
+    };
+
+    beforeAll(() => {
+        fs.rmSync(MOVE_ROOT, { recursive: true, force: true });
+        fs.mkdirSync(MOVE_ROOT, { recursive: true });
+        const steel = { steel: { name: 'Steel', density: 7.8, properties: {} } };
+        writeAt('atlas', [REGISTRY_KINDS.MATERIALS], { [REGISTRY_KINDS.MATERIALS]: steel });
+        writeAt('forge', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { knife: { name: 'Forge knife' } } }, ['atlas']);
+        writeAt('glyph', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { knife: { name: 'Glyph knife' } } });
+        writeAt('quarry', [REGISTRY_KINDS.MATERIALS], { [REGISTRY_KINDS.MATERIALS]: { steel: { name: 'Quarry steel', density: 8, properties: {} } } });
+        writeAt('aaa-needs', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { clamp: { name: 'Clamp' } } }, ['zzz-provider']);
+        writeAt('zzz-provider', [REGISTRY_KINDS.COMPONENTS], { [REGISTRY_KINDS.COMPONENTS]: { bolt: { name: 'Bolt' } } });
+    });
+
+    afterAll(() => {
+        fs.rmSync(MOVE_ROOT, { recursive: true, force: true });
+    });
+
+    it('starts with the tie the id decides, and one edge already inverted', () => {
+        const s = service();
+        expect(stackOf(s)).toEqual(['aaa-needs', 'atlas', 'forge', 'glyph', 'quarry', 'zzz-provider']);
+        // The precondition the rest of this block reads off: `glyph` composes after `forge`, so
+        // it owns the shared knife, and `aaa-needs` sits above the package it requires.
+        expect(s.plan().shadowed).toEqual([
+            { kind: 'components', key: 'knife', from: 'forge', to: 'glyph' },
+            { kind: 'materials', key: 'steel', from: 'atlas', to: 'quarry' }
+        ]);
+    });
+
+    it('renumbers the WHOLE stack, so no tie survives the move', () => {
+        const s = service();
+        const result = s.moveMod('glyph', 'up');
+
+        expect(result).toMatchObject({
+            id: 'glyph', moved: true, direction: 'up', rank: 3, total: 6,
+            loadOrder: 3 * LOAD_ORDER_STRIDE, previousLoadOrder: LOAD_ORDER_STRIDE,
+            pending: true, appliesAt: APPLY_AT
+        });
+        // Not a number for one package: every package now carries its rank, so the id tiebreak
+        // decides nothing any more (a half-numbered stack is one where a rename wins a key).
+        expect(s.stateStore.holder.state).toEqual({
+            'aaa-needs': { loadOrder: 1000 },
+            atlas: { loadOrder: 2000 },
+            glyph: { loadOrder: 3000 },
+            forge: { loadOrder: 4000 },
+            quarry: { loadOrder: 5000 },
+            'zzz-provider': { loadOrder: 6000 }
+        });
+        expect(stackOf(s)).toEqual(['aaa-needs', 'atlas', 'glyph', 'forge', 'quarry', 'zzz-provider']);
+    });
+
+    it('names the keys whose owner the move changed', () => {
+        const s = service();
+        const result = s.moveMod('glyph', 'up');
+        // The whole point of composing the stack twice: a reorder is invisible except through
+        // the keys it reassigns, and "it moved" is not a consequence an operator can check.
+        expect(result.shadowChanged).toEqual([
+            { kind: 'components', key: 'knife', was: 'glyph', now: 'forge' }
+        ]);
+        expect(result.shadowChangedTruncated).toBe(false);
+        expect(s.plan().shadowed.find((e) => e.key === 'knife')).toMatchObject({ from: 'glyph', to: 'forge' });
+    });
+
+    it('refuses to lift a package above something it requires', () => {
+        const s = service();
+        const error = refusalOf(() => s.moveMod('forge', 'up'));
+        expect(error.code).toBe('MOD_MOVE_BREAKS_REQUIRES');
+        expect(error).toMatchObject({ mod: 'forge', requires: 'atlas', from: 3, to: 2 });
+        expect(error.message).toMatch(/composes below everything it requires/);
+        // Nothing was written and nothing was queued: a refused move is not a half move.
+        expect(s.stateStore.holder.state).toEqual({});
+        expect(s.pending).toBe(false);
+        expect(stackOf(s)).toEqual(['aaa-needs', 'atlas', 'forge', 'glyph', 'quarry', 'zzz-provider']);
+    });
+
+    it('walks an inherited inversion down and refuses only to deepen it', () => {
+        const s = service();
+        // `aaa-needs` composes above `zzz-provider` from birth. Refusing every state that is
+        // inverted would freeze it here: neither direction legal, the only good destination
+        // five steps away. Depth makes the rule monotone instead.
+        // At the very top the edge answers first, and that ordering is right - there is no move
+        // here to reason about at all.
+        expect(refusalOf(() => s.moveMod('aaa-needs', 'up')).code).toBe('MOD_MOVE_AT_EDGE');
+        expect(s.moveMod('aaa-needs', 'down').rank).toBe(2);
+        // One step down was progress, so the step back up is a deepening, and THIS is what the
+        // requires rule exists for.
+        expect(refusalOf(() => s.moveMod('aaa-needs', 'up')).code).toBe('MOD_MOVE_BREAKS_REQUIRES');
+        for (let step = 0; step < 4; step++) {
+            expect(s.moveMod('aaa-needs', 'down').direction).toBe('down');
+        }
+        expect(stackOf(s).at(-1)).toBe('aaa-needs');
+        // Now that it sits below its provider, the same lift WOULD break a holding edge, and it
+        // is refused for that reason from here on.
+        expect(refusalOf(() => s.moveMod('aaa-needs', 'up')).code).toBe('MOD_MOVE_BREAKS_REQUIRES');
+    });
+
+    it('says so at either end of the stack', () => {
+        const s = service();
+        for (let step = 0; step < 5; step++) s.moveMod('aaa-needs', 'down');
+        expect(refusalOf(() => s.moveMod('aaa-needs', 'down')))
+            .toMatchObject({ code: 'MOD_MOVE_AT_EDGE' });
+        // The walk left `atlas` at the top, so the top edge is reachable in the same fixture.
+        expect(refusalOf(() => s.moveMod('atlas', 'up')))
+            .toMatchObject({ code: 'MOD_MOVE_AT_EDGE', message: /top of the stack/ });
+    });
+
+    it('keeps `enabled` untouched while renumbering', () => {
+        const s = service({ atlas: { enabled: false } });
+        s.moveMod('quarry', 'up');
+        // A move moves position. An operator who switched a package off must not find it back
+        // on because something else was reordered.
+        expect(s.stateStore.holder.state.atlas).toEqual({ enabled: false, loadOrder: 2000 });
+        expect(s.view().find((m) => m.id === 'atlas').enabled).toBe(false);
+    });
+
+    it('rejects a direction, an id, and an empty id, without writing anything', () => {
+        const s = service();
+        expect(refusalOf(() => s.moveMod('atlas', 'sideways')).code).toBe('MOD_MOVE_DIRECTION_INVALID');
+        expect(refusalOf(() => s.moveMod('atlas', undefined)).code).toBe('MOD_MOVE_DIRECTION_INVALID');
+        expect(refusalOf(() => s.moveMod('', 'up')).code).toBe('MOD_ID_INVALID');
+        expect(refusalOf(() => s.moveMod('not-here', 'up')))
+            .toMatchObject({ code: 'MOD_NOT_FOUND' });
+        expect(s.stateStore.holder.state).toEqual({});
+        expect(s.pending).toBe(false);
+    });
+
+    it('reaches the store at the round boundary, like every other mod change', () => {
+        const s = service();
+        s.moveMod('glyph', 'up');
+        // `pending` alone is a promise; this is the promise kept - the swap is the existing
+        // boundary path, not a second one a reorder invented.
+        const report = s.applyPending();
+        expect(report).not.toBeNull();
+        expect(s.pending).toBe(false);
+        expect(s.registryStore.read(REGISTRY_KINDS.COMPONENTS).knife.name).toBe('Forge knife');
+    });
+});
+
+describe('ownersOf and ownerChanges: the two derivations the move answer is built from', () => {
+    it('groups shared keys by the owner the world runs', () => {
+        const owners = ownersOf([
+            { kind: 'components', key: 'knife', from: 'forge', to: 'glyph' },
+            { kind: 'components', key: 'plate', from: 'forge', to: 'quarry' }
+        ]);
+        expect(owners.get('components').get('knife')).toBe('glyph');
+        // A key nobody else ships has no owner to change, so it is not in here at all.
+        expect(owners.get('materials')).toBeUndefined();
+    });
+
+    it('reports only what differs, in a stable order, including a key that went away', () => {
+        const before = ownersOf([
+            { kind: 'components', key: 'knife', from: 'a', to: 'b' },
+            { kind: 'components', key: 'same', from: 'a', to: 'b' },
+            { kind: 'components', key: 'gone', from: 'a', to: 'b' }
+        ]);
+        const after = ownersOf([
+            { kind: 'components', key: 'knife', from: 'a', to: 'a' },
+            { kind: 'components', key: 'same', from: 'a', to: 'b' }
+        ]);
+        // `same` is on both sides with the same owner and must not appear; `gone` stopped being
+        // shared at all, which is a change worth naming rather than a silence.
+        expect(ownerChanges(before, after)).toEqual([
+            { kind: 'components', key: 'gone', was: 'b', now: null },
+            { kind: 'components', key: 'knife', was: 'b', now: 'a' }
+        ]);
     });
 });
 
