@@ -311,6 +311,46 @@ class PerceptionController {
      * @returns {Array} delta entries (kind 'delta' only), oldest → newest
      */
     getRoomDeltasForAgent(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        return this._roomDeltasForAgent(entityId, roomId, { limit, advanceCursor: true });
+    }
+
+    /**
+     * The same room window as {@link getRoomDeltasForAgent}, **without
+     * consuming it**: nothing is acknowledged, the entity's cursor stays where
+     * it is, and the next brain read still sees these entries.
+     *
+     * Why it must exist (the Agent View incident, 2026-11-02): "the read IS the
+     * observation" is true of the agent's brain, and only of it. The dev
+     * inspector (`describeAgentView`, the Agent View panel) and
+     * `GET /llm/context/:entityId` compose the identical context, so every look
+     * through the camera advanced the *agent's* cursor and the round that
+     * followed read `(none)` — the more you watched an agent, the deader its
+     * perception. A debug view is a peek, never an observation.
+     *
+     * @param {string} entityId - the entity whose window is shown
+     * @param {string} roomId - the room whose buffer to read (UID)
+     * @param {{ limit?: number }} [options] - tail cap (default
+     *   PERCEPTION_RECENT_LIMIT)
+     * @returns {Array} delta entries (kind 'delta' only), oldest → newest
+     */
+    peekRoomDeltasForAgent(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        return this._roomDeltasForAgent(entityId, roomId, { limit, advanceCursor: false });
+    }
+
+    /**
+     * Shared body of the two agent room reads: one window, one cursor, the only
+     * difference being whether the read acknowledges it. A peek still FLUSHES
+     * the room (same freshness as the brain read — a debug view must show what
+     * the brain is about to see, not a stale copy) and never writes
+     * `_agentCursors`.
+     *
+     * @private
+     * @param {string} entityId
+     * @param {string} roomId
+     * @param {{ limit?: number, advanceCursor?: boolean }} options
+     * @returns {Array}
+     */
+    _roomDeltasForAgent(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT, advanceCursor = true } = {}) {
         if (!entityId || !roomId) return [];
         const sinceSequence = this._agentCursors.get(entityId) ?? -1;
         const buffer = this._bufferFor(roomId);
@@ -329,7 +369,8 @@ class PerceptionController {
         // Advance only up to the acknowledged sequence (never regress):
         // a quiet room (nothing since the cursor) leaves the cursor where it
         // is — see the method header for why that is the desired behavior.
-        if (acknowledged > sinceSequence) {
+        // A peek (advanceCursor === false) never writes the cursor at all.
+        if (advanceCursor && acknowledged > sinceSequence) {
             this._agentCursors.set(entityId, acknowledged);
         }
         visible.sort((a, b) => a.sequence - b.sequence || (a.ts ?? 0) - (b.ts ?? 0));

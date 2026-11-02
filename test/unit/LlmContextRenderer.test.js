@@ -167,8 +167,10 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         getRecentEvents: (limit) => recentEvents.slice(-limit),
         // Perception stream (room-scoped, cursor-on-read). The default world
         // is quiet; tests that exercise the "since you last looked" block
-        // override this with delta entries.
+        // override this with delta entries. The peek seam is the same window
+        // without the cursor write (debug readers) — see the observe:false test.
         getAgentRoomPerception: () => [],
+        peekAgentRoomPerception: () => [],
         // Dropped items in the current room (positions), for the "Dropped items:" line.
         getDroppedItemsByRoom: (roomId) => (roomId === 'room-1'
             ? { 'dropped-1': { id: 'dropped-1', itemType: 'knife', name: 'Knife', x: 150, y: 120, roomId: 'room-1' } }
@@ -1149,6 +1151,36 @@ describe('LlmContextController (context renderer)', () => {
             expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeGreaterThan(text.indexOf('=== YOUR LAST ACTIONS & RESULTS ==='));
             expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeLessThan(text.indexOf('=== YOUR WORLD'));
         });
+    });
+
+    // The perception read IS the agent's observation (the cursor advances with
+    // it) — and that belongs to the brain alone. A debug reader that consumes
+    // the window eats what the agent is about to perceive (the Agent View
+    // incident, 2026-11-02: watching an agent erased its perception).
+    it('observe:false reads the window without consuming it; the default read observes', () => {
+        let consumed = 0;
+        let peeked = 0;
+        const windowEntries = [{
+            sequence: 4, tick: 9, kind: 'delta',
+            summary: '1 entity moved in The Entrance Hall',
+            actions: { performed: [performedRowOnYou() ] }
+        }];
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(makeWorld({
+            getAgentRoomPerception: () => { consumed += 1; return windowEntries; },
+            peekAgentRoomPerception: () => { peeked += 1; return windowEntries; }
+        }));
+
+        const peek = ctrl.buildContext('ent-self', { observe: false });
+        expect(peeked, 'a debug read goes through the peek seam').toBe(1);
+        expect(consumed, 'a debug read must never touch the brain read').toBe(0);
+        expect(peek.text).toContain('- Player Droid used "droid punch" on you');
+        expect(peek.data.happenedToYou).toHaveLength(1);
+
+        const brain = ctrl.buildContext('ent-self');
+        expect(consumed, 'the brain read is the observation').toBe(1);
+        expect(peeked, 'the brain read does not peek').toBe(1);
+        expect(brain.text).toContain('- 1 entity moved in The Entrance Hall');
     });
 
     it('YOUR LAST ACTIONS & RESULTS names who your action hit (the outbound half of the direction)', () => {

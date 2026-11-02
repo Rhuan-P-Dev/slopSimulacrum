@@ -26,6 +26,12 @@
  * summary stays reader-independent — the new section is an addition to that
  * stream, not a rewrite of it.
  *
+ * A third surface is pinned here because it is the one that used to silently
+ * win: the dev inspector (`describeAgentView`, the Agent View panel) consumed
+ * the agent's perception window while composing its byte-identical view, so the
+ * operator watched an agent being destroyed while its own context read
+ * "(none)". A peek is now a peek: same window, cursor untouched.
+ *
  * Roster note: every NPC is despawned after boot. Cards in data/cards/ are
  * gitignored local content, and an NPC left alive joins the round roster —
  * this test would then depend on which images happen to be on this machine.
@@ -37,6 +43,7 @@ import { describe, it, expect } from 'vitest';
 import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
+import LLMAgentController from '../../src/controllers/networking/LLMAgentController.js';
 
 /**
  * A fresh world with no NPCs and two named droids standing in the same room
@@ -54,7 +61,27 @@ function buildArena(attackerName, victimName) {
     const roomId = world.roomsController.getUidByLogicalId('start_room');
     const attackerId = world.stateEntityController.spawnEntity('smallBallDroid', roomId, { name: attackerName });
     const victimId = world.stateEntityController.spawnEntity('smallBallDroid', roomId, { name: victimName });
-    return { world, tick, turns: subControllers.turnSystemController, roomId, attackerId, victimId };
+    return { world, tick, subControllers, turns: subControllers.turnSystemController, roomId, attackerId, victimId };
+}
+
+/**
+ * The Agent View inspector, wired to the real world with a stub provider (it
+ * must never be the LLM that is tested here — the inspector only composes).
+ * @param {Object} world
+ * @param {Object} subControllers
+ */
+function buildInspector(world, subControllers) {
+    return new LLMAgentController({
+        llmController: {
+            runLlmTurn: () => Promise.reject(new Error('the inspector never calls the provider')),
+            createLlmConversation: () => 'unused'
+        },
+        worldStateController: world,
+        llmContextController: subControllers.llmContextController,
+        roomChatController: subControllers.roomChatController,
+        turnSystemController: subControllers.turnSystemController,
+        instinctController: subControllers.instincts
+    });
 }
 
 /**
@@ -146,6 +173,57 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
         expect(section(attackerCtx.text, '=== HAPPENED TO YOU ===')).toContain('(none)');
         const victimCtx = world.llmContextController.buildContext(victimId);
         expect(section(victimCtx.text, '=== HAPPENED TO YOU ===')).toContain('Rover used "droid punch" on you');
+    });
+});
+
+describe('looking is not observing — the inspector peek must not consume the agent window', () => {
+    // The 2026-11-02 bug: describeAgentView / GET /llm/context composed the
+    // context with the SAME consuming read the brain uses, so every look at the
+    // panel advanced the agent's perception cursor. The operator watched an
+    // agent being destroyed while its context read "since you last looked:
+    // (none)" and "HAPPENED TO YOU (none)": the panel had seen the blows, and
+    // the agent never would.
+    it('the facade peek returns the same window twice; only the brain read consumes it', () => {
+        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        world.getAgentRoomPerception(victimId, roomId, { limit: 10 }); // baseline acknowledged
+        world.actionController.executeAction('droid punch', attackerId, {
+            componentIds: fistsOf(world, attackerId),
+            targetComponentId: headOf(world, victimId)
+        });
+
+        const peekedTwice = [
+            world.peekAgentRoomPerception(victimId, roomId, { limit: 10 }),
+            world.peekAgentRoomPerception(victimId, roomId, { limit: 10 })
+        ];
+        expect(peekedTwice[0]).toHaveLength(1);
+        expect(peekedTwice[1], 'a peek never acknowledges: the window is stable').toHaveLength(1);
+
+        // The brain read still finds it, and only IT consumes it.
+        expect(world.getAgentRoomPerception(victimId, roomId, { limit: 10 })).toHaveLength(1);
+        expect(world.getAgentRoomPerception(victimId, roomId, { limit: 10 }), 'the second brain read is a new window').toHaveLength(0);
+    });
+
+    it('opening Agent View shows the blow AND leaves it for the next agent round', () => {
+        const { world, subControllers, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const inspector = buildInspector(world, subControllers);
+        world.llmContextController.buildContext(victimId); // the agent's own round 1
+        world.actionController.executeAction('droid punch', attackerId, {
+            componentIds: fistsOf(world, attackerId),
+            targetComponentId: headOf(world, victimId)
+        });
+
+        // 1. The panel shows what happened (peek, same window the brain gets).
+        const view = inspector.describeAgentView(victimId);
+        expect(section(view.context.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
+        const peekedAgain = inspector.describeAgentView(victimId);
+        expect(section(peekedAgain.context.text, '=== HAPPENED TO YOU ==='), 'two opens, same window').toContain('- Rover used "droid punch" on you');
+
+        // 2. THE REGRESSION: the agent's own next round must still perceive it.
+        //    Before the fix this read came back empty — the panel had consumed
+        //    the window the agent was about to read.
+        const brain = world.llmContextController.buildContext(victimId);
+        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
+        expect(section(brain.text, 'since you last looked:')).toContain('action performed');
     });
 });
 

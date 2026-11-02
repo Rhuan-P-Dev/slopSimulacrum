@@ -1220,10 +1220,14 @@ class LLMAgentController {
             out.registry = {};
         }
 
-        // Same bounded sectioned context as the round runner.
+        // Same bounded sectioned context as the round runner — but a PEEK: the
+        // inspector looks, it does not observe. Composing it with the brain's
+        // consuming read advanced the agent's perception cursor, so every open
+        // of this panel erased what the agent was about to perceive (the 2026-
+        // 11-02 "my agent sees (none) while I watch it get destroyed" bug).
         try {
             const ctx = this.llmContextController?.buildContext
-                ? this.llmContextController.buildContext(entityId, { instincts, ...options })
+                ? this.llmContextController.buildContext(entityId, { instincts, ...options, observe: false })
                 : { text: '', data: null, stats: null };
             out.context = ctx && typeof ctx === 'object' ? ctx : { text: '', data: null, stats: null };
         } catch (err) {

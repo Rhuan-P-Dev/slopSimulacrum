@@ -67,7 +67,13 @@ export function register(router, { worldStateController }) {
                 return res.status(404).json({ error: 'ENTITY_NOT_FOUND' });
             }
 
-            const { text, data, stats } = worldStateController.llmContextController.buildContext(entityId, options);
+            // observe: false — a debug read must not consume the entity's
+            // perception window. "The read IS the observation" is the agent's
+            // brain's rule alone; here it showed the panel the punch and left
+            // the agent's next round with (none).
+            const { text, data, stats } = worldStateController.llmContextController.buildContext(entityId, {
+                ...options, observe: false
+            });
 
             const rooms = worldStateController.getRooms();
             const room = entity.location ? rooms[entity.location] : null;

@@ -1413,6 +1413,33 @@ class WorldStateController {
     }
 
     /**
+     * The agent's room window, **without consuming it**. Same entries as
+     * {@link getAgentRoomPerception}, but the entity's observation cursor is
+     * untouched, so the agent's next round still sees what this read showed.
+     *
+     * For readers that LOOK but do not OBSERVE: the dev inspector
+     * (`describeAgentView` / Agent View) and `GET /llm/context/:entityId`.
+     * "The read IS the observation" belongs to the agent's brain alone — when a
+     * debug panel's read advanced the agent's cursor, watching an agent erased
+     * its perception (2026-11-02).
+     * @param {string} entityId - The entity whose window is shown.
+     * @param {string} roomId - The room whose buffer to read (UID).
+     * @param {{ limit?: number }} [options]
+     * @returns {Array} Delta entries (kind 'delta' only), oldest → newest.
+     */
+    peekAgentRoomPerception(entityId, roomId, { limit = PERCEPTION_RECENT_LIMIT } = {}) {
+        if (!entityId || !roomId) return [];
+        try {
+            return this.perceptionController
+                ? (this.perceptionController.peekRoomDeltasForAgent(entityId, roomId, { limit }) ?? [])
+                : [];
+        } catch (error) {
+            Logger.warn(`[WorldStateController] agent room perception peek failed for ${entityId} in ${roomId}: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
      * Explicitly records that `entityId` has just observed the world. Exists
      * for callers that observe without reading deltas — e.g. the player UI
      * polling path, the /perception observe endpoint, or tests that want to

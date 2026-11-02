@@ -149,8 +149,13 @@ class LlmContextController {
      *   clamped to the BUDGET maximum). The "HAPPENED TO YOU" cap is not an
      *   option: it is `LLM_CONTEXT_MAX_ACTIONS_ON_YOU`, because the section is
      *   the agent's own bodily history and no caller gets to tune it away.
-     *   `instincts` (agent path) bypasses
-     *   the facade instinct fallback.
+     *   `instincts` (agent path) bypasses the facade instinct fallback.
+     *   `observe` (default `true`) decides whether this composition IS the
+     *   agent's observation: the round runner reads and consumes the perception
+     *   window ("the read IS the observation"); a debug reader (the Agent View
+     *   inspector, `GET /llm/context/:entityId`) passes `false` and sees the
+     *   same window with the agent's cursor untouched. A camera that eats what
+     *   it films is not a camera.
      * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, failures: boolean, deltas: boolean, actionsOnYou: boolean, chat: boolean, feedback: boolean, instincts: boolean } } }}
      */
     buildContext(entityId, options = {}) {
@@ -166,6 +171,10 @@ class LlmContextController {
             options.maxFailures ?? options.maxEvents, LlmContextController.BUDGET.maxFailures);
         const maxDeltas = this._clampOption(options.maxDeltas, LlmContextController.BUDGET.maxDeltas);
         const maxChat = this._clampOption(options.maxChat, LlmContextController.BUDGET.maxChat);
+
+        // Whether this composition consumes the agent's perception window.
+        // Default true (the brain). Debug readers pass observe: false.
+        const observe = options.observe !== false;
 
         const entity = facade.getEntity(entityId);
         if (!entity) {
@@ -183,7 +192,7 @@ class LlmContextController {
         // agent cursor advances on this call), so truncation later slices the
         // result in memory — a second facade read would find an already-
         // advanced cursor and nothing left to show.
-        const deltasData = this._buildDeltasData(entity, maxDeltas);
+        const deltasData = this._buildDeltasData(entity, maxDeltas, observe);
         const actionData = this._buildActionData(entityId);
         const hintsData = this._buildHintsData(entityId);
         const failuresData = this._buildFailureData(maxFailures);
@@ -963,14 +972,20 @@ class LlmContextController {
      * block is the baseline, so a first observation renders state only.
      * @param {Object} entity
      * @param {number} limit
+     * @param {boolean} [observe=true] - false reads the same window WITHOUT
+     *   advancing the agent's cursor (`peekAgentRoomPerception`): for the debug
+     *   readers, which look but are not the agent's brain.
      * @returns {Array<Object>} raw delta entries, oldest to newest
      * @private
      */
-    _buildDeltasData(entity, limit) {
+    _buildDeltasData(entity, limit, observe = true) {
         const facade = this.worldStateController;
-        if (!facade.getAgentRoomPerception) return [];
+        const read = observe ? facade.getAgentRoomPerception : facade.peekAgentRoomPerception;
+        if (typeof read !== 'function') return [];
         try {
-            const raw = facade.getAgentRoomPerception(entity.id, entity.location, { limit }) || [];
+            // .call(facade, …): these facade methods read `this` internally —
+            // detaching them loses it (the 2026-10-21 Minako chat-loss incident).
+            const raw = read.call(facade, entity.id, entity.location, { limit }) || [];
             // Defense in depth: a baseline is the state block's job, never
             // the change window. The facade already filters baselines; this
             // guards the renderer against any other producer of the stream.
