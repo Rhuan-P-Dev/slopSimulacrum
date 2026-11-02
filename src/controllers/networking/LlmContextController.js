@@ -51,7 +51,8 @@
  * resolved target. This section reads the very same window the "since you last
  * looked" block renders and keeps the rows whose target is THIS agent, so an
  * attack lands in its brain as its own sentence — `Droid used "droid punch" on
- * you (hit: Droid Head, 2x droidHand)` — instead of dissolving into the shared,
+ * you (hit: Droid Head, used: 1x left droidHand, 1x right droidHand)` — instead
+ * of dissolving into the shared,
  * reader-independent delta summary ("1 action performed …"), which never can
  * say "you" because one summary serves every reader of the room. It is action-
  * agnostic by construction: any action the dispatcher runs is captured, from
@@ -1039,8 +1040,9 @@ class LlmContextController {
      * @param {Array<Object>} deltas - the SAME delta entries the "since you
      *   last looked" block renders (never re-read: the read is the observation)
      * @returns {Array<{actorId: string, actorName: string, action: string,
-     *   hitComponentName: string|null, usedTypes: string[], tick: number|null}>}
-     *   oldest → newest, capped to the newest BUDGET.maxActionsOnYou
+     *   hitComponentName: string|null, usedComponents: Array<{type: string|null,
+     *   identifier: string|null}>, tick: number|null}>} oldest → newest, capped
+     *   to the newest BUDGET.maxActionsOnYou
      * @private
      */
     _buildInboundActionsData(entity, deltas) {
@@ -1055,12 +1057,72 @@ class LlmContextController {
                     actorName: this._entityDisplayName(row.entity),
                     action: String(row.action ?? 'unknown'),
                     hitComponentName: row?.target?.componentName ?? null,
-                    usedTypes: (row?.used ?? []).map((u) => u?.type).filter((t) => typeof t === 'string' && t !== ''),
+                    usedComponents: this._usedComponentsWithSides(row.entity, row?.used),
                     tick: row?.tick ?? null
                 });
             }
         }
         return rows.slice(-LlmContextController.BUDGET.maxActionsOnYou);
+    }
+
+    /**
+     * The components that powered one action, per use, each with the side label
+     * that makes a repeated type unambiguous. Without it a punch from a humanoid
+     * reads `2x maleArm` — true, and useless: which arm, and therefore whether
+     * the other is free, is the information the victim actually has.
+     *
+     * The label is the component's blueprint `identifier` (the blueprint pairs
+     * each instance with a position: `["maleArm", "left"]`, `["maleLeg",
+     * "frontal_right"]`), resolved against the live world by the rule this whole
+     * section already follows — names resolve where the context is composed,
+     * never from a stored copy, because ids and bodies change between the blow
+     * and the reading. Two cases carry no label, both honest rather than
+     * invented: a root component whose blueprint label is `default` (m1Head,
+     * minakoBody has no side), and a component the actor no longer has
+     * (destroyed since) — which arm threw the punch is then unknown.
+     *
+     * @param {string} actorId - the entity that performed the action
+     * @param {Array<{type?: string, id?: string}>} used - the perception row's
+     *   used set (the attribution store's selected fulfillers)
+     * @returns {Array<{type: string|null, identifier: string|null}>} in the
+     *   order the row lists them (deterministic; the renderer groups by label)
+     * @private
+     */
+    _usedComponentsWithSides(actorId, used) {
+        const entries = Array.isArray(used) ? used : [];
+        if (entries.length === 0) return [];
+        const components = this.worldStateController?.getEntity?.(actorId)?.components ?? [];
+        const byId = new Map(components.map((c) => [c.id, c]));
+        return entries.map((u) => {
+            const live = byId.get(u?.id);
+            return {
+                type: (typeof u?.type === 'string' && u.type !== '') ? u.type : (live?.type ?? null),
+                identifier: LlmContextController._sideLabel(live?.identifier)
+            };
+        });
+    }
+
+    /**
+     * The informative part of a component's blueprint `identifier`.
+     *
+     * Identifiers are composed from the parent's label and the instance's own
+     * slot, so a hand hanging off the root body arrives as `default_left` and a
+     * toe as `left_frontal_left`. `default` is the root's own label — it says
+     * nothing about position, and in a rendered line it is pure noise (`1x
+     * default_left droidHand` against `1x left droidHand`). Dropping the token
+     * is a string rule on a label, not a claim about the body: a real position
+     * (`frontal_left`, `top_hand`, `back_right`) is never touched, and neither
+     * is a composite whose first segment carries meaning.
+     *
+     * @param {string|null|undefined} identifier - as the blueprint stamped it
+     * @returns {string|null} the label to render, or null when there is none
+     * @private
+     */
+    static _sideLabel(identifier) {
+        if (typeof identifier !== 'string' || identifier === '') return null;
+        if (identifier === 'default') return null;
+        const stripped = identifier.replace(/^default_/, '');
+        return stripped === '' ? null : stripped;
     }
 
     /**
@@ -1081,9 +1143,16 @@ class LlmContextController {
 
     /**
      * Renders one "HAPPENED TO YOU" row. `<actor> used "<action>" on you`, plus
-     * the part it hit and the components that powered it when they are known
-     * (`(hit: Droid Head, 2x droidHand)`) — the attribution the perception row
-     * already carries, never a guess. An unknown actor is "Something": the
+     * the part it hit and the components that powered it when they are known —
+     * the attribution the perception row already carries, never a guess:
+     * `(hit: minakoBody, used: 1x left maleArm, 1x right maleArm)`.
+     *
+     * `used:` is spelled out because the counts alone were not readable: a bare
+     * `(2x droidHand)` left a local model to work out that the parenthetical
+     * described the attacker's body and not the damage. The side label splits a
+     * repeated type into the instances that actually acted (`_usedComponentsWithSides`),
+     * and grouping is by the rendered label, so two components with no side
+     * collapse back to `2x droidHand`. An unknown actor is "Something": the
      * action happened, only its author is no longer in the world.
      * @param {Object} row - one row from `_buildInboundActionsData`
      * @returns {string}
@@ -1091,15 +1160,20 @@ class LlmContextController {
      */
     _inboundActionLine(row) {
         const actor = row.actorName || 'Something';
-        const usedPhrase = Object.entries(
-            row.usedTypes.reduce((counts, type) => {
-                counts[type] = (counts[type] ?? 0) + 1;
-                return counts;
-            }, {})
-        ).map(([type, count]) => `${count}x ${type}`).join(', ');
+        // Insertion-ordered Map (never a sort of a locale-sensitive string): the
+        // sides appear in the order the action used them, every time (DETERMINISM).
+        const counts = new Map();
+        for (const comp of row.usedComponents ?? []) {
+            const label = comp?.type
+                ? (comp.identifier ? `${comp.identifier} ${comp.type}` : comp.type)
+                : null;
+            if (!label) continue;
+            counts.set(label, (counts.get(label) ?? 0) + 1);
+        }
+        const usedPhrase = [...counts].map(([label, count]) => `${count}x ${label}`).join(', ');
         const details = [
             row.hitComponentName ? `hit: ${row.hitComponentName}` : null,
-            usedPhrase || null
+            usedPhrase ? `used: ${usedPhrase}` : null
         ].filter(Boolean).join(', ');
         return `- ${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
     }

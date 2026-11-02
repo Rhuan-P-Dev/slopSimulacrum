@@ -13,7 +13,9 @@
  * flush, real context composer — no stubs, no LLM) in both directions:
  *
  *   inbound  — an action aimed at the agent reaches its context as
- *              `- Rover used "droid punch" on you (hit: Droid Head, 2x droidHand)`;
+ *              `- Rover used "droid punch" on you (hit: Droid Head, used: 1x
+ *              left droidHand, 1x right droidHand)` — every instance that
+ *              acted, with the side that tells them apart;
  *   outbound — a turn-queued, component-targeted action reaches the ACTOR's
  *              memory as `- ✓ droid punch on Victim: executed` (the queue
  *              carries a `targetComponentId` only, so the owner lookup is the
@@ -134,7 +136,7 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
 
         const { text, data } = world.llmContextController.buildContext(victimId);
         const inbound = section(text, '=== HAPPENED TO YOU ===');
-        expect(inbound).toContain('- Rover used "droid punch" on you (hit: Droid Head, 2x droidHand)');
+        expect(inbound).toContain('- Rover used "droid punch" on you (hit: Droid Head, used: 1x left droidHand, 1x right droidHand)');
         // The actor's own action is not "something that happened to you" — and
         // this row is the victim's, so the section cannot be echoing itself.
         expect(data.happenedToYou).toEqual([expect.objectContaining({

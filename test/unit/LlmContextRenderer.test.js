@@ -1068,12 +1068,12 @@ describe('LlmContextController (context renderer)', () => {
     // action, from any actor, aimed at this entity, arrives as the same shape.
     describe('HAPPENED TO YOU (actions targeting this agent)', () => {
         /** One delta entry carrying the given performed-action rows. */
-        const worldWithActions = (performed) => makeWorld({
+        const worldWithActions = (performed, extraEntities) => makeWorld({
             getAgentRoomPerception: (id, roomId, { limit }) => [{
                 sequence: 1, tick: 7, kind: 'delta', summary: '1 action performed in The Entrance Hall',
                 actions: { performed }
             }].slice(-limit)
-        });
+        }, extraEntities);
         const sectionOf = (text) => text.slice(
             text.indexOf('=== HAPPENED TO YOU ===') + '=== HAPPENED TO YOU ==='.length,
             text.indexOf('=== YOUR WORLD')
@@ -1092,12 +1092,106 @@ describe('LlmContextController (context renderer)', () => {
             // The actor is named from the LIVE world, never from the row's id
             // fallback (the perception row carries `name: id` for an entity with
             // no name; a UUID in front of a local model names nothing).
-            expect(sectionOf(text)).toContain('- Player Droid used "droid punch" on you (hit: Head, 2x hand)');
+            expect(sectionOf(text)).toContain('- Player Droid used "droid punch" on you (hit: Head, used: 2x hand)');
             expect(text).not.toContain('ent-same used');
             expect(data.happenedToYou).toEqual([expect.objectContaining({
                 actorId: 'ent-same', actorName: 'Player Droid', action: 'droid punch',
-                hitComponentName: 'Head', usedTypes: ['hand', 'hand'], tick: 7
+                hitComponentName: 'Head',
+                usedComponents: [{ type: 'hand', identifier: null }, { type: 'hand', identifier: null }],
+                tick: 7
             })]);
+        });
+
+        it('names WHICH component of a repeated type acted (1x left maleArm, not 2x maleArm)', () => {
+            // The bug the operator reported: a humanoid hits with two arms and
+            // the line read `2x maleArm` — true, and useless. Which arm, and so
+            // whether the other is free, is the information the victim has.
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'maleArm', id: 'comp-arm-l' }, { type: 'maleArm', id: 'comp-arm-r' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-body', componentName: 'minakoBody' }
+            })], {
+                'ent-same': {
+                    id: 'ent-same',
+                    name: 'Rover',
+                    location: 'room-1',
+                    spatial: { x: 2, y: 2 },
+                    // The blueprint pairs every instance with a position; the
+                    // body block uses the same label (`maleArm (left)`).
+                    components: [
+                        { id: 'comp-arm-l', type: 'maleArm', identifier: 'left' },
+                        { id: 'comp-arm-r', type: 'maleArm', identifier: 'right' },
+                        { id: 'comp-body', type: 'maleCentralBody', identifier: 'default' }
+                    ]
+                }
+            }));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain(
+                '- Rover used "droid punch" on you (hit: minakoBody, used: 1x left maleArm, 1x right maleArm)'
+            );
+            expect(sectionOf(text)).not.toContain('2x maleArm');
+            expect(data.happenedToYou[0].usedComponents).toEqual([
+                { type: 'maleArm', identifier: 'left' },
+                { type: 'maleArm', identifier: 'right' }
+            ]);
+        });
+
+        it('invents no side: a default label or a lost component renders as the bare type', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'maleArm', id: 'comp-arm-root' }, { type: 'maleArm', id: 'comp-arm-gone' }]
+            })], {
+                'ent-same': {
+                    id: 'ent-same',
+                    name: 'Rover',
+                    location: 'room-1',
+                    spatial: { x: 2, y: 2 },
+                    // A root component's blueprint label is `default` (no side),
+                    // and `comp-arm-gone` was destroyed after the blow: the
+                    // actor no longer has it. Both render bare, never invented.
+                    components: [{ id: 'comp-arm-root', type: 'maleArm', identifier: 'default' }]
+                }
+            }));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain('- Rover used "droid punch" on you (used: 2x maleArm)');
+            expect(data.happenedToYou[0].usedComponents).toEqual([
+                { type: 'maleArm', identifier: null },
+                { type: 'maleArm', identifier: null }
+            ]);
+        });
+
+        it('drops the meaningless default token of a composed label (default_left reads as left)', () => {
+            // Real data: a hand hanging off the root body is stamped
+            // `default_left`, and `default` says nothing about position. A toe
+            // under a `frontal_left` leg keeps both segments — there the first
+            // one is a place, not a placeholder.
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [
+                    { type: 'droidHand', id: 'comp-hand' },
+                    { type: 'm1Toe', id: 'comp-toe' },
+                    { type: 'm1Gun', id: 'comp-gun' }
+                ]
+            })], {
+                'ent-same': {
+                    id: 'ent-same',
+                    name: 'Rover',
+                    location: 'room-1',
+                    spatial: { x: 2, y: 2 },
+                    components: [
+                        { id: 'comp-hand', type: 'droidHand', identifier: 'default_left' },
+                        { id: 'comp-toe', type: 'm1Toe', identifier: 'left_frontal_left' },
+                        { id: 'comp-gun', type: 'm1Gun', identifier: 'top_gun' }
+                    ]
+                }
+            }));
+
+            const { text } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain(
+                'used: 1x left droidHand, 1x left_frontal_left m1Toe, 1x top_gun m1Gun'
+            );
         });
 
         it('lists only what someone else did to you: your own action and other targets stay out', () => {
