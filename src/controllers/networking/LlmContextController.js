@@ -194,8 +194,16 @@ class LlmContextController {
         let feedback = feedbackData;
         let instinctSection = instincts.slice(0, LlmContextController.BUDGET.maxInstincts);
         const droppedItems = this._buildDroppedItemsData(entity.location);
-        const plAcedMachines = this._buildPlacedMachinesData(entity.location);
-        let text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+        const placedMachines = this._buildPlacedMachinesData(entity.location);
+        // One render closure for the whole cascade. It reads the shedding `let`
+        // bindings above, so every step below is a single `render()` call over
+        // ONE argument bundle (`CHG-4`: the section list is the only thing a
+        // cascade step ever changes, and a positional list of a dozen sections
+        // is where a silently swapped pair would hide).
+        const render = () => this._render({
+            entity, roomName, self, near, deltas, hintsData, failures, chat, feedback, droppedItems, placedMachines, rooms
+        });
+        let text = render();
 
         if (text.length > stats.budgetChars) {
             // Deltas are sliced in memory (NOT re-read): the perception read
@@ -203,46 +211,46 @@ class LlmContextController {
             // second facade read would find nothing left to show.
             if (deltas.length > 2) {
                 deltas = deltas.slice(-Math.max(2, Math.floor(deltas.length / 2)));
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.deltas = true;
             }
 
             if (text.length > stats.budgetChars) {
                 near = this._buildNearbyData(entity, entity.location, Math.max(2, Math.floor(maxEntities / 2)), rooms);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.entities = near.sameRoom.length < nearData.sameRoom.length || text.length > stats.budgetChars;
             }
 
             if (text.length > stats.budgetChars && failures.length > 2) {
                 failures = failures.slice(-Math.max(2, Math.floor(failures.length / 2)));
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.failures = true;
             }
 
             if (text.length > stats.budgetChars && chat.length > LLM_CONTEXT_MAX_CHAT_IN_CONTEXT) {
                 chat = chat.slice(0, LLM_CONTEXT_MAX_CHAT_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.chat = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
             if (text.length > stats.budgetChars && feedback.length > 0) {
                 feedback = [];
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.feedback = true;
             }
 
             // Reduce instincts to 3 (spec §4.3: instincts are lowest priority after feedback)
             if (instinctSection.length > LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT) {
                 instinctSection = instinctSection.slice(0, LLM_CONTEXT_MAX_INSTINCTS_IN_CONTEXT);
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.instincts = true;
             }
 
             // Final fallback: if still over budget after all truncation, truncate instincts further
             if (text.length > stats.budgetChars && instinctSection.length > 0) {
                 instinctSection = [];
-                text = this._render(entity, roomName, self, near, deltas, actionData, hintsData, failures, chat, feedback, instinctSection, droppedItems, plAcedMachines, maxEntities, rooms);
+                text = render();
                 stats.truncated.instincts = true; // already set, but ensure clarity
             }
         }
@@ -256,7 +264,7 @@ class LlmContextController {
                 ...near.otherRooms.map(e => ({ ...e, room: e.roomName }))
             ],
             droppedItems,
-            placedMachines: plAcedMachines,
+            placedMachines,
             actions: actionData,
             hints: hintsData.slice(0, LLM_CONTEXT_MAX_HINTS),
             deltas,
@@ -976,12 +984,29 @@ class LlmContextController {
     // =========================================================================
 
     /**
-     * Renders the sectioned narrative text.
-     * @param {Object} rooms - UID-keyed rooms map (from `getRooms()`), threaded in
-     *   by buildContext so the room block is resolved from the same single clone.
+     * Renders the sectioned narrative text from the already-built section data
+     * (this method never reads the world: every section arrives as data, which
+     * is what lets the budget cascade re-render after slicing a section in
+     * memory — see `buildContext`).
+     *
+     * @param {Object} sections
+     * @param {Object} sections.entity - the live entity record (position, location)
+     * @param {string} roomName - the agent's room display name
+     * @param {Object} sections.self - `_buildSelfData` output
+     * @param {{ sameRoom: Array, otherRooms: Array }} sections.near - nearby entities
+     * @param {Array<Object>} sections.deltas - the perception change window
+     * @param {Array<Object>} sections.hintsData - HINTS section rows
+     * @param {string[]} sections.failures - the warn-level world-event tail
+     * @param {string[]} sections.chat - room chat lines
+     * @param {Array<Object>} sections.feedback - this agent's action outcomes
+     * @param {Array<Object>} sections.droppedItems - dropped items in the room
+     * @param {Array<Object>} sections.placedMachines - machines placed in the room
+     * @param {Object} sections.rooms - UID-keyed rooms map (from `getRooms()`),
+     *   threaded in by buildContext so the room block is resolved from the same
+     *   single clone.
      * @private
      */
-    _render(entity, roomName, self, near, deltas, _actions, hints, failures, chat, feedback, _instincts, droppedItems, plAcedMachines, _maxEntities, rooms) {
+    _render({ entity, roomName, self, near, deltas, hintsData: hints, failures, chat, feedback, droppedItems, placedMachines, rooms }) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -1131,12 +1156,12 @@ class LlmContextController {
         if (Array.isArray(droppedItems) && droppedItems.length > 0) {
             lines.push(`Dropped items: ${droppedItems.map(it => `${it.name} at (${Math.round(it.x)}, ${Math.round(it.y)})`).join(', ')}`);
         }
-        if (Array.isArray(plAcedMachines) && plAcedMachines.length > 0) {
+        if (Array.isArray(placedMachines) && placedMachines.length > 0) {
             // Placed machines are static world objects the agent itself may have
             // set down: the agent can see them (name, type, position, ent-… id) so
             // it can retrieveMachine { machineType } / { targetEntityId } without
             // guessing which machine it placed. Capped at BUDGET.maxPlacedMachines.
-            lines.push(`Placed machines: ${plAcedMachines.map(m => `${m.name} [type:${m.machineType}] at (${Math.round(m.x)}, ${Math.round(m.y)}), ent:${m.id}`).join(', ')}`);
+            lines.push(`Placed machines: ${placedMachines.map(m => `${m.name} [type:${m.machineType}] at (${Math.round(m.x)}, ${Math.round(m.y)}), ent:${m.id}`).join(', ')}`);
         }
         // The perception delta stream: one summary line per room delta since
         // the agent's observation cursor (baselines never appear here — the
