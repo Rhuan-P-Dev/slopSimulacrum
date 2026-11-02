@@ -526,6 +526,21 @@ export const LLM_CONTEXT_MAX_FAILURES = 10;
  */
 export const LLM_CONTEXT_MAX_DELTAS = 10;
 
+/**
+ * Max action rows rendered into the composed LLM context's "HAPPENED TO YOU"
+ * section: the actions performed ON this agent since its observation cursor
+ * (built from the same perception read as "since you last looked", filtered to
+ * the rows whose recorded target is this entity). The tail is kept, so the
+ * newest blows are the ones that survive.
+ *
+ * Its own cap, and its own place in the budget cascade (shed only after the
+ * state block, see `LlmContextController.buildContext`): "someone hit me" is
+ * the information an agent must not be the first to lose when the context
+ * overflows.
+ * @type {number}
+ */
+export const LLM_CONTEXT_MAX_ACTIONS_ON_YOU = 5;
+
 // =========================================================================
 // AGENT CONSTANTS
 // =========================================================================

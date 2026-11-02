@@ -31,7 +31,7 @@
  * The section headers are stable and deliberate (prompt engineering):
  *   === YOUR STATE ===, === HINTS ===,
  *   === WORLD FAILURES ===, === YOUR LAST ACTIONS & RESULTS ===,
- *   === YOUR WORLD (room) ===, === ROOM CHAT ===,
+ *   === HAPPENED TO YOU ===, === YOUR WORLD (room) ===, === ROOM CHAT ===,
  *   === RECENT TOOLS ===
  * (the executable action list and instincts moved out of the context into
  * native discovery tools, get_actions / get_instincts — the agent discovers
@@ -43,6 +43,23 @@
  * is the most likely to survive the 5000-char budget cascade (sheds oldest
  * first). Empty sections still print their header plus "(none)" so weak
  * local models always see the same structure.
+ *
+ * === HAPPENED TO YOU === is the agent-relative half of the perception action
+ * stream. Every successful action records WHO IT WAS DIRECTED AT in the shared
+ * ActionAttributionStore (one writer: the consequence dispatcher), and the
+ * perception flush turns those records into performed-action rows carrying the
+ * resolved target. This section reads the very same window the "since you last
+ * looked" block renders and keeps the rows whose target is THIS agent, so an
+ * attack lands in its brain as its own sentence — `Droid used "droid punch" on
+ * you (hit: Droid Head, 2x droidHand)` — instead of dissolving into the shared,
+ * reader-independent delta summary ("1 action performed …"), which never can
+ * say "you" because one summary serves every reader of the room. It is action-
+ * agnostic by construction: any action the dispatcher runs is captured, from
+ * any actor (another NPC, the player, a machine), with no per-action list and
+ * no special casing. Rows this agent performed itself are excluded (the agent
+ * did those — "YOUR LAST ACTIONS & RESULTS" says them, with their target); the
+ * direction is deliberately spelled out in both sections because a local model
+ * that cannot tell who hit whom keeps attacking its own attacker's attacker.
  *
  * Inside === YOUR STATE ===, the stable "Body attributes:" line lists the
  * whole-entity stats declared for the entity's blueprint in
@@ -75,6 +92,7 @@ import {
     LLM_CONTEXT_OTHER_ROOM_ENTITIES,
     LLM_CONTEXT_MAX_FAILURES,
     LLM_CONTEXT_MAX_DELTAS,
+    LLM_CONTEXT_MAX_ACTIONS_ON_YOU,
     LLM_CONTEXT_MAX_CHAT,
     LLM_CONTEXT_MAX_INSTINCTS,
     LLM_CONTEXT_MAX_NEARBY_STATS,
@@ -98,6 +116,7 @@ class LlmContextController {
         maxPlacedMachines: CONTEXT_MAX_PLACED_MACHINES, // current-room placed machines listed (positions) (single-sourced in Constants.js)
         maxFailures: LLM_CONTEXT_MAX_FAILURES,   // warn-level world event tail ("WORLD FAILURES" section)
         maxDeltas: LLM_CONTEXT_MAX_DELTAS,       // perception delta lines ("since you last looked" block)
+        maxActionsOnYou: LLM_CONTEXT_MAX_ACTIONS_ON_YOU, // rows in "HAPPENED TO YOU" (actions targeting this agent)
         maxChat: LLM_CONTEXT_MAX_CHAT,
         maxInstincts: LLM_CONTEXT_MAX_INSTINCTS,         // displayed instincts (display cap)
         perMessageChars: CHAT_MESSAGE_MAX_LENGTH     // per chat/event line truncation (shared with the room-chat message cap)
@@ -127,9 +146,12 @@ class LlmContextController {
      * @param {string} entityId - Typed entity ID (ent-…).
      * @param {Object} [options] - May override maxEntities / maxFailures
      *   (a.k.a. the historical `maxEvents`) / maxDeltas / maxChat (each
-     *   clamped to the BUDGET maximum). `instincts` (agent path) bypasses
+     *   clamped to the BUDGET maximum). The "HAPPENED TO YOU" cap is not an
+     *   option: it is `LLM_CONTEXT_MAX_ACTIONS_ON_YOU`, because the section is
+     *   the agent's own bodily history and no caller gets to tune it away.
+     *   `instincts` (agent path) bypasses
      *   the facade instinct fallback.
-     * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, failures: boolean, deltas: boolean, chat: boolean, feedback: boolean, instincts: boolean } } }}
+     * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, failures: boolean, deltas: boolean, actionsOnYou: boolean, chat: boolean, feedback: boolean, instincts: boolean } } }}
      */
     buildContext(entityId, options = {}) {
         const facade = this.worldStateController;
@@ -147,7 +169,7 @@ class LlmContextController {
 
         const entity = facade.getEntity(entityId);
         if (!entity) {
-            return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, failures: false, deltas: false, chat: false, feedback: false, instincts: false } } };
+            return { text: '', data: null, stats: { chars: 0, budgetChars: LlmContextController.BUDGET.maxChars, truncated: { entities: false, failures: false, deltas: false, actionsOnYou: false, chat: false, feedback: false, instincts: false } } };
         }
 
         // Compute the rooms map ONCE (a defensive deep clone from the facade)
@@ -167,11 +189,16 @@ class LlmContextController {
         const failuresData = this._buildFailureData(maxFailures);
         const chatData = this._buildChatData(entity.location, maxChat);
         const feedbackData = this._buildFeedbackData(entityId);
+        // Derived from the SAME perception read as the delta block (never a
+        // second read — the cursor already advanced). Built from the full
+        // window here, before the cascade can slice `deltas` in memory, so
+        // shedding delta lines never hides what was done to the agent.
+        const happenedToYouData = this._buildInboundActionsData(entity, deltasData);
 
         const stats = {
             chars: 0,
             budgetChars: LlmContextController.BUDGET.maxChars,
-            truncated: { entities: false, failures: false, deltas: false, chat: false, feedback: false, instincts: false }
+            truncated: { entities: false, failures: false, deltas: false, actionsOnYou: false, chat: false, feedback: false, instincts: false }
         };
 
         // Build instincts data: preferred source is options.instincts (agent path),
@@ -189,6 +216,7 @@ class LlmContextController {
         // rendered (the truncated versions).
         let near = nearData;
         let deltas = deltasData;
+        let happenedToYou = happenedToYouData;
         let failures = failuresData;
         let chat = chatData;
         let feedback = feedbackData;
@@ -201,7 +229,7 @@ class LlmContextController {
         // cascade step ever changes, and a positional list of a dozen sections
         // is where a silently swapped pair would hide).
         const render = () => this._render({
-            entity, roomName, self, near, deltas, hintsData, failures, chat, feedback, droppedItems, placedMachines, rooms
+            entity, roomName, self, near, deltas, hintsData, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms
         });
         let text = render();
 
@@ -231,6 +259,17 @@ class LlmContextController {
                 chat = chat.slice(0, LLM_CONTEXT_MAX_CHAT_IN_CONTEXT);
                 text = render();
                 stats.truncated.chat = true;
+            }
+
+            // "HAPPENED TO YOU" gives way only after the delta window, the
+            // entities, the failures feed and the chat — never before them: what
+            // was done TO this agent is the row it needs in order to decide
+            // anything about its own condition. Halved, newest kept; its cap is
+            // its own constant (LLM_CONTEXT_MAX_ACTIONS_ON_YOU).
+            if (text.length > stats.budgetChars && happenedToYou.length > 1) {
+                happenedToYou = happenedToYou.slice(-Math.max(1, Math.floor(happenedToYou.length / 2)));
+                text = render();
+                stats.truncated.actionsOnYou = true;
             }
 
             // Drop feedback section first (least critical, spec §4.3)
@@ -271,6 +310,7 @@ class LlmContextController {
             worldFailures: failures,
             roomChat: chat,
             lastActionsResults: feedback,
+            happenedToYou,
             instincts: instinctSection
         };
         return { text, data, stats };
@@ -941,6 +981,102 @@ class LlmContextController {
     }
 
     /**
+     * "HAPPENED TO YOU" section: the actions performed ON this agent since its
+     * observation cursor.
+     *
+     * Generic by construction: it reads the performed-action rows the
+     * PerceptionController built from the shared ActionAttributionStore (one
+     * writer — the consequence dispatcher, every successful action, whatever
+     * the action was), and keeps exactly the rows whose recorded target is this
+     * entity. No action names, no per-action table, no special casing: a punch,
+     * a cut, a grab, a machine's output and a future action nobody has written
+     * yet all arrive through the same shape.
+     *
+     * Direction is the whole point of the section, so the row states it in
+     * words ("<actor> used <action> on you") instead of leaving the reader to
+     * infer it from a count. Rows this agent performed on ITSELF are excluded:
+     * it did those, and "YOUR LAST ACTIONS & RESULTS" already says them with
+     * their target — repeating them here would double every self-action and
+     * blur the one distinction the section exists to make (someone else did
+     * this TO me).
+     *
+     * Names are resolved HERE, against the live world (the same rule the "now
+     * in this room" block follows — ids regenerate on respawn, so any older
+     * copy of a name is stale, and the perception row's own `name` falls back
+     * to the raw id, which is noise for a local model). An actor that is gone
+     * by the time the context is composed is "Something": the action is still
+     * true, only its author is not.
+     *
+     * @param {Object} entity - the observing agent (its id is the filter)
+     * @param {Array<Object>} deltas - the SAME delta entries the "since you
+     *   last looked" block renders (never re-read: the read is the observation)
+     * @returns {Array<{actorId: string, actorName: string, action: string,
+     *   hitComponentName: string|null, usedTypes: string[], tick: number|null}>}
+     *   oldest → newest, capped to the newest BUDGET.maxActionsOnYou
+     * @private
+     */
+    _buildInboundActionsData(entity, deltas) {
+        const rows = [];
+        for (const entry of deltas ?? []) {
+            for (const row of entry?.actions?.performed ?? []) {
+                const targetId = row?.target?.id ?? null;
+                if (targetId == null || targetId !== entity.id) continue;
+                if (row.entity === entity.id) continue; // the agent's own action — other section
+                rows.push({
+                    actorId: row.entity,
+                    actorName: this._entityDisplayName(row.entity),
+                    action: String(row.action ?? 'unknown'),
+                    hitComponentName: row?.target?.componentName ?? null,
+                    usedTypes: (row?.used ?? []).map((u) => u?.type).filter((t) => typeof t === 'string' && t !== ''),
+                    tick: row?.tick ?? null
+                });
+            }
+        }
+        return rows.slice(-LlmContextController.BUDGET.maxActionsOnYou);
+    }
+
+    /**
+     * The display name of one entity id, resolved against the live world.
+     * Follows the block the agent reads its neighbours from (`name || 'Droid'`),
+     * so the same token names the same actor in both places. Null when the
+     * entity is gone — callers pick the honest wording for that case.
+     * @param {string} entityId
+     * @returns {string|null}
+     * @private
+     */
+    _entityDisplayName(entityId) {
+        if (typeof entityId !== 'string' || entityId === '') return null;
+        const record = this.worldStateController?.getEntity?.(entityId);
+        if (!record) return null;
+        return record.name || 'Droid';
+    }
+
+    /**
+     * Renders one "HAPPENED TO YOU" row. `<actor> used "<action>" on you`, plus
+     * the part it hit and the components that powered it when they are known
+     * (`(hit: Droid Head, 2x droidHand)`) — the attribution the perception row
+     * already carries, never a guess. An unknown actor is "Something": the
+     * action happened, only its author is no longer in the world.
+     * @param {Object} row - one row from `_buildInboundActionsData`
+     * @returns {string}
+     * @private
+     */
+    _inboundActionLine(row) {
+        const actor = row.actorName || 'Something';
+        const usedPhrase = Object.entries(
+            row.usedTypes.reduce((counts, type) => {
+                counts[type] = (counts[type] ?? 0) + 1;
+                return counts;
+            }, {})
+        ).map(([type, count]) => `${count}x ${type}`).join(', ');
+        const details = [
+            row.hitComponentName ? `hit: ${row.hitComponentName}` : null,
+            usedPhrase || null
+        ].filter(Boolean).join(', ');
+        return `- ${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
+    }
+
+    /**
      * Chat section (Feature D's RoomChatController — optional at this step):
      * "Speaker: text" lines for the entity's current room.
      * @param {string} roomUid
@@ -963,9 +1099,10 @@ class LlmContextController {
     /**
      * Feedback data for "YOUR LAST ACTIONS & RESULTS" section: reads recent
      * action-outcome entries from the per-agent feedback controller (Feature E).
-     * Returns an array of outcome objects sorted newest-first, limited to 5.
+     * Returns the raw ring (each entry may carry `targetEntityId`, which the
+     * renderer turns into "<action> on <target>").
      * @param {string} entityId
-     * @returns {Array<Object>}
+     * @returns {Array<{ round: number, actionName: string, targetEntityId: string|null, success: boolean, detail: string, instinct: string|null }>}
      * @private
      */
     _buildFeedbackData(entityId) {
@@ -999,6 +1136,8 @@ class LlmContextController {
      * @param {string[]} sections.failures - the warn-level world-event tail
      * @param {string[]} sections.chat - room chat lines
      * @param {Array<Object>} sections.feedback - this agent's action outcomes
+     * @param {Array<Object>} sections.happenedToYou - actions targeting this
+     *   agent since its observation cursor (`_buildInboundActionsData`)
      * @param {Array<Object>} sections.droppedItems - dropped items in the room
      * @param {Array<Object>} sections.placedMachines - machines placed in the room
      * @param {Object} sections.rooms - UID-keyed rooms map (from `getRooms()`),
@@ -1006,7 +1145,7 @@ class LlmContextController {
      *   single clone.
      * @private
      */
-    _render({ entity, roomName, self, near, deltas, hintsData: hints, failures, chat, feedback, droppedItems, placedMachines, rooms }) {
+    _render({ entity, roomName, self, near, deltas, hintsData: hints, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms }) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -1112,9 +1251,29 @@ class LlmContextController {
             for (const f of feedback) {
                 const status = f.success ? '✓' : '✗';
                 const instinctTag = f.instinct ? ` (instinct: ${f.instinct})` : '';
-                lines.push(`- ${status} ${f.actionName}: ${f.detail}${instinctTag}`);
+                // The outbound half of the direction: the ring carries the id of
+                // whoever the action was aimed at, and naming it here is what
+                // turns "cut: executed" into "cut on Tree: executed". Resolved
+                // live like every other name in this context; a target that has
+                // since left the world is named honestly, never as a bare UUID.
+                const targetLabel = f.targetEntityId
+                    ? (this._entityDisplayName(f.targetEntityId) ?? 'something that is no longer here')
+                    : null;
+                lines.push(`- ${status} ${f.actionName}${targetLabel ? ` on ${targetLabel}` : ''}: ${f.detail}${instinctTag}`);
             }
         }
+        lines.push('');
+
+        // === HAPPENED TO YOU ===
+        // The actions performed ON this agent since its observation cursor, one
+        // sentence each (built from the same perception read as the change block
+        // below). Above "YOUR WORLD" on purpose: the agent reads what was done
+        // to it before it reads the room it has to react in, and the budget
+        // cascade sheds this block after the state block, never before it.
+        lines.push('=== HAPPENED TO YOU ===');
+        lines.push(happenedToYou.length > 0
+            ? happenedToYou.map((r) => this._inboundActionLine(r)).join('\n')
+            : '(none)');
         lines.push('');
 
         // === YOUR WORLD ({room}) ===

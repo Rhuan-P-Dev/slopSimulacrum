@@ -380,7 +380,10 @@ class LLMAgentController {
                     if (executedActions >= maxActions) {
                         const detail = `max world actions per round reached (${maxActions})`;
                         result.actions.push({ actionName: String(call.args.actionName), success: false, detail });
-                        this._recordImmediateOutcome(npcEntityId, String(call.args.actionName), false, detail);
+                        this._recordImmediateOutcome(npcEntityId, {
+                            actionName: String(call.args.actionName), success: false, detail,
+                            targetEntityId: this._targetEntityIdOf(call.args)
+                        });
                         if (!actionableFailure) actionableFailure = { call, error: detail };
                         continue;
                     }
@@ -388,7 +391,10 @@ class LLMAgentController {
                     const validation = this._prevalidateAction(npcEntityId, call.args);
                     if (!validation.ok) {
                         result.actions.push({ actionName: String(call.args.actionName), success: false, detail: validation.error });
-                        this._recordImmediateOutcome(npcEntityId, String(call.args.actionName), false, validation.error);
+                        this._recordImmediateOutcome(npcEntityId, {
+                            actionName: String(call.args.actionName), success: false, detail: validation.error,
+                            targetEntityId: this._targetEntityIdOf(call.args)
+                        });
                         if (!actionableFailure) actionableFailure = { call, error: validation.error };
                         continue;
                     }
@@ -402,12 +408,12 @@ class LLMAgentController {
                         success: dispatch.success,
                         detail: dispatch.detail
                     });
-                    this._recordImmediateOutcome(
-                        npcEntityId,
-                        dispatch.actionName,
-                        dispatch.success,
-                        dispatch.detail || (dispatch.queued ? 'queued' : 'executed')
-                    );
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: dispatch.actionName,
+                        success: dispatch.success,
+                        detail: dispatch.detail || (dispatch.queued ? 'queued' : 'executed'),
+                        targetEntityId: this._targetEntityIdOf(validation.params)
+                    });
                     if (!dispatch.success && !actionableFailure) {
                         actionableFailure = { call, error: dispatch.detail || 'execution failed' };
                     }
@@ -422,7 +428,7 @@ class LLMAgentController {
                             : 'invalid message text';
                         result.chat = { sent: false, reason };
                         speakResults.push({ id: callId, success: false, detail: reason });
-                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', false, reason);
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'speak_in_room', success: false, detail: reason });
                         continue;
                     }
                     const sendResult = this._dispatchSpeak(entity, displayName, text.trim());
@@ -438,12 +444,12 @@ class LLMAgentController {
                         });
                         const spoken = text.trim();
                         const spokenShort = spoken.length > 60 ? `${spoken.slice(0, 57)}...` : spoken;
-                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', true, `said "${spokenShort}"`);
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'speak_in_room', success: true, detail: `said "${spokenShort}"` });
                     } else {
                         const reason = sendResult.error || sendResult.code;
                         result.chat = { sent: false, reason };
                         speakResults.push({ id: callId, success: false, detail: reason });
-                        this._recordImmediateOutcome(npcEntityId, 'speak_in_room', false, reason);
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'speak_in_room', success: false, detail: reason });
                     }
                 }
 
@@ -454,7 +460,10 @@ class LLMAgentController {
                     if (executedActions >= maxActions) {
                         const detail = `max world actions per round reached (${maxActions})`;
                         result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail });
-                        this._recordImmediateOutcome(npcEntityId, 'toApproach', false, detail);
+                        this._recordImmediateOutcome(npcEntityId, {
+                            actionName: 'toApproach', success: false, detail,
+                            targetEntityId: this._targetEntityIdOf(call.args)
+                        });
                         if (!actionableFailure) actionableFailure = { call, error: detail };
                         continue;
                     }
@@ -462,7 +471,10 @@ class LLMAgentController {
                     const validation = this._prevalidateApproach(npcEntityId, call.args);
                     if (!validation.ok) {
                         result.approaches.push({ id: call.id, actionName: 'toApproach', success: false, detail: validation.error });
-                        this._recordImmediateOutcome(npcEntityId, 'toApproach', false, validation.error);
+                        this._recordImmediateOutcome(npcEntityId, {
+                            actionName: 'toApproach', success: false, detail: validation.error,
+                            targetEntityId: this._targetEntityIdOf(call.args)
+                        });
                         if (!actionableFailure) actionableFailure = { call, error: validation.error };
                         continue;
                     }
@@ -477,12 +489,12 @@ class LLMAgentController {
                         success: dispatch.success,
                         detail: dispatch.detail
                     });
-                    this._recordImmediateOutcome(
-                        npcEntityId,
-                        'toApproach',
-                        dispatch.success,
-                        dispatch.detail || (dispatch.queued ? 'queued' : 'executed')
-                    );
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'toApproach',
+                        success: dispatch.success,
+                        detail: dispatch.detail || (dispatch.queued ? 'queued' : 'executed'),
+                        targetEntityId: this._targetEntityIdOf(validation.params)
+                    });
                     if (!dispatch.success && !actionableFailure) {
                         actionableFailure = { call, error: dispatch.detail || 'execution failed' };
                     }
@@ -507,14 +519,14 @@ class LLMAgentController {
                             detail: instinctOk ? undefined : (instinctResult.detail || 'instinct failed')
                         });
                         const iid = entry.args?.instinctId;
-                        this._recordImmediateOutcome(
-                            npcEntityId,
-                            'use_instinct',
-                            instinctOk,
-                            instinctOk
+                        this._recordImmediateOutcome(npcEntityId, {
+                            actionName: 'use_instinct',
+                            success: instinctOk,
+                            detail: instinctOk
                                 ? (iid ? `executed ${iid}` : 'executed')
-                                : (instinctResult.detail || 'instinct failed')
-                        );
+                                : (instinctResult.detail || 'instinct failed'),
+                            targetEntityId: this._targetEntityIdOf(entry.args)
+                        });
                         if (instinctResult.actionable && !actionableFailure) {
                             actionableFailure = { call: entry, error: instinctResult.detail || 'instinct failed' };
                         }
@@ -535,7 +547,7 @@ class LLMAgentController {
                         const detail = `max world actions per round reached (${maxActions})`;
                         const recipeId = typeof call.args?.recipeId === 'string' ? call.args.recipeId : '';
                         result.crafts.push({ recipeId, success: false, detail });
-                        this._recordImmediateOutcome(npcEntityId, 'craft', false, detail);
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'craft', success: false, detail });
                         if (!actionableFailure) actionableFailure = { call, error: detail };
                         continue;
                     }
@@ -544,7 +556,7 @@ class LLMAgentController {
                     if (!validation.ok) {
                         const recipeId = typeof call.args?.recipeId === 'string' ? call.args.recipeId : '';
                         result.crafts.push({ recipeId, success: false, detail: validation.error });
-                        this._recordImmediateOutcome(npcEntityId, 'craft', false, validation.error);
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'craft', success: false, detail: validation.error });
                         if (!actionableFailure) actionableFailure = { call, error: validation.error };
                         continue;
                     }
@@ -556,12 +568,11 @@ class LLMAgentController {
                         success: dispatch.success,
                         detail: dispatch.detail
                     });
-                    this._recordImmediateOutcome(
-                        npcEntityId,
-                        'craft',
-                        dispatch.success,
-                        dispatch.detail
-                    );
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'craft',
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
                     if (!dispatch.success && !actionableFailure) {
                         actionableFailure = { call, error: dispatch.detail || 'craft failed' };
                     }
@@ -1870,9 +1881,22 @@ class LLMAgentController {
      * Capture Point B (spec §4.2): records an immediate outcome for the NPC
      * agent's short-term memory. Used for pre-validation failures, queue
      * rejections, and late-LLM-response drops. Best-effort — must never throw.
+     *
+     * `targetEntityId` is carried so the agent's own memory names who it acted
+     * on ("cut on Tree", rendered by `LlmContextController`). The real outcomes
+     * of a turn world are recorded by TurnSystem resolution, which already
+     * carries the target; this is the dispatch-time half, which used to write
+     * `null` and left the section unable to say who was hit.
+     *
+     * @param {string} npcEntityId - the acting NPC's entity id
+     * @param {Object} outcome
+     * @param {string} outcome.actionName - the name the agent called it by
+     * @param {boolean} outcome.success
+     * @param {string} outcome.detail
+     * @param {string|null} [outcome.targetEntityId] - who it was aimed at, if anything
      * @private
      */
-    _recordImmediateOutcome(npcEntityId, actionName, success, detail) {
+    _recordImmediateOutcome(npcEntityId, { actionName, success, detail, targetEntityId = null }) {
         const fb = this._feedbackController;
         if (!fb || typeof fb.record !== 'function') return;
         try {
@@ -1880,13 +1904,36 @@ class LLMAgentController {
                 round: 0, // unknown at dispatch time; TurnSystem resolution will overwrite with the real round
                 actionName,
                 componentId: null,
-                targetEntityId: null,
+                targetEntityId,
                 queued: false,
                 success,
                 detail: String(detail),
                 atTick: this.turnSystemController?._currentTick?.() ?? 0
             });
-        } catch (_) { /* best-effort — must not break the agent round */ }
+        } catch (_) { /* why: best-effort — must not break the agent round */ }
+    }
+
+    /**
+     * The entity an action call was aimed at, from its arguments (tool args or
+     * executeAction params), or null when it aims at nothing (a spatial move,
+     * a craft, a chat line).
+     *
+     * Component-targeted actions (punch / cut / shoot — the ones the context
+     * tells the model to aim with a `target comp: comp-…` id) name the part,
+     * not the entity, so the owner is looked up through the facade. Null-safe
+     * on malformed input by construction: only string ids are considered.
+     *
+     * @param {Object|null|undefined} source - tool args or dispatch params
+     * @returns {string|null}
+     * @private
+     */
+    _targetEntityIdOf(source) {
+        if (!source || typeof source !== 'object') return null;
+        if (typeof source.targetEntityId === 'string' && source.targetEntityId !== '') {
+            return source.targetEntityId;
+        }
+        if (typeof source.targetComponentId !== 'string' || source.targetComponentId === '') return null;
+        return this.worldStateController?.getComponent?.(source.targetComponentId)?.entityId ?? null;
     }
 
     /**

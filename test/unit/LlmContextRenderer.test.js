@@ -11,6 +11,9 @@
  *   - other-room entity labeling,
  *   - the perception block: "now in this room" state before
  *     "since you last looked" deltas, baseline entries never displayed,
+ *   - "HAPPENED TO YOU": the actions performed ON this agent (performed-action
+ *     rows filtered by target), named from the live world, capped and shed
+ *     after the state block; and the target named in the agent's own outcomes,
  *   - world failures: warn-level events only (info excluded),
  *   - hard budget (stats.chars ≤ 5000) and stats.truncated flags (the cascade
  *     sheds delta lines before state lines, state before failures).
@@ -182,6 +185,21 @@ function makeWorld(overrides = {}, extraEntities = {}) {
     };
 }
 
+/**
+ * A perception performed-action row (the shape the PerceptionController builds
+ * from the shared ActionAttributionStore) aimed at the observing agent.
+ * `name` deliberately carries the raw id, as the row does for an entity with no
+ * name, so the tests prove the renderer resolves names live and never prints an
+ * id where a name belongs.
+ */
+function performedRowOnYou(over = {}) {
+    return {
+        entity: 'ent-same', name: 'ent-same', action: 'droid punch', used: [],
+        target: { id: 'ent-self', name: 'ent-self', componentId: null, componentName: null },
+        tick: 7, source: 'store', ...over
+    };
+}
+
 describe('LlmContextController (context renderer)', () => {
     let controller;
     let world;
@@ -202,13 +220,14 @@ describe('LlmContextController (context renderer)', () => {
     // action list and instincts are no longer fixed context sections — they
     // are discovered on demand via the get_actions / get_instincts tools
     // (in-round agent loop), so the stable narrative carries six headers.
-    it('returns all six stable section headers, in order (R1)', () => {
+    it('returns all seven stable section headers, in order (R1)', () => {
         const { text } = controller.buildContext('ent-self');
         const headers = [
             '=== YOUR STATE ===',
             '=== HINTS ===',
             '=== WORLD FAILURES ===',
             '=== YOUR LAST ACTIONS & RESULTS ===',
+            '=== HAPPENED TO YOU ===',
             '=== YOUR WORLD (The Entrance Hall) ===',
             '=== ROOM CHAT ==='
         ];
@@ -842,6 +861,7 @@ describe('LlmContextController (context renderer)', () => {
         expect(text).toContain('Equipped: (none)');
         expect(text).toContain('Inventory: (none)');
         expect(text).toContain('=== WORLD FAILURES ===\n(none)');
+        expect(text).toContain('=== HAPPENED TO YOU ===\n(none)');
         expect(text).toContain('since you last looked:\n(none)');
         expect(text).toContain('=== ROOM CHAT ===\n(none)');
     });
@@ -1037,6 +1057,157 @@ describe('LlmContextController (context renderer)', () => {
 
         const vaultLine = lines.find((l) => l.startsWith('2. Vault Droid'));
         expect(vaultLine).toContain('[ent: ent-other | target comp: comp-other-core]');
+    });
+
+    // HAPPENED TO YOU: the agent-relative half of the perception action stream.
+    // The rows come from the shared ActionAttributionStore (one writer: the
+    // consequence dispatcher, every successful action) through the perception
+    // performed-action rows, so nothing here is specific to punch/cut: any
+    // action, from any actor, aimed at this entity, arrives as the same shape.
+    describe('HAPPENED TO YOU (actions targeting this agent)', () => {
+        /** One delta entry carrying the given performed-action rows. */
+        const worldWithActions = (performed) => makeWorld({
+            getAgentRoomPerception: (id, roomId, { limit }) => [{
+                sequence: 1, tick: 7, kind: 'delta', summary: '1 action performed in The Entrance Hall',
+                actions: { performed }
+            }].slice(-limit)
+        });
+        const sectionOf = (text) => text.slice(
+            text.indexOf('=== HAPPENED TO YOU ===') + '=== HAPPENED TO YOU ==='.length,
+            text.indexOf('=== YOUR WORLD')
+        );
+        /** A performed row aimed at the observing agent (ent-self). */
+        const onYou = performedRowOnYou;
+
+        it('says who used what on you, the part it hit, and the components that powered it', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }, { type: 'hand', id: 'comp-same-hand-2' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
+            })]));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            // The actor is named from the LIVE world, never from the row's id
+            // fallback (the perception row carries `name: id` for an entity with
+            // no name; a UUID in front of a local model names nothing).
+            expect(sectionOf(text)).toContain('- Player Droid used "droid punch" on you (hit: Head, 2x hand)');
+            expect(text).not.toContain('ent-same used');
+            expect(data.happenedToYou).toEqual([expect.objectContaining({
+                actorId: 'ent-same', actorName: 'Player Droid', action: 'droid punch',
+                hitComponentName: 'Head', usedTypes: ['hand', 'hand'], tick: 7
+            })]);
+        });
+
+        it('lists only what someone else did to you: your own action and other targets stay out', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([
+                // A blow aimed at a neighbour — not yours.
+                onYou({ target: { id: 'ent-same', name: 'ent-same', componentId: null, componentName: null } }),
+                // A self-targeted action — you did it; "YOUR LAST ACTIONS &
+                // RESULTS" says it, with its target.
+                onYou({ entity: 'ent-self', action: 'selfHeal' })
+            ]));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain('(none)');
+            expect(data.happenedToYou).toEqual([]);
+        });
+
+        it('names an actor that is gone by the time you look "Something" (the action is still true)', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({ entity: 'ent-gone', action: 'cut' })]));
+
+            const { text } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain('- Something used "cut" on you');
+            expect(sectionOf(text)).not.toContain('ent-gone');
+        });
+
+        it('caps the section at BUDGET.maxActionsOnYou and keeps the newest blows', () => {
+            const rows = Array.from({ length: 7 }, (_, i) => onYou({ action: `blow_${i}` }));
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions(rows));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            const cap = LlmContextController.BUDGET.maxActionsOnYou;
+            expect(data.happenedToYou).toHaveLength(cap);
+            expect(data.happenedToYou[0].action).toBe('blow_' + (7 - cap));
+            expect(sectionOf(text)).toContain('blow_6');
+            expect(sectionOf(text)).not.toContain('blow_0');
+        });
+
+        it('prints "(none)" when the change window carries no rows aimed at you', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(makeWorld());
+            const { text } = ctrl.buildContext('ent-self');
+            expect(text).toContain('=== HAPPENED TO YOU ===\n(none)');
+        });
+
+        it('reads before the room it must react in: HAPPENED TO YOU precedes YOUR WORLD', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(makeWorld());
+            const { text } = ctrl.buildContext('ent-self');
+            expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeGreaterThan(text.indexOf('=== YOUR LAST ACTIONS & RESULTS ==='));
+            expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeLessThan(text.indexOf('=== YOUR WORLD'));
+        });
+    });
+
+    it('YOUR LAST ACTIONS & RESULTS names who your action hit (the outbound half of the direction)', () => {
+        const feedback = [
+            { actionName: 'cut', targetEntityId: 'ent-same', success: true, detail: 'executed' },
+            { actionName: 'droid punch', targetEntityId: 'ent-gone', success: true, detail: 'punch hit' },
+            { actionName: 'move', targetEntityId: null, success: false, detail: 'planning window closed' }
+        ];
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(makeWorld({
+            llmAgentFeedbackController: { getRecent: () => feedback.slice() }
+        }));
+
+        const { text } = ctrl.buildContext('ent-self');
+        const section = text.slice(
+            text.indexOf('=== YOUR LAST ACTIONS & RESULTS ==='),
+            text.indexOf('=== HAPPENED TO YOU ===')
+        );
+        expect(section).toContain('- ✓ cut on Player Droid: executed');
+        // A target that despawned since is named honestly, never as a bare UUID.
+        expect(section).toContain('- ✓ droid punch on something that is no longer here: punch hit');
+        // An action aimed at nothing keeps its old line (no invented target).
+        expect(section).toContain('- ✗ move: planning window closed');
+    });
+
+    it('budget cascade: an action on you outlives a flooded delta window, then sheds its own tail', () => {
+        const row = performedRowOnYou({ action: 'droid punch' });
+        const flood = Array.from({ length: 10 }, (_, i) => ({
+            sequence: i + 1, tick: i, kind: 'delta', summary: `${'x'.repeat(500)} ${i}`,
+            actions: { performed: [row] }
+        }));
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(makeWorld({
+            getAgentRoomPerception: (id, roomId, { limit }) => flood.slice(-limit)
+        }));
+
+        const { text, stats } = ctrl.buildContext('ent-self');
+        expect(stats.chars).toBeLessThanOrEqual(5000);
+        // The expendable change window gave way; the blow did not.
+        expect(stats.truncated.deltas).toBe(true);
+        expect(stats.truncated.actionsOnYou).toBe(false);
+        expect(text).toContain('- Player Droid used "droid punch" on you');
+    });
+
+    it('budget cascade: HAPPENED TO YOU is bounded too, and says so in stats.truncated', () => {
+        const long = 'y'.repeat(1200);
+        const rows = Array.from({ length: 5 }, (_, i) => performedRowOnYou({ action: `${long}_${i}` }));
+        const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        ctrl.setWorldStateController(makeWorld({
+            getAgentRoomPerception: (id, roomId, { limit }) => [{
+                sequence: 1, tick: 1, kind: 'delta', summary: 'flood', actions: { performed: rows }
+            }].slice(-limit)
+        }));
+
+        const { stats, data } = ctrl.buildContext('ent-self');
+        expect(stats.truncated.actionsOnYou).toBe(true);
+        // Halved (5 → 2), newest kept.
+        expect(data.happenedToYou).toHaveLength(2);
+        expect(data.happenedToYou[1].action).toBe(`${long}_4`);
     });
 
     it('budget cascade: delta lines are shed before the state block (state survives)', () => {

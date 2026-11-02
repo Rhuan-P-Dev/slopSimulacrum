@@ -1027,6 +1027,27 @@ class TurnSystemController {
     }
 
     /**
+     * The entity a queued action was aimed at, for the agent's outcome feedback:
+     * the named target when the call had one, otherwise the OWNER of the
+     * targeted component — punch / cut / shoot aim at a part, and the context
+     * tells the model to aim with a `comp-…` id, so the component-only form is
+     * the common case in combat, not an edge case. Null when the action aims at
+     * nothing (a move, a craft). Ids only: the display name is resolved by the
+     * reader against the live world, so no name here can go stale.
+     * @param {Object|null|undefined} params - the queued action params
+     * @returns {string|null}
+     * @private
+     */
+    _feedbackTargetEntityId(params) {
+        if (!params || typeof params !== 'object') return null;
+        if (typeof params.targetEntityId === 'string' && params.targetEntityId !== '') {
+            return params.targetEntityId;
+        }
+        if (typeof params.targetComponentId !== 'string' || params.targetComponentId === '') return null;
+        return this.worldStateController?.getComponent?.(params.targetComponentId)?.entityId ?? null;
+    }
+
+    /**
      * Resolution (spec §5.5) — synchronous, deterministic:
      *   1. Order actors with ≥1 queued action by (initiative desc, entityId asc).
      *   2. For each actor, replay each entry FIFO through the REAL pipeline
@@ -1129,7 +1150,7 @@ class TurnSystemController {
                                 round,
                                 actionName: entry.actionName,
                                 componentId: entry.params?.componentId ?? null,
-                                targetEntityId: entry.params?.targetEntityId ?? null,
+                                targetEntityId: this._feedbackTargetEntityId(entry.params),
                                 queued: true,
                                 success: true,
                                 detail: entry.actionName === 'punch' ? 'punch hit' : 'executed',
@@ -1152,7 +1173,7 @@ class TurnSystemController {
                                 round,
                                 actionName: entry.actionName,
                                 componentId: entry.params?.componentId ?? null,
-                                targetEntityId: entry.params?.targetEntityId ?? null,
+                                targetEntityId: this._feedbackTargetEntityId(entry.params),
                                 queued: true,
                                 success: false,
                                 detail: reason,
