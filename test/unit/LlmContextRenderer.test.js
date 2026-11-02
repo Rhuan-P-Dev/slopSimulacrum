@@ -165,12 +165,12 @@ function makeWorld(overrides = {}, extraEntities = {}) {
             : {}),
         getActionsForEntity: (id) => (id === 'ent-self' ? actionsForEntity : {}),
         getRecentEvents: (limit) => recentEvents.slice(-limit),
-        // Perception stream (room-scoped, cursor-on-read). The default world
-        // is quiet; tests that exercise the "since you last looked" block
-        // override this with delta entries. The peek seam is the same window
-        // without the cursor write (debug readers) — see the observe:false test.
+        // Perception stream (room-scoped, cursor-on-read) — the BRAIN's read.
+        // The default world is quiet; tests that exercise the "since you last
+        // looked" block override this with delta entries. The room read is the
+        // stateless window a debug reader uses (observe: false) — see that test.
         getAgentRoomPerception: () => [],
-        peekAgentRoomPerception: () => [],
+        getPerceptionDeltasForRoom: () => [],
         // Dropped items in the current room (positions), for the "Dropped items:" line.
         getDroppedItemsByRoom: (roomId) => (roomId === 'room-1'
             ? { 'dropped-1': { id: 'dropped-1', itemType: 'knife', name: 'Knife', x: 150, y: 120, roomId: 'room-1' } }
@@ -1157,29 +1157,38 @@ describe('LlmContextController (context renderer)', () => {
     // it) — and that belongs to the brain alone. A debug reader that consumes
     // the window eats what the agent is about to perceive (the Agent View
     // incident, 2026-11-02: watching an agent erased its perception).
-    it('observe:false reads the window without consuming it; the default read observes', () => {
-        let consumed = 0;
-        let peeked = 0;
+    it('observe:false reads the ROOM window (stateless); the default read observes the agent window', () => {
+        let brainReads = 0;
+        let roomReads = 0;
         const windowEntries = [{
             sequence: 4, tick: 9, kind: 'delta',
             summary: '1 entity moved in The Entrance Hall',
-            actions: { performed: [performedRowOnYou() ] }
+            actions: { performed: [performedRowOnYou()] }
         }];
         const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         ctrl.setWorldStateController(makeWorld({
-            getAgentRoomPerception: () => { consumed += 1; return windowEntries; },
-            peekAgentRoomPerception: () => { peeked += 1; return windowEntries; }
+            getAgentRoomPerception: () => { brainReads += 1; return windowEntries; },
+            getPerceptionDeltasForRoom: (roomId) => {
+                expect(roomId, 'the room read takes the room, not the entity').toBe('room-1');
+                roomReads += 1;
+                return windowEntries;
+            }
         }));
 
-        const peek = ctrl.buildContext('ent-self', { observe: false });
-        expect(peeked, 'a debug read goes through the peek seam').toBe(1);
-        expect(consumed, 'a debug read must never touch the brain read').toBe(0);
-        expect(peek.text).toContain('- Player Droid used "droid punch" on you');
-        expect(peek.data.happenedToYou).toHaveLength(1);
+        // A debug reader: the room's recent window, and NEVER the agent's read
+        // (which is the observation and would consume the agent's perception).
+        const panel = ctrl.buildContext('ent-self', { observe: false });
+        expect(roomReads).toBe(1);
+        expect(brainReads, 'a debug read must never touch the brain read').toBe(0);
+        expect(panel.text).toContain('- Player Droid used "droid punch" on you');
+        expect(panel.data.happenedToYou).toHaveLength(1);
+
+        // And it is stateless: opening the panel again shows the same window.
+        ctrl.buildContext('ent-self', { observe: false });
+        expect(roomReads, 'the room read has no cursor to advance').toBe(2);
 
         const brain = ctrl.buildContext('ent-self');
-        expect(consumed, 'the brain read is the observation').toBe(1);
-        expect(peeked, 'the brain read does not peek').toBe(1);
+        expect(brainReads, 'the brain read is the observation').toBe(1);
         expect(brain.text).toContain('- 1 entity moved in The Entrance Hall');
     });
 

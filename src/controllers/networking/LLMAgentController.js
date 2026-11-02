@@ -1220,11 +1220,15 @@ class LLMAgentController {
             out.registry = {};
         }
 
-        // Same bounded sectioned context as the round runner — but a PEEK: the
-        // inspector looks, it does not observe. Composing it with the brain's
-        // consuming read advanced the agent's perception cursor, so every open
-        // of this panel erased what the agent was about to perceive (the 2026-
-        // 11-02 "my agent sees (none) while I watch it get destroyed" bug).
+        // Same bounded sectioned context as the round runner — but `observe:
+        // false`, so it reads the ROOM's recent window instead of the agent's
+        // pending one. The inspector looks; only the brain observes. Reading the
+        // agent's window here failed twice over (2026-11-02): consuming it made
+        // every panel open erase what the agent was about to perceive, and a
+        // non-consuming peek of it still showed `(none)`, because the round
+        // runner reads every round and the agent's own window is empty by the
+        // time anyone opens the panel — while the agent's transcript carried the
+        // blow. The room window is the one that shows an operator what happened.
         try {
             const ctx = this.llmContextController?.buildContext
                 ? this.llmContextController.buildContext(entityId, { instincts, ...options, observe: false })

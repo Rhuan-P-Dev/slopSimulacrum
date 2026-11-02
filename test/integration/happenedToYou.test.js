@@ -26,11 +26,14 @@
  * summary stays reader-independent — the new section is an addition to that
  * stream, not a rewrite of it.
  *
- * A third surface is pinned here because it is the one that used to silently
- * win: the dev inspector (`describeAgentView`, the Agent View panel) consumed
- * the agent's perception window while composing its byte-identical view, so the
- * operator watched an agent being destroyed while its own context read
- * "(none)". A peek is now a peek: same window, cursor untouched.
+ * A third surface is pinned here because it is the one that used to win twice:
+ * the dev inspector (`describeAgentView`, the Agent View panel) read the AGENT's
+ * perception window while composing its view. Consuming it, the operator's every
+ * look erased what the agent was about to perceive; made non-consuming, it still
+ * read `(none)` in front of an agent whose own context carried the blow — the
+ * round runner reads every round, so "after the agent's cursor" was empty by the
+ * time anyone looked. An inspector now reads the ROOM's recent window: stateless,
+ * the same entries whichever round it is opened in, and no cursor of anyone's.
  *
  * Roster note: every NPC is despawned after boot. Cards in data/cards/ are
  * gitignored local content, and an NPC left alive joins the round roster —
@@ -176,14 +179,14 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
     });
 });
 
-describe('looking is not observing — the inspector peek must not consume the agent window', () => {
+describe('looking is not observing — the inspector reads the room window, not the agent window', () => {
     // The 2026-11-02 bug: describeAgentView / GET /llm/context composed the
     // context with the SAME consuming read the brain uses, so every look at the
     // panel advanced the agent's perception cursor. The operator watched an
     // agent being destroyed while its context read "since you last looked:
     // (none)" and "HAPPENED TO YOU (none)": the panel had seen the blows, and
     // the agent never would.
-    it('the facade peek returns the same window twice; only the brain read consumes it', () => {
+    it('the room window a debug reader uses is stateless; the brain window is not', () => {
         const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 }); // baseline acknowledged
         world.actionController.executeAction('droid punch', attackerId, {
@@ -191,36 +194,65 @@ describe('looking is not observing — the inspector peek must not consume the a
             targetComponentId: headOf(world, victimId)
         });
 
-        const peekedTwice = [
-            world.peekAgentRoomPerception(victimId, roomId, { limit: 10 }),
-            world.peekAgentRoomPerception(victimId, roomId, { limit: 10 })
+        const roomWindow = [
+            world.getPerceptionDeltasForRoom(roomId, { limit: 10 }),
+            world.getPerceptionDeltasForRoom(roomId, { limit: 10 })
         ];
-        expect(peekedTwice[0]).toHaveLength(1);
-        expect(peekedTwice[1], 'a peek never acknowledges: the window is stable').toHaveLength(1);
+        expect(roomWindow[0].length).toBeGreaterThan(0);
+        expect(roomWindow[1], 'the room read has no cursor: a second look shows the same window')
+            .toHaveLength(roomWindow[0].length);
 
-        // The brain read still finds it, and only IT consumes it.
+        // The brain read is the one with a cursor, and it only moves itself.
         expect(world.getAgentRoomPerception(victimId, roomId, { limit: 10 })).toHaveLength(1);
         expect(world.getAgentRoomPerception(victimId, roomId, { limit: 10 }), 'the second brain read is a new window').toHaveLength(0);
+        expect(world.getPerceptionDeltasForRoom(roomId, { limit: 10 }), 'the brain read did not move the room window')
+            .toHaveLength(roomWindow[0].length);
     });
 
-    it('opening Agent View shows the blow AND leaves it for the next agent round', () => {
+    it('Agent View still shows the blow after the brain of the agent already read it', () => {
+        // THE regression the operator reported: the agent perceived the attack
+        // and the panel showed "HAPPENED TO YOU (none)". The timeline that
+        // produces it is the live one — the round runner reads every round, so
+        // by the time anyone opens the panel the agent's own window is already
+        // consumed, and a read keyed by that cursor (even a non-consuming one)
+        // has nothing left to show.
         const { world, subControllers, attackerId, victimId } = buildArena('Rover', 'Victim');
         const inspector = buildInspector(world, subControllers);
-        world.llmContextController.buildContext(victimId); // the agent's own round 1
+        world.llmContextController.buildContext(victimId); // round 1: baseline
         world.actionController.executeAction('droid punch', attackerId, {
             componentIds: fistsOf(world, attackerId),
             targetComponentId: headOf(world, victimId)
         });
 
-        // 1. The panel shows what happened (peek, same window the brain gets).
+        // Round 2: the agent perceives it. This is the "o agent percebe" half.
+        const brain = world.llmContextController.buildContext(victimId);
+        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
+
+        // ...and only NOW the operator opens the panel. It must show the same
+        // blow, not the empty tail of a cursor the brain already moved.
         const view = inspector.describeAgentView(victimId);
         expect(section(view.context.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
-        const peekedAgain = inspector.describeAgentView(victimId);
-        expect(section(peekedAgain.context.text, '=== HAPPENED TO YOU ==='), 'two opens, same window').toContain('- Rover used "droid punch" on you');
+        expect(section(view.context.text, 'since you last looked:')).toContain('action performed');
 
-        // 2. THE REGRESSION: the agent's own next round must still perceive it.
-        //    Before the fix this read came back empty — the panel had consumed
-        //    the window the agent was about to read.
+        // A second open shows it too (stateless reader), and the agent has lost
+        // nothing: the inspector consumed no part of the agent's window.
+        const again = inspector.describeAgentView(victimId);
+        expect(section(again.context.text, '=== HAPPENED TO YOU ==='), 'two opens, same window')
+            .toContain('- Rover used "droid punch" on you');
+    });
+
+    it('the inspector does not consume the window the agent reads', () => {
+        const { world, subControllers, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const inspector = buildInspector(world, subControllers);
+        world.getAgentRoomPerception(victimId, roomId, { limit: 10 }); // baseline
+        world.actionController.executeAction('droid punch', attackerId, {
+            componentIds: fistsOf(world, attackerId),
+            targetComponentId: headOf(world, victimId)
+        });
+
+        inspector.describeAgentView(victimId);
+        inspector.describeAgentView(victimId);
+
         const brain = world.llmContextController.buildContext(victimId);
         expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
         expect(section(brain.text, 'since you last looked:')).toContain('action performed');

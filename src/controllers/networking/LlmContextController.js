@@ -150,12 +150,15 @@ class LlmContextController {
      *   option: it is `LLM_CONTEXT_MAX_ACTIONS_ON_YOU`, because the section is
      *   the agent's own bodily history and no caller gets to tune it away.
      *   `instincts` (agent path) bypasses the facade instinct fallback.
-     *   `observe` (default `true`) decides whether this composition IS the
-     *   agent's observation: the round runner reads and consumes the perception
-     *   window ("the read IS the observation"); a debug reader (the Agent View
-     *   inspector, `GET /llm/context/:entityId`) passes `false` and sees the
-     *   same window with the agent's cursor untouched. A camera that eats what
-     *   it films is not a camera.
+     *   `observe` (default `true`) decides WHOSE window this composition reads.
+     *   `true` is the agent's brain: its room window since ITS observation
+     *   cursor, and the read IS the observation (the cursor advances). `false`
+     *   is a reader that is not the brain (the Agent View inspector,
+     *   `GET /llm/context/:entityId`): the ROOM's recent window, stateless — it
+     *   neither consumes the agent's perception (a camera that eats what it
+     *   films is not a camera) nor depends on the agent's cursor, which the
+     *   round runner has already moved past (peeking that window shows `(none)`
+     *   to an operator while the agent's own context carries the blow).
      * @returns {{ text: string, data: Object, stats: { chars: number, budgetChars: number, truncated: { entities: boolean, failures: boolean, deltas: boolean, actionsOnYou: boolean, chat: boolean, feedback: boolean, instincts: boolean } } }}
      */
     buildContext(entityId, options = {}) {
@@ -972,20 +975,30 @@ class LlmContextController {
      * block is the baseline, so a first observation renders state only.
      * @param {Object} entity
      * @param {number} limit
-     * @param {boolean} [observe=true] - false reads the same window WITHOUT
-     *   advancing the agent's cursor (`peekAgentRoomPerception`): for the debug
-     *   readers, which look but are not the agent's brain.
+     * @param {boolean} [observe=true] - WHOSE window this reads. true is the
+     *   agent's brain (its room window, cursor advances). false is a reader that
+     *   is not the brain (the dev inspector, `GET /llm/context/:entityId`): the
+     *   ROOM's recent window, stateless. Two bugs behind that split, both from
+     *   2026-11-02: the consuming read ate the agent's perception (watching an
+     *   agent erased what it was about to see), and a non-consuming peek of the
+     *   agent's OWN window then showed an operator `(none)` while the agent's
+     *   context carried the punch — because the round runner reads every round,
+     *   so "after the agent's cursor" is empty by the time anyone looks.
      * @returns {Array<Object>} raw delta entries, oldest to newest
      * @private
      */
     _buildDeltasData(entity, limit, observe = true) {
         const facade = this.worldStateController;
-        const read = observe ? facade.getAgentRoomPerception : facade.peekAgentRoomPerception;
+        // The brain read is keyed by (entity, room); the room read takes the
+        // room alone. .call(facade, …): these facade methods read `this`
+        // internally — detaching them loses it (the 2026-10-21 Minako
+        // chat-loss incident).
+        const read = observe ? facade.getAgentRoomPerception : facade.getPerceptionDeltasForRoom;
         if (typeof read !== 'function') return [];
         try {
-            // .call(facade, …): these facade methods read `this` internally —
-            // detaching them loses it (the 2026-10-21 Minako chat-loss incident).
-            const raw = read.call(facade, entity.id, entity.location, { limit }) || [];
+            const raw = (observe
+                ? read.call(facade, entity.id, entity.location, { limit })
+                : read.call(facade, entity.location, { limit })) || [];
             // Defense in depth: a baseline is the state block's job, never
             // the change window. The facade already filters baselines; this
             // guards the renderer against any other producer of the stream.

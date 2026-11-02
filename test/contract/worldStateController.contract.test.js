@@ -340,13 +340,6 @@ describe('WorldStateController public method surface', () => {
         'moveItemInEntity',
         'moveItemIntoContainer',
         'moveItemOutOfContainer',
-        // Added deliberately (the Agent View incident, 2026-11-02): the
-        // agent's room window WITHOUT consuming it. "The read IS the
-        // observation" belongs to the agent's brain alone; the dev inspector
-        // composing the same context advanced the agent's cursor, so every look
-        // at the panel erased what the agent was about to perceive. The other
-        // seam observes; this one looks (wiki perception_system.md §5).
-        'peekAgentRoomPerception',
         'previewActionData',
         'reEvaluateEntityCapabilities',
         // Added deliberately (wiki/subMDs/systems/perception_system.md):
