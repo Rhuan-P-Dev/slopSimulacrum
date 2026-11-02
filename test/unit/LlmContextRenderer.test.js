@@ -1162,6 +1162,60 @@ describe('LlmContextController (context renderer)', () => {
             ]);
         });
 
+        it('names the side of the component that was hit, and leaves root components plain', () => {
+            // The target half of the side fix: `hit: maleLeg` says a leg
+            // was hit but not which one. The rendered form is `type (label)`
+            // — the body block's own shape, so a local model already knows
+            // what the parenthetical means from `YOUR BODY`. A root component
+            // (Head, coreBall — no position) keeps rendering plain.
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-leg', componentName: 'maleLeg' }
+            })], {
+                'ent-self': {
+                    id: 'ent-self',
+                    name: 'Bolt the Merchant',
+                    isNPC: true,
+                    location: 'room-1',
+                    spatial: { x: 100, y: 100 },
+                    components: [
+                        makeComponent('comp-core', 'coreBall'),
+                        makeComponent('comp-head', 'head'),
+                        { id: 'comp-leg', type: 'maleLeg', identifier: 'frontal_left' }
+                    ]
+                }
+            }));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain(
+                '- Player Droid used "droid punch" on you (hit: maleLeg (frontal_left), used: 1x hand)'
+            );
+            expect(data.happenedToYou[0]).toMatchObject({
+                hitComponentName: 'maleLeg',
+                hitComponentSide: 'frontal_left'
+            });
+
+            // Same row aimed at a root component: no side to add, the text is
+            // exactly as before this change.
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
+            })], {
+                'ent-self': {
+                    id: 'ent-self',
+                    name: 'Bolt the Merchant',
+                    isNPC: true,
+                    location: 'room-1',
+                    spatial: { x: 100, y: 100 },
+                    components: [makeComponent('comp-head', 'head')]
+                }
+            }));
+
+            const { text: rootText } = ctrl.buildContext('ent-self');
+            expect(sectionOf(rootText)).toContain('- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)');
+        });
+
         it('drops the meaningless default token of a composed label (default_left reads as left)', () => {
             // Real data: a hand hanging off the root body is stamped
             // `default_left`, and `default` says nothing about position. A toe

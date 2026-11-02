@@ -1040,8 +1040,9 @@ class LlmContextController {
      * @param {Array<Object>} deltas - the SAME delta entries the "since you
      *   last looked" block renders (never re-read: the read is the observation)
      * @returns {Array<{actorId: string, actorName: string, action: string,
-     *   hitComponentName: string|null, usedComponents: Array<{type: string|null,
-     *   identifier: string|null}>, tick: number|null}>} oldest → newest, capped
+     *   hitComponentName: string|null, hitComponentSide: string|null,
+     *   usedComponents: Array<{type: string|null, identifier: string|null}>,
+     *   tick: number|null}>} oldest → newest, capped
      *   to the newest BUDGET.maxActionsOnYou
      * @private
      */
@@ -1057,6 +1058,7 @@ class LlmContextController {
                     actorName: this._entityDisplayName(row.entity),
                     action: String(row.action ?? 'unknown'),
                     hitComponentName: row?.target?.componentName ?? null,
+                    hitComponentSide: this._hitComponentSide(row?.target, entity.id),
                     usedComponents: this._usedComponentsWithSides(row.entity, row?.used),
                     tick: row?.tick ?? null
                 });
@@ -1126,8 +1128,46 @@ class LlmContextController {
     }
 
     /**
-     * The display name of one entity id, resolved against the live world.
-     * Follows the block the agent reads its neighbours from (`name || 'Droid'`),
+     * The side of the component a blow landed on, resolved against the live
+     * world exactly as `usedComponents` resolves the attacker's sides. This is
+     * the "which leg" half of the same bug the side labels fix: `hit: maleLeg`
+     * told the agent a leg was hit but not which one, and a side-free target
+     * is worse than a count because a count at least admitted the ambiguity.
+     * The target here is the reading agent itself (this section filters to the
+     * rows aimed at it), so the component hangs off its own body list. The
+     * label is honest in the same three ways: it never invents a side for a
+     * root component (m1Head, minakobody, centralBall — no position, `default`
+     * or no identifier, renders unchanged as `hit: Droid Head` / `hit:
+     * minakobody`), it strips the meaningless `default_` token of a composed
+     * label, and it is null when the recorded component no longer exists
+     * (the blow is still true; the body it struck has already been rebuilt). The
+     * rendered form is `hit: <name> (<side>)` — the same shape the body block
+     * uses for a side label, so a local model already knows what `type
+     * (label)` means from `YOUR BODY`.
+     *
+     * @param {Object|null} target - the row's resolved target ({ id, name,
+     *   componentId, componentName })
+     * @param {string} observerId - the reading agent; the target is always it
+     *   (this section filters to its rows), used only to resolve the live body
+     * @returns {string|null}
+     * @private
+     */
+    _hitComponentSide(target, observerId) {
+        const componentId =
+            typeof target?.componentId === 'string' ? target.componentId : null;
+        if (componentId == null) return null;
+        const entity =
+            (typeof target?.id === 'string'
+                ? this.worldStateController?.getEntity?.(target.id)
+                    ?? this.worldStateController?.getEntity?.(observerId)
+                : this.worldStateController?.getEntity?.(observerId))
+            ?? null;
+        const comp = (entity?.components ?? []).find((c) => c.id === componentId) ?? null;
+        return LlmContextController._sideLabel(comp?.identifier);
+    }
+
+    /**
+     * The display name of one entity id, resolved against the live world.     * Follows the block the agent reads its neighbours from (`name || 'Droid'`),
      * so the same token names the same actor in both places. Null when the
      * entity is gone — callers pick the honest wording for that case.
      * @param {string} entityId
@@ -1143,10 +1183,14 @@ class LlmContextController {
 
     /**
      * Renders one "HAPPENED TO YOU" row. `<actor> used "<action>" on you`, plus
-     * the part it hit and the components that powered it when they are known —
-     * the attribution the perception row already carries, never a guess:
-     * `(hit: minakoBody, used: 1x left maleArm, 1x right maleArm)`.
-     *
+     * the part it hit (with the side that tells which component it was) and the
+     * components that powered it when they are known — the attribution the
+     * perception row already carries, never a guess:
+     * `(hit: minakoLeg (frontal_left), used: 1x left maleArm, 1x right maleArm)`
+     * and the unchanged `(hit: Droid Head, used: 1x left droidHand, 1x right
+     * droidHand)` when the hit component has no side. The target side uses the
+     * same body-block shape `type (label)` (`_hitComponentSide`), so a local
+     * model already knows what that syntax means from `YOUR BODY`.
      * `used:` is spelled out because the counts alone were not readable: a bare
      * `(2x droidHand)` left a local model to work out that the parenthetical
      * described the attacker's body and not the damage. The side label splits a
@@ -1171,8 +1215,11 @@ class LlmContextController {
             counts.set(label, (counts.get(label) ?? 0) + 1);
         }
         const usedPhrase = [...counts].map(([label, count]) => `${count}x ${label}`).join(', ');
+        const hit = row.hitComponentName
+            ? `hit: ${row.hitComponentName}${row.hitComponentSide ? ` (${row.hitComponentSide})` : ''}`
+            : null;
         const details = [
-            row.hitComponentName ? `hit: ${row.hitComponentName}` : null,
+            hit,
             usedPhrase ? `used: ${usedPhrase}` : null
         ].filter(Boolean).join(', ');
         return `- ${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;

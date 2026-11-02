@@ -53,10 +53,14 @@ import LLMAgentController from '../../src/controllers/networking/LLMAgentControl
 /**
  * A fresh world with no NPCs and two named droids standing in the same room
  * (spawned at the same spot, so a melee action is in range without any move).
+ * The victim may carry any blueprint — the side-label test needs a body with
+ * multiple legs, which smallBallDroid (a ball) does not have.
  * @param {string} attackerName
+ * @param {string|object} [victimBlueprint='smallBallDroid'] - a blueprint id,
+ *   or an entity config (object) when a non-default spawn is needed
  * @param {string} victimName
  */
-function buildArena(attackerName, victimName) {
+function buildArena(attackerName, victimBlueprint = 'smallBallDroid', victimName) {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world, subControllers } = buildWorldState(tick);
     Object.values(world.stateEntityController.entities)
@@ -65,8 +69,18 @@ function buildArena(attackerName, victimName) {
 
     const roomId = world.roomsController.getUidByLogicalId('start_room');
     const attackerId = world.stateEntityController.spawnEntity('smallBallDroid', roomId, { name: attackerName });
-    const victimId = world.stateEntityController.spawnEntity('smallBallDroid', roomId, { name: victimName });
+    const victimId = world.stateEntityController.spawnEntity(
+        victimBlueprint,
+        roomId,
+        { name: victimName }
+    );
     return { world, tick, subControllers, turns: subControllers.turnSystemController, roomId, attackerId, victimId };
+}
+
+/** The first component of a type carrying a given blueprint side label.
+ * The arena bodies are deterministic, so this is unambiguous. */
+function componentOfTypeAndSide(world, entityId, type, identifier) {
+    return world.getEntity(entityId).components.find((c) => c.type === type && c.identifier === identifier);
 }
 
 /**
@@ -122,8 +136,32 @@ function section(text, header) {
 }
 
 describe('HAPPENED TO YOU — an action aimed at the agent reaches its own context', () => {
+    it('names WHICH leg or arm was hit (not just "M1 Leg")', () => {
+        const { world, attackerId, victimId } = buildArena('Rover', 'm1Droid', 'Victim');
+        world.llmContextController.buildContext(victimId); // baseline first — the read is the observation
+
+        const exec = world.actionController.executeAction('droid punch', attackerId, {
+            componentIds: fistsOf(world, attackerId),
+            targetComponentId: componentOfTypeAndSide(world, victimId, 'm1Leg', 'frontal_left').id
+        });
+        expect(exec.success, `the punch must land: ${exec?.error ?? ''}`).toBe(true);
+
+        const { text, data } = world.llmContextController.buildContext(victimId);
+        expect(section(text, '=== HAPPENED TO YOU ===')).toContain(
+            '- Rover used "droid punch" on you (hit: M1 Leg (frontal_left), used: 1x left droidHand, 1x right droidHand)'
+        );
+        // The same line from the mirror the client receives — name and side
+        // are two fields, not a string stitched after the fact.
+        expect(data.happenedToYou[0]).toMatchObject({
+            actorName: 'Rover',
+            action: 'droid punch',
+            hitComponentName: 'M1 Leg',
+            hitComponentSide: 'frontal_left'
+        });
+    });
+
     it('renders the blow as a sentence naming actor, action, the part hit and the components used', () => {
-        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         // Both look once first: that read is the observation, so the baseline
         // is acknowledged and the punch is what the next window reports.
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 });
@@ -145,7 +183,7 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
     });
 
     it('keeps the shared delta summary reader-independent (the new section adds, never rewrites)', () => {
-        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 });
         world.actionController.executeAction('droid punch', attackerId, {
             componentIds: fistsOf(world, attackerId),
@@ -164,7 +202,7 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
     });
 
     it('reports an inbound row only for the agent it was aimed at', () => {
-        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 });
         world.getAgentRoomPerception(attackerId, roomId, { limit: 10 });
         world.actionController.executeAction('droid punch', attackerId, {
@@ -189,7 +227,7 @@ describe('looking is not observing — the inspector reads the room window, not 
     // (none)" and "HAPPENED TO YOU (none)": the panel had seen the blows, and
     // the agent never would.
     it('the room window a debug reader uses is stateless; the brain window is not', () => {
-        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 }); // baseline acknowledged
         world.actionController.executeAction('droid punch', attackerId, {
             componentIds: fistsOf(world, attackerId),
@@ -218,7 +256,7 @@ describe('looking is not observing — the inspector reads the room window, not 
         // by the time anyone opens the panel the agent's own window is already
         // consumed, and a read keyed by that cursor (even a non-consuming one)
         // has nothing left to show.
-        const { world, subControllers, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, subControllers, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         const inspector = buildInspector(world, subControllers);
         world.llmContextController.buildContext(victimId); // round 1: baseline
         world.actionController.executeAction('droid punch', attackerId, {
@@ -244,7 +282,7 @@ describe('looking is not observing — the inspector reads the room window, not 
     });
 
     it('the inspector does not consume the window the agent reads', () => {
-        const { world, subControllers, roomId, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, subControllers, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         const inspector = buildInspector(world, subControllers);
         world.getAgentRoomPerception(victimId, roomId, { limit: 10 }); // baseline
         world.actionController.executeAction('droid punch', attackerId, {
@@ -263,7 +301,7 @@ describe('looking is not observing — the inspector reads the room window, not 
 
 describe('YOUR LAST ACTIONS & RESULTS — the actor learns what it hit', () => {
     it('a turn-queued, component-targeted action records the owner of the part it aimed at', () => {
-        const { world, tick, turns, attackerId, victimId } = buildArena('Rover', 'Victim');
+        const { world, tick, turns, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
         openRound(tick, turns);
         // The queue carries ONLY a targetComponentId — the form the context
         // tells the model to aim with ("target comp: comp-…"). The owner is
