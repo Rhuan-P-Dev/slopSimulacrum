@@ -304,10 +304,14 @@ class LLMAgentController {
                 contextText = this._minimalContextLine(entity);
             }
 
-            // 4. Conversation: transcript replay (last LLM_REPLAY_ROUNDS rounds) + fresh context.
+            // 4. Conversation: transcript replay (last LLM_REPLAY_ROUNDS rounds)
+            // + fresh context. Every round the LLM sees is anchored by a user
+            // message — the round number plus its context snapshot; the replay
+            // carries each prior round's anchor (and saved context), the live
+            // round gets its own (decisions/round-anchored-transcript.md).
             const messages = [
                 ...this._transcriptFor(npcEntityId),
-                { role: 'user', content: contextText }
+                { role: 'user', content: `round ${round}\n\n${contextText}` }
             ];
 
             const options = {
@@ -362,7 +366,7 @@ class LLMAgentController {
                     const msg = err?.message || String(err);
                     Logger.warn(`[LLMAgent] round ${round} missed for ${displayName}: ${code} (${msg})`);
                     result.error = code;
-                    this._storeTranscript(npcEntityId, round, { groups, note: code, error: code });
+                    this._storeTranscript(npcEntityId, round, { groups, note: code, error: code, context: contextText });
                     return result; // NPC silent — window may be gone anyway
                 }
 
@@ -645,7 +649,7 @@ class LLMAgentController {
                     result.done = true;
                     result.note = note;
                     result.chat = { sent: false, reason: note };
-                    this._storeTranscript(npcEntityId, round, { groups, note });
+                    this._storeTranscript(npcEntityId, round, { groups, note, context: contextText });
                     return result;
                 }
 
@@ -654,7 +658,7 @@ class LLMAgentController {
                     // (spec §6.5.6).
                     result.done = true;
                     result.note = 'done';
-                    this._storeTranscript(npcEntityId, round, { groups, note: 'done' });
+                    this._storeTranscript(npcEntityId, round, { groups, note: 'done', context: contextText });
                     return result;
                 }
 
@@ -671,7 +675,7 @@ class LLMAgentController {
                     // Budget exhausted: the loop ends; the final call lives in
                     // `groups` (no retries were left to spend).
                     result.note = result.note || 'iterations exhausted';
-                    this._storeTranscript(npcEntityId, round, { groups, note: result.note });
+                    this._storeTranscript(npcEntityId, round, { groups, note: result.note, context: contextText });
                     return result;
                 }
 
@@ -689,7 +693,8 @@ class LLMAgentController {
             // failure-fed-back continue pushed past the budget cap).
             this._storeTranscript(npcEntityId, round, {
                 groups,
-                note: result.note || 'loop ended without return'
+                note: result.note || 'loop ended without return',
+                context: contextText
             });
             return result;
         } catch (err) {
@@ -995,20 +1000,24 @@ class LLMAgentController {
 
     // =========================================================================
     // TRANSCRIPT (per-NPC round history: the Agent View shows every stored
-    // round; the model replays only the last LLM_REPLAY_ROUNDS rounds — spec §6.5.
-    // The window is a count, not a size budget — llm-memory-window.md)
+    // round; the model replays only the last LLM_REPLAY_ROUNDS rounds, each
+    // anchored by a user message (round number + context snapshot) — spec
+    // §6.5. The window is a count, not a size budget — llm-memory-window.md;
+    // the context-snapshot cost delta is in
+    // decisions/round-anchored-transcript.md)
     // =========================================================================
 
     /**
      * Returns the replayable message history for the LLM: for each of the
      * LAST LLM_REPLAY_ROUNDS stored rounds — the replay tail of the inspector
-     * buffer — every group (one per in-round LLM call —
-     * the agent loop, spec §6.5) with its assistant tool-call message,
-     * followed by one tool-role result per call. Legacy entries
-     * ({ assistant, results? } / { error }) are still playable as
-     * single-call history. Follows the relaxed _validateMessages contract
-     * (assistant content: null + tool_calls; tool messages: content +
-     * tool_call_id).
+     * buffer — a user message anchoring the round (the round number plus the
+     * context snapshot saved for it; legacy entries carry the number alone)
+     * followed by every group (one per in-round LLM call — the agent loop,
+     * spec §6.5) with its assistant tool-call message, then one tool-role
+     * result per call. Legacy entries ({ assistant, results? } / { error })
+     * are still playable as single-call history. Follows the relaxed
+     * _validateMessages contract (assistant content: null + tool_calls; tool
+     * messages: content + tool_call_id).
      * @private
      */
     _transcriptFor(npcEntityId) {
@@ -1026,6 +1035,22 @@ class LLMAgentController {
             const groups = (entry.groups && Array.isArray(entry.groups))
                 ? entry.groups
                 : (entry.assistant ? [entry] : []);
+            if (groups.length === 0) continue;
+            // Each replayed round is anchored by a user message — the round
+            // number plus the context snapshot saved for that round (spec §6.5;
+            // decisions/round-anchored-transcript.md). Identical shape to the
+            // live round's anchor in runRound; legacy / guard-stop entries with
+            // no saved snapshot get the round number alone.
+            const anchorParts = [];
+            if (typeof entry.round === 'number') {
+                anchorParts.push('round ' + entry.round);
+            }
+            if (typeof entry.context === 'string' && entry.context.length > 0) {
+                anchorParts.push(entry.context);
+            }
+            if (anchorParts.length > 0) {
+                messages.push({ role: 'user', content: anchorParts.join('\n\n') });
+            }
             for (const group of groups) {
                 if (!group || !group.assistant) continue;
                 const assistantMessage = group.assistant;
@@ -1080,14 +1105,16 @@ class LLMAgentController {
     /**
      * Appends one round to the NPC's round history (capped at
      * LLM_AGENT_VIEW_HISTORY_ROUNDS — the Agent View inspector window).
-     * Entry shapes (spec §6.5): { groups: [...], note?, error? } — the
-     * in-round agent loop (one group per LLM call, each { assistant,
+     * Entry shapes (spec §6.5): { groups: [...], note?, error?, context? } —
+     * the in-round agent loop (one group per LLM call, each { assistant,
      * results }) plus the note explaining why the round ended (done, no
      * response, prose-ignored, degenerated, iterations exhausted, LLM
-     * error code) — or { error } (guard stops such as NPC_GONE) or the
-     * legacy { assistant?, results? } (single-call history). Replay reads
-     * only the last LLM_REPLAY_ROUNDS via _transcriptFor; the inspector
-     * reads all stored rounds via _getTranscriptRounds.
+     * error code), and the context snapshot that round saw (round-anchored
+     * transcript; decisions/round-anchored-transcript.md) — or { error }
+     * (guard stops such as NPC_GONE) or the legacy { assistant?, results? }
+     * (single-call history). Replay reads only the last LLM_REPLAY_ROUNDS
+     * via _transcriptFor (each stored round anchored by its user message);
+     * the inspector reads all stored rounds via _getTranscriptRounds.
      * @private
      */
     _storeTranscript(npcEntityId, round, entry) {
@@ -1125,7 +1152,8 @@ class LLMAgentController {
      *   tools: Array, instincts: Array,
      *   registry: Object<string, Object>,
      *   transcriptRounds: Array<{ round: number|null, note: string|null,
-     *     error: string|null, groups: Array<{ content: string|null,
+     *     error: string|null, context: string|null,
+     *     groups: Array<{ content: string|null,
      *       reasoning_content: string|null, tool_calls: Array|null,
      *       results: Array }> }>,
      *   error: string|null
@@ -1270,7 +1298,8 @@ class LLMAgentController {
      * @private
      * @param {string} entityId
      * @returns {Array<{ round: number|null, note: string|null,
-     *   error: string|null, groups: Array<Object> }>}
+     *   error: string|null, context: string|null,
+     *   groups: Array<Object> }>}
      */
     _getTranscriptRounds(entityId) {
         const entries = Array.from((this._transcripts?.get(entityId)) || []);
@@ -1286,6 +1315,7 @@ class LLMAgentController {
                 round: (typeof entry.round === 'number') ? entry.round : null,
                 note: (typeof entry.note === 'string') ? entry.note : null,
                 error: (typeof entry.error === 'string') ? entry.error : null,
+                context: (typeof entry.context === 'string') ? entry.context : null,
                 groups: groups
                     .filter(g => g && typeof g === 'object' && g.assistant)
                     .map(g => this._normalizeTranscriptGroup(g))

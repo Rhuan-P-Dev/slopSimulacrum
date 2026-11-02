@@ -832,6 +832,61 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(JSON.stringify(round2).includes('/parameter')).toBe(false); // no re-priming
     });
 
+    it('anchors every LLM request on user messages (round N + context snapshot)', async () => {
+        // Each round's request is anchored: every prior round is replayed as a
+        // user anchor + assistant/tool groups; the live round's anchor is the
+        // last user message (spec §6.5;
+        // decisions/round-anchored-transcript.md).
+        const ctx = '=== ROOM ===\nMain Room';
+        const seenMessages = [];
+        const { agent } = makeAgent({
+            chatFullImpl: (messages) => {
+                seenMessages.push(JSON.parse(JSON.stringify(messages)));
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: toolMessage([{ name: 'done', args: '{}' }])
+                };
+            }
+        });
+
+        await agent.runRound(NPC_ID, 0);
+        await agent.runRound(NPC_ID, 1);
+
+        // Round 0: no prior rounds — the sole user message is the live anchor.
+        const req0 = seenMessages[0];
+        expect(req0.filter((m) => m.role === 'user')).toHaveLength(1);
+        expect(req0[0]).toEqual({ role: 'user', content: 'round 0\n\n' + ctx });
+
+        // Round 1: round 0 replayed (anchor + assistant + tool), then the
+        // live round's anchor, as the last user message.
+        const req1 = seenMessages[1];
+        const users = req1.filter((m) => m.role === 'user');
+        expect(users).toHaveLength(2);
+        expect(users[0].content).toBe('round 0\n\n' + ctx);
+        expect(req1.filter((m) => m.role === 'assistant')).toHaveLength(1);
+        expect(req1.filter((m) => m.role === 'tool')).toHaveLength(1);
+        expect(req1.at(-1)).toEqual({ role: 'user', content: 'round 1\n\n' + ctx });
+    });
+
+    it('replays legacy entries (no context saved) as the round number alone; guard stops stay invisible', async () => {
+        // Entries stored before the context snapshot existed (legacy
+        // single-call shape) and guard stops ({ error }) must not crash or
+        // fabricate context: the round number alone is the anchor, and entries
+        // with no groups (NPC_GONE) replay nothing, as before.
+        const { agent } = makeAgent({});
+        agent._storeTranscript(NPC_ID, 7, {
+            assistant: { role: 'assistant', content: 'legacy thought', tool_calls: [] },
+            results: []
+        });
+        agent._storeTranscript(NPC_ID, 8, { error: 'NPC_GONE' });
+        const replay = agent._transcriptFor(NPC_ID);
+        expect(replay).toHaveLength(2);
+        expect(replay[0]).toEqual({ role: 'user', content: 'round 7' });
+        expect(replay[1]).toEqual({ role: 'assistant', content: 'legacy thought' });
+    });
+
     it('clean prose in the transcript is preserved verbatim (sanitizer only touches broken output)', async () => {
         const roomChat = makeRoomChat();
         let callCount = 0;
@@ -862,6 +917,11 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         await agent.runRound(NPC_ID, 1);
 
         const nextReq = seenMessages[1];
+        // One user anchor per stored round (round 0) plus the live round 1.
+        const users = nextReq.filter(m => m.role === 'user');
+        expect(users).toHaveLength(2);
+        expect(users[0].content).toBe('round 0\n\n=== ROOM ===\nMain Room');
+        expect(users.at(-1).content).toBe('round 1\n\n=== ROOM ===\nMain Room');
         const assistant = nextReq.find(m => m.role === 'assistant');
         expect(assistant.content).toBe('The door is locked; I will find another way.');
     });
@@ -938,6 +998,13 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         expect(nextAssistants.at(-1).reasoning_content).toBe(
             'The door is jammed; a repair should free it.'
         );
+        // Round anchoring survives retries: one user anchor per stored round
+        // (round 0) plus the live one (round 1).
+        expect(nextReq.filter(m => m.role === 'user')).toHaveLength(2);
+        expect(nextReq.at(-1)).toEqual({
+            role: 'user',
+            content: 'round 1\n\n=== ROOM ===\nMain Room'
+        });
     });
 
     it('discovery round: get_actions/get_instincts feed back the action list, so the model acts instead of spinning (spec §6.5)', async () => {
@@ -1788,6 +1855,12 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
         expect(toolPayload.error).toMatch(/queued toward target/);
         expect(toolPayload.error).toMatch(/targetX=200/);
         expect(toolPayload.error).toMatch(/targetY=100/);
+        // The prior round is anchored by its user message (round number +
+        // context snapshot), same shape as the live round.
+        const users = r2Messages.filter(m => m.role === 'user');
+        expect(users).toHaveLength(2);
+        expect(users[0].content).toBe('round 1\n\n=== ROOM ===\nMain Room');
+        expect(users.at(-1).content).toBe('round 2\n\n=== ROOM ===\nMain Room');
     });
 });
 
@@ -2512,6 +2585,11 @@ describe('describeAgentView — transcript history (all rounds + subcalls)', () 
         expect(r2.groups[0].results[0].list).toContain('selfHeal');
         expect(r2.groups[1].tool_calls.map((c) => c.function.name)).toEqual(['speak_in_room', 'done']);
         expect(r2.groups[1].results[0].success).toBe(true);
+        // Context snapshot exposed (decisions/round-anchored-transcript.md):
+        // the dev tab shows what each round saw — the live buildContext
+        // stub for this describe, not the global default.
+        expect(r1.context).toBe('=== ROOM === Main Room');
+        expect(r2.context).toBe('=== ROOM === Main Room');
     });
 
     it('caps the transcript buffer at LLM_AGENT_VIEW_HISTORY_ROUNDS while the replay stays at the last LLM_REPLAY_ROUNDS rounds (spec §6.5)', () => {
@@ -2552,17 +2630,24 @@ describe('describeAgentView — transcript history (all rounds + subcalls)', () 
         expect(view.transcriptRounds[0].round).toBe(3);
         expect(view.transcriptRounds[CAP - 1].round).toBe(CAP + 2);
 
-        // The replay is the tail of that SAME buffer (spec §6.5), oldest first,
-        // one assistant + one tool message per stored round. It is a COUNT, not
-        // a size budget - nothing here is shed by length - and REPLAY > CAP can
-        // only ever return what is stored.
+        // The replay is the tail of that SAME buffer (spec §6.5), oldest
+        // first: one user anchor + one assistant + one tool message per stored
+        // round. It is a COUNT, not a size budget - nothing here is shed by
+        // length - and REPLAY > CAP can only ever return what is stored.
         const replay = agent._transcriptFor(NPC_ID);
+        const userReplays = replay.filter((m) => m.role === 'user');
         const assistantReplays = replay.filter((m) => m.role === 'assistant');
         const toolReplays = replay.filter((m) => m.role === 'tool');
         const expected = Math.min(REPLAY, CAP);
         expect(assistantReplays).toHaveLength(expected);
         expect(toolReplays).toHaveLength(expected);
+        // Round anchoring: one user message per stored round. These legacy
+        // entries carry no context snapshot, so the anchor is the round number
+        // alone.
+        expect(userReplays).toHaveLength(expected);
+        expect(userReplays[0].content).toBe(`round ${CAP + 2 - (expected - 1)}`);
+        expect(userReplays.at(-1).content).toBe(`round ${CAP + 2}`);
         expect(assistantReplays[0].content).toBe(`thought ${CAP + 2 - (expected - 1)}`);
-        expect(assistantReplays[expected - 1].content).toBe(`thought ${CAP + 2}`);
+        expect(assistantReplays.at(-1).content).toBe(`thought ${CAP + 2}`);
     });
 });

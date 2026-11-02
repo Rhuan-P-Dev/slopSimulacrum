@@ -6,7 +6,8 @@
  * identical to the round runner), the sectioned world context (narrative +
  * structured data + render stats), the live action registry, generated
  * instincts, and the full transcript history: every stored round (the
- * inspector cap), newest first, each with all of its in-round LLM calls —
+ * inspector cap), newest first, each anchored by its user message (round
+ * number + context snapshot) and each with all of its in-round LLM calls —
  * the loop's subcalls (assistant content / reasoning / tool calls) and
  * per-call results.
  *
@@ -268,6 +269,16 @@ export class AgentViewPanel {
             (t.note ? `<span class="agent-view-badge info">${this._esc(t.note)}</span>` : '') +
             (t.error ? `<span class="agent-view-badge warning">${this._esc(t.error)}</span>` : '') +
             '</div>');
+        // The context snapshot saved for that round — what the LLM saw, in
+        // the same round-anchored form as the replay. Collapsed (the live
+        // context lives in the World Context section; this is history, up to
+        // one snapshot per stored round, and the tab has no cap on round
+        // count — see llm-memory-window.md).
+        if (typeof t.context === 'string' && t.context.length > 0) {
+            lines.push(this._details('context snapshot (round ' +
+                (t.round == null ? '?' : String(t.round)) + ')',
+                `<pre class="agent-view-pre">${this._esc(t.context)}</pre>`));
+        }
         const groups = Array.isArray(t.groups) ? t.groups : [];
         if (groups.length === 0) {
             lines.push('<p class="agent-view-empty">no LLM calls this round</p>');
