@@ -240,8 +240,8 @@ export class AgentViewPanel {
         }
         const stats = p.context && p.context.stats ? p.context.stats : {};
         if (stats.chars != null) {
-            badges.push(`<span class="agent-view-stat">context ${stats.chars}</span>`);
-            if (stats.budgetChars != null) badges.push(`<span class="agent-view-stat">budget ${stats.budgetChars}</span>`);
+            badges.push(`<span class="agent-view-stat">context ${this._esc(String(stats.chars))}</span>`);
+            if (stats.budgetChars != null) badges.push(`<span class="agent-view-stat">budget ${this._esc(String(stats.budgetChars))}</span>`);
         }
         if (stats.truncated && Object.keys(stats.truncated).length) {
             for (const [k, v] of Object.entries(stats.truncated)) if (v === true) badges.push(`<span class="agent-view-stat truncated">trunc:${this._esc(k)}</span>`);
@@ -272,8 +272,9 @@ export class AgentViewPanel {
         // The context snapshot saved for that round — what the LLM saw, in
         // the same round-anchored form as the replay. Collapsed (the live
         // context lives in the World Context section; this is history, up to
-        // one snapshot per stored round, and the tab has no cap on round
-        // count — see llm-memory-window.md).
+        // one snapshot per stored round. The tab renders every round the
+        // server exposes and imposes no cap of its own — the stored buffer
+        // is capped server-side, see llm-memory-window.md).
         if (typeof t.context === 'string' && t.context.length > 0) {
             lines.push(this._details('context snapshot (round ' +
                 (t.round == null ? '?' : String(t.round)) + ')',
@@ -375,8 +376,8 @@ export class AgentViewPanel {
         const stats = ctx.stats ? ctx.stats : {};
         let badges = '';
         if (stats.chars != null) {
-            badges += `<span class="agent-view-stat">context ${stats.chars}</span>`;
-            if (stats.budgetChars != null) badges += `<span class="agent-view-stat">budget ${stats.budgetChars}</span>`;
+            badges += `<span class="agent-view-stat">context ${this._esc(String(stats.chars))}</span>`;
+            if (stats.budgetChars != null) badges += `<span class="agent-view-stat">budget ${this._esc(String(stats.budgetChars))}</span>`;
         }
         if (!text) {
             return this._section('World Context (narrative the LLM reads)', `<div>${badges}</div><p class="agent-view-empty">empty</p>`);

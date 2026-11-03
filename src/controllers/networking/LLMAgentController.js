@@ -1030,8 +1030,9 @@ class LLMAgentController {
         const messages = [];
         for (const entry of rounds) {
             if (!entry || typeof entry !== 'object') continue;
-            // One group per in-round LLM call (spec §6.5); legacy entries
-            // (error / guard stops) are treated as single-call history.
+            // One group per in-round LLM call (spec §6.5); legacy entries with
+            // an assistant are treated as single-call history. Entries with no
+            // groups (error / guard stops) replay nothing.
             const groups = (entry.groups && Array.isArray(entry.groups))
                 ? entry.groups
                 : (entry.assistant ? [entry] : []);
@@ -1131,8 +1132,10 @@ class LLMAgentController {
     //
     // Reuses the EXACT round-runner logic (_resolveNpcConfig, _buildTools,
     // _buildSystemPrompt, _safeGenerateInstincts, llmContextController.
-    // buildContext) so the view is byte-identical to what the LLM receives in
-    // a live round. The transcript section shows the FULL inspector history:
+    // buildContext), so system prompt, tools, and instincts are byte-identical
+    // to what the LLM receives in a live round; the context is built through
+    // the same API with observe: false (inspector window) rather than the live
+    // round's window. The transcript section shows the FULL inspector history:
     // every stored round (capped at LLM_AGENT_VIEW_HISTORY_ROUNDS), each with
     // all of its in-round LLM calls (the loop's subcalls) and per-call
     // results. Read-only: never mutates round state.

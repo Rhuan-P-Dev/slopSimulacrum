@@ -40,10 +40,12 @@ followed round for round. Three follow-up choices, made in the same session:
 
 ## After
 
-- Every stored round saves its context snapshot (`runRound` step 4, at every
-  store site reached after context build). The `NPC_GONE` guard stores before
-  context is built, so `{ error }` entries carry no snapshot — replay degrades
-  to the round number alone, same as legacy entries.
+- Every stored round reached after context build saves its context snapshot
+  (`runRound` step 4, at every store site). Entries with no groups replay
+  nothing (invisible to the model, as before the commit): the `NPC_GONE`
+  guard stops before context is built, and LLM-error rounds that failed on the
+  first call stored `groups: []`. Only legacy entries that carry an
+  `assistant` get the round number alone.
 - `_transcriptFor` emits one user message per replayed round: `round N` +
   saved context, separated by a blank line. The live round gets the same
   anchor as the last user message in the request.
