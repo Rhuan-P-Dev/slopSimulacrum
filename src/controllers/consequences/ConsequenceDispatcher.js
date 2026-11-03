@@ -123,6 +123,7 @@ class ConsequenceDispatcher {
             requirementValues,
             target: this._actionTarget(params),
             tick: this.worldStateController?.tickSystem?.currentTick ?? null,
+            round: this.worldStateController?.turnSystemController?.getRoundState()?.roundNumber ?? null,
         });
 
         // Phase 4 dedup: the per-consequence loop was extracted into
@@ -179,6 +180,7 @@ class ConsequenceDispatcher {
             ids: attackerComponentIds ?? [],
             target: this._actionTarget(params),
             tick: this.worldStateController?.tickSystem?.currentTick ?? null,
+            round: this.worldStateController?.turnSystemController?.getRoundState()?.roundNumber ?? null,
         });
 
         const allResults = [];
@@ -296,7 +298,7 @@ class ConsequenceDispatcher {
      * @param {string} entityId
      * @param {string} actionName
      * @param {Object} payload - AttributionPayload (primary, ids, fulfillment,
-     *   requirementValues, tick).
+     *   requirementValues, tick, round).
      */
     _recordAttribution(entityId, actionName, payload) {
         if (!this.actionAttributionStore) return;

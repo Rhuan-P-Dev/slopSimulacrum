@@ -1299,6 +1299,58 @@ describe('LlmContextController (context renderer)', () => {
             expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeGreaterThan(text.indexOf('=== YOUR LAST ACTIONS & RESULTS ==='));
             expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeLessThan(text.indexOf('=== YOUR WORLD'));
         });
+
+        it('prefixes each row with the turn-round recorded at execution and invents none when the row has no round', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' },
+                round: 2
+            })]));
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            // The row's own round is what the section states — not the round the
+            // reader is in: the perception window spans rounds, so this context
+            // is composed later than the blow itself.
+            expect(sectionOf(text)).toContain(
+                '- [round 2] Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
+            );
+            expect(data.happenedToYou[0].round).toBe(2);
+
+            // A seam without a turn system stamps no round. The section must not
+            // backfill a number (0 or otherwise) for it: no tag on the line, null
+            // in the data row — never a round the reader would cite as fact.
+            const ctrlBare = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrlBare.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
+            })]));
+            const { text: bareText, data: bareData } = ctrlBare.buildContext('ent-self');
+            expect(sectionOf(bareText)).toContain(
+                '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
+            );
+            expect(sectionOf(bareText)).not.toContain('[round');
+            expect(bareData.happenedToYou[0].round).toBeNull();
+        });
+
+        it('omits the tag for a recorded round that is not a whole number (the render never invents a round)', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' },
+                round: NaN
+            })]));
+
+            // A stored round that is not a whole number is not a round the reader
+            // can trust: no tag on the line. The data row mirrors what the
+            // recorder stored (pass-through — only the render omits the tag).
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain(
+                '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
+            );
+            expect(sectionOf(text)).not.toContain('[round');
+            expect(Object.is(data.happenedToYou[0].round, NaN)).toBe(true);
+        });
     });
 
     // The perception read IS the agent's observation (the cursor advances with

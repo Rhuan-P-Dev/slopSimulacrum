@@ -6,7 +6,8 @@
  * is written to the ActionAttributionStore. This test pins the invariant that
  * `execute()` and `executeMultiAttacker()` each record *exactly* the resolver's
  * attribution (allFulfillingIds / fulfillment / primary) to the store, with the
- * current world tick — independent of which consequence handlers exist.
+ * current world tick and turn-round number — independent of which consequence
+ * handlers exist.
  *
  * The same precedent as the sibling `dispatchConsequences` / `buildPerAttackerConsequences`
  * tests: drive the private seam directly with a stub `consequenceHandlers` facade,
@@ -43,11 +44,13 @@ function makeDispatcher() {
         null
     );
     // Give the dispatcher a tick source (so the record's `tick` is deterministic)
-    // and a component-stats stub so `executeMultiAttacker`'s attacker loop can
-    // read each attacker's strength and proceed to dispatch (it must not throw
-    // on the recording path; only the recording is under test here).
+    // and a turn source (so the record's `round` is deterministic), plus a
+    // component-stats stub so `executeMultiAttacker`'s attacker loop can read
+    // each attacker's strength and proceed to dispatch (it must not throw on
+    // the recording path; only the recording is under test here).
     dispatcher.worldStateController = {
         tickSystem: { currentTick: 42 },
+        turnSystemController: { getRoundState: () => ({ roundNumber: 3 }) },
         componentController: {
             getComponentStats: vi.fn().mockReturnValue({ Physical: { strength: 20 } })
         }
@@ -89,6 +92,7 @@ describe('ConsequenceDispatcher — generic attribution recording', () => {
                 // "only the ones used": exactly the selected fulfiller(s).
                 ids: ['c-gate'],
                 tick: 42,
+                round: 3,
                 // The per-requirement eligibility breakdown is preserved as
                 // metadata — eligible candidates remain discoverable, but they
                 // are not claimed as used.
@@ -239,7 +243,8 @@ describe('ConsequenceDispatcher — generic attribution recording', () => {
             expect.objectContaining({
                 primary: 'c-fist',
                 ids: ['c-fist'],
-                tick: 42
+                tick: 42,
+                round: 3
             })
         );
     });
@@ -255,7 +260,8 @@ describe('ConsequenceDispatcher — generic attribution recording', () => {
         expect(store.record).toHaveBeenCalledWith('ent-3', 'punch', expect.objectContaining({
             primary: 'comp-fist-a',
             ids: expect.arrayContaining(['comp-fist-a', 'comp-fist-b']),
-            tick: 42
+            tick: 42,
+            round: 3
         }));
     });
 

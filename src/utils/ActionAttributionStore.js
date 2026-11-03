@@ -48,6 +48,12 @@
  *   the consumer (perception) against the current world, so the store stays a
  *   pure data store. Null for actions with no entity/component target (e.g.
  *   spatial moves).
+ * @property {number|null} [tick] - World tick at the moment of the action
+ *   (coarse, and static in non-loop contexts — kept for display provenance).
+ * @property {number|null} [round] - The world's turn-round at the moment of the
+ *   action (stored state from `TurnSystemController`, `getRoundState().roundNumber`;
+ *   0 before the first round has started). Null when the recorder had no turn
+ *   system (bare test seams).
  * @property {number} timestamp - Monotonic write timestamp (ms); drives "most
  *   recent" when `get(entityId)` is called without an action name.
  */
@@ -65,7 +71,8 @@
  *     fulfillment: {
  *       'Movement.move': { best: 'comp-leg1', ids: ['comp-leg1', 'comp-leg2', 'comp-leg3', 'comp-leg4'] }
  *     },
- *     tick: 42
+ *     tick: 42,
+ *     round: 0
  *   });
  *   store.get('ent-1', 'move');     // → { ids: [the used legs], count, primary, ... }
  *   store.getCount('ent-1', 'move'); // → number of used legs
@@ -100,6 +107,7 @@ export default class ActionAttributionStore {
         const record = {
             actionName,
             tick: payload?.tick ?? null,
+            round: payload?.round ?? null,
             primary: payload?.primary ?? null,
             ids,
             count: ids.length,

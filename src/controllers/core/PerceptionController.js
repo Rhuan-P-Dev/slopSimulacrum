@@ -693,6 +693,11 @@ class PerceptionController {
      * component of it was hit, resolved against the current world by
      * `_resolvePerceivedTarget` (ids only live in the store).
      *
+     * Each row also carries the recorded execution context: the world tick and
+     * the turn-round number at the moment of the action (both nullable — null
+     * when the recorder had no tick system / turn system, i.e. a bare test
+     * seam).
+     *
      * The cursor advances per entity when the room flushes, so each record is
      * surfaced at most once — in the room the entity stands in when the flush
      * happens (an entity that moved before the flush surfaces the action in
@@ -736,6 +741,7 @@ class PerceptionController {
                     used,
                     target: this._resolvePerceivedTarget(record?.target, current),
                     tick: record?.tick ?? null,
+                    round: record?.round ?? null,
                     source: 'store'
                 });
             }

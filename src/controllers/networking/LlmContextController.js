@@ -1042,7 +1042,7 @@ class LlmContextController {
      * @returns {Array<{actorId: string, actorName: string, action: string,
      *   hitComponentName: string|null, hitComponentSide: string|null,
      *   usedComponents: Array<{type: string|null, identifier: string|null}>,
-     *   tick: number|null}>} oldest → newest, capped
+     *   tick: number|null, round: number|null}>} oldest → newest, capped
      *   to the newest BUDGET.maxActionsOnYou
      * @private
      */
@@ -1060,7 +1060,8 @@ class LlmContextController {
                     hitComponentName: row?.target?.componentName ?? null,
                     hitComponentSide: this._hitComponentSide(row?.target, entity.id),
                     usedComponents: this._usedComponentsWithSides(row.entity, row?.used),
-                    tick: row?.tick ?? null
+                    tick: row?.tick ?? null,
+                    round: row?.round ?? null
                 });
             }
         }
@@ -1197,7 +1198,14 @@ class LlmContextController {
      * repeated type into the instances that actually acted (`_usedComponentsWithSides`),
      * and grouping is by the rendered label, so two components with no side
      * collapse back to `2x droidHand`. An unknown actor is "Something": the
-     * action happened, only its author is no longer in the world.
+     * action happened, only its author is no longer in the world. Each row is
+     * prefixed with `[round N]` when the recorded turn-round is a whole number
+     * (stamped at execution — the world round at the moment of the action, 0
+     * before the first round; the perception window spans rounds and the sentence
+     * is read in a later context, so the tag is the row's provenance, not the
+     * reader's moment). When the recorded entry has no round (a bare seam without
+     * a turn system) or no whole-number round, the tag is omitted — a round is
+     * never invented.
      * @param {Object} row - one row from `_buildInboundActionsData`
      * @returns {string}
      * @private
@@ -1222,7 +1230,15 @@ class LlmContextController {
             hit,
             usedPhrase ? `used: ${usedPhrase}` : null
         ].filter(Boolean).join(', ');
-        return `- ${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
+        // Round tag (only when the stored round is a whole number) — the world
+        // turn-round at the moment of the action, stamped at recording. The
+        // perception window spans rounds, so this section may be read in a later
+        // context than the blow; the tag is the row's provenance, not the reader's
+        // moment. Omitted when absent or not a whole number (a seam without a
+        // turn system has no round to name — a made-up number would be a lie the
+        // reader would cite as fact).
+        const roundTag = Number.isInteger(row.round) ? `[round ${row.round}] ` : '';
+        return `- ${roundTag}${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
     }
 
     /**
