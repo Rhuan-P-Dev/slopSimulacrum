@@ -93,13 +93,21 @@ export function register(router, { worldStateController }) {
     /**
      * GET /llm/agent/:entityId
      *  
-     * Dev-inspector snapshot (the "Agent View" tab). Returns, for one entity,
-     * exactly what the LLM agent would receive in a live round — resolved NPC
-     * config, system prompt, full tool set, sectioned context (narrative + data
-     * + render stats), live action registry, generated instincts, and the full
-     * inspector transcript history (every stored round — capped by
-     * LLM_AGENT_VIEW_HISTORY_ROUNDS — with all in-round LLM calls and
-     * per-call results). Read-only; in-memory reads only, no rate limit.
+     * Dev-inspector snapshot (the "Agent View" tab). Returns, for one entity:
+     * `lastRequest` — THE EXACT request the model last received (message array
+     * reconstructed from the stored transcript: the replay, the saved `round N`
+     * anchor and the in-round feedback), plus resolved NPC config, system
+     * prompt, full tool set, live action registry, generated instincts and the
+     * full inspector transcript history (every stored round — capped by
+     * LLM_AGENT_VIEW_HISTORY_ROUNDS — with all in-round LLM calls and per-call
+     * results).
+     *
+     * `context` is a different thing and must not be read as a prompt: it is a
+     * fresh composition of the ROOM (`observe: false`), the room's tails, since
+     * the agent's own window was consumed by its own turn and cannot be
+     * reproduced. wiki/decisions/inspector-shows-last-request.md.
+     *
+     * Read-only; in-memory reads only, no rate limit, consumes no agent cursor.
      */
     router.get('/llm/agent/:entityId', (req, res) => {
         try {

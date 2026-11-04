@@ -2651,3 +2651,90 @@ describe('describeAgentView — transcript history (all rounds + subcalls)', () 
         expect(assistantReplays.at(-1).content).toBe(`thought ${CAP + 2}`);
     });
 });
+
+// =========================================================================
+// describeAgentView.lastRequest — the request exactly as it went out
+// =========================================================================
+
+describe('describeAgentView.lastRequest — exactly what was sent to the LLM', () => {
+
+    /**
+     * An agent whose mock provider records every request it is handed. The clone
+     * is taken at hand-off: runRound appends to that very array after the call
+     * returns, so holding the reference would record the future instead of what
+     * was sent.
+     */
+    function recordingAgent() {
+        const sent = [];
+        let call = 0;
+        const { agent } = makeAgent({
+            world: makeWorld({ canExecute: { selfHeal: ['comp-head-1'], move: [], cut: [] } }),
+            turns: makeTurns(),
+            chatFullImpl: (messages) => {
+                sent.push(structuredClone(messages));
+                call += 1;
+                // Two calls per round: a discovery call, then done. The
+                // discovery call keeps the loop running, so the second request
+                // of the round carries the first call's feedback.
+                const name = call % 2 === 1 ? 'get_actions' : 'done';
+                const message = toolMessage([{ name, args: '{}' }]);
+                return { content: message.content, toolCalls: [], finishReason: 'tool_calls', message };
+            }
+        });
+        // get_actions needs the discovery surface (same patch as the discovery test).
+        agent.llmContextController = {
+            buildContext: () => ({ text: '=== ROOM === Main Room' }),
+            getActionData: () => ({
+                entries: [{ name: 'move', description: 'walk', range: 100, canExecute: [], requirement: '' }],
+                notExecutable: []
+            })
+        };
+        return { agent, sent };
+    }
+
+    it('is null before anything has been sent, and for an unknown agent', async () => {
+        const { agent, sent } = recordingAgent();
+        expect(agent.describeAgentView(NPC_ID).lastRequest).toBeNull();
+        await agent.runRound(NPC_ID, 1);
+        expect(sent).toHaveLength(2);
+        expect(agent.describeAgentView('ent-never-seen-0000').lastRequest).toBeNull();
+    });
+
+    it('equals, message for message, the array the provider received last', async () => {
+        const { agent, sent } = recordingAgent();
+        await agent.runRound(NPC_ID, 1);
+        await agent.runRound(NPC_ID, 2);
+        await agent.runRound(NPC_ID, 3);
+
+        const view = agent.describeAgentView(NPC_ID);
+        expect(view.lastRequest.round).toBe(3);
+        // The pin. Round 3 sent two requests; the LAST one carried the replay of
+        // rounds 1 and 2, the `round 3` anchor, and the feedback of the first
+        // call. Rebuilt from stored state, it must be the array itself — the
+        // inspector is not allowed to show a story about the prompt.
+        expect(view.lastRequest.messages).toEqual(sent.at(-1));
+        // Non-triviality of the pin above: replay of two rounds, the anchor, and
+        // the in-round feedback (assistant + tool result + nudge) must all be in
+        // there — a one-message array would satisfy an empty comparison.
+        expect(sent.at(-1).length).toBeGreaterThan(6);
+        expect(sent.at(-1).filter((m) => m.role === 'tool').length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('replays the earlier rounds and anchors the one that was sent', async () => {
+        const { agent } = recordingAgent();
+        await agent.runRound(NPC_ID, 1);
+        await agent.runRound(NPC_ID, 2);
+
+        const messages = agent.describeAgentView(NPC_ID).lastRequest.messages;
+        const users = messages.filter((m) => m.role === 'user');
+        // One anchor per replayed round plus the nudge the loop appended inside
+        // round 2 — and the anchors are the round-anchored form, delimiters kept.
+        expect(users[0].content).toBe('round 1\n\n=== ROOM === Main Room');
+        expect(users[1].content).toBe('round 2\n\n=== ROOM === Main Room');
+        // system and tools ride along, recomputed at view time.
+        const view = agent.describeAgentView(NPC_ID);
+        expect(view.lastRequest.system).toBe(view.systemPrompt);
+        expect(Array.isArray(view.lastRequest.tools)).toBe(true);
+        expect(view.lastRequest.tools.length).toBeGreaterThan(0);
+    });
+});

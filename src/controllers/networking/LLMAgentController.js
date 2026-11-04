@@ -1018,15 +1018,27 @@ class LLMAgentController {
      * are still playable as single-call history. Follows the relaxed
      * _validateMessages contract (assistant content: null + tool_calls; tool
      * messages: content + tool_call_id).
+     * `upToRound` (optional) bounds the replay to the rounds stored BEFORE it,
+     * which is what makes an exact reconstruction of a past request possible:
+     * the request sent in round N replayed exactly the rounds that were stored
+     * before N ({@link _lastSentRequest},
+     * wiki/decisions/inspector-shows-last-request.md). Without it the behaviour
+     * is unchanged.
      * @private
      */
-    _transcriptFor(npcEntityId) {
+    _transcriptFor(npcEntityId, { upToRound } = {}) {
         // Only the last LLM_REPLAY_ROUNDS rounds of the inspector buffer are
         // ever replayed (spec §6.5). Nothing here is shed by size: a round that
         // wrote a lot costs a lot on every later replay, and LLMController sends
         // the assembled body as-is — so this slice, not a budget, is what bounds
         // the prompt.
-        const rounds = (this._transcripts.get(npcEntityId) || []).slice(-LLM_REPLAY_ROUNDS);
+        const stored = this._transcripts.get(npcEntityId) || [];
+        // Undated (legacy) entries stay in: they were in the buffer at send time,
+        // and their absence would make the reconstruction wrong rather than honest.
+        const eligible = Number.isInteger(upToRound)
+            ? stored.filter((entry) => !Number.isInteger(entry?.round) || entry.round < upToRound)
+            : stored;
+        const rounds = eligible.slice(-LLM_REPLAY_ROUNDS);
         const messages = [];
         for (const entry of rounds) {
             if (!entry || typeof entry !== 'object') continue;
@@ -1127,18 +1139,89 @@ class LLMAgentController {
         );
     }
 
+    /**
+     * The request the model LAST RECEIVED, reconstructed from stored state —
+     * never recomposed (wiki/decisions/inspector-shows-last-request.md).
+     *
+     * Why reconstruction and not recomposition: the request that went out is
+     * `_transcriptFor(entity)` + the round's anchor (`round N` + the context
+     * snapshot) + the feedback of every earlier call in that round. All of it is
+     * stored or derivable — the replay is a pure function of the transcript
+     * buffer, the snapshot is saved with the round (`_storeTranscript`), and the
+     * feedback is rebuilt with the very builder `runRound` appended
+     * (`_buildFeedbackMessages`). So this is the array that went out, assembled
+     * the same way — and a unit test pins it against the bytes a provider
+     * actually received.
+     *
+     * Honest limits, surfaced rather than hidden: `system` and `tools` are
+     * recomputed at view time (storing them per round would cost megabytes, and
+     * the tool list is already exposed separately); the reconstruction is exact
+     * only for rounds still resident in the buffer and while `LLM_REPLAY_ROUNDS`
+     * has not changed since.
+     *
+     * @param {string} npcEntityId
+     * @param {Object} [view] - recomputed pair to accompany the messages
+     * @param {string|null} [view.system=null] - the system prompt as composed now
+     * @param {Array} [view.tools=[]] - the tool set as built now
+     * @returns {{ round: number, system: string|null, tools: Array,
+     *   messages: Array<Object> }|null} null when nothing has been sent, or when
+     *   the round cannot be dated (a legacy entry with no round number — the
+     *   anchor text cannot be rebuilt, and guessing one would be a lie).
+     * @private
+     */
+    _lastSentRequest(npcEntityId, { system = null, tools = [] } = {}) {
+        const entries = this._transcripts?.get(npcEntityId) || [];
+        // A stored context snapshot means the anchor was composed and the request
+        // went out (the guard stops never reach context build).
+        let sent = null;
+        for (const entry of entries) {
+            if (entry && Number.isInteger(entry.round)
+                && typeof entry.context === 'string' && entry.context.length > 0) {
+                sent = entry;
+            }
+        }
+        if (!sent) return null;
+        // Legacy entries ({ assistant, results }) replay as a single call, same
+        // rule as _transcriptFor.
+        const groups = Array.isArray(sent.groups)
+            ? sent.groups
+            : (sent.assistant ? [sent] : []);
+        const messages = [
+            ...this._transcriptFor(npcEntityId, { upToRound: sent.round }),
+            { role: 'user', content: `round ${sent.round}\n\n${sent.context}` }
+        ];
+        // The round's own agent loop: every call but the LAST was followed by
+        // another request, so its feedback (assistant message, tool results, the
+        // nudge) is inside the request reconstructed here. The final group's
+        // assistant message is a response — never part of a request.
+        for (const group of groups.slice(0, -1)) {
+            messages.push(...this._buildFeedbackMessages(group));
+        }
+        return { round: sent.round, system, tools, messages };
+    }
+
     // =========================================================================
     // AGENT VIEW — public inspector (dev tab, GET /llm/agent/:entityId)
     //
+    // Two views, and the difference is the whole point
+    // (wiki/decisions/inspector-shows-last-request.md):
+    //   lastRequest — THE EXACT request the model last received, reconstructed
+    //     from stored state (`_lastSentRequest`): the replay the round runner
+    //     would emit for that round plus its saved `round N` anchor. This is the
+    //     only "what does the agent see" view that is true.
+    //   context — a fresh composition of the ROOM (observe: false: the room's
+    //     perception window, the world-event tail, the room transcript tail).
+    //     It is what the room holds right now, NOT what any agent was sent: the
+    //     agent's own window was consumed by its turn and cannot be reproduced
+    //     (2026-11-02, and wiki/decisions/current-round-events.md for the tails).
+    //
     // Reuses the EXACT round-runner logic (_resolveNpcConfig, _buildTools,
-    // _buildSystemPrompt, _safeGenerateInstincts, llmContextController.
-    // buildContext), so system prompt, tools, and instincts are byte-identical
-    // to what the LLM receives in a live round; the context is built through
-    // the same API with observe: false (inspector window) rather than the live
-    // round's window. The transcript section shows the FULL inspector history:
-    // every stored round (capped at LLM_AGENT_VIEW_HISTORY_ROUNDS), each with
-    // all of its in-round LLM calls (the loop's subcalls) and per-call
-    // results. Read-only: never mutates round state.
+    // _buildSystemPrompt, _safeGenerateInstincts), so the system prompt and the
+    // tool set are byte-identical to what a live round is handed. The transcript
+    // section shows the FULL inspector history: every stored round (capped at
+    // LLM_AGENT_VIEW_HISTORY_ROUNDS), each with all of its in-round LLM calls
+    // (the loop's subcalls) and per-call results. Read-only: never mutates round
+    // state and never consumes any agent's cursor.
     // =========================================================================
 
     /**
@@ -1159,6 +1242,10 @@ class LLMAgentController {
      *     groups: Array<{ content: string|null,
      *       reasoning_content: string|null, tool_calls: Array|null,
      *       results: Array }> }>,
+     *   lastRequest: { round: number, system: string|null, tools: Array,
+     *     messages: Array<{ role: string, content: string|null, tool_calls?: Array }> }
+     *     | null - the exact request the model last received (null when nothing
+     *     has been sent yet, or when the round cannot be dated)
      *   error: string|null
      * }}
      */
@@ -1176,6 +1263,7 @@ class LLMAgentController {
             instincts: [],
             registry: {},
             transcriptRounds: [],
+            lastRequest: null,
             error: null
         };
 
@@ -1251,9 +1339,10 @@ class LLMAgentController {
             out.registry = {};
         }
 
-        // Same bounded sectioned context as the round runner — but `observe:
-        // false`, so it reads the ROOM's recent window instead of the agent's
-        // pending one. The inspector looks; only the brain observes. Reading the
+        // A fresh composition of the ROOM — NOT what the LLM was sent (that is
+        // `lastRequest` below). `observe: false`, so it reads the ROOM's recent
+        // window instead of the agent's pending one. The inspector looks; only
+        // the brain observes. Reading the
         // agent's window here failed twice over (2026-11-02): consuming it made
         // every panel open erase what the agent was about to perceive, and a
         // non-consuming peek of it still showed `(none)`, because the round
@@ -1282,6 +1371,19 @@ class LLMAgentController {
             out.transcriptRounds = this._getTranscriptRounds(entityId);
         } catch (err) {
             out.transcriptRounds = [];
+        }
+
+        // The exact request that went out — reconstructed, never recomposed.
+        // wiki/decisions/inspector-shows-last-request.md.
+        try {
+            out.lastRequest = this._lastSentRequest(entityId, {
+                system: out.systemPrompt, tools: out.tools
+            });
+        } catch (err) {
+            // why: the inspector must never fail because of one derived view —
+            // null says "this one could not be built", an empty array would say
+            // "nothing was sent".
+            out.lastRequest = null;
         }
 
         return out;
