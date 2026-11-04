@@ -1,10 +1,24 @@
 /**
  * AgentViewPanel — "Agent View" dev inspector.
  *
- * Shows, for a chosen NPC agent, exactly what the LLM agent would receive in a
- * live round: resolved NPC config, system prompt, the full tool set (byte-
- * identical to the round runner), the sectioned world context (narrative +
- * structured data + render stats), the live action registry, generated
+ * Two context views, and only one of them is the truth about the prompt
+ * (wiki/decisions/inspector-shows-last-request.md):
+ *   "Last request to the LLM" — the EXACT message array the model last
+ *     received (`payload.lastRequest`, reconstructed server-side from the
+ *     stored transcript: the replay plus the saved `round N` anchor).
+ * There is no standing room-composition section: it showed a fresh composition
+ * of the ROOM, which no agent was ever sent, and the title it carried ("World
+ * Context (narrative the LLM reads)") is what made a correct agent read look
+ * broken. The one exception is the fallback — when there is no stored request
+ * (the transcript is in memory, so after a restart there is none until the
+ * agent's next round), `Context (recomposed now — NOT sent to any agent)` shows
+ * what the room holds, titled as what it is, so the panel is never left with no
+ * context at all. wiki/decisions/inspector-shows-last-request.md and
+ * wiki/decisions/round-scoped-context.md.
+ *
+ * Also shows, for a chosen NPC agent: resolved NPC config, system prompt (the
+ * recomputed one only while no request carries its own copy), the full tool set
+ * (byte-identical to the round runner), the live action registry, generated
  * instincts, and the full transcript history: every stored round (the
  * inspector cap), newest first, each anchored by its user message (round
  * number + context snapshot) and each with all of its in-round LLM calls —
@@ -18,6 +32,10 @@
  * @module ui/AgentViewPanel
  */
 import ClientLogger from '/utils/ClientLogger.js';
+
+/** How many messages of a reconstructed request the panel renders (the replay
+ * window is a count, not a budget — see _lastRequestSection). */
+const RENDERED_MESSAGE_TAIL = 12;
 
 export class AgentViewPanel {
 
@@ -209,15 +227,28 @@ export class AgentViewPanel {
         if (p.error && p.error !== 'ENTITY_NOT_FOUND') {
             parts.push(this._section('Error', `<p class="agent-view-note">${this._esc(p.error)}</p>`));
         }
-        if (p.systemPrompt != null) {
-            parts.push(this._section('System Prompt', `<pre class="agent-view-pre">${this._esc(p.systemPrompt)}</pre>`));
+        // The standalone System Prompt section is the recomputed one; when the
+        // last request is on screen its own copy is shown there instead, so the
+        // operator never sees two "the" system prompts.
+        if (p.systemPrompt != null && !(p.lastRequest && p.lastRequest.system != null)) {
+            parts.push(this._section('System Prompt (recomputed now)', `<pre class="agent-view-pre">${this._esc(p.systemPrompt)}</pre>`));
+        }
+        parts.push(this._lastRequestSection(p));
+        // There is no stored request to show: the operator is not left with a
+        // panel that contains no context at all. What the room holds right now
+        // goes on screen instead, under a title that says what it is — built now,
+        // for this round, sent to nobody. With a stored request this section is
+        // not rendered: the exact array is above it and two context blocks, one
+        // of them a lie by omission, is how this panel got distrusted once.
+        if (!this._hasStoredRequest(p)) {
+            parts.push(this._liveContextSection(p));
         }
         parts.push(this._transcriptSection(p));
         parts.push(this._toolsSection(p));
-        parts.push(this._contextSection(p));
-        if (p.context && p.context.data != null) {
-            parts.push(this._section('Context (structured data)', `<pre class="agent-view-pre">${this._json(p.context.data)}</pre>`));
-        }
+        // No room-tail section and no structured-context section: both rendered a
+        // fresh recomposition of the ROOM, which is not what any agent was sent
+        // (wiki/decisions/inspector-shows-last-request.md). What the room holds
+        // lives behind GET /world-events and GET /rooms/:id/chat.
         if (p.registry && Object.keys(p.registry).length > 0) {
             parts.push(this._section('Action registry (execute_action candidates)', `<pre class="agent-view-pre">${this._json(p.registry)}</pre>`));
         }
@@ -238,13 +269,13 @@ export class AgentViewPanel {
         if (p.deterministicBrain) {
             badges.push('<span class="agent-view-badge warning">DETERMINISTIC AI — LLM does not run</span>');
         }
-        const stats = p.context && p.context.stats ? p.context.stats : {};
-        if (stats.chars != null) {
-            badges.push(`<span class="agent-view-stat">context ${this._esc(String(stats.chars))}</span>`);
-            if (stats.budgetChars != null) badges.push(`<span class="agent-view-stat">budget ${this._esc(String(stats.budgetChars))}</span>`);
-        }
-        if (stats.truncated && Object.keys(stats.truncated).length) {
-            for (const [k, v] of Object.entries(stats.truncated)) if (v === true) badges.push(`<span class="agent-view-stat truncated">trunc:${this._esc(k)}</span>`);
+        // The size badge describes the REQUEST the model actually received, not a
+        // recomposition (the room-tail section it used to measure is gone —
+        // wiki/decisions/inspector-shows-last-request.md).
+        const req = p.lastRequest;
+        if (req && Array.isArray(req.messages)) {
+            const chars = req.messages.reduce((n, m) => n + String(m.content || '').length, 0);
+            badges.push(`<span class="agent-view-stat">request ${this._esc(String(chars))} chars / ${this._esc(String(req.messages.length))} msgs</span>`);
         }
         const roomTag = p.room && p.room.id ? `<span class="agent-view-id">&#9776; ${this._esc(p.room.name || p.room.id)}</span>` : '';
         return `<div class="agent-view-header"><span class="agent-view-name">${this._esc(p.name || p.entityId || 'unknown')}</span><span class="agent-view-id">${this._esc(p.entityId)}</span>${roomTag}</div>` +
@@ -270,11 +301,11 @@ export class AgentViewPanel {
             (t.error ? `<span class="agent-view-badge warning">${this._esc(t.error)}</span>` : '') +
             '</div>');
         // The context snapshot saved for that round — what the LLM saw, in
-        // the same round-anchored form as the replay. Collapsed (the live
-        // context lives in the World Context section; this is history, up to
-        // one snapshot per stored round. The tab renders every round the
-        // server exposes and imposes no cap of its own — the stored buffer
-        // is capped server-side, see llm-memory-window.md).
+        // the same round-anchored form as the replay. Collapsed (the exact
+        // request is the "Last request to the LLM" section; the Room tail
+        // section is NOT a prompt — see the module header). The tab renders
+        // every round the server exposes and imposes no cap of its own — the
+        // stored buffer is capped server-side, see llm-memory-window.md.
         if (typeof t.context === 'string' && t.context.length > 0) {
             lines.push(this._details('context snapshot (round ' +
                 (t.round == null ? '?' : String(t.round)) + ')',
@@ -370,20 +401,124 @@ export class AgentViewPanel {
         return `<p class="agent-view-stat">execute_action.enum (${names.length}):</p><p class="agent-view-note">${names.join(' &middot; ')}</p>`;
     }
 
-    _contextSection(p) {
-        const ctx = p.context || {};
-        const text = (ctx.text == null) ? '' : String(ctx.text);
-        const stats = ctx.stats ? ctx.stats : {};
-        let badges = '';
-        if (stats.chars != null) {
-            badges += `<span class="agent-view-stat">context ${this._esc(String(stats.chars))}</span>`;
-            if (stats.budgetChars != null) badges += `<span class="agent-view-stat">budget ${this._esc(String(stats.budgetChars))}</span>`;
+    /**
+     * The exact request the model last received, as the server reconstructed it
+     * (`payload.lastRequest`). Nothing here is recomposed: the message array is
+     * the one that went out.
+     *
+     * Renders the tail of the array only. The replay window is a COUNT, not a
+     * budget (llm-memory-window.md), so a long-running world can carry thousands
+     * of replayed rounds — printing every message would freeze the tab, which is
+     * the failure that note already warns about.
+     */
+    _lastRequestSection(p) {
+        const req = p.lastRequest;
+        if (!this._hasStoredRequest(p)) {
+            // Naming the reason is the section. "Nothing has been sent" read as
+            // "the feature is broken"; what actually happened is that the request
+            // lives in memory, so a restart empties it, or the server answering
+            // this request is older than the field itself.
+            const why = !('lastRequest' in p)
+                ? 'This server did not answer a <code>lastRequest</code> field at all — the running process is older than this view. Restart the server.'
+                : 'No LLM round has been stored for this agent since the server started. The transcript is in memory: a restart empties it, and the next round the agent runs fills this in.';
+            return this._section('Last request to the LLM',
+                `<p class="agent-view-empty">${why}</p>`);
         }
-        if (!text) {
-            return this._section('World Context (narrative the LLM reads)', `<div>${badges}</div><p class="agent-view-empty">empty</p>`);
-        }
-        return this._section('World Context (narrative the LLM reads)', `<div>${badges}</div><pre class="agent-view-pre">${this._esc(text)}</pre>`);
+        const messages = req.messages;
+        const total = messages.length;
+        const shown = messages.slice(-RENDERED_MESSAGE_TAIL);
+        const head = `<p class="agent-view-note">Round <strong>${this._esc(String(req.round))}</strong> — the message array the model received, reconstructed from the stored transcript (not recomposed).</p>`;
+        const sys = req.system != null
+            ? this._details('system prompt', `<pre class="agent-view-pre">${this._esc(req.system)}</pre>`, false)
+            : '';
+        const skipped = total - shown.length;
+        const skippedNote = skipped > 0
+            ? `<p class="agent-view-note">${skipped} earlier message${skipped > 1 ? 's' : ''} of this request not rendered (replay window is a count, not a budget — llm-memory-window.md). Total: ${total}.</p>`
+            : '';
+        // Absolute position of each rendered message in the request (the tail
+        // starts at skipped + 1), so the chips number the array as sent and
+        // _messageHtml can tell the live anchor from a replayed one.
+        const body = shown.map((m, i) => this._messageHtml(m, skipped + i + 1, total)).join('');
+        return this._section(`Last request to the LLM (round ${req.round})`,
+            `${head}${sys}${skippedNote}${body || '<p class="agent-view-empty">no messages</p>'}`);
     }
+
+    /**
+     * Whether the payload carries a reconstructed request at all. `messages` is
+     * the part that renders, so a payload without it is the same case as none.
+     * @param {Object} p - the agent payload
+     * @returns {boolean}
+     */
+    _hasStoredRequest(p) {
+        return !!(p && p.lastRequest && Array.isArray(p.lastRequest.messages));
+    }
+
+    /**
+     * The live room composition, for the case where no stored request exists:
+     * `payload.context`, built by the server at this moment (the same
+     * `buildContext(entityId, { observe: false })` the routes use — which now
+     * means the round in force, framed once, the same rows a reader of that
+     * round gets).
+     *
+     * It is labelled as what it is. The old section here was titled "World
+     * Context (narrative the LLM reads)", and that title is what made a correct
+     * agent read look broken (wiki/decisions/inspector-shows-last-request.md);
+     * the section is back only as an explicitly-unlabelled-as-a-prompt fallback,
+     * and only when there is nothing true to show instead
+     * (wiki/decisions/round-scoped-context.md).
+     * @param {Object} p - the agent payload
+     * @returns {string}
+     */
+    _liveContextSection(p) {
+        const ctx = p && p.context && typeof p.context === 'object' ? p.context : null;
+        const text = ctx && typeof ctx.text === 'string' ? ctx.text : '';
+        if (!text) return '';
+        // The size goes in the body, not the title: `_section` escapes its title,
+        // so markup handed to it renders as literal text.
+        const size = ctx.stats && Number.isFinite(ctx.stats.chars)
+            ? ` <span class="agent-view-stat">context ${this._esc(String(ctx.stats.chars))} chars</span>`
+            : '';
+        const note = '<p class="agent-view-note">Composed from the world as it is right now, for the round in force. '
+            + `No model received this — it is not a prompt.${size}</p>`;
+        return this._section('Context (recomposed now — NOT sent to any agent)',
+            `${note}<pre class="agent-view-pre">${this._esc(text)}</pre>`);
+    }
+
+    /**
+     * One request message: role chip, content, and the tool calls it carries.
+     * The anchor user message keeps the round-anchored form the runner sends
+     * ("round N" then the context snapshot), so what is on screen is what went
+     * out, delimiters included.
+     */
+    _messageHtml(m, index, total) {
+        const role = this._esc(String(m && m.role != null ? m.role : '?'));
+        const chip = `<span class="agent-view-badge info">${role}</span>` +
+            `<span class="agent-view-stat">#${index}/${total}</span>`;
+        const lines = [`<div class="agent-view-msg-header">${chip}</div>`];
+        const content = (m && typeof m.content === 'string') ? m.content : null;
+        // The last user message is the live round's anchor: open. Everything
+        // replayed stays collapsed so the operator reads the newest first.
+        const isLastUser = index === total && m && m.role === 'user';
+        if (content != null && content.length > 0) {
+            const pre = `<pre class="agent-view-pre">${this._esc(content)}</pre>`;
+            lines.push(isLastUser ? pre : this._details(`${content.length} chars of content`, pre, false));
+        } else if (content === null) {
+            lines.push('<p class="agent-view-empty">content: null (tool-call message)</p>');
+        }
+        const calls = (m && Array.isArray(m.tool_calls)) ? m.tool_calls : [];
+        for (const call of calls) {
+            const name = (call && call.function && call.function.name) ? call.function.name : '?';
+            lines.push(`<p class="agent-view-stat">tool_call ${this._esc(String(name))}</p>` +
+                `<pre class="agent-view-pre">${this._esc(JSON.stringify(this._parseArgs(call), null, 2))}</pre>`);
+        }
+        const results = (m && Array.isArray(m.results)) ? m.results : [];
+        for (const res of results) {
+            lines.push(`<pre class="agent-view-pre">${this._json(res)}</pre>`);
+        }
+        return `<div class="agent-view-msg">${lines.join('')}</div>`;
+    }
+
+
 
     // ---------------------------------------------------------------- helpers
 
