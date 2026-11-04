@@ -34,7 +34,7 @@
  * context consumes the baseline implicitly: its "now in this room" state
  * section already renders the room contents, so getRoomDeltasForAgent
  * acknowledges baseline entries without displaying them (a first observation
- * renders state only, no "since you last looked" lines).
+ * renders state only, no "this round" lines).
  *
  * **Why per-agent cursors:** "since your last observation" is a *reader-relative*
  * time window, not a wall-clock one. Two readers (an NPC brain and the UI)
@@ -79,6 +79,7 @@
  */
 
 import EventRingBuffer from '../../utils/EventRingBuffer.js';
+import Logger from '../../utils/Logger.js';
 import { PERCEPTION_MAX_LIMIT, PERCEPTION_RECENT_LIMIT } from '../../utils/Constants.js';
 import { diffRoomSnapshots, buildBaselineEntry, hasDeltaChanges } from '../../utils/DeltaDiff.js';
 import { buildDeltaSummary } from '../../utils/DeltaSummary.js';
@@ -184,6 +185,50 @@ class PerceptionController {
     }
 
     /**
+     * Flush every dirty room at the CLOSE of a round, stamping the entries with
+     * that round. This is what makes a delta entry mean exactly one round of
+     * change: an agent's turn is scoped to the round that resolved
+     * (wiki/decisions/round-scoped-context.md), and a window left to accumulate
+     * across a round boundary would mix two of them into one sentence.
+     *
+     * Wired from the turn system's close routine (a hook, injected at the
+     * composition root — the turn system never imports this controller).
+     * Best-effort per room: a flush that throws is a broken diff, not a reason
+     * to lose the round's resolution.
+     * @param {number} round - the round that just resolved
+     * @returns {number} how many rooms were flushed
+     */
+    flushDirtyForRound(round) {
+        // Round 0 is a real round; -1 (nothing resolved yet), null and anything
+        // not a whole number are not. Flushing with an unknown round would stamp
+        // entries with a number no reader can ask for, and the change would be
+        // undeliverable forever — so nothing is flushed and the room stays owed
+        // to the next reader (wiki/decisions/round-scoped-context.md).
+        if (!Number.isInteger(round) || round < 0) return 0;
+        let flushed = 0;
+        for (const roomId of Array.from(this._dirty.keys())) {
+            try {
+                // _flushRoom does not store: it diffs and RETURNS the entry, and
+                // the reader is the one that pushes it into the room's ring. A
+                // round-boundary flush has no reader, so it is the reader here —
+                // pushing without that would consume the dirty mark and throw the
+                // round's changes away (the ring would hold nothing for anybody).
+                const buffer = this._bufferFor(roomId);
+                const entry = this._flushRoom(roomId, round);
+                if (entry) {
+                    buffer.push(entry);
+                    flushed += 1;
+                }
+            } catch (err) {
+                // why: one room's diff must not abort the round's close. The
+                // room stays dirty and its next reader retries the flush.
+                Logger.warn(`[Perception] round-${round} flush failed for room ${roomId}: ${err?.message || err}`);
+            }
+        }
+        return flushed;
+    }
+
+    /**
      * Clears all perception state (called by the root controller on
      * `restore` / world re-init — a full world reset means the observer has
      * a brand-new world and its history is void).
@@ -280,7 +325,7 @@ class PerceptionController {
     /**
      * Returns the delta entries of ONE room (the agent's own room) since the
      * agent last looked — the room-scoped variant of getAgentDeltas used by
-     * the LLM context's "YOUR WORLD → since you last looked" block.
+     * the LLM context's "YOUR WORLD → this round" block.
      *
      * Same per-agent cursor as getAgentDeltas, with two deliberate semantic
      * differences (both serve the same-room perception model):
@@ -385,8 +430,14 @@ class PerceptionController {
      * initial world build) — otherwise it would never surface its contents.
      *
      * Returns the new delta entry (or baseline) if one was pushed, else `null`.
+     *
+     * @param {string} roomId
+     * @param {number|null} [roundStamp=null] - the round to stamp the entry with
+     *   (the round that just closed, from flushDirtyForRound). null falls back
+     *   to the open round.
+     * @private
      */
-    _flushRoom(roomId) {
+    _flushRoom(roomId, roundStamp = null) {
         if (!roomId) return null;
         const isFirstObservation = !this._lastSeen.has(roomId);
         if (!this._dirty.has(roomId) && !isFirstObservation) return null;
@@ -418,7 +469,11 @@ class PerceptionController {
         // Stamp the round the entry belongs to (flush time). Without this the
         // UI would label every entry with the *viewer's* current round and old
         // history would all show as the latest round.
-        entry.roundNumber = this._currentRound();
+        // `roundStamp` is the round the turn system just closed (set by
+        // flushDirtyForRound). Without it the stamp is the open round — the
+        // round these changes happened in, because a flush at a round's close
+        // runs while that round is still the open one.
+        entry.roundNumber = Number.isInteger(roundStamp) ? roundStamp : this._currentRound();
         // Resolve the display *name* for every item / dropped-item row. The diff
         // only ever stores the item *type* key — the human name is looked up
         // from the item registry (the single source of truth for item names).

@@ -9,12 +9,18 @@
  *   - action line format (name/description/range/requirement/first canExecute id),
  *   - not-executable summary line,
  *   - other-room entity labeling,
- *   - the perception block: "now in this room" state before
- *     "since you last looked" deltas, baseline entries never displayed,
+ *   - the perception block: "now in this room" state before the
+ *     "this round" deltas, baseline entries never displayed,
+ *   - the reanchored round frame (wiki/decisions/current-round-events.md):
+ *     every event section names the READER's round once and no row carries a
+ *     round or tick of its own; no turn system means no number,
  *   - "HAPPENED TO YOU": the actions performed ON this agent (performed-action
  *     rows filtered by target), named from the live world, capped and shed
  *     after the state block; and the target named in the agent's own outcomes,
  *   - world failures: warn-level events only (info excluded),
+ *   - the consuming read: every event section is read through the agent's own
+ *     window, so the next round does not repeat it, while observe:false reads
+ *     the stateless tail (wiki/decisions/current-round-events.md),
  *   - hard budget (stats.chars ≤ 5000) and stats.truncated flags (the cascade
  *     sheds delta lines before state lines, state before failures).
  *
@@ -23,6 +29,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import LlmContextController, { formatActionList, formatInstinctList } from '../../src/controllers/networking/LlmContextController.js';
+import WorldEventLogController from '../../src/controllers/core/WorldEventLogController.js';
+import RoomChatController from '../../src/controllers/core/RoomChatController.js';
 
 // =========================================================================
 // Mock world
@@ -152,7 +160,7 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         { tick: 3520, action: 'droid punch', targetId: 'comp-same-core', message: 'Droid performed a punch dealing 25 damage!', level: 'warn', ts: 2 }
     ];
 
-    return {
+    const world = {
         getEntity: (id) => entities[id] || null,
         getAll: () => ({ entities }),
         getRooms: () => rooms,
@@ -164,7 +172,14 @@ function makeWorld(overrides = {}, extraEntities = {}) {
             ? { 'comp-hand': [{ id: 'item-knife', type: 'knife' }, { id: 'item-cell-1', type: 'powerCell' }, { id: 'item-cell-2', type: 'powerCell' }] }
             : {}),
         getActionsForEntity: (id) => (id === 'ent-self' ? actionsForEntity : {}),
+        // The fixture hook these tests declare their events through. What the
+        // context reads is `getWorldEventsForRound`, wired from it below.
         getRecentEvents: (limit) => recentEvents.slice(-limit),
+        // No turn system in the base world would mean "no round is known" and
+        // every event section renders empty, so the fixture world lives in a
+        // round. Tests name their own by overriding `turnSystemController` (or
+        // assigning `subControllers`), and that value wins.
+        turnSystemController: { getRoundState: () => ({ roundNumber: 0 }) },
         // Perception stream (room-scoped, cursor-on-read) — the BRAIN's read.
         // The default world is quiet; tests that exercise the "since you last
         // looked" block override this with delta entries. The room read is the
@@ -185,6 +200,52 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         equippedItemStats: { getStats: (eqId) => (eqId === 'eq-knife' ? { Physical: { sharpness: 49 } } : null) },
         ...overrides
     };
+
+    // --- round-scoped reads -------------------------------------------------
+    // The context asks each store for ONE round's rows. These stubs answer with
+    // the rows the test declared, stamped with the round the reader is in: a
+    // fixture here says "these are the rows of that round". Whether a real store
+    // keeps other rounds out of that answer is proved in the store tests
+    // (WorldEventLogController, RoomChatController, PerceptionController) and by
+    // one filter test below — not re-proved in every renderer test.
+    const stamp = (rows, key, round) => (rows || []).map((row) => ({ ...row, [key]: round }));
+    const all = Number.MAX_SAFE_INTEGER;
+
+    /** The round the controller will resolve for this world (same two paths). */
+    const reference = () => {
+        const turns = world.subControllers?.turns ?? world.turnSystemController;
+        try {
+            const resolved = typeof turns?.getStatus === 'function' ? turns.getStatus()?.resolvedRound : undefined;
+            if (Number.isInteger(resolved)) return resolved >= 0 ? resolved : null;
+            const open = turns?.getRoundState?.()?.roundNumber;
+            return Number.isInteger(open) && open >= 0 ? open : null;
+        } catch {
+            return null;
+        }
+    };
+
+    if (typeof overrides.getWorldEventsForRound !== 'function') {
+        world.getWorldEventsForRound = ({ round, limit }) =>
+            stamp(world.getRecentEvents?.(all), 'round', round).slice(-(limit || all));
+    }
+    if (typeof overrides.getRoomChatMessagesForRound !== 'function') {
+        world.getRoomChatMessagesForRound = (roomId, { round, limit }) =>
+            stamp(world.getRoomChatMessages?.(roomId, all), 'round', round).slice(-(limit || all));
+    }
+    for (const key of ['getAgentRoomPerception', 'getPerceptionDeltasForRoom']) {
+        const read = world[key];
+        if (typeof read === 'function') {
+            world[key] = (...args) => stamp(read(...args), 'roundNumber', reference());
+        }
+    }
+    if (typeof world.llmAgentFeedbackController?.getRecent === 'function') {
+        const read = world.llmAgentFeedbackController.getRecent.bind(world.llmAgentFeedbackController);
+        world.llmAgentFeedbackController = {
+            ...world.llmAgentFeedbackController,
+            getRecent: (...args) => stamp(read(...args), 'round', reference())
+        };
+    }
+    return world;
 }
 
 /**
@@ -841,13 +902,21 @@ describe('LlmContextController (context renderer)', () => {
         expect(rendered).toContain('1 action not executable right now: cut');
     });
 
-    it('renders world failures (warn-level events only) as "[tick] [action] message"', () => {
+    it('renders world failures (warn-level events only) as "[action] message", framed by the reader round', () => {
         const { text } = controller.buildContext('ent-self');
-        // The warn event renders.
-        expect(text).toContain('[3520] [droid punch] Droid performed a punch dealing 25 damage!');
+        // The warn event renders — with no tick stamp. The frame line above the
+        // block says which round these events are read as, and a tick inside it
+        // is a second, contradicting provenance stamp for a number the agent has
+        // no concept of (the tick stays in the data mirror and GET
+        // /world-events).
+        expect(text).toContain('[droid punch] Droid performed a punch dealing 25 damage!');
+        expect(text).not.toContain('[3520]');
         // The info event is excluded: success/intent events no longer occupy
         // the context — their state consequences ride the perception stream.
-        expect(text).not.toContain('[3505] [dropItem]');
+        expect(text).not.toContain('[dropItem]');
+        // The fixture world lives in round 0 (see `makeWorld`), and the frame
+        // names it once, above the block.
+        expect(text).toContain('=== WORLD FAILURES ===\nevents of this round (round 0):');
     });
 
     it('prints "(none)" for empty sections instead of omitting them', () => {
@@ -862,10 +931,10 @@ describe('LlmContextController (context renderer)', () => {
         const { text } = emptyController.buildContext('ent-self');
         expect(text).toContain('Equipped: (none)');
         expect(text).toContain('Inventory: (none)');
-        expect(text).toContain('=== WORLD FAILURES ===\n(none)');
-        expect(text).toContain('=== HAPPENED TO YOU ===\n(none)');
-        expect(text).toContain('since you last looked:\n(none)');
-        expect(text).toContain('=== ROOM CHAT ===\n(none)');
+        expect(text).toContain('=== WORLD FAILURES ===\nevents of this round (round 0):\n(none)');
+        expect(text).toContain('=== HAPPENED TO YOU ===\nevents of this round (round 0):\n(none)');
+        expect(text).toContain('\nthis round (round 0):\n(none)');
+        expect(text).toContain('=== ROOM CHAT ===\nsaid in this room this round (round 0):\n(none)');
     });
 
     it('ROOM CHAT section: renders recent room messages as "Speaker: text" (spec §7.5)', () => {
@@ -894,6 +963,148 @@ describe('LlmContextController (context renderer)', () => {
         // The structured mirror carries the raw messages (truncation-safe).
         expect(data.roomChat).toHaveLength(2);
         expect(data.roomChat[0]).toContain('Player: Do you have fresh power cells?');
+    });
+
+    // Every event section is read as ONE ROUND, with the real stores behind the
+    // facade stub (the round filter is production code there, not a fake's).
+    // wiki/decisions/round-scoped-context.md.
+    describe('event sections carry one round, for every reader', () => {
+        /**
+         * A facade stub whose event ring and room transcript are the real
+         * controllers, wired to a turn system whose open round the test moves.
+         * Events and lines are written while their round is the open one, which
+         // is exactly how the live world files them.
+         * @param {{ events?: Array, messages?: Array, round?: number }} seed
+         */
+        const makeStreamingWorld = ({ events = [], messages = [], round = 4 } = {}) => {
+            const open = { live: round };
+            const turns = { getRoundState: () => ({ roundNumber: open.live }) };
+            const eventLog = new WorldEventLogController(50);
+            eventLog.setWorldStateController({ subControllers: { turns } });
+            for (const event of events) eventLog.record(event);
+            const chat = new RoomChatController(50, 200);
+            chat.setWorldStateController({
+                getRooms: () => ({ 'room-1': { name: 'The Entrance Hall' } }),
+                tickSystem: { currentTick: 1 },
+                subControllers: { turns }
+            });
+            for (const line of messages) {
+                chat.sendMessage({ roomId: 'room-1', speakerName: line.speaker, text: line.text });
+            }
+            const world = makeWorld({
+                getRecentEvents: (limit) => eventLog.getRecent(limit),
+                getWorldEventsForRound: ({ round: r, limit }) => eventLog.getEventsForRound({ round: r, limit }),
+                getRoomChatMessages: (roomId, limit) => chat.getMessages(roomId, limit),
+                getRoomChatMessagesForRound: (roomId, { round: r, limit }) => chat.getMessagesForRound(roomId, { round: r, limit })
+            });
+            // The stub stamps the round it was asked about; here the real store
+            // answers, so the plumbing is replaced by the store itself and the
+            // reader's round is the open one.
+            world.turnSystemController = turns;
+            world.__openRound = open;
+            return world;
+        };
+
+        const seed = () => ({
+            events: [{ tick: 3520, action: 'droid punch', message: 'A punch missed!', level: 'warn', ts: 1 }],
+            messages: [{ speaker: 'Player', text: 'Do you have fresh power cells?' }]
+        });
+
+        it('carries the round it was written in, and nothing else', () => {
+            const world = makeStreamingWorld(seed());
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(world);
+
+            const first = ctrl.buildContext('ent-self').text;
+            expect(first).toContain('[droid punch] A punch missed!');
+            expect(first).toContain('Player: Do you have fresh power cells?');
+
+            // Round 5 asks: round 4 said nothing to it. This is the bug the
+            // change exists to kill — a turn answering a line from an earlier
+            // round as though it were new.
+            world.__openRound.live = 5;
+            const second = ctrl.buildContext('ent-self').text;
+            expect(second).not.toContain('A punch missed!');
+            expect(second).not.toContain('Do you have fresh power cells?');
+            expect(second).toContain('=== WORLD FAILURES ===\nevents of this round (round 5):\n(none)');
+            expect(second).toContain('=== ROOM CHAT ===\nsaid in this room this round (round 5):\n(none)');
+        });
+
+        it('asks the same question twice and gets the same answer (nothing is consumed)', () => {
+            const world = makeStreamingWorld(seed());
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(world);
+
+            const first = ctrl.buildContext('ent-self').text;
+            const again = ctrl.buildContext('ent-self').text;
+            expect(again).toContain('Player: Do you have fresh power cells?');
+            expect(again).toContain('[droid punch] A punch missed!');
+            expect(again).toBe(first);
+        });
+
+        it('gives the same round to every reader in the room (no reader has a memory)', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(makeStreamingWorld(seed()));
+
+            expect(ctrl.buildContext('ent-self').text).toContain('Player: Do you have fresh power cells?');
+            // A neighbour reading the same round reads the same lines: delivery
+            // is a fact about the round, not about who looked first.
+            expect(ctrl.buildContext('ent-same').text).toContain('Player: Do you have fresh power cells?');
+            expect(ctrl.buildContext('ent-self').text).toContain('Player: Do you have fresh power cells?');
+        });
+
+        it('the inspector read (observe:false) is the same round, not a tail', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(makeStreamingWorld(seed()));
+
+            for (const _attempt of [1, 2]) {
+                const peek = ctrl.buildContext('ent-self', { observe: false }).text;
+                expect(peek).toContain('Player: Do you have fresh power cells?');
+                expect(peek).toContain('[droid punch] A punch missed!');
+                expect(peek).toContain('said in this room this round (round 4):');
+            }
+            // The brain and the inspector agree: one read, one answer.
+            const brain = ctrl.buildContext('ent-self').text;
+            expect(brain).toContain('Player: Do you have fresh power cells?');
+            expect(brain).toContain('[droid punch] A punch missed!');
+        });
+
+        it('renders an empty section rather than a tail when the seam has no round read', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            const world = makeWorld({
+                getRoomChatMessages: () => [{ speakerName: 'Player', text: 'legacy seam line', tick: 1 }]
+            });
+            // A hand-built seam older than this change: it can answer "what is in
+            // this room?" but not "what was said this round?". Falling back to
+            // the tail would put undated history inside a turn that claims a
+            // round, so the section stays empty.
+            delete world.getWorldEventsForRound;
+            delete world.getRoomChatMessagesForRound;
+            ctrl.setWorldStateController(world);
+
+            const text = ctrl.buildContext('ent-self').text;
+            expect(text).not.toContain('legacy seam line');
+            expect(text).toContain('=== ROOM CHAT ===\nsaid in this room this round (round 0):\n(none)');
+        });
+
+        it('drops a row that does not carry the round it was asked for', () => {
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            // A seam that ignores the round question and hands back the resident
+            // tail: the renderer checks the claim on the way in, so the section
+            // is empty rather than full of someone else's round.
+            ctrl.setWorldStateController(makeWorld({
+                getWorldEventsForRound: () => [
+                    { action: 'droid punch', message: 'belonged to round 2', level: 'warn', round: 2 }
+                ],
+                getRoomChatMessagesForRound: () => [
+                    [{ speakerName: 'Player', text: 'belonged to round 2' }]
+                ][0]
+            }));
+
+            const text = ctrl.buildContext('ent-self').text;
+            expect(text).not.toContain('belonged to round 2');
+            expect(text).toContain('=== WORLD FAILURES ===\nevents of this round (round 0):\n(none)');
+        });
     });
 
     // RECENT TOOLS: the newest outcomes of the outcome-producing tools the
@@ -984,15 +1195,15 @@ describe('LlmContextController (context renderer)', () => {
         expect(data.worldFailures).toHaveLength(1);
         // same-room list capped at 1, but the other-room entry still allowed
         expect(data.entities.filter(e => e.room === 'same')).toHaveLength(1);
-        expect(text).toContain('[3520] [droid punch]');
-        expect(text).not.toContain('[3505] [dropItem]');
+        expect(text).toContain('[droid punch] Droid performed a punch dealing 25 damage!');
+        expect(text).not.toContain('[3505]');
     });
 
     // ------------------------------------------------------------------
     // Perception block ("YOUR WORLD"): state first, then change.
     // ------------------------------------------------------------------
 
-    it('YOUR WORLD: state block comes before "since you last looked", delta lines render summaries in order', () => {
+    it('YOUR WORLD: state block comes before "this round", delta lines render summaries in order', () => {
         const deltaWorld = makeWorld({
             getAgentRoomPerception: (entityId, roomId, { limit }) => {
                 expect(entityId).toBe('ent-self');
@@ -1010,7 +1221,9 @@ describe('LlmContextController (context renderer)', () => {
         // The section is room-named and state-first.
         expect(text).toContain('=== YOUR WORLD (The Entrance Hall) ===');
         const nowIdx = text.indexOf('now in this room:');
-        const sinceIdx = text.indexOf('since you last looked:');
+        // Anchored at a line start: "this round (round 0):" is also the tail of
+        // the WORLD FAILURES and ROOM CHAT frames, which come earlier.
+        const sinceIdx = text.indexOf('\nthis round (round 0):');
         expect(nowIdx).toBeGreaterThan(-1);
         expect(sinceIdx).toBeGreaterThan(nowIdx);
         // The state block renders the current layout (the baseline).
@@ -1036,7 +1249,7 @@ describe('LlmContextController (context renderer)', () => {
         const { text } = baselineCtrl.buildContext('ent-self');
 
         // The baseline is the state block itself — the change window is quiet.
-        expect(text).toContain('since you last looked:\n(none)');
+        expect(text).toContain('\nthis round (round 0):\n(none)');
         expect(text).not.toContain('initial observation');
         // …but the current layout is still rendered.
         expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
@@ -1289,7 +1502,7 @@ describe('LlmContextController (context renderer)', () => {
             const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
             ctrl.setWorldStateController(makeWorld());
             const { text } = ctrl.buildContext('ent-self');
-            expect(text).toContain('=== HAPPENED TO YOU ===\n(none)');
+            expect(text).toContain('=== HAPPENED TO YOU ===\nevents of this round (round 0):\n(none)');
         });
 
         it('reads before the room it must react in: HAPPENED TO YOU precedes YOUR WORLD', () => {
@@ -1300,56 +1513,120 @@ describe('LlmContextController (context renderer)', () => {
             expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeLessThan(text.indexOf('=== YOUR WORLD'));
         });
 
-        it('prefixes each row with the turn-round recorded at execution and invents none when the row has no round', () => {
+        it('carries the round recorded at execution on the row data only — the line names no round', () => {
             const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
-            ctrl.setWorldStateController(worldWithActions([onYou({
+            const world = worldWithActions([onYou({
                 used: [{ type: 'hand', id: 'comp-same-hand' }],
                 target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' },
                 round: 2
-            })]));
+            })]);
+            ctrl.setWorldStateController(world);
 
+            // The fixture world is in round 2, the round this blow was stamped
+            // in: the section and the row agree, and the line itself stays
+            // round-free.
+            world.subControllers = { turns: { getRoundState: () => ({ roundNumber: 2 }) } };
             const { text, data } = ctrl.buildContext('ent-self');
-            // The row's own round is what the section states — not the round the
-            // reader is in: the perception window spans rounds, so this context
-            // is composed later than the blow itself.
-            expect(sectionOf(text)).toContain(
-                '- [round 2] Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
-            );
-            expect(data.happenedToYou[0].round).toBe(2);
-
-            // A seam without a turn system stamps no round. The section must not
-            // backfill a number (0 or otherwise) for it: no tag on the line, null
-            // in the data row — never a round the reader would cite as fact.
-            const ctrlBare = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
-            ctrlBare.setWorldStateController(worldWithActions([onYou({
-                used: [{ type: 'hand', id: 'comp-same-hand' }],
-                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
-            })]));
-            const { text: bareText, data: bareData } = ctrlBare.buildContext('ent-self');
-            expect(sectionOf(bareText)).toContain(
-                '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
-            );
-            expect(sectionOf(bareText)).not.toContain('[round');
-            expect(bareData.happenedToYou[0].round).toBeNull();
-        });
-
-        it('omits the tag for a recorded round that is not a whole number (the render never invents a round)', () => {
-            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
-            ctrl.setWorldStateController(worldWithActions([onYou({
-                used: [{ type: 'hand', id: 'comp-same-hand' }],
-                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' },
-                round: NaN
-            })]));
-
-            // A stored round that is not a whole number is not a round the reader
-            // can trust: no tag on the line. The data row mirrors what the
-            // recorder stored (pass-through — only the render omits the tag).
-            const { text, data } = ctrl.buildContext('ent-self');
+            // The round belongs to the SECTION (the reader's), never to the row;
+            // the round the dispatcher stamped survives on the row data for the
+            // dev inspector (wiki/decisions/round-scoped-context.md).
             expect(sectionOf(text)).toContain(
                 '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
             );
             expect(sectionOf(text)).not.toContain('[round');
-            expect(Object.is(data.happenedToYou[0].round, NaN)).toBe(true);
+            expect(data.happenedToYou[0].round).toBe(2);
+
+            // A seam without a turn system: no round on the row (null, never a
+            // backfilled 0) and no number in the frame either.
+            // A seam with no turn system at all: nobody knows what round it is,
+            // so nothing is delivered. "Unknown" is shown as an empty section,
+            // never as the resident tail wearing a round's name.
+            const bareWorld = worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
+            })]);
+            delete bareWorld.turnSystemController; // the fixture round is gone too
+            const ctrlBare = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrlBare.setWorldStateController(bareWorld);
+            const { text: bareText, data: bareData } = ctrlBare.buildContext('ent-self');
+            expect(bareData.happenedToYou).toEqual([]);
+            expect(bareText).toContain('=== HAPPENED TO YOU ===\nevents of this round:\n(none)');
+        });
+
+        it('frames the block with the round the READER is in, not the round the blow was recorded in', () => {
+            // The normal case is the mismatch: the LLM turn fires at round start,
+            // so the events it reads were resolved in an earlier round. The
+            // frame names the reader's round, once, for the whole block.
+            const world = worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' },
+                round: 2
+            })]);
+            world.subControllers = { turns: { getRoundState: () => ({ roundNumber: 7 }) } };
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(world);
+
+            const { text, data } = ctrl.buildContext('ent-self');
+            expect(sectionOf(text)).toContain('events of this round (round 7):');
+            expect(sectionOf(text)).not.toContain('[round 2]');
+            expect(sectionOf(text)).toContain(
+                '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)'
+            );
+            expect(data.happenedToYou[0].round).toBe(2);
+        });
+
+        it('names no round in the frame when the turn system has none to give (never invents one)', () => {
+            // Both read paths the context follows (subControllers.turns, then the
+            // facade's own turnSystemController) are pinned, and a round that is
+            // not a whole number is not a round: the label stays, the number
+            // does not.
+            for (const roundNumber of [undefined, NaN, 3.5]) {
+                const world = makeWorld({
+                    turnSystemController: {
+                        getRoundState: () => (roundNumber === undefined
+                            ? null
+                            : { roundNumber })
+                    }
+                });
+                const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+                ctrl.setWorldStateController(world);
+                const { text } = ctrl.buildContext('ent-self');
+                expect(text).toContain('=== WORLD FAILURES ===\nevents of this round:\n');
+                expect(text).not.toContain('round NaN');
+                expect(text).not.toContain('round 3.5');
+            }
+        });
+
+        it('every event frame carries the round, in the inspector read as in the brain', () => {
+            // There is no second kind of event read any more. "newest first, not
+            // scoped to a round" was the tail label this change removed: a human
+            // watching an agent and the agent itself see the same rows of the
+            // same round, framed the same way
+            // (wiki/decisions/round-scoped-context.md).
+            const world = worldWithActions([onYou({
+                used: [{ type: 'hand', id: 'comp-same-hand' }],
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-head', componentName: 'Head' }
+            })]);
+            world.subControllers = { turns: { getRoundState: () => ({ roundNumber: 7 }) } };
+            const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+            ctrl.setWorldStateController(world);
+
+            const peek = ctrl.buildContext('ent-self', { observe: false }).text;
+            const brain = ctrl.buildContext('ent-self').text;
+            for (const text of [peek, brain]) {
+                expect(text, 'no section is read out of round').not.toContain('not scoped to a round');
+                expect(text).toContain('=== WORLD FAILURES ===\nevents of this round (round 7):');
+                expect(text).toContain('=== HAPPENED TO YOU ===\nevents of this round (round 7):');
+                expect(text).toContain('=== ROOM CHAT ===\nsaid in this room this round (round 7):');
+                expect(text).toContain('\nthis round (round 7):');
+            }
+            // What the two reads may still differ on is WHICH rows the perception
+            // controller puts in a room window versus an agent's own observation
+            // window (CR OBS-4) -- never on whether a round is claimed. This
+            // fixture seeds the agent window only, so the room read is empty.
+            expect(peek).toContain('=== HAPPENED TO YOU ===\nevents of this round (round 7):\n(none)');
+            expect(brain).toContain('=== HAPPENED TO YOU ===\nevents of this round (round 7):\n'
+                + '- Player Droid used "droid punch" on you (hit: Head, used: 1x hand)');
         });
     });
 
@@ -1470,7 +1747,7 @@ describe('LlmContextController (context renderer)', () => {
         // The state block (the agent's spatial anchor) survived the cascade.
         expect(text).toContain('1. Player Droid (34 away) at (134, 100)');
         // The delta window was halved (10 → 5).
-        const sinceIdx = text.indexOf('since you last looked:');
+        const sinceIdx = text.indexOf('\nthis round (round 0):');
         // ROOM CHAT is now the section that follows the perception block,
         // so the delta lines are sliced up to that header, not YOUR ACTIONS.
         const chatIdx = text.indexOf('=== ROOM CHAT ===');

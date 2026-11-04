@@ -515,3 +515,51 @@ describe('TurnSystemController (Feature A)', () => {
         expect(q.code).toBe('TURNS_DISABLED');
     });
 });
+
+// The round-resolved hook (wiki/decisions/round-scoped-context.md): the seam the
+// composition uses to flush the perception rooms at the boundary, so a delta
+// entry means exactly one round. A hook and not an import — the turn system
+// stays free of the controllers its rounds feed.
+describe('TurnSystemController — the round-resolved hook', () => {
+    it('fires once per resolved round, with that round, after its resolution ran', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        stepTo(world, tick, turns, 0);
+        const head = aHeadComponentId(world, entityId);
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+
+        const seen = [];
+        turns.setRoundResolvedHook((round) => {
+            // Readable from inside the hook: the resolution is behind it, so the
+            // round the hook names is already the resolved one.
+            seen.push({ round, resolvedRound: turns.getResolvedRound(), phase: turns.getRoundState().phase });
+        });
+
+        turns.signalPlanComplete(entityId, 'player');
+        expect(seen).toHaveLength(1);
+        expect(seen[0].round).toBe(0);
+        expect(seen[0].resolvedRound).toBe(0);
+
+        // A second signal changes nothing: the round resolves at most once.
+        turns.signalPlanComplete(entityId, 'player');
+        expect(seen).toHaveLength(1);
+    });
+
+    it('a hook that throws does not undo a resolution that already happened', () => {
+        const { world, tick, turns, entityId } = buildWorld();
+        stepTo(world, tick, turns, 0);
+        const head = aHeadComponentId(world, entityId);
+        turns.queueAction(entityId, 'selfHeal', { targetComponentId: head }, 'player');
+        turns.setRoundResolvedHook(() => { throw new Error('listener down'); });
+
+        const sig = turns.signalPlanComplete(entityId, 'player');
+        expect(sig.closed).toBe(true);
+        expect(turns.getRoundState().phase).toBe('resolution');
+        expect(turns.getResolvedRound()).toBe(0);
+    });
+
+    it('rejects a hook that is not a function, and accepts null to unwire it', () => {
+        const { turns } = buildWorld();
+        expect(() => turns.setRoundResolvedHook('nope')).toThrow(TypeError);
+        expect(() => turns.setRoundResolvedHook(null)).not.toThrow();
+    });
+});

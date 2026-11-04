@@ -13,6 +13,23 @@
  * stay lean. Consumers read via getMessages() / the dedicated socket event /
  * GET /rooms/:roomId/chat.
  *
+ * **Round-scoped delivery (`getMessagesForRound`).** What belongs in an agent's
+ * turn is the speech of ONE round — not a tail of the conversation, and not
+ * "whatever this agent has not been shown yet" (wiki/decisions/round-scoped-context.md).
+ * Every message therefore carries the `round` it was said in, stamped at send
+ * time from the turn system, and the context reads `getMessagesForRound(roomId,
+ * round)`. Nothing is delivered late: a line said in a round the agent did not
+ * experience is never shown to it, which is the owner's rule ("discard the
+ * backlog") and the reason the per-agent cursor this store used to carry is
+ * gone.
+ *
+ * A message whose round is unknown carries `round: null` — restored transcripts
+ * written before the stamp existed, or a send while no turn system is wired.
+ * Unknown is never guessed: such a line stays visible to every human reader
+ * (`getMessages()`, `GET /rooms/:roomId/chat`) and is never handed to a model as
+ * part of a round. The `sequence` stays on the entry as the send-order key
+ * (ring order is send order; clients dedupe by it).
+ *
  * @module RoomChatController
  */
 
@@ -36,6 +53,8 @@ class RoomChatController {
         this.worldStateController = null;
         /** @private {Object|null} WorldStateBroadcastService or test stub. */
         this._broadcaster = null;
+        /** @private {number} monotonic send sequence; the ordering key (never resets) */
+        this._sequence = 0;
     }
 
     /**
@@ -100,7 +119,15 @@ class RoomChatController {
             speakerEntityId: typeof speakerEntityId === 'string' ? speakerEntityId : null,
             text: trimmed,
             tick,
-            ts: Date.now()
+            ts: Date.now(),
+            // Monotonic send sequence — the ordering key. `tick` stays for
+            // display; many messages share one tick, so it cannot order them.
+            sequence: ++this._sequence,
+            // The round this line was said in — the key that decides whether it
+            // enters an agent's turn (see the class header). Spoken during a
+            // round's planning, so the OPEN round is the one it belongs to.
+            // null when no turn system answers: never backfilled, never guessed.
+            round: this._openRound()
         };
 
         // Push to the per-room ring (evicting the oldest beyond capacity).
@@ -135,6 +162,53 @@ class RoomChatController {
         const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : this._capacityPerRoom;
         const start = Math.max(0, ring.length - safeLimit);
         return ring.slice(start).map(entry => ({ ...entry }));
+    }
+
+    /**
+     * The lines of ONE room said in ONE round, oldest → newest. Stateless: no
+     * cursor, nothing consumed, so the agent's turn, the dev panel and any
+     * future reader ask the same question and get the same answer.
+     *
+     * A round that is not a whole number returns nothing — including `-1`
+     * ("nothing has resolved yet"), which is the honest answer rather than a
+     * transcript the agent has not earned.
+     *
+     * @param {string} roomId - Room UID (what `entity.location` holds)
+     * @param {Object} [options]
+     * @param {number} [options.round] - the round to deliver; rows stamped null
+     *   (round unknown) are never delivered
+     * @param {number} [options.limit=ROOM_CHAT_HISTORY_LIMIT] - tail cap
+     * @returns {Array} the round's messages, oldest → newest
+     */
+    getMessagesForRound(roomId, { round, limit = this._capacityPerRoom } = {}) {
+        if (!roomId || !Number.isInteger(round) || round < 0) return [];
+        const ring = this._rooms[roomId];
+        if (!ring || ring.length === 0) return [];
+        const fresh = ring.filter(entry => entry.round === round);
+        const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : this._capacityPerRoom;
+        return fresh.slice(-safeLimit).map(entry => ({ ...entry }));
+    }
+
+    /**
+     * The round open right now, as the turn system stores it — the round a
+     * message sent this instant belongs to. The composition root publishes the
+     * turn system at `facade.subControllers.turns`; `turnSystemController` is
+     * the property the facade class holds, so both paths are read.
+     * @returns {number|null} null when no turn system answers (never 0)
+     * @private
+     */
+    _openRound() {
+        try {
+            const turns = this.worldStateController?.subControllers?.turns
+                ?? this.worldStateController?.turnSystemController;
+            const round = turns?.getRoundState?.()?.roundNumber;
+            return Number.isInteger(round) ? round : null;
+        } catch {
+            // why: a turn system that throws is a broken seam, not a fact about
+            // the conversation — the line loses its round stamp rather than
+            // inventing one or losing the send.
+            return null;
+        }
     }
 
     /**
@@ -182,6 +256,21 @@ class RoomChatController {
                     .filter(entry => entry && typeof entry === 'object' && typeof entry.text === 'string')
                     .slice(-this._capacityPerRoom)
                     .map(entry => ({ ...entry }));
+            }
+        }
+        // A transcript saved before the sequence existed has no ordering key;
+        // ring order IS send order, so numbering it in place is the honest
+        // backfill. The counter then continues above the restored high-water
+        // mark, so a restored line never collides with a fresh one.
+        for (const ring of Object.values(rooms)) {
+            for (const entry of ring) {
+                if (!Number.isInteger(entry.sequence)) entry.sequence = this._sequence + 1;
+                this._sequence = Math.max(this._sequence, entry.sequence);
+                // The round stamp is NOT backfilled: a snapshot predating it has
+                // no record of which round said what, and guessing would put
+                // old speech inside a live round. Unknown stays null — the
+                // client still shows it, no agent is fed it.
+                if (!Number.isInteger(entry.round)) entry.round = null;
             }
         }
         this._rooms = rooms;

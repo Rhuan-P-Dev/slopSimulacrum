@@ -147,9 +147,16 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
         expect(exec.success, `the punch must land: ${exec?.error ?? ''}`).toBe(true);
 
         const { text, data } = world.llmContextController.buildContext(victimId);
-        expect(section(text, '=== HAPPENED TO YOU ===')).toContain(
-            '- [round 0] Rover used "droid punch" on you (hit: M1 Leg (frontal_left), used: 1x left droidHand, 1x right droidHand)'
+        const inbound = section(text, '=== HAPPENED TO YOU ===');
+        expect(inbound).toContain(
+            '- Rover used "droid punch" on you (hit: M1 Leg (frontal_left), used: 1x left droidHand, 1x right droidHand)'
         );
+        // The round belongs to the section, not to the row
+        // (wiki/decisions/current-round-events.md): the frame line names the
+        // reader's round once and no row carries a round of its own — the
+        // execution round stays on the row's data, below.
+        expect(inbound).toContain('events of this round (round 0):');
+        expect(inbound).not.toMatch(/\[round /);
         // The same line from the mirror the client receives — name and side
         // are two fields, not a string stitched after the fact.
         expect(data.happenedToYou[0]).toMatchObject({
@@ -175,7 +182,7 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
 
         const { text, data } = world.llmContextController.buildContext(victimId);
         const inbound = section(text, '=== HAPPENED TO YOU ===');
-        expect(inbound).toContain('- [round 0] Rover used "droid punch" on you (hit: Droid Head, used: 1x left droidHand, 1x right droidHand)');
+        expect(inbound).toContain('- Rover used "droid punch" on you (hit: Droid Head, used: 1x left droidHand, 1x right droidHand)');
         // The actor's own action is not "something that happened to you" — and
         // this row is the victim's, so the section cannot be echoing itself.
         expect(data.happenedToYou).toEqual([expect.objectContaining({
@@ -197,8 +204,13 @@ describe('HAPPENED TO YOU — an action aimed at the agent reaches its own conte
         // which is exactly why the agent-relative section exists.
         expect(summary).toContain('action performed');
         expect(summary).not.toMatch(/\byou\b/i);
-        // The victim still reads the change window (state, then change).
-        expect(text).toContain('since you last looked:');
+        // The victim still reads the change window (state, then change) — and
+        // the change block is framed as THIS round, not as "since you last
+        // looked" in some unnamed past.
+        // Anchored at a line start: "this round:" is also the tail of the
+        // "events of this round:" frame that opens WORLD FAILURES and
+        // HAPPENED TO YOU, which come earlier in the context.
+        expect(text).toContain('\nthis round (round 0):');
         expect(text.indexOf('=== HAPPENED TO YOU ===')).toBeLessThan(text.indexOf('=== YOUR WORLD'));
     });
 
@@ -224,8 +236,8 @@ describe('looking is not observing — the inspector reads the room window, not 
     // The 2026-11-02 bug: describeAgentView / GET /llm/context composed the
     // context with the SAME consuming read the brain uses, so every look at the
     // panel advanced the agent's perception cursor. The operator watched an
-    // agent being destroyed while its context read "since you last looked:
-    // (none)" and "HAPPENED TO YOU (none)": the panel had seen the blows, and
+    // agent being destroyed while its "this round" block read (none) and
+    // "HAPPENED TO YOU (none)": the panel had seen the blows, and
     // the agent never would.
     it('the room window a debug reader uses is stateless; the brain window is not', () => {
         const { world, roomId, attackerId, victimId } = buildArena('Rover', 'smallBallDroid', 'Victim');
@@ -267,20 +279,30 @@ describe('looking is not observing — the inspector reads the room window, not 
 
         // Round 2: the agent perceives it. This is the "o agent percebe" half.
         const brain = world.llmContextController.buildContext(victimId);
-        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- [round 0] Rover used "droid punch" on you');
+        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
 
         // ...and only NOW the operator opens the panel. It must show the same
-        // blow (same round tag, same window), not the empty tail of a cursor
+        // blow (same window), not the empty tail of a cursor
         // the brain already moved.
         const view = inspector.describeAgentView(victimId);
-        expect(section(view.context.text, '=== HAPPENED TO YOU ===')).toContain('- [round 0] Rover used "droid punch" on you');
-        expect(section(view.context.text, 'since you last looked:')).toContain('action performed');
+        expect(section(view.context.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
+        // And the frame it carries is a round frame, the same kind the brain gets:
+        // there is no unscoped room tail any more, so a human watching sees those
+        // rows as belonging to one round of the world, named once
+        // (wiki/decisions/round-scoped-context.md).
+        expect(view.context.text).toMatch(/\nthis round \(round \d+\):/);
+        expect(section(view.context.text, '\nthis round (round '))
+            .toContain('action performed');
+        // The frame the human sees is the frame the agent was sent. There is one
+        // kind of event read now, so the panel can no longer show several rounds
+        // under a header naming one while the agent's own context is correct.
+        expect(view.context.text).toContain('events of this round (round 0):');
 
         // A second open shows it too (stateless reader), and the agent has lost
         // nothing: the inspector consumed no part of the agent's window.
         const again = inspector.describeAgentView(victimId);
         expect(section(again.context.text, '=== HAPPENED TO YOU ==='), 'two opens, same window')
-            .toContain('- [round 0] Rover used "droid punch" on you');
+            .toContain('- Rover used "droid punch" on you');
     });
 
     it('the inspector does not consume the window the agent reads', () => {
@@ -296,8 +318,8 @@ describe('looking is not observing — the inspector reads the room window, not 
         inspector.describeAgentView(victimId);
 
         const brain = world.llmContextController.buildContext(victimId);
-        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- [round 0] Rover used "droid punch" on you');
-        expect(section(brain.text, 'since you last looked:')).toContain('action performed');
+        expect(section(brain.text, '=== HAPPENED TO YOU ===')).toContain('- Rover used "droid punch" on you');
+        expect(section(brain.text, '\nthis round (round 0):')).toContain('action performed');
     });
 });
 

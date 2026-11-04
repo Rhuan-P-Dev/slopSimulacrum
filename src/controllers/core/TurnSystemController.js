@@ -119,6 +119,8 @@ class TurnSystemController {
         this._broadcaster = null;
         /** @private {Function|null} (npcEntityId: string, round: number) => Promise<*> */
         this._npcAgent = null;
+        /** @private {Function|null} (round: number) => void — fires once a round's resolution has run (setRoundResolvedHook). */
+        this._onRoundResolved = null;
         /** @private {Function|null} Turn-start hook (injected via setTurnStartHook). */
         this._turnStartHook = null;
 
@@ -202,6 +204,24 @@ class TurnSystemController {
             throw new TypeError('TurnSystemController.setNpcAgent: agentFn must be a function or null');
         }
         this._npcAgent = agentFn;
+    }
+
+    /**
+     * Injects the round-resolved hook: called once per round, after that round's
+     * resolution has run, with the round number. The composition root uses it to
+     * flush the perception rooms at the round boundary, so a delta entry covers
+     * exactly one round — the unit an agent's turn is scoped to
+     * (wiki/decisions/round-scoped-context.md).
+     *
+     * A hook, not an import: the turn system stays free of the controllers its
+     * rounds feed (dependency direction, CR B-1).
+     * @param {Function|null} hook (round: number) => void
+     */
+    setRoundResolvedHook(hook) {
+        if (hook !== null && typeof hook !== 'function') {
+            throw new TypeError('TurnSystemController.setRoundResolvedHook: hook must be a function or null');
+        }
+        this._onRoundResolved = hook;
     }
 
     /**
@@ -335,6 +355,20 @@ class TurnSystemController {
             recurring: JSON.parse(JSON.stringify(this._recurringPlans)),
             barrier: this._barrierView()
         };
+    }
+
+    /**
+     * The last round whose RESOLUTION has run, or -1 before any round has
+     * resolved. Distinct from `getRoundState().roundNumber`, which is the round
+     * now OPEN: an agent plans in round N+1 about what happened in round N, so
+     * the reader of a round-scoped event stream asks for the resolved one
+     * (wiki/decisions/round-scoped-context.md). Its own method rather than a
+     * field on `getRoundState()`: that shape is the pinned v2 wire contract
+     * (`state.turns`), and this number is for server-side readers, not the HUD.
+     * @returns {number}
+     */
+    getResolvedRound() {
+        return this._resolvedRound;
     }
 
     /**
@@ -1414,6 +1448,17 @@ class TurnSystemController {
         this._phase = 'resolution';
         this._flipToResolution(round, this._currentTick(), reason);
         this._resolveRound(round);
+        // The round's events are now complete — tell the round-boundary listener
+        // (perception flush, so an entry never straddles two rounds).
+        // Best-effort: an unwired seam has nothing to notify, and a throwing
+        // listener must not undo a resolution that already happened.
+        if (this._onRoundResolved) {
+            try {
+                this._onRoundResolved(round);
+            } catch (err) {
+                Logger.warn(`[TurnSystem] Round ${round}: round-resolved hook failed: ${err?.message || err}`);
+            }
+        }
     }
 
     /**

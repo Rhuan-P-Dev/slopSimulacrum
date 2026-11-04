@@ -652,6 +652,16 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     // authoritative components that powered the action (not a re-derived heuristic).
     perceptionController.setActionAttributionStore(actionAttributionStore);
 
+    // Round-scoped event delivery (wiki/decisions/round-scoped-context.md):
+    //  - the world-event log stamps each event with the round it was written in,
+    //    which needs the facade to reach the turn system;
+    //  - the perception rooms flush at each round's close, so a delta entry
+    //    covers exactly one round and an agent's turn can filter by it.
+    // An agent's turn therefore contains the events of the round that resolved,
+    // and nothing else — no tail, no backlog.
+    worldEventLogController.setWorldStateController(worldStateController);
+    turnSystemController.setRoundResolvedHook((round) => perceptionController.flushDirtyForRound(round));
+
     // Round-prose reader: wired for the routes (GET /perception/round/*) to
     // reach it via the facade. Pure reader, so no timing constraint vs world
     // init.

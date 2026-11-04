@@ -11,6 +11,20 @@
  * and the full-state payload must stay lean (spec §4.7: "no events key in the
  * broadcast"). Consumers read via getRecent().
  *
+ * **Round-scoped delivery (`getEventsForRound`).** What belongs in an agent's
+ * turn is one round of events, not "whatever this agent has not been shown
+ * yet" (wiki/decisions/round-scoped-context.md). Every entry therefore carries
+ * the `round` it was written in, stamped at write time from the turn system, and
+ * the context reads `getRecentForRound(round)`. A backlog is impossible by
+ * construction: an event written in a round the agent did not experience is
+ * never delivered to it, so no per-agent cursor is needed and none is kept.
+ * `getRecent()` stays the reader-independent tail for `GET /world-events`.
+ *
+ * `round: null` means the writing side had no turn system to ask (or a snapshot
+ * predating the stamp). Unknown is never guessed — such an event is visible to
+ * human readers and never enters a model's round. `sequence` stays on the entry
+ * as the write-order key (persisted, so a restored ring keeps its ordering).
+ *
  * @module WorldEventLogController
  */
 
@@ -24,6 +38,22 @@ class WorldEventLogController {
     constructor(capacity = WORLD_EVENTS_MAX_LIMIT) {
         /** @private {EventRingBuffer} */
         this._buffer = new EventRingBuffer(capacity);
+        /** @private {number} monotonic write sequence; the ordering key
+         * (never resets — an id that can be reused is an id that will be). */
+        this._sequence = 0;
+        /** @private {WorldStateController|null} Injected post-construction: the
+         * only reason this store can name the round an event belongs to. */
+        this.worldStateController = null;
+    }
+
+    /**
+     * Injects the world state facade, so writes can be stamped with the open
+     * round (the same seam RoomChatController uses for the same purpose).
+     * @param {Object} facade
+     * @returns {void}
+     */
+    setWorldStateController(facade) {
+        this.worldStateController = facade || null;
     }
 
     /**
@@ -50,8 +80,36 @@ class WorldEventLogController {
             targetId: typeof event.targetId === 'string' ? event.targetId : null,
             message: event.message,
             level: event.level === 'warn' ? 'warn' : 'info',
-            ts: Date.now()
+            ts: Date.now(),
+            // Monotonic write sequence — the ordering key. The tick stays for
+            // display provenance; it is NOT the ordering key (many events share
+            // one tick, the same reason perception does not use it for cursors).
+            sequence: ++this._sequence,
+            // The round this event belongs to. Resolution runs while its own
+            // round is still the open one, so the open round IS the round that
+            // produced it (wiki/decisions/round-scoped-context.md).
+            round: this._openRound()
         });
+    }
+
+    /**
+     * The round open right now, as the turn system stores it. The composition
+     * root publishes it at `facade.subControllers.turns`; `turnSystemController`
+     * is the property the facade class itself holds, so both paths are read.
+     * @returns {number|null} null when no turn system answers (never 0)
+     * @private
+     */
+    _openRound() {
+        try {
+            const turns = this.worldStateController?.subControllers?.turns
+                ?? this.worldStateController?.turnSystemController;
+            const round = turns?.getRoundState?.()?.roundNumber;
+            return Number.isInteger(round) ? round : null;
+        } catch {
+            // why: a throwing turn system is a broken seam, not a fact about the
+            // world — the event loses its round stamp rather than inventing one.
+            return null;
+        }
     }
 
     /**
@@ -61,6 +119,28 @@ class WorldEventLogController {
      */
     getRecent(limit = WORLD_EVENTS_RECENT_LIMIT) {
         return this._buffer.getRecent(limit);
+    }
+
+    /**
+     * The events written in ONE round, oldest → newest. Stateless: nothing is
+     * consumed, so the agent's turn and `GET /world-events` ask the same
+     * question of the same store without interfering.
+     *
+     * A round that is not a whole number, or is negative (`-1` = nothing has
+     * resolved yet), returns nothing — the honest answer, never a tail of
+     * someone else's history.
+     *
+     * @param {Object} [options]
+     * @param {number} [options.round] - the round to deliver; rows stamped null
+     *   are never delivered (their round is unknown)
+     * @param {number} [options.limit=WORLD_EVENTS_RECENT_LIMIT] - tail cap
+     * @returns {Array} the round's events, oldest → newest
+     */
+    getEventsForRound({ round, limit = WORLD_EVENTS_RECENT_LIMIT } = {}) {
+        if (!Number.isInteger(round) || round < 0) return [];
+        const fresh = this._buffer.getAll().filter(ev => ev.round === round);
+        const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : WORLD_EVENTS_RECENT_LIMIT;
+        return fresh.slice(-safeLimit);
     }
 
     /**
@@ -90,7 +170,30 @@ class WorldEventLogController {
      * @returns {void}
      */
     restore(entries) {
-        this._buffer.restore(entries);
+        const list = Array.isArray(entries) ? entries : [];
+        // A ring restored from a snapshot written before the sequence existed
+        // has no ordering key; index order IS its write order, so numbering it
+        // in place is the honest backfill. The counter then continues above the
+        // restored high-water mark, so a restored event never collides with a
+        // fresh one.
+        // `round` is NOT backfilled: a snapshot written before the stamp existed
+        // has no record of which round an event belongs to, and guessing would
+        // put old history inside a live round. Unknown stays null — visible to
+        // human readers, never fed to a model as part of a round.
+        const normalized = list.map((entry, index) => (
+            entry && typeof entry === 'object'
+                ? {
+                    ...entry,
+                    sequence: Number.isInteger(entry.sequence) ? entry.sequence : index + 1,
+                    round: Number.isInteger(entry.round) ? entry.round : null
+                }
+                : entry
+        ));
+        this._buffer.restore(normalized);
+        this._sequence = normalized.reduce(
+            (max, entry) => Math.max(max, Number.isInteger(entry?.sequence) ? entry.sequence : 0),
+            this._sequence
+        );
     }
 }
 

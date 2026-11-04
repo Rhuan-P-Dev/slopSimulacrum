@@ -5,6 +5,10 @@
  * entity, getRecent ordering and limit, defensive copies, clear, and
  * serialize/restore round-trip — including multi-entity isolation.
  *
+ * `round` is the round an outcome belongs to and it decides whether the entry
+ * enters an agent's context; a writer with no round to give gets null, and null
+ * is never delivered (wiki/decisions/round-scoped-context.md).
+ *
  * @module test/unit/LlmAgentFeedbackController
  */
 
@@ -115,7 +119,10 @@ describe('LlmAgentFeedbackController', () => {
         const recent = fb.getRecent('npc_1');
         expect(recent).toHaveLength(1);
         const entry = recent[0];
-        expect(entry.round).toBe(0);
+        // null, never a placeholder 0: an outcome filed under round 0 would be
+        // delivered to an agent many rounds later. Unknown stays unknown and is
+        // never handed to a model (wiki/decisions/round-scoped-context.md).
+        expect(entry.round).toBeNull();
         expect(entry.actionName).toBe('unknown');
         expect(entry.componentId).toBeNull();
         expect(entry.targetEntityId).toBeNull();

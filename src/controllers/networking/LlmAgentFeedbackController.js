@@ -10,6 +10,11 @@
  * Outcome entry shape:
  *   { round, actionName, componentId, targetEntityId, queued, success, detail, instinct?, atTick }
  *   `instinct` is an optional sanitized string field (present when the action came from an instinct expansion).
+ *   `round` is the round the outcome belongs to, and it is what decides whether
+ *   the entry enters an agent's context (`LlmContextController._buildFeedbackData`
+ *   filters the ring by it). null means "no round known": the entry stays in the
+ *   ring for every other reader and is never delivered to a model — unknown is
+ *   never guessed (wiki/decisions/round-scoped-context.md).
  *
  * @module LlmAgentFeedbackController
  */
@@ -54,7 +59,10 @@ class LlmAgentFeedbackController {
         const rawInstinct = outcome.instinct;
         const instinct = (typeof rawInstinct === 'string' && rawInstinct.length > 0) ? rawInstinct : null;
         const entry = {
-            round: typeof outcome.round === 'number' ? outcome.round : 0,
+            // null when the writer had no round to give — never a placeholder 0,
+            // which would file the outcome as round 0 and deliver it to an agent
+            // many rounds later.
+            round: Number.isInteger(outcome.round) ? outcome.round : null,
             actionName: typeof outcome.actionName === 'string' ? outcome.actionName : 'unknown',
             componentId: outcome.componentId ?? null,
             targetEntityId: outcome.targetEntityId ?? null,

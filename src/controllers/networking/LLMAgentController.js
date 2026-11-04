@@ -1937,12 +1937,36 @@ class LLMAgentController {
      * @param {string|null} [outcome.targetEntityId] - who it was aimed at, if anything
      * @private
      */
+    /**
+     * The round open right now, as the turn system stores it — the round an
+     * outcome recorded during this agent's turn belongs to.
+     * @returns {number|null} null when no turn system answers (never 0)
+     * @private
+     */
+    _openRoundNow() {
+        try {
+            const round = this.turnSystemController?.getRoundState?.()?.roundNumber;
+            return Number.isInteger(round) ? round : null;
+        } catch {
+            // why: a throwing turn system is a broken seam — the outcome loses its
+            // round stamp rather than being filed under a round it did not happen
+            // in.
+            return null;
+        }
+    }
+
     _recordImmediateOutcome(npcEntityId, { actionName, success, detail, targetEntityId = null }) {
         const fb = this._feedbackController;
         if (!fb || typeof fb.record !== 'function') return;
         try {
             fb.record(npcEntityId, {
-                round: 0, // unknown at dispatch time; TurnSystem resolution will overwrite with the real round
+                // The round the agent is planning in. The planning barrier holds a
+                // round open until every roster agent settles, so this cannot drift
+                // mid-turn — and it is the round these outcomes belong to. Never a
+                // placeholder 0: an outcome filed under round 0 would be delivered
+                // to an agent several rounds later
+                // (wiki/decisions/round-scoped-context.md).
+                round: this._openRoundNow(),
                 actionName,
                 componentId: null,
                 targetEntityId,

@@ -1186,6 +1186,26 @@ class WorldStateController {
     }
 
     /**
+     * Returns the world events written in ONE round, oldest → newest — the
+     * window an agent's turn is allowed to contain
+     * (wiki/decisions/round-scoped-context.md).
+     *
+     * The round-relative sibling of {@link getRecentEvents}: a tail read hands
+     * an agent events from rounds it has already lived through, which is the
+     * bug this replaces. Stateless like every reader here — nothing is consumed,
+     * so `GET /world-events` and the agent's turn cannot eat each other.
+     * Absent-safe like every event reader.
+     * @param {Object} options - { round, limit } (`round` = the round to deliver;
+     *   events with no round stamp are never delivered).
+     * @returns {Array} Event entries { tick, action, targetId, message, level, ts, sequence, round }.
+     */
+    getWorldEventsForRound({ round, limit = WORLD_EVENTS_RECENT_LIMIT } = {}) {
+        return this.worldEventLogController
+            ? this.worldEventLogController.getEventsForRound({ round, limit })
+            : [];
+    }
+
+    /**
      * Sends a room chat message (Feature D backend, spec §7.3 — public API
      * wrapper so the routes never reach into the sub-controller directly).
      * The room chat layer is deliberately absent-safe: when it was not wired
@@ -1218,6 +1238,26 @@ class WorldStateController {
      */
     getRoomChatMessages(roomId, limit = ROOM_CHAT_HISTORY_LIMIT) {
         return this.roomChatController ? this.roomChatController.getMessages(roomId, limit) : [];
+    }
+
+    /**
+     * Returns the lines said in one room IN ONE ROUND, oldest → newest — the
+     * only speech an agent's turn is allowed to contain
+     * (wiki/decisions/round-scoped-context.md).
+     *
+     * Why it exists: `getRoomChatMessages` is a transcript tail, so an agent
+     * reading it every round re-reads lines from rounds it has already lived
+     * through. The dev panel and `GET /rooms/:roomId/chat` keep the stateless
+     * tail above. Absent-safe like every room-chat reader.
+     * @param {string} roomId - Room UID (what `entity.location` holds).
+     * @param {Object} options - { round, limit } (`round` = the round to
+     *   deliver; lines with no round stamp are never delivered).
+     * @returns {Array} message entries { id, roomId, speakerName, speakerEntityId, text, tick, ts, sequence, round }.
+     */
+    getRoomChatMessagesForRound(roomId, { round, limit = ROOM_CHAT_HISTORY_LIMIT } = {}) {
+        return this.roomChatController
+            ? this.roomChatController.getMessagesForRound(roomId, { round, limit })
+            : [];
     }
 
     /**
@@ -1388,7 +1428,7 @@ class WorldStateController {
     /**
      * Returns the perception (delta) entries of ONE room since this *specific
      * agent* last observed it — the room-scoped "what changed while I wasn't
-     * looking" window the LLM context's "YOUR WORLD → since you last looked"
+     * looking" window the LLM context's "YOUR WORLD → this round"
      * block renders. Unlike getAgentPerception (whole world), display is
      * filtered to the agent's current room, but the per-agent cursor still
      * advances past everything the room's buffer holds (including baseline

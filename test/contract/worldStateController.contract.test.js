@@ -317,6 +317,11 @@ describe('WorldStateController public method surface', () => {
         // data file of their own, so a mod applied at a round boundary reaches them.
         'getRegistry',
         'getRoomChatMessages',
+        // Added deliberately (wiki/decisions/round-scoped-context.md): the read
+        // of one room's transcript by ROUND, so a chat turn carries what was said
+        // in the round the agent is in and nothing else. GET /rooms/:roomId/chat
+        // keeps the stateless tail above.
+        'getRoomChatMessagesForRound',
         'getRoomUidByLogicalId',
         'getRooms',
         'getSynergyConfig',
@@ -326,6 +331,11 @@ describe('WorldStateController public method surface', () => {
         // surface addition); the route reads it via the facade only
         // (facade-only-dependency rule).
         'getViewData',
+        // Added deliberately (wiki/decisions/round-scoped-context.md): the read of
+        // the world-event stream by ROUND — every reader, agent or human, asks
+        // "what belongs to round N" and gets the same answer. The stateless
+        // getRecentEvents above stays for the REST endpoint ("the latest").
+        'getWorldEventsForRound',
         'getWorldGraph',
  // Added deliberately (wiki/subMDs/data/world_rules.md): the world-rules registry
         // passthrough. Not an accidental addition — mirrors getKnowledge().

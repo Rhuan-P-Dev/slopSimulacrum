@@ -13,9 +13,27 @@
  * receives the facade via setWorldStateController() and only ever reads
  * through its public API (spec "public API only" rule).
  *
+ * EVERY EVENT SECTION IS ONE ROUND'S (wiki/decisions/round-scoped-context.md).
+ * The NPC's LLM turn fires at ROUND START: after the previous round resolved,
+ * before the actions this turn queues will resolve. The one round a turn can be
+ * about is therefore the round that JUST RESOLVED, and every event section is
+ * filtered to it — `getWorldEventsForRound`, `getRoomChatMessagesForRound`, the
+ * perception window filtered by the round an entry covers, and the agent's own
+ * action outcomes filtered by the round they were recorded in.
+ *
+ * Nothing is delivered late: an event from a round the agent did not experience
+ * is never shown to it. That is why no per-agent delivery cursor exists here —
+ * a cursor is the mechanism that produces backlogs, and the backlog was the
+ * complaint. The frame line names the round once per section; a row carries no
+ * round of its own (no `[round N]` on "HAPPENED TO YOU", no `[tick]` on "WORLD
+ * FAILURES"), because a provenance stamp inside a block whose header already
+ * names the round contradicts it. Before the first resolution — or with no turn
+ * system wired — the sections are empty and the label carries no number: a
+ * round is never invented.
+ *
  * The "YOUR WORLD" section is the integrated perception seam (wiki
  * subMDs/systems/perception_system.md): "now in this room" renders the
- * current layout (state), "since you last looked" renders the room's delta
+ * current layout (state), "this round" renders the room's delta
  * stream since the agent's observation cursor — the read of that block IS
  * the observation (the per-agent cursor advances on read, so the next
  * round's build shows only what changed after this one). State comes before
@@ -48,8 +66,8 @@
  * stream. Every successful action records WHO IT WAS DIRECTED AT in the shared
  * ActionAttributionStore (one writer: the consequence dispatcher), and the
  * perception flush turns those records into performed-action rows carrying the
- * resolved target. This section reads the very same window the "since you last
- * looked" block renders and keeps the rows whose target is THIS agent, so an
+ * resolved target. This section reads the very same window the "this round"
+ * block renders and keeps the rows whose target is THIS agent, so an
  * attack lands in its brain as its own sentence — `Droid used "droid punch" on
  * you (hit: Droid Head, used: 1x left droidHand, 1x right droidHand)` — instead
  * of dissolving into the shared,
@@ -107,6 +125,23 @@ import { hasUsableComponent } from '../../utils/npcAiUtils.js';
 import { resolveRoomExits } from '../../utils/ContextResolution.js';
 import { DEFAULT_ITEM_VOLUME } from '../../../shared/Defaults.js';
 
+/**
+ * Whether a round number is known. Round 0 is a real round (the first one the
+ * turn system resolves); `-1` (nothing resolved yet), `null`, `undefined` and
+ * anything that is not an integer are unknown.
+ *
+ * Unknown is never delivered. A section whose round nobody knows would put
+ * unattributed history inside a turn that claims a round, and a row with no
+ * round of its own matches nothing — so both halves of the comparison are
+ * checked here, not just the one the reader brought
+ * (wiki/decisions/round-scoped-context.md).
+ * @param {unknown} round
+ * @returns {boolean}
+ */
+function hasRound(round) {
+    return Number.isInteger(round) && round >= 0;
+}
+
 class LlmContextController {
     static BUDGET = {
         maxChars: LLM_CONTEXT_MAX_CHARS,          // hard cap on the rendered text (~1.3k–1.5k tokens); raised from 4000 to preserve the enriched spatial detail (room size/positions/exits)
@@ -116,7 +151,7 @@ class LlmContextController {
         maxExits: CONTEXT_MAX_EXITS,             // current-room exits listed (safety cap) (single-sourced in Constants.js)
         maxPlacedMachines: CONTEXT_MAX_PLACED_MACHINES, // current-room placed machines listed (positions) (single-sourced in Constants.js)
         maxFailures: LLM_CONTEXT_MAX_FAILURES,   // warn-level world event tail ("WORLD FAILURES" section)
-        maxDeltas: LLM_CONTEXT_MAX_DELTAS,       // perception delta lines ("since you last looked" block)
+        maxDeltas: LLM_CONTEXT_MAX_DELTAS,       // perception delta lines ("this round" block)
         maxActionsOnYou: LLM_CONTEXT_MAX_ACTIONS_ON_YOU, // rows in "HAPPENED TO YOU" (actions targeting this agent)
         maxChat: LLM_CONTEXT_MAX_CHAT,
         maxInstincts: LLM_CONTEXT_MAX_INSTINCTS,         // displayed instincts (display cap)
@@ -192,16 +227,22 @@ class LlmContextController {
         const roomName = this._roomName(entity.location, rooms);
         const self = this._buildSelfData(entity);
         const nearData = this._buildNearbyData(entity, entity.location, maxEntities, rooms);
+        // The round every event section is scoped to — the one that just
+        // resolved (wiki/decisions/round-scoped-context.md). Read ONCE, here, so
+        // a round cannot change mid-composition (A-6); it is the only round
+        // number that ever appears in this context.
+        const roundNumber = this._referenceRound(facade);
         // Read ONCE: the room-scoped perception read IS the observation (the
         // agent cursor advances on this call), so truncation later slices the
         // result in memory — a second facade read would find an already-
-        // advanced cursor and nothing left to show.
-        const deltasData = this._buildDeltasData(entity, maxDeltas, observe);
+        // advanced cursor and nothing left to show. Filtered to `roundNumber`
+        // below, like every other event stream.
+        const deltasData = this._buildDeltasData(entity, maxDeltas, observe, roundNumber);
         const actionData = this._buildActionData(entityId);
         const hintsData = this._buildHintsData(entityId);
-        const failuresData = this._buildFailureData(maxFailures);
-        const chatData = this._buildChatData(entity.location, maxChat);
-        const feedbackData = this._buildFeedbackData(entityId);
+        const failuresData = this._buildFailureData(maxFailures, roundNumber);
+        const chatData = this._buildChatData(entity.location, maxChat, roundNumber);
+        const feedbackData = this._buildFeedbackData(entityId, roundNumber);
         // Derived from the SAME perception read as the delta block (never a
         // second read — the cursor already advanced). Built from the full
         // window here, before the cascade can slice `deltas` in memory, so
@@ -221,7 +262,7 @@ class LlmContextController {
             : (facade.instinctController?.generateForEntity?.(entityId) ?? []);
 
         // Truncation order when over budget (spec §4.3): delta lines first
-        // (the "since you last looked" window is the most expendable — the
+        // (the "this round" window is the most expendable — the
         // state block is the agent's spatial anchor and must survive), then
         // entities (same-room first), then failures, then chat (drop to 5),
         // then feedback (dropped entirely), then instincts (reduced to 3, then
@@ -242,7 +283,7 @@ class LlmContextController {
         // cascade step ever changes, and a positional list of a dozen sections
         // is where a silently swapped pair would hide).
         const render = () => this._render({
-            entity, roomName, self, near, deltas, hintsData, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms
+            entity, roomName, self, near, deltas, hintsData, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms, roundNumber
         });
         let text = render();
 
@@ -939,27 +980,40 @@ class LlmContextController {
     }
 
     /**
-     * World-failures section: the warn-level tail of the world event ring,
-     * rendered as "[tick] [action] message". The full ring is scanned (not
-     * just the recent tail) so up to `limit` WARN events are found even when
-     * the ring is mostly info. Success (info) events are intentionally
-     * excluded: their state consequences are reported by the perception
-     * delta stream ("since you last looked"), which carries the better
+     * World-failures section: the warn-level events of ONE round, rendered as
+     * "[action] message". The whole round is scanned (not a recent tail) so up
+     * to `limit` WARN events are found even when it wrote mostly info. Success
+     * (info) events are intentionally excluded: their state consequences are
+     * reported by the perception delta stream, which carries the better
      * information (with component attribution).
+     *
+     * Round-scoped — never a tail, never "new to this agent": a tail re-
+     * delivers another round's failure and a cursor re-delivers a backlog of
+     * them (wiki/decisions/round-scoped-context.md).
+     *
+     * No `[tick]` prefix: the section header already names the round these
+     * events are being read as, and a tick stamp inside the block is a second,
+     * contradicting provenance stamp for a number the agent has no concept of.
+     * The tick survives in the data mirror and in `GET /world-events`.
+     *
      * @param {number} limit
+     * @param {number|null} round - the round the section is scoped to; null
+     *   (nothing resolved yet, or no turn system) yields an empty section
      * @returns {string[]}
      * @private
      */
-    _buildFailureData(limit) {
+    _buildFailureData(limit, round) {
         const facade = this.worldStateController;
-        if (!facade.getRecentEvents) return [];
+        if (!facade.getWorldEventsForRound) return [];
+        if (!hasRound(round)) return [];
         try {
             const perMessageChars = LlmContextController.BUDGET.perMessageChars;
-            const ring = facade.getRecentEvents(WORLD_EVENTS_MAX_LIMIT) || [];
+            const ring = facade.getWorldEventsForRound({ round, limit: WORLD_EVENTS_MAX_LIMIT }) || [];
             return ring
+                .filter(ev => ev.round === round)
                 .filter(ev => ev.level === 'warn')
                 .slice(-limit)
-                .map(ev => `[${ev.tick ?? '----'}] [${ev.action}] ${(ev.message || '').slice(0, perMessageChars)}`);
+                .map(ev => `[${ev.action}] ${(ev.message || '').slice(0, perMessageChars)}`);
         } catch {
             return [];
         }
@@ -974,21 +1028,22 @@ class LlmContextController {
      * + representative examples; the full rows live on the data mirror).
      * Baseline entries are never displayed: the "now in this room" state
      * block is the baseline, so a first observation renders state only.
+     * Every entry is then filtered to ONE round (wiki/decisions/round-scoped-
+     * context.md): a cursor window can straddle rounds, and an agent's turn
+     * carries the round that resolved — no older change, and no planning-time
+     * change from the round the agent is writing right now.
      * @param {Object} entity
      * @param {number} limit
      * @param {boolean} [observe=true] - WHOSE window this reads. true is the
      *   agent's brain (its room window, cursor advances). false is a reader that
-     *   is not the brain (the dev inspector, `GET /llm/context/:entityId`): the
-     *   ROOM's recent window, stateless. Two bugs behind that split, both from
-     *   2026-11-02: the consuming read ate the agent's perception (watching an
-     *   agent erased what it was about to see), and a non-consuming peek of the
-     *   agent's OWN window then showed an operator `(none)` while the agent's
-     *   context carried the punch — because the round runner reads every round,
-     *   so "after the agent's cursor" is empty by the time anyone looks.
+     *   is not the brain (`GET /llm/context`): the ROOM's recent window,
+     *   stateless, so watching an agent never eats its perception (the
+     *   2026-11-02 incident). The round filter applies either way.
+     * @param {number|null} [round=null] - the round the block is scoped to
      * @returns {Array<Object>} raw delta entries, oldest to newest
      * @private
      */
-    _buildDeltasData(entity, limit, observe = true) {
+    _buildDeltasData(entity, limit, observe = true, round = null) {
         const facade = this.worldStateController;
         // The brain read is keyed by (entity, room); the room read takes the
         // room alone. .call(facade, …): these facade methods read `this`
@@ -1003,7 +1058,9 @@ class LlmContextController {
             // Defense in depth: a baseline is the state block's job, never
             // the change window. The facade already filters baselines; this
             // guards the renderer against any other producer of the stream.
-            return raw.filter(d => d && d.kind !== 'baseline');
+            // Then the round filter — an entry carries the round its window
+            // covers, and only the section's round is shown.
+            return raw.filter(d => d && d.kind !== 'baseline' && hasRound(round) && d.roundNumber === round);
         } catch {
             return [];
         }
@@ -1198,14 +1255,10 @@ class LlmContextController {
      * repeated type into the instances that actually acted (`_usedComponentsWithSides`),
      * and grouping is by the rendered label, so two components with no side
      * collapse back to `2x droidHand`. An unknown actor is "Something": the
-     * action happened, only its author is no longer in the world. Each row is
-     * prefixed with `[round N]` when the recorded turn-round is a whole number
-     * (stamped at execution — the world round at the moment of the action, 0
-     * before the first round; the perception window spans rounds and the sentence
-     * is read in a later context, so the tag is the row's provenance, not the
-     * reader's moment). When the recorded entry has no round (a bare seam without
-     * a turn system) or no whole-number round, the tag is omitted — a round is
-     * never invented.
+     * action happened, only its author is no longer in the world. No row is
+     * tagged with a round: the section header frames every line of this block as
+     * this round's news (wiki/decisions/current-round-events.md), so a per-row
+     * `[round N]` would restate the header or contradict it.
      * @param {Object} row - one row from `_buildInboundActionsData`
      * @returns {string}
      * @private
@@ -1230,30 +1283,38 @@ class LlmContextController {
             hit,
             usedPhrase ? `used: ${usedPhrase}` : null
         ].filter(Boolean).join(', ');
-        // Round tag (only when the stored round is a whole number) — the world
-        // turn-round at the moment of the action, stamped at recording. The
-        // perception window spans rounds, so this section may be read in a later
-        // context than the blow; the tag is the row's provenance, not the reader's
-        // moment. Omitted when absent or not a whole number (a seam without a
-        // turn system has no round to name — a made-up number would be a lie the
-        // reader would cite as fact).
-        const roundTag = Number.isInteger(row.round) ? `[round ${row.round}] ` : '';
-        return `- ${roundTag}${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
+        // No per-row round tag: the section header already frames every row as
+        // this round's news (wiki/decisions/current-round-events.md), and the
+        // execution round the store recorded stays on the row's DATA for the dev
+        // inspector. The same number on every line of a single-round block is
+        // attention the reader pays for nothing.
+        return `- ${actor} used "${row.action}" on you${details ? ` (${details})` : ''}`;
     }
 
     /**
      * Chat section (Feature D's RoomChatController — optional at this step):
      * "Speaker: text" lines for the entity's current room.
+     *
+     * The brain's read is agent-relative and CONSUMING: a transcript tail hands
+     * the agent the lines it answered last round, and it answers them again
+     * (wiki/decisions/current-round-events.md). A non-observing reader keeps the
+     * stateless room tail, so the dev panel still shows the whole conversation
+     * without eating the agent's next lines.
      * @param {string} roomUid
      * @param {number} limit
+     * @param {number|null} round - the round the section is scoped to: only
+     *   lines said in that round are rendered, and a line with no round stamp is
+     *   never handed to a model (wiki/decisions/round-scoped-context.md)
      * @returns {string[]}
      * @private
      */
-    _buildChatData(roomUid, limit) {
+    _buildChatData(roomUid, limit, round) {
         const facade = this.worldStateController;
-        if (!facade.getRoomChatMessages) return [];
+        if (!facade.getRoomChatMessagesForRound) return [];
+        if (!hasRound(round)) return [];
         try {
-            const messages = facade.getRoomChatMessages(roomUid, limit) || [];
+            const messages = (facade.getRoomChatMessagesForRound(roomUid, { round, limit }) || [])
+                .filter((m) => m && m.round === round);
             const perMessageChars = LlmContextController.BUDGET.perMessageChars;
             return messages.map(m => `${m.speakerName || '???'}: ${(m.text || '').slice(0, perMessageChars)}`);
         } catch {
@@ -1262,20 +1323,25 @@ class LlmContextController {
     }
 
     /**
-     * Feedback data for "YOUR LAST ACTIONS & RESULTS" section: reads recent
-     * action-outcome entries from the per-agent feedback controller (Feature E).
-     * Returns the raw ring (each entry may carry `targetEntityId`, which the
-     * renderer turns into "<action> on <target>").
+     * Feedback data for "YOUR LAST ACTIONS & RESULTS": the agent's own action
+     * outcomes FROM ONE ROUND (Feature E holds the ring). An outcome is stamped
+     * with the round it was recorded in, which for a world action is the round
+     * whose resolution ran it — so this is the result of what the agent did in
+     * that round, delivered in the turn that follows it and never later
+     * (wiki/decisions/round-scoped-context.md).
      * @param {string} entityId
-     * @returns {Array<{ round: number, actionName: string, targetEntityId: string|null, success: boolean, detail: string, instinct: string|null }>}
+     * @param {number|null} round - the round the section is scoped to; entries
+     *   with no round stamp are never delivered
+     * @returns {Array<{ round: number|null, actionName: string, targetEntityId: string|null, success: boolean, detail: string, instinct: string|null }>}
      * @private
      */
-    _buildFeedbackData(entityId) {
+    _buildFeedbackData(entityId, round) {
         const facade = this.worldStateController;
         if (!facade.llmAgentFeedbackController?.getRecent) return [];
+        if (!hasRound(round)) return [];
         try {
             const outcomes = facade.llmAgentFeedbackController.getRecent(entityId, AGENT_FEEDBACK_CAPACITY) || [];
-            return outcomes;
+            return outcomes.filter((o) => o && o.round === round);
         } catch {
             return [];
         }
@@ -1308,9 +1374,12 @@ class LlmContextController {
      * @param {Object} sections.rooms - UID-keyed rooms map (from `getRooms()`),
      *   threaded in by buildContext so the room block is resolved from the same
      *   single clone.
+     * @param {number|undefined} sections.roundNumber - the round the READER is
+     *   in; the frame every event section is labelled with. Undefined when no
+     *   turn system is wired — the label then carries no number.
      * @private
      */
-    _render({ entity, roomName, self, near, deltas, hintsData: hints, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms }) {
+    _render({ entity, roomName, self, near, deltas, hintsData: hints, failures, chat, feedback, happenedToYou, droppedItems, placedMachines, rooms, roundNumber }) {
         const roomData = this._buildRoomData(entity.location, rooms);
         const lines = [];
 
@@ -1400,11 +1469,12 @@ class LlmContextController {
         lines.push('');
 
         // === WORLD FAILURES ===
-        // The warn-level tail of the world event ring (failed actions +
+        // The warn-level events new to THIS agent (failed actions +
         // round-level warnings). Success events are intentionally absent:
         // their state consequences ride the perception stream in the
-        // "since you last looked" block above.
+        // "this round" block above.
         lines.push('=== WORLD FAILURES ===');
+        lines.push(this._roundFrame('events of this round', roundNumber));
         lines.push(failures.length > 0 ? failures.join('\n') : '(none)');
         lines.push('');
 
@@ -1436,6 +1506,7 @@ class LlmContextController {
         // to it before it reads the room it has to react in, and the budget
         // cascade sheds this block after the state block, never before it.
         lines.push('=== HAPPENED TO YOU ===');
+        lines.push(this._roundFrame('events of this round', roundNumber));
         lines.push(happenedToYou.length > 0
             ? happenedToYou.map((r) => this._inboundActionLine(r)).join('\n')
             : '(none)');
@@ -1444,7 +1515,7 @@ class LlmContextController {
         // === YOUR WORLD ({room}) ===
         // State first, then change: the "now in this room" block is the
         // agent's spatial anchor (it survives the budget cascade), the
-        // "since you last looked" block is the perception delta stream (shed
+        // "this round" block is the perception delta stream (shed
         // first under budget pressure — see buildContext).
         // Rendered at the end of the context, directly above ROOM CHAT
         // (operator directive, 2026-10-23): the agent's spatial anchor is the
@@ -1491,14 +1562,17 @@ class LlmContextController {
         // the agent's observation cursor (baselines never appear here — the
         // state block above is the baseline, so a first observation prints
         // "(none)").
-        lines.push('since you last looked:');
+        lines.push(this._roundFrame('this round', roundNumber));
         lines.push(deltas.length > 0
             ? deltas.map(d => `- ${d.summary || '(change)'}`).join('\n')
             : '(none)');
         lines.push('');
 
         // === ROOM CHAT ===
+        // The lines new to this agent since it last read this room — not the
+        // room's whole transcript tail (see `_buildChatData`).
         lines.push('=== ROOM CHAT ===');
+        lines.push(this._roundFrame('said in this room this round', roundNumber));
         lines.push(chat.length > 0 ? chat.join('\n') : '(none)');
         lines.push('');
 
@@ -1531,6 +1605,71 @@ class LlmContextController {
     // =========================================================================
     // HELPERS
     // =========================================================================
+
+    /**
+     * The frame line printed under an event-section header: the label, plus the
+     * round the reader is in when there is one. One definition so the four event
+     * sections agree on how they name the round — and on what they do when no
+     * turn system is wired: the label stays, the number does not, because a
+     * round is never invented.
+     * @param {string} label - section lead-in, e.g. 'this round'
+     * @param {number|undefined} roundNumber - the reader's round
+     * @returns {string}
+     * @private
+     */
+    _roundFrame(label, roundNumber) {
+        return Number.isInteger(roundNumber)
+            ? `${label} (round ${roundNumber}):`
+            : `${label}:`;
+    }
+
+
+
+    /**
+     * The round every event section is scoped to: the one that RESOLVED, not the
+     * one that is open. An agent's turn fires while a round is open, and the
+     * events that exist for it are the previous round's — so "this round", in
+     * the mouth of the context, is the round that just resolved and whose events
+     * this context carries (wiki/decisions/round-scoped-context.md).
+     *
+     * Sources, in order: `turns.getStatus().resolvedRound` (the bookkeeping the
+     * turn system keeps — `-1` means nothing has resolved, and null is the
+     * honest answer, not round 0); then `getRoundState().roundNumber` for a
+     * partial seam that answers only that.
+     *
+     * The composition root publishes the turn system at
+     * `facade.subControllers.turns`; `turnSystemController` is the property the
+     * facade class itself holds, so both paths are read.
+     * @param {Object} facade - the world state facade
+     * @returns {number|null} the round of record, or null when there is none
+     * @private
+     */
+    _referenceRound(facade) {
+        try {
+            const turns = facade?.subControllers?.turns ?? facade?.turnSystemController;
+            if (!turns) return null;
+            // The RESOLVED round, when there is one. An agent plans in the round
+            // after the one that produced its news: the events, the line spoken
+            // and the outcome of its own action all carry the number of the round
+            // that resolved, while the round now open is the one it is deciding
+            // about. Naming the open round would deliver nothing at all.
+            const resolved = typeof turns.getResolvedRound === 'function'
+                ? turns.getResolvedRound()
+                : undefined;
+            if (Number.isInteger(resolved) && resolved >= 0) return resolved;
+            // Nothing has resolved yet (-1), or a seam that cannot say: the world
+            // is in its first round, and that is the only round there is to read.
+            const open = typeof turns.getRoundState === 'function'
+                ? turns.getRoundState()?.roundNumber
+                : undefined;
+            return Number.isInteger(open) && open >= 0 ? open : null;
+        } catch {
+            // why: a turn system that throws is a broken seam, not a fact about
+            // the world — the event sections render empty rather than naming a
+            // round nobody resolved.
+            return null;
+        }
+    }
 
     /**
      * Component type definition from data/mods/core-components/components.json (via the registry

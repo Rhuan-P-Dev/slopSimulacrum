@@ -454,9 +454,11 @@ export const LLM_CONTEXT_OTHER_ROOM_ENTITIES = 2;
 export const LLM_CONTEXT_MAX_EVENTS = 20;
 
 /**
- * Max chat messages scanned from room history when composing the LLM
- * context (the excerpted portion is further capped by
- * LLM_CONTEXT_MAX_CHAT_IN_CONTEXT).
+ * Max chat lines rendered into the LLM context, out of the lines of the
+ * agent's room that are NEW to that agent since its last read (the read is
+ * `WorldStateController.getRoomChatMessagesForAgent`, which advances that
+ * agent's cursor — wiki/decisions/current-round-events.md). The excerpted
+ * portion is further capped by LLM_CONTEXT_MAX_CHAT_IN_CONTEXT.
  * @type {number}
  */
 export const LLM_CONTEXT_MAX_CHAT = 10;
@@ -507,10 +509,12 @@ export const LLM_CONTEXT_MAX_FEEDBACK = 5;
 
 /**
  * Max world-failure entries rendered into the composed LLM context's
- * "WORLD FAILURES" section: the warn-level tail of the world event ring
- * (failed actions + round-level warnings). Success events are excluded —
+ * "WORLD FAILURES" section: the warn-level events of the world event ring that
+ * are new to this agent (failed actions + round-level warnings; the read
+ * advances the agent's cursor, see `WorldEventLogController.getRecentForAgent`).
+ * Success events are excluded —
  * their state consequences are reported by the perception delta stream
- * ("since you last looked"), which carries the better information (with
+ * ("this round"), which carries the better information (with
  * component attribution).
  * @type {number}
  */
@@ -518,10 +522,11 @@ export const LLM_CONTEXT_MAX_FAILURES = 10;
 
 /**
  * Max perception-delta entries rendered into the composed LLM context's
- * "YOUR WORLD → since you last looked" block (per-agent, room-scoped:
- * only the deltas of the agent's current room, since its observation
- * cursor advanced). The read of this block IS the observation — the
- * per-agent cursor advances on read.
+ * "YOUR WORLD → this round" block (per-agent, room-scoped:
+ * only the deltas of the agent's current room, since its observation cursor
+ * advanced). The read of this block IS the observation — the per-agent cursor
+ * advances on read — and the block is labelled with the round the reader is in
+ * (wiki/decisions/current-round-events.md).
  * @type {number}
  */
 export const LLM_CONTEXT_MAX_DELTAS = 10;
@@ -529,7 +534,7 @@ export const LLM_CONTEXT_MAX_DELTAS = 10;
 /**
  * Max action rows rendered into the composed LLM context's "HAPPENED TO YOU"
  * section: the actions performed ON this agent since its observation cursor
- * (built from the same perception read as "since you last looked", filtered to
+ * (built from the same perception read as the "this round" block, filtered to
  * the rows whose recorded target is this entity). The tail is kept, so the
  * newest blows are the ones that survive.
  *
