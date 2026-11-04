@@ -13,7 +13,10 @@
  * close trigger. The droid gets a fixed name so prose is comparable across
  * builds (determinism test). Range tests (9-11) reuse the 502-round eviction
  * loop to put an evicted gap inside an otherwise-observed range, and drive
- * the new /perception/rounds/:from/:to wire shape.
+ * the new /perception/rounds/:from/:to wire shape. The last block reads ONE
+ * ENTITY per round (/perception/round/:roundNumber/byEntity/:entityId): the
+ * rows that name it, including a real cross-room move — which lands in two
+ * rooms' rings, so it is the case a single-room read would silently halve.
  *
  * @module test/contract/roundProse
  */
@@ -451,6 +454,238 @@ describe('Round-prose reader (wiki/subMDs/systems/round_prose_system.md)', () =>
             // 503: unwired reader.
             world.roundProseController = null;
             const unwired = await fetch(url('/perception/rounds/500/501'));
+            expect(unwired.status).toBe(503);
+            expect((await unwired.json()).error).toBe('Round prose reader is not available.');
+        } finally {
+            server.close();
+        }
+    });
+});
+
+// =========================================================================
+// ONE ENTITY PER ROUND — RoundProseController.getEntityProse and
+// GET /perception/round/:roundNumber/byEntity/:entityId on a real built world.
+// The unit level (test/unit/RoundProseController.entity.test.js) pins the row
+// selection with a stub; this level pins it against the rows the world actually
+// writes, and against a real cross-room move: the round diff sees the droid
+// LEAVE one room and APPEAR in the other, so its paragraph is assembled from
+// two rings, in the world's room order (room ids are generated per build, so
+// they cannot sort ties), and against what perception itself records: a room
+// that has never been observed reports its contents as a BASELINE, which is the
+// room's state description and therefore never one entity's paragraph.
+// =========================================================================
+
+/**
+ * Round 0 closed (baseline only), then round 1: the droid heals itself, and —
+ * when `move` is set — the world itself relocates it to the corridor
+ * (`stateEntityController.moveEntity`, the call a door traversal makes) before
+ * the round resolves. Tests drive the tick clock; nothing here fakes world
+ * state.
+ * @returns {{ world: Object, tick: Object, entityId: string, startRoomId: string,
+ *   reader: Object, fromRoomId: string, toRoomId: string|null }}
+ */
+function runRound1({ move = false } = {}) {
+    const ctx = buildWorld();
+    const { world, tick, entityId } = ctx;
+    closeRound0(world, tick, entityId);
+    stepToTick(world, tick, 1);
+    const fromRoomId = world.stateEntityController.getEntity(entityId).location;
+    const toRoomId = move ? world.roomsController.getUidByLogicalId('right_room') : null;
+    if (move) {
+        world.stateEntityController.moveEntity(entityId, toRoomId, { spatial: { x: 3, y: 4 } });
+    }
+    const target = aMoveComponentId(world, entityId);
+    world.turnSystemController.queueAction(entityId, 'selfHeal', { targetComponentId: target }, 'player');
+    const sig = world.turnSystemController.signalPlanComplete(entityId, 'player');
+    expect(sig.closed).toBe(true);
+    return { ...ctx, reader: world.roundProseController, fromRoomId, toRoomId };
+}
+
+describe('Round-prose reader — one entity (byEntity)', () => {
+    it('E1. round 0 is a baseline: the room has a paragraph, the entity has none', () => {
+        const { world, tick, entityId, startRoomId } = buildWorld();
+        const reader = world.roundProseController;
+        closeRound0(world, tick, entityId);
+
+        const room = reader.getRoomProse(startRoomId, 0);
+        expect(room.entryCount).toBe(1); // the room's baseline entry
+        expect(room.text.toLowerCase()).toContain('initial observation');
+
+        const prose = reader.getEntityProse(entityId, 0);
+        expect(prose).toMatchObject({
+            round: 0,
+            live: false,
+            startTick: 0,
+            endTick: 0,
+            entityId,
+            entity: 'Test Droid'
+        });
+        // A baseline describes the ROOM; it is never one entity's prose.
+        expect(prose.entryCount).toBe(0);
+        expect(prose.text).toBe('');
+        expect(prose.room).toBe(room.room);
+    });
+
+    it('E2. an entity paragraph says what it did — and carries no room atmosphere', () => {
+        const { reader, entityId } = runRound1();
+
+        const prose = reader.getEntityProse(entityId, 1);
+
+        expect(prose.round).toBe(1);
+        expect(prose.live).toBe(false);
+        expect(prose.startTick).toBe(1);
+        expect(prose.endTick).toBe(1);
+        expect(prose.entity).toBe('Test Droid');
+        expect(prose.room).toBe('The Entrance Hall');
+        expect(prose.entryCount).toBe(1);
+        expect(prose.text).toContain('Test Droid healed itself');
+        expect(prose.text.endsWith('.')).toBe(true);
+        // Deterministic like the room prose: no raw ids in the text.
+        expect(prose.text).not.toContain(entityId);
+        // Atmosphere belongs to the room, never to an entity: light / fog /
+        // temperature have no delta rows, so they cannot reach this paragraph.
+        expect(prose.text).not.toMatch(/humidity|temperature|light|fog|air/i);
+        // And no room framing ("In The Entrance Hall, …").
+        expect(prose.text.startsWith('In ')).toBe(false);
+    });
+
+    it('E3. the entity read is not pinned to the room the entity stands in now', () => {
+        const { reader, entityId, fromRoomId, toRoomId } = runRound1({ move: true });
+
+        const prose = reader.getEntityProse(entityId, 1);
+
+        // The droid now stands in the corridor...
+        expect(prose.room).toBe('The Eastern Corridor');
+        // ...and its paragraph still carries the DEPARTURE, which lives in the
+        // ring of the room it left. A read scoped to the current room would have
+        // found nothing of it.
+        expect(prose.text).toContain('Test Droid left the room');
+        expect(reader.getRoomProse(fromRoomId, 1).text).toContain('Test Droid left the room');
+        // The corridor saw the droid only as part of its FIRST observation — a
+        // baseline, which describes the ROOM, not an arrival. So that half is
+        // not in the entity paragraph (pinned at unit level as well), and the
+        // one entry that contributed is the room it left.
+        expect(reader.getRoomProse(toRoomId, 1).text.toLowerCase()).toContain('initial observation');
+        expect(prose.entryCount).toBe(1);
+        expect(prose.text).not.toContain('appeared in the room');
+    });
+
+    it('E3b. movement inside a room is the entity\'s own sentence — and leaks no room uid', () => {
+        const { world, tick, entityId } = buildWorld();
+        closeRound0(world, tick, entityId);
+        const reader = world.roundProseController;
+        stepToTick(world, tick, 1);
+        const here = world.stateEntityController.getEntity(entityId).location;
+        world.stateEntityController.moveEntity(entityId, here, { spatial: { x: 12, y: 9 } });
+        world.turnSystemController.queueAction(entityId, 'selfHeal', { targetComponentId: aMoveComponentId(world, entityId) }, 'player');
+        expect(world.turnSystemController.signalPlanComplete(entityId, 'player').closed).toBe(true);
+
+        const prose = reader.getEntityProse(entityId, 1);
+
+        // The round's `moved` row is the entity's own line, coordinates included.
+        expect(prose.text).toContain('Test Droid moved');
+        expect(prose.text).toContain('(12.00, 9.00)');
+        // Room rows reference rooms by uid; a uid is never prose (and room uids
+        // are generated per build, so echoing one would break determinism too).
+        expect(prose.text).not.toContain(here);
+    });
+
+    it('E4. an entity no row names, and an entity that is gone', () => {
+        const { world, reader, entityId } = runRound1();
+
+        // A valid id nothing named this round: a real answer, not an error.
+        const nobody = reader.getEntityProse('ent-00000000-0000-0000-0000-000000000000', 1);
+        expect(nobody.entryCount).toBe(0);
+        expect(nobody.text).toBe('');
+        expect(nobody.room).toBeNull();
+
+        // Despawn it: the round it lived through is still readable, named by its
+        // own rows, with no current room left to report.
+        world.despawnEntity(entityId);
+        const gone = reader.getEntityProse(entityId, 1);
+        expect(gone.entity).toBe('Test Droid');
+        expect(gone.room).toBeNull();
+        expect(gone.entryCount).toBeGreaterThan(0);
+        expect(gone.text).toContain('Test Droid');
+
+        // Out of recent history the window is still the authority: null (route
+        // 404), whether or not the entity survives.
+        expect(reader.getEntityProse(entityId, 99)).toBeNull();
+    });
+
+    it('E5. two identically driven worlds produce byte-identical entity prose', () => {
+        const first = runRound1({ move: true });
+        const second = runRound1({ move: true });
+
+        const a = first.reader.getEntityProse(first.entityId, 1);
+        const b = second.reader.getEntityProse(second.entityId, 1);
+
+        expect(a.text.length).toBeGreaterThan(0);
+        expect(a.text).toBe(b.text);
+        expect(a.entryCount).toBe(b.entryCount);
+        expect(a.entity).toBe(b.entity);
+    });
+
+    it('E6. wire shape: 200 prose, 400 malformed round, 400 non-entity id, 404 unknown round, 503 unwired', async () => {
+        const { world, entityId } = runRound1();
+        const router = express.Router();
+        registerPerceptionRoutes(router, { worldStateController: world });
+        const server = await new Promise((resolve) => {
+            const s = express().use(router).listen(0);
+            resolve(s);
+        });
+        const port = server.address().port;
+        const url = (path) => `http://localhost:${port}${path}`;
+        try {
+            const ok = await fetch(url(`/perception/round/1/byEntity/${entityId}`));
+            expect(ok.status).toBe(200);
+            const body = await ok.json();
+            expect(body.success).toBe(true);
+            expect(body.round).toBe(1);
+            expect(body.live).toBe(false);
+            expect(body.startTick).toBe(1);
+            expect(body.endTick).toBe(1);
+            expect(body.entityId).toBe(entityId);
+            expect(body.entity).toBe('Test Droid');
+            expect(body.room).toBe('The Entrance Hall');
+            expect(body.entryCount).toBe(1);
+            expect(body.text).toContain('Test Droid healed itself');
+            expect(body.text).not.toContain(entityId);
+
+            // Malformed round -> 400, before any world read.
+            const badRound = await fetch(url(`/perception/round/-3/byEntity/${entityId}`));
+            expect(badRound.status).toBe(400);
+            expect((await badRound.json()).message).toMatch(/Invalid round number/);
+
+            // A non-`ent-…` id -> 400 with the id echoed (same contract as the
+            // other entity routes).
+            const badId = await fetch(url('/perception/round/1/byEntity/not-an-entity-id'));
+            expect(badId.status).toBe(400);
+            expect((await badId.json()).message).toBe('Invalid entity ID "not-an-entity-id".');
+
+            // Round out of recent history -> 404.
+            const unknownRound = await fetch(url(`/perception/round/999/byEntity/${entityId}`));
+            expect(unknownRound.status).toBe(404);
+            expect((await unknownRound.json()).message).toMatch(/Round 999/);
+
+            // An entity no row named is NOT a 404 — empty prose, zero rows.
+            const nobody = await fetch(url('/perception/round/1/byEntity/ent-00000000-0000-0000-0000-000000000000'));
+            expect(nobody.status).toBe(200);
+            const nobodyBody = await nobody.json();
+            expect(nobodyBody.entryCount).toBe(0);
+            expect(nobodyBody.text).toBe('');
+
+            // The existing endpoints are untouched by the new one.
+            const full = await fetch(url('/perception/round/1'));
+            expect(full.status).toBe(200);
+            const byRoom = await fetch(url('/perception/round/1/byRoom/start_room'));
+            expect(byRoom.status).toBe(200);
+            const range = await fetch(url('/perception/rounds/0/1'));
+            expect(range.status).toBe(200);
+
+            // Unwired reader -> 503.
+            world.roundProseController = null;
+            const unwired = await fetch(url(`/perception/round/1/byEntity/${entityId}`));
             expect(unwired.status).toBe(503);
             expect((await unwired.json()).error).toBe('Round prose reader is not available.');
         } finally {

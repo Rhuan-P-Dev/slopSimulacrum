@@ -47,6 +47,17 @@
     font-size: 0.8em;
     cursor: pointer;
 }
+/* Entity mode: an id (ent-…) needs more room than a round number, and the
+   disabled `to` field must read as disabled rather than as an empty round. */
+.round-prose-entity {
+    flex: 2 1 0;
+    min-width: 150px;
+    cursor: text;
+}
+.round-prose-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 .round-prose-input:hover,
 .round-prose-input:focus {
     border-color: var(--neon-green, #00ff00);

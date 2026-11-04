@@ -1,13 +1,20 @@
 /**
  * RoundProsePanel — "Round Prose" dev inspector.
  *
- * Shows, for a chosen round, the natural-prose reconstruction that the round-prose
- * reader assembles from perception's per-room delta stream: a one-line round summary
- * (change count + live/settled wording, tick window) plus one flowing prose
- * paragraph per room that saw activity in the round's tick window. The payload is
- * fetched live on open (and on any manual re-fetch / while-open refresh) from
- * GET /perception/round/:roundNumber — it is never derived from the broadcast and
- * never refreshed in the background without the live-round refresh hook.
+ * Shows, for a chosen range of rounds, the natural-prose reconstruction that the
+ * round-prose reader assembles from perception's per-room delta stream: a
+ * one-line round summary (change count + live/settled wording, tick window) plus
+ * one flowing prose paragraph per room that saw activity in the round's tick
+ * window. The payload is fetched live on open (and on any manual re-fetch /
+ * while-open refresh) from GET /perception/rounds/:from/:to — it is never
+ * derived from the broadcast and never refreshed in the background without the
+ * live-round refresh hook.
+ *
+ * Entity mode: typing an entity id (ent-…) into the `entity` field switches the
+ * read to GET /perception/round/:roundNumber/byEntity/:entityId — one entity's
+ * paragraph for ONE round (the `from` input; `to` is disabled while a name is
+ * typed, because silently ignoring it would be the confusing version). Emptying
+ * the field returns to the range view of all rooms.
  *
  * Follows the project's floating-overlay pattern (init/show/hide/toggle, driven
  * by OverlayManager). The current round is pre-filled from state.turns.roundNumber
@@ -30,6 +37,7 @@ export class RoundProsePanel {
         this._content = null;
         this._fromInput = null;
         this._toInput = null;
+        this._entityInput = null;
         this._liveBtn = null;
         this._refreshBtn = null;
         this._initialized = false;
@@ -65,10 +73,15 @@ export class RoundProsePanel {
             '<input id="round-prose-to-input" class="round-prose-input" type="number" min="0" step="1" ' +
             'title="Last round of the range (0-based)" autocomplete="off" />' +
             '<button id="round-prose-live" class="round-prose-btn" title="Fetch the live round">Live</button>' +
-            '<button id="round-prose-refresh" class="round-prose-btn" title="Fetch the selected range">&#8650;</button>';
+            '<button id="round-prose-refresh" class="round-prose-btn" title="Fetch the selected range">&#8650;</button>' +
+            '<label class="round-prose-label" for="round-prose-entity-input">entity</label>' +
+            '<input id="round-prose-entity-input" class="round-prose-input round-prose-entity" type="text" '
+                + 'placeholder="ent-… (empty = all rooms)" autocomplete="off" spellcheck="false" '
+                + 'title="Read one entity instead of the rooms: the rows of the round that name it. Reads the FROM round only." />';
 
         this._fromInput = this._controls.querySelector('#round-prose-from-input');
         this._toInput = this._controls.querySelector('#round-prose-to-input');
+        this._entityInput = this._controls.querySelector('#round-prose-entity-input');
         this._liveBtn = this._controls.querySelector('#round-prose-live');
         this._refreshBtn = this._controls.querySelector('#round-prose-refresh');
 
@@ -83,6 +96,22 @@ export class RoundProsePanel {
         this._fromInput.addEventListener('keydown', onRangeKeydown);
         this._toInput.addEventListener('change', onRangeInput);
         this._toInput.addEventListener('keydown', onRangeKeydown);
+        // Entity mode: the id field decides which surface is read. It reads ONE
+        // round (the from input), so `to` is disabled while a name is typed —
+        // a silent second field would be the confusing version of this.
+        if (this._entityInput) {
+            const onEntityInput = () => {
+                this._applyEntityMode();
+                this._doLoad();
+            };
+            this._entityInput.addEventListener('change', onEntityInput);
+            this._entityInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onEntityInput();
+                }
+            });
+        }
         if (this._liveBtn) {
             this._liveBtn.addEventListener('click', () => {
                 this._setRange(this._currentRoundNumber());
@@ -93,6 +122,7 @@ export class RoundProsePanel {
             this._refreshBtn.addEventListener('click', () => this._doLoad());
         }
 
+        this._applyEntityMode();
         this._initialized = true;
         this._overlay.style.display = 'none';
     }
@@ -176,11 +206,32 @@ export class RoundProsePanel {
         return { from, to };
     }
 
+    /** The trimmed entity id typed in the field, or '' when entity mode is off. */
+    _entityIdSelected() {
+        return this._entityInput ? String(this._entityInput.value || '').trim() : '';
+    }
+
+    /** Puts the `to` input in step with entity mode (disabled + why). */
+    _applyEntityMode() {
+        if (!this._toInput) return;
+        const entityMode = this._entityIdSelected() !== '';
+        this._toInput.disabled = entityMode;
+        this._toInput.title = entityMode
+            ? 'Unused while an entity is named — entity prose reads the from round only'
+            : 'Last round of the range (0-based)';
+    }
+
     // ---------------------------------------------------------------- data
 
     async _doLoad() {
         if (!this.isVisible()) return;
         if (this._inFlight) return;
+        this._applyEntityMode();
+        const entityId = this._entityIdSelected();
+        if (entityId !== '') {
+            await this._loadEntity(entityId);
+            return;
+        }
         const range = this._parseRange();
         if (!range) {
             this._renderNoInput();
@@ -199,6 +250,42 @@ export class RoundProsePanel {
         } finally {
             this._inFlight = false;
         }
+    }
+
+    /**
+     * Entity mode: one request for one entity's prose in one round — the `from`
+     * input is the round read. A malformed id or an unparseable round is said
+     * inline (the server answers 400 / 404, and its message is what shows).
+     */
+    async _loadEntity(entityId) {
+        const range = this._parseRange();
+        if (!range) {
+            this._renderNoInput();
+            return;
+        }
+        this._inFlight = true;
+        try {
+            const payload = await this._fetchEntity(range.from, entityId);
+            this._lastPayload = payload;
+            this._renderEntity(payload);
+        } catch (err) {
+            ClientLogger.error('RoundProsePanel', 'entity load failed:', err);
+            const message = (err && err.message ? err.message : String(err));
+            this._renderEntity(null, { error: message, entityId, round: range.from });
+        } finally {
+            this._inFlight = false;
+        }
+    }
+
+    /** One request for one entity in one round. */
+    async _fetchEntity(round, entityId) {
+        const resp = await fetch(`/perception/round/${round}/byEntity/${encodeURIComponent(entityId)}`);
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => null);
+            const message = (body && (body.message || body.error)) ? (body.message || body.error) : `HTTP ${resp.status}`;
+            throw new Error(message);
+        }
+        return resp.json();
     }
 
     /** One request for the whole range [from, to] (already-parsed integers). */
@@ -252,6 +339,42 @@ export class RoundProsePanel {
             }
         }
         this._content.innerHTML = parts.join('');
+    }
+
+    /**
+     * Entity payload { round, live, startTick, endTick, entityId, entity, room,
+     * entryCount, text } — one round, one entity, one paragraph. Deterministic:
+     * the server already ordered the rows it names.
+     */
+    _renderEntity(payload, meta = {}) {
+        if (!this._content) return;
+        const p = (payload && typeof payload === 'object') ? payload : null;
+        if (!p || typeof p.text !== 'string') {
+            const who = meta.entityId ? this._esc(meta.entityId) : 'this entity';
+            const round = meta.round != null ? this._esc(String(meta.round)) : 'n/a';
+            this._content.innerHTML =
+                `<div class="round-prose-placeholder"><strong>Round ${round} &mdash; ${who}</strong><br>` +
+                `${this._esc(meta.error || 'Unable to load the entity prose.')}</div>`;
+            return;
+        }
+        const where = p.room ? ` &middot; in ${this._esc(p.room)}` : '';
+        const count = Number.isFinite(p.entryCount) ? p.entryCount : 0;
+        this._content.innerHTML =
+            `<div class="round-prose-round-item">` +
+            `<div class="round-prose-header"><span class="round-prose-round">Round #${this._esc(String(p.round))}</span></div>` +
+            `<div class="round-prose-badges">` +
+            (p.live
+                ? '<span class="round-prose-badge neon">LIVE</span>'
+                : '<span class="round-prose-badge info">SETTLED</span>') +
+            `<span class="round-prose-stat">ticks ${this._esc(String(p.startTick))}&ndash;${this._esc(String(p.endTick))}</span>` +
+            `<span class="round-prose-stat">${this._esc(String(count))} row${count === 1 ? '' : 's'}</span>` +
+            `</div>` +
+            `<p class="round-prose-summary"><strong>${this._esc(p.entity)}</strong>${where}` +
+            ` <span class="round-prose-stat">${this._esc(String(p.entityId))}</span></p>` +
+            (p.text
+                ? `<p class="round-prose-text">${this._esc(p.text)}</p>`
+                : '<p class="round-prose-empty">nothing in this round named this entity</p>') +
+            `</div>`;
     }
 
     /** One line above the read: requested bounds + observed vs. evicted. */

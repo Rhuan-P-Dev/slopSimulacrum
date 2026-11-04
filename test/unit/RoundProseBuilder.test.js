@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildRoomProse, buildRoundProse } from '../../src/utils/RoundProseBuilder.js';
+import { buildRoomProse, buildRoundProse, buildEntityProse, selectEntityRows } from '../../src/utils/RoundProseBuilder.js';
 
 // A raw entity id that the prose layer must never echo verbatim into sentences.
 const RAW_ENT_ID = 'ent-3382b7f0-03e8-41cf-a3a0-d7f1cb471771';
@@ -316,6 +316,28 @@ describe('buildRoomProse (narrative prose)', () => {
         );
     });
 
+    it('never echoes a room uid: a move row referencing rooms by uuid keeps the coordinates, not the id', () => {
+        // Room rows reference rooms by uid, and room uids are generated per world
+        // build — echoing one would both leak a raw id and make the same event
+        // read differently on every boot. The coordinates carry the movement.
+        const uidA = '56ebc147-f267-4a5b-9eda-7aad0c6eea68';
+        const uidB = '9f1e2d3c-4b5a-4978-8a7b-1234567890ab';
+        const text = buildRoomProse({
+            roomName: 'The Entrance Hall',
+            entries: [
+                {
+                    entities: {
+                        moved: [{ id: 'e1', name: 'Test Droid', fromRoom: uidA, toRoom: uidB, fromXY: { x: 0, y: 0 }, toXY: { x: 12, y: 9 } }]
+                    }
+                }
+            ]
+        });
+
+        expect(text).toBe('In The Entrance Hall, Test Droid moved from (0.00, 0.00) to (12.00, 9.00).');
+        expect(text).not.toContain(uidA);
+        expect(text).not.toContain(uidB);
+    });
+
     it('renders stat values with their precision (no float noise, no double period)', () => {
         const text = buildRoomProse({
             roomName: 'start room',
@@ -531,5 +553,172 @@ describe('buildRoundProse (stable round summary, unchanged)', () => {
         expect(result.summary).toBe('Round 5 (ticks 10 to 10) is still planning (no change yet).');
         expect(result.entryCount).toBe(0);
         expect(result.rooms).toEqual({});
+    });
+});
+
+// =========================================================================
+// ONE ENTITY'S ROUND (buildEntityProse / selectEntityRows) — the entity
+// counterpart of the room paragraph: only the rows that NAME it. The phrasing
+// is reused from the room narrative, so these tests pin the SELECTION and the
+// labelling, not new wording.
+// =========================================================================
+
+const RAW_OTHER_ID = 'ent-9999b7f0-03e8-41cf-a3a0-d7f1cb471771';
+
+/**
+ * One round's worth of rows for two actors: an action each (one aimed at the
+ * other), floor objects owned by each, a chat line each, a machine placed by
+ * the test droid, its stat / component / item / equipped rows — and a baseline,
+ * which belongs to the room and never to one entity.
+ */
+function twoActorEntries() {
+    return [
+        {
+            kind: 'delta',
+            actions: {
+                performed: [
+                    { entity: RAW_ENT_ID, name: 'Test Droid', action: 'droid punch', target: { id: RAW_OTHER_ID, name: 'Rival' }, used: [{ type: 'hand' }] },
+                    { entity: RAW_OTHER_ID, name: 'Rival', action: 'cut' }
+                ]
+            },
+            entities: {
+                statChanges: [{ id: RAW_ENT_ID, name: 'Test Droid', traitId: 'Physical', statName: 'existence', from: 10, to: 7 }]
+            },
+            components: {
+                added: [{ componentId: 'comp-1', type: 'hand', entity: RAW_ENT_ID }],
+                changed: [{ componentId: 'comp-1', type: 'hand', entity: RAW_ENT_ID, statName: 'strength', from: 5, to: 3 }]
+            },
+            items: { added: [{ itemId: 'item-1', type: 'knife', entity: RAW_ENT_ID, hostComponent: 'comp-1' }] },
+            equipped: { added: [{ id: 'eq-1', itemType: 'tshirt', entity: RAW_ENT_ID }] },
+            dropped: {
+                added: [{ itemId: 'item-2', type: 'chunk_wood', x: 4, y: 6, ownerId: RAW_ENT_ID }],
+                removed: [{ itemId: 'item-3', type: 'coal', ownerId: RAW_OTHER_ID }]
+            },
+            chat: {
+                added: [
+                    { id: 'c1', speakerEntityId: RAW_ENT_ID, speakerName: 'Test Droid', text: 'I am fine.' },
+                    { id: 'c2', speakerEntityId: RAW_OTHER_ID, speakerName: 'Rival', text: 'Noise.' }
+                ]
+            },
+            machines: { placed: [{ id: 'ent-machine-1', name: 'Pump', type: 'knifeGenerator', x: 1, y: 2, placedBy: RAW_ENT_ID }] }
+        },
+        { kind: 'baseline', entities: { appeared: [{ id: RAW_ENT_ID, name: 'Test Droid' }] } },
+        {
+            kind: 'delta',
+            entities: { moved: [{ id: RAW_ENT_ID, name: 'Test Droid', action: 'walk', fromXY: { x: 1, y: 1 }, toXY: { x: 4, y: 2 } }] }
+        }
+    ];
+}
+
+describe('buildEntityProse (one entity, one round)', () => {
+    it('says nothing when there is nothing to say (no entries, no entity id)', () => {
+        expect(buildEntityProse({ entries: [], entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ entries: null, entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
+        // No entity named means no prose, even with a full entry stream.
+        expect(buildEntityProse({ entries: twoActorEntries(), entityId: '' })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ entries: twoActorEntries(), entityId: null })).toEqual({ text: '', entryCount: 0 });
+    });
+
+    it('keeps only the rows that name it — the other actor\'s line never appears', () => {
+        const { text, entryCount } = buildEntityProse({
+            entries: twoActorEntries(),
+            entityId: RAW_ENT_ID,
+            entityName: 'Test Droid'
+        });
+
+        expect(entryCount).toBe(2);
+        expect(text).toBe(
+            'Test Droid threw a punch against Rival, powered by Hand, Test Droid dropped a Wood chunk '
+            + 'on the floor at (4.00, 6.00), and a Knife appeared in Test Droid\'s hand. Test Droid '
+            + 'equipped a Tshirt, a Knife Generator was placed in the room at (1.00, 2.00), and Test '
+            + 'Droid had a stat change in existence (from 10 to 7). Test Droid gained a Hand, a Hand '
+            + 'had a stat change in strength (from 5 to 3), and Test Droid said, "I am fine". Test '
+            + 'Droid walked from (1.00, 1.00) to (4.00, 2.00).'
+        );
+        // The rival's own rows (its cut, the coal it picked up, its line) are absent.
+        expect(text).not.toContain('cut');
+        expect(text).not.toContain('Coal');
+        expect(text).not.toContain('Noise');
+        // Deterministic like the rest of the module: no raw ids in the text.
+        expect(text).not.toContain(RAW_ENT_ID);
+        expect(text).not.toContain('ent-');
+        expect(text).not.toContain('item-1');
+    });
+
+    it('a row where the entity is the VICTIM is its prose too', () => {
+        const { text } = buildEntityProse({
+            entries: twoActorEntries(),
+            entityId: RAW_OTHER_ID,
+            entityName: 'Rival'
+        });
+
+        expect(text).toContain('Test Droid threw a punch against Rival');
+        expect(text).toContain('Rival cut something');
+        expect(text).toContain('Rival picked up a Coal');
+        expect(text).toContain('Rival said, "Noise"');
+        // The punch still names its own actor — the victim view does not steal
+        // the agency.
+        expect(text).not.toContain('Rival threw a punch');
+    });
+
+    it('a known display name replaces the generic fallback; without it no id leaks', () => {
+        const labeled = buildEntityProse({ entries: twoActorEntries(), entityId: RAW_ENT_ID, entityName: 'Test Droid' }).text;
+        const unlabeled = buildEntityProse({ entries: twoActorEntries(), entityId: RAW_ENT_ID }).text;
+
+        expect(labeled).toContain('Test Droid gained a Hand');
+        expect(labeled).toContain('Test Droid dropped a Wood chunk');
+        // Without a name the reused clause builders keep their generic wording…
+        expect(unlabeled).toContain('An entity gained a Hand');
+        expect(unlabeled).toContain('someone dropped a Wood chunk');
+        // …and never echo the raw id (the same guard the room prose has).
+        expect(unlabeled).not.toContain(RAW_ENT_ID);
+    });
+
+    it('a baseline is the room\'s state description, never one entity\'s prose', () => {
+        const { text, entryCount } = buildEntityProse({
+            entries: [{ kind: 'baseline', entities: { appeared: [{ id: RAW_ENT_ID, name: 'Test Droid' }] } }],
+            entityId: RAW_ENT_ID,
+            entityName: 'Test Droid'
+        });
+
+        expect(entryCount).toBe(0);
+        expect(text).toBe('');
+    });
+
+    it('entryCount counts the entries that said something about it', () => {
+        const entries = [
+            { kind: 'delta', entities: { moved: [{ id: RAW_ENT_ID, name: 'Test Droid', action: 'walk' }] } },
+            { kind: 'delta', entities: { moved: [{ id: RAW_OTHER_ID, name: 'Rival', action: 'walk' }] } },
+            { kind: 'delta', chat: { added: [{ id: 'c1', speakerEntityId: RAW_ENT_ID, speakerName: 'Test Droid', text: 'Again.' }] } },
+            // A row is present but nothing is sayable in it (blank chat) — not counted.
+            { kind: 'delta', chat: { added: [{ id: 'c2', speakerEntityId: RAW_ENT_ID, speakerName: 'Test Droid', text: '   ' }] } }
+        ];
+
+        const { text, entryCount } = buildEntityProse({ entries, entityId: RAW_ENT_ID, entityName: 'Test Droid' });
+        expect(entryCount).toBe(2);
+        expect(text).toBe('Test Droid walked. Test Droid said, "Again".');
+    });
+
+    it('selectEntityRows reports the rows it kept and the display name they carry', () => {
+        const first = twoActorEntries()[0];
+
+        const kept = selectEntityRows(first, RAW_ENT_ID);
+        expect(kept.rowCount).toBeGreaterThan(0);
+        expect(kept.name).toBe('Test Droid');
+        // Only the entity's own rows survive, bucket by bucket.
+        expect(kept.entry.actions.performed).toHaveLength(1);
+        expect(kept.entry.dropped.removed).toBeUndefined();
+        expect(kept.entry.chat.added).toHaveLength(1);
+        // The caller's entry keeps every row — the selection is a copy.
+        expect(first.actions.performed).toHaveLength(2);
+
+        // A machine row is matched through who PLACED it, and the name found
+        // there is the machine's own (the row names the machine entity).
+        const machine = selectEntityRows(first, 'ent-machine-1');
+        expect(machine.rowCount).toBe(1);
+        expect(machine.name).toBe('Pump');
+
+        expect(selectEntityRows(first, 'ent-00000000-0000-0000-0000-000000000000').rowCount).toBe(0);
+        expect(selectEntityRows(null, RAW_ENT_ID).rowCount).toBe(0);
     });
 });

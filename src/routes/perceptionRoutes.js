@@ -51,6 +51,18 @@
  *       — one room's prose for a round. Logical names or uids accepted for
  *       the room (resolved by the reader, same path as /perception/:roomId).
  *       Same recent-history contract.
+ *   GET  /perception/round/:roundNumber/byEntity/:entityId
+ *     → 200 { success: true, round, live, startTick, endTick, entityId, entity,
+ *       room, entryCount, text }
+ *       — one entity's prose for a round: the rows of the round window that
+ *       NAME it (what it did, what was done to it, its stat / component shifts,
+ *       what it picked up, dropped, equipped or wore, its arrival and
+ *       departure, and what it said). Room atmosphere lines are absent by
+ *       construction. An entity no row names is a real answer, not a failure:
+ *       `entryCount: 0` with empty text — so a droid that despawned mid-round
+ *       is still readable, and the round window alone decides the 404. 400 for
+ *       a malformed round or a non-`ent-…` id, 404 for a round out of the
+ *       recent-history window, 503 when the reader is unwired.
  *   GET  /perception/rounds/:from/:to
  *     → 200 { success: true, from, to, rounds: [ { round, observed: true,
  *       live, startTick, endTick, summary, entryCount, rooms } | { round,
@@ -320,6 +332,43 @@ export function register(router, { worldStateController }) {
             return res.json({ success: true, ...data });
         } catch (error) {
             sendRouteError(error, res, '/perception/round/:roundNumber/byRoom/:roomId GET');
+        }
+    });
+
+    /**
+     * GET /perception/round/:roundNumber/byEntity/:entityId
+     * One entity's prose for a round — the entity counterpart of byRoom, built
+     * from every room's entries in the round window (the rings are per room and
+     * an entity can cross a door mid-round). See the module header for the
+     * shape, and `RoundProseController.getEntityProse` for why an entity that
+     * is gone is not a 404.
+     */
+    router.get('/perception/round/:roundNumber/byEntity/:entityId', (req, res) => {
+        const rawRound = req.params.roundNumber;
+        const round = parseRoundNumber(rawRound);
+        if (round === null) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid round number "${rawRound}". Use a non-negative integer.`
+            });
+        }
+        const { entityId } = req.params;
+        if (!entityId || !IdResolver.isEntityId(entityId)) {
+            respondEntityError(res, worldStateController, entityId, 'invalid');
+            return;
+        }
+        const reader = worldStateController.roundProseController;
+        if (!reader) {
+            return res.status(503).json({ error: 'Round prose reader is not available.' });
+        }
+        try {
+            const data = reader.getEntityProse(entityId, round);
+            if (!data) {
+                return respondRoundNotFound(res, round);
+            }
+            return res.json({ success: true, ...data });
+        } catch (error) {
+            sendRouteError(error, res, '/perception/round/:roundNumber/byEntity/:entityId GET');
         }
     });
 

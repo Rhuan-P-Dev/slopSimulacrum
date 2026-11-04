@@ -77,13 +77,25 @@ function assemble(clauses, { firstWordLower = false } = {}) {
 }
 
 /**
- * A hex-ish machine/entity id: "ent-3382b7f0-…" . True for raw ids, false for
- * human names.
+ * A bare UUID — the shape a room id has (`56ebc147-f267-…`). Room rows reference
+ * rooms by uid, so without this the prose would echo a room id where a room name
+ * belongs, and say something different on every world build (room uids are
+ * generated, not stable).
+ * @constant
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A hex-ish machine/entity id: "ent-3382b7f0-…", or a bare uuid. True for raw
+ * ids, false for human names. `displayOrGeneric` uses it so a raw id is never
+ * echoed where a name belongs.
  * @param {string} s
  * @returns {boolean}
  */
 function isIdLike(s) {
-    return /^[a-z][a-z0-9]*-[0-9a-f-]{8,}$/i.test(s || '');
+    const v = typeof s === 'string' ? s.trim() : '';
+    if (!v) return false;
+    return /^[a-z][a-z0-9]*-[0-9a-f-]{8,}$/i.test(v) || UUID_RE.test(v);
 }
 
 /**
@@ -748,6 +760,168 @@ export function buildRoomProse({ entries = null, roomName = null, room = null } 
         roomNamed = true;
     }
     return sentences.length ? sentences.join(' ') : '';
+}
+
+/**
+ * The delta buckets an entity can appear in, mirroring `DeltaDiff`'
+ * `diffRoomSnapshots` output (the shape owner). Room atmosphere has NO rows at
+ * all — `roomContext` derives it from the room record — so an entity paragraph
+ * carries no light / fog / temperature line by construction, not by filter.
+ * @constant
+ */
+const ENTITY_BUCKETS = Object.freeze({
+    entities: Object.freeze(['appeared', 'despawned', 'moved', 'statChanges']),
+    components: Object.freeze(['added', 'removed', 'changed']),
+    items: Object.freeze(['added', 'removed']),
+    dropped: Object.freeze(['added', 'removed', 'moved']),
+    equipped: Object.freeze(['added', 'removed']),
+    internal: Object.freeze(['added', 'removed']),
+    machines: Object.freeze(['placed', 'retrieved']),
+    chat: Object.freeze(['added']),
+    actions: Object.freeze(['performed'])
+});
+
+/**
+ * Which way one row touches this entity, or null when it names nobody (or
+ * somebody else). The identity field differs per bucket (`DeltaDiff` owns that
+ * shape): an entity or machine row is keyed by its own `id`, a component /
+ * item / equipped / internal row by the owning `entity`, a floor row by who
+ * dropped it, a chat line by its speaker, an action row by its actor — plus
+ * who the action was aimed at and who placed a machine.
+ *
+ * No false positive is possible on the `id` test: ids are typed (`ent-…` vs
+ * `item-…` / `eq-…` / a chat id), and the typed prefixes are disjoint, so a
+ * floor item's `id` can never read as an entity id.
+ *
+ * @param {Object|null} row
+ * @param {string} entityId
+ * @returns {string|null} 'self' | 'owner' | 'dropper' | 'speaker' | 'placer'
+ *   | 'target' | null
+ */
+function entityIdMatch(row, entityId) {
+    if (!row || typeof row !== 'object') return null;
+    if (row.id === entityId) return 'self';
+    if (row.entity === entityId) return 'owner';
+    if (row.ownerId === entityId) return 'dropper';
+    if (row.speakerEntityId === entityId) return 'speaker';
+    if (row.placedBy === entityId) return 'placer';
+    if (row.target && typeof row.target === 'object' && row.target.id === entityId) return 'target';
+    return null;
+}
+
+/**
+ * The entity's own display name as one matched row reports it, or '' when the
+ * row carries none. Read only through the match kind, so a row where the entity
+ * is the VICTIM cannot donate the attacker's name: an action row's `name` is
+ * the actor's, which is this entity exactly when the match came from `entity`.
+ * Raw ids never count as names (`displayOrGeneric`).
+ * @param {Object} row
+ * @param {string} kind - the `entityIdMatch` kind
+ * @returns {string}
+ */
+function entityNameFromRow(row, kind) {
+    if (kind === 'target') return displayOrGeneric(row?.target?.name, '');
+    if (kind === 'speaker') return displayOrGeneric(row?.speakerName, '');
+    if (kind === 'self' || kind === 'owner') return displayOrGeneric(row?.name, '');
+    return '';
+}
+
+/**
+ * The same row with THIS entity's raw id replaced by its display name, so the
+ * reused clause builders say "Bolt gained a hand" instead of falling back to
+ * their generic ("an entity gained a component part"). Only the field that
+ * held this entity's id is touched — a copy, never the caller's row — and the
+ * clause builders' own id guard (`displayOrGeneric`) keeps any name that is
+ * itself id-shaped out of the text.
+ * @param {Object} row
+ * @param {string} kind
+ * @param {string} entityName
+ * @returns {Object}
+ */
+function withEntityLabel(row, kind, entityName) {
+    if (!entityName) return row;
+    if (kind === 'owner') return { ...row, entity: entityName };
+    if (kind === 'dropper') return { ...row, ownerId: entityName };
+    return row;
+}
+
+/**
+ * The rows of ONE delta entry that name one entity, as an entry-shaped copy the
+ * room clause builder (`entryClauses`) already knows how to read.
+ *
+ * @param {Object} entry - one perception delta entry (baselines carry no rows:
+ *   a baseline is a room's state description, not something that happened to
+ *   one entity)
+ * @param {string} entityId
+ * @param {string|null} [entityName] - display name to label the rows with
+ * @returns {{ entry: Object, rowCount: number, name: string }} - `name` is the
+ *   entity's display name found in these rows ('' when none carries one)
+ */
+export function selectEntityRows(entry, entityId, entityName = null) {
+    const selected = { kind: entry?.kind };
+    let rowCount = 0;
+    let name = '';
+    if (!entry || typeof entry !== 'object' || entry.kind === 'baseline') {
+        return { entry: selected, rowCount, name };
+    }
+    for (const [group, buckets] of Object.entries(ENTITY_BUCKETS)) {
+        const source = entry[group];
+        if (!source || typeof source !== 'object') continue;
+        const kept = {};
+        for (const bucket of buckets) {
+            const rows = Array.isArray(source[bucket]) ? source[bucket] : [];
+            const mine = [];
+            for (const row of rows) {
+                const kind = entityIdMatch(row, entityId);
+                if (!kind) continue;
+                if (!name) name = entityNameFromRow(row, kind);
+                mine.push(withEntityLabel(row, kind, entityName));
+            }
+            if (mine.length) {
+                kept[bucket] = mine;
+                rowCount += mine.length;
+            }
+        }
+        if (Object.keys(kept).length) selected[group] = kept;
+    }
+    return { entry: selected, rowCount, name };
+}
+
+/**
+ * One entity's stretch of deltas as prose: only what NAMES it — what it did
+ * (against whom, powered by which parts), what was done to it, its stat and
+ * component shifts, what it picked up / dropped / equipped / wore, its arrival
+ * and departure, and the lines it said. Room atmosphere is absent by
+ * construction; rows that name somebody else never appear.
+ *
+ * The sentences reuse the room narrative's clause builders, so the wording of
+ * an event is the same words in both views — this function contributes no
+ * phrasing of its own. Deterministic like the rest of the module: no
+ * timestamps, no ids in the text.
+ *
+ * @param {{ entries: Array|null, entityId: string|null, entityName: string|null }} ctx
+ * @returns {{ text: string, entryCount: number }} - `entryCount` counts the
+ *   entries that said something about this entity (the entity counterpart of
+ *   the room paragraph's entry count); `text` is '' when nothing named it.
+ */
+export function buildEntityProse({ entries = null, entityId = null, entityName = null } = {}) {
+    const who = typeof entityId === 'string' ? entityId.trim() : '';
+    const name = typeof entityName === 'string' && entityName.trim() !== '' ? entityName.trim() : null;
+    if (!who) return { text: '', entryCount: 0 };
+    const sentences = [];
+    let entryCount = 0;
+    for (const entry of entries ?? []) {
+        if (!entry || typeof entry !== 'object') continue;
+        const selected = selectEntityRows(entry, who, name);
+        if (!selected.rowCount) continue;
+        const clauses = entryClauses(selected.entry);
+        if (!clauses.length) continue;
+        const body = assemble(clauses, { firstWordLower: false });
+        if (!body) continue;
+        sentences.push(`${capitalizeFirst(body)}.`);
+        entryCount += 1;
+    }
+    return { text: sentences.join(' '), entryCount };
 }
 
 /**
