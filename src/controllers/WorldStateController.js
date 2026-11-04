@@ -907,6 +907,21 @@ class WorldStateController {
     }
 
     /**
+     * Room-relative position of a named door — centre-origin, the SAME frame an
+     * entity's `spatial` uses, so "walk to the door" is a plain distance between
+     * two numbers the reader already holds. Thin reader over RoomsController,
+     * which owns the two-tier resolution (the authored position, else the
+     * edge-intersection geometry).
+     * @param {string} roomId - The room UUID.
+     * @param {string} doorName - The door name (e.g. 'right_door').
+     * @returns {{ x: number, y: number }|null} The door position, or null when the
+     *   room, the door, or its target room cannot be resolved.
+     */
+    getDoorPosition(roomId, doorName) {
+        return this.roomsController?.getDoorPosition?.(roomId, doorName) ?? null;
+    }
+
+    /**
      * Retrieves an entity by its ID.
      * Provides a public API for accessing entity state instead of direct property access.
      * @param {string} entityId - The entity ID.

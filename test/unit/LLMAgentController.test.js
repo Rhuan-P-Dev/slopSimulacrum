@@ -51,7 +51,10 @@ const ACTION_REGISTRY = {
     selfHeal: { description: 'self-repair', requirements: [] },
     cut: { description: 'slice with knife', range: 50, requirements: [] },
     move: { description: 'walk', requirements: [] },
-    crossDoor: { description: 'walk through a door into the room beyond', requirements: [] }
+    // range 50 is the reach rule of the crossDoor action: the droid must stand
+    // within 50 units of the door. The agent's use_door pre-validation reads it
+    // from the registry, exactly as the world does.
+    crossDoor: { description: 'walk through a door into the room beyond', range: 50, requirements: [] }
 };
 
 function makeWorld({ canExecute = {}, executeResult, target = null, rooms = null } = {}) {
@@ -61,6 +64,7 @@ function makeWorld({ canExecute = {}, executeResult, target = null, rooms = null
         getEntity: (id) => (id === NPC_ID ? NPC : (target && id === target.id ? target : null)),
         getRooms: () => rooms || { 'room-main': { name: 'Main Room' } },
         actionController: { getRegistry: () => ACTION_REGISTRY },
+        getActionRegistry: () => ACTION_REGISTRY,
         stateEntityController: { getAll: () => ({ [NPC_ID]: NPC }) },
         getActionsForEntity: (id) => {
             // Only the NPC is modeled; unknown entities have no capabilities.
@@ -1888,11 +1892,14 @@ describe('LLMAgentController.runRound — use_door tool', () => {
      * location, which is what lets the immediate-execution detail name the room
      * the droid landed in.
      */
-    function makeDoorWorld({ canExecute = { crossDoor: ['comp-leg-1'] }, maxWorldActionsPerRound = null, moves = false } = {}) {
+    function makeDoorWorld({ canExecute = { crossDoor: ['comp-leg-1'] }, maxWorldActionsPerRound = null, moves = false, doorAt = { x: 30, y: 0 } } = {}) {
         const npc = { ...NPC, location: 'room-main', spatial: { x: 10, y: 10 } };
         if (maxWorldActionsPerRound) npc.npcConfig = { maxWorldActionsPerRound };
         const world = makeWorld({ canExecute, rooms: DOOR_ROOMS });
         world.getEntity = (id) => (id === NPC_ID ? npc : null);
+        // Door geometry: right_door sits beside the droid by default, so a
+        // crossing is in reach unless a test places the door farther away.
+        world.getDoorPosition = (roomId, door) => (roomId === 'room-main' && door === 'right_door' ? { ...doorAt } : null);
         if (moves) {
             world.executeAction = (actionName, entityId, params) => {
                 world.executeCalls.push({ actionName, entityId, params });
@@ -2025,6 +2032,24 @@ describe('LLMAgentController.runRound — use_door tool', () => {
         expect(result.doors[0].success).toBe(false);
         expect(result.doors[0].detail).toBe('crossDoor not executable right now (insufficient movement stats)');
         expect(turns.queued).toHaveLength(0);
+    });
+
+    it('refuses a door the droid is not standing at, naming the distance and the reach', async () => {
+        // The droid stands at (10, 10); the door is at (300, 0) — about 290 units
+        // away, and crossDoor declares range 50.
+        const { world, npc } = makeDoorWorld({ doorAt: { x: 300, y: 0 } });
+        const turns = makeTurns();
+        const { agent } = makeAgent({ world, turns, chatFullImpl: failThenSilence({ name: 'use_door', args: JSON.stringify({ door: 'right_door' }) }) });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.doors[0].success).toBe(false);
+        expect(result.doors[0].detail).toBe('"right_door" is 290 units away — walk to its position first (reach 50)');
+        // A rejected pre-validation never reaches the world, so it costs the droid
+        // no world action — the budget is left for the walk to the door.
+        expect(turns.queued).toHaveLength(0);
+        expect(world.executeCalls).toHaveLength(0);
+        expect(npc.location).toBe('room-main');
     });
 
     it('counts a crossing against the per-round world-action budget', async () => {

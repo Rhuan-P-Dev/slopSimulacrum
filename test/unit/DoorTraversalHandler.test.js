@@ -3,12 +3,14 @@
  * (the `crossDoor` action: a door of the actor's current room, the room beyond).
  *
  * The facade is a hand-built stub exposing only what the handler reads
- * (`getEntity`, `roomsController.getConnectionTarget`, `moveEntity`), so the
- * contract the handler keeps with the world is the thing under test: it asks for
- * the door's target through RoomsController, hands the door name to
- * `moveEntity` as `sourceDoor` (that is what makes the spawn land at the door on
- * the far side), and never reports a crossing the world refused. The real rooms
- * and the real consequence wiring are covered by
+ * (`getEntity`, `roomsController.getConnectionTarget`, `getDoorPosition`,
+ * `getActionRegistry`, `moveEntity`), so the contract the handler keeps with the
+ * world is the thing under test: it asks for the door's target through
+ * RoomsController, enforces the reach rule from the door position and the
+ * action's own declared range (so no caller crosses a door it is not standing
+ * at), hands the door name to `moveEntity` as `sourceDoor` (that is what makes
+ * the spawn land at the door on the far side), and never reports a crossing the
+ * world refused. The real rooms and the real consequence wiring are covered by
  * test/contract/crossDoor.contract.test.js.
  *
  * @module test/unit/DoorTraversalHandler
@@ -27,10 +29,21 @@ const ROOM_B = 'room-b-uid';
  * moveEntity answer. The entity record is mutated by a successful move, the way
  * the real state controller does.
  */
-function makeDeps({ entity = { id: ENTITY_ID, location: ROOM_A, spatial: { x: 5, y: 5 } }, connections = { right_door: ROOM_B }, moveResult = true } = {}) {
+function makeDeps({
+    entity = { id: ENTITY_ID, location: ROOM_A, spatial: { x: 145, y: 0 } },
+    connections = { right_door: ROOM_B },
+    doorAt = { x: 150, y: 0 },
+    reach = 50,
+    moveResult = true
+} = {}) {
     const moves = [];
     const worldStateController = {
         getEntity: (id) => (id === entity.id ? entity : null),
+        // The reach rule reads both: the door's position (world geometry) and the
+        // threshold the action itself declares. Defaults put the entity 5 units
+        // from the door, i.e. standing at it.
+        getDoorPosition: (roomId, door) => (roomId === ROOM_A && connections[door] ? { ...doorAt } : null),
+        getActionRegistry: () => ({ crossDoor: { range: reach } }),
         roomsController: {
             // The facade's designated door accessor: null for a door the room does
             // not have AND for a connection that resolves to no room.
@@ -131,5 +144,41 @@ describe('handleDoorTraversal — the crossDoor consequence', () => {
 
         expect(result.success).toBe(false);
         expect(result.message).toBe('WorldStateController not available.');
+    });
+
+    // The reach rule lives HERE, not at the agent seam, so no caller — the LLM
+    // tool, a queued turn resolution or a direct executeAction — crosses a door it
+    // is not standing at. The threshold is the action's own declared range.
+    it('refuses a door the entity is not standing at, naming the distance', () => {
+        const { deps, moves, entity } = makeDeps({ entity: { id: ENTITY_ID, location: ROOM_A, spatial: { x: 0, y: 0 } } });
+
+        const result = handleDoorTraversal(deps, { entityId: ENTITY_ID, door: 'right_door' }, { actionName: 'crossDoor' });
+
+        expect(result.success).toBe(false);
+        expect(result.message).toBe('Door "right_door" is 150 units away — stand at it first (reach 50).');
+        expect(entity.location).toBe(ROOM_A);
+        expect(moves).toHaveLength(0);
+    });
+
+    it('crosses when the entity stands at the door (within the declared range)', () => {
+        const { deps, entity } = makeDeps();
+
+        const result = handleDoorTraversal(deps, { entityId: ENTITY_ID, door: 'right_door' }, { actionName: 'crossDoor' });
+
+        expect(result.success).toBe(true);
+        expect(entity.location).toBe(ROOM_B);
+    });
+
+    it('skips the reach rule when the action declares no range', () => {
+        // No declared range → nothing to measure against (the pipeline's own
+        // semantics for an action without range), so the crossing is not gated.
+        // null, not undefined: the fixture's default reach applies to an absent
+        // argument, and this test is about an action that declares NO range.
+        const { deps, entity } = makeDeps({ entity: { id: ENTITY_ID, location: ROOM_A, spatial: { x: 0, y: 0 } }, reach: null });
+
+        const result = handleDoorTraversal(deps, { entityId: ENTITY_ID, door: 'right_door' }, { actionName: 'crossDoor' });
+
+        expect(result.success).toBe(true);
+        expect(entity.location).toBe(ROOM_B);
     });
 });

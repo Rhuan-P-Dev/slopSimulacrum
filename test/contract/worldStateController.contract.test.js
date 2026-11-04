@@ -274,6 +274,11 @@ describe('WorldStateController public method surface', () => {
         'getComponentStats',
         'getContainerItems',
         'getCraftingRecipes',
+        // Added deliberately (use_door): the room-relative position of a named
+        // door, in the same centre-origin frame as an entity's spatial. The LLM
+        // context prints it on the Exits line and the crossDoor reach gate
+        // measures against it; RoomsController owns the geometry.
+        'getDoorPosition',
         'getDroppedItems',
         'getDroppedItemsByRoom',
         'getEntities',

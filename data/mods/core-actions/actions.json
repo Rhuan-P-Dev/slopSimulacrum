@@ -70,8 +70,9 @@
     ]
   },
   "crossDoor": {
-    "description": "Walk through one door of the room you are standing in and appear in the room it leads to. Pass the door name exactly as your Exits line shows it (e.g. 'right_door'); the server resolves the room beyond and where inside it you appear.",
+    "description": "Walk through one door of the room you are standing in and appear in the room it leads to. Pass the door name exactly as your Exits line shows it (e.g. 'right_door', which also prints that door's position); the server resolves the room beyond and where inside it you appear. You must be standing at the door - walk to its position first.",
     "targetingType": "spatial",
+    "range": 50,
     "requirements": [
       {
         "trait": "Movement",

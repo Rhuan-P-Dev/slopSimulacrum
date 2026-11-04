@@ -6,12 +6,16 @@ import Logger from '../../utils/Logger.js';
  * that door leads to.
  *
  * Owns: resolving the named door against the actor's CURRENT room
- * (`rooms[location].connections`, data/mods/core-rooms/rooms.json) and asking
+ * (`rooms[location].connections`, data/mods/core-rooms/rooms.json), the REACH
+ * rule (`measureDoorReach` — the droid must be standing at the door), and asking
  * the facade for the state change. Everything below that is somebody else's:
  * `RoomsController.getConnectionTarget` owns the connection-shape handling,
+ * `RoomsController.getDoorPosition` owns the door geometry,
  * `WorldStateController.moveEntity` owns the door-to-door spawn position
  * (`getSpawnPositionForDoorTraversal`) and marks BOTH rooms perception-dirty,
- * and the action's data declares the Movement.move requirement that gates it.
+ * and `data/mods/core-actions/actions.json` declares the `range` the reach rule
+ * measures against (the single source of that number — the same field the
+ * get_actions line prints as `range 50`).
  *
  * WHY there is no `log` consequence beside this one in the action data:
  * consequences run independently of each other, so a data-driven log line would
@@ -22,7 +26,8 @@ import Logger from '../../utils/Logger.js';
  *
  * The handler validates its own inputs, mirroring `handlePlaceMachine`: the
  * same code path serves the LLM tool, the queued turn resolution and a direct
- * `executeAction` call, so no caller gets a free pass.
+ * `executeAction` call, so no caller gets a free pass — and that is why the
+ * reach rule is enforced HERE rather than only at the agent seam.
  *
  * @module DoorTraversalHandler
  */
@@ -36,15 +41,51 @@ import Logger from '../../utils/Logger.js';
 const UNRESOLVED_TOKEN = /^:[a-zA-Z0-9_.]+$/;
 
 /**
+ * Measures how far an entity stands from one of its room's doors, and whether
+ * that is close enough to cross.
+ *
+ * Both numbers are resolved server-side — the door position from the room
+ * geometry, the threshold from the action's own declared `range` — so a caller
+ * can never reach a door by naming a coordinate of its own.
+ *
+ * Shared by the handler (the world's answer, every caller) and the agent's
+ * `use_door` pre-validation (the same verdict before the model spends one of
+ * its per-round actions), so there is exactly one reach rule.
+ *
+ * @param {Object} args
+ * @param {Object} args.worldStateController - The world facade.
+ * @param {Object} args.entity - The actor record (needs `location` and `spatial`).
+ * @param {string} args.door - The door name.
+ * @param {string} args.actionName - The action whose declared `range` is the threshold.
+ * @returns {{ distance: number, reach: number, reachable: boolean }|null}
+ *   Null when there is nothing to enforce: no declared range, or a door/entity
+ *   position the world cannot resolve (a door whose target room is missing is
+ *   refused by the crossing itself).
+ */
+export function measureDoorReach({ worldStateController, entity, door, actionName }) {
+    const reach = worldStateController?.getActionRegistry?.()?.[actionName]?.range;
+    const here = entity?.spatial;
+    if (typeof reach !== 'number' || !Number.isFinite(here?.x) || !Number.isFinite(here?.y)) return null;
+
+    const doorPos = worldStateController?.getDoorPosition?.(entity.location, door);
+    if (!doorPos || !Number.isFinite(doorPos.x) || !Number.isFinite(doorPos.y)) return null;
+
+    const distance = Math.hypot(doorPos.x - here.x, doorPos.y - here.y);
+    return { distance, reach, reachable: distance <= reach };
+}
+
+/**
  * Moves `params.entityId` through `params.door`.
  *
  * @param {Object} deps
  * @param {WorldStateController} deps.worldStateController - The world facade.
  * @param {Object} params - Resolved consequence params
  *   (`{ entityId, door }`, from the action data's `:entityId` / `:door` templates).
+ * @param {Object} [context] - Action execution context; `context.actionName`
+ *   names the action whose declared `range` bounds the reach rule.
  * @returns {{ success: boolean, message: string, data: Object|null }}
  */
-export function handleDoorTraversal(deps, params) {
+export function handleDoorTraversal(deps, params, context) {
     const { worldStateController } = deps;
     if (!worldStateController) return { success: false, message: 'WorldStateController not available.', data: null };
 
@@ -67,6 +108,16 @@ export function handleDoorTraversal(deps, params) {
     const targetRoomId = worldStateController.roomsController?.getConnectionTarget?.(fromRoomId, door) ?? null;
     if (!targetRoomId) {
         return { success: false, message: `No door "${door}" in room "${fromRoomId}".`, data: null };
+    }
+
+    // Reach: a door is a place, not a spell — the droid has to walk to it.
+    const verdict = measureDoorReach({ worldStateController, entity, door, actionName: context?.actionName });
+    if (verdict && !verdict.reachable) {
+        return {
+            success: false,
+            message: `Door "${door}" is ${Math.round(verdict.distance)} units away — stand at it first (reach ${verdict.reach}).`,
+            data: null
+        };
     }
 
     const moved = worldStateController.moveEntity(entityId, targetRoomId, { sourceDoor: door });

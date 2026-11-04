@@ -45,6 +45,7 @@ import { CHAT_MESSAGE_MAX_LENGTH, LLM_AGENT_VIEW_HISTORY_ROUNDS, LLM_REPLAY_ROUN
 import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
+import { measureDoorReach } from '../consequences/DoorTraversalHandler.js';
 
 /** Default per-round world-action cap (spec §6.5); npcs.json may override. */
 const DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND = 2;
@@ -842,7 +843,7 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'use_door',
-                description: "Walk through one door of the room you are standing in and appear in the room beyond. Pass the door name exactly as your 'Exits:' line shows it (e.g. \"right_door\") — the server resolves where that door leads and where inside the next room you appear. This is the only way to leave a room; you cannot name the destination.",
+                description: "Walk through one door of the room you are standing in and appear in the room beyond. You must be STANDING AT the door: your 'Exits:' line prints each door's position, so walk there with move first if you are not next to it. Pass the door name exactly as that line shows it (e.g. \"right_door\") — the server resolves where the door leads and where inside the next room you appear. This is the only way to leave a room; you cannot name the destination.",
                 parameters: {
                     type: 'object',
                     properties: {
@@ -1069,7 +1070,7 @@ class LLMAgentController {
             '- Craft with the craft tool only: pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
             '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
-            '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it. You cannot name the destination room — the door decides it.',
+            '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door\'s position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'How you respond:',
@@ -1862,7 +1863,9 @@ class LLMAgentController {
      *     model can never name a room, so it can never route an entity through a
      *     door that is not under its own feet;
      *   - the NPC must be able to execute the registered `crossDoor` action right
-     *     now (the same capability gate as execute_action / toApproach).
+     *     now (the same capability gate as execute_action / toApproach);
+     *   - the NPC must be standing within the action's declared reach of that
+     *     door (see the reach check below — the world enforces the same rule).
      *
      * Only the door name travels onward to the dispatcher: the world decides
      * where the entity ends up, and the outcome line reads the room back from it
@@ -1912,6 +1915,25 @@ class LLMAgentController {
         const canExecute = actions[CROSS_DOOR_ACTION]?.canExecute;
         if (!Array.isArray(canExecute) || canExecute.length === 0) {
             return { ok: false, error: `${CROSS_DOOR_ACTION} not executable right now (insufficient movement stats)` };
+        }
+
+        // Reach: the world refuses a crossing from anywhere but the door itself
+        // (DoorTraversalHandler), and the same verdict is asked HERE so the model
+        // learns it while it still holds the action — a rejected pre-validation
+        // costs no world action, a rejected crossing does. Both numbers come from
+        // the world (door geometry + the action's declared range), never from the
+        // model, so a door can never be reached by naming a coordinate.
+        const reach = measureDoorReach({
+            worldStateController: this.worldStateController,
+            entity: self,
+            door,
+            actionName: CROSS_DOOR_ACTION
+        });
+        if (reach && !reach.reachable) {
+            return {
+                ok: false,
+                error: `"${door}" is ${Math.round(reach.distance)} units away — walk to its position first (reach ${reach.reach})`
+            };
         }
 
         return { ok: true, params: { door } };

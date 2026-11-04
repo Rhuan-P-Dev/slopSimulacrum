@@ -164,6 +164,10 @@ function makeWorld(overrides = {}, extraEntities = {}) {
         getEntity: (id) => entities[id] || null,
         getAll: () => ({ entities }),
         getRooms: () => rooms,
+        // Door geometry (the coordinates the Exits line prints, and the crossDoor
+        // reach rule). Non-integers on purpose: the prompt renders every position
+        // rounded, doors included.
+        getDoorPosition: (roomId, doorName) => (roomId === 'room-1' && doorName === 'right_door' ? { x: 150.4, y: -42.6 } : null),
         getComponentStats: (compId) => componentStats[compId] || null,
         getEquippedItems: (id) => (id === 'ent-self'
             ? [{ eqId: 'eq-knife', itemId: 'item-knife', itemType: 'knife', componentId: 'comp-hand' }]
@@ -308,7 +312,10 @@ describe('LlmContextController (context renderer)', () => {
         // Enriched room block (spec: better text & vision).
         expect(text).toContain('You are in: The Entrance Hall');
         expect(text).toContain('Room size: 300 x 200 | Your position: (100, 100)');
-        expect(text).toContain('Exits: right_door → The Deep Vault');
+        // The door's own position rides on the exit line (rounded, like every
+        // other coordinate in the prompt): the agent walks TO a door before it can
+        // cross it, so the line that names the door has to say where it is.
+        expect(text).toContain('Exits: right_door (150, -43) → The Deep Vault');
         // Body: every component of the droid in droid order (coreBall, head,
         // hand, roller). In this fixture all four carry a Physical.existence
         // stat, so each renders as "type current/max".
@@ -639,9 +646,23 @@ describe('LlmContextController (context renderer)', () => {
             ceiling: null,
             condition: null,
             power: null,
-            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault' }],
+            exits: [{ door: 'right_door', targetRoomName: 'The Deep Vault', x: 150.4, y: -42.6 }],
             atmosphere: null
         });
+    });
+
+    // The door position is a world read, never a guess: a facade that cannot
+    // answer it leaves the coordinate OUT (the exit still names its door and its
+    // destination) rather than inventing a place for the agent to walk to.
+    it('renders exits without coordinates when the world cannot resolve a door position', () => {
+        const blindWorld = makeWorld({ getDoorPosition: undefined });
+        const blind = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
+        blind.setWorldStateController(blindWorld);
+
+        const { text, data } = blind.buildContext('ent-self');
+
+        expect(text).toContain('Exits: right_door → The Deep Vault');
+        expect(data.room.exits).toEqual([{ door: 'right_door', targetRoomName: 'The Deep Vault', x: null, y: null }]);
     });
 
     // Atmosphere (optional static room block, validated in RoomsController).

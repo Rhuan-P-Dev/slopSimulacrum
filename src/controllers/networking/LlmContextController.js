@@ -517,15 +517,25 @@ class LlmContextController {
      * UID-keyed rooms map supplied by the caller (computed once in buildContext).
      * @param {string|null} roomUid - Room UID (entity.location).
      * @param {Object<string, Object>} rooms - UID-keyed rooms map (from `getRooms()`).
-     * @returns {{ id: string, name: string, width: number, height: number, x: number, y: number, surface: string|null, acoustic: string|null, lightSource: string|null, ceiling: string|null, condition: string|null, power: string|null, exits: Array<{ door: string, targetRoomName: string }>, atmosphere: { temperature: number|null, lightLevel: string|null, lightColor: string|null, smell: string|null, ambientSound: string|null, humidity: number|null, airQuality: string|null, fog: string|null }|null }|null}
-     *   Null when the room cannot be resolved (degrade gracefully).
+     * @returns {{ id: string, name: string, width: number, height: number, x: number, y: number, surface: string|null, acoustic: string|null, lightSource: string|null, ceiling: string|null, condition: string|null, power: string|null, exits: Array<{ door: string, targetRoomName: string, x: number|null, y: number|null }>, atmosphere: { temperature: number|null, lightLevel: string|null, lightColor: string|null, smell: string|null, ambientSound: string|null, humidity: number|null, airQuality: string|null, fog: string|null }|null }|null}
+     *   Null when the room cannot be resolved (degrade gracefully). The exit
+     *   coordinates are the door's room-relative position (centre-origin, the
+     *   frame `spatial` uses) or null when the world cannot resolve it.
      * @private
      */
     _buildRoomData(roomUid, rooms) {
         const room = this._getRoomByUid(roomUid, rooms);
         if (!room) return null;
 
-        const exits = resolveRoomExits(rooms, room, LlmContextController.BUDGET.maxExits);
+        // Each exit carries the door's own position. WHY: a door is a place — the
+        // crossDoor action reaches the room beyond only from standing at it (its
+        // declared range), so the line that names the door has to say where it is
+        // or the agent cannot plan the walk to it. The world resolves the
+        // coordinate (RoomsController geometry); the prompt never invents one.
+        const exits = resolveRoomExits(rooms, room, LlmContextController.BUDGET.maxExits).map((ex) => {
+            const pos = this.worldStateController?.getDoorPosition?.(roomUid, ex.door) ?? null;
+            return { ...ex, x: pos?.x ?? null, y: pos?.y ?? null };
+        });
 
         return {
             id: room.id,
@@ -543,6 +553,21 @@ class LlmContextController {
             exits,
             atmosphere: room.atmosphere || null
         };
+    }
+
+    /**
+     * The " (x, y)" suffix of an exit — the door's position in the SAME rounded,
+     * centre-origin frame as "Your position" and the entity lines. Empty when the
+     * world cannot resolve the door (a stale or geometry-less connection): the
+     * door name and its destination still render, only the coordinate is absent.
+     * @param {{ x: number|null, y: number|null }} exit - One resolved exit entry.
+     * @returns {string}
+     * @private
+     */
+    _exitCoordSuffix(exit) {
+        return (typeof exit.x === 'number' && typeof exit.y === 'number')
+            ? ` (${Math.round(exit.x)}, ${Math.round(exit.y)})`
+            : '';
     }
 
     /**
@@ -1414,7 +1439,7 @@ class LlmContextController {
             if (roomData.power != null) envParts.push(`Power: ${roomData.power}`);
             if (envParts.length > 0) lines.push(envParts.join(' | '));
             lines.push(roomData.exits.length > 0
-                ? `Exits: ${roomData.exits.map(ex => `${ex.door} → ${ex.targetRoomName}`).join(' | ')}`
+                ? `Exits: ${roomData.exits.map(ex => `${ex.door}${this._exitCoordSuffix(ex)} → ${ex.targetRoomName}`).join(' | ')}`
                 : 'Exits: (none)');
         } else {
             lines.push(`You are in: ${roomName || 'unknown'}`);
