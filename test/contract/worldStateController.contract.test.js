@@ -764,6 +764,7 @@ describe('WorldStateController.getActionsForEntity() shape', () => {
         // Every registered action must be present (can or cannot execute).
         const actionNames = keysOf(actions);
         expect(actionNames).toEqual([
+            'crossDoor',
             'cut',
             'dash',
             'droid punch',

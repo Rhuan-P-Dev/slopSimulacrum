@@ -69,6 +69,35 @@
       }
     ]
   },
+  "crossDoor": {
+    "description": "Walk through one door of the room you are standing in and appear in the room it leads to. Pass the door name exactly as your Exits line shows it (e.g. 'right_door'); the server resolves the room beyond and where inside it you appear.",
+    "targetingType": "spatial",
+    "requirements": [
+      {
+        "trait": "Movement",
+        "stat": "move",
+        "minValue": 5
+      }
+    ],
+    "consequences": [
+      {
+        "type": "traverseDoor",
+        "target": "entity",
+        "params": {
+          "entityId": ":entityId",
+          "door": ":door"
+        }
+      }
+    ],
+    "failureConsequences": [
+      {
+        "type": "log",
+        "target": "entity",
+        "level": "warn",
+        "message": "Action 'crossDoor' failed - requirement not met"
+      }
+    ]
+  },
   "selfHeal": {
     "description": "Run a self-repair cycle that restores a small amount of existence to your core.",
     "targetingType": "self_target",

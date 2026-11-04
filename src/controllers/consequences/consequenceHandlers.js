@@ -10,6 +10,8 @@
  * - EventConsequenceHandler: Event triggering for logging/notification
  * - SensitivePartConsequenceHandler: the touch action — raises the touched
  *   droid's Pleasure.pleasure by the sensitivity of the touched body part
+ * - DoorTraversalHandler: the crossDoor action — walks the entity through a
+ *   door of its current room into the room beyond
  *
  * @module ConsequenceHandlers
  */
@@ -27,6 +29,7 @@ import { handlePickUpItem } from './PickUpItemHandler.js';
 import { handleConsumeItemAndDamage } from './ConsumeItemHandler.js';
 import { handlePlaceMachine } from '../core/PlaceMachineHandler.js';
 import { handleRetrieveMachine } from '../core/RetrieveMachineHandler.js';
+import { handleDoorTraversal } from './DoorTraversalHandler.js';
 
 class ConsequenceHandlers {
     /**
@@ -144,6 +147,8 @@ class ConsequenceHandlers {
             dropItem: (targetId, params, context) => this._handleDropItem(params, context),
             pickUpItem: (targetId, params, context) => this._handlePickUpItem(params, context),
             consumeItemAndDamage: (targetId, params, context) => this._handleConsumeItemAndDamage(targetId, params, context),
+            // Walk through a named door of the actor's current room into the room beyond.
+            traverseDoor: (targetId, params, context) => this._handleTraverseDoor(params, context),
             // Place a carried machine into the world (becomes isStatic, self-running).
             placeMachine: (targetId, params, context) => this._handlePlaceMachine(params, context),
             // Retrieve a previously-placed machine back into inventory (spills stored contents).
@@ -219,6 +224,19 @@ class ConsequenceHandlers {
                 damageHandler: this.damageHandler
             },
             targetId,
+            params,
+            context
+        );
+    }
+
+    /**
+     * Handles the traverseDoor consequence by delegating to DoorTraversalHandler
+     * (the `crossDoor` action: a door of the actor's current room, the room beyond).
+     * @private
+     */
+    _handleTraverseDoor(params, context) {
+        return handleDoorTraversal(
+            { worldStateController: this.worldStateController },
             params,
             context
         );

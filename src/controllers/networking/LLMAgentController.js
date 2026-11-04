@@ -125,6 +125,24 @@ function isAgentThinkingEnabled() {
 const LLM_AGENT_DONE_TOOL_NAME = 'done';
 const LLM_AGENT_MAX_ITERATIONS = 50;
 
+/**
+ * The registered action the `use_door` tool dispatches
+ * (data/mods/core-actions/actions.json). The tool is a thin intent wrapper over
+ * it — the same shape as `toApproach` over `move` — so the requirement gate
+ * (Movement.move), the turn queue and the room-crossing itself stay in data and
+ * in the `traverseDoor` consequence handler, never here.
+ * @constant
+ */
+const CROSS_DOOR_ACTION = 'crossDoor';
+
+/**
+ * Upper bound on a model-supplied door name (`A-7`: every inbound value is
+ * bounded). Doors are named by the room data (`right_door`, `left_door`); a
+ * longer string is not a door name but an invention, and it is rejected before
+ * the world is asked. @constant
+ */
+const DOOR_NAME_MAX_LENGTH = 64;
+
 class LLMAgentController {
     /**
      * @param {Object} deps
@@ -260,6 +278,7 @@ class LLMAgentController {
             chat: { sent: false },
             actions: [],
             approaches: [],
+            doors: [],
             crafts: [],
             error: null
         };
@@ -504,6 +523,47 @@ class LLMAgentController {
                     }
                 }
 
+                // Dispatch door calls (use_door tool): the intent wrapper over the
+                // registered crossDoor action, same shape as toApproach over move.
+                // Counts as a world action (maxActions) and is gated by the same
+                // capability check — a droid that cannot move cannot leave a room.
+                for (const call of parsed.doors) {
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        result.doors.push({ id: call.id, actionName: 'use_door', success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'use_door', success: false, detail });
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateDoor(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        result.doors.push({ id: call.id, actionName: 'use_door', success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'use_door', success: false, detail: validation.error });
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchDoor(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.doors.push({
+                        id: call.id,
+                        actionName: dispatch.actionName,
+                        queued: dispatch.queued,
+                        queueId: dispatch.queueId,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'use_door',
+                        success: dispatch.success,
+                        detail: dispatch.detail || (dispatch.queued ? 'queued' : 'executed')
+                    });
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'crossing failed' };
+                    }
+                }
+
                 // 7. Dispatch instinct calls (use_instinct tool). One aggregated
                 // result per call, in call order, drives the transcript
                 // tool-result (see _buildRoundGroup).
@@ -624,6 +684,7 @@ class LLMAgentController {
                     parsed.actions.length > 0 ||
                     parsed.speaks.length > 0 ||
                     parsed.approaches.length > 0 ||
+                    parsed.doors.length > 0 ||
                     parsed.instincts.length > 0 ||
                     parsed.crafts.length > 0 ||
                     parsed.discoveries.length > 0 ||
@@ -718,7 +779,9 @@ class LLMAgentController {
      * tools are the model's ONLY source of executable options; `execute_action`
      * carries no actionName enum (the registry is the live list, not the tool
      * list); `toApproach` is a fixed intent tool that dispatches the registered
-     * move action toward the target's live coordinates; `craft` takes a recipe
+     * move action toward the target's live coordinates; `use_door` is its
+     * room-travel counterpart, dispatching the registered crossDoor action with
+     * a door named by the CURRENT room's connections; `craft` takes a recipe
      * id, the named ingredient multiset, and the component that receives the
      * outputs — pre-validation runs against the live recipe registry and the
      * component's holdings before the real transaction; `use_instinct` is
@@ -750,7 +813,7 @@ class LLMAgentController {
                         machineType: { type: 'string', description: 'Machine type to retrieve (e.g. "knifeGenerator"); used by retrieveMachine to pick up your own placed machine.' },
                         targetX: { type: 'number', description: 'Target x in room coordinates (move/dash/drop).' },
                         targetY: { type: 'number', description: 'Target y in room coordinates (move/dash/drop).' },
-                        targetRoomId: { type: 'string', description: 'Room to move to through a door.' }
+                        targetRoomId: { type: 'string', description: 'Unused: no registered action consumes it. To change rooms call the use_door tool.' }
                     },
                     required: ['actionName']
                 }
@@ -761,7 +824,7 @@ class LLMAgentController {
             type: 'function',
             function: {
                 name: 'toApproach',
-                description: 'Move toward another droid in the current room as far as your movement stat allows. Pass only the target entity id (ent-…); the server resolves its live coordinates. It does not cross rooms — to travel between rooms use execute_action move with a targetRoomId.',
+                description: 'Move toward another droid in the current room as far as your movement stat allows. Pass only the target entity id (ent-…); the server resolves its live coordinates. It does not cross rooms — to change rooms call the use_door tool.',
                 parameters: {
                     type: 'object',
                     properties: {
@@ -771,6 +834,21 @@ class LLMAgentController {
                         }
                     },
                     required: ['targetEntityId']
+                }
+            }
+        };
+
+        const useDoor = {
+            type: 'function',
+            function: {
+                name: 'use_door',
+                description: "Walk through one door of the room you are standing in and appear in the room beyond. Pass the door name exactly as your 'Exits:' line shows it (e.g. \"right_door\") — the server resolves where that door leads and where inside the next room you appear. This is the only way to leave a room; you cannot name the destination.",
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        door: { type: 'string', description: 'Door name from your Exits line (e.g. "right_door").' }
+                    },
+                    required: ['door']
                 }
             }
         };
@@ -911,9 +989,10 @@ class LLMAgentController {
             }
         };
 
-        // Order: discovery tools first (read at round start), action tools,
-        // chat, instincts, and the round-end done tool last.
-        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool];
+        // Order: discovery tools first (read at round start), action tools
+        // (move toward → leave the room → craft), chat, instincts, and the
+        // round-end done tool last.
+        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool, useDoor];
         if (includeChat) {
             tools.push(speakInRoom);
         }
@@ -989,7 +1068,8 @@ class LLMAgentController {
             '- You may call use_instinct to perform a whole behavior (e.g. chase and attack) in one call; it is preferred over chaining execute_action calls for the same intent.',
             '- Craft with the craft tool only: pass the recipeId, the exact ingredient multiset (type x quantity), and the comp-… that receives the outputs. get_crafts is the ONLY source of valid recipe ids, ingredients, and components — never invent a recipe or an ingredient type.',
             '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
-            '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: travel between rooms with move (targetRoomId).',
+            '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
+            '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it. You cannot name the destination room — the door decides it.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'How you respond:',
@@ -1460,7 +1540,7 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, doors: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
@@ -1468,6 +1548,7 @@ class LLMAgentController {
         const actions = [];
         const instincts = [];
         const approaches = [];
+        const doors = [];
         const crafts = [];
         const discoveries = [];
         // Did the model call the done tool? (no args; the call itself is the
@@ -1509,6 +1590,7 @@ class LLMAgentController {
             else if (name === 'execute_action') actions.push(entry);
             else if (name === 'use_instinct') instincts.push(entry);
             else if (name === 'toApproach') approaches.push(entry);
+            else if (name === 'use_door') doors.push(entry);
             else if (name === 'craft') crafts.push(entry);
             else if (name === 'get_actions') {
                 const filter = entry.args.filter;
@@ -1537,7 +1619,7 @@ class LLMAgentController {
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, approaches, crafts, discoveries, done, prose };
+        return { speaks, actions, instincts, approaches, doors, crafts, discoveries, done, prose };
     }
 
     // =========================================================================
@@ -1622,7 +1704,7 @@ class LLMAgentController {
      *   - the target must share the NPC's room — spatial coordinates are per
      *     room and the agent's context (Feature B) is same-room perception,
      *     so cross-room "approach" is intentionally out of scope (door travel
-     *     goes through move's targetRoomId);
+     *     goes through the use_door tool);
      *   - the NPC must be able to execute the registered `move` action right
      *     now (the same capability gate as execute_action).
      *
@@ -1655,7 +1737,7 @@ class LLMAgentController {
         if (self.location !== target.location) {
             return {
                 ok: false,
-                error: 'target not in your room — travel through a door (move with targetRoomId) first'
+                error: 'target not in your room — cross a door with the use_door tool first'
             };
         }
         if (!target.spatial || typeof target.spatial.x !== 'number' || typeof target.spatial.y !== 'number') {
@@ -1768,6 +1850,109 @@ class LLMAgentController {
             detail: dispatch.queued
                 ? `move queued toward target (targetX=${params.targetX}, targetY=${params.targetY})`
                 : (dispatch.success ? 'executed immediately' : (dispatch.detail || 'execution failed'))
+        };
+    }
+
+    /**
+     * Pre-execution validation for one use_door call:
+     *   - `door` must be a bounded, non-empty string (a name, never an id);
+     *   - the door must be a connection of the room the NPC is IN — the room's
+     *     own `connections` keys are the allowlist (SEC-4: model output is only
+     *     ever matched against data, never used to build a destination), and the
+     *     model can never name a room, so it can never route an entity through a
+     *     door that is not under its own feet;
+     *   - the NPC must be able to execute the registered `crossDoor` action right
+     *     now (the same capability gate as execute_action / toApproach).
+     *
+     * Only the door name travels onward to the dispatcher: the world decides
+     * where the entity ends up, and the outcome line reads the room back from it
+     * (see _dispatchDoor).
+     *
+     * @param {string} npcEntityId
+     * @param {Object} args - Parsed tool arguments ({ door }).
+     * @returns {{ ok: true, params: { door: string } } | { ok: false, error: string }}
+     * @private
+     */
+    _prevalidateDoor(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const door = args.door;
+        if (typeof door !== 'string' || door.trim() === '') {
+            return { ok: false, error: 'missing "door"' };
+        }
+        if (door.length > DOOR_NAME_MAX_LENGTH) {
+            return { ok: false, error: `door name too long (${DOOR_NAME_MAX_LENGTH} chars max)` };
+        }
+
+        const self = this.worldStateController?.getEntity?.(npcEntityId);
+        if (!self) return { ok: false, error: 'actor entity not found' };
+
+        const rooms = this.worldStateController?.getRooms?.() || {};
+        const room = self.location ? rooms[self.location] : null;
+        if (!room) return { ok: false, error: 'your current room is not in the world' };
+
+        const connections = room.connections || {};
+        if (!Object.hasOwn(connections, door)) {
+            const here = Object.keys(connections);
+            return {
+                ok: false,
+                error: here.length > 0
+                    ? `no door "${door}" in your room (doors here: ${here.join(', ')})`
+                    : `no door "${door}" in your room (this room has no doors)`
+            };
+        }
+
+        // Capability gate: the NPC must be able to execute crossDoor right now.
+        const actions = this.worldStateController?.getActionsForEntity?.(npcEntityId) || {};
+        const canExecute = actions[CROSS_DOOR_ACTION]?.canExecute;
+        if (!Array.isArray(canExecute) || canExecute.length === 0) {
+            return { ok: false, error: `${CROSS_DOOR_ACTION} not executable right now (insufficient movement stats)` };
+        }
+
+        return { ok: true, params: { door } };
+    }
+
+    /**
+     * Dispatches one validated use_door call as the registered `crossDoor`
+     * action (queued during planning, immediate only in non-turn worlds — the
+     * same rule as every other world action, so a crossing never overtakes the
+     * turn barrier).
+     *
+     * The outcome line names the rooms the WORLD reports, never the model's
+     * expectation. A queued crossing has not happened yet (it lands at the
+     * resolution phase), so it is reported as queued and claims no destination —
+     * the round that follows reads its room from the world again anyway.
+     *
+     * @param {string} npcEntityId
+     * @param {{ door: string }} params - From _prevalidateDoor.
+     * @returns {{ actionName: string, queued: boolean, queueId?: string, success: boolean, detail: string }}
+     * @private
+     */
+    _dispatchDoor(npcEntityId, params) {
+        const fromRoomName = this._roomName(this.worldStateController?.getEntity?.(npcEntityId));
+        const dispatch = this._dispatchAction(npcEntityId, CROSS_DOOR_ACTION, { door: params.door });
+
+        let detail;
+        if (!dispatch.success) {
+            detail = dispatch.detail || 'crossing failed';
+        } else if (dispatch.queued) {
+            detail = `crossDoor queued through "${params.door}"`;
+        } else {
+            const toRoomName = this._roomName(this.worldStateController?.getEntity?.(npcEntityId));
+            detail = `crossed "${params.door}": "${fromRoomName}" -> "${toRoomName}"`;
+        }
+
+        return {
+            actionName: 'use_door',
+            queued: dispatch.queued,
+            queueId: dispatch.queueId,
+            success: dispatch.success,
+            detail
         };
     }
 
@@ -2242,6 +2427,19 @@ class LLMAgentController {
         // on success, unlike the failure-only details of the other tools.
         (parsed.approaches || []).forEach((call, idx) => {
             const entry = (result.approaches || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // use_door: one result entry per call, in call order. Like toApproach,
+        // the detail names the outcome ("crossed right_door -> The Eastern
+        // Corridor") and is kept on success — the model must be replayed which
+        // room it is standing in now.
+        (parsed.doors || []).forEach((call, idx) => {
+            const entry = (result.doors || [])[idx];
             results.push({
                 id: call.id,
                 success: entry ? Boolean(entry.success) : false,

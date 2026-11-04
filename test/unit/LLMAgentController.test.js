@@ -50,15 +50,16 @@ const NPC = {
 const ACTION_REGISTRY = {
     selfHeal: { description: 'self-repair', requirements: [] },
     cut: { description: 'slice with knife', range: 50, requirements: [] },
-    move: { description: 'walk', requirements: [] }
+    move: { description: 'walk', requirements: [] },
+    crossDoor: { description: 'walk through a door into the room beyond', requirements: [] }
 };
 
-function makeWorld({ canExecute = {}, executeResult, target = null } = {}) {
+function makeWorld({ canExecute = {}, executeResult, target = null, rooms = null } = {}) {
     const executeCalls = [];
     return {
         executeCalls,
         getEntity: (id) => (id === NPC_ID ? NPC : (target && id === target.id ? target : null)),
-        getRooms: () => ({ 'room-main': { name: 'Main Room' } }),
+        getRooms: () => rooms || { 'room-main': { name: 'Main Room' } },
         actionController: { getRegistry: () => ACTION_REGISTRY },
         stateEntityController: { getAll: () => ({ [NPC_ID]: NPC }) },
         getActionsForEntity: (id) => {
@@ -1753,7 +1754,7 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
 
         expect(result.approaches[0].success).toBe(false);
         expect(result.approaches[0].detail).toMatch(/not in your room/);
-        expect(result.approaches[0].detail).toMatch(/targetRoomId/);
+        expect(result.approaches[0].detail).toMatch(/use_door/);
         expect(world.executeCalls).toHaveLength(0);
         expect(turns.queued).toHaveLength(0);
     });
@@ -1861,6 +1862,201 @@ describe('LLMAgentController.runRound — toApproach tool', () => {
         expect(users).toHaveLength(2);
         expect(users[0].content).toBe('round 1\n\n=== ROOM ===\nMain Room');
         expect(users.at(-1).content).toBe('round 2\n\n=== ROOM ===\nMain Room');
+    });
+});
+
+// =========================================================================
+// USE_DOOR (room travel). The tool is a thin intent wrapper over the
+// registered `crossDoor` action — the same shape as toApproach over `move`:
+// the model names a DOOR of the room it stands in (room uids are generated per
+// load, so a destination can never be named by the model), the server resolves
+// the room beyond. The crossing itself — the real rooms of
+// data/mods/core-rooms/rooms.json and the traverseDoor consequence — is pinned
+// by test/contract/crossDoor.contract.test.js.
+// =========================================================================
+
+describe('LLMAgentController.runRound — use_door tool', () => {
+    const DOOR_ROOMS = {
+        'room-main': { name: 'Main Room', connections: { right_door: { target: 'room-east' } } },
+        'room-east': { name: 'East Corridor', connections: { left_door: { target: 'room-main' } } }
+    };
+
+    /**
+     * A world whose rooms carry doors, plus a PRIVATE copy of the NPC so a test
+     * can relocate it without mutating the module-level NPC the other suites
+     * share. `moves: true` makes the stub facade actually change the entity's
+     * location, which is what lets the immediate-execution detail name the room
+     * the droid landed in.
+     */
+    function makeDoorWorld({ canExecute = { crossDoor: ['comp-leg-1'] }, maxWorldActionsPerRound = null, moves = false } = {}) {
+        const npc = { ...NPC, location: 'room-main', spatial: { x: 10, y: 10 } };
+        if (maxWorldActionsPerRound) npc.npcConfig = { maxWorldActionsPerRound };
+        const world = makeWorld({ canExecute, rooms: DOOR_ROOMS });
+        world.getEntity = (id) => (id === NPC_ID ? npc : null);
+        if (moves) {
+            world.executeAction = (actionName, entityId, params) => {
+                world.executeCalls.push({ actionName, entityId, params });
+                if (actionName === 'crossDoor' && params.door === 'right_door') npc.location = 'room-east';
+                return { success: true };
+            };
+        }
+        return { world, npc };
+    }
+
+    /** Scripts one failing first call, then silence (so the retry loop cannot spin). */
+    function failThenSilence(firstCall) {
+        let call = 0;
+        return () => {
+            call += 1;
+            return call === 1
+                ? { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([firstCall]) }
+                : { content: 'Standing by.', toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: 'Standing by.' } };
+        };
+    }
+
+    it('offers use_door in the generated tool schema (required door name, listed before done)', async () => {
+        const calls = [];
+        const { world } = makeDoorWorld();
+        const { agent } = makeAgent({
+            world,
+            calls,
+            chatFullImpl: (messages, options) => {
+                calls.push(options);
+                return { content: null, toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: null, tool_calls: [] } };
+            }
+        });
+
+        await agent.runRound(NPC_ID, 0);
+
+        const order = calls[0].tools.map(t => t.function.name);
+        expect(order).toContain('use_door');
+        expect(order.indexOf('use_door')).toBeLessThan(order.indexOf('done'));
+        const useDoor = calls[0].tools.find(t => t.function.name === 'use_door');
+        expect(useDoor.function.parameters.properties.door.type).toBe('string');
+        expect(useDoor.function.parameters.required).toEqual(['door']);
+    });
+
+    it('queues the registered crossDoor action with the door the model named', async () => {
+        const { world } = makeDoorWorld();
+        const turns = makeTurns();
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'use_door', args: JSON.stringify({ door: 'right_door' }) }, { name: 'done', args: '{}' }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.error).toBeNull();
+        expect(result.doors).toHaveLength(1);
+        expect(result.doors[0]).toMatchObject({ id: 'call_1', actionName: 'use_door', queued: true, queueId: 'q-1', success: true });
+        // A queued crossing has NOT happened yet — the detail claims no destination.
+        expect(result.doors[0].detail).toBe('crossDoor queued through "right_door"');
+        expect(world.executeCalls).toHaveLength(0);
+        expect(turns.queued).toHaveLength(1);
+        expect(turns.queued[0]).toMatchObject({ entityId: NPC_ID, actionName: 'crossDoor', source: 'npc' });
+        expect(turns.queued[0].params).toEqual({ door: 'right_door' });
+    });
+
+    it('executes immediately and reports the room the world moved it to', async () => {
+        const { world, npc } = makeDoorWorld({ moves: true });
+        const { agent } = makeAgent({
+            world,
+            // A turn object with no phase (turnsActive === false) → immediate execution.
+            turns: { getRoundState: () => ({}), queueAction: () => null },
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: toolMessage([{ name: 'use_door', args: JSON.stringify({ door: 'right_door' }) }, { name: 'done', args: '{}' }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(npc.location).toBe('room-east');
+        expect(result.doors[0]).toMatchObject({ actionName: 'use_door', queued: false, success: true });
+        expect(result.doors[0].detail).toBe('crossed "right_door": "Main Room" -> "East Corridor"');
+        expect(world.executeCalls).toHaveLength(1);
+        expect(world.executeCalls[0]).toMatchObject({ actionName: 'crossDoor', entityId: NPC_ID, params: { door: 'right_door' } });
+    });
+
+    it('rejects a door the current room does not have, naming the doors it does have', async () => {
+        const { world, npc } = makeDoorWorld();
+        const turns = makeTurns();
+        const { agent } = makeAgent({ world, turns, chatFullImpl: failThenSilence({ name: 'use_door', args: JSON.stringify({ door: 'trap_door' }) }) });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.doors).toHaveLength(1);
+        expect(result.doors[0].success).toBe(false);
+        expect(result.doors[0].detail).toBe('no door "trap_door" in your room (doors here: right_door)');
+        expect(npc.location).toBe('room-main');
+        expect(turns.queued).toHaveLength(0);
+        expect(world.executeCalls).toHaveLength(0);
+    });
+
+    it('rejects a call with no door name', async () => {
+        const { world } = makeDoorWorld();
+        const turns = makeTurns();
+        const { agent } = makeAgent({ world, turns, chatFullImpl: failThenSilence({ name: 'use_door', args: '{}' }) });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.doors[0].success).toBe(false);
+        expect(result.doors[0].detail).toBe('missing "door"');
+        expect(turns.queued).toHaveLength(0);
+    });
+
+    it('is blocked when crossDoor is not executable right now (capability gate)', async () => {
+        // No capable component → the capability report lists crossDoor as not
+        // executable, and a droid that cannot move cannot leave a room.
+        const { world } = makeDoorWorld({ canExecute: {} });
+        const turns = makeTurns();
+        const { agent } = makeAgent({ world, turns, chatFullImpl: failThenSilence({ name: 'use_door', args: JSON.stringify({ door: 'right_door' }) }) });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.doors[0].success).toBe(false);
+        expect(result.doors[0].detail).toBe('crossDoor not executable right now (insufficient movement stats)');
+        expect(turns.queued).toHaveLength(0);
+    });
+
+    it('counts a crossing against the per-round world-action budget', async () => {
+        const { world } = makeDoorWorld({ maxWorldActionsPerRound: 1 });
+        const turns = makeTurns();
+        let call = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => {
+                call += 1;
+                return call === 1
+                    ? {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'tool_calls',
+                        message: toolMessage([
+                            { name: 'use_door', args: JSON.stringify({ door: 'right_door' }) },
+                            { name: 'use_door', args: JSON.stringify({ door: 'right_door' }) },
+                            { name: 'done', args: '{}' }
+                        ])
+                    }
+                    : { content: 'Enough.', toolCalls: [], finishReason: 'stop', message: { role: 'assistant', content: 'Enough.' } };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(result.doors).toHaveLength(2);
+        expect(result.doors[0]).toMatchObject({ actionName: 'use_door', queued: true, success: true });
+        expect(result.doors[1]).toMatchObject({ actionName: 'use_door', success: false, detail: 'max world actions per round reached (1)' });
+        expect(turns.queued).toHaveLength(1);
     });
 });
 
