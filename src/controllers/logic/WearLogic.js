@@ -25,9 +25,12 @@
  * `wear.minVolume`) so clients can render clothing without re-deriving
  * the fit.
  *
- * Next change (not this one): an LLM tool that lets an agent decide to
- * wear / take off its own clothing (the agent context already lists
- * equipped items).
+ * The agent has no separate clothing tool either: LLMAgentController's
+ * `equip_item` dispatches a wearable type through `wearItem` (and
+ * `unequip_item` takes it off through the equipped path), so an NPC dresses
+ * itself with the same two tools it uses for a knife — and goes through the
+ * fit rule rather than around it. test/contract/agentEquip.contract.test.js
+ * pins that end of the wire against the real world.
  */
 
 /**

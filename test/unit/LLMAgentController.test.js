@@ -2959,3 +2959,305 @@ describe('describeAgentView.lastRequest — exactly what was sent to the LLM', (
         expect(view.lastRequest.tools.length).toBeGreaterThan(0);
     });
 });
+
+// =========================================================================
+// EQUIP / UNEQUIP (the equip_item and unequip_item tools). One pair covers
+// carried gear AND clothing: a worn item IS an equipped entry (WearLogic), so
+// the equip tool dispatches a wearable type through the clothes fit rule and
+// the unequip tool takes it off with the same call that removes a knife.
+// =========================================================================
+
+describe('equip_item / unequip_item tools (gear and clothing, one pair)', () => {
+    // The item registry shape WearLogic reads: only the t-shirt declares
+    // `wear.minVolume`, so only the t-shirt is wearable.
+    const EQUIP_ITEM_DEFS = {
+        knife: { name: 'Knife' },
+        tshirt: { name: 'T-Shirt', wear: { minVolume: 2 } }
+    };
+
+    /**
+     * A world whose NPC carries a knife and a t-shirt on comp-hand-1, with the
+     * three facade doors recorded so the routing (which door was knocked on,
+     * with which resolved instance) is what the assertions read.
+     */
+    function makeEquipWorld({
+        items = { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife' }, { id: 'item-tshirt-1', type: 'tshirt' }] },
+        equipped = [],
+        maxActions = 2,
+        equipResult = { success: true },
+        wearResult = null,
+        unequipResult = { success: true }
+    } = {}) {
+        const npc = {
+            ...NPC,
+            components: [{ id: 'comp-hand-1', type: 'hand' }, { id: 'comp-core-1', type: 'centralBall' }],
+            npcConfig: { maxWorldActionsPerRound: maxActions }
+        };
+        const world = makeWorld();
+        world.getEntity = () => npc;
+        world.getItemRegistry = () => EQUIP_ITEM_DEFS;
+        world.getEntityItems = () => items;
+
+        // The equipped set is mutable state: unequipping drops the entry, so a
+        // test can assert the clothing really came off.
+        const worn = [...equipped];
+        world.getEquippedItems = () => worn.map((eq) => ({ ...eq }));
+        const equipCalls = [];
+        const wearCalls = [];
+        const unequipCalls = [];
+        world.equipItem = (entityId, itemId, itemType, componentId) => {
+            equipCalls.push({ entityId, itemId, itemType, componentId });
+            return equipResult;
+        };
+        world.wearItem = (entityId, itemId, componentId) => {
+            wearCalls.push({ entityId, itemId, componentId });
+            return wearResult ?? {
+                success: true,
+                message: `Wore "T-Shirt" on Hand (${componentId}).`
+            };
+        };
+        world.unequipItem = (entityId, lookupId) => {
+            unequipCalls.push({ entityId, lookupId });
+            const idx = worn.findIndex((eq) => eq.eqId === lookupId || eq.itemId === lookupId);
+            if (idx >= 0) worn.splice(idx, 1);
+            return unequipResult;
+        };
+        world.__equipCalls = equipCalls;
+        world.__wearCalls = wearCalls;
+        world.__unequipCalls = unequipCalls;
+        return world;
+    }
+
+    /** One equip_item / unequip_item call, then done (the round ends at once). */
+    function equipMessage(name, args, doneNote = 'Done.') {
+        return toolMessage([
+            { name, args: JSON.stringify(args) },
+            { name: 'done', args: JSON.stringify({ note: doneNote }) }
+        ]);
+    }
+
+    async function runEquip(world, message, turns = makeTurns()) {
+        const { agent } = makeAgent({ world, turns, chatFullImpl: () => ({
+            content: null, toolCalls: [], finishReason: 'tool_calls', message
+        }) });
+        return { agent, result: await agent.runRound(NPC_ID, 0) };
+    }
+
+    it('equips a carried knife through the holding-cost door (facade.equipItem)', async () => {
+        const world = makeEquipWorld();
+        const { result } = await runEquip(world, equipMessage('equip_item', {
+            itemType: 'knife',
+            componentId: 'comp-hand-1'
+        }));
+
+        // The server resolved WHICH knife (the model never names an item id):
+        // the first carried instance of the type on that component.
+        expect(world.__equipCalls).toEqual([{
+            entityId: NPC_ID,
+            itemId: 'item-knife-1',
+            itemType: 'knife',
+            componentId: 'comp-hand-1'
+        }]);
+        expect(world.__wearCalls).toHaveLength(0);
+        expect(result.equips).toHaveLength(1);
+        expect(result.equips[0]).toMatchObject({
+            itemType: 'knife',
+            itemId: 'item-knife-1',
+            componentId: 'comp-hand-1',
+            wearable: false,
+            success: true
+        });
+        expect(result.equips[0].detail).toBe('equipped "knife" on comp-hand-1');
+        expect(result.done).toBe(true);
+    });
+
+    it('wears a carried t-shirt through the clothes fit rule (facade.wearItem, never equipItem)', async () => {
+        const world = makeEquipWorld();
+        const { result } = await runEquip(world, equipMessage('equip_item', {
+            itemType: 'tshirt',
+            componentId: 'comp-hand-1'
+        }));
+
+        // The one tool the agent has for gear is also the clothing tool: a
+        // wearable type goes to WearLogic (which owns the free-volume fit), and
+        // NOT to the plain equip — otherwise the fit rule would be bypassed.
+        expect(world.__wearCalls).toEqual([{
+            entityId: NPC_ID,
+            itemId: 'item-tshirt-1',
+            componentId: 'comp-hand-1'
+        }]);
+        expect(world.__equipCalls).toHaveLength(0);
+        expect(result.equips[0]).toMatchObject({
+            itemType: 'tshirt',
+            itemId: 'item-tshirt-1',
+            wearable: true,
+            success: true
+        });
+        // The world's own line is what the model gets back.
+        expect(result.equips[0].detail).toBe('Wore "T-Shirt" on Hand (comp-hand-1).');
+    });
+
+    it('takes a WORN t-shirt off with unequip_item (a worn item is an equipped entry)', async () => {
+        const world = makeEquipWorld({
+            equipped: [{ eqId: 'eq-tshirt-1', itemId: 'item-tshirt-1', itemType: 'tshirt', componentId: 'comp-hand-1' }]
+        });
+        const { result } = await runEquip(world, equipMessage('unequip_item', { itemType: 'tshirt' }));
+
+        // Keyed by the typed eqId, which names the instance unambiguously.
+        expect(world.__unequipCalls).toEqual([{ entityId: NPC_ID, lookupId: 'eq-tshirt-1' }]);
+        expect(result.unequips[0]).toMatchObject({
+            itemType: 'tshirt',
+            itemId: 'item-tshirt-1',
+            componentId: 'comp-hand-1',
+            wearable: true,
+            success: true
+        });
+        expect(result.unequips[0].detail).toBe('took "tshirt" off comp-hand-1');
+        expect(world.getEquippedItems(NPC_ID)).toHaveLength(0);
+    });
+
+    it('rejects a type the named component does not carry — no world call', async () => {
+        const world = makeEquipWorld({ items: { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife' }] } });
+        const { result } = await runEquip(world, equipMessage('equip_item', {
+            itemType: 'tshirt',
+            componentId: 'comp-hand-1'
+        }));
+
+        expect(world.__wearCalls).toHaveLength(0);
+        expect(world.__equipCalls).toHaveLength(0);
+        expect(result.equips[0]).toMatchObject({ itemType: 'tshirt', success: false });
+        expect(result.equips[0].detail).toBe(
+            'no "tshirt" carried on comp-hand-1 (it holds: knife)'
+        );
+    });
+
+    it('rejects a component that is not the NPC\'s own, and a non comp- id', async () => {
+        const foreign = makeEquipWorld();
+        const foreignRun = await runEquip(foreign, equipMessage('equip_item', {
+            itemType: 'knife',
+            componentId: 'comp-ghost-9'
+        }));
+        expect(foreignRun.result.equips[0].detail).toBe(
+            'component "comp-ghost-9" not found on entity "ent-npc-0001"'
+        );
+        expect(foreign.__equipCalls).toHaveLength(0);
+
+        const untyped = makeEquipWorld();
+        const untypedRun = await runEquip(untyped, equipMessage('equip_item', {
+            itemType: 'knife',
+            componentId: 'hand-1'
+        }));
+        expect(untypedRun.result.equips[0].detail).toBe('invalid id format: componentId="hand-1"');
+        expect(untyped.__equipCalls).toHaveLength(0);
+    });
+
+    it('rejects re-wearing what is already worn (idempotent, before the world is asked)', async () => {
+        const world = makeEquipWorld({
+            equipped: [{ eqId: 'eq-tshirt-1', itemId: 'item-tshirt-1', itemType: 'tshirt', componentId: 'comp-hand-1' }]
+        });
+        const { result } = await runEquip(world, equipMessage('equip_item', {
+            itemType: 'tshirt',
+            componentId: 'comp-hand-1'
+        }));
+
+        expect(world.__wearCalls).toHaveLength(0);
+        expect(result.equips[0]).toMatchObject({ itemType: 'tshirt', success: false });
+        expect(result.equips[0].detail).toBe('"tshirt" is already equipped on comp-hand-1');
+    });
+
+    it('names what IS equipped when unequip_item asks for a type that is not', async () => {
+        const world = makeEquipWorld({
+            equipped: [
+                { eqId: 'eq-knife-1', itemId: 'item-knife-1', itemType: 'knife', componentId: 'comp-hand-1' },
+                { eqId: 'eq-tshirt-1', itemId: 'item-tshirt-1', itemType: 'tshirt', componentId: 'comp-core-1' }
+            ]
+        });
+        const { result } = await runEquip(world, equipMessage('unequip_item', { itemType: 'axe' }));
+
+        expect(world.__unequipCalls).toHaveLength(0);
+        expect(result.unequips[0]).toMatchObject({ itemType: 'axe', success: false });
+        expect(result.unequips[0].detail).toBe(
+            'nothing equipped of type "axe" (equipped: knife, tshirt)'
+        );
+    });
+
+    it('counts equip and unequip against the per-round world-action budget', async () => {
+        const world = makeEquipWorld({ maxActions: 1 });
+        const twoEquips = toolMessage([
+            { name: 'equip_item', args: JSON.stringify({ itemType: 'knife', componentId: 'comp-hand-1' }) },
+            { name: 'equip_item', args: JSON.stringify({ itemType: 'tshirt', componentId: 'comp-hand-1' }) }
+        ]);
+        // One call with both equip calls in it, then done — so the round ends
+        // on the capped second call instead of spinning on it.
+        let calls = 0;
+        const { agent } = makeAgent({
+            world,
+            turns: makeTurns(),
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: (calls += 1) === 1 ? twoEquips : toolMessage([{ name: 'done', args: '{}' }])
+            })
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(world.__equipCalls).toHaveLength(1);
+        expect(world.__wearCalls).toHaveLength(0);
+        expect(result.equips).toHaveLength(2);
+        expect(result.equips[1]).toMatchObject({
+            itemType: 'tshirt',
+            success: false,
+            detail: 'max world actions per round reached (1)'
+        });
+    });
+
+    it('drops both calls outside the planning window of a turn world (no immediate execution)', async () => {
+        const world = makeEquipWorld({
+            equipped: [{ eqId: 'eq-knife-1', itemId: 'item-knife-1', itemType: 'knife', componentId: 'comp-hand-1' }]
+        });
+        const { result } = await runEquip(world, toolMessage([
+            { name: 'equip_item', args: JSON.stringify({ itemType: 'tshirt', componentId: 'comp-hand-1' }) },
+            { name: 'unequip_item', args: JSON.stringify({ itemType: 'knife' }) }
+        ]), makeTurns({ phase: 'resolution' }));
+
+        expect(world.__wearCalls).toHaveLength(0);
+        expect(world.__unequipCalls).toHaveLength(0);
+        expect(result.equips[0]).toMatchObject({ success: false, detail: 'planning window closed' });
+        expect(result.unequips[0]).toMatchObject({ success: false, detail: 'planning window closed' });
+    });
+
+    it('offers equip_item and unequip_item to the model, clothing included in their descriptions', () => {
+        const tools = makeAgent({ world: makeEquipWorld() }).agent._buildTools();
+        const equip = tools.find((t) => t.function.name === 'equip_item');
+        const unequip = tools.find((t) => t.function.name === 'unequip_item');
+
+        expect(equip.function.parameters.required).toEqual(['itemType', 'componentId']);
+        expect(unequip.function.parameters.required).toEqual(['itemType']);
+        // The user-facing contract of this change: the item tools ARE the
+        // clothing tools, so a model that only ever dresses itself needs no
+        // second pair.
+        expect(equip.function.description).toMatch(/CLOTHING/i);
+        expect(unequip.function.description).toMatch(/CLOTHING/i);
+    });
+
+    it('replays the world\'s own outcome line to the model next round', async () => {
+        const world = makeEquipWorld();
+        const { agent } = makeAgent({
+            world,
+            turns: makeTurns(),
+            chatFullImpl: () => ({
+                content: null,
+                toolCalls: [],
+                finishReason: 'tool_calls',
+                message: equipMessage('equip_item', { itemType: 'tshirt', componentId: 'comp-hand-1' })
+            })
+        });
+        await agent.runRound(NPC_ID, 0);
+
+        const rounds = agent.describeAgentView(NPC_ID).transcriptRounds;
+        const results = rounds[0].groups[0].results;
+        expect(results[0]).toMatchObject({ success: true, detail: 'Wore "T-Shirt" on Hand (comp-hand-1).' });
+    });
+});

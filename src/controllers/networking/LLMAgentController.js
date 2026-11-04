@@ -7,8 +7,9 @@
  *   2. build the world context via LlmContextController (Feature B);
  *   3. call LLMController.chatFull with the generated tool set
  *      (execute_action + toApproach, plus speak_in_room when chat is enabled,
- *      use_instinct when instincts exist, and craft/get_crafts when the NPC
- *      has a recipe registry), tool_choice "auto", and a
+ *      use_instinct when instincts exist, craft/get_crafts when the NPC
+ *      has a recipe registry, and equip_item / unequip_item for what it
+ *      carries and wears), tool_choice "auto", and a
  *      per-NPC system prompt — PROTOCOL B: the native tool call is the ONLY
  *      output protocol (no JSON-in-content; the dual mode that briefly ran
  *      here is what produced the scaffold-loop incident, spec §6.4);
@@ -46,6 +47,7 @@ import { TURN_PHASES } from '../../../shared/TurnPhases.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { formatActionList, formatInstinctList, formatCraftList } from './LlmContextController.js';
 import { measureDoorReach } from '../consequences/DoorTraversalHandler.js';
+import { getWearMinVolume } from '../logic/WearLogic.js';
 
 /** Default per-round world-action cap (spec §6.5); npcs.json may override. */
 const DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND = 2;
@@ -143,6 +145,13 @@ const CROSS_DOOR_ACTION = 'crossDoor';
  * the world is asked. @constant
  */
 const DOOR_NAME_MAX_LENGTH = 64;
+
+/**
+ * Upper bound on a model-supplied item type (`A-7`: every inbound value is
+ * bounded). Types come from the item registry (`knife`, `tshirt`); a longer
+ * string is an invention, rejected before the world is asked. @constant
+ */
+const ITEM_TYPE_MAX_LENGTH = 64;
 
 class LLMAgentController {
     /**
@@ -281,6 +290,8 @@ class LLMAgentController {
             approaches: [],
             doors: [],
             crafts: [],
+            equips: [],
+            unequips: [],
             error: null
         };
 
@@ -643,6 +654,91 @@ class LLMAgentController {
                     }
                 }
 
+                // Dispatch equip calls (equip_item tool): one carried item goes
+                // onto one of the NPC's own components. The same tool is the
+                // clothing tool — wearing is equipping under the fit rule, so a
+                // wearable type dispatches through WearLogic (see _executeEquip).
+                // Counts as a world action (maxActions), like craft.
+                for (const call of parsed.equips) {
+                    const itemType = typeof call.args?.itemType === 'string' ? call.args.itemType : '';
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        result.equips.push({ itemType, success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'equip_item', success: false, detail });
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateEquip(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        result.equips.push({ itemType, success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'equip_item', success: false, detail: validation.error });
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchEquip(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.equips.push({
+                        itemType: dispatch.itemType,
+                        itemId: dispatch.itemId,
+                        componentId: dispatch.componentId,
+                        wearable: dispatch.wearable,
+                        queued: dispatch.queued,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'equip_item',
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'equip failed' };
+                    }
+                }
+
+                // Dispatch unequip calls (unequip_item tool): taking clothing off
+                // is taking an equipped entry off, so the one call covers both.
+                for (const call of parsed.unequips) {
+                    const itemType = typeof call.args?.itemType === 'string' ? call.args.itemType : '';
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        result.unequips.push({ itemType, success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'unequip_item', success: false, detail });
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateUnequip(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        result.unequips.push({ itemType, success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'unequip_item', success: false, detail: validation.error });
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchUnequip(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.unequips.push({
+                        itemType: dispatch.itemType,
+                        itemId: dispatch.itemId,
+                        componentId: dispatch.componentId,
+                        wearable: dispatch.wearable,
+                        queued: dispatch.queued,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'unequip_item',
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'unequip failed' };
+                    }
+                }
+
                 // 9. Discovery payloads: get_actions / get_instincts / get_crafts
                 //    return the formatted list directly — the tool result IS the
                 //    list (one per call, built from the live registry / instinct
@@ -688,6 +784,8 @@ class LLMAgentController {
                     parsed.doors.length > 0 ||
                     parsed.instincts.length > 0 ||
                     parsed.crafts.length > 0 ||
+                    parsed.equips.length > 0 ||
+                    parsed.unequips.length > 0 ||
                     parsed.discoveries.length > 0 ||
                     parsed.done;
 
@@ -782,7 +880,10 @@ class LLMAgentController {
      * list); `toApproach` is a fixed intent tool that dispatches the registered
      * move action toward the target's live coordinates; `use_door` is its
      * room-travel counterpart, dispatching the registered crossDoor action with
-     * a door named by the CURRENT room's connections; `craft` takes a recipe
+     * a door named by the CURRENT room's connections; `equip_item` /
+     * `unequip_item` put one carried item on the body and take one off again,
+     * and they are also the clothing tools — a worn item IS an equipped entry
+     * (WearLogic), so there is no second pair for clothes; `craft` takes a recipe
      * id, the named ingredient multiset, and the component that receives the
      * outputs — pre-validation runs against the live recipe registry and the
      * component's holdings before the real transaction; `use_instinct` is
@@ -884,6 +985,45 @@ class LLMAgentController {
                         targetEntityId: { type: 'string', description: 'Optional target entity id (ent-…); default: nearest entity in your room.' }
                     },
                     required: ['instinctId']
+                }
+            }
+        };
+
+        // Equip / unequip: one pair for carried gear AND for clothing. The
+        // clothes feature deliberately has no tool of its own — wearing is
+        // `HoldingCostController.equipItem` under the fit rule (WearLogic), so a
+        // worn t-shirt is an equipped entry and comes off through the same call
+        // as a knife. The model names the item TYPE (the only thing its
+        // Inventory / Equipped lines print) and never an instance id; the server
+        // resolves which concrete item, exactly as the craft tool resolves the
+        // ingredient multiset it is handed by type.
+        const equipItemTool = {
+            type: 'function',
+            function: {
+                name: 'equip_item',
+                description: 'Put one item you are carrying onto one of your own components. This is also how you put CLOTHING on: an item the world declares wearable (a t-shirt) fits only when that component has enough free volume for it, and then it is worn there. Pass the item type exactly as your Inventory line shows it, and the comp-… component that carries it — that same component is what wears or holds it. You never name an item id; the server picks the item.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        itemType: { type: 'string', description: 'Item type from your Inventory line (e.g. "knife", "tshirt").' },
+                        componentId: { type: 'string', description: 'comp-… your own component that carries the item and receives it equipped/worn.' }
+                    },
+                    required: ['itemType', 'componentId']
+                }
+            }
+        };
+
+        const unequipItemTool = {
+            type: 'function',
+            function: {
+                name: 'unequip_item',
+                description: 'Take one equipped item off your own body. This is also how you take CLOTHING off: a worn item is an equipped entry, so one call removes it (and lifts the carrying cost it was adding). Pass the item type exactly as your Equipped line shows it; the server picks which instance of that type and tells you where it came off.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        itemType: { type: 'string', description: 'Item type from your Equipped line (e.g. "knife", "tshirt").' }
+                    },
+                    required: ['itemType']
                 }
             }
         };
@@ -991,9 +1131,9 @@ class LLMAgentController {
         };
 
         // Order: discovery tools first (read at round start), action tools
-        // (move toward → leave the room → craft), chat, instincts, and the
-        // round-end done tool last.
-        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool, useDoor];
+        // (move toward → leave the room → craft → put on / take off), chat,
+        // instincts, and the round-end done tool last.
+        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool, useDoor, equipItemTool, unequipItemTool];
         if (includeChat) {
             tools.push(speakInRoom);
         }
@@ -1071,6 +1211,7 @@ class LLMAgentController {
             '- Start each round with get_actions (and get_instincts when instincts exist, and get_crafts when you want to craft): that is the ONLY source of executable options — issue execute_action / toApproach / use_instinct / craft only with names the discovery calls returned.',
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
             '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door\'s position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.',
+            '- Put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only). Those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Never invent an item id — name the type.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'How you respond:',
@@ -1541,7 +1682,7 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, doors: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, doors: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, equips: Array<{id: string, args: Object}>, unequips: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
@@ -1551,6 +1692,8 @@ class LLMAgentController {
         const approaches = [];
         const doors = [];
         const crafts = [];
+        const equips = [];
+        const unequips = [];
         const discoveries = [];
         // Did the model call the done tool? (no args; the call itself is the
         // round-end signal — spec §6.5.)
@@ -1593,6 +1736,8 @@ class LLMAgentController {
             else if (name === 'toApproach') approaches.push(entry);
             else if (name === 'use_door') doors.push(entry);
             else if (name === 'craft') crafts.push(entry);
+            else if (name === 'equip_item') equips.push(entry);
+            else if (name === 'unequip_item') unequips.push(entry);
             else if (name === 'get_actions') {
                 const filter = entry.args.filter;
                 discoveries.push({
@@ -1620,7 +1765,7 @@ class LLMAgentController {
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, approaches, doors, crafts, discoveries, done, prose };
+        return { speaks, actions, instincts, approaches, doors, crafts, equips, unequips, discoveries, done, prose };
     }
 
     // =========================================================================
@@ -2228,6 +2373,276 @@ class LLMAgentController {
     }
 
     /**
+     * The items one component of the NPC hosts DIRECTLY. Items nested inside a
+     * container item are not part of this set (they are not equippable) — the
+     * same restriction the craft tool applies to its ingredients.
+     * @param {string} npcEntityId
+     * @param {string} componentId
+     * @returns {Array<{ id: string, type: string }>}
+     * @private
+     */
+    _itemsOn(npcEntityId, componentId) {
+        const items = this.worldStateController?.getEntityItems?.(npcEntityId)?.[componentId];
+        return Array.isArray(items)
+            ? items.filter(item => item && typeof item.id === 'string' && typeof item.type === 'string')
+            : [];
+    }
+
+    /**
+     * Pre-execution validation for one equip_item call:
+     *   - `itemType` is a bounded, non-empty string and `componentId` a comp-…
+     *     id belonging to the ACTING NPC (the model never aims at another
+     *     body's part);
+     *   - that component must actually carry an item of the named type — the
+     *     entity's own inventory is the allowlist (SEC-4: model output is only
+     *     ever matched against world data) and the SERVER resolves which
+     *     instance, exactly as the craft tool resolves its ingredients. The
+     *     model never sees item ids, so it could not name one;
+     *   - an item already equipped (or worn) is rejected here, so the model
+     *     learns the idempotent case while it still holds the action.
+     *
+     * The world's gates are deliberately NOT re-implemented here: the clothing
+     * fit rule (`wear.minVolume` of free volume — WearLogic) and the
+     * strength-to-mass equip gate answer through the dispatch, so the failure
+     * text the model reads is the world's own, not a second copy of the rule.
+     *
+     * @param {string} npcEntityId
+     * @param {Object} args - Parsed equip_item args ({ itemType, componentId }).
+     * @returns {{ ok: true, params: { itemId: string, itemType: string, componentId: string, wearable: boolean } } | { ok: false, error: string }}
+     * @private
+     */
+    _prevalidateEquip(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const itemType = args.itemType;
+        if (typeof itemType !== 'string' || itemType.trim() === '') {
+            return { ok: false, error: 'missing "itemType"' };
+        }
+        if (itemType.length > ITEM_TYPE_MAX_LENGTH) {
+            return { ok: false, error: `itemType too long (${ITEM_TYPE_MAX_LENGTH} chars max)` };
+        }
+
+        const componentId = args.componentId;
+        if (typeof componentId !== 'string' || componentId.trim() === '') {
+            return { ok: false, error: 'missing "componentId"' };
+        }
+        if (!IdResolver.isCompId(componentId)) {
+            return { ok: false, error: `invalid id format: componentId="${componentId}"` };
+        }
+
+        const self = this.worldStateController?.getEntity?.(npcEntityId);
+        if (!self) return { ok: false, error: 'actor entity not found' };
+        if (!(self.components || []).some(c => c && c.id === componentId)) {
+            return { ok: false, error: `component "${componentId}" not found on entity "${npcEntityId}"` };
+        }
+
+        const hosted = this._itemsOn(npcEntityId, componentId);
+        const carried = hosted.find(item => item.type === itemType);
+        if (!carried) {
+            return {
+                ok: false,
+                error: hosted.length > 0
+                    ? `no "${itemType}" carried on ${componentId} (it holds: ${hosted.map(item => item.type).join(', ')})`
+                    : `no "${itemType}" carried on ${componentId} (that component carries nothing)`
+            };
+        }
+
+        const already = (this.worldStateController?.getEquippedItems?.(npcEntityId) || [])
+            .find(eq => eq && eq.itemId === carried.id);
+        if (already) {
+            return { ok: false, error: `"${itemType}" is already equipped on ${already.componentId}` };
+        }
+
+        return {
+            ok: true,
+            params: {
+                itemId: carried.id,
+                itemType,
+                componentId,
+                wearable: getWearMinVolume(this.worldStateController, itemType) !== null
+            }
+        };
+    }
+
+    /**
+     * Dispatches one validated equip call under the craft tool's turn
+     * discipline: equipping is a self transaction, not a registered action, so
+     * it is never queued onto the turn system — it runs while the planning
+     * window is open and is dropped in any other phase of a turn world, so an
+     * equip never overtakes the turn barrier. In a non-turn world it runs
+     * immediately.
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateEquip.
+     * @returns {{ itemId: string, itemType: string, componentId: string, wearable: boolean, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _dispatchEquip(npcEntityId, params) {
+        const turns = this.turnSystemController;
+        const phase = turns?.getRoundState?.()?.phase;
+        const turnsActive = turns && phase !== undefined;
+        if (turnsActive && phase === TURN_PHASES.PLANNING) {
+            return this._executeEquip(npcEntityId, params);
+        }
+        if (turnsActive) {
+            const detail = 'planning window closed';
+            Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, equip "${params.itemType}" dropped (no immediate execution in a turn world).`);
+            return { ...params, queued: false, success: false, detail };
+        }
+        // Immediate fallback (non-turn worlds / tests only).
+        return this._executeEquip(npcEntityId, params);
+    }
+
+    /**
+     * Runs the equip transaction: a wearable type knocks on the clothes
+     * feature's own door (facade.wearItem, which applies the fit rule),
+     * anything else on the plain holding-cost equip (facade.equipItem). This
+     * method chooses the door and reports the world's words back — it holds no
+     * rule of its own.
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateEquip.
+     * @returns {{ itemId: string, itemType: string, componentId: string, wearable: boolean, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _executeEquip(npcEntityId, params) {
+        const base = { ...params, queued: false };
+        try {
+            const exec = params.wearable
+                ? this.worldStateController?.wearItem?.(npcEntityId, params.itemId, params.componentId)
+                : this.worldStateController?.equipItem?.(npcEntityId, params.itemId, params.itemType, params.componentId);
+            if (exec?.success) {
+                // The world's own line when it has one (wearItem names the
+                // component type); the controller's otherwise.
+                return {
+                    ...base,
+                    success: true,
+                    detail: exec.message
+                        || (params.wearable
+                            ? `wore "${params.itemType}" on ${params.componentId}`
+                            : `equipped "${params.itemType}" on ${params.componentId}`)
+                };
+            }
+            return { ...base, success: false, detail: exec?.message || exec?.error || 'equip failed' };
+        } catch (err) {
+            return { ...base, success: false, detail: err?.message || String(err) };
+        }
+    }
+
+    /**
+     * Pre-execution validation for one unequip_item call: a bounded item type
+     * the NPC actually has equipped. The equipped set IS the allowlist, and it
+     * contains what the NPC is WEARING (the clothes feature stores a worn item
+     * as an equipped entry), which is why one tool takes both a knife and a
+     * shirt off. When the type is not in the set, the error names what is, so
+     * the model can correct the call instead of guessing.
+     * @param {string} npcEntityId
+     * @param {Object} args - Parsed unequip_item args ({ itemType }).
+     * @returns {{ ok: true, params: { eqId: string, itemId: string, itemType: string, componentId: string, wearable: boolean } } | { ok: false, error: string }}
+     * @private
+     */
+    _prevalidateUnequip(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const itemType = args.itemType;
+        if (typeof itemType !== 'string' || itemType.trim() === '') {
+            return { ok: false, error: 'missing "itemType"' };
+        }
+        if (itemType.length > ITEM_TYPE_MAX_LENGTH) {
+            return { ok: false, error: `itemType too long (${ITEM_TYPE_MAX_LENGTH} chars max)` };
+        }
+
+        const equipped = (this.worldStateController?.getEquippedItems?.(npcEntityId) || [])
+            .filter(eq => eq && typeof eq.itemType === 'string');
+        const entry = equipped.find(eq => eq.itemType === itemType);
+        if (!entry) {
+            return {
+                ok: false,
+                error: equipped.length > 0
+                    ? `nothing equipped of type "${itemType}" (equipped: ${equipped.map(eq => eq.itemType).join(', ')})`
+                    : `nothing equipped of type "${itemType}" (nothing is equipped)`
+            };
+        }
+
+        return {
+            ok: true,
+            params: {
+                // eqId, never itemId: the typed equipped-id is what the world
+                // looks up first, and it names this instance unambiguously when
+                // the same type is equipped twice.
+                eqId: entry.eqId,
+                itemId: entry.itemId,
+                itemType,
+                componentId: entry.componentId,
+                wearable: getWearMinVolume(this.worldStateController, itemType) !== null
+            }
+        };
+    }
+
+    /**
+     * Dispatches one validated unequip call with the same turn discipline as
+     * _dispatchEquip (a self transaction: run while planning is open, dropped
+     * in any other turn phase, immediate outside a turn world).
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateUnequip.
+     * @returns {{ itemId: string, itemType: string, componentId: string, wearable: boolean, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _dispatchUnequip(npcEntityId, params) {
+        const turns = this.turnSystemController;
+        const phase = turns?.getRoundState?.()?.phase;
+        const turnsActive = turns && phase !== undefined;
+        if (turnsActive && phase === TURN_PHASES.PLANNING) {
+            return this._executeUnequip(npcEntityId, params);
+        }
+        if (turnsActive) {
+            const detail = 'planning window closed';
+            Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, unequip "${params.itemType}" dropped (no immediate execution in a turn world).`);
+            return { ...params, queued: false, success: false, detail };
+        }
+        // Immediate fallback (non-turn worlds / tests only).
+        return this._executeUnequip(npcEntityId, params);
+    }
+
+    /**
+     * Runs the unequip transaction (facade.unequipItem, keyed by the typed
+     * eqId). Taking clothing off is this same call: a worn item is an equipped
+     * entry, so the world reverses its carrying cost and drops the entry — and
+     * the broadcast re-derives the worn list for the clients.
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateUnequip.
+     * @returns {{ itemId: string, itemType: string, componentId: string, wearable: boolean, queued: boolean, success: boolean, detail: string }}
+     * @private
+     */
+    _executeUnequip(npcEntityId, params) {
+        const base = { ...params, queued: false };
+        try {
+            const exec = this.worldStateController?.unequipItem?.(npcEntityId, params.eqId);
+            if (exec?.success) {
+                return {
+                    ...base,
+                    success: true,
+                    detail: exec.message
+                        || (params.wearable
+                            ? `took "${params.itemType}" off ${params.componentId}`
+                            : `unequipped "${params.itemType}" from ${params.componentId}`)
+                };
+            }
+            return { ...base, success: false, detail: exec?.message || exec?.error || 'unequip failed' };
+        } catch (err) {
+            return { ...base, success: false, detail: err?.message || String(err) };
+        }
+    }
+
+    /**
      * Capture Point B (spec §4.2): records an immediate outcome for the NPC
      * agent's short-term memory. Used for pre-validation failures, queue
      * rejections, and late-LLM-response drops. Best-effort — must never throw.
@@ -2496,6 +2911,27 @@ class LLMAgentController {
         // (same convention as toApproach).
         (parsed.crafts || []).forEach((call, idx) => {
             const entry = (result.crafts || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // equip_item / unequip_item: one result entry per call, in call order,
+        // detail kept on success — the model must be replayed what it is
+        // wearing now ("wore T-Shirt on ..."), same convention as use_door.
+        (parsed.equips || []).forEach((call, idx) => {
+            const entry = (result.equips || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        (parsed.unequips || []).forEach((call, idx) => {
+            const entry = (result.unequips || [])[idx];
             results.push({
                 id: call.id,
                 success: entry ? Boolean(entry.success) : false,
