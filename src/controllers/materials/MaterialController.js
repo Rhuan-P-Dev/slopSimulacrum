@@ -11,6 +11,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
+import { describeVisual, VISUAL_KEYS } from '../../utils/materialLook.js';
 import { TRAIT_STAT_KEY_PATTERN, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 
 const FRACTION_SUM_TOLERANCE = 1e-9;
@@ -62,8 +63,15 @@ class MaterialController {
             ? raw.derivedStats
             : raw;
         this.mappingRegistry = this._validateMappingRegistry(this.mappingRegistry);
+        // The look vocabulary (data/mods/core-materials/materials.json `visual`). Validated
+        // here and never blended into a stat: `derive` reads `properties` only, so
+        // appearance cannot move combat even by accident. Absent means no look, not
+        // a broken world (same graceful degradation as the damage/drop registries).
+        this.visualRegistry = this._validateMaterialVisuals(this.materialsRegistry);
         const dropMatCount = Object.keys(this.dropRatesRegistry?.materials || {}).length;
-        Logger.info(`[MaterialController] initialized with ${Object.keys(this.materialsRegistry).length} materials, ${Object.keys(this.mappingRegistry).length} mappings, ${Object.keys(this.flagThresholds).length} flag thresholds, damage-types ${this._damageTypesEnabled ? `ON (${Object.keys(this.damageTypesRegistry).length} materials)` : 'off (no split)'}, drop-rates ${this._dropRatesEnabled ? `ON (${dropMatCount} materials, minChunkVolume ${this.dropRatesRegistry?.minChunkVolume ?? 0})` : 'off (no drops)'}`);
+        const materialCount = Object.keys(this.materialsRegistry).length;
+        const visualCount = Object.keys(this.visualRegistry).length;
+        Logger.info(`[MaterialController] initialized with ${materialCount} materials, ${Object.keys(this.mappingRegistry).length} mappings, ${Object.keys(this.flagThresholds).length} flag thresholds, damage-types ${this._damageTypesEnabled ? `ON (${Object.keys(this.damageTypesRegistry).length} materials)` : 'off (no split)'}, look ${visualCount > 0 ? `ON (${visualCount} of ${materialCount} materials)` : 'off (no visual blocks)'}, drop-rates ${this._dropRatesEnabled ? `ON (${dropMatCount} materials, minChunkVolume ${this.dropRatesRegistry?.minChunkVolume ?? 0})` : 'off (no drops)'}`);
     }
 
     /**
@@ -478,6 +486,88 @@ class MaterialController {
     /** @returns {Object<string,Object>} deep clone of the materials registry (project rules: public getters return deep copies) */
     getMaterialsRegistry() {
         return structuredClone(this.materialsRegistry);
+    }
+
+    /**
+     * Validates the `visual` blocks of the materials registry (the look vocabulary,
+     * `wiki/decisions/visual-stats.md`). Narrowed ONCE here, at the edge: downstream
+     * readers get plain objects of in-range numbers and re-check nothing (`T-1`, `T-2`).
+     *
+     * Absence is legal and means "this material has no declared look": the caller
+     * drops the clause rather than inventing one. A present block is strict: a key
+     * outside `VISUAL_KEYS` is a typo, and a typo that silently names nothing is the
+     * dead data the material system exists to prevent — so it fails boot, loudly.
+     *
+     * @param {Object} registry - The already-validated materials registry.
+     * @returns {Object<string, Object<string, number>>} material id -> normalized visual block.
+     * @private
+     */
+    _validateMaterialVisuals(registry) {
+        const visuals = {};
+        for (const [id, entry] of Object.entries(registry)) {
+            if (id.startsWith('_')) continue;
+            const visual = entry.visual;
+            if (visual === undefined) continue;
+            if (typeof visual !== 'object' || visual === null || Array.isArray(visual)) {
+                throw new TypeError(`Material "${id}": "visual" must be an object of numbers.`);
+            }
+            const clean = {};
+            for (const [key, value] of Object.entries(visual)) {
+                const range = VISUAL_KEYS[key];
+                if (!range) {
+                    throw new TypeError(`Material "${id}": unknown visual key "${key}" (allowed: ${Object.keys(VISUAL_KEYS).join(', ')}).`);
+                }
+                if (typeof value !== 'number' || !Number.isFinite(value) || value < range.min || value > range.max) {
+                    throw new TypeError(`Material "${id}": visual "${key}" must be a number in [${range.min}, ${range.max}].`);
+                }
+                clean[key] = value;
+            }
+            visuals[id] = clean;
+        }
+        return visuals;
+    }
+
+    /**
+     * The declared look of one material, as numbers.
+     * @param {string} materialId - A material id (e.g. 'flesh').
+     * @returns {Object<string, number>|null} A defensive copy, or null when the
+     *          material declares no `visual` block.
+     */
+    getMaterialVisual(materialId) {
+        const visual = this.visualRegistry[materialId];
+        return visual ? structuredClone(visual) : null;
+    }
+
+    /**
+     * The declared look of one material, as English words.
+     * @param {string} materialId - A material id (e.g. 'flesh').
+     * @returns {string|null} The look phrase ("pale pink, satin, translucent"), or
+     *          null when the material has no look to say.
+     */
+    describeMaterialLook(materialId) {
+        const described = describeVisual(this.visualRegistry[materialId]);
+        return described ? described.phrase : null;
+    }
+
+    /**
+     * How a material COMPOSITION reads, as English words — the prose surface.
+     *
+     * The DOMINANT material names the part, by the same rule that decides which
+     * material a damage chip is made of (`getPrimaryMaterial`, first-entry tie-break,
+     * so it is deterministic). Averaging the numbers instead would call a knife
+     * "blue": a 60%-iron blade with a 40%-wood handle reads as metal, which is what
+     * the blade is where it matters. Blended colour stays the renderer's job, in a
+     * colour space, when a renderer exists.
+     *
+     * @param {Array<{material: string, fraction: number}>|null} materials - A recipe
+     *   composition (the shape `componentController.getComponentMaterialsByType()` returns).
+     * @returns {string|null} The look phrase, or null when the composition is empty,
+     *   unreadable, or built of materials with no declared look.
+     */
+    describeCompositionLook(materials) {
+        const primary = this.getPrimaryMaterial(materials);
+        if (!primary) return null;
+        return this.describeMaterialLook(primary.material);
     }
 
     /**
