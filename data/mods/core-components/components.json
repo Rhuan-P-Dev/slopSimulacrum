@@ -463,12 +463,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.6
-      },
-      {
-        "material": "iron",
-        "fraction": 0.4
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -484,12 +480,8 @@
     },
     "materials": [
       {
-        "material": "iron",
-        "fraction": 0.7
-      },
-      {
-        "material": "wood",
-        "fraction": 0.3
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -562,7 +554,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -579,12 +571,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -602,12 +590,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.7
-      },
-      {
-        "material": "iron",
-        "fraction": 0.3
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -625,12 +609,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "coal",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -648,7 +628,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -665,12 +645,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.6
-      },
-      {
-        "material": "iron",
-        "fraction": 0.4
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -689,12 +665,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.95
-      },
-      {
-        "material": "iron",
-        "fraction": 0.05
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -710,12 +682,8 @@
     },
     "materials": [
       {
-        "material": "iron",
-        "fraction": 0.6
-      },
-      {
-        "material": "wood",
-        "fraction": 0.4
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -788,12 +756,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -809,7 +773,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -826,12 +790,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -868,12 +828,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.95
-      },
-      {
-        "material": "iron",
-        "fraction": 0.05
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -889,12 +845,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -910,12 +862,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -931,12 +879,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -952,7 +896,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -969,7 +913,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -986,12 +930,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1009,12 +949,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.7
-      },
-      {
-        "material": "iron",
-        "fraction": 0.3
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1032,12 +968,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1070,12 +1002,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "coal",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1093,12 +1021,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1114,7 +1038,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -1131,12 +1055,8 @@
     },
     "materials": [
       {
-        "material": "iron",
-        "fraction": 0.8
-      },
-      {
-        "material": "wood",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -1152,12 +1072,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.6
-      },
-      {
-        "material": "iron",
-        "fraction": 0.4
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1176,12 +1092,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.95
-      },
-      {
-        "material": "iron",
-        "fraction": 0.05
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1197,12 +1109,8 @@
     },
     "materials": [
       {
-        "material": "iron",
-        "fraction": 0.6
-      },
-      {
-        "material": "wood",
-        "fraction": 0.4
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1275,12 +1183,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1296,7 +1200,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],
@@ -1313,12 +1217,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1355,12 +1255,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.95
-      },
-      {
-        "material": "iron",
-        "fraction": 0.05
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1376,12 +1272,8 @@
     },
     "materials": [
       {
-        "material": "iron",
-        "fraction": 0.8
-      },
-      {
-        "material": "wood",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -1397,12 +1289,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1418,12 +1306,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -1439,12 +1323,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": ["sensitiveNerve"]
@@ -1460,12 +1340,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1483,12 +1359,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.7
-      },
-      {
-        "material": "iron",
-        "fraction": 0.3
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1506,12 +1378,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "iron",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1544,12 +1412,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.8
-      },
-      {
-        "material": "coal",
-        "fraction": 0.2
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": [
@@ -1567,12 +1431,8 @@
     },
     "materials": [
       {
-        "material": "wood",
-        "fraction": 0.9
-      },
-      {
-        "material": "iron",
-        "fraction": 0.1
+        "material": "flesh",
+        "fraction": 1
       }
     ],
     "internalComponents": []
@@ -1588,7 +1448,7 @@
     },
     "materials": [
       {
-        "material": "wood",
+        "material": "flesh",
         "fraction": 1
       }
     ],

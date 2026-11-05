@@ -10,6 +10,15 @@
       "impactResistance": 70,
       "wearResistance": 30,
       "heatConduction": 15
+    },
+    "visual": {
+      "hue": 32,
+      "saturation": 45,
+      "lightness": 42,
+      "metalness": 0,
+      "roughness": 72,
+      "grain": 88,
+      "translucency": 6
     }
   },
   "iron": {
@@ -23,6 +32,15 @@
       "impactResistance": 45,
       "wearResistance": 80,
       "heatConduction": 85
+    },
+    "visual": {
+      "hue": 215,
+      "saturation": 6,
+      "lightness": 38,
+      "metalness": 95,
+      "roughness": 32,
+      "grain": 12,
+      "translucency": 0
     }
   },
   "coal": {
@@ -36,6 +54,37 @@
       "impactResistance": 25,
       "wearResistance": 15,
       "heatConduction": 55
+    },
+    "visual": {
+      "hue": 260,
+      "saturation": 3,
+      "lightness": 9,
+      "metalness": 12,
+      "roughness": 86,
+      "grain": 40,
+      "translucency": 0
+    }
+  },
+  "flesh": {
+    "name": "Flesh",
+    "density": 1.05,
+    "properties": {
+      "flammability": 55,
+      "electricalConduction": 70,
+      "moistureRetention": 80,
+      "cutResistance": 15,
+      "impactResistance": 35,
+      "wearResistance": 25,
+      "heatConduction": 45
+    },
+    "visual": {
+      "hue": 12,
+      "saturation": 34,
+      "lightness": 68,
+      "metalness": 4,
+      "roughness": 46,
+      "grain": 22,
+      "translucency": 58
     }
   }
 }
