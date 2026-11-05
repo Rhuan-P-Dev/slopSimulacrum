@@ -23,15 +23,43 @@ import { buildRoomProse, buildRoundProse, buildEntityProse, selectEntityRows } f
 // A raw entity id that the prose layer must never echo verbatim into sentences.
 const RAW_ENT_ID = 'ent-3382b7f0-03e8-41cf-a3a0-d7f1cb471771';
 
+/**
+ * The wording the ACTION REGISTRY carries, mirrored here as a stub: prose has no
+ * verbs of its own since `actionVerb()` was replaced by the registry's `prose`
+ * blocks (wiki/decisions/action-prose.md), so a unit of the builder has to be
+ * handed the wording the controller reads from data/mods/core-actions/actions.json.
+ * Mirrored (not imported) on purpose: a unit test pins the builder's behaviour,
+ * not the shipped wording — data completeness is pinned by
+ * test/contract/actionProse.contract.test.js against the live registry.
+ */
+const VERBS = {
+    move: { verbPhrase: 'moved' },
+    dash: { verbPhrase: 'dashed' },
+    crossDoor: { verbPhrase: 'walked through a door' },
+    selfHeal: { verbPhrase: 'healed itself' },
+    grab: { verbPhrase: 'grabbed', targetLink: 'direct' },
+    'droid punch': { verbPhrase: 'threw a punch' },
+    cut: { verbPhrase: 'cut something' },
+    dropItem: { verbPhrase: 'dropped an item' },
+    placeMachine: { verbPhrase: 'placed a machine' },
+    retrieveMachine: { verbPhrase: 'retrieved a machine' },
+    pickUpItem: { verbPhrase: 'picked up an item' },
+    shootT1: { verbPhrase: 'fired the T1' },
+    'hand shotgun': { verbPhrase: 'fired the shotgun' },
+    touch: { verbPhrase: 'touched', targetLink: 'direct' }
+};
+const verbOf = (action) => VERBS[action] ?? null;
+
+
 describe('buildRoomProse (narrative prose)', () => {
     it('returns an empty string when there are no entries', () => {
-        expect(buildRoomProse({ entries: [], roomName: 'start room' })).toBe('');
-        expect(buildRoomProse({ entries: null, roomName: 'start room' })).toBe('');
-        expect(buildRoomProse({ roomName: 'start room' })).toBe('');
+        expect(buildRoomProse({ verbOf, entries: [], roomName: 'start room' })).toBe('');
+        expect(buildRoomProse({ verbOf, entries: null, roomName: 'start room' })).toBe('');
+        expect(buildRoomProse({ verbOf, roomName: 'start room' })).toBe('');
     });
 
     it('names the room once, at the front, and renders a single action', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 { actions: { performed: [ { action: 'droid punch', name: 'Test Droid' } ] } },
@@ -44,7 +72,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('derives a chunk display name from the type key and a generic actor when the owner is a raw id', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             entries: [
                 {
@@ -67,7 +95,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('weaves the whole entry into a flowing paragraph, room named once', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 {
@@ -94,7 +122,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('falls back to a generic noun for raw-id entities rather than echoing the id', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'x',
             entries: [
                 { actions: { performed: [ { action: 'droid punch', name: RAW_ENT_ID } ] } },
@@ -105,7 +133,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('names the room with its size and map position (no description, no atmosphere)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
@@ -129,7 +157,7 @@ describe('buildRoomProse (narrative prose)', () => {
     // Each present field becomes one lower-case clause; absent fields (and a
     // missing block) are simply dropped.
     it('names the room with atmosphere when supplied (delta path)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
@@ -162,7 +190,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('renders thick fog when fog is thick (Deep Vault case)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
@@ -197,7 +225,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('baseline renders atmosphere (Initial observation of)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
@@ -230,7 +258,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('drops missing atmosphere fields (partial block)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             room: {
                 name: 'The Entrance Hall',
@@ -252,7 +280,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('narrates a targeted action (against whom, powered by which components)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 {
@@ -275,7 +303,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('places floor objects at their display coordinates (2 decimals, perception rule)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             entries: [
                 {
@@ -289,7 +317,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('narrates entity movement with from/to rooms, from/to coordinates, and locomotion parts', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             entries: [
                 {
@@ -322,7 +350,7 @@ describe('buildRoomProse (narrative prose)', () => {
         // read differently on every boot. The coordinates carry the movement.
         const uidA = '56ebc147-f267-4a5b-9eda-7aad0c6eea68';
         const uidB = '9f1e2d3c-4b5a-4978-8a7b-1234567890ab';
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
             entries: [
                 {
@@ -339,7 +367,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('renders stat values with their precision (no float noise, no double period)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 {
@@ -360,7 +388,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('narrates machine placement and retrieval (who, what, where) without double-telling the entity appear', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Workshop',
             entries: [
                 {
@@ -380,7 +408,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('places entities at their coordinates and notes where they left', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Lounge',
             entries: [
                 {
@@ -397,7 +425,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('narrates equipped/gained components, component stat values, and internal parts', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Workshop',
             entries: [
                 {
@@ -421,7 +449,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('renders room chat verbatim (speaker + text, trailing punctuation not doubled)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'The Lounge',
             entries: [
                 {
@@ -441,7 +469,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('renders a baseline round as an "Initial observation of" paragraph', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 {
@@ -458,7 +486,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('renders a multi-entity baseline with a plural verb', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'workshop',
             entries: [
                 {
@@ -474,7 +502,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('chains a baseline sentence then subsequent delta sentences without repeating the room', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 { kind: 'baseline', entities: { appeared: [ { id: 'e1', name: 'Test Droid' } ] }, dropped: { added: [] } },
@@ -487,7 +515,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('builds the prose from the structured delta fields, ignoring any pre-set summary (LLM independence)', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 {
@@ -502,7 +530,7 @@ describe('buildRoomProse (narrative prose)', () => {
     });
 
     it('ends with a single terminal period and never double-periods', () => {
-        const text = buildRoomProse({
+        const text = buildRoomProse({ verbOf,
             roomName: 'start room',
             entries: [
                 { actions: { performed: [ { action: 'dash', name: 'Test Droid' } ] } },
@@ -612,15 +640,15 @@ function twoActorEntries() {
 
 describe('buildEntityProse (one entity, one round)', () => {
     it('says nothing when there is nothing to say (no entries, no entity id)', () => {
-        expect(buildEntityProse({ entries: [], entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
-        expect(buildEntityProse({ entries: null, entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ verbOf, entries: [], entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ verbOf, entries: null, entityId: RAW_ENT_ID })).toEqual({ text: '', entryCount: 0 });
         // No entity named means no prose, even with a full entry stream.
-        expect(buildEntityProse({ entries: twoActorEntries(), entityId: '' })).toEqual({ text: '', entryCount: 0 });
-        expect(buildEntityProse({ entries: twoActorEntries(), entityId: null })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ verbOf, entries: twoActorEntries(), entityId: '' })).toEqual({ text: '', entryCount: 0 });
+        expect(buildEntityProse({ verbOf, entries: twoActorEntries(), entityId: null })).toEqual({ text: '', entryCount: 0 });
     });
 
     it('keeps only the rows that name it — the other actor\'s line never appears', () => {
-        const { text, entryCount } = buildEntityProse({
+        const { text, entryCount } = buildEntityProse({ verbOf,
             entries: twoActorEntries(),
             entityId: RAW_ENT_ID,
             entityName: 'Test Droid'
@@ -646,7 +674,7 @@ describe('buildEntityProse (one entity, one round)', () => {
     });
 
     it('a row where the entity is the VICTIM is its prose too', () => {
-        const { text } = buildEntityProse({
+        const { text } = buildEntityProse({ verbOf,
             entries: twoActorEntries(),
             entityId: RAW_OTHER_ID,
             entityName: 'Rival'
@@ -662,8 +690,8 @@ describe('buildEntityProse (one entity, one round)', () => {
     });
 
     it('a known display name replaces the generic fallback; without it no id leaks', () => {
-        const labeled = buildEntityProse({ entries: twoActorEntries(), entityId: RAW_ENT_ID, entityName: 'Test Droid' }).text;
-        const unlabeled = buildEntityProse({ entries: twoActorEntries(), entityId: RAW_ENT_ID }).text;
+        const labeled = buildEntityProse({ verbOf, entries: twoActorEntries(), entityId: RAW_ENT_ID, entityName: 'Test Droid' }).text;
+        const unlabeled = buildEntityProse({ verbOf, entries: twoActorEntries(), entityId: RAW_ENT_ID }).text;
 
         expect(labeled).toContain('Test Droid gained a Hand');
         expect(labeled).toContain('Test Droid dropped a Wood chunk');
@@ -675,7 +703,7 @@ describe('buildEntityProse (one entity, one round)', () => {
     });
 
     it('a baseline is the room\'s state description, never one entity\'s prose', () => {
-        const { text, entryCount } = buildEntityProse({
+        const { text, entryCount } = buildEntityProse({ verbOf,
             entries: [{ kind: 'baseline', entities: { appeared: [{ id: RAW_ENT_ID, name: 'Test Droid' }] } }],
             entityId: RAW_ENT_ID,
             entityName: 'Test Droid'
@@ -694,7 +722,7 @@ describe('buildEntityProse (one entity, one round)', () => {
             { kind: 'delta', chat: { added: [{ id: 'c2', speakerEntityId: RAW_ENT_ID, speakerName: 'Test Droid', text: '   ' }] } }
         ];
 
-        const { text, entryCount } = buildEntityProse({ entries, entityId: RAW_ENT_ID, entityName: 'Test Droid' });
+        const { text, entryCount } = buildEntityProse({ verbOf, entries, entityId: RAW_ENT_ID, entityName: 'Test Droid' });
         expect(entryCount).toBe(2);
         expect(text).toBe('Test Droid walked. Test Droid said, "Again".');
     });
@@ -720,5 +748,109 @@ describe('buildEntityProse (one entity, one round)', () => {
 
         expect(selectEntityRows(first, 'ent-00000000-0000-0000-0000-000000000000').rowCount).toBe(0);
         expect(selectEntityRows(null, RAW_ENT_ID).rowCount).toBe(0);
+    });
+});
+
+/**
+ * Action wording and the actor dossier (`wiki/decisions/action-prose.md`).
+ *
+ * Two rules live here. The VERBS of an action are the registry's, injected — the
+ * module has no verb table of its own any more, and degrades to "did <action>"
+ * rather than inventing one. And the body an act is credited to is the `body` the
+ * ROW carries: the prose reads no world, so a row that says nothing about a body
+ * gets no dossier — not a body guessed from what the entity looks like today.
+ */
+describe('action wording from the registry, and the actor described by its row', () => {
+    const BODY = [
+        { type: 'centralBall', identifier: 'default', shallow: true },
+        { type: 'droidHead', identifier: 'top', shallow: true },
+        { type: 'droidArm', identifier: 'left', shallow: true },
+        { type: 'droidHand', identifier: 'hand_left', shallow: false },
+        { type: 'humanoidDroidFinger', identifier: 'f1_hand_left', shallow: false }
+    ];
+
+    const acted = (overrides = {}) => ({
+        kind: 'delta',
+        actions: {
+            performed: [{
+                entity: RAW_ENT_ID,
+                name: 'Test Droid',
+                action: 'droid punch',
+                used: [{ type: 'droidArm', id: 'comp-arm-1' }],
+                body: BODY,
+                target: { id: RAW_OTHER_ID, name: 'Rival' },
+                ...overrides
+            }]
+        }
+    });
+
+    const roomOf = (entry, opts = {}) =>
+        buildRoomProse({ verbOf, entries: [entry], roomName: 'Hall', room: null, ...opts });
+
+    it('says the act in the registry\'s own words', () => {
+        expect(roomOf(acted())).toContain('Test Droid threw a punch against Rival');
+    });
+
+    it('degrades to "did <action>" when no wording is available — never a guessed verb', () => {
+        expect(roomOf(acted({ action: 'selfDestruct' })))
+            .toContain('Test Droid did selfDestruct against Rival');
+        // A caller that injects no resolver at all gets the same honest fallback.
+        expect(buildRoomProse({ entries: [acted()], roomName: 'Hall', room: null }))
+            .toContain('Test Droid did droid punch');
+    });
+
+    it('how the verb joins its target is the verb\'s own data', () => {
+        expect(roomOf(acted({ action: 'touch' }))).toContain('Test Droid touched Rival');
+        expect(roomOf(acted({ action: 'grab' }))).toContain('Test Droid grabbed Rival');
+        expect(roomOf(acted(), { verbOf: () => ({ verbPhrase: 'threw a punch', targetLink: 'toward' }) }))
+            .toContain('Test Droid threw a punch toward Rival');
+        // An empty or nonsense targetLink keeps the historical join: a half-written
+        // data entry must not drop the target out of the sentence.
+        expect(roomOf(acted(), { verbOf: () => ({ verbPhrase: 'threw a punch', targetLink: '   ' }) }))
+            .toContain('Test Droid threw a punch against Rival');
+    });
+
+    it('the dossier is its own sentence, before the act, and says each actor once', () => {
+        const entry = {
+            kind: 'delta',
+            actions: {
+                performed: [
+                    { entity: RAW_ENT_ID, name: 'Test Droid', action: 'droid punch', used: [], body: BODY, target: { id: RAW_OTHER_ID, name: 'Rival' } },
+                    { entity: RAW_ENT_ID, name: 'Test Droid', action: 'touch', used: [], body: BODY, target: { id: RAW_OTHER_ID, name: 'Rival' } }
+                ]
+            }
+        };
+        const text = roomOf(entry, { lookOf: (type) => (type === 'droidHead' ? 'brushed metal' : null) });
+
+        expect((text.match(/Test Droid, with/g) || []).length, 'one body per actor, however many acts')
+            .toBe(1);
+        // Its own sentence: the narrative sentence after it still carries the room
+        // prefix, which a dossier can never name.
+        expect(text.split('.')[0]).toContain('Test Droid, with');
+        expect(text).toContain('In Hall, Test Droid threw a punch');
+        // Own label first, look after; the root's "default" placeholder is not a label.
+        expect(text).toContain('(top, brushed metal)');
+        expect(text).not.toContain('default');
+    });
+
+    it('names only the parts that hang off the root — the deep ones stay on the row', () => {
+        const text = roomOf(acted());
+        expect(text).toContain('(left)');
+        expect(text).not.toContain('hand_left');
+        expect(text).not.toContain('f1');
+    });
+
+    it('says nothing about a body the row does not carry — never a reconstructed one', () => {
+        // A row written before the field existed…
+        expect(roomOf(acted({ body: undefined }))).not.toMatch(/, with /);
+        // …and a body with no shallow part at all: no clause, no "with nothing".
+        expect(roomOf(acted({ body: BODY.map((part) => ({ ...part, shallow: false })) })))
+            .not.toMatch(/, with /);
+        // An empty body says nothing either.
+        expect(roomOf(acted({ body: [] }))).not.toMatch(/, with /);
+    });
+
+    it('is deterministic: the same rows, the same paragraph', () => {
+        expect(roomOf(acted())).toBe(roomOf(acted()));
     });
 });

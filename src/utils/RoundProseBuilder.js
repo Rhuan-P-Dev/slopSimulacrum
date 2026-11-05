@@ -16,6 +16,13 @@
  *
  *   Pure functions over plain objects: no world, no tick, no reader side
  *   effects. A prose-paragraph wording change touches only `buildRoomProse`.
+ *   A caller MAY inject three lookups, each of which says nothing on its own:
+ *   `lookOf` (component type -> material look words, so an acting part says what
+ *   it looks like) and `verbOf` (action name -> the registry's `prose` block, so
+ *   the action says what it did in its own words). They are lookups, not
+ *   dependencies, and without them every paragraph is exactly what it was before.
+ *   The ACTOR'S BODY needs no resolver: it arrives on the action row (`body`),
+ *   recorded by the perception flush, so this module never reads the world.
  *   All output is deterministic (no timestamps, no ids) so identically driven
  *   worlds produce byte-identical prose.
  *
@@ -168,38 +175,51 @@ function listNames(names) {
 }
 
 /**
- * A short, natural verb phrase for a performed action, keyed on the action
- * registry name. Unknown actions fall back to "did <action>".
- * @param {string|null} action
- * @returns {string}
+ * How a verb joins its target when the action's own data says nothing else:
+ * the preposition every performed action has always taken in this prose.
+ * @constant
  */
-function actionVerb(action) {
-    switch (String(action ?? '')) {
-        case 'move':
-            return 'moved';
-        case 'dash':
-            return 'dashed';
-        case 'selfHeal':
-            return 'healed itself';
-        case 'droid punch':
-            return 'threw a punch';
-        case 'cut':
-            return 'cut something';
-        case 'dropItem':
-            return 'dropped an item';
-        case 'placeMachine':
-            return 'placed a machine';
-        case 'retrieveMachine':
-            return 'retrieved a machine';
-        case 'pickUpItem':
-            return 'picked up an item';
-        case 'shootT1':
-            return 'fired the T1';
-        case 'hand shotgun':
-            return 'fired the shotgun';
-        default:
-            return `did ${action}`;
-    }
+const DEFAULT_TARGET_LINK = 'against';
+
+/**
+ * The wording of one performed action: the verb phrase, and how it joins its
+ * target.
+ *
+ * The words come from the ACTION REGISTRY, injected as `verbOf` (an action name
+ * -> that action's `prose` block from data/mods/core-actions/actions.json). The
+ * hand-written verb table that used to live in this module is gone — an action's
+ * wording is a property of the action, so shipping a new action says what it
+ * does with data alone, and the registry's `description` (written FOR the actor:
+ * "Advance your droid toward a target point using your rolling wheels") never
+ * enters the observer's prose, where it would say a human has rolling wheels.
+ *
+ * `targetLink` is the same data deciding the join: absent keeps the historical
+ * " against <target>"; `"direct"` hands the verb the target with no preposition
+ * ("Adam touched Ball"); any other string is that preposition. An empty or
+ * unknown value falls back to the default, so a half-written data entry cannot
+ * silently drop the target out of the sentence.
+ *
+ * With no resolver, or for an action whose data declares no wording, the clause
+ * degrades to "did <action>": the action happened, only its wording is missing.
+ * Never a guessed verb.
+ *
+ * @param {string|null} action - the action registry key, as the attribution row recorded it
+ * @param {((action: string) => Object|null)|null} [verbOf] - action name -> its `prose` block
+ * @returns {{ phrase: string, link: string }} `link` is the preposition joining
+ *   the target, or '' when the verb takes the target directly
+ */
+function actionWording(action, verbOf = null) {
+    const key = action == null ? '' : String(action).trim();
+    if (!key) return { phrase: 'acted', link: DEFAULT_TARGET_LINK };
+    const prose = typeof verbOf === 'function' ? verbOf(key) : null;
+    if (!prose || typeof prose !== 'object') return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK };
+    const phrase = typeof prose.verbPhrase === 'string' && prose.verbPhrase.trim() !== ''
+        ? prose.verbPhrase.trim()
+        : null;
+    if (!phrase) return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK };
+    const declared = typeof prose.targetLink === 'string' ? prose.targetLink.trim() : '';
+    const link = declared === 'direct' ? '' : (declared || DEFAULT_TARGET_LINK);
+    return { phrase, link };
 }
 
 /** A finite number, or null when the value is missing / non-numeric. */
@@ -271,15 +291,134 @@ function targetPhrase(target) {
     return phrase ? phrase : null;
 }
 
-/** Display names from `{ type, id }` part rows, in input order. */
-function partList(rows) {
+/**
+ * Display names from `{ type, id }` part rows, in input order.
+ *
+ * When a `lookOf` resolver is given and answers for a part's material, the name
+ * carries how that part looks: "Male Arm (pale pink, satin, translucent)". The
+ * resolver is a lookup injected by the caller (`wiki/decisions/visual-stats.md`);
+ * this module still reads no world, so the prose stays a pure reader and stays
+ * deterministic. WITHOUT a resolver the output is byte-identical to before — a
+ * caller with no material access says exactly what it said yesterday.
+ *
+ * @param {Array|null} rows
+ * @param {((componentType: string) => string|null)|null} [lookOf] - component type -> look words
+ * @returns {string[]} display names, each optionally suffixed with its look clause
+ */
+function partList(rows, lookOf = null) {
     const names = [];
     (rows || []).forEach((row) => {
         if (!row || typeof row !== 'object') return;
-        const t = componentTypeName(row.type ?? row.id);
-        if (t) names.push(t);
+        const type = row.type ?? row.id;
+        const t = componentTypeName(type);
+        if (!t) return;
+        const look = typeof lookOf === 'function' ? lookOf(type) : null;
+        names.push(typeof look === 'string' && look !== '' ? `${t} (${look})` : t);
     });
     return names;
+}
+
+/**
+ * One body part as the dossier names it: "Male Arm (left, pale pink, satin,
+ * translucent)". Inside the parenthesis the part's own label comes first (WHICH
+ * instance — the body has two of most of these), then the look words the
+ * material owner supplies. A part with no label and no look says its type alone.
+ *
+ * The label is spelled out instead of being collapsed into a count ("two Male
+ * Arms") because English plurals cannot be derived from a display name without
+ * inventing them ("Male Genitals" is already one, "Male Foot" is not "Foots"),
+ * and because which side acted is the one anatomical fact the sentence can state
+ * truthfully — the same reason `YOUR BODY` in the LLM context carries it.
+ *
+ * The label arrives already stripped to the part's own segment by the writer
+ * (`PerceptionController._ownBodyLabel`): a nail's blueprint chain is
+ * "tip_f1_hand_left", and reciting the ancestry would say twice what the name
+ * says. "default" is the root's placeholder, not a label, so it never prints.
+ *
+ * @param {{ type: string, identifier?: string|null }} part - one component of the actor
+ * @param {((componentType: string) => string|null)|null} lookOf - component type -> look words
+ * @returns {string|null} the label, or null when the type has no display name
+ */
+function bodyPartLabel(part, lookOf) {
+    const type = part && typeof part === 'object' ? part.type : null;
+    const label = componentTypeName(type) || (type ? String(type) : null);
+    if (!label) return null;
+    const bits = [];
+    const identifier = part.identifier && typeof part.identifier === 'string'
+        ? part.identifier.trim().replace(/_/g, ' ')
+        : '';
+    if (identifier && identifier !== 'default') bits.push(identifier);
+    const look = typeof lookOf === 'function' ? lookOf(type) : null;
+    if (typeof look === 'string' && look.trim() !== '') bits.push(look.trim());
+    // ", " and never joinChunk: the parenthesis is a list of properties ("left,
+    // pale pink, satin"), and "left and pale pink" would read as one of them.
+    return bits.length ? `${label} (${bits.join(', ')})` : label;
+}
+
+/**
+ * The dossier clause: who did something, and what they are made of while doing
+ * it — "Adam, with Male Central Body (pale pink, satin), Male Head (top, pale
+ * pink, satin), Male Arm (left, …), Male Arm (right, …), …".
+ *
+ * Only the SHALLOW parts are named — the ones that hang off the body's own root.
+ * A human carries 78 components (eight teeth, twenty nails, ten fingers, ten
+ * toes), which is a body chart, not a sentence: read aloud it is ~690 words per
+ * actor per round, and the paragraph stops being prose. The deep ones are still
+ * on the row (`shallow: false`), so the record stays complete and only the
+ * reading is gross-anatomy. A part whose row says nothing about depth is read as
+ * shallow — the field is an addition, and a caller that hands a body without it
+ * meant every part of it.
+ *
+ * It is a clause, not a sentence of its own invention: `assemble` still owns how
+ * clauses become sentences, and the caller still adds the period. Emitted ONCE
+ * per actor per build (the caller's `seen` set), so a round in which one entity
+ * acted three times describes its body once.
+ *
+ * Returns null — nothing, not a placeholder — when the actor's body cannot be
+ * read or names no part: a dossier over an empty list would claim a bodiless
+ * actor, and the world is not claiming that.
+ *
+ * @param {string} actor - the actor's display name (already id-guarded)
+ * @param {Array<{ type: string, identifier?: string|null, shallow?: boolean }>|null} parts
+ * @param {((componentType: string) => string|null)|null} lookOf
+ * @returns {string|null}
+ */
+function dossierClause(actor, parts, lookOf) {
+    const labels = [];
+    (parts || []).forEach((part) => {
+        if (part && part.shallow === false) return;
+        const label = bodyPartLabel(part, lookOf);
+        if (label) labels.push(label);
+    });
+    if (!labels.length) return null;
+    return `${actor}, with ${joinChunk(labels)}`;
+}
+
+/**
+ * The dossier clause for the actor of one action row, once per actor per build.
+ *
+ * The body is not looked up: it is the `body` the ACTION ROW carries — the
+ * perception flush records what the actor was built of on the act itself
+ * (`PerceptionController._actorBody`), so this module keeps reading no world and
+ * a round says the same thing in the tenth re-reading as in the first
+ * (`wiki/decisions/action-prose.md`). A row written before that field existed
+ * carries no body, and the clause is simply absent — never reconstructed.
+ *
+ * @param {Object} row - one `actions.performed` row (`body`: `[{ type, identifier }]`)
+ * @param {string} actor - the actor's display name as the action clause says it
+ * @param {{ seen: Set<string>|null, lookOf: ((componentType: string) => string|null)|null }} resolvers
+ * @returns {string|null}
+ */
+function actorDossier(row, actor, { seen = null, lookOf = null } = {}) {
+    if (!seen || !row || typeof row !== 'object') return null;
+    // Deduped by whoever identifies the actor in the row: the id when it has one,
+    // the display name otherwise (a row that names no id cannot key a body).
+    const who = (typeof row.entity === 'string' && row.entity.trim() !== '' ? row.entity : null)
+        || (typeof row.name === 'string' && row.name.trim() !== '' ? row.name : null);
+    if (!who || seen.has(who)) return null;
+    seen.add(who);
+    if (!Array.isArray(row.body)) return null;
+    return dossierClause(actor, row.body, lookOf);
 }
 
 /**
@@ -403,9 +542,21 @@ function machineClause(row, mode) {
  * then the quieter state shifts, then what was said. Raw ids never surface; the
  * perception display rule (shared/CoordFormat.js) formats every coordinate.
  * @param {Object} entry
+ * @param {((componentType: string) => string|null)|null} [lookOf] - component type -> look words
+ * @param {{ verbOf: ((action: string) => Object|null)|null,
+ *           seen: Set<string>|null,
+ *           dossiers: string[]|null }} [resolvers]
+ *   - `verbOf`: action name -> its registry `prose` block (the action's wording)
+ *   - `seen`: the actors already dossered in THIS build (one line per actor,
+ *     however many times it acted); absent, no dossier clause is written at all
+ *   - `dossiers`: out-parameter — a dossier is NOT one of the returned clauses.
+ *     It is a sentence about a body, and `assemble` weaves clauses into one
+ *     sentence, which would land the body list in the middle of the act
+ *     ("…, and Male Leg (frontal right, …), Adam threw a punch"). The caller
+ *     collects them here and says each one as its own sentence.
  * @returns {string[]}
  */
-function entryClauses(entry) {
+function entryClauses(entry, lookOf = null, { verbOf = null, seen = null, dossiers = null } = {}) {
     const out = [];
     const push = (c) => {
         if (c && c.trim()) out.push(c.trim());
@@ -422,10 +573,13 @@ function entryClauses(entry) {
     // which components powered the action).
     (entry.actions?.performed || []).forEach((a) => {
         const actor = displayOrGeneric(a?.name, 'an entity');
-        let clause = `${actor} ${a?.action ? actionVerb(a.action) : 'acted'}`;
+        const dossier = actorDossier(a, actor, { seen, lookOf });
+        if (dossier && Array.isArray(dossiers)) dossiers.push(dossier);
+        const { phrase, link } = actionWording(a?.action, verbOf);
+        let clause = `${actor} ${phrase}`;
         const target = targetPhrase(a?.target);
-        if (target) clause += ` against ${target}`;
-        const parts = partList(a?.used);
+        if (target) clause += link ? ` ${link} ${target}` : ` ${target}`;
+        const parts = partList(a?.used, lookOf);
         if (parts.length) clause += `, powered by ${listNames(parts)}`;
         push(clause);
     });
@@ -735,11 +889,23 @@ function baselineText(entry, roomCtx) {
  *   - roomName: the room's display name for the paragraph
  *   - room: the full room record (name, width/height, map x/y, atmosphere);
  *     every field is optional
+ *   - lookOf: optional component type -> look words resolver (see `partList`);
+ *     absent, the paragraph carries no look clause at all
+ *   - verbOf: optional action name -> registry `prose` block (see
+ *     `actionWording`); absent, an action clause says "did <action>"
+ * The dossier clause (`dossierClause`) needs no resolver at all — it reads the
+ * `body` the action row itself carries — but it is written only when this call
+ * passes a `seen` set, i.e. once per actor per paragraph. Each one is its own
+ * sentence, before the act it belongs to, and it does not name the room: the
+ * narrative sentence right after it still carries the "In <room>, …" prefix.
  * @returns {string} — '' when the room had nothing worth saying
  */
-export function buildRoomProse({ entries = null, roomName = null, room = null } = {}) {
+export function buildRoomProse({ entries = null, roomName = null, room = null, lookOf = null, verbOf = null } = {}) {
     const context = roomContext(roomName, room);
     const sentences = [];
+    // One dossier per actor for the whole paragraph (`buildRoomProse` IS one
+    // room's round), so an entity that acted three times is described once.
+    const seen = new Set();
     let roomNamed = false;
     for (const entry of entries ?? []) {
         if (!entry || typeof entry !== 'object') continue;
@@ -748,7 +914,10 @@ export function buildRoomProse({ entries = null, roomName = null, room = null } 
             roomNamed = true;
             continue;
         }
-        const clauses = entryClauses(entry);
+        const dossiers = [];
+        const clauses = entryClauses(entry, lookOf, { verbOf, seen, dossiers });
+        // One sentence per actor's body, spoken before anything that actor did.
+        for (const dossier of dossiers) sentences.push(`${capitalizeFirst(dossier)}.`);
         if (!clauses.length) continue;
         const body = assemble(clauses, { firstWordLower: !roomNamed });
         if (!body) continue;
@@ -899,22 +1068,28 @@ export function selectEntityRows(entry, entityId, entityName = null) {
  * phrasing of its own. Deterministic like the rest of the module: no
  * timestamps, no ids in the text.
  *
- * @param {{ entries: Array|null, entityId: string|null, entityName: string|null }} ctx
+ * @param {{ entries: Array|null, entityId: string|null, entityName: string|null, lookOf: ((componentType: string) => string|null)|null, verbOf: ((action: string) => Object|null)|null }} ctx
+ *   `verbOf` means what it means for `buildRoomProse`; the dossier clause covers
+ *   every actor the entity's own rows name (so a victim's paragraph carries its
+ *   attacker's body — the same clause the room says, never a different one).
  * @returns {{ text: string, entryCount: number }} - `entryCount` counts the
  *   entries that said something about this entity (the entity counterpart of
  *   the room paragraph's entry count); `text` is '' when nothing named it.
  */
-export function buildEntityProse({ entries = null, entityId = null, entityName = null } = {}) {
+export function buildEntityProse({ entries = null, entityId = null, entityName = null, lookOf = null, verbOf = null } = {}) {
     const who = typeof entityId === 'string' ? entityId.trim() : '';
     const name = typeof entityName === 'string' && entityName.trim() !== '' ? entityName.trim() : null;
     if (!who) return { text: '', entryCount: 0 };
     const sentences = [];
+    const seen = new Set();
     let entryCount = 0;
     for (const entry of entries ?? []) {
         if (!entry || typeof entry !== 'object') continue;
         const selected = selectEntityRows(entry, who, name);
         if (!selected.rowCount) continue;
-        const clauses = entryClauses(selected.entry);
+        const dossiers = [];
+        const clauses = entryClauses(selected.entry, lookOf, { verbOf, seen, dossiers });
+        for (const dossier of dossiers) sentences.push(`${capitalizeFirst(dossier)}.`);
         if (!clauses.length) continue;
         const body = assemble(clauses, { firstWordLower: false });
         if (!body) continue;

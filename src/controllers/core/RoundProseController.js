@@ -22,8 +22,11 @@
  *   - pure reader: never mutates world state, never owns a tick (the tick
  *     clock is the turn system's; the reader only queries it);
  *   - reads through the facade's public read wrappers only (`getRooms`,
- *     `getPerceptionDeltasForRoom`) plus the facade's direct `turnSystemController`
- *     property (`getRoundWindow`);
+ *     `getPerceptionDeltasForRoom`, `getEntity`, `getActionRegistry`) plus the
+ *     facade's direct `turnSystemController` property (`getRoundWindow`);
+ *   - the actor's body it narrates is never read from the world: it is the
+ *     `body` recorded on the action row at the round's flush, so a closed round
+ *     re-rendered tomorrow says what it said today.
  *   - no `getAll()` — this is a reader's derived view, not world state, so it
  *     must never appear in the full-state broadcast aggregate (see the comments
  *     on perceptionController / roomChatController in WorldComposition.js);
@@ -36,6 +39,15 @@
  * window (ROUND_PROSE_HISTORY_LIMIT, in memory, cleared on reset/restore).
  * Beyond both horizons the reader returns `null` — "out of recent history", not
  * an error.
+ *
+ * Two resolvers are handed to the builder per read, each built once per request
+ * and each a lookup over data the reader already has: the material owner says how
+ * a part looks (`_lookResolver`), and the action registry says what an act is
+ * called (`_verbResolver` — prose owns no verbs at all). What an actor is built of
+ * needs no resolver here: the perception flush records it on the action row
+ * itself (`PerceptionController._actorBody`), so the dossier clause is a field of
+ * the row, true in the tenth re-reading as in the first. Without the resolvers
+ * the prose is the paragraph this server wrote before they existed.
  *
  * @module RoundProseController
  */
@@ -193,7 +205,9 @@ class RoundProseController {
         const { text, entryCount } = buildEntityProse({
             entries: collected.entries,
             entityId,
-            entityName: name
+            entityName: name,
+            lookOf: this._lookResolver(),
+            verbOf: this._verbResolver()
         });
         return {
             round: window.round,
@@ -240,7 +254,13 @@ class RoundProseController {
             roomId,
             room: resolved.name,
             entryCount: entries.length,
-            text: buildRoomProse({ entries, roomName: resolved.name, room: rooms[resolved.uid] ?? null })
+            text: buildRoomProse({
+                entries,
+                roomName: resolved.name,
+                room: rooms[resolved.uid] ?? null,
+                lookOf: this._lookResolver(),
+                verbOf: this._verbResolver()
+            })
         };
     }
 
@@ -298,9 +318,59 @@ class RoundProseController {
         return { entries: found.map((row) => row.entry), name };
     }
 
+    /**
+     * The material-look resolver for prose: component type -> look words ("pale
+     * pink, satin, translucent"), or null when there is nothing to resolve with.
+     *
+     * Built ONCE per request: `getComponentMaterialsByType()` rebuilds and clones
+     * the whole composition map, so the paragraph gets a plain lookup per part and
+     * never a re-scan (`PERF-4`). Null-tolerant like every other prose input — an
+     * unwired material owner answers with no look clause at all, which is the
+     * paragraph this server produced before appearance existed.
+     *
+     * @returns {((componentType: string) => string|null)|null}
+     * @private
+     */
+    _lookResolver() {
+        const facade = this._worldStateController;
+        const materialController = facade?.materialController;
+        if (!materialController || typeof materialController.describeCompositionLook !== 'function') return null;
+        const byType = facade.componentController?.getComponentMaterialsByType?.() ?? null;
+        if (!byType) return null;
+        return (componentType) => materialController.describeCompositionLook(byType[componentType]);
+    }
+
+    /**
+     * The action-wording resolver for prose: action name -> that action's `prose`
+     * block in the action registry (data/mods/core-actions/actions.json).
+     *
+     * The prose has no verbs of its own (`wiki/decisions/action-prose.md`): the
+     * registry is the only source, so a shipped action needs no code to be
+     * narrated. The registry's `description` is NOT used here — it is written for
+     * the actor ("Advance your droid … using your rolling wheels") and belongs to
+     * the actor's own available-actions list.
+     *
+     * Built ONCE per request (a plain lookup over the registry, `PERF-4`), and
+     * null-tolerant like every prose input: with no registry wired, an action
+     * clause falls back to "did <action>" — the act happened, its wording is
+     * simply not available to this reader.
+     * @returns {((action: string) => Object|null)|null}
+     * @private
+     */
+    _verbResolver() {
+        const registry = this._worldStateController?.getActionRegistry?.() ?? null;
+        if (!registry || typeof registry !== 'object') return null;
+        return (action) => {
+            const prose = registry[action]?.prose;
+            return prose && typeof prose === 'object' ? prose : null;
+        };
+    }
+
     /** All rooms of the world with at least one entry in the round window. */
     _collectRoundRooms(facade, window) {
         const rooms = facade.getRooms?.() ?? {};
+        const lookOf = this._lookResolver();
+        const verbOf = this._verbResolver();
         const out = {};
         for (const [roomId, room] of Object.entries(rooms)) {
             const name = room.name ?? roomId;
@@ -313,7 +383,7 @@ class RoundProseController {
             }
             out[roomId] = {
                 name,
-                text: buildRoomProse({ entries, roomName: name, room }),
+                text: buildRoomProse({ entries, roomName: name, room, lookOf, verbOf }),
                 entryCount: entries.length
             };
         }

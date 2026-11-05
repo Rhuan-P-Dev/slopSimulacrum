@@ -778,6 +778,14 @@ class PerceptionController {
             const records = store.listFor(entityId);
             if (!records || records.size === 0) continue;
             const seen = this._lastActionSeen.get(entityId) ?? 0;
+            // The actor's body, resolved at most once per entity per flush and
+            // copied into each row (rows never share the array, so no reader can
+            // mutate a sibling's body through its own).
+            let bodyCache;
+            const bodyOf = () => {
+                if (bodyCache === undefined) bodyCache = this._actorBody(entityId, snap);
+                return bodyCache ? bodyCache.map((part) => ({ ...part })) : null;
+            };
             let maxTs = seen;
             for (const [actionName, record] of records) {
                 const ts = record?.timestamp ?? 0;
@@ -794,6 +802,7 @@ class PerceptionController {
                     name: snap?.name ?? entityId,
                     action: actionName,
                     used,
+                    body: bodyOf(),
                     target: this._resolvePerceivedTarget(record?.target, current),
                     tick: record?.tick ?? null,
                     round: record?.round ?? null,
@@ -804,6 +813,126 @@ class PerceptionController {
         }
         entry.actions = { performed };
         entry.counts.actions = performed.length;
+    }
+
+    /**
+     * What the acting entity is built of, recorded on every `actions.performed`
+     * row of that flush: `[{ type, identifier }]` in the entity's own component
+     * order, or null when nothing names a part.
+     *
+     * Why the WRITER records it (`wiki/decisions/action-prose.md`): a round's
+     * action rows are flushed only after the round has resolved, so by the time any
+     * reader asks, the round is closed and the actor may already have lost (or
+     * grown) parts. A prose that read the body at render time would describe
+     * today's body inside yesterday's sentence; recorded at the flush, the sentence
+     * says what was true when the act became observable — and a row written before
+     * the field existed simply carries no dossier, never a reconstructed one.
+     *
+     * The live entity is the source because it carries the blueprint placement —
+     * `identifier` and `dependsOn` — that says WHICH arm threw the punch and what
+     * hangs off what; the room snapshot keeps only `{ type, stats }` per component.
+     * An actor already gone falls back to its snapshot row (types, no placement),
+     * and an actor with no parts in either yields null — the prose then says nothing
+     * about a body.
+     *
+     * Each entry is `{ type, identifier, shallow }`. `identifier` is the part's OWN
+     * label, not the blueprint chain: the chain a component carries is its own label
+     * with its parent's appended (a nail is "tip_f1_hand_left"), and a sentence that
+     * recites the ancestry says twice what it already said ("Male Nail (tip toe5
+     * foot frontal right)"). `shallow` is the same structural fact seen from the
+     * other side: the part hangs off nothing, or off the body's own root. The prose
+     * reads only the shallow ones (a human's 78 parts become head, torso, breasts,
+     * arms, genitals, legs), and the filter is structural on purpose — a string rule
+     * on the identifier cannot tell "frontal_left" (a leg's own label) from
+     * "left_top" (an eyebrow inside a head).
+     *
+     * @param {string} entityId - the actor
+     * @param {Object|null} snap - this room's snapshot row for the actor
+     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean }>|null}
+     * @private
+     */
+    _actorBody(entityId, snap) {
+        const components = this._facade?.getEntity?.(entityId)?.components;
+        if (Array.isArray(components)) {
+            const body = this._bodyRecord(components);
+            if (body) return body;
+        }
+        const fromSnapshot = [];
+        for (const comp of Object.values(snap?.components ?? {})) {
+            const type = typeof comp?.type === 'string' ? comp.type.trim() : '';
+            if (type) fromSnapshot.push({ type, identifier: null, shallow: true });
+        }
+        return fromSnapshot.length ? fromSnapshot : null;
+    }
+
+    /**
+     * The `{ type, identifier, shallow }` rows for one entity's component list, in
+     * that list's own order (the body's order, not an alphabetical one — two worlds
+     * built the same way say the parts in the same order, DETERMINISM).
+     * @param {Array} components - the entity's live components
+     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean }>|null}
+     * @private
+     */
+    _bodyRecord(components) {
+        const byId = new Map();
+        for (const comp of components) {
+            if (comp && typeof comp.id === 'string' && comp.id) byId.set(comp.id, comp);
+        }
+        const body = [];
+        for (const comp of components) {
+            const type = typeof comp?.type === 'string' ? comp.type.trim() : '';
+            if (!type) continue;
+            const parent = this._bodyParent(comp, byId);
+            body.push({
+                type,
+                identifier: this._ownBodyLabel(comp, parent),
+                // Shallow = one mount deep at most: it hangs off nothing (a root),
+                // off a part no longer in this body (a wreck whose arm was torn off
+                // still reports the stump), or off a root itself — the head, the
+                // torso, an arm. Two mounts deep (a finger on an arm, an eyebrow on
+                // a head) is detail the sentence does not read out.
+                shallow: !parent || !this._bodyParent(parent, byId)
+            });
+        }
+        return body.length ? body : null;
+    }
+
+    /**
+     * The component this one is mounted on, from its `dependsOn` (first dependency
+     * that still exists in the body), or null for a root / an orphan.
+     * @param {Object} comp
+     * @param {Map<string, Object>} byId
+     * @returns {Object|null}
+     * @private
+     */
+    _bodyParent(comp, byId) {
+        for (const depId of Array.isArray(comp?.dependsOn) ? comp.dependsOn : []) {
+            const parent = typeof depId === 'string' ? byId.get(depId) : null;
+            if (parent) return parent;
+        }
+        return null;
+    }
+
+    /**
+     * The part's own label: its blueprint `identifier` with the parent's identifier
+     * removed from the tail, because the chain is built as `<own>_<parent…>` (a nail
+     * "tip_f1_hand_left" under a finger "f1_hand_left" is "tip"). A label with no
+     * parent suffix in it is returned whole — "frontal_left" is a leg's OWN label,
+     * not a leg inside a left.
+     * @param {Object} comp
+     * @param {Object|null} parent
+     * @returns {string|null}
+     * @private
+     */
+    _ownBodyLabel(comp, parent) {
+        const raw = typeof comp?.identifier === 'string' ? comp.identifier.trim() : '';
+        if (!raw) return null;
+        const parentIdf = typeof parent?.identifier === 'string' ? parent.identifier.trim() : '';
+        if (parentIdf && raw.length > parentIdf.length + 1 && raw.endsWith(`_${parentIdf}`)) {
+            const own = raw.slice(0, raw.length - parentIdf.length - 1);
+            if (own) return own;
+        }
+        return raw;
     }
 
     /**
