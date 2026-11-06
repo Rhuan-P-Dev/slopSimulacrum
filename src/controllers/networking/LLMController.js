@@ -1,5 +1,6 @@
 import Logger from '../../utils/Logger.js';
 import { LLMError } from '../../utils/CustomErrors.js';
+import { requestJson } from '../../utils/HttpClient.js';
 import {
     LLM_DEFAULT_ENDPOINT,
     LLM_DEFAULT_MODEL,
@@ -75,6 +76,12 @@ function projectErrorCause(cause, depth = 0) {
  * It abstracts the HTTP requests and ensures that the communication follows
  * the OpenAI Chat Completion pattern.
  *
+ * Transport: {@link module:utils/HttpClient.requestJson} — a `node:http` /
+ * `node:https` JSON client behind a fetch-shaped call — injected through the
+ * constructor. `globalThis.fetch` is deliberately NOT used here: it caps a
+ * non-streaming response at ~300s with no knob, which silently overrode
+ * `LLM_TIMEOUT_MS`. There is still no LLM SDK (`wiki/decisions/llm-transport.md`).
+ *
  * Design Decision: By centralizing LLM communication in this controller, we ensure
  * a single source of truth for the API schema and simplify the process of
  * switching LLM providers or updating the API version.
@@ -115,15 +122,12 @@ function projectErrorCause(cause, depth = 0) {
  *                   the default.
  *                   Default: 30000
  *
- *                   Caveat (measured, Node 24.13.1): a budget above ~300s is
- *                   NOT the ceiling for a non-streaming response. The HTTP
- *                   client underneath `fetch` gives up waiting for response
- *                   headers at ~300s (`UND_ERR_HEADERS_TIMEOUT`), and that
- *                   arrives as `LLM_REQUEST_ERROR` / `fetch failed`, never as
- *                   `LLM_TIMEOUT`. Raising this value past ~300s therefore does
- *                   nothing until the transport timeout itself moves, which the
- *                   Node global `fetch` exposes no knob for (init options
- *                   `headersTimeout`/`bodyTimeout` are ignored; measured).
+ *                   This budget is the real ceiling: the transport applies no
+ *                   separate header cutoff and its one deadline is the signal
+ *                   built from this value (`src/utils/HttpClient.js`). Under
+ *                   Node's global `fetch` it was not — anything above ~300s was
+ *                   cut off by the transport at 300s and arrived as
+ *                   `LLM_REQUEST_ERROR` / `fetch failed`, never `LLM_TIMEOUT`.
  *
  * ---------------------------------------------------------------------------
  * FAILURE LOGGING
@@ -140,6 +144,17 @@ function projectErrorCause(cause, depth = 0) {
  * ---------------------------------------------------------------------------
  */
 class LLMController {
+    /**
+     * @param {Object} [options]
+     * @param {Function} [options.transport] - the fetch-shaped JSON transport
+     *   `(url, init) => Promise<{ ok, status, statusText, json, text }>`. Defaults
+     *   to {@link module:utils/HttpClient.requestJson}. Tests inject a fake here
+     *   instead of patching `globalThis.fetch`, which the seam no longer calls.
+     */
+    constructor({ transport = requestJson } = {}) {
+        this._transport = transport;
+    }
+
     /**
      * Configuration getters.
      *
@@ -357,7 +372,10 @@ class LLMController {
         try {
             Logger.debug(`[LLMController] Request payload:\n${JSON.stringify(payload, null, 2)}`);
 
-            const response = await fetch(LLMController.LLM_ENDPOINT, {
+            // CR E-5 (bounded external call): the caller's signal is this call's
+            // only deadline, and the transport is built to honor it — unlike
+            // globalThis.fetch, see src/utils/HttpClient.js.
+            const response = await this._transport(LLMController.LLM_ENDPOINT, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload),

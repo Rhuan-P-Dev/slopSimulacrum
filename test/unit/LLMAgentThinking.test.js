@@ -56,9 +56,10 @@ function makeWorld(entity) {
 /**
  * An agent whose LLM call records the options it was issued.
  * With `useRealLLM`, the collaborator is the real LLMController instead, so the
- * round runs all the way to fetch (see the wire test, which stubs fetch itself).
+ * round runs all the way to the transport (see the wire test, which injects its
+ * own fetch-shaped `transport` instead of patching `globalThis.fetch`).
  */
-function makeAgent(world, { useRealLLM = false } = {}) {
+function makeAgent(world, { useRealLLM = false, transport = undefined } = {}) {
     const calls = [];
     const capturingLLM = {
         chatFull: async (messages, options) => {
@@ -72,7 +73,7 @@ function makeAgent(world, { useRealLLM = false } = {}) {
         }
     };
     const agent = new LLMAgentController({
-        llmController: useRealLLM ? new LLMController() : capturingLLM,
+        llmController: useRealLLM ? new LLMController({ transport }) : capturingLLM,
         worldStateController: world,
         llmContextController: { buildContext: () => ({ text: '=== ROOM ===\nMain Room' }) },
         roomChatController: {
@@ -152,12 +153,13 @@ describe(`LLMAgentController - thinking gate (${GATE_VAR})`, () => {
         expect(calls.map((c) => c.options.thinkingEnabled)).toEqual([true, false]);
     });
 
-    it('reaches the wire: a round over a real LLMController bodies the kwarg (fetch captured)', async () => {
+    it('reaches the wire: a round over a real LLMController bodies the kwarg (transport captured)', async () => {
         // The seam the option-level pins cannot see: between the round's options
         // and the HTTP body sits LLMController, which could drop the field. Stubbed
-        // at fetch, so this is the whole path offline - round, options, payload.
+        // at the transport seam, so this is the whole path offline - round, options,
+        // payload.
         const bodies = [];
-        const fetchStub = async (_url, init) => {
+        const transportStub = async (_url, init) => {
             bodies.push(JSON.parse(init.body));
             return {
                 ok: true,
@@ -169,18 +171,12 @@ describe(`LLMAgentController - thinking gate (${GATE_VAR})`, () => {
                 text: async () => '{}'
             };
         };
-        const realFetch = globalThis.fetch;
-        globalThis.fetch = fetchStub;
-        try {
-            const { agent } = makeAgent(makeWorld(NPC_ENTITY), { useRealLLM: true });
+        const { agent } = makeAgent(makeWorld(NPC_ENTITY), { useRealLLM: true, transport: transportStub });
 
-            process.env[GATE_VAR] = 'false';
-            await agent.runRound(NPC_ID, 0);
-            process.env[GATE_VAR] = 'true';
-            await agent.runRound(NPC_ID, 1);
-        } finally {
-            globalThis.fetch = realFetch;
-        }
+        process.env[GATE_VAR] = 'false';
+        await agent.runRound(NPC_ID, 0);
+        process.env[GATE_VAR] = 'true';
+        await agent.runRound(NPC_ID, 1);
 
         expect(bodies).toHaveLength(2);
         expect(bodies[0].chat_template_kwargs).toEqual({ enable_thinking: false });
