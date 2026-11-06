@@ -259,7 +259,11 @@ way nobody can debug".
   `[enforced: review]`
 - **E-5 — Timeouts on everything external.** Every outbound `fetch` (provider call, any
   second HTTP seam) `MUST` carry an `AbortSignal` — `AbortSignal.timeout(ms)` when there
-  is no caller-controlled controller, otherwise the caller's signal. `[enforced: eslint]`
+  is no caller-controlled controller, otherwise the caller's signal. The rule text names
+  `fetch`; the discipline is about external calls, so a transport that is not `fetch`
+  obeys the same thing — the LLM seam passes the caller's signal and sets no timeout of
+  its own (`src/utils/HttpClient.js`, `wiki/decisions/llm-transport.md`).
+  `[enforced: eslint]`
 - **E-6 — Retry discipline.** `MUST` retry only idempotent operations, only transient
   classes (`429`, `5xx`, network), with exponential backoff **plus jitter**, a bounded
   attempt count, and a deadline that respects the caller's `AbortSignal`. `MUST NOT`

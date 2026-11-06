@@ -59,8 +59,11 @@ committed file, translate it in a separate commit that touches nothing else.
   shapes, light JSDoc), not a type system.
 - **Runtime dependencies:** exactly three, all deliberate — `express` (the REST/HTTP
   surface), `socket.io` (the realtime channel), `dotenv` (loads `.env` at boot).
-  **LLM access goes through plain `fetch` against an OpenAI-compatible chat-completions
-  endpoint — there is no LLM SDK dependency.** Do not add one to "simplify" a call.
+  **LLM access goes through a `node:http` JSON client behind a fetch-shaped seam
+  (`src/utils/HttpClient.js`) against an OpenAI-compatible chat-completions endpoint —
+  there is no LLM SDK dependency, and no `globalThis.fetch` in the LLM path.** Node's
+  `fetch` cut a non-streaming response at ~300 s with no knob, silently overriding
+  `LLM_TIMEOUT_MS` (`wiki/decisions/llm-transport.md`). Do not add an SDK to "simplify" a call.
 - **LLM prompt kinds** (RP-1) live in the networking controllers — each kind is a
   named decision, not an ad-hoc `fetch`: `chat` (`LLMController.chat`,
   `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
@@ -243,8 +246,9 @@ Two stack-level prohibitions, since they are decisions rather than code style:
 - **No new runtime dependency** without the vetting in `CODE_RULES.md` `SEC-8`. The
   runtime set (express, socket.io, dotenv) is already paid for; do not spend more on it.
 - **No replacement of the Express 5 + Socket.IO surface** (and no swap of LLM access
-  to an SDK) on your own initiative. The `fetch`-against-an-OpenAI-compatible-endpoint
-  choice is deliberate; overturning it is a discussion and a decision, not a refactor.
+  to an SDK) on your own initiative. The OpenAI-compatible endpoint, reached over the
+  repo's own `node:http` client, is the deliberate shape; overturning either is a
+  discussion and a decision, not a refactor (`wiki/decisions/llm-transport.md`).
 
 ## Ambiguity: ask, do not guess (hard rule)
 
