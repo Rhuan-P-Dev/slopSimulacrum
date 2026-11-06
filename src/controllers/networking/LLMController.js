@@ -115,6 +115,16 @@ function projectErrorCause(cause, depth = 0) {
  *                   the default.
  *                   Default: 30000
  *
+ *                   Caveat (measured, Node 24.13.1): a budget above ~300s is
+ *                   NOT the ceiling for a non-streaming response. The HTTP
+ *                   client underneath `fetch` gives up waiting for response
+ *                   headers at ~300s (`UND_ERR_HEADERS_TIMEOUT`), and that
+ *                   arrives as `LLM_REQUEST_ERROR` / `fetch failed`, never as
+ *                   `LLM_TIMEOUT`. Raising this value past ~300s therefore does
+ *                   nothing until the transport timeout itself moves, which the
+ *                   Node global `fetch` exposes no knob for (init options
+ *                   `headersTimeout`/`bodyTimeout` are ignored; measured).
+ *
  * ---------------------------------------------------------------------------
  * FAILURE LOGGING
  * ---------------------------------------------------------------------------
