@@ -15,6 +15,11 @@ import fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import path from 'node:path';
 import DataLoader from '../../src/utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+import ComponentStatsController from '../../src/controllers/core/componentStatsController.js';
+import TraitsController from '../../src/controllers/traits/TraitsController.js';
+import ComponentController from '../../src/controllers/core/componentController.js';
+import EntityController from '../../src/controllers/core/entityController.js';
 import AgentBodyController, {
     CardNotFoundError,
     DesignValidationError,
@@ -286,6 +291,45 @@ describe('AgentBodyController', () => {
             expect(lastMessages[1].content).toContain(
                 'base the design on the name alone'
             );
+        });
+
+        it('keeps what a mount declared about itself, and says nothing for a mount that did not', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.structure.children[1].hidesWithParent = true;
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+
+            const result = await controller.designBody(MINAKO_STEM);
+
+            const marked = result.body.structure.children[1];
+            expect(marked.component).toBe('m1Leg');
+            expect(marked.hidesWithParent, 'the mark rides on the node the client and the writer both read')
+                .toBe(true);
+            // Absent, not false: a live instance carries the mark or nothing at all
+            // (`entityController.createEntityFromBlueprint`), and a written `false`
+            // is a second claim about a joint the data answers by silence.
+            expect('hidesWithParent' in result.body.structure.children[0]).toBe(false);
+            expect(result.body.structure.hidesWithParent, 'the root authored nothing either').toBeUndefined();
+        });
+
+        it('rejects a mount mark that is not a boolean', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.structure.children[1].hidesWithParent = 'yes';
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+
+            const error = await awaitThrown(controller.designBody(MINAKO_STEM));
+
+            expect(error).toBeInstanceOf(DesignValidationError);
+            expect(error.errors.join(' ')).toMatch(/hidesWithParent/);
+        });
+
+        it('says in the prompt what the mark means and where it belongs', async () => {
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            await controller.designBody(MINAKO_STEM);
+
+            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            expect(system).toContain('"hidesWithParent"');
+            expect(system, 'the model is told what the mark does to the prose')
+                .toMatch(/behind whatever covers/i);
         });
 
         it('rejects with CARD_NOT_FOUND when no card PNG matches', async () => {
@@ -595,6 +639,44 @@ describe('AgentBodyController', () => {
                 const scratchFiles = fsSync.readdirSync(scratchDir);
                 expect(scratchFiles.some((f) => /blueprints\.json\.bak-\d+/.test(f))).toBe(true);
                 expect(scratchFiles.some((f) => /components\.json\.bak-\d+/.test(f))).toBe(true);
+            } finally {
+                cleanupScratch();
+            }
+        });
+
+        it('writes a mount mark as the third element of the mount, in the shape the world reads', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            // One marked mount with a slot, one without. The slotless one is the
+            // interesting case: the mark is the THIRD element of the mount, so a
+            // marked joint with no slot has to say the identifier `expandBlueprint`
+            // itself would have given it - never invent a body position to carry a mark.
+            design.structure.children[0].hidesWithParent = true;  // m1Head, no slot
+            design.structure.children[3].hidesWithParent = true;  // m1Toe, 'back'
+            seedScratch();
+            try {
+                await controller.saveDesign(design);
+
+                const bl = readScratchBlueprints();
+                expect(bl.m1CentralBody).toEqual([
+                    ['m1Head', 'default', { hidesWithParent: true }],
+                    ['m1Leg', 'frontal_left'],
+                    ['m1Leg', 'frontal_right'],
+                    ['m1Toe', 'back', { hidesWithParent: true }]
+                ]);
+
+                // The shape the design WRITES is the shape the live world READS:
+                // instantiate the saved blueprint with the real EntityController,
+                // over the saved file - not over a row this test typed by hand.
+                const spawned = new EntityController(
+                    new ComponentController(
+                        new ComponentStatsController(),
+                        new TraitsController({}),
+                        DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)
+                    ),
+                    bl
+                ).createEntityFromBlueprint('minakoRunner');
+                expect(spawned.components.filter((c) => c.hidesWithParent === true).map((c) => c.type).sort())
+                    .toEqual(['m1Head', 'm1Toe']);
             } finally {
                 cleanupScratch();
             }

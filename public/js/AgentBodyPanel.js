@@ -13,6 +13,12 @@
  *     be persisted into the world (blueprint registry + component recipes).
  *     The server re-validates and decides on collisions (overwrite, with a
  *     timestamped backup); a reload makes the new blueprint visible.
+ *   - the tree is editable in one place: each non-root node carries a "hides with
+ *     parent" tick box, the mount mark the world reads to keep a part out of the
+ *     round prose while the part it hangs on is under cloth. Save posts the
+ *     EDITED design (a working copy of the server's body), not the raw model
+ *     answer: the operator has the last word on a joint, and the model proposed
+ *     it, it did not decide it.
  *
  * No design on open (an LLM call costs; the Agent View re-fetches for free,
  * this one does not). Save is a deliberate, separate click — it writes
@@ -31,6 +37,10 @@ export class AgentBodyPanel {
         this._designButton = null;
         this._saveButton = null;
         this._lastDesign = null;
+        // The design Save will post: a working copy of the server's body, editable
+        // in the tree. `_lastDesign` stays the raw response - the "Raw response"
+        // section shows it, and it must stay exactly what the model said.
+        this._workingDesign = null;
         this._saveInFlight = false;
         this._status = null;
         this._body = null;
@@ -85,6 +95,9 @@ export class AgentBodyPanel {
         layout.append(this._status, this._body);
         this._content.append(layout);
 
+        // One delegated listener for every mount tick box: the tree is re-rendered
+        // as HTML strings, so a per-node listener would leak on each design.
+        this._body.addEventListener('change', (event) => this._onMountToggle(event));
         this._picker.addEventListener('change', () => this._toggleDesignEnabled());
         this._designButton.addEventListener('click', () => void this._design());
         this._saveButton.addEventListener('click', () => void this._save());
@@ -219,8 +232,10 @@ export class AgentBodyPanel {
 
     async _save() {
         if (this._saveInFlight) return;
-        const design = this._lastDesign;
-        if (!design || !design.body || typeof design.body !== 'object') return;
+        // What is saved is the WORKING design: the model proposed the body, the
+        // operator's tick boxes decide what hangs behind its cloth.
+        const design = this._workingDesign;
+        if (!design || typeof design !== 'object') return;
         this._saveInFlight = true;
         this._saveButton.disabled = true;
         this._setStatus('Saving the body to the world…');
@@ -262,7 +277,7 @@ export class AgentBodyPanel {
 
     _toggleSaveEnabled() {
         if (!this._saveButton) return;
-        this._saveButton.disabled = this._saveInFlight || !this._lastDesign;
+        this._saveButton.disabled = this._saveInFlight || !this._workingDesign;
     }
 
     // ---------------------------------------------------------------- render
@@ -273,6 +288,11 @@ export class AgentBodyPanel {
         // The Save action persists the LAST successful design (its body). On an
         // error placeholder we clear it so a stale design can never be saved.
         this._lastDesign = p;
+        // A mutable copy of the design, so the tree tick boxes can change what Save
+        // posts. Cleared with the design: a stale body can never be written.
+        this._workingDesign = (p && p.body && typeof p.body === 'object')
+            ? structuredClone(p.body)
+            : null;
         this._toggleSaveEnabled();
         if (!p) {
             this._body.innerHTML =
@@ -281,7 +301,9 @@ export class AgentBodyPanel {
         }
         const parts = [];
         parts.push(this._headerHtml(p.card));
-        parts.push(this._designSection(p.body));
+        // Rendered from the working copy, so what the tick boxes show is what Save
+        // posts - not what the model happened to answer.
+        parts.push(this._designSection(this._workingDesign));
         parts.push(this._callMetaSection(p.meta));
         parts.push(this._promptsSection(p.meta));
         parts.push(this._section('Raw response (JSON)', '<pre class="agent-body-pre">' + this._json(p) + '</pre>'));
@@ -316,9 +338,13 @@ export class AgentBodyPanel {
             parts.push('<p class="agent-body-rationale">' + this._esc(body.rationale) + '</p>');
         }
         const tree = body.structure && typeof body.structure === 'object'
-            ? this._treeHtml(body.structure)
+            ? this._treeHtml(body.structure, '')
             : '<p class="agent-body-error">malformed structure</p>';
-        parts.push('<p class="agent-body-subtitle">Body tree</p>' + tree);
+        parts.push(
+            '<p class="agent-body-subtitle">Body tree</p>' +
+            '<p class="agent-body-note">Tick "hides with parent" on a part that cloth covers: while the part it hangs on wears a garment, the world does not name it. Save writes what you ticked.</p>' +
+            tree
+        );
         const recipes = Array.isArray(body.components) ? body.components : [];
         if (recipes.length > 0) {
             parts.push(this._section('New components (' + recipes.length + ' — not in the world yet)',
@@ -329,7 +355,17 @@ export class AgentBodyPanel {
         return '<section class="agent-body-section">' + parts.join('') + '</section>';
     }
 
-    _treeHtml(node) {
+    /**
+     * One node of the body tree, plus the tick box that authors its mount.
+     *
+     * `path` locates the node inside `_workingDesign.structure` (`children.2.children.0`);
+     * the root hangs on nothing, so it gets no tick box - a mark there could only
+     * ever mean nothing, and a control that does nothing is a lie about the data.
+     * @param {Object} node
+     * @param {string} path '' for the root, else the steps from the root
+     * @returns {string}
+     */
+    _treeHtml(node, path) {
         if (!node || typeof node !== 'object' || Array.isArray(node)) {
             return '<span class="agent-body-error">malformed node</span>';
         }
@@ -340,11 +376,70 @@ export class AgentBodyPanel {
         return (
             '<div class="agent-body-node">' +
             '<span class="agent-body-component">' + this._esc(node.component) + '</span>' + slot +
+            (path ? this._mountToggleHtml(path, node.hidesWithParent === true) : '') +
             (children.length > 0
-                ? '<ul class="agent-body-subtree">' + children.map((c) => this._treeHtml(c)).join('') + '</ul>'
+                ? '<ul class="agent-body-subtree">' +
+                  children.map((child, i) => this._treeHtml(child, path ? path + '.children.' + i : 'children.' + i)).join('') +
+                  '</ul>'
                 : '') +
             '</div>'
         );
+    }
+
+    /**
+     * The "hides with parent" tick box for one mount (`hidesWithParent`, the mark
+     * `entityController` reads onto the instance and `PerceptionController._coveredIds`
+     * turns into prose coverage).
+     * @param {string} path
+     * @param {boolean} checked
+     * @returns {string}
+     */
+    _mountToggleHtml(path, checked) {
+        return '<label class="agent-body-hides" title="This part hangs behind whatever covers the part it hangs on">' +
+            '<input type="checkbox" data-mount-path="' + this._esc(path) + '"' + (checked ? ' checked' : '') + '>' +
+            ' hides with parent</label>';
+    }
+
+    /**
+     * A tick box changed: write the mark onto the working design (absent, not
+     * false - the same rule the world follows for a live instance).
+     * @param {Event} event
+     */
+    _onMountToggle(event) {
+        const input = event.target;
+        if (!input || input.type !== 'checkbox' || !input.dataset || !input.dataset.mountPath) return;
+        const node = this._nodeAtPath(input.dataset.mountPath);
+        if (!node) return;
+        if (input.checked) {
+            node.hidesWithParent = true;
+        } else {
+            delete node.hidesWithParent;
+        }
+        this._setStatus(
+            'Mount edited: "' + node.component + '" ' + (input.checked ? 'now hides' : 'no longer hides') +
+            ' with its parent. Save to write it.'
+        );
+    }
+
+    /**
+     * The design node at `path` (`children.2.children.0`), or null. Paths are the
+     * ones this panel generated, so an unparseable one is a bug, not input: it
+     * resolves to null and nothing is written.
+     * @param {string} path
+     * @returns {Object|null}
+     */
+    _nodeAtPath(path) {
+        const structure = this._workingDesign && this._workingDesign.structure;
+        if (!structure || typeof path !== 'string' || path === '') return null;
+        const steps = path.split('.');
+        let node = structure;
+        for (let i = 0; i < steps.length; i += 2) {
+            if (steps[i] !== 'children') return null;
+            const index = Number(steps[i + 1]);
+            node = (Array.isArray(node.children) ? node.children[index] : null) || null;
+            if (!node || typeof node !== 'object') return null;
+        }
+        return node;
     }
 
     _componentCard(component) {

@@ -223,6 +223,20 @@
     padding-left: 6px;
 }
 
+/* The mount's own declaration: "this part hangs behind whatever covers its
+   parent" (`hidesWithParent`). Per joint, so it sits on the row, not in the
+   recipe list. */
+.agent-body-hides {
+    display: inline-block;
+    margin-left: 8px;
+    color: var(--text-dim, #aaa);
+    font-size: 0.8em;
+    cursor: pointer;
+}
+.agent-body-hides input {
+    accent-color: var(--neon-green, #00ff00);
+}
+
 /* New component recipes — the part of the design that would be new world data
    if applied. */
 .agent-body-recipe {

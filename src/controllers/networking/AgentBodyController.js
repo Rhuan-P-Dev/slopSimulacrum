@@ -28,7 +28,12 @@
  * because the precision reasoning model counts thinking tokens against that cap
  * and a small budget truncates the design. The LLM timeout is the seam's
  * REQUEST_TIMEOUT_MS (env LLM_TIMEOUT_MS), matching /llm/chat — no second
- * timeout knob. See wiki/decisions/agent-body-design.md.
+ * timeout knob. A designed mount carries what hangs behind its cloth: a node may
+ * declare `hidesWithParent`, and `saveDesign` writes it as the third element of
+ * the blueprint mount (`["maleBreast", "left", { "hidesWithParent": true }]`), the
+ * shape the live world already reads to take a part out of the round prose when
+ * the part it hangs on is covered (`PerceptionController._coveredIds`). See
+ * wiki/decisions/agent-body-design.md.
  *
  * @module src/controllers/networking/AgentBodyController
  */
@@ -43,8 +48,25 @@ import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { performance } from 'node:perf_hooks';
 
 const PROMPT_KIND = 'agent-body-design';
-const PROMPT_VERSION = '1.2.0';
+/**
+ * v1.3.0 — a designed mount may declare `hidesWithParent`, the mark the world
+ * already reads (`data/mods/core-blueprints/blueprints.json`,
+ * `entityController.mountOptions`): the part hangs behind whatever covers the
+ * part it hangs ON, so a garment over the parent takes this part out of the
+ * round prose too (`wiki/decisions/visual-stats.md`). Before this version the
+ * mark could only be hand-written in the data file, and a design that redefined
+ * a sub-tree SILENTLY DELETED the marks already published there, because
+ * `_flattenTree` wrote `[type, slot]` and nothing else. See the decision note.
+ */
+const PROMPT_VERSION = '1.3.0';
 const SLUG_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
+/**
+ * The identifier `entityController.expandBlueprint` itself gives a mount that
+ * authored no slot (the bare-`"type"` entry). A marked mount with no slot says
+ * it explicitly, because the options object is the THIRD element of the mount
+ * and there is no fourth way to reach it — the mark never invents a slot.
+ */
+const DEFAULT_MOUNT_SLOT = 'default';
 const MAX_BODY_NODES = 16;
 const MAX_TREE_DEPTH = 8;
 const MAX_CARD_ID_LENGTH = 128;
@@ -377,10 +399,7 @@ class AgentBodyController {
             if (children.length > 0) {
                 children.forEach((child) => {
                     if (child && typeof child === 'object' && !Array.isArray(child) && typeof child.component === 'string') {
-                        mergeItems(
-                            node.component,
-                            child.slot != null ? [child.component, child.slot] : child.component
-                        );
+                        mergeItems(node.component, this._mountEntry(child));
                     }
                 });
             }
@@ -477,6 +496,7 @@ class AgentBodyController {
             '  Every node: { "component": "<name>", "slot": null|"<string>", "children": [ <node>... ] or [] }.\n' +
             '  The same component may appear multiple times (four legs, two arms).\n' +
             '  slot is a short body-position token such as "frontal_left" or "top_hand" (null when absent).\n' +
+            '  A node MAY also declare "hidesWithParent": true. It means: this part hangs BEHIND whatever covers the part it hangs on, so when that parent wears a garment the world does not name this part either. Author it on a part that cloth normally covers (a breast under a shirt), never on a head or a hand, and never on the root, which hangs on nothing. Omit it - never write false - when the part is simply a part.\n' +
             '  The whole tree must have at most ' + MAX_BODY_NODES + ' nodes.\n' +
             '- "components": the NEW component definitions you invent for this card. The AVAILABLE COMPONENTS below are only a generic base vocabulary — whenever the character has a feature that is distinctive to it (a signature weapon, role-specific gear, or unique anatomy such as a tail, crest, or special limb), define a NEW component for it so the body faithfully reflects THIS character and is not just a copy of the generic droid. Leave the array empty only when the available components already cover the character. Each new component:\n' +
             '  { "name": "<unique id, letters and digits only>",\n' +
@@ -490,7 +510,8 @@ class AgentBodyController {
             '2. "internalComponents" of a new recipe may only use AVAILABLE ORGANS.\n' +
             '3. The body is named after the card — you do NOT choose a blueprint id. Omit "blueprintId" from your JSON; the server sets it to the card\'s display name.\n' +
             '4. Keep the body compact: at most ' + MAX_BODY_NODES + ' component nodes in the tree.\n' +
-            '5. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy). The new component recipes are the judgment — the material and organ vocabulary stays fixed so the world remains deterministic.\n\n' +
+            '5. "hidesWithParent" is a fact about THIS joint in THIS body, not about the component type: the same part may hide under the cloth of one body and not under another. Use it sparingly, and only where a garment would really be in front of the part.\n' +
+            '6. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy). The new component recipes are the judgment — the material and organ vocabulary stays fixed so the world remains deterministic.\n\n' +
             'AVAILABLE COMPONENTS (' + Object.keys(this.components).length + ' types):\n' +
             componentLines + '\n\n' +
             'AVAILABLE MATERIALS:\n' +
@@ -852,6 +873,13 @@ class AgentBodyController {
                 errors.push('a body-tree slot must be null or a non-empty string');
             }
         }
+        // What the mount declares about itself (`hidesWithParent`) is a boolean or
+        // nothing. Absent is not false: the world writes the mark and never its
+        // negation (`entityController.createEntityFromBlueprint`), so a written
+        // `false` would be a second claim about a joint the data answers by silence.
+        if (node.hidesWithParent !== undefined && typeof node.hidesWithParent !== 'boolean') {
+            errors.push('a body-tree node "hidesWithParent" must be a boolean when present');
+        }
         const children = node.children;
         if (children !== undefined && children !== null) {
             if (!Array.isArray(children)) {
@@ -876,13 +904,43 @@ class AgentBodyController {
     }
 
     _normalizeTree(node) {
-        return Object.freeze({
+        const normalized = {
             component: node.component,
             slot: (node.slot == null) ? null : node.slot,
             children: (Array.isArray(node.children))
                 ? node.children.map((child) => this._normalizeTree(child))
                 : []
-        });
+        };
+        // Absent, not false - the same rule the live instance follows.
+        if (node.hidesWithParent === true) normalized.hidesWithParent = true;
+        return Object.freeze(normalized);
+    }
+
+    /**
+     * The blueprint mount entry for one design node: `"type"`, `["type", "slot"]`,
+     * or - when the mount declared it hides with its parent -
+     * `["type", "slot", { "hidesWithParent": true }]`, the shape
+     * `entityController.mountOptions` reads onto the instance.
+     *
+     * Writing that third element is the point. Before it, a design that redefined a
+     * sub-tree dropped every mark the shipped data had authored on those joints -
+     * the design spoke the body but not what hangs behind its cloth.
+     * @private
+     * @param {{ component: string, slot: string|null, hidesWithParent?: true }} child
+     * @returns {string|Array} the mount entry as `blueprints.json` stores it
+     */
+    _mountEntry(child) {
+        if (child.hidesWithParent !== true) {
+            return child.slot != null ? [child.component, child.slot] : child.component;
+        }
+        // A marked mount with no slot says the identifier `expandBlueprint` itself
+        // gives a slotless mount: the options object is the third element, and there
+        // is no other way to reach it without inventing a body position.
+        return [
+            child.component,
+            child.slot != null ? child.slot : DEFAULT_MOUNT_SLOT,
+            { hidesWithParent: true }
+        ];
     }
 
     /**

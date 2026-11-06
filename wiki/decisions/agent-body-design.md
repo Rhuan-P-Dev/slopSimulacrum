@@ -36,7 +36,8 @@ Constraints that shaped the design (all from `CODE_RULES.md`):
   built in `src/server.js` next to `llmAgentController` and exposed on the
   `WorldStateController` facade for the routes — same pattern as the Agent View
   agent).
-- New prompt kind **`agent-body-design`** (version **1.2.0**, named in the prompt
+- New prompt kind **`agent-body-design`** (version **1.3.0** — see the amendment at
+  the end of this note; named in the prompt
   itself so the model sees it; also in the module header, `AGENTS.md` and this
   decision note). The prompt carries: the anatomy facts (blueprint = component
   tree; component = form + materials + organs; volume = capacity), the full
@@ -49,7 +50,8 @@ Constraints that shaped the design (all from `CODE_RULES.md`):
   the intended way to faithfully represent the card's distinctive features; at
   most 16 body nodes).
 - The design output shape: `{ blueprintId, rationale, structure, components }`
-  where `structure` is the body tree (`{ component, slot, children }`) and
+  where `structure` is the body tree (`{ component, slot, children }`, and since v1.3.0 a
+  node may author `hidesWithParent` — see the amendment at the end of this note) and
   `components` is the list of new component recipes (name, form, materials with
   fractions summing to 1.0, internalComponents, energyCapacity). `blueprintId`
   is the card's display name (trimmed `name` field, falling back to the card stem)
@@ -182,3 +184,49 @@ spawn bullet above) so a saved blueprint becomes the living NPC's body. What
 remains is **undo semantics** — restoring a previously-overwritten body (or the
 previous registry state) if the operator changes their mind — which is a
 separate commit with its own decision note.
+
+## Amendment — the design authors what hangs behind its cloth (prompt v1.3.0)
+
+**What bit.** The world already answers "is this part under someone else's
+cloth?": a blueprint mount may carry a third element
+(`["maleBreast", "left", { "hidesWithParent": true }]`), `EntityController` reads it
+onto the instance and `PerceptionController._coveredIds` drops the part from the
+dossier sentence (`wiki/decisions/visual-stats.md`, amendment). The designer did not
+speak it. Worse than not speaking it: `_flattenTree` wrote every mount as
+`[type, slot]`, so **saving a design that redefined a sub-tree silently deleted the
+marks the shipped data had authored on those joints** — Adam's chest kept the
+t-shirt and lost the fact that the breasts hang behind it. Nothing reported it, which
+is the shape of bug this repository exists to make expensive.
+
+**The decision.** The mark is authored on the mount, in the design, by the model, and
+the operator has the last word before anything is written:
+
+- The prompt (**v1.3.0**) documents `"hidesWithParent": true` on a node: the part hangs
+  behind whatever covers the part it hangs on, so a garment over the parent takes it out
+  of the prose. The instruction says joint-not-type (the same part may hide in one body
+  and not in another), says sparingly, says never on the root, and says omit rather than
+  write `false` — the world's convention is the mark or silence
+  (`createEntityFromBlueprint`), and a written `false` would be a second claim about a
+  fact the data answers by saying nothing.
+- Validation takes a boolean or rejects (`T-1`); normalization carries `true` and drops
+  everything else, so the frozen design the client and the writer both read has one
+  shape.
+- `_mountEntry` writes the third element. A **marked mount with no slot** says
+  `[type, "default", { … }]`: the options object is index 2 of a mount, and
+  `"default"` is the identifier `expandBlueprint` itself gives a slotless mount — so the
+  mark never invents a body position, and the identifier the prose prints is unchanged.
+- The panel puts a tick box on every non-root row and **Save posts the working copy of
+  the design**, not the raw model answer. The model proposes a joint; the operator decides
+  it. The "Raw response" section still shows what the model said, unchanged.
+
+**What this does NOT do.** No inference. A component named `breast`, a slot named
+`chest`, a garment that could plausibly reach — none of it marks anything (`H-4`, and the
+rejected "garment enumerates the body" in `visual-stats.md`). And no new prose rule: the
+coverage reader, the row's `covered: true` and the dossier sentence are the shipped ones;
+this change only lets a designed body reach them.
+
+**Verified.** `npm run check`; and in `test/unit/AgentBodyController.test.js`, the design
+keeps the mark, a non-boolean is rejected, the prompt says what the mark means, and — the
+half that matters across the seam — the blueprint the Save wrote is instantiated by the
+real `EntityController` and the instances come back carrying `hidesWithParent`. The shape
+the design writes is the shape the world reads, pinned rather than assumed.
