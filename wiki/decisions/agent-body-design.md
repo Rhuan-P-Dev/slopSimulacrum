@@ -36,7 +36,7 @@ Constraints that shaped the design (all from `CODE_RULES.md`):
   built in `src/server.js` next to `llmAgentController` and exposed on the
   `WorldStateController` facade for the routes — same pattern as the Agent View
   agent).
-- New prompt kind **`agent-body-design`** (version **1.3.0** — see the amendment at
+- New prompt kind **`agent-body-design`** (version **1.4.0** — see the amendments at
   the end of this note; named in the prompt
   itself so the model sees it; also in the module header, `AGENTS.md` and this
   decision note). The prompt carries: the anatomy facts (blueprint = component
@@ -230,3 +230,58 @@ keeps the mark, a non-boolean is rejected, the prompt says what the mark means, 
 half that matters across the seam — the blueprint the Save wrote is instantiated by the
 real `EntityController` and the instances come back carrying `hidesWithParent`. The shape
 the design writes is the shape the world reads, pinned rather than assumed.
+
+## Amendment — the design dresses the body (prompt v1.4.0)
+
+**What was missing.** A designed body could be built from any parts at all and still
+be born wearing the world's default shirt, on whatever part had free volume. The
+owner asked for clothing to be settable for the components a design creates. The wear
+system already existed (`WearLogic`, pure volume fit); what did not exist was a
+per-body claim about clothing — so this change added one (`wiki/decisions/outfits.md`)
+and taught the designer to write it.
+
+**The decision.** Two new output fields, both optional, both validated against the
+world rather than trusted:
+
+- **`garments`** — new wearable ITEM recipes (`name`, optional `displayName`,
+  `form.volume`, `materials`, `wear.minVolume`, optional `visual` from the closed
+  `materialLook` vocabulary). A garment is a thing the character carries and wears:
+  never a node of `structure`. It is validated against the MATERIALS vocabulary, the
+  existing item and component keys (no collision), and the rule that a garment asks no
+  more of a body than it takes itself (`minVolume <= volume`). `displayName` is what
+  the prose will speak ("Ash-Cloaked Courier Mantle"); the key is the identifier.
+- **`outfit`** — `{ item, component }` pairs: the item must be a garment proposed in
+  the same design or one of the WEARABLE ITEMS listed in the prompt (the item registry,
+  filtered to those declaring `wear.minVolume`); the component must appear in this
+  body's tree. Bounds: 8 garments, 8 entries (nothing in this feature is unbounded).
+- **The Save writes four files**, each backed up first: components, blueprints, the
+  garment recipes into `core-inventory-items`, and this body's outfit into
+  `core-outfits` under the same blueprint key. Designing a body and dressing it are two
+  writes keyed by one thing.
+- **Saying nothing is not the same as saying "nothing".** The normalized design carries
+  `outfit` ONLY when the model authored the array. An authored `[]` is written as `[]`,
+  which the world reads as "born wearing nothing, and the spawn loadout's default shirt
+  stands down"; an absent field writes nothing, so the default stays. Absent-not-empty
+  is the convention everywhere else in this repository (a mount mark, a `covered` row),
+  and it is what lets the design object round-trip through Save without a lie: the
+  client posts back exactly what it received, and the distinction survives the trip
+  because it is carried in presence, not in a boolean.
+- The panel shows the garments and the outfit **read-only**. A mount tick box is a fact
+  about a joint the operator can see; a garment recipe is the model's judgment, and
+  hand-editing world data through a dev tab is editing the world.
+
+**What this does NOT do.** No live dressing (that is `/inventory/:id/wear/:itemId`), no
+per-instance clothing, no layers, no inference from names — and the material/organ/item
+vocabulary stays closed, so the world remains deterministic (`A-7`).
+
+**Verified.** `npm run check`; unit: the design keeps garments and an authored outfit,
+treats an absent `outfit` as no claim, rejects a garment that cannot be worn / asks more
+than its own volume / collides with `tshirt` / names an unknown material, and rejects an
+outfit naming a part the body does not have or a knife as clothing; the Save writes the
+item recipe and the outfit row (and leaves both files byte-identical when the design
+said nothing). Contract (`test/contract/outfitDesignProse.contract.test.js`): a world
+built from the shipped registries plus one designed garment and outfit speaks
+"Male Central Body wearing <the garment> (<its look>)", does NOT say the default shirt,
+and goes silent about the male breasts the shipped mounts mark as hanging behind that
+parent.
+

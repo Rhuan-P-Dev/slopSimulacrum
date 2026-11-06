@@ -99,14 +99,25 @@ function outfitForBlueprint(facade, blueprintKey) {
 
 /**
  * Does the registry clothe this body? THE question both spawn readers ask before
- * applying their default `wear` entries: a body with an outfit does not also wear
- * the world's default shirt (`wiki/decisions/agent-body-design.md`).
+ * applying their default `wear` entries: a body the registry speaks about does not
+ * also wear the world's default shirt (`wiki/decisions/agent-body-design.md`).
+ *
+ * An authored EMPTY list counts, and means what it says: born wearing NOTHING. An
+ * absent key means nobody dressed this body, and the default stays in force. That
+ * distinction is the only reason the save is allowed to write an empty outfit at all
+ * (`wiki/decisions/outfits.md`). A key whose entries are all malformed counts as
+ * nothing authored - the body falls back to the default rather than going naked
+ * because of a typo, and `outfitForBlueprint` already warned about each entry.
  * @param {import('../WorldStateController.js').default} facade
  * @param {Object|null|undefined} entity - the spawned entity record.
  * @returns {boolean}
  */
 function clothedByOutfit(facade, entity) {
-    return outfitForBlueprint(facade, entity && entity.blueprint).length > 0;
+    const blueprintKey = entity && entity.blueprint;
+    if (typeof blueprintKey !== 'string' || blueprintKey === '') return false;
+    const authored = outfitRegistry(facade)[blueprintKey];
+    if (!Array.isArray(authored)) return false;
+    return authored.length === 0 || outfitForBlueprint(facade, blueprintKey).length > 0;
 }
 
 /**

@@ -293,6 +293,100 @@ describe('AgentBodyController', () => {
             );
         });
 
+        it('dresses the body: a garment it invents and the outfit that wears it survive normalization', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.garments = [{
+                name: 'courierCloak',
+                displayName: 'Ash-Cloaked Courier Mantle',
+                form: { volume: 4 },
+                materials: [{ material: 'wood', fraction: 1.0 }],
+                wear: { minVolume: 2 },
+                visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
+            }];
+            design.outfit = [{ item: 'courierCloak', component: 'm1CentralBody' }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+
+            const result = await controller.designBody(MINAKO_STEM);
+
+            expect(result.body.garments).toEqual([{
+                name: 'courierCloak',
+                displayName: 'Ash-Cloaked Courier Mantle',
+                form: { volume: 4 },
+                materials: [{ material: 'wood', fraction: 1 }],
+                wear: { minVolume: 2 },
+                visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
+            }]);
+            expect(result.body.outfit).toEqual([{ item: 'courierCloak', component: 'm1CentralBody' }]);
+        });
+
+        it('accepts a garment the world already has, and an authored EMPTY outfit', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.outfit = [{ item: 'tshirt', component: 'm1CentralBody' }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const worn = await controller.designBody(MINAKO_STEM);
+            expect(worn.body.outfit).toEqual([{ item: 'tshirt', component: 'm1CentralBody' }]);
+
+            // Empty is a claim; absent is not. The distinction decides at spawn whether
+            // the world's default shirt is worn (`OutfitLogic.clothedByOutfit`).
+            const naked = structuredClone(HAPPY_BODY);
+            naked.outfit = [];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(naked), finishReason: 'stop' });
+            const dressedByAnEmptyList = await controller.designBody(MINAKO_STEM);
+            expect(dressedByAnEmptyList.body.outfit).toEqual([]);
+
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            const saidNothing = await controller.designBody(MINAKO_STEM);
+            expect(saidNothing.body.outfit, 'a design that never spoke authors no clothing claim')
+                .toBeUndefined();
+        });
+
+        it('rejects a garment that is not wearable, asks more than its own volume, or collides', async () => {
+            const cases = [
+                { garment: { name: 'noWear', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }] }, match: /wear\.minVolume/ },
+                { garment: { name: 'tooGreedy', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 3 } }, match: /wear\.minVolume/ },
+                { garment: { name: 'tshirt', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }, match: /collides with an existing item/ },
+                { garment: { name: 'badMatter', form: { volume: 2 }, materials: [{ material: 'unobtainium', fraction: 1 }], wear: { minVolume: 2 } }, match: /is not an available material/ }
+            ];
+            for (const { garment, match } of cases) {
+                const design = structuredClone(HAPPY_BODY);
+                design.garments = [garment];
+                fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+                const error = await awaitThrown(controller.designBody(MINAKO_STEM));
+                expect(error, garment.name).toBeInstanceOf(DesignValidationError);
+                expect(error.errors.join(' ')).toMatch(match);
+            }
+        });
+
+        it('rejects an outfit naming a part this body does not have, or an item that cannot be worn', async () => {
+            const wrongPart = structuredClone(HAPPY_BODY);
+            wrongPart.garments = [{ name: 'cloak', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }];
+            wrongPart.outfit = [{ item: 'cloak', component: 'maleTorso' }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(wrongPart), finishReason: 'stop' });
+            const partError = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(partError).toBeInstanceOf(DesignValidationError);
+            expect(partError.errors.join(' ')).toMatch(/is not a component of this body/);
+
+            const knife = structuredClone(HAPPY_BODY);
+            knife.outfit = [{ item: 'knife', component: 'm1CentralBody' }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(knife), finishReason: 'stop' });
+            const itemError = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(itemError.errors.join(' ')).toMatch(/not a wearable item/);
+        });
+
+        it('tells the model about garments, the outfit, and what the world already has to wear', async () => {
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            await controller.designBody(MINAKO_STEM);
+
+            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            expect(system).toContain('"garments"');
+            expect(system).toContain('"outfit"');
+            expect(system).toContain('WEARABLE ITEMS');
+            expect(system, 'the shipped t-shirt is offered by key, with the volume it needs')
+                .toMatch(/tshirt \(T-Shirt, needs 2 free volume\)/);
+            expect(system, 'a garment is not a body part, and the prompt says so')
+                .toMatch(/never a node of "structure"/);
+        });
+
         it('keeps what a mount declared about itself, and says nothing for a mount that did not', async () => {
             const design = structuredClone(HAPPY_BODY);
             design.structure.children[1].hidesWithParent = true;
@@ -520,6 +614,8 @@ describe('AgentBodyController', () => {
     describe('saveDesign (the "Save" action — persists a validated design)', () => {
         const SAVE_BLUEPRINTS_FILE = 'data/mods/core-blueprints/blueprints.json';
         const SAVE_COMPONENTS_FILE = 'data/mods/core-components/components.json';
+        const SAVE_ITEMS_FILE = 'data/mods/core-inventory-items/inventoryItems.json';
+        const SAVE_OUTFITS_FILE = 'data/mods/core-outfits/outfits.json';
 
         // Every saveDesign here runs against a disposable scratch copy of the world
         // data, so the committed data files are never written to by the suite.
@@ -530,6 +626,8 @@ describe('AgentBodyController', () => {
         let scratchDir = '';
         let scratchBlueprints = '';
         let scratchComponents = '';
+        let scratchItems = '';
+        let scratchOutfits = '';
         let loadSpy = null;
         let saveSpy = null;
         let copySpy = null;
@@ -538,15 +636,21 @@ describe('AgentBodyController', () => {
             scratchDir = fsSync.mkdtempSync(path.join(process.cwd(), 'data', 'scratch-save-design-'));
             scratchBlueprints = path.join(scratchDir, 'blueprints.json');
             scratchComponents = path.join(scratchDir, 'components.json');
+            scratchItems = path.join(scratchDir, 'inventoryItems.json');
+            scratchOutfits = path.join(scratchDir, 'outfits.json');
             fsSync.mkdirSync(scratchDir, { recursive: true });
             fsSync.copyFileSync(path.resolve(SAVE_BLUEPRINTS_FILE), scratchBlueprints);
             fsSync.copyFileSync(path.resolve(SAVE_COMPONENTS_FILE), scratchComponents);
+            fsSync.copyFileSync(path.resolve(SAVE_ITEMS_FILE), scratchItems);
+            fsSync.copyFileSync(path.resolve(SAVE_OUTFITS_FILE), scratchOutfits);
             const realLoad = DataLoader.loadJsonSafe.bind(DataLoader);
             const realSave = DataLoader.saveJson.bind(DataLoader);
             const realCopy = DataLoader.copyFile.bind(DataLoader);
             loadSpy = vi.spyOn(DataLoader, 'loadJsonSafe').mockImplementation((rel, fallback) => {
                 if (rel === SAVE_COMPONENTS_FILE) return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
                 if (rel === SAVE_BLUEPRINTS_FILE) return JSON.parse(fsSync.readFileSync(scratchBlueprints, 'utf8'));
+                if (rel === SAVE_ITEMS_FILE) return JSON.parse(fsSync.readFileSync(scratchItems, 'utf8'));
+                if (rel === SAVE_OUTFITS_FILE) return JSON.parse(fsSync.readFileSync(scratchOutfits, 'utf8'));
                 return realLoad(rel, fallback);
             });
             saveSpy = vi.spyOn(DataLoader, 'saveJson').mockImplementation((rel, data) => {
@@ -559,6 +663,14 @@ describe('AgentBodyController', () => {
                     fsSync.writeFileSync(scratchBlueprints, json, 'utf8');
                     return undefined;
                 }
+                if (rel === SAVE_ITEMS_FILE) {
+                    fsSync.writeFileSync(scratchItems, json, 'utf8');
+                    return undefined;
+                }
+                if (rel === SAVE_OUTFITS_FILE) {
+                    fsSync.writeFileSync(scratchOutfits, json, 'utf8');
+                    return undefined;
+                }
                 return realSave(rel, data);
             });
             copySpy = vi.spyOn(DataLoader, 'copyFile').mockImplementation((from, to) => {
@@ -569,6 +681,14 @@ describe('AgentBodyController', () => {
                 }
                 if (from === SAVE_BLUEPRINTS_FILE) {
                     fsSync.copyFileSync(scratchBlueprints, path.join(scratchDir, destName));
+                    return to;
+                }
+                if (from === SAVE_ITEMS_FILE) {
+                    fsSync.copyFileSync(scratchItems, path.join(scratchDir, destName));
+                    return to;
+                }
+                if (from === SAVE_OUTFITS_FILE) {
+                    fsSync.copyFileSync(scratchOutfits, path.join(scratchDir, destName));
                     return to;
                 }
                 return realCopy(from, to);
@@ -584,6 +704,8 @@ describe('AgentBodyController', () => {
                 scratchDir = '';
                 scratchBlueprints = '';
                 scratchComponents = '';
+                scratchItems = '';
+                scratchOutfits = '';
             }
         }
 
@@ -592,6 +714,12 @@ describe('AgentBodyController', () => {
         }
         function readScratchComponents() {
             return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
+        }
+        function readScratchItems() {
+            return JSON.parse(fsSync.readFileSync(scratchItems, 'utf8'));
+        }
+        function readScratchOutfits() {
+            return JSON.parse(fsSync.readFileSync(scratchOutfits, 'utf8'));
         }
 
         it('writes a brand-new droid key + a new component into the world files and takes pre-write backups', async () => {
@@ -677,6 +805,80 @@ describe('AgentBodyController', () => {
                 ).createEntityFromBlueprint('minakoRunner');
                 expect(spawned.components.filter((c) => c.hidesWithParent === true).map((c) => c.type).sort())
                     .toEqual(['m1Head', 'm1Toe']);
+            } finally {
+                cleanupScratch();
+            }
+        });
+
+        it('writes a designed garment into the item registry and its outfit into the outfit registry', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.garments = [{
+                name: 'courierCloak',
+                displayName: 'Ash-Cloaked Courier Mantle',
+                form: { volume: 4 },
+                materials: [{ material: 'wood', fraction: 1.0 }],
+                wear: { minVolume: 2 },
+                visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
+            }];
+            design.outfit = [{ item: 'courierCloak', component: 'm1CentralBody' }];
+            seedScratch();
+            try {
+                const result = await controller.saveDesign(design);
+                expect(result.newItems).toEqual(['courierCloak']);
+                expect(result.outfitWritten).toBe(true);
+                expect(typeof result.backups.items).toBe('string');
+                expect(typeof result.backups.outfits).toBe('string');
+
+                const items = readScratchItems();
+                expect(items.courierCloak).toMatchObject({
+                    // The prose speaks the display name, not the registry key.
+                    name: 'Ash-Cloaked Courier Mantle',
+                    form: { volume: 4 },
+                    wear: { minVolume: 2 },
+                    visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
+                });
+                expect(items.tshirt, 'an existing recipe is never touched').toBeDefined();
+
+                // Same key the body was written under: designing it and dressing it are
+                // two writes keyed by one thing (`wiki/decisions/outfits.md`).
+                expect(readScratchOutfits().minakoRunner).toEqual([
+                    { item: 'courierCloak', component: 'm1CentralBody' }
+                ]);
+            } finally {
+                cleanupScratch();
+            }
+        });
+
+        it('leaves the clothing files alone when the design said nothing about clothing', async () => {
+            seedScratch();
+            try {
+                const result = await controller.saveDesign(HAPPY_BODY);
+                expect(result.newItems).toEqual([]);
+                expect(result.outfitWritten).toBe(false);
+                expect(result.backups.items, 'no garment, no items backup').toBeUndefined();
+                expect(result.backups.outfits, 'no clothing claim, no outfits backup').toBeUndefined();
+                expect(readScratchItems()).toEqual(
+                    JSON.parse(fsSync.readFileSync(path.resolve(SAVE_ITEMS_FILE), 'utf8'))
+                );
+                expect(readScratchOutfits()).toEqual(
+                    JSON.parse(fsSync.readFileSync(path.resolve(SAVE_OUTFITS_FILE), 'utf8'))
+                );
+            } finally {
+                cleanupScratch();
+            }
+        });
+
+        it('writes an authored EMPTY outfit: born wearing nothing is a claim, not an absence', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.outfit = [];
+            seedScratch();
+            try {
+                const result = await controller.saveDesign(design);
+                expect(result.outfitWritten).toBe(true);
+                expect(readScratchOutfits().minakoRunner).toEqual([]);
+                // An empty list under the key is what the world reads as "clothed by the
+                // registry, wearing nothing", so the spawn default stands down.
+                expect(readScratchOutfits().m1Droid, 'the shipped seed is untouched').toBeDefined();
             } finally {
                 cleanupScratch();
             }

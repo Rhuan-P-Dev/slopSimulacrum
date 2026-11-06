@@ -65,8 +65,11 @@ committed file, translate it in a separate commit that touches nothing else.
   named decision, not an ad-hoc `fetch`: `chat` (`LLMController.chat`,
   `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
   and `agent-body-design` (`AgentBodyController`, `/agent-body/create`, the dev tab
-  "Create Agent Body" — judgment-only, no write-back to `data/`; see
-  `wiki/decisions/agent-body-design.md`).
+  "Create Agent Body"). Design is judgment-only; the separate, explicit
+  `/agent-body/save` writes the design into the official mod packages — component
+  recipes, blueprints (with the `hidesWithParent` mount mark), garments into
+  `core-inventory-items` and the body's outfit into `core-outfits` — each file backed
+  up first. See `wiki/decisions/agent-body-design.md` and `wiki/decisions/outfits.md`.
 - **Mods** are data-only packages (JSON fragments in existing registry shapes, no code, no
   new dependency) that can be added, enabled and disabled **at runtime**, applied at the
   round boundary by build-validate-swap. The shipped world is one *official* `core-*` mod

@@ -352,7 +352,66 @@ export class AgentBodyPanel {
         } else {
             parts.push('<p class="agent-body-note">No new components — the design uses only existing world components.</p>');
         }
+        parts.push(this._garmentsSection(body));
+        parts.push(this._outfitSection(body));
         return '<section class="agent-body-section">' + parts.join('') + '</section>';
+    }
+
+    /**
+     * The garments the design invents: new wearable ITEMS (matter, volume, the free
+     * volume a part must have to accept them). Read-only here — unlike a mount tick
+     * box, inventing a garment is the model's judgment, and editing one by hand is
+     * editing the world by hand.
+     * @param {Object} body
+     * @returns {string}
+     */
+    _garmentsSection(body) {
+        const garments = Array.isArray(body.garments) ? body.garments : [];
+        if (garments.length === 0) {
+            return '<p class="agent-body-note">No new garments — this design invents no wearable item.</p>';
+        }
+        const cards = garments.map((garment) => {
+            if (!garment || typeof garment !== 'object') return '<p class="agent-body-error">malformed garment</p>';
+            const badges = [];
+            if (garment.displayName) badges.push('<span class="agent-body-stat">' + this._esc(garment.displayName) + '</span>');
+            if (garment.form && garment.form.volume != null) {
+                badges.push('<span class="agent-body-stat">volume ' + this._esc(garment.form.volume) + '</span>');
+            }
+            if (garment.wear && garment.wear.minVolume != null) {
+                badges.push('<span class="agent-body-stat">needs ' + this._esc(garment.wear.minVolume) + ' free volume</span>');
+            }
+            if (Array.isArray(garment.materials) && garment.materials.length > 0) {
+                badges.push('<span class="agent-body-stat">materials: ' + garment.materials
+                    .map((m) => this._esc(m.material) + ' ' + this._esc(m.fraction)).join(' + ') + '</span>');
+            }
+            return '<div class="agent-body-recipe"><strong class="agent-body-component">' +
+                this._esc(garment.name) + '</strong> ' + badges.join(' ') + '</div>';
+        });
+        return this._section('New garments (' + garments.length + ' — items the world does not have yet)', cards.join(''));
+    }
+
+    /**
+     * What the design says this body is born wearing. The distinction between an
+     * EMPTY outfit and NO outfit is the whole point of the section: one means "wears
+     * nothing" and the other means "nobody dressed this body, the world default
+     * applies" (`wiki/decisions/outfits.md`).
+     * @param {Object} body
+     * @returns {string}
+     */
+    _outfitSection(body) {
+        if (!Array.isArray(body.outfit)) {
+            return this._section('Outfit',
+                '<p class="agent-body-note">No clothing claim was authored — this body keeps the world\'s default clothing at spawn.</p>');
+        }
+        if (body.outfit.length === 0) {
+            return this._section('Outfit',
+                '<p class="agent-body-note">Authored empty: born wearing nothing. The default clothing of the spawn loadouts stands down for this body.</p>');
+        }
+        const rows = body.outfit.map((entry) => (!entry || typeof entry !== 'object')
+            ? '<p class="agent-body-error">malformed outfit entry</p>'
+            : '<div class="agent-body-recipe"><strong class="agent-body-component">' + this._esc(entry.item) +
+              '</strong><span class="agent-body-stat">on ' + this._esc(entry.component) + '</span></div>');
+        return this._section('Outfit (' + body.outfit.length + ' — worn at spawn)', rows.join(''));
     }
 
     /**

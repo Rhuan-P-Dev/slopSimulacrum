@@ -32,8 +32,14 @@
  * declare `hidesWithParent`, and `saveDesign` writes it as the third element of
  * the blueprint mount (`["maleBreast", "left", { "hidesWithParent": true }]`), the
  * shape the live world already reads to take a part out of the round prose when
- * the part it hangs on is covered (`PerceptionController._coveredIds`). See
- * wiki/decisions/agent-body-design.md.
+ * the part it hangs on is covered (`PerceptionController._coveredIds`).
+ * A designed body can also arrive dressed: `garments` are new wearable item recipes
+ * (written to the item registry) and `outfit` says what is worn, on which component of
+ * THIS body (written to the outfit registry, kind `outfits`). SPEAKING about clothing
+ * is itself the claim: an authored empty outfit means born wearing nothing, while
+ * saying nothing leaves the world's default clothing in force
+ * (`src/controllers/logic/OutfitLogic.js`). See wiki/decisions/agent-body-design.md
+ * and wiki/decisions/outfits.md.
  *
  * @module src/controllers/networking/AgentBodyController
  */
@@ -45,6 +51,7 @@ import { LLM_DEFAULT_MAX_TOKENS, LLM_DEFAULT_TEMPERATURE } from '../../utils/Con
 import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { narrowVisualBlock } from '../../utils/materialLook.js';
 import { performance } from 'node:perf_hooks';
 
 const PROMPT_KIND = 'agent-body-design';
@@ -57,8 +64,15 @@ const PROMPT_KIND = 'agent-body-design';
  * mark could only be hand-written in the data file, and a design that redefined
  * a sub-tree SILENTLY DELETED the marks already published there, because
  * `_flattenTree` wrote `[type, slot]` and nothing else. See the decision note.
+ *
+ * v1.4.0 — the design also DRESSES the body: two new output fields, `garments`
+ * (new wearable ITEM recipes, written to the item registry) and `outfit` (what is
+ * worn, and on which component of this body, written to the outfit registry —
+ * `wiki/decisions/outfits.md`). An authored `outfit` is a claim the save honors even
+ * when it is empty (`[]` = born wearing nothing, and the world's default clothing
+ * stands down); omitting the field says nothing, so the default stays in force.
  */
-const PROMPT_VERSION = '1.3.0';
+const PROMPT_VERSION = '1.4.0';
 const SLUG_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
 /**
  * The identifier `entityController.expandBlueprint` itself gives a mount that
@@ -88,9 +102,40 @@ const LLM_AGENT_BODY_MAX_TOKENS = LLM_DEFAULT_MAX_TOKENS * 10;
 
 // Files the save action (saveDesign) persists to (CR B-3: writes go only through
 // this module's DataLoader seam, never raw fs). The paths come from the seam's
-// kind table, so this module never names a data file itself.
+// kind table, so this module never names a data file itself. A designed body
+// touches four of them: its parts, its tree, the garments it invented, and what
+// it wears.
 const COMPONENTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.COMPONENTS);
 const BLUEPRINTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.BLUEPRINTS);
+const ITEMS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.INVENTORY_ITEMS);
+const OUTFITS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.OUTFITS);
+
+/**
+ * Bounds on the two arrays a design may invent (`A-7`: nothing in this feature is
+ * unbounded). Eight new garments and eight wear-assignments is more than any card
+ * has ever needed; past that, a design is not describing a character.
+ */
+const MAX_GARMENTS = 8;
+const MAX_OUTFIT_ENTRIES = 8;
+/**
+ * How long a garment's spoken name may be. It lands in the item registry and is
+ * printed in a sentence ("Adam, wearing a Rune-Stitched Cloak"), so it is prose,
+ * not an identifier.
+ */
+const MAX_GARMENT_LABEL_CHARS = 64;
+
+/**
+ * What `saveDesign` reports each written file under. The key is the name of the
+ * backup in the result (`backups.items`), not the registry kind: a design speaks of
+ * garments and an outfit, and the operator reads this, not the kind table.
+ * @type {Object.<string, string>}
+ */
+const DATA_FILE_LABELS = Object.freeze({
+    [COMPONENTS_FILE]: 'components',
+    [BLUEPRINTS_FILE]: 'blueprints',
+    [ITEMS_FILE]: 'items',
+    [OUTFITS_FILE]: 'outfits'
+});
 
 /**
  * Thrown when cardId does not match any card PNG under data/cards/.
@@ -176,6 +221,7 @@ class AgentBodyController {
         this.components = this._loadComponents();
         this.materials = this._loadMaterials();
         this.organs = this._loadOrgans();
+        this.items = this._loadItems();
         this.existingBlueprints = this._loadBlueprints();
     }
 
@@ -210,7 +256,7 @@ class AgentBodyController {
      * @param {string} cardId - stem of a card PNG under data/cards/ (no extension).
      * @returns {Promise<{
      *   card: {cardId: string, name: string, description: string, personality: string},
-     *   body: {blueprintId: string, rationale: string, structure: object, components: Array},
+     *   body: {blueprintId: string, rationale: string, structure: object, components: Array, garments: Array, outfit?: Array},
      *   meta: {promptKind: string, promptVersion: string, promptMessages: Array, model: string, finishReason: string, latencyMs: number}
      * }>}
      * @throws {CardNotFoundError} - no card PNG matches cardId.
@@ -263,7 +309,9 @@ class AgentBodyController {
         Logger.info(
             '[AgentBodyController] ' + PROMPT_KIND + ' v' + PROMPT_VERSION +
             ' for card "' + cardId + '": blueprint "' + design.blueprintId +
-            '" (' + this._countNodes(design.structure) + ' body nodes, ' + design.components.length + ' new recipes), ' +
+            '" (' + this._countNodes(design.structure) + ' body nodes, ' + design.components.length + ' new recipes, ' +
+            design.garments.length + ' new garments, ' +
+            (Array.isArray(design.outfit) ? design.outfit.length + ' outfit entry(ies)' : 'no clothing claim') + '), ' +
             systemPrompt.length + ' char system prompt, ' + userPrompt.length + ' char user prompt, ' + latencyMs + ' ms',
             { promptKind: PROMPT_KIND, promptVersion: PROMPT_VERSION }
         );
@@ -301,15 +349,26 @@ class AgentBodyController {
      * Writes go through the data seam (CR B-3). A reload / restart of a running
      * world is what makes the new blueprint visible; this method only writes data.
      *
-     * @param {Object} design - { blueprintId, rationale, structure, components }
+     *   - a design that invented garments merges them into
+     *     data/mods/core-inventory-items/inventoryItems.json (an existing recipe is
+     *     never overwritten);
+     *   - a design that SPOKE about clothing writes this body's outfit into
+     *     data/mods/core-outfits/outfits.json under the same blueprint key — the
+     *     card's own previous outfit is overwritten, which is what re-designing a
+     *     card means, and an authored empty outfit means born wearing nothing. A
+     *     design that said nothing leaves the file alone.
+     *
+     * @param {Object} design - { blueprintId, rationale, structure, components, garments, outfit }
      *   (may be the frozen body from designBody, or raw model-shape JSON).
      * @returns {{
      *   saved: boolean,
      *   blueprintId: string,
      *   newComponents: string[],
+     *   newItems: string[],
+     *   outfitWritten: boolean,
      *   blueprintWritten: string[],
      *   blueprintOverwritten: string[],
-     *   backups: { components: string, blueprints: string }
+     *   backups: { components: string, blueprints: string, items?: string, outfits?: string }
      * }}
      * @throws {DesignValidationError}
      */
@@ -337,21 +396,54 @@ class AgentBodyController {
         const blueprintWritten = Object.keys(entries);
         const blueprintOverwritten = blueprintWritten.filter((key) => key in freshBlueprints);
 
+        // A designed body can also arrive dressed. The garments are new ITEM recipes
+        // (`core-inventory-items`, never overwriting one that exists) and the outfit
+        // is the claim of what this body wears (`core-outfits`, keyed by the same
+        // blueprint key — so the card's own previous outfit is overwritten, which is
+        // what re-designing a card means). Both writes are optional, and each file is
+        // backed up before it is touched, like the other two.
+        const writes = [
+            { file: COMPONENTS_FILE, content: nextComponents },
+            { file: BLUEPRINTS_FILE, content: Object.assign({}, freshBlueprints, entries) }
+        ];
+        if (normalized.garments && normalized.garments.length > 0) {
+            writes.push({
+                file: ITEMS_FILE,
+                content: this._mergeGarmentRecipes(DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS), normalized.garments)
+            });
+        }
+        // Present means the design SPOKE about clothing; absent means it said nothing
+        // and the world's default clothing still applies to this body (`OutfitLogic`).
+        // An authored EMPTY list is written as an empty list: born wearing nothing.
+        if (Array.isArray(normalized.outfit)) {
+            writes.push({
+                file: OUTFITS_FILE,
+                content: Object.assign({}, DataLoader.loadRegistry(REGISTRY_KINDS.OUTFITS), {
+                    [normalized.blueprintId]: normalized.outfit.map((entry) => ({ item: entry.item, component: entry.component }))
+                })
+            });
+        }
+
         // Take a pre-write backup of each file we are about to update, then write
         // (atomic per file, through the data seam).
-        const backups = {
-            components: DataLoader.copyFile(COMPONENTS_FILE, this._backupPath(COMPONENTS_FILE)),
-            blueprints: DataLoader.copyFile(BLUEPRINTS_FILE, this._backupPath(BLUEPRINTS_FILE))
-        };
-
-        const nextBlueprints = Object.assign({}, freshBlueprints, entries);
-        await DataLoader.saveJson(COMPONENTS_FILE, nextComponents);
-        await DataLoader.saveJson(BLUEPRINTS_FILE, nextBlueprints);
+        const backups = {};
+        for (const write of writes) {
+            const kind = DATA_FILE_LABELS[write.file];
+            backups[kind] = DataLoader.copyFile(write.file, this._backupPath(write.file));
+        }
+        for (const write of writes) {
+            await DataLoader.saveJson(write.file, write.content);
+        }
 
         return Object.freeze({
             saved: true,
             blueprintId: normalized.blueprintId,
             newComponents: [...new Set((normalized.components || []).map((c) => c.name))],
+            newItems: [...new Set((normalized.garments || []).map((g) => g.name))],
+            // True when the design SPOKE about clothing (even `outfit: []` = born
+            // wearing nothing). False means no claim was made and the world's default
+            // clothing still applies to this body.
+            outfitWritten: Array.isArray(normalized.outfit),
             blueprintWritten,
             blueprintOverwritten,
             backups
@@ -448,6 +540,37 @@ class AgentBodyController {
     }
 
     /**
+     * Merge new garment recipes into the item registry. Never overwrites an existing
+     * recipe (a name colliding with a shipped item is rejected by `_validateGarments`
+     * before this runs; a name from a previous save is preserved as-is). The written
+     * entry is a plain item recipe: matter, volume, organs (none), and the `wear`
+     * block that makes it a garment — `WearLogic` needs nothing else, and
+     * `validateOutfitRegistry` at the next boot checks the claim again.
+     *
+     * @private
+     * @param {Object} current - freshly loaded inventoryItems.json (`_comment` preserved).
+     * @param {Array<Object>} garments - narrowed garment recipes.
+     * @returns {Object} the merged registry.
+     */
+    _mergeGarmentRecipes(current, garments) {
+        const next = Object.assign({}, current);
+        garments.forEach((garment) => {
+            if (!garment || typeof garment.name !== 'string') return;
+            if (garment.name in next) return; // already present: keep whatever is there
+            next[garment.name] = {
+                name: garment.displayName || garment.name,
+                description: 'A garment authored from a character card in the Create Agent Body dev tab.',
+                form: { volume: garment.form.volume },
+                materials: garment.materials.map((m) => ({ material: m.material, fraction: m.fraction })),
+                internalComponents: [],
+                wear: { minVolume: garment.wear.minVolume },
+                ...(garment.visual ? { visual: garment.visual } : {})
+            };
+        });
+        return next;
+    }
+
+    /**
      * Timestamped sibling path for a pre-write backup (e.g. data/foo.json.bak-1713099876543).
      * @private
      * @param {string} relativePath
@@ -504,20 +627,33 @@ class AgentBodyController {
             '    "materials": [ { "material": "<one of the AVAILABLE MATERIALS>", "fraction": <number> } ],\n' +
             '    "internalComponents": [ "<one of the AVAILABLE ORGANS>" ] or omitted,\n' +
             '    "energyCapacity": <integer >= 0> or omitted }\n' +
-            '  Material fractions within each new recipe must sum to exactly 1.0.\n\n' +
+            '  Material fractions within each new recipe must sum to exactly 1.0.\n' +
+            '- "garments": NEW wearable ITEMS you invent for this character - a cloak, a hood, a harness, a wrapped bandage, a ceremonial sash. A garment is a thing the character CARRIES and WEARS: it is never a node of "structure" and never a component. Each new garment:\n' +
+            '  { "name": "<unique id, letters and digits only>",\n' +
+            '    "displayName": "<what the world calls it in a sentence, e.g. Rune-Stitched Cloak; optional>",\n' +
+            '    "form": { "volume": <positive integer 1..40> },\n' +
+            '    "materials": [ { "material": "<one of the AVAILABLE MATERIALS>", "fraction": <number> } ],\n' +
+            '    "wear": { "minVolume": <integer 1..volume> },\n' +
+            '    "visual": { "hue": <0-360>, "saturation": <0-100>, "lightness": <0-100>, "metalness": <0-100>, "roughness": <0-100> } or omitted }\n' +
+            '  A garment asks no more of a body than it takes itself (wear.minVolume at most its own volume): the shipped t-shirt is volume 2 and needs 2. Its materials sum to 1.0. Its visual block is what the world SEES - a garment does not look like the matter it is modelled from.\n' +
+            '- "outfit": what this body is BORN WEARING, as a list of { "item": "<one of your garments, or one of the WEARABLE ITEMS below>", "component": "<a component name that appears in your structure>" }. Author it for a character described dressed, and pair the garment with the mounts you marked "hidesWithParent" - the cloth is what hides them. Send [] when the character wears nothing at all; leaving the field out means you said nothing about clothing, which is NOT the same claim.\n\n' +
             'RULES\n' +
             '1. Every "component" in "structure" must be either an AVAILABLE COMPONENT (exactly as named below) or a NEW COMPONENT you define in "components".\n' +
             '2. "internalComponents" of a new recipe may only use AVAILABLE ORGANS.\n' +
             '3. The body is named after the card — you do NOT choose a blueprint id. Omit "blueprintId" from your JSON; the server sets it to the card\'s display name.\n' +
             '4. Keep the body compact: at most ' + MAX_BODY_NODES + ' component nodes in the tree.\n' +
             '5. "hidesWithParent" is a fact about THIS joint in THIS body, not about the component type: the same part may hide under the cloth of one body and not under another. Use it sparingly, and only where a garment would really be in front of the part.\n' +
-            '6. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy). The new component recipes are the judgment — the material and organ vocabulary stays fixed so the world remains deterministic.\n\n' +
+            '6. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy). The new component recipes are the judgment — the material and organ vocabulary stays fixed so the world remains deterministic.\n' +
+            '7. A garment is not a body part: never name a garment in "structure", and never name a component in "outfit".\n' +
+            '8. Every "outfit" entry names a component that appears in the body tree, and a WEARABLE item - one you proposed in "garments" or one listed below.\n\n' +
             'AVAILABLE COMPONENTS (' + Object.keys(this.components).length + ' types):\n' +
             componentLines + '\n\n' +
             'AVAILABLE MATERIALS:\n' +
             materialLines + '\n\n' +
             'AVAILABLE ORGANS:\n' +
             organLines + '\n\n' +
+            'WEARABLE ITEMS already in the world ("outfit" names them by the key below; N is the free volume the part must have to accept it):\n' +
+            this._wearableLines() + '\n\n' +
             'EXISTING BLUEPRINT IDS (for reference — existing droid types in the world): ' + blueprintIds + '\n\n' +
             'EXAMPLE BLUEPRINTS (how bodies compose in this world; ["component", "slot"] is a component with a slot):\n' +
             exampleLines + '\n\n' +
@@ -540,6 +676,19 @@ class AgentBodyController {
             line += ', energy capacity ' + component.energyCapacity;
         }
         return line;
+    }
+
+    /**
+     * The wearable part of the item vocabulary for the prompt: every item that
+     * declares `wear.minVolume`, as `<key> (<name>, needs N free volume)`.
+     * @returns {string}
+     */
+    _wearableLines() {
+        const wearable = Object.values(this.items).filter((item) => item.minVolume !== null);
+        if (wearable.length === 0) return '(none — this world has no wearable item; a garment must be authored in "garments")';
+        return wearable
+            .map((item) => '- ' + item.name + ' (' + item.displayName + ', needs ' + item.minVolume + ' free volume)')
+            .join('\n');
     }
 
     /**
@@ -752,27 +901,8 @@ class AgentBodyController {
                         errors.push('"components[' + index + '].form.position" must be { x: integer, y: integer }');
                     }
 
-                    const materials = recipe.materials;
-                    if (!materials || !Array.isArray(materials) || materials.length === 0) {
-                        errors.push('"components[' + index + '].materials" must be a non-empty array');
-                        return;
-                    }
-                    materials.forEach((m, mi) => {
-                        if (!m || typeof m !== 'object') {
-                            errors.push('"components[' + index + '].materials[' + mi + ']" must be an object with "material" and "fraction"');
-                            return;
-                        }
-                        if (!this.materials[m.material]) {
-                            errors.push('"components[' + index + '].materials[' + mi + '].material" "' + String(m.material) + '" is not an available material');
-                        }
-                        if (typeof m.fraction !== 'number' || !Number.isFinite(m.fraction) || m.fraction <= 0 || m.fraction > 1) {
-                            errors.push('"components[' + index + '].materials[' + mi + '].fraction" must be a number in (0, 1]');
-                        }
-                    });
-                    const fractionSum = materials.reduce((sum, m) => sum + (typeof m.fraction === 'number' ? m.fraction : 0), 0);
-                    if (!Number.isFinite(fractionSum) || Math.abs(fractionSum - 1) > MATERIAL_FRACTION_TOLERANCE) {
-                        errors.push('"components[' + index + '].materials" fractions sum to ' + fractionSum + ' (must sum to 1.0)');
-                    }
+                    const materials = this._narrowMaterials(recipe.materials, '"components[' + index + '].materials"', errors);
+                    if (materials.length === 0) return;
 
                     if (recipe.internalComponents !== undefined && !Array.isArray(recipe.internalComponents)) {
                         errors.push('"components[' + index + '].internalComponents" must be an array of organ ids');
@@ -795,6 +925,10 @@ class AgentBodyController {
                 });
             }
         }
+
+        // What the design invents to dress the body, and what it says the body wears.
+        const garments = this._validateGarments(raw.garments, errors);
+        const outfit = this._validateOutfit(raw.outfit, { structureRefs, garments }, errors);
 
         // Resolve references: every node must be available or proposed.
         const unknownRefs = [...new Set(structureRefs)]
@@ -827,7 +961,15 @@ class AgentBodyController {
                 energyCapacity: recipe.energyCapacity
             }));
 
-        const normalized = this._normalizeDesign(blueprintId, rationale, structure, normalizedComponents);
+        const normalized = this._normalizeDesign({
+            blueprintId,
+            rationale,
+            structure,
+            components: normalizedComponents,
+            garments,
+            outfit,
+            outfitDeclared: Array.isArray(raw.outfit)
+        });
 
         // The droid-type key must be a distinct registry key from every component
         // used in the tree, otherwise the [root] pointer would overwrite (or
@@ -891,15 +1033,188 @@ class AgentBodyController {
     }
 
     /**
-     * Frozen, normalized design (slot defaults to null, missing children to []).
+     * The material list a recipe authors: available materials, fractions in (0, 1],
+     * summing to 1.0 within `MATERIAL_FRACTION_TOLERANCE`. One rule for the two
+     * things a design can be made of, a component and a garment (`CHG-2`).
+     * @param {Array} materials - the raw list.
+     * @param {string} at - where it came from, for the error text (ends with `"`).
+     * @param {string[]} errors - collector.
+     * @returns {Array<{material: string, fraction: number}>} (used only when validation passes)
      * @private
      */
-    _normalizeDesign(blueprintId, rationale, structure, components) {
+    _narrowMaterials(materials, at, errors) {
+        if (!materials || !Array.isArray(materials) || materials.length === 0) {
+            errors.push(at + ' must be a non-empty array');
+            return [];
+        }
+        materials.forEach((m, mi) => {
+            if (!m || typeof m !== 'object') {
+                errors.push(at + '[' + mi + ']" must be an object with "material" and "fraction"');
+                return;
+            }
+            if (!this.materials[m.material]) {
+                errors.push(at + '[' + mi + '].material" "' + String(m.material) + '" is not an available material');
+            }
+            if (typeof m.fraction !== 'number' || !Number.isFinite(m.fraction) || m.fraction <= 0 || m.fraction > 1) {
+                errors.push(at + '[' + mi + '].fraction" must be a number in (0, 1]');
+            }
+        });
+        const fractionSum = materials.reduce((sum, m) => sum + ((m && typeof m.fraction === 'number') ? m.fraction : 0), 0);
+        if (!Number.isFinite(fractionSum) || Math.abs(fractionSum - 1) > MATERIAL_FRACTION_TOLERANCE) {
+            errors.push(at + ' fractions sum to ' + fractionSum + ' (must sum to 1.0)');
+        }
+        return materials.map((m) => ({ material: m ? m.material : undefined, fraction: m ? m.fraction : undefined }));
+    }
+
+    /**
+     * The new WEARABLE ITEMS a design invents (`garments`). A garment is an item the
+     * character carries and wears, never a node of the body tree, so its rules are
+     * the item registry's: matter, volume, and a `wear.minVolume` the part it goes on
+     * must have free - and it asks no more of a body than it takes itself.
+     * @param {Array|undefined} rawGarments
+     * @param {string[]} errors - collector.
+     * @returns {Array<Object>} the narrowed recipes (used only when validation passes)
+     * @private
+     */
+    _validateGarments(rawGarments, errors) {
+        if (rawGarments === undefined || rawGarments === null) return [];
+        if (!Array.isArray(rawGarments)) {
+            errors.push('"garments" must be an array of new wearable item recipes');
+            return [];
+        }
+        if (rawGarments.length > MAX_GARMENTS) {
+            errors.push('"garments" has ' + rawGarments.length + ' entries (max ' + MAX_GARMENTS + ')');
+        }
+        const narrowed = [];
+        const proposed = new Set();
+        rawGarments.forEach((garment, index) => {
+            const at = '"garments[' + index + ']"';
+            if (!garment || typeof garment !== 'object' || Array.isArray(garment)) {
+                errors.push(at + ' must be an object');
+                return;
+            }
+            if (!isSlug(garment.name)) {
+                errors.push(at + '.name" must be an id (letters and digits only, 1-31 chars)');
+                return;
+            }
+            if (this.items[garment.name] || this.components[garment.name] || proposed.has(garment.name)) {
+                errors.push(at + '.name" "' + garment.name + '" collides with an existing item, component, or previously proposed garment');
+                return;
+            }
+            proposed.add(garment.name);
+
+            if (!garment.form || typeof garment.form !== 'object') {
+                errors.push(at + '.form" must be an object with "volume"');
+                return;
+            }
+            const volume = garment.form.volume;
+            if (!Number.isInteger(volume) || volume < 1 || volume > 40) {
+                errors.push(at + '.form.volume" must be an integer in 1..40');
+            }
+            const minVolume = (garment.wear && typeof garment.wear === 'object') ? garment.wear.minVolume : undefined;
+            if (!Number.isInteger(minVolume) || minVolume < 1 || (Number.isInteger(volume) && minVolume > volume)) {
+                errors.push(at + '.wear.minVolume" must be an integer in 1..' + (Number.isInteger(volume) ? volume : 'the garment volume'));
+            }
+
+            const materials = this._narrowMaterials(garment.materials, at + '.materials', errors);
+
+            let displayName = '';
+            if (garment.displayName !== undefined) {
+                const label = typeof garment.displayName === 'string' ? garment.displayName.trim() : '';
+                if (!label || label.length > MAX_GARMENT_LABEL_CHARS) {
+                    errors.push(at + '.displayName" must be a string of 1-' + MAX_GARMENT_LABEL_CHARS + ' characters when present');
+                } else {
+                    displayName = label;
+                }
+            }
+
+            let visual = null;
+            if (garment.visual !== undefined) {
+                try {
+                    visual = narrowVisualBlock(garment.visual, at);
+                } catch (error) {
+                    errors.push(error.message);
+                }
+            }
+
+            narrowed.push({
+                name: garment.name,
+                displayName: displayName || String(garment.name),
+                form: { volume },
+                materials,
+                wear: { minVolume },
+                ...(visual ? { visual } : {})
+            });
+        });
+        return narrowed;
+    }
+
+    /**
+     * What the design says the body is born wearing. An authored list is a claim the
+     * save honors even when it is EMPTY (born wearing nothing, and the spawn
+     * loadout's default garment stands down); an absent field says nothing about
+     * clothing - which is a different sentence, and `outfitDeclared` is how the two
+     * stay distinguishable through a normalized design (`wiki/decisions/outfits.md`).
+     * @param {Array|undefined} rawOutfit
+     * @param {{ structureRefs: string[], garments: Array }} context - the body this
+     *   outfit hangs on, and the garments the same design proposed.
+     * @param {string[]} errors - collector.
+     * @returns {Array<{ item: string, component: string }>}
+     * @private
+     */
+    _validateOutfit(rawOutfit, { structureRefs, garments }, errors) {
+        if (rawOutfit === undefined || rawOutfit === null) return [];
+        if (!Array.isArray(rawOutfit)) {
+            errors.push('"outfit" must be an array of { item, component }');
+            return [];
+        }
+        if (rawOutfit.length > MAX_OUTFIT_ENTRIES) {
+            errors.push('"outfit" has ' + rawOutfit.length + ' entries (max ' + MAX_OUTFIT_ENTRIES + ')');
+        }
+        const bodyParts = new Set(structureRefs);
+        const proposedGarments = new Set(garments.map((garment) => garment.name));
+        const narrowed = [];
+        rawOutfit.forEach((entry, index) => {
+            const at = '"outfit[' + index + ']"';
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                errors.push(at + ' must be an object with "item" and "component"');
+                return;
+            }
+            const item = typeof entry.item === 'string' ? entry.item.trim() : '';
+            const component = typeof entry.component === 'string' ? entry.component.trim() : '';
+            if (!item || !component) {
+                errors.push(at + ' must name both an "item" and a "component"');
+                return;
+            }
+            const known = this.items[item];
+            if (!proposedGarments.has(item) && (!known || known.minVolume === null)) {
+                errors.push(at + '.item" "' + item + '" is not a wearable item - propose it in "garments" or use one of the WEARABLE ITEMS');
+            }
+            if (!bodyParts.has(component)) {
+                errors.push(at + '.component" "' + component + '" is not a component of this body');
+            }
+            narrowed.push({ item, component });
+        });
+        return narrowed;
+    }
+
+    /**
+     * Frozen, normalized design (slot defaults to null, missing children to []).
+     * Takes one object because the design now carries six things (`CHG-4`).
+     * @private
+     */
+    _normalizeDesign({ blueprintId, rationale, structure, components, garments, outfit, outfitDeclared }) {
         return Object.freeze({
             blueprintId: blueprintId,
             rationale: rationale,
             structure: this._normalizeTree(structure),
-            components: components
+            components: components,
+            garments: garments,
+            // Absent, not empty, when the design said nothing about clothing: the
+            // world distinguishes "this body wears nothing" (`outfit: []`) from "this
+            // body was never dressed by a design" (no key at all), and the design
+            // object round-trips through Save with that distinction intact.
+            ...(outfitDeclared ? { outfit: outfit } : {})
         });
     }
 
@@ -982,6 +1297,29 @@ class AgentBodyController {
             components[name] = { name, volume, materials, organs, energyCapacity };
         }
         return Object.freeze(components);
+    }
+
+    /**
+     * The item registry, as the designer needs it: the key, the name the prose
+     * speaks, and whether the item is wearable at all (`wear.minVolume`).
+     * @returns {Object<string, {name: string, displayName: string, minVolume: number|null}>}
+     */
+    _loadItems() {
+        const raw = DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS);
+        const items = {};
+        for (const [name, recipe] of Object.entries(raw)) {
+            if (name.startsWith('_') || !recipe || typeof recipe !== 'object') {
+                continue;
+            }
+            const minVolume = (recipe.wear && typeof recipe.wear.minVolume === 'number')
+                ? recipe.wear.minVolume
+                : null;
+            const displayName = (typeof recipe.name === 'string' && recipe.name.trim().length > 0)
+                ? recipe.name.trim()
+                : name;
+            items[name] = { name, displayName, minVolume };
+        }
+        return Object.freeze(items);
     }
 
     /**

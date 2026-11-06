@@ -95,9 +95,21 @@ describe('OutfitLogic — reading the outfit', () => {
         const dressed = stubFacade({ outfits: { TestBody: [{ item: 'tshirt', component: 'centralBody' }] } });
         const bare = stubFacade({ outfits: { TestBody: [{ item: 'tshirt' }] } });
         expect(clothedByOutfit(dressed.facade, dressed.entity)).toBe(true);
-        // A skipped half-entry means no outfit, so the default clothing stays on duty.
+        // A key whose entries are all garbage is not a claim about clothing either -
+        // the body falls back to the default rather than going naked because of a typo.
         expect(clothedByOutfit(bare.facade, bare.entity)).toBe(false);
         expect(clothedByOutfit(dressed.facade, null)).toBe(false);
+    });
+
+    it('counts an authored EMPTY outfit: born wearing nothing, and the default stands down', () => {
+        const { facade, worn } = stubFacade({ outfits: { TestBody: [] } });
+        // Absent and empty are two different sentences, and this is the only place they
+        // part: an empty list IS a clothing claim, so nothing is worn and the spawn
+        // loadout's shirt is not put on instead.
+        expect(clothedByOutfit(facade, { blueprint: 'TestBody' })).toBe(true);
+        expect(clothedByOutfit(facade, { blueprint: 'Other' })).toBe(false);
+        expect(applyOutfit(facade, 'ent-1')).toEqual({ applied: 0, failed: 0 });
+        expect(worn).toEqual([]);
     });
 });
 

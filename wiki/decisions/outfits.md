@@ -76,14 +76,27 @@ stored under (`wiki/decisions/agent-body-design.md`) — which is the natural jo
   `core-outfits` too. `AGENTS.md` no longer states a package count (it says "one official
   `core-*` package per registry kind", which the contract test derives);
   `RegistryStore`'s header no longer says "21 registries" either.
-- **An outfit key present means this body's clothing is authored.** Its opposite is not
-  expressible yet: an *empty* list is indistinguishable today from no entry at all, so
-  "Adam wears nothing" cannot be asked for — see Next change.
+- **An outfit key present means this body's clothing is authored — including an EMPTY
+  list.** `clothedByOutfit` asks the registry whether it *speaks* about the body (an
+  array under the key, even an empty one), not whether the narrowed list has entries.
+  So `[]` means "born wearing nothing, and the default stands down", an absent key means
+  "nobody dressed it, the default stays", and a key whose entries are all malformed
+  counts as nothing authored — a body does not go naked because of a typo (each bad
+  entry was warned about by `outfitForBlueprint` anyway).
+  The save side of that claim: `wiki/decisions/agent-body-design.md`, amendment v1.4.0.
 - Clothing is now a real claim per body, and the prose follows it automatically: a
   garment worn on the central body covers it (`worn`), and the mounts marked
   `hidesWithParent` under it stop being named. Nothing in `PerceptionController` changed.
 - The `outfits` file is written by the "Create Agent Body" Save (with a timestamped
-  backup, like every file that save touches) — see the next change note there.
+  backup, like every file that save touches) — see the next change note there. The Save
+  re-serializes the whole file (`DataLoader.saveJson`, two-space JSON), so a
+  hand-authored compact row reflows on the first write and the `_comment` header
+  survives it. That is the pre-existing behavior of that action for every file it
+  touches, not something this registry added; the backup is the undo.
+- **The Save rewrites, so a design that redefines a shipped part changes it for every
+  body that mounts it** (already true for `blueprints.json`). Dressing one card in a
+  garment whose key collides with a shipped item is rejected by validation; redefining
+  a part is not, and never was — it is the operator-confirmed side-effect of the action.
 
 ## Rejected alternatives
 
@@ -105,9 +118,19 @@ stored under (`wiki/decisions/agent-body-design.md`) — which is the natural jo
 
 ## Next change
 
-The save side (`AgentBodyController.saveDesign`) writes this registry from a designed
-body: `wiki/decisions/agent-body-design.md`. Two things that change owns and that this
-note flags rather than decides silently: the design must be able to author an **empty**
-outfit ("wears nothing"), which needs `clothedByOutfit` to distinguish an authored empty
-list from an absent key; and the design must be able to author the **garment** itself,
-which writes `core-inventory-items` as a third file the Save touches.
+The save side landed: `AgentBodyController.saveDesign` writes this registry from a
+designed body, and a design may invent the garment itself (a new `core-inventory-items`
+recipe) as well as say who wears it — see the v1.4.0 amendment in
+`wiki/decisions/agent-body-design.md`. The authored-empty rule was decided there and
+implemented here.
+
+What remains, when somebody asks for it:
+
+- **A way to undress without re-designing.** Today the only writer of an outfit is the
+  Save; an operator who wants a designed body naked must re-run the design. A small
+  dev-tab control that writes `[]` (or removes the key) is a UI change, not a data one.
+- **Clothing that changes after birth.** The registry dresses a body at spawn; nothing
+  re-writes the outfit when an NPC takes a garment off in the world (the wear system
+  owns that state on the entity, and it is not written back to the registry). Deciding
+  whether it ever should is a real question — the registry is a definition, the entity
+  is a life (`P-8`).
