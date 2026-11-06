@@ -86,6 +86,20 @@ import { buildDeltaSummary } from '../../utils/DeltaSummary.js';
 import { truncateCoord } from '../../../shared/CoordFormat.js';
 import { componentTypeName } from '../../utils/ComponentNaming.js';
 
+/**
+ * A copy of one body row that shares NOTHING with the row it came from — the
+ * garments a part wears are a nested list, so a spread alone would let two action
+ * rows of the same flush edit one another's clothing through the shared array.
+ * @param {Object} part - one `{ type, identifier, shallow, worn? }` body row
+ * @returns {Object} an independent copy
+ */
+function copyBodyPart(part) {
+    return {
+        ...part,
+        ...(Array.isArray(part.worn) ? { worn: part.worn.map((garment) => ({ ...garment })) } : {})
+    };
+}
+
 class PerceptionController {
     constructor() {
         /** @type {Map<string, EventRingBuffer>} roomId → delta ring buffer */
@@ -784,7 +798,7 @@ class PerceptionController {
             let bodyCache;
             const bodyOf = () => {
                 if (bodyCache === undefined) bodyCache = this._actorBody(entityId, snap);
-                return bodyCache ? bodyCache.map((part) => ({ ...part })) : null;
+                return bodyCache ? bodyCache.map(copyBodyPart) : null;
             };
             let maxTs = seen;
             for (const [actionName, record] of records) {
@@ -846,15 +860,22 @@ class PerceptionController {
      * on the identifier cannot tell "frontal_left" (a leg's own label) from
      * "left_top" (an eyebrow inside a head).
      *
+     * A part that is WEARING something carries it too (`worn`: the garments on that
+     * exact component), because worn state is the one part of a body that changes
+     * mid-round — recorded here, a closed round still says the actor was dressed when
+     * the act became observable, even after a later reader finds it undressed.
+     * Coverage is what the wear system says it is: the component the item is equipped
+     * on (`WearLogic`), nothing inferred from the garment's kind.
+     *
      * @param {string} entityId - the actor
      * @param {Object|null} snap - this room's snapshot row for the actor
-     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean }>|null}
+     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean, worn?: Array<{ type: string|null, name: string|null }> }>|null}
      * @private
      */
     _actorBody(entityId, snap) {
         const components = this._facade?.getEntity?.(entityId)?.components;
         if (Array.isArray(components)) {
-            const body = this._bodyRecord(components);
+            const body = this._bodyRecord(components, this._wornByComponent(entityId));
             if (body) return body;
         }
         const fromSnapshot = [];
@@ -870,10 +891,13 @@ class PerceptionController {
      * that list's own order (the body's order, not an alphabetical one — two worlds
      * built the same way say the parts in the same order, DETERMINISM).
      * @param {Array} components - the entity's live components
-     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean }>|null}
+     * @param {Map<string, Array<{ type: string|null, name: string|null }>>|null} [wornByComponent]
+     *   component id -> the garments worn on it (`_wornByComponent`); absent, no part
+     *   is read as clothed
+     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean, worn?: Array<{ type: string|null, name: string|null }> }>|null}
      * @private
      */
-    _bodyRecord(components) {
+    _bodyRecord(components, wornByComponent = null) {
         const byId = new Map();
         for (const comp of components) {
             if (comp && typeof comp.id === 'string' && comp.id) byId.set(comp.id, comp);
@@ -883,6 +907,7 @@ class PerceptionController {
             const type = typeof comp?.type === 'string' ? comp.type.trim() : '';
             if (!type) continue;
             const parent = this._bodyParent(comp, byId);
+            const worn = wornByComponent?.get(comp?.id) ?? null;
             body.push({
                 type,
                 identifier: this._ownBodyLabel(comp, parent),
@@ -891,10 +916,39 @@ class PerceptionController {
                 // still reports the stump), or off a root itself — the head, the
                 // torso, an arm. Two mounts deep (a finger on an arm, an eyebrow on
                 // a head) is detail the sentence does not read out.
-                shallow: !parent || !this._bodyParent(parent, byId)
+                shallow: !parent || !this._bodyParent(parent, byId),
+                // Absent, not null, when nothing covers the part: a bare body's rows
+                // stay exactly the rows they were before clothing could be narrated.
+                ...(worn ? { worn } : {})
             });
         }
         return body.length ? body : null;
+    }
+
+    /**
+     * Which of an entity's components are under clothing, keyed by component id:
+     * the wear system's own answer (`WorldStateController.getWornItems` — the
+     * equipped subset whose item type declares `wear.minVolume`), reduced to what a
+     * sentence needs (the garment's type key and display name).
+     *
+     * Read ONCE per actor per flush (the body is cached there), never per row
+     * (`PERF-4`). An unwired facade, or an entity wearing nothing, yields an empty
+     * map — the body then reads exactly as it did before clothes could be narrated.
+     *
+     * @param {string} entityId - the entity to inspect
+     * @returns {Map<string, Array<{ type: string|null, name: string|null }>>}
+     * @private
+     */
+    _wornByComponent(entityId) {
+        const byComponent = new Map();
+        for (const worn of this._facade?.getWornItems?.(entityId) ?? []) {
+            if (!worn || typeof worn.componentId !== 'string' || worn.componentId === '') continue;
+            const garment = { type: worn.itemType ?? null, name: worn.name ?? null };
+            const list = byComponent.get(worn.componentId);
+            if (list) list.push(garment);
+            else byComponent.set(worn.componentId, [garment]);
+        }
+        return byComponent;
     }
 
     /**

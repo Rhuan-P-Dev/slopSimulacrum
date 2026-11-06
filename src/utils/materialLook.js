@@ -24,6 +24,14 @@
  * about the same matter is a second thing that can be wrong, and it goes stale
  * the first time somebody tunes a value (`DOC-1`). `wiki/decisions/visual-stats.md`.
  *
+ * It also owns the ONE narrowing of a `visual` block (`narrowVisualBlock`): the
+ * vocabulary and the rule that accepts it are the same claim, and two copies of it
+ * drift the first time a key is added. Materials are not the only authored
+ * appearance any more — an item recipe declares a `visual` of its own (what a
+ * garment looks like is not what the matter it is modelled from looks like), and
+ * that owner narrows through this module too
+ * (`wiki/decisions/visual-stats.md`, amendment).
+ *
  * Pure functions over plain objects; deterministic output, like the prose that
  * reads it (identically built worlds produce byte-identical text).
  *
@@ -199,6 +207,46 @@ function translucencyClause(visual) {
     if (translucency >= TRANSLUCENT_STRONG) return 'translucent';
     if (translucency >= TRANSLUCENT_FAINT) return 'slightly translucent';
     return null;
+}
+
+/**
+ * The one narrowing of a `visual` block: every key must be in `VISUAL_KEYS`, and
+ * every value a finite number inside that key's declared range.
+ *
+ * It lives beside the vocabulary on purpose (see the header). It throws
+ * `TypeError` rather than returning a verdict, because a key outside the vocabulary
+ * names nothing and an out-of-range number names a colour nobody can see: a boot
+ * that accepts either can tell the author nothing went wrong, which is the dead data
+ * this block exists to prevent (`T-1`, `E-8`). A caller that would rather quarantine
+ * one bad definition than break a world collects the thrown message instead
+ * (`src/services/CompositionClassifier.js`).
+ *
+ * Absence is not a failure: an `undefined` block narrows to `null`, and the reader
+ * then says nothing about appearance rather than inventing one.
+ *
+ * @param {unknown} visual - The `visual` block as authored (any value).
+ * @param {string} label - Whose data this is, as it should read in the message
+ *   ('Material "iron"', 'Item "tshirt"').
+ * @returns {Object|null} A plain copy of the narrowed block, or null when absent.
+ * @throws {TypeError} When a block is present and malformed.
+ */
+export function narrowVisualBlock(visual, label) {
+    if (visual === undefined) return null;
+    if (typeof visual !== 'object' || visual === null || Array.isArray(visual)) {
+        throw new TypeError(`${label}: "visual" must be an object of numbers.`);
+    }
+    const clean = {};
+    for (const [key, value] of Object.entries(visual)) {
+        const range = VISUAL_KEYS[key];
+        if (!range) {
+            throw new TypeError(`${label}: unknown visual key "${key}" (allowed: ${Object.keys(VISUAL_KEYS).join(', ')}).`);
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < range.min || value > range.max) {
+            throw new TypeError(`${label}: visual "${key}" must be a number in [${range.min}, ${range.max}].`);
+        }
+        clean[key] = value;
+    }
+    return clean;
 }
 
 /**

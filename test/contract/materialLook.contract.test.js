@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { describeVisual } from '../../src/utils/materialLook.js';
+import { describeVisual, narrowVisualBlock } from '../../src/utils/materialLook.js';
 import MaterialController from '../../src/controllers/materials/MaterialController.js';
 import DataLoader from '../../src/utils/DataLoader.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
@@ -120,6 +120,27 @@ describe('materialLook - narrowed once, at the edge', () => {
             .toThrow(/visual "hue" must be a number in \[0, 360\]/);
         expect(() => new MaterialController({ iron: { ...base.iron, visual: { roughness: 'glossy' } } }, mapping))
             .toThrow(/visual "roughness" must be a number in \[0, 100\]/);
+    });
+
+    it('narrows through ONE rule, whichever owner authored the block', () => {
+        // Materials and item recipes share this edge: the vocabulary and the rule that
+        // accepts it are the same claim, and a garment could not be read against a
+        // different list than a material is named from.
+        expect(narrowVisualBlock(undefined, 'Item "tshirt"')).toBeNull();
+        const visual = { hue: 0, roughness: 62 };
+        const narrowed = narrowVisualBlock(visual, 'Item "tshirt"');
+        expect(narrowed).toEqual(visual);
+        expect(narrowed, 'a copy, never the caller\'s object').not.toBe(visual);
+        // The message names whose data broke, so a boot failure says where to look.
+        expect(() => narrowVisualBlock({ shimmer: 1 }, 'Item "tshirt"'))
+            .toThrow(/^Item "tshirt": unknown visual key "shimmer"/);
+        expect(() => narrowVisualBlock({ hue: 'red' }, 'Item "tshirt"'))
+            .toThrow(/^Item "tshirt": visual "hue" must be a number in \[0, 360\]/);
+        expect(() => narrowVisualBlock('shiny', 'Material "iron"'))
+            .toThrow(/^Material "iron": "visual" must be an object of numbers/);
+        // A null block is a present, malformed one — absence is `undefined`.
+        expect(() => narrowVisualBlock(null, 'Item "tshirt"'))
+            .toThrow(/^Item "tshirt": "visual" must be an object of numbers/);
     });
 
     it('treats an absent visual block as "no look", not as a broken world', () => {

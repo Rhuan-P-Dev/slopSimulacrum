@@ -16,11 +16,14 @@
  *
  *   Pure functions over plain objects: no world, no tick, no reader side
  *   effects. A prose-paragraph wording change touches only `buildRoomProse`.
- *   A caller MAY inject three lookups, each of which says nothing on its own:
+ *   A caller MAY inject lookups, each of which says nothing on its own:
  *   `lookOf` (component type -> material look words, so an acting part says what
- *   it looks like) and `verbOf` (action name -> the registry's `prose` block, so
- *   the action says what it did in its own words). They are lookups, not
- *   dependencies, and without them every paragraph is exactly what it was before.
+ *   it looks like), `garmentLookOf` (item type -> the look words of an item's OWN
+ *   `visual` block, so a garment says what it looks like — and hides the part it
+ *   covers, whose matter words are then not said) and `verbOf` (action name -> the
+ *   registry's `prose` block, so the action says what it did in its own words).
+ *   They are lookups, not dependencies, and without them every paragraph is
+ *   exactly what it was before.
  *   The ACTOR'S BODY needs no resolver: it arrives on the action row (`body`),
  *   recorded by the perception flush, so this module never reads the world.
  *   All output is deterministic (no timestamps, no ids) so identically driven
@@ -175,6 +178,88 @@ function listNames(names) {
 }
 
 /**
+ * The two look lookups prose reads, bundled because they travel together and a
+ * part-label builder handed both positional ones would be four parameters deep
+ * (`CHG-4`).
+ *
+ * `component` answers how a body part's MATTER looks; `garment` how an ITEM looks
+ * (the look a garment declares for itself, which is not the look of the matter it
+ * is modelled from — a t-shirt is "red, rough" while the wood it is made of is
+ * "brown, rough, grained"). Either may be absent: every prose surface then says
+ * what it said before appearance existed, which is the byte-pinned behaviour the
+ * contract tests hold.
+ *
+ * @typedef {{ component: ((key: string) => string|null)|null,
+ *             garment: ((key: string) => string|null)|null }} LookLookups
+ */
+
+/**
+ * @param {((componentType: string) => string|null)|null} [component] - component type -> look words
+ * @param {((itemType: string) => string|null)|null} [garment] - item type -> look words
+ * @returns {LookLookups}
+ */
+function looksOf(component = null, garment = null) {
+    return {
+        component: typeof component === 'function' ? component : null,
+        garment: typeof garment === 'function' ? garment : null
+    };
+}
+
+/**
+ * One lookup's words for one key, or null when it has none. A non-string, an empty
+ * string and an unresolvable key are the same answer ("this says nothing about
+ * appearance"), so no caller re-decides it and nothing is ever invented.
+ * @param {((key: string) => string|null)|null} lookup
+ * @param {*} key - the component type or item type to ask about
+ * @returns {string|null}
+ */
+function lookWords(lookup, key) {
+    if (!lookup || typeof key !== 'string' || key.trim() === '') return null;
+    const words = lookup(key);
+    return typeof words === 'string' && words.trim() !== '' ? words.trim() : null;
+}
+
+/**
+ * One item as a sentence fragment: "a Knife", or "a T-Shirt (red, rough)" when its
+ * recipe declares a `visual` block. The look is asked of the ITEM, not of its
+ * material — the garment's own appearance is authored data, and the one it covers
+ * with it is the reason the prose can say what a dressed body looks like.
+ * Any item type with a look says it (the prose does not sort garments from tools);
+ * one without says only its name.
+ * @param {Object|null} row - a row carrying an item name and/or type key
+ * @param {LookLookups} looks
+ * @returns {string} '' when the row names no item at all
+ */
+function itemClause(row, looks) {
+    const name = prettyItemName(row);
+    if (!name) return '';
+    const look = lookWords(looks.garment, row?.itemType ?? row?.type);
+    return `${article(name)} ${name}${look ? ` (${look})` : ''}`;
+}
+
+/**
+ * The garments covering one body part, as noun phrases, in the order the wear
+ * system reported them.
+ *
+ * A row written before clothing was recorded carries no `worn` field, and
+ * contributes nothing: the part reads as bare, which is exactly what the row
+ * says. An empty list is the same answer, so a caller that hands rows from an
+ * unwired world gets the paragraph it always got.
+ * @param {Array|null} worn - the part's `worn` rows (`{ type, name }`)
+ * @param {LookLookups} looks
+ * @returns {string[]}
+ */
+function garmentList(worn, looks) {
+    const out = [];
+    (Array.isArray(worn) ? worn : []).forEach((garment) => {
+        if (!garment || typeof garment !== 'object') return;
+        const phrase = itemClause(garment, looks);
+        if (phrase) out.push(phrase);
+    });
+    return out;
+}
+
+/**
  * How a verb joins its target when the action's own data says nothing else:
  * the preposition every performed action has always taken in this prose.
  * @constant
@@ -294,26 +379,30 @@ function targetPhrase(target) {
 /**
  * Display names from `{ type, id }` part rows, in input order.
  *
- * When a `lookOf` resolver is given and answers for a part's material, the name
+ * When the `component` lookup answers for a part's material, the name
  * carries how that part looks: "Male Arm (tan, satin)". The
- * resolver is a lookup injected by the caller (`wiki/decisions/visual-stats.md`);
+ * lookup is injected by the caller (`wiki/decisions/visual-stats.md`);
  * this module still reads no world, so the prose stays a pure reader and stays
- * deterministic. WITHOUT a resolver the output is byte-identical to before — a
+ * deterministic. WITHOUT a lookup the output is byte-identical to before — a
  * caller with no material access says exactly what it said yesterday.
  *
+ * This is the list of parts an ACT was credited with, and it says nothing about
+ * clothing: the row for a used part carries no `worn` field, and dressing a body
+ * is not part of what made the punch.
+ *
  * @param {Array|null} rows
- * @param {((componentType: string) => string|null)|null} [lookOf] - component type -> look words
+ * @param {LookLookups} [looks] - the look lookups (see `looksOf`)
  * @returns {string[]} display names, each optionally suffixed with its look clause
  */
-function partList(rows, lookOf = null) {
+function partList(rows, looks = looksOf()) {
     const names = [];
     (rows || []).forEach((row) => {
         if (!row || typeof row !== 'object') return;
         const type = row.type ?? row.id;
         const t = componentTypeName(type);
         if (!t) return;
-        const look = typeof lookOf === 'function' ? lookOf(type) : null;
-        names.push(typeof look === 'string' && look !== '' ? `${t} (${look})` : t);
+        const look = lookWords(looks.component, type);
+        names.push(look ? `${t} (${look})` : t);
     });
     return names;
 }
@@ -323,6 +412,13 @@ function partList(rows, lookOf = null) {
  * the parenthesis the part's own label comes first (WHICH
  * instance — the body has two of most of these), then the look words the
  * material owner supplies. A part with no label and no look says its type alone.
+ *
+ * A CLOTHED part is named, then its clothing: "Male Central Body wearing a T-Shirt
+ * (red, rough)" — and its own matter words are NOT said. That is the whole point of
+ * the clause: an observer of a dressed torso sees the shirt, not the skin under it,
+ * and a sentence that revealed both would describe a body the world says is covered.
+ * The garment's look is the item's own authored `visual` block, never the look of
+ * the matter its recipe is built from.
  *
  * The label is spelled out instead of being collapsed into a count ("two Male
  * Arms") because English plurals cannot be derived from a display name without
@@ -335,24 +431,44 @@ function partList(rows, lookOf = null) {
  * "tip_f1_hand_left", and reciting the ancestry would say twice what the name
  * says. "default" is the root's placeholder, not a label, so it never prints.
  *
- * @param {{ type: string, identifier?: string|null }} part - one component of the actor
- * @param {((componentType: string) => string|null)|null} lookOf - component type -> look words
+ * @param {{ type: string, identifier?: string|null, worn?: Array<{ type: string|null, name: string|null }> }} part - one component of the actor
+ * @param {LookLookups} looks - how a part's matter looks, and how a garment looks
  * @returns {string|null} the label, or null when the type has no display name
  */
-function bodyPartLabel(part, lookOf) {
+function bodyPartLabel(part, looks) {
     const type = part && typeof part === 'object' ? part.type : null;
     const label = componentTypeName(type) || (type ? String(type) : null);
     if (!label) return null;
+    const identifier = bodyPartIdentifier(part);
+    const garments = garmentList(part.worn, looks);
+    if (garments.length) {
+        // The label stays in its parenthesis and the clothing follows it: "Male
+        // Breast (left) wearing a T-Shirt (red, rough)" reads, a nested
+        // "(left, wearing …" does not.
+        const where = identifier ? ` (${identifier})` : '';
+        return `${label}${where} wearing ${joinChunk(garments)}`;
+    }
     const bits = [];
-    const identifier = part.identifier && typeof part.identifier === 'string'
-        ? part.identifier.trim().replace(/_/g, ' ')
-        : '';
-    if (identifier && identifier !== 'default') bits.push(identifier);
-    const look = typeof lookOf === 'function' ? lookOf(type) : null;
-    if (typeof look === 'string' && look.trim() !== '') bits.push(look.trim());
+    if (identifier) bits.push(identifier);
+    const look = lookWords(looks.component, type);
+    if (look) bits.push(look);
     // ", " and never joinChunk: the parenthesis is a list of properties ("left,
     // tan"), and "left and tan" would read as one of them.
     return bits.length ? `${label} (${bits.join(', ')})` : label;
+}
+
+/**
+ * The part's own label as prose says it ("left", "frontal right"), or '' when it
+ * has none. Underscores read as spaces, and "default" is the root's placeholder
+ * rather than a label, so it never prints.
+ * @param {Object|null} part
+ * @returns {string}
+ */
+function bodyPartIdentifier(part) {
+    const raw = part && typeof part === 'object' && typeof part.identifier === 'string'
+        ? part.identifier.trim().replace(/_/g, ' ')
+        : '';
+    return raw && raw !== 'default' ? raw : '';
 }
 
 /**
@@ -379,15 +495,15 @@ function bodyPartLabel(part, lookOf) {
  * actor, and the world is not claiming that.
  *
  * @param {string} actor - the actor's display name (already id-guarded)
- * @param {Array<{ type: string, identifier?: string|null, shallow?: boolean }>|null} parts
- * @param {((componentType: string) => string|null)|null} lookOf
+ * @param {Array<{ type: string, identifier?: string|null, shallow?: boolean, worn?: Array }>|null} parts
+ * @param {LookLookups} looks
  * @returns {string|null}
  */
-function dossierClause(actor, parts, lookOf) {
+function dossierClause(actor, parts, looks) {
     const labels = [];
     (parts || []).forEach((part) => {
         if (part && part.shallow === false) return;
-        const label = bodyPartLabel(part, lookOf);
+        const label = bodyPartLabel(part, looks);
         if (label) labels.push(label);
     });
     if (!labels.length) return null;
@@ -406,10 +522,10 @@ function dossierClause(actor, parts, lookOf) {
  *
  * @param {Object} row - one `actions.performed` row (`body`: `[{ type, identifier }]`)
  * @param {string} actor - the actor's display name as the action clause says it
- * @param {{ seen: Set<string>|null, lookOf: ((componentType: string) => string|null)|null }} resolvers
+ * @param {{ seen: Set<string>|null, looks: LookLookups }} resolvers
  * @returns {string|null}
  */
-function actorDossier(row, actor, { seen = null, lookOf = null } = {}) {
+function actorDossier(row, actor, { seen = null, looks = looksOf() } = {}) {
     if (!seen || !row || typeof row !== 'object') return null;
     // Deduped by whoever identifies the actor in the row: the id when it has one,
     // the display name otherwise (a row that names no id cannot key a body).
@@ -418,7 +534,7 @@ function actorDossier(row, actor, { seen = null, lookOf = null } = {}) {
     if (!who || seen.has(who)) return null;
     seen.add(who);
     if (!Array.isArray(row.body)) return null;
-    return dossierClause(actor, row.body, lookOf);
+    return dossierClause(actor, row.body, looks);
 }
 
 /**
@@ -542,7 +658,8 @@ function machineClause(row, mode) {
  * then the quieter state shifts, then what was said. Raw ids never surface; the
  * perception display rule (shared/CoordFormat.js) formats every coordinate.
  * @param {Object} entry
- * @param {((componentType: string) => string|null)|null} [lookOf] - component type -> look words
+ * @param {LookLookups} [looks] - the look lookups (see `looksOf`): how a part's
+ *   matter looks, and how a garment looks
  * @param {{ verbOf: ((action: string) => Object|null)|null,
  *           seen: Set<string>|null,
  *           dossiers: string[]|null }} [resolvers]
@@ -556,7 +673,7 @@ function machineClause(row, mode) {
  *     collects them here and says each one as its own sentence.
  * @returns {string[]}
  */
-function entryClauses(entry, lookOf = null, { verbOf = null, seen = null, dossiers = null } = {}) {
+function entryClauses(entry, looks = looksOf(), { verbOf = null, seen = null, dossiers = null } = {}) {
     const out = [];
     const push = (c) => {
         if (c && c.trim()) out.push(c.trim());
@@ -573,13 +690,13 @@ function entryClauses(entry, lookOf = null, { verbOf = null, seen = null, dossie
     // which components powered the action).
     (entry.actions?.performed || []).forEach((a) => {
         const actor = displayOrGeneric(a?.name, 'an entity');
-        const dossier = actorDossier(a, actor, { seen, lookOf });
+        const dossier = actorDossier(a, actor, { seen, looks });
         if (dossier && Array.isArray(dossiers)) dossiers.push(dossier);
         const { phrase, link } = actionWording(a?.action, verbOf);
         let clause = `${actor} ${phrase}`;
         const target = targetPhrase(a?.target);
         if (target) clause += link ? ` ${link} ${target}` : ` ${target}`;
-        const parts = partList(a?.used, lookOf);
+        const parts = partList(a?.used, looks);
         if (parts.length) clause += `, powered by ${listNames(parts)}`;
         push(clause);
     });
@@ -655,18 +772,19 @@ function entryClauses(entry, lookOf = null, { verbOf = null, seen = null, dossie
             push(clause);
         });
     }
-    // Equipped / unequipped.
+    // Equipped / unequipped — with the item's own look when its recipe declares one,
+    // so putting on a garment says what the world gained to see.
     (equipped.added || []).forEach((row) => {
-        const item = prettyItemName(row);
+        const item = itemClause(row, looks);
         if (!item) return;
         const holder = displayOrGeneric(row?.entity, 'someone');
-        push(`${holder} equipped ${article(item)} ${item}`);
+        push(`${holder} equipped ${item}`);
     });
     (equipped.removed || []).forEach((row) => {
-        const item = prettyItemName(row);
+        const item = itemClause(row, looks);
         if (!item) return;
         const holder = displayOrGeneric(row?.entity, 'someone');
-        push(`${holder} unequipped ${article(item)} ${item}`);
+        push(`${holder} unequipped ${item}`);
     });
 
     // Machines placed / retrieved in the room (who placed what where; the
@@ -752,7 +870,7 @@ function entryClauses(entry, lookOf = null, { verbOf = null, seen = null, dossie
                     clause += (fr || tr) ? ` (from ${fx} to ${tx})` : ` from ${fx} to ${tx}`;
                 }
             }
-            const parts = partList(e.locomotion);
+            const parts = partList(e.locomotion, looks);
             if (parts.length) clause += `, powered by ${listNames(parts)}`;
             push(clause);
         });
@@ -891,6 +1009,9 @@ function baselineText(entry, roomCtx) {
  *     every field is optional
  *   - lookOf: optional component type -> look words resolver (see `partList`);
  *     absent, the paragraph carries no look clause at all
+ *   - garmentLookOf: optional item type -> look words resolver (see `itemClause`);
+ *     absent, a garment is still named (a covered part hides its own look either
+ *     way — that is on the row), it simply says nothing about its own appearance
  *   - verbOf: optional action name -> registry `prose` block (see
  *     `actionWording`); absent, an action clause says "did <action>"
  * The dossier clause (`dossierClause`) needs no resolver at all — it reads the
@@ -900,8 +1021,9 @@ function baselineText(entry, roomCtx) {
  * narrative sentence right after it still carries the "In <room>, …" prefix.
  * @returns {string} — '' when the room had nothing worth saying
  */
-export function buildRoomProse({ entries = null, roomName = null, room = null, lookOf = null, verbOf = null } = {}) {
+export function buildRoomProse({ entries = null, roomName = null, room = null, lookOf = null, garmentLookOf = null, verbOf = null } = {}) {
     const context = roomContext(roomName, room);
+    const looks = looksOf(lookOf, garmentLookOf);
     const sentences = [];
     // One dossier per actor for the whole paragraph (`buildRoomProse` IS one
     // room's round), so an entity that acted three times is described once.
@@ -915,7 +1037,7 @@ export function buildRoomProse({ entries = null, roomName = null, room = null, l
             continue;
         }
         const dossiers = [];
-        const clauses = entryClauses(entry, lookOf, { verbOf, seen, dossiers });
+        const clauses = entryClauses(entry, looks, { verbOf, seen, dossiers });
         // One sentence per actor's body, spoken before anything that actor did.
         for (const dossier of dossiers) sentences.push(`${capitalizeFirst(dossier)}.`);
         if (!clauses.length) continue;
@@ -1068,7 +1190,7 @@ export function selectEntityRows(entry, entityId, entityName = null) {
  * phrasing of its own. Deterministic like the rest of the module: no
  * timestamps, no ids in the text.
  *
- * @param {{ entries: Array|null, entityId: string|null, entityName: string|null, lookOf: ((componentType: string) => string|null)|null, verbOf: ((action: string) => Object|null)|null }} ctx
+ * @param {{ entries: Array|null, entityId: string|null, entityName: string|null, lookOf: ((componentType: string) => string|null)|null, garmentLookOf: ((itemType: string) => string|null)|null, verbOf: ((action: string) => Object|null)|null }} ctx
  *   `verbOf` means what it means for `buildRoomProse`; the dossier clause covers
  *   every actor the entity's own rows name (so a victim's paragraph carries its
  *   attacker's body — the same clause the room says, never a different one).
@@ -1076,7 +1198,8 @@ export function selectEntityRows(entry, entityId, entityName = null) {
  *   entries that said something about this entity (the entity counterpart of
  *   the room paragraph's entry count); `text` is '' when nothing named it.
  */
-export function buildEntityProse({ entries = null, entityId = null, entityName = null, lookOf = null, verbOf = null } = {}) {
+export function buildEntityProse({ entries = null, entityId = null, entityName = null, lookOf = null, garmentLookOf = null, verbOf = null } = {}) {
+    const looks = looksOf(lookOf, garmentLookOf);
     const who = typeof entityId === 'string' ? entityId.trim() : '';
     const name = typeof entityName === 'string' && entityName.trim() !== '' ? entityName.trim() : null;
     if (!who) return { text: '', entryCount: 0 };
@@ -1088,7 +1211,7 @@ export function buildEntityProse({ entries = null, entityId = null, entityName =
         const selected = selectEntityRows(entry, who, name);
         if (!selected.rowCount) continue;
         const dossiers = [];
-        const clauses = entryClauses(selected.entry, lookOf, { verbOf, seen, dossiers });
+        const clauses = entryClauses(selected.entry, looks, { verbOf, seen, dossiers });
         for (const dossier of dossiers) sentences.push(`${capitalizeFirst(dossier)}.`);
         if (!clauses.length) continue;
         const body = assemble(clauses, { firstWordLower: false });

@@ -181,6 +181,37 @@ describe('a material registry that cannot be used', () => {
     });
 });
 
+describe("an item's own appearance (a garment's look)", () => {
+    it('quarantines the definition whose visual block does not read, and nothing else', () => {
+        const result = classifyComposition(candidate({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: {
+                ...nailItem,
+                // A shipped-shaped garment: a look authored beside its matter, both valid.
+                shirt: { name: 'Shirt', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], visual: { hue: 0, saturation: 70, lightness: 46 } },
+                cap: { name: 'Cap', form: { volume: 1 }, materials: [{ material: 'wood', fraction: 1 }], visual: { shimmer: 40 } }
+            }
+        }));
+        expect(result.valid[REGISTRY_KINDS.INVENTORY_ITEMS].shirt, 'a well-formed look stays in the world')
+            .toBeDefined();
+        expect(result.quarantined).toHaveLength(1);
+        const entry = result.quarantined[0];
+        expect([entry.kind, entry.key, entry.scope]).toEqual([REGISTRY_KINDS.INVENTORY_ITEMS, 'cap', QUARANTINE_SCOPE.DEFINITION]);
+        expect(entry.reason).toMatch(/unknown visual key "shimmer"/);
+    });
+
+    it('is checked even when there is no material base to check the item against', () => {
+        // A garment's look is authored on the item, not derived from matter, so the
+        // clothing check does not hide behind the material section: a mod that adds
+        // only a shirt with a broken look is still caught, not shipped as dead data.
+        const result = classifyComposition({
+            [REGISTRY_KINDS.INVENTORY_ITEMS]: { cap: { name: 'Cap', visual: { hue: 900 } } }
+        });
+        const entry = result.quarantined.find((q) => q.kind === REGISTRY_KINDS.INVENTORY_ITEMS);
+        expect([entry.key, entry.scope]).toEqual(['cap', QUARANTINE_SCOPE.DEFINITION]);
+        expect(entry.reason).toMatch(/visual "hue" must be a number in \[0, 360\]/);
+    });
+});
+
 describe('kinds with no composition rule today', () => {
     it('pass through untouched, including kinds the classifier has never heard of', () => {
         const result = classifyComposition({

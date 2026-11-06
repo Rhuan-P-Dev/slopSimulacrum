@@ -40,9 +40,11 @@
  * Beyond both horizons the reader returns `null` — "out of recent history", not
  * an error.
  *
- * Two resolvers are handed to the builder per read, each built once per request
+ * Three resolvers are handed to the builder per read, each built once per request
  * and each a lookup over data the reader already has: the material owner says how
- * a part looks (`_lookResolver`), and the action registry says what an act is
+ * a part looks (`_lookResolver`), the item registry says how a garment looks
+ * (`_garmentLookResolver` — an item's own `visual` block, which is not the look of
+ * the matter its recipe is built from), and the action registry says what an act is
  * called (`_verbResolver` — prose owns no verbs at all). What an actor is built of
  * needs no resolver here: the perception flush records it on the action row
  * itself (`PerceptionController._actorBody`), so the dossier clause is a field of
@@ -54,6 +56,7 @@
 
 import { PERCEPTION_MAX_LIMIT } from '../../utils/Constants.js';
 import { buildRoomProse, buildRoundProse, buildEntityProse, selectEntityRows } from '../../utils/RoundProseBuilder.js';
+import { describeVisual } from '../../utils/materialLook.js';
 
 /**
  * Inclusive [startTick, endTick] filter over a room's perception entries
@@ -207,6 +210,7 @@ class RoundProseController {
             entityId,
             entityName: name,
             lookOf: this._lookResolver(),
+            garmentLookOf: this._garmentLookResolver(),
             verbOf: this._verbResolver()
         });
         return {
@@ -259,6 +263,7 @@ class RoundProseController {
                 roomName: resolved.name,
                 room: rooms[resolved.uid] ?? null,
                 lookOf: this._lookResolver(),
+                garmentLookOf: this._garmentLookResolver(),
                 verbOf: this._verbResolver()
             })
         };
@@ -341,6 +346,31 @@ class RoundProseController {
     }
 
     /**
+     * The garment-look resolver for prose: item type -> look words ("red, rough"),
+     * read from the `visual` block an item recipe declares for itself.
+     *
+     * A garment needs its own appearance because the matter it is modelled from has
+     * another: the shipped t-shirt is `wood` ("brown, rough, grained"), and the shirt
+     * is red. The numbers are narrowed at the edge (`WorldComposition` boot pass,
+     * `CompositionClassifier` quarantine) and named by the same law a material's are
+     * — `describeVisual` is the only place a number becomes a word, so prose never
+     * becomes a second claim about the same appearance (`DOC-1`).
+     *
+     * Built ONCE per request over the already-loaded item registry (`PERF-4`), and
+     * null-tolerant like every prose input: with no registry wired, a covered part
+     * still hides its own look (the row says the part is clothed) and the garment is
+     * named without a look clause — the prose invents nothing.
+     *
+     * @returns {((itemType: string) => string|null)|null}
+     * @private
+     */
+    _garmentLookResolver() {
+        const registry = this._worldStateController?.getItemRegistry?.() ?? null;
+        if (!registry || typeof registry !== 'object') return null;
+        return (itemType) => describeVisual(registry[itemType]?.visual)?.phrase ?? null;
+    }
+
+    /**
      * The action-wording resolver for prose: action name -> that action's `prose`
      * block in the action registry (data/mods/core-actions/actions.json).
      *
@@ -370,6 +400,7 @@ class RoundProseController {
     _collectRoundRooms(facade, window) {
         const rooms = facade.getRooms?.() ?? {};
         const lookOf = this._lookResolver();
+        const garmentLookOf = this._garmentLookResolver();
         const verbOf = this._verbResolver();
         const out = {};
         for (const [roomId, room] of Object.entries(rooms)) {
@@ -383,7 +414,7 @@ class RoundProseController {
             }
             out[roomId] = {
                 name,
-                text: buildRoomProse({ entries, roomName: name, room, lookOf, verbOf }),
+                text: buildRoomProse({ entries, roomName: name, room, lookOf, garmentLookOf, verbOf }),
                 entryCount: entries.length
             };
         }

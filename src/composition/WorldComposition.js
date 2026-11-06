@@ -47,6 +47,7 @@ import ModLoader from '../services/ModLoader.js';
 import DataLoader from '../utils/DataLoader.js';
 import ModService from '../services/ModService.js';
 import { setRegistries as setComponentNamingRegistries } from '../utils/ComponentNaming.js';
+import { narrowVisualBlock } from '../utils/materialLook.js';
 import { setRegistries as setEntityAttributeRegistries } from '../utils/EntityAttributeData.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import {
@@ -269,6 +270,10 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
     }
     for (const [type, def] of Object.entries(inventoryItemRegistry)) {
         if (def.materials) materialController.validateComposition(type, def.materials);
+        // An item's own appearance (a garment's look) is authored data with a closed
+        // vocabulary: a key outside it names nothing, so it fails boot like every
+        // other registry reference rather than silently rendering no appearance.
+        narrowVisualBlock(def?.visual, `Item "${type}"`);
     }
 
     Logger.info(`[WorldComposition] Startup validation passed: ${Object.keys(componentRegistry).length} components, ${Object.keys(inventoryItemRegistry).length} inventory items`);

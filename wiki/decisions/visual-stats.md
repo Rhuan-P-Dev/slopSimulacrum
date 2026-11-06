@@ -179,3 +179,68 @@ round was read aloud:
   to be spoken - which means it needs the per-instance look this note defers.
 - **State of matter** (solid / liquid / paste) for `chunk_...` ground items, which today
   are self-describing records with no material block of their own.
+
+## Amendment - an item authors its own look, and clothing hides the part it covers
+
+The dossier read a dressed human exactly as a naked one. Adam spawns wearing the shipped
+t-shirt (`world.json` `initialSpawns`, `wear: true`, on `maleCentralBody`), and the
+paragraph said `Male Central Body (tan, satin)` about a torso the world says is covered.
+The operator asked for clothing to be rendered: a part with something on it does not
+reveal its details, the clothing does; and clothing should carry appearance the way matter
+does.
+
+**Four decisions, all the operator's.**
+
+1. **The data is a `visual` block on the item recipe** (`data/mods/core-inventory-items/
+   inventoryItems.json`), the same closed vocabulary as a material's. Rejected: a
+   `wear.visual` sub-block (it would make a knife undescribable for a reason the reader
+   cannot see, and `wear` stops meaning only "fit"), and a new `appearance` registry kind
+   - the same rejection this note already recorded for materials, because a look kept
+   apart from the thing it describes is a second source waiting to drift.
+2. **A covered part reads as its clothing**: `Male Central Body wearing a T-Shirt
+   (red, rough)`, and its own matter words are dropped. Rejected: the look swapped in
+   place with the garment unnamed (`Male Central Body (red, rough)` reads as the flesh
+   being red), and a separate "Adam is wearing ..." sentence, which separates a garment
+   from the part it covers and adds a sentence per actor.
+3. **Coverage is exactly the component the item is equipped on** - the wear system's own
+   answer (`WearLogic`), nothing inferred from the garment's kind. Rejected: subtree
+   coverage (the shipped t-shirt is mounted on the ROOT component, so a t-shirt would
+   cover the head, the arms and the legs), and an authored `wear.covers` type list, which
+   was on the table and remains the honest next change if a garment must hide more than
+   one component (`CHG-6`: not added while nobody has declared a need). The visible
+   consequence in the shipped world: the t-shirt hides one of the ten parts the dossier
+   names, and the rest of the body stays `tan, satin`.
+4. **Scope is the round prose**: the dossier in both the room paragraph and the entity
+   paragraph, plus the equip/unequip clauses (`Adam unequipped a T-Shirt (red, rough)`).
+   NOT the agent's own `YOUR BODY` context - that moves prompt bytes (`RP-3`) and was not
+   asked for.
+
+**The shape that fell out of it.**
+
+- The narrowing moved to `narrowVisualBlock` (`src/utils/materialLook.js`): ONE rule for
+  every authored `visual` block, called by `MaterialController` (materials, boot), the
+  `WorldComposition` startup pass (items, boot) and `CompositionClassifier` (items,
+  per-definition quarantine). The vocabulary and the rule that accepts it are the same
+  claim; two copies drift the first time a key is added.
+- **The FACT that a part is clothed is recorded on the action row's `body`**
+  (`worn: [{ type, name }]`, absent when nothing covers it), by
+  `PerceptionController._bodyRecord` reading `WorldStateController.getWornItems`. Worn
+  state is the one part of a body that changes mid-round, so it belongs to the flush like
+  the parts themselves - and it can only be recorded there: coverage is exact to a
+  component id, while a body row carries part TYPES, so no reader could resolve it later.
+- **The WORDS stay a lookup** (`garmentLookOf`, built once per read from the item registry
+  through `describeVisual`), for decision 5's reason: one place where a number becomes a
+  word. With no resolver the garment is still named - the row says the part is clothed -
+  and says nothing about its appearance. A reader with no data access cannot be told a
+  dressed torso is bare skin.
+- The lookup is keyed by **item type**, so any item with a `visual` block says how it
+  looks; the prose does not classify garments from tools.
+
+**Shipped:** t-shirt `visual` hue 0, saturation 66, lightness 46, metalness 0, roughness
+62, saying `red, rough` - while the wood it is modelled from says `brown, rough, grained`.
+Independent on purpose: that is the whole argument for the item authoring its own look.
+
+**The boundary that stays.** The `powered by` clause still names the MATTER of the part
+that acted, even a clothed one: a used-part row carries no `worn` field, and what threw
+the punch was the arm, whatever is on it. Extending it means dressing the `used` rows too,
+which is a change nobody has asked for yet.

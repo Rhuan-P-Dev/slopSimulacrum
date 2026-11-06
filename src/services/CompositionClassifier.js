@@ -43,6 +43,7 @@ import MaterialController from '../controllers/materials/MaterialController.js';
 import CraftingController from '../controllers/crafting/CraftingController.js';
 import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
+import { narrowVisualBlock } from '../utils/materialLook.js';
 
 /** Where a quarantine applies: one definition, or a registry that cannot be used. */
 export const QUARANTINE_SCOPE = Object.freeze({
@@ -139,6 +140,18 @@ export function classifyComposition(candidate = {}) {
                 if (reason) quarantine(kind, key, QUARANTINE_SCOPE.DEFINITION, reason);
             }
         }
+    }
+
+    // ---- 2b. An item's own appearance (a garment's look) --------------------
+    // The same vocabulary a material's `visual` block is narrowed by, and the same
+    // rule (`narrowVisualBlock`): a key outside it names nothing, so the definition
+    // that carries it is dropped rather than shipped as dead data. Independent of
+    // section 2 on purpose — a look is authored on the item, not derived from the
+    // matter, so a broken material base must not hide a broken look (or vice versa).
+    for (const [key, def] of Object.entries(valid[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {})) {
+        if (isMetadataKey(key) || !def || def.visual === undefined) continue;
+        const reason = failureOf(() => narrowVisualBlock(def.visual, `Item "${key}"`));
+        if (reason) quarantine(REGISTRY_KINDS.INVENTORY_ITEMS, key, QUARANTINE_SCOPE.DEFINITION, reason);
     }
 
     // ---- 3. Recipes against the items that survived ------------------------

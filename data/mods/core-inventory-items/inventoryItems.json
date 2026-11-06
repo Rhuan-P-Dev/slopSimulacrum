@@ -1,5 +1,5 @@
 {
-  "_comment": "Inventory item recipes. An item is a SMALL COMPONENT: its own matter (composition), its own form (footprint/volume), and its own pre-installed organs — it is never merged into the host on equip, so using a knife degrades the knife, not the hand. Its stats derive from its own recipe exactly as a component's do: existence, the six channel resistances, mass, and (for the knife) a depletable sharpness from the edge material. A knife carries no organ because sharpness is a matter-derived edge quality, not a function stat.",
+  "_comment": "Inventory item recipes. An item is a SMALL COMPONENT: its own matter (composition), its own form (footprint/volume), and its own pre-installed organs — it is never merged into the host on equip, so using a knife degrades the knife, not the hand. Its stats derive from its own recipe exactly as a component's do: existence, the six channel resistances, mass, and (for the knife) a depletable sharpness from the edge material. A knife carries no organ because sharpness is a matter-derived edge quality, not a function stat. An item may also declare a `visual` block of its own - the same closed vocabulary a material uses (`VISUAL_KEYS` in src/utils/materialLook.js) - because what a garment looks like is not what the matter it is modelled from looks like: the t-shirt is red, the wood is brown. Absent means the item says nothing about its appearance; a key outside the vocabulary fails boot (and quarantines the definition when a mod carries it).",
   "powerCell": {
     "name": "Power Cell",
     "description": "Compact power source for droid systems.",
@@ -88,6 +88,7 @@
     "description": "A human t-shirt. Wearable: it declares wear.minVolume = 2 (its own volume), so it fits any component that has at least 2 free volume units, no matter who (or which species) owns the component. The fit is pure volume: no named layers, no species matching. Fabric is modeled as the lightest material in this world (wood, density 0.6): 2 volume units, 1.2 mass.",
     "form": { "volume": 2 },
     "materials": [ { "material": "wood", "fraction": 1.0 } ],
+    "visual": { "hue": 0, "saturation": 66, "lightness": 46, "metalness": 0, "roughness": 62 },
     "internalComponents": [],
     "wear": { "minVolume": 2 }
   },

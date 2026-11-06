@@ -11,7 +11,7 @@
  */
 
 import Logger from '../../utils/Logger.js';
-import { describeVisual, VISUAL_KEYS } from '../../utils/materialLook.js';
+import { describeVisual, narrowVisualBlock } from '../../utils/materialLook.js';
 import { TRAIT_STAT_KEY_PATTERN, DAMAGE_CHANNELS } from '../../../shared/StatVocabulary.js';
 
 const FRACTION_SUM_TOLERANCE = 1e-9;
@@ -498,6 +498,11 @@ class MaterialController {
      * outside `VISUAL_KEYS` is a typo, and a typo that silently names nothing is the
      * dead data the material system exists to prevent — so it fails boot, loudly.
      *
+     * The narrowing itself is not this owner's: `narrowVisualBlock` is the one rule
+     * for every authored `visual` block in the world, materials and item recipes
+     * alike, so a garment's look can never be read against a different vocabulary
+     * than a material's.
+     *
      * @param {Object} registry - The already-validated materials registry.
      * @returns {Object<string, Object<string, number>>} material id -> normalized visual block.
      * @private
@@ -506,22 +511,8 @@ class MaterialController {
         const visuals = {};
         for (const [id, entry] of Object.entries(registry)) {
             if (id.startsWith('_')) continue;
-            const visual = entry.visual;
-            if (visual === undefined) continue;
-            if (typeof visual !== 'object' || visual === null || Array.isArray(visual)) {
-                throw new TypeError(`Material "${id}": "visual" must be an object of numbers.`);
-            }
-            const clean = {};
-            for (const [key, value] of Object.entries(visual)) {
-                const range = VISUAL_KEYS[key];
-                if (!range) {
-                    throw new TypeError(`Material "${id}": unknown visual key "${key}" (allowed: ${Object.keys(VISUAL_KEYS).join(', ')}).`);
-                }
-                if (typeof value !== 'number' || !Number.isFinite(value) || value < range.min || value > range.max) {
-                    throw new TypeError(`Material "${id}": visual "${key}" must be a number in [${range.min}, ${range.max}].`);
-                }
-                clean[key] = value;
-            }
+            const clean = narrowVisualBlock(entry.visual, `Material "${id}"`);
+            if (clean === null) continue;
             visuals[id] = clean;
         }
         return visuals;

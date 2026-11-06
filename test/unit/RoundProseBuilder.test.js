@@ -854,3 +854,85 @@ describe('action wording from the registry, and the actor described by its row',
         expect(roomOf(acted())).toBe(roomOf(acted()));
     });
 });
+
+/**
+ * Clothing in the dossier and in the equip clause.
+ *
+ * The rule the operator set: a part WITH something on it does not reveal its own
+ * details — the clothing's are. The fact that a part is clothed rides on the ROW
+ * (`worn`, written by `PerceptionController._bodyRecord` from the wear system), so
+ * it survives even a reader with no data access; the garment's WORDS are a lookup,
+ * so with no resolver the garment is named and says nothing about its appearance.
+ * The prose never invents either.
+ */
+describe('clothing: the garment is revealed, what it covers is not', () => {
+    const SHIRT = { type: 'tshirt', name: 'T-Shirt' };
+    const lookOf = (type) => (['centralBall', 'droidHead', 'droidArm', 'droidBreast'].includes(type)
+        ? 'brushed metal'
+        : null);
+    /** Only the t-shirt declares a look; the vest and the sleeve declare none. */
+    const garmentLookOf = (itemType) => (itemType === 'tshirt' ? 'red, rough' : null);
+
+    const bodyWith = (worn) => [
+        { type: 'centralBall', identifier: 'default', shallow: true, ...(worn ? { worn } : {}) },
+        { type: 'droidHead', identifier: 'top', shallow: true },
+        { type: 'droidBreast', identifier: 'left', shallow: true, worn: [SHIRT] }
+    ];
+    const actedWearing = (body) => ({
+        kind: 'delta',
+        actions: { performed: [{ entity: RAW_ENT_ID, name: 'Test Droid', action: 'touch', used: [], body }] }
+    });
+    const wornRoom = (body) => buildRoomProse({
+        verbOf, entries: [actedWearing(body)], roomName: 'Hall', room: null, lookOf, garmentLookOf
+    });
+
+    it('a covered part says what covers it, and not what it is made of', () => {
+        const text = wornRoom(bodyWith([SHIRT]));
+        expect(text).toContain('Central Ball wearing a T-Shirt (red, rough)');
+        expect(text, 'the matter under a garment is not revealed').not.toContain('Central Ball (brushed metal');
+        // The root's "default" is no label, so nothing prints where it used to be.
+        expect(text).not.toContain('(default');
+        // What the garment does not cover keeps its own material clause.
+        expect(text).toContain('Droid Head (top, brushed metal)');
+    });
+
+    it("a part's own label stays in its parenthesis when something is on it", () => {
+        expect(wornRoom(bodyWith())).toContain('Droid Breast (left) wearing a T-Shirt (red, rough)');
+    });
+
+    it('a garment with no look of its own is named, and says nothing about appearance', () => {
+        const text = wornRoom([{ type: 'droidHead', identifier: 'top', shallow: true, worn: [{ type: 'sleeve', name: 'Long Sleeve' }] }]);
+        expect(text).toContain('Droid Head (top) wearing a Long Sleeve');
+        expect(text).not.toContain('red, rough');
+    });
+
+    it('several garments on one part read as a list', () => {
+        const text = wornRoom([{ type: 'droidArm', shallow: true, worn: [SHIRT, { type: 'vest', name: 'Vest' }] }]);
+        expect(text).toContain('Droid Arm wearing a T-Shirt (red, rough) and a Vest');
+    });
+
+    it('a row with no worn field and a row wearing nothing are the same row', () => {
+        // Rows written before clothing was recorded must not start reading as clothed.
+        const part = { type: 'droidArm', identifier: 'left', shallow: true };
+        expect(wornRoom([part])).toBe(wornRoom([{ ...part, worn: [] }]));
+        expect(wornRoom([part])).toContain('Droid Arm (left, brushed metal)');
+    });
+
+    it('the equip clause carries the item\'s look, and degrades to the old sentence without it', () => {
+        const entry = {
+            kind: 'delta',
+            equipped: {
+                added: [{ id: 'eq-1', itemType: 'tshirt', name: 'T-Shirt', entity: RAW_ENT_ID }],
+                removed: [{ id: 'eq-2', itemType: 'knife', name: 'Knife', entity: RAW_ENT_ID }]
+            }
+        };
+        const withLooks = buildRoomProse({
+            verbOf, entries: [entry], roomName: 'Hall', room: null, garmentLookOf
+        });
+        expect(withLooks).toContain('equipped a T-Shirt (red, rough)');
+        // An item type that declares no look keeps the sentence byte-for-byte as it was.
+        expect(withLooks).toContain('unequipped a Knife');
+        expect(buildRoomProse({ verbOf, entries: [entry], roomName: 'Hall', room: null }))
+            .toContain('someone equipped a T-Shirt');
+    });
+});
