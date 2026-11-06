@@ -44,21 +44,96 @@
     color: var(--text-dim);
 }
 
-/* Action name caret (expand/collapse indicator) */
-.nav-action-caret {
-    display: inline-block;
-    width: 1em;
+/* =========================================================================
+   Component Submenu — the flyout an action row opens (ActionComponentSubmenu)
+   Anchored with position:fixed on document.body, because the actions panel
+   scrolls and would clip a submenu rendered inside it.
+   ========================================================================= */
+
+.nav-action-submenu {
+    position: fixed;
+    width: 260px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: var(--panel-bg);
+    border: 1px solid var(--neon-green);
+    border-radius: 4px;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.65);
+}
+
+.nav-action-submenu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.25);
+}
+
+.nav-action-submenu-title {
     color: var(--neon-green);
-    font-size: 0.8em;
+    font-weight: bold;
+    font-size: 0.9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Component list wrapper — hidden by default, shown when action is expanded */
-.nav-action-components {
-    display: none;
+.nav-action-submenu-close {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid rgba(0, 255, 0, 0.4);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-size: 0.75em;
+    line-height: 1;
+    padding: 3px 6px;
+    cursor: pointer;
 }
 
-.nav-action-components.nav-expanded {
-    display: block;
+.nav-action-submenu-close:hover {
+    color: var(--neon-green);
+    border-color: var(--neon-green);
+}
+
+/* Submenu search bar — same look as the panel filter, its own scope */
+.nav-action-submenu-search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    font-size: 0.85em;
+    background: var(--bg-black);
+    color: var(--text-main);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 3px;
+    outline: none;
+}
+
+.nav-action-submenu-search:focus {
+    border-color: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 0, 0.3);
+}
+
+.nav-action-submenu-search::placeholder {
+    color: var(--text-dim);
+}
+
+/* The rows themselves are .nav-component-row (styled above). */
+.nav-action-submenu-list {
+    max-height: 240px;
+    overflow-y: auto;
+    color: var(--text-dim);
+    font-size: 0.85em;
+}
+
+.nav-action-submenu-hint {
+    color: var(--text-dim);
+    font-size: 0.7em;
+    border-top: 1px solid rgba(0, 255, 0, 0.15);
+    padding-top: 4px;
 }
 
 /* Nav panel action items */

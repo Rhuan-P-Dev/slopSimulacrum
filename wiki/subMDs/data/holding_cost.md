@@ -83,5 +83,6 @@ Capability entries derived from equipped items carry metadata identifying the so
 - `src/controllers/consequences/StatConsequenceHandler.js` — Routes channel damage to equipped items
 - `src/routes/inventoryRoutes.js` — Inventory routes
 - `public/js/InventoryManager.js` — Inventory UI
-- `public/js/NavActionsPanel.js` — Action panel with equipped item display
+- `public/js/NavActionsPanel.js` — Action panel; each action row opens the component submenu
+- `public/js/ActionComponentSubmenu.js` — The component submenu, where the equipped item rows are displayed
 - `public/css/actions.css` — Equipped item row styling

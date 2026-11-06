@@ -1,19 +1,23 @@
 /**
- * NavActionsPanel (CLIENT) — unit tests for the filter + accordion surface.
+ * NavActionsPanel (CLIENT) — unit tests for the action list surface.
  *
- * Covers the new client-side behavior of the ⚔️ Actions panel:
+ * Covers the client-side behavior of the ⚔️ Actions panel:
  *   1. `_escapeHtmlAttribute` escapes `& " < >` (XSS guard for the filter input).
  *   2. `_escapeCssIdentifier` escapes action names for CSS attribute selectors
  *      (so "droid punch" → `droid\ punch`, etc.).
- *   3. `_buildActionSection` renders the action list, the filter input (value
- *      escaped), carets + nav-expanded state, selected/locked/equipped row
- *      classes, capable/ incapable count badges, and the "No actions available"
- *      empty case.
- *   4. `_applyFilter` shows/hides items by action name or component match and
- *      auto-expands collapsed actions whose components matched (no real DOM;
- *      a minimal fake content node stands in).
+ *   3. `_buildView` normalizes a null/loose selection triple into Set/Map.
+ *   4. `_buildActionSection` renders the ACTION list only (names, count badges,
+ *      the "N selected" badge, nav-active) plus the filter input (value escaped),
+ *      and the "No actions available" empty case. Component rows are NOT here —
+ *      they belong to the submenu (pinned in ActionComponentSubmenu.test.js).
+ *   5. `_applyFilter` shows/hides actions by ACTION NAME, and dismisses the
+ *      submenu whose own action got filtered out.
+ *   6. `_toggleSubmenuFor` / `_refreshSubmenu` / `hide` drive the anchored
+ *      component submenu (open, toggle close, close when the action leaves the
+ *      registry, close when the panel hides).
  *
- * All exercised with bare instances (no DOM). DOM-dependent paths are stubbed.
+ * All exercised with bare instances (no DOM — this repo has no jsdom). DOM-only
+ * paths inside the submenu no-op in this environment.
  *
  * @module test/unit/NavActionsPanel.client
  */
@@ -26,12 +30,18 @@ function makePanel() {
     return new NavActionsPanel(null);
 }
 
-// Returns the opening "<div class="..." of the row carrying a given data-comp-id.
-// The row's class (nav-selected / nav-locked / nav-equipped-item ...) is in that opening tag.
-function rowClassFor(html, compId) {
-    const idx = html.indexOf('data-comp-id="' + compId + '"');
-    const open = html.lastIndexOf('<div class="nav-component-row', idx);
-    return html.slice(open, open + 160);
+/** The action registry shape the panel renders: one action, n capable, m incapable. */
+function action(capable = 0, incapable = 0) {
+    return {
+        canExecute: Array.from({ length: capable }, (_, i) => ({
+            entityId: 'e1',
+            componentId: `c${i}`,
+            componentType: `claw${i}`,
+            componentIdentifier: `claw-1`,
+            requirementsStatus: [{ current: 1, required: 1 }],
+        })),
+        cannotExecute: Array.from({ length: incapable }, () => ({ componentId: 'x' })),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -76,110 +86,92 @@ describe('NavActionsPanel._escapeCssIdentifier', () => {
 });
 
 // ---------------------------------------------------------------------------
+// _buildView
+// ---------------------------------------------------------------------------
+describe('NavActionsPanel._buildView', () => {
+    it('normalizes a missing selection triple into an empty Set and Map', () => {
+        const view = makePanel()._buildView(null, null, null, null);
+        expect(view.actions).toEqual({});
+        expect(view.activeActionName).toBe(null);
+        expect(view.selectedComponentIds).toBeInstanceOf(Set);
+        expect(view.selectedComponentIds.size).toBe(0);
+        expect(view.crossActionSelections).toBeInstanceOf(Map);
+        expect(view.crossActionSelections.size).toBe(0);
+    });
+
+    it('keeps a Set and a Map handed in', () => {
+        const view = makePanel()._buildView({ attack: action(1) }, 'attack', new Set(['c0']), new Map([['attack', new Set(['c0'])]]));
+        expect(view.selectedComponentIds.has('c0')).toBe(true);
+        expect(view.crossActionSelections.get('attack').size).toBe(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
 // _buildActionSection
 // ---------------------------------------------------------------------------
 describe('NavActionsPanel._buildActionSection', () => {
     it('returns the empty-case message when there are no actions', () => {
-        expect(makePanel()._buildActionSection(null, null)).toContain('No actions available');
+        const p = makePanel();
+        expect(p._buildActionSection(p._buildView(null, null, null, null))).toContain('No actions available');
     });
 
-    it('renders the filter input with the current query escaped', () => {
+    it('renders the action-name filter input with the current query escaped', () => {
         const p = makePanel();
         p._filterQuery = 'a"b';
-        const html = p._buildActionSection({ attack: { canExecute: [], cannotExecute: [] } }, null);
+        const html = p._buildActionSection(p._buildView({ attack: action(0) }, null, null, null));
         expect(html).toContain('id="nav-actions-filter"');
         expect(html).toContain('value="a&quot;b"');
     });
 
     it('escapes action names in data attributes and visible text', () => {
         const p = makePanel();
-        const html = p._buildActionSection({ 'a"b': { canExecute: [], cannotExecute: [] } }, null);
+        const html = p._buildActionSection(p._buildView({ 'a"b': action(0) }, null, null, null));
         expect(html).toContain('data-action-name="a&quot;b"');
     });
 
     it('marks the active action with nav-active', () => {
         const p = makePanel();
-        const html = p._buildActionSection({ attack: { canExecute: [], cannotExecute: [] }, def: { canExecute: [], cannotExecute: [] } }, 'def');
-        // the "def" item div must carry nav-active
+        const html = p._buildActionSection(p._buildView({ attack: action(0), def: action(0) }, 'def', null, null));
         const idx = html.indexOf('data-action-name="def"');
         // nav-active lives in the class attribute, which is BEFORE data-action-name
         const item = html.slice(Math.max(0, idx - 60), idx + 120);
         expect(item).toContain('nav-active');
     });
 
-    it('opens the component wrapper (nav-expanded + caret ▾) only for actions in _expandedActions', () => {
+    it('renders the capable / incapable count badge', () => {
         const p = makePanel();
-        p._expandedActions = new Set(['attack']);
-        const html = p._buildActionSection({ attack: { canExecute: [], cannotExecute: [] }, def: { canExecute: [], cannotExecute: [] } }, null);
-        const attackIdx = html.indexOf('data-action-name="attack"');
-        const defIdx = html.indexOf('data-action-name="def"');
-        const attackBlock = html.slice(attackIdx, attackIdx + 600);
-        const defBlock = html.slice(defIdx, defIdx + 600);
-        expect(attackBlock).toContain('nav-expanded');
-        expect(attackBlock).toContain('▾');
-        expect(defBlock).not.toContain('nav-expanded');
-        expect(defBlock).toContain('▸');
-    });
-
-    it('renders row classes for selected, locked, and equipped components + count badge', () => {
-        const p = makePanel();
-        const active = 'attack';
-        const html = p._buildActionSection(
-            {
-                attack: {
-                    canExecute: [
-                        { entityId: 'e1', componentId: 'c1', componentType: 'claw', componentIdentifier: 'claw-1', requirementsStatus: [{ current: 1, required: 1 }] },
-                        { entityId: 'e1', componentId: 'c2', componentType: 'tail', componentIdentifier: 'tail-1', requirementsStatus: [{ current: 1, required: 1 }] },
-                        { entityId: 'e1', componentId: 'eq-1', componentType: 'knife', componentIdentifier: 'knife-1', requirementsStatus: [{ current: 1, required: 1 }] },
-                    ],
-                    cannotExecute: [{ componentId: 'c3' }],
-                },
-            },
-            active,
-            new Set(['c1']),
-            new Map([[ active, new Set(['c2']) ]])
-        );
-        // c1 selected (active + in selectedIds)
-        expect(rowClassFor(html, 'c1')).toContain('nav-selected');
-        // c2 locked (in cross-action map of another selection)
-        expect(rowClassFor(html, 'c2')).toContain('nav-locked');
-        // eq-1 equipped
-        expect(rowClassFor(html, 'eq-1')).toContain('nav-equipped-item');
-        // count badge: 3 capable, 1 incapable
+        const html = p._buildActionSection(p._buildView({ attack: action(3, 1) }, null, null, null));
         expect(html).toContain('3 capable');
         expect(html).toContain('1 incapable');
-        expect(html).toContain('nav-lock-icon');
+    });
+
+    it('shows how many components are already selected for an action', () => {
+        const p = makePanel();
+        const cross = new Map([['attack', new Set(['c0', 'c1'])]]);
+        const html = p._buildActionSection(p._buildView({ attack: action(3) }, 'attack', new Set(['c0', 'c1']), cross));
+        expect(html).toContain('2 selected');
+    });
+
+    it('keeps the selected badge off an action with no selection', () => {
+        const p = makePanel();
+        const html = p._buildActionSection(p._buildView({ attack: action(3) }, null, null, null));
+        expect(html).not.toContain('selected');
+    });
+
+    it('renders NO component rows inline — the submenu of the action holds them', () => {
+        const p = makePanel();
+        const html = p._buildActionSection(p._buildView({ attack: action(3) }, 'attack', null, null));
+        expect(html).not.toContain('nav-component-row');
+        expect(html).not.toContain('nav-action-components');
+        expect(html).not.toContain('nav-action-caret');
     });
 });
 
 // ---------------------------------------------------------------------------
 // _applyFilter (stubbed content)
 // ---------------------------------------------------------------------------
-function makeClassList(initial = []) {
-    const set = new Set(initial);
-    return {
-        add: (...c) => c.forEach((x) => set.add(x)),
-        remove: (...c) => c.forEach((x) => set.delete(x)),
-        toggle: (c) => (set.has(c) ? ((set.delete(c)), false) : ((set.add(c)), true)),
-        contains: (c) => set.has(c),
-    };
-}
-
-function fakeRow(compName, compIdentifier) {
-    return { dataset: { compName, compIdentifier }, style: { display: '' } };
-}
-
-function fakeItem(actionName, rows = []) {
-    return {
-        dataset: { actionName },
-        style: { display: '' },
-        querySelectorAll: (sel) => (sel === '.nav-component-row' ? rows : []),
-        querySelector: (sel) => {
-            if (sel === '.nav-action-components') return { classList: makeClassList() };
-            if (sel === '.nav-action-caret') return { textContent: '▸' };
-            return null;
-        },
-    };
+function fakeItem(actionName) {
+    return { dataset: { actionName }, style: { display: '' } };
 }
 
 function stubContent(filterValue, items) {
@@ -190,7 +182,7 @@ function stubContent(filterValue, items) {
 }
 
 describe('NavActionsPanel._applyFilter', () => {
-    it('hides items that match neither the action nor any component', () => {
+    it('hides the actions whose name does not match', () => {
         const p = makePanel();
         const attack = fakeItem('attack');
         const def = fakeItem('def');
@@ -200,84 +192,156 @@ describe('NavActionsPanel._applyFilter', () => {
         expect(def.style.display).toBe('none');
     });
 
-    it('shows an item when its action name matches, and keeps all its rows visible', () => {
+    it('shows the actions whose name matches', () => {
         const p = makePanel();
-        const attack = fakeItem('attack', [fakeRow('claw', 'c1')]);
+        const attack = fakeItem('attack');
         const def = fakeItem('def');
         p._content = stubContent('att', [attack, def]);
         p._applyFilter();
         expect(attack.style.display).not.toBe('none');
         expect(def.style.display).toBe('none');
-        expect(attack.querySelector).not.toBe(undefined);
     });
 
-    it('auto-expands a collapsed action whose components matched and shows only matching rows', () => {
+    it('ignores component text — components are searched in the submenu', () => {
         const p = makePanel();
-        const claw = fakeRow('claw', 'claw-1');
-        const tail = fakeRow('tail', 'tail-1');
-        const attack = fakeItem('attack', [claw, tail]);
-        const comps = { classList: makeClassList() };
-        attack.querySelector = (sel) => (sel === '.nav-action-components' ? comps : null);
-        const caret = { textContent: '▸' };
-        attack.querySelector = (sel) =>
-            (sel === '.nav-action-components' ? comps : sel === '.nav-action-caret' ? caret : null);
-
+        const attack = fakeItem('attack');
         p._content = stubContent('claw', [attack]);
-        p._expandedActions = new Set();
         p._applyFilter();
-
-        // item visible, only the claw row visible
-        expect(attack.style.display).not.toBe('none');
-        expect(claw.style.display).not.toBe('none');
-        expect(tail.style.display).toBe('none');
-        // action auto-expanded
-        expect(comps.classList.contains('nav-expanded')).toBe(true);
-        expect(caret.textContent).toBe('▾');
-        expect(p._expandedActions.has('attack')).toBe(true);
+        expect(attack.style.display).toBe('none');
     });
 
-    it('clears the filter and restores visibility', () => {
+    it('restores every action when the filter is cleared', () => {
         const p = makePanel();
         const attack = fakeItem('attack');
         const def = fakeItem('def');
-        p._content = stubContent('', [attack, def]);
         p._filterQuery = '';
+        p._content = stubContent('', [attack, def]);
         p._applyFilter();
         expect(attack.style.display).not.toBe('none');
         expect(def.style.display).not.toBe('none');
     });
+
+    it('dismisses the submenu when its own action is filtered out', () => {
+        const p = makePanel();
+        p._content = stubContent('def', [fakeItem('attack'), fakeItem('def')]);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+        expect(p.submenu.isOpen).toBe(true);
+
+        p._applyFilter();
+        expect(p.submenu.isOpen).toBe(false);
+    });
+
+    it('keeps the submenu open while its action still matches', () => {
+        const p = makePanel();
+        p._content = stubContent('att', [fakeItem('attack'), fakeItem('def')]);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+
+        p._applyFilter();
+        expect(p.submenu.isOpen).toBe(true);
+        expect(p.submenu.openActionName).toBe('attack');
+    });
 });
 
 // ---------------------------------------------------------------------------
-// _toggleActionExpanded (stubbed content)
+// the anchored component submenu
 // ---------------------------------------------------------------------------
-describe('NavActionsPanel._toggleActionExpanded', () => {
-    it('toggles the expanded class and caret, and syncs _expandedActions', () => {
+describe('NavActionsPanel component submenu', () => {
+    it('opens the submenu of the action whose name was clicked', () => {
         const p = makePanel();
-        const comps = { classList: makeClassList() };
-        const caret = { textContent: '▸' };
-        const item = {
-            dataset: { actionName: 'attack' },
-            querySelector: (sel) =>
-                (sel === '.nav-action-components' ? comps : sel === '.nav-action-caret' ? caret : null),
-        };
-        p._content = { querySelector: () => item };
-        p._expandedActions = new Set();
-
-        p._toggleActionExpanded('attack');
-        expect(comps.classList.contains('nav-expanded')).toBe(true);
-        expect(caret.textContent).toBe('▾');
-        expect(p._expandedActions.has('attack')).toBe(true);
-
-        p._toggleActionExpanded('attack');
-        expect(comps.classList.contains('nav-expanded')).toBe(false);
-        expect(caret.textContent).toBe('▸');
-        expect(p._expandedActions.has('attack')).toBe(false);
+        p._content = stubContent('', []);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(2) }, null, null, null));
+        expect(p.submenu.isOpen).toBe(true);
+        expect(p.submenu.openActionName).toBe('attack');
     });
 
-    it('no-ops safely when there is no content', () => {
+    it('closes the submenu when the same action name is clicked again', () => {
         const p = makePanel();
-        p._content = null;
-        expect(() => p._toggleActionExpanded('attack')).not.toThrow();
+        p._content = stubContent('', []);
+        const view = p._buildView({ attack: action(2) }, null, null, null);
+        p._toggleSubmenuFor('attack', view);
+        p._toggleSubmenuFor('attack', view);
+        expect(p.submenu.isOpen).toBe(false);
+    });
+
+    it('re-points the submenu when another action name is clicked', () => {
+        const p = makePanel();
+        p._content = stubContent('', []);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1), cut: action(1) }, null, null, null));
+        p._toggleSubmenuFor('cut', p._buildView({ attack: action(1), cut: action(1) }, null, null, null));
+        expect(p.submenu.openActionName).toBe('cut');
+    });
+
+    it('hands the action\'s capable entries to the submenu', () => {
+        const p = makePanel();
+        const seen = [];
+        p._content = stubContent('', []);
+        p.submenu.open = (opts) => seen.push(opts);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(2) }, 'attack', new Set(['c0']), null));
+
+        expect(seen).toHaveLength(1);
+        expect(seen[0].actionName).toBe('attack');
+        expect(seen[0].entries).toHaveLength(2);
+        expect(seen[0].activeActionName).toBe('attack');
+        expect(seen[0].selectedComponentIds.has('c0')).toBe(true);
+    });
+
+    it('routes a submenu row click to the execute callback', () => {
+        const p = makePanel();
+        const clicked = [];
+        p._content = stubContent('', []);
+        p.setExecuteActionCallback((...args) => clicked.push(args));
+
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+        const args = p._submenuArgs('attack', p._buildView({ attack: action(1) }, null, null, null));
+        args.onRowClick('attack', 'e1', 'c0', 'claw-1');
+
+        expect(clicked).toEqual([['attack', 'e1', 'c0', 'claw-1']]);
+    });
+
+    it('routes a locked row click to the grayed-component callback', () => {
+        const p = makePanel();
+        const cleared = [];
+        p._content = stubContent('', []);
+        p.setGrayedComponentCallback((lockedAction, compId) => cleared.push([lockedAction, compId]));
+
+        const args = p._submenuArgs('attack', p._buildView({ attack: action(1) }, null, null, null));
+        args.onGrayedRowClick('cut', 'c0');
+
+        expect(cleared).toEqual([['cut', 'c0']]);
+    });
+
+    it('refresh keeps an open submenu pointed at its action', () => {
+        const p = makePanel();
+        p._content = stubContent('', []);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+        p._refreshSubmenu(p._buildView({ attack: action(1), cut: action(1) }, 'attack', null, null));
+        expect(p.submenu.isOpen).toBe(true);
+        expect(p.submenu.openActionName).toBe('attack');
+    });
+
+    it('refresh closes the submenu when the action left the registry', () => {
+        const p = makePanel();
+        p._content = stubContent('', []);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+        p._refreshSubmenu(p._buildView({ cut: action(1) }, null, null, null));
+        expect(p.submenu.isOpen).toBe(false);
+    });
+
+    it('refresh on a closed submenu opens nothing', () => {
+        const p = makePanel();
+        p._content = stubContent('', []);
+        p._refreshSubmenu(p._buildView({ attack: action(1) }, null, null, null));
+        expect(p.submenu.isOpen).toBe(false);
+    });
+
+    it('hiding the panel dismisses the submenu (it lives outside the panel)', () => {
+        const p = makePanel();
+        p.overlay = { style: { display: 'block' } };
+        p._content = stubContent('', []);
+        p._toggleSubmenuFor('attack', p._buildView({ attack: action(1) }, null, null, null));
+
+        p.hide();
+        expect(p.submenu.isOpen).toBe(false);
+        expect(p.overlay.style.display).toBe('none');
     });
 });

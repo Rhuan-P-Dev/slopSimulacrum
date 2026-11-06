@@ -102,6 +102,7 @@ App (Orchestrator)
 ├── StatBarsManager
 ├── ComponentViewer
 ├── NavActionsPanel
+├── ActionComponentSubmenu (flyout opened from an action row: choose its components)
 ├── WorldMapView
 ├── HintManager (new)
 ├── CraftingPanel (new)

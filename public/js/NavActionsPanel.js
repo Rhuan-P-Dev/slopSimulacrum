@@ -1,21 +1,33 @@
 /**
  * NavActionsPanel
  * Manages the ⚔️ actions floating panel overlay.
- * Displays the action registry with multi-component selection support.
+ * Displays the action registry — action names, capability counts and a
+ * per-action selected count — under a filter input that matches ACTION NAMES.
  *
- * Supports multi-component selection with visual highlighting:
- * - Selected components get green highlight (nav-selected)
- * - Locked components get grayed out with lock icon (nav-locked)
- * - Active action gets yellow border highlight
+ * The components of an action are NOT listed inline. Clicking an action name
+ * opens `ActionComponentSubmenu` (`./ActionComponentSubmenu.js`), a flyout
+ * anchored to that row with its own component search bar. This panel keeps the
+ * action list; the submenu owns the component picker.
+ *
+ * Multi-component selection state stays visible in two places:
+ * - inside the open submenu (green `nav-selected` rows, grayed `nav-locked`
+ *   rows with the action they are locked to, `🔪` equipped-item rows)
+ * - on the action row itself (`N selected` in its count line), because the rows
+ *   are no longer on screen once the submenu closes
+ * - the active action gets a yellow border highlight (`nav-active`)
+ *
+ * Row clicks are forwarded unchanged to the callbacks App.js installed
+ * (`setExecuteActionCallback` / `setGrayedComponentCallback`): this module never
+ * selects, locks or executes anything itself.
  *
  * @module NavActionsPanel
  */
-import IdResolver from '/utils/IdResolver.js';
+import { ActionComponentSubmenu } from './ActionComponentSubmenu.js';
 
 /**
  * NavActionsPanel class.
- * Manages the actions floating panel overlay.
- * Displays the action registry with multi-component selection support.
+ * Manages the actions floating panel overlay: the action registry list, and the
+ * component submenu each of its rows opens.
  */
 export class NavActionsPanel {
     /**
@@ -35,16 +47,19 @@ export class NavActionsPanel {
         this._onActionClick = null;
         /** @private {Function|null} */
         this._onGrayedComponentClick = null;
-        /** @private {Map<string, Set<string>>|null} */
-        this._crossActionSelections = null;
         /** @private {Function|null} Callback for action execution (replaces _onActionClick after delegation) */
         this._actionCallback = null;
         /** @private {Function|null} Callback for grayed component click (replaces _onGrayedComponentClick after delegation) */
         this._grayedComponentCallback = null;
-        /** @private {Set<string>} Action names currently expanded (component list visible) */
-        this._expandedActions = new Set();
-        /** @private {string} Current filter query for action/component search */
+        /** @private {string} Current filter query, matched against action names only */
         this._filterQuery = '';
+        /** @private {ActionComponentSubmenu} The anchored component picker (one open at a time) */
+        this._submenu = new ActionComponentSubmenu();
+    }
+
+    /** @returns {ActionComponentSubmenu} The component submenu this panel opens. */
+    get submenu() {
+        return this._submenu;
     }
 
     /**
@@ -80,8 +95,9 @@ export class NavActionsPanel {
     }
 
     /**
-     * Shows the actions panel.
-     * Renders the available actions with component selection state.
+     * Shows the actions panel: the action list, filtered by the names still
+     * typed in its filter input. No component submenu is opened here — the user
+     * opens one by clicking an action name.
      *
      * @param {Object|null} [data] - Data object with keys: actions, entityId, onActionClick, activeActionName, selectedComponentIds, crossActionSelections, onGrayedComponentClick.
      */
@@ -99,26 +115,24 @@ export class NavActionsPanel {
         this._entityId = entityId;
         this._onActionClick = onActionClick;
         this._onGrayedComponentClick = onGrayedComponentClick;
-        this._crossActionSelections = crossActionSelections;
 
-        // Keep the active action visible so the user can continue selecting into it
-        if (activeActionName) {
-            this._expandedActions.add(activeActionName);
-        }
+        // Opening the panel is a fresh start: no submenu is carried over from
+        // a previous open (hide() closed it, nothing to reopen here).
+        const view = this._buildView(actions, activeActionName, selectedComponentIds, crossActionSelections);
 
         let html = '';
 
         // Actions section only (navigation removed — arrows now appear on the map)
         html += '<div>';
         html += '<h3 style="margin: 0 0 10px 0; color: var(--neon-green); font-size: 0.9em;">⚔️ Actions</h3>';
-        html += this._buildActionSection(actions, activeActionName, selectedComponentIds, crossActionSelections);
+        html += this._buildActionSection(view);
         html += '</div>';
 
         this._content.innerHTML = html;
         this.overlay.style.display = 'block';
 
         // Attach listeners after DOM is rendered
-        this._attachActionListeners();
+        this._attachActionListeners(view);
     }
 
     /**
@@ -143,18 +157,17 @@ export class NavActionsPanel {
 
         // Update stored references if provided
         if (entityId) this._entityId = entityId;
-        // Keep the active action visible so the user can continue selecting into it
-        if (activeActionName) this._expandedActions.add(activeActionName);
         if (onActionClick) this._onActionClick = onActionClick;
         if (onGrayedComponentClick) this._onGrayedComponentClick = onGrayedComponentClick;
-        if (crossActionSelections) this._crossActionSelections = crossActionSelections;
+
+        const view = this._buildView(actions, activeActionName, selectedComponentIds, crossActionSelections);
 
         let html = '';
 
         // Actions section only
         html += '<div>';
         html += '<h3 style="margin: 0 0 10px 0; color: var(--neon-green); font-size: 0.9em;">⚔️ Actions</h3>';
-        html += this._buildActionSection(actions, activeActionName, selectedComponentIds, crossActionSelections);
+        html += this._buildActionSection(view);
         html += '</div>';
 
         this._content.innerHTML = html;
@@ -169,13 +182,21 @@ export class NavActionsPanel {
         }
 
         // Re-attach listeners after re-rendering DOM
-        this._attachActionListeners();
+        this._attachActionListeners(view);
+
+        // Then re-point the open submenu at its NEW anchor row: the innerHTML
+        // above replaced every action item, and a submenu anchored to a
+        // discarded node would stop following its action.
+        this._refreshSubmenu(view);
     }
 
     /**
-     * Hides the actions panel.
+     * Hides the actions panel. The component submenu is a child of
+     * document.body (it must escape the panel's scroll box), so it is dismissed
+     * explicitly here — otherwise it would outlive the panel it belongs to.
      */
     hide() {
+        this._submenu.close();
         if (this.overlay) {
             this.overlay.style.display = 'none';
         }
@@ -194,114 +215,78 @@ export class NavActionsPanel {
     }
 
     /**
-     * Builds the actions list HTML with multi-component selection support.
-     * Renders interactive component rows with selection highlighting and lock indicators.
+     * Bundles the selection/registry state every render path needs, so the
+     * click handlers and the submenu receive one object instead of four
+     * positional arguments that can be passed in the wrong order.
      *
      * @param {Object} actions - The available actions data.
      * @param {string|null} activeActionName - The action currently being selected into.
      * @param {Set<string>} [selectedComponentIds] - Components currently selected for the active action.
      * @param {Map<string, Set<string>>} [crossActionSelections] - Map of actionName → Set of selected component IDs.
+     * @returns {{actions: Object, activeActionName: string|null, selectedComponentIds: Set<string>, crossActionSelections: Map<string, Set<string>>}}
+     * @private
+     */
+    _buildView(actions, activeActionName, selectedComponentIds, crossActionSelections) {
+        // Normalize sets/maps with defensive type checking to prevent
+        // "function is not iterable" errors from signature mismatches
+        return {
+            actions: actions || {},
+            activeActionName: activeActionName || null,
+            selectedComponentIds: selectedComponentIds instanceof Set
+                ? selectedComponentIds
+                : new Set(selectedComponentIds || []),
+            crossActionSelections: crossActionSelections instanceof Map
+                ? crossActionSelections
+                : new Map(crossActionSelections || []),
+        };
+    }
+
+    /**
+     * Builds the actions list HTML: one row per action, with its capability
+     * counts and how many components are already selected for it. The component
+     * rows themselves live in the submenu this row opens.
+     *
+     * @param {{actions: Object, activeActionName: string|null, crossActionSelections: Map<string, Set<string>>}} view - The rendered state (`_buildView`).
      * @returns {string} HTML string.
      * @private
      */
-    _buildActionSection(actions, activeActionName, selectedComponentIds, crossActionSelections) {
+    _buildActionSection(view) {
+        const { actions, activeActionName, crossActionSelections } = view;
         if (!actions || Object.keys(actions).length === 0) {
             return '<em style="color: var(--text-dim);">No actions available.</em>';
-        }
-
-        // Normalize sets/maps with defensive type checking to prevent
-        // "function is not iterable" errors from signature mismatches
-        const selectedSet = selectedComponentIds instanceof Set
-            ? selectedComponentIds
-            : new Set(selectedComponentIds || []);
-
-        const crossMap = crossActionSelections instanceof Map
-            ? crossActionSelections
-            : new Map(crossActionSelections || []);
-
-        // Build a map: componentId → actionName (for cross-action graying)
-        const componentToActionMap = new Map();
-        for (const [actionName, compSet] of crossMap) {
-            if (compSet instanceof Set) {
-                for (const compId of compSet) {
-                    componentToActionMap.set(compId, actionName);
-                }
-            }
         }
 
         const esc = (value) => this._escapeHtmlAttribute(value);
 
         let html = '<div class="action-list" id="action-list">';
 
-        // Filter input — matches action names and component names/identifiers
+        // Filter input — matches ACTION NAMES; components are searched inside
+        // the submenu of the action they belong to.
         html += `<input type="text" id="nav-actions-filter" class="nav-actions-filter"
-            placeholder="🔍 Filter by action or component..."
+            placeholder="🔍 Filter actions..."
             value="${this._escapeHtmlAttribute(this._filterQuery)}">`;
 
         for (const [actionName, actionData] of Object.entries(actions)) {
             const isThisActive = actionName === activeActionName;
-            const isExpanded = this._expandedActions.has(actionName);
             const capableCount = (actionData.canExecute || []).length;
             const incapableCount = (actionData.cannotExecute || []).length;
+            // Selection is no longer visible as inline rows, so the count of
+            // components already chosen for this action rides on its own line.
+            const selectedCount = (crossActionSelections.get(actionName) || new Set()).size;
+            const selectedSuffix = selectedCount > 0 ? ` · ${selectedCount} selected` : '';
 
             // Action item wrapper with active highlight
             const actionItemClass = isThisActive ? 'nav-action-item nav-active' : 'nav-action-item';
 
             html += `
                 <div class="${actionItemClass}" data-action-name="${esc(actionName)}">
-                    <div class="nav-action-name" title="Click to ${isExpanded ? 'hide' : 'show'} components">
-                        <span class="nav-action-caret">${isExpanded ? '▾' : '▸'}</span> ${esc(actionName)}
+                    <div class="nav-action-name" title="Click to choose components">
+                        ${esc(actionName)}
                     </div>
                     <div class="nav-capable-count">
-                        ${capableCount} capable${capableCount !== 1 ? 's' : ''} · ${incapableCount} incapable${incapableCount !== 1 ? 's' : ''}
+                        ${capableCount} capable${capableCount !== 1 ? 's' : ''} · ${incapableCount} incapable${incapableCount !== 1 ? 's' : ''}${selectedSuffix}
                     </div>
-                    <div class="nav-action-components${isExpanded ? ' nav-expanded' : ''}">`;
-
-            // Render capable components as interactive rows
-            if (capableCount > 0) {
-                for (const entry of actionData.canExecute) {
-                    const canExecute = entry.requirementsStatus.every(rs => rs.current >= rs.required);
-                    const isSelected = isThisActive && selectedSet.has(entry.componentId);
-                    const grayedByAction = isSelected ? null : componentToActionMap.get(entry.componentId);
-
-                    // Determine row class
-                    let rowClass = 'nav-component-row';
-                    if (isSelected) rowClass += ' nav-selected';
-                    if (grayedByAction) rowClass += ' nav-locked';
-
-                    // Detect equipped items (uses typed eq- prefix)
-                    const isEquipped = typeof entry.componentId === 'string' && IdResolver.isEquippedId(entry.componentId);
-                    if (isEquipped) {
-                        rowClass += ' nav-equipped-item';
-                    }
-
-                    // Lock icon with tooltip showing which action it's locked to
-                    const lockIcon = grayedByAction
-                        ? `<span class="nav-lock-icon" title="Selected in '${esc(grayedByAction)}'">🔒</span>`
-                        : '';
-
-                    // Equipped item indicator (knife icon)
-                    const equippedIcon = isEquipped ? '<span class="nav-equipped-icon" title="Equipped item">🔪</span>' : '';
-
-                    html += `
-                        <div class="${rowClass}"
-                             data-action="${esc(actionName)}"
-                             data-entity="${esc(entry.entityId)}"
-                             data-comp-id="${esc(entry.componentId)}"
-                             data-comp-name="${esc(entry.componentType)}"
-                             data-comp-identifier="${esc(entry.componentIdentifier)}"
-                             data-can-execute="${canExecute}"
-                             data-equipped-type="${isEquipped ? entry.componentType : ''}">
-                            ${lockIcon}
-                            ${equippedIcon}
-                            <span class="nav-comp-type">${esc(entry.componentType)}</span>
-                            <span class="nav-comp-identifier">(${esc(entry.componentIdentifier)})</span>
-                        </div>`;
-                }
-            }
-
-            // Close components wrapper and item
-            html += '</div></div>';
+                </div>`;
         }
 
         html += '</div>';
@@ -323,25 +308,69 @@ export class NavActionsPanel {
     }
 
     /**
-     * Toggles the component list visibility for an action and syncs the caret.
-     * @param {string} actionName - The action to toggle.
+     * Opens the component submenu for an action, or closes it when it is already
+     * open for that same action (clicking the action name again dismisses it).
+     * @param {string} actionName - The action whose component submenu toggles.
+     * @param {Object} view - The rendered state (`_buildView`).
      * @private
      */
-    _toggleActionExpanded(actionName) {
-        const item = this._content?.querySelector(`.nav-action-item[data-action-name="${this._escapeCssIdentifier(actionName)}"]`);
-        if (!item) return;
-
-        const comps = item.querySelector('.nav-action-components');
-        const expanded = comps ? comps.classList.toggle('nav-expanded') : false;
-
-        if (expanded) {
-            this._expandedActions.add(actionName);
-        } else {
-            this._expandedActions.delete(actionName);
+    _toggleSubmenuFor(actionName, view) {
+        if (!actionName) return;
+        if (this._submenu.isOpen && this._submenu.openActionName === actionName) {
+            this._submenu.close();
+            return;
         }
+        this._submenu.open(this._submenuArgs(actionName, view));
+    }
 
-        const caret = item.querySelector('.nav-action-caret');
-        if (caret) caret.textContent = expanded ? '▾' : '▸';
+    /**
+     * Re-points an OPEN submenu at the freshly rendered action row. Closes it
+     * when the action left the registry (the world changed underneath us).
+     * @param {Object} view - The rendered state (`_buildView`).
+     * @private
+     */
+    _refreshSubmenu(view) {
+        if (!this._submenu.isOpen) return;
+        const actionName = this._submenu.openActionName;
+        if (!view.actions || !view.actions[actionName]) {
+            this._submenu.close();
+            return;
+        }
+        this._submenu.refresh(this._submenuArgs(actionName, view));
+    }
+
+    /**
+     * Builds the `ActionComponentSubmenu.open()/refresh()` argument object for
+     * one action, anchoring it on that action's row in the rendered list and
+     * forwarding row clicks to the callbacks App.js installed.
+     *
+     * @param {string} actionName - The action the submenu is being pointed at.
+     * @param {Object} view - The rendered state (`_buildView`).
+     * @returns {Object} The submenu options.
+     * @private
+     */
+    _submenuArgs(actionName, view) {
+        const actionData = (view.actions && view.actions[actionName]) || {};
+        const anchor = this._content
+            ? this._content.querySelector(`.nav-action-item[data-action-name="${this._escapeCssIdentifier(actionName)}"] .nav-action-name`)
+            : null;
+        return {
+            actionName,
+            entries: actionData.canExecute || [],
+            anchorEl: anchor || null,
+            activeActionName: view.activeActionName,
+            selectedComponentIds: view.selectedComponentIds,
+            crossActionSelections: view.crossActionSelections,
+            onRowClick: (name, entityId, componentId, componentIdentifier) => {
+                // Prefer the delegated callback (_actionCallback), fall back to legacy (_onActionClick)
+                const callback = this._actionCallback || this._onActionClick;
+                if (callback) callback(name, entityId, componentId, componentIdentifier);
+            },
+            onGrayedRowClick: (lockedActionName, componentId) => {
+                const callback = this._grayedComponentCallback || this._onGrayedComponentClick;
+                if (callback) callback(lockedActionName, componentId);
+            },
+        };
     }
 
     /**
@@ -355,9 +384,13 @@ export class NavActionsPanel {
     }
 
     /**
-     * Applies the current filter query to the rendered action list.
-     * An action is visible when its name matches or any of its components match.
-     * When only components match, the action auto-expands and shows just the matching rows.
+     * Applies the current filter query to the rendered action list. An action is
+     * visible when its NAME matches; components are searched inside the submenu
+     * of the action they belong to, not here.
+     *
+     * Dismisses the submenu when its own action gets filtered out: the submenu
+     * is anchored to that row, and a picker pointing at a hidden row has no
+     * meaning left.
      * @private
      */
     _applyFilter() {
@@ -365,54 +398,42 @@ export class NavActionsPanel {
         const input = this._content.querySelector('#nav-actions-filter');
         const query = (input ? input.value : this._filterQuery || '').trim().toLowerCase();
 
+        let openActionHidden = false;
         this._content.querySelectorAll('.nav-action-item').forEach((item) => {
             const actionName = (item.dataset.actionName || '').toLowerCase();
-            const actionMatches = !query || actionName.includes(query);
-
-            let anyComponentMatches = false;
-            item.querySelectorAll('.nav-component-row').forEach((row) => {
-                const compText = `${row.dataset.compName || ''} ${row.dataset.compIdentifier || ''}`.toLowerCase();
-                const rowVisible = !query || actionMatches || compText.includes(query);
-                row.style.display = rowVisible ? '' : 'none';
-                if (query && !actionMatches && compText.includes(query)) {
-                    anyComponentMatches = true;
-                }
-            });
-
-            item.style.display = !query || actionMatches || anyComponentMatches ? '' : 'none';
-
-            // Auto-expand collapsed actions whose components matched
-            if (query && !actionMatches && anyComponentMatches) {
-                const comps = item.querySelector('.nav-action-components');
-                if (comps && !comps.classList.contains('nav-expanded')) {
-                    comps.classList.add('nav-expanded');
-                    this._expandedActions.add(item.dataset.actionName);
-                    const caret = item.querySelector('.nav-action-caret');
-                    if (caret) caret.textContent = '▾';
-                }
+            const visible = !query || actionName.includes(query);
+            item.style.display = visible ? '' : 'none';
+            if (!visible && this._submenu.isOpen && item.dataset.actionName === this._submenu.openActionName) {
+                openActionHidden = true;
             }
         });
+
+        if (openActionHidden) this._submenu.close();
     }
 
     /**
-     * Attaches click listeners to action component rows for multi-component selection.
-     * - Click on grayed (locked) component → clear conflict (calls _onGrayedComponentClick)
-     * - Click on non-grayed capable component → toggle selection (calls _onActionClick)
-     * - Does NOT auto-execute on component click
+     * Attaches the listeners of the rendered action list.
+     * - Click on an action name → open/close its component submenu
+     *   (`ActionComponentSubmenu`), which is where the components are chosen
+     * - Typing in the filter input → live filter of the action names
+     * Component rows are NOT wired here: the submenu owns them and forwards
+     * clicks to the execute / grayed-conflict callbacks (see `_submenuArgs`).
+     *
+     * @param {Object} view - The rendered state (`_buildView`).
      * @private
      */
-    _attachActionListeners() {
+    _attachActionListeners(view) {
         if (!this._content) return;
 
-        // Action name click — toggle component list (accordion behavior)
+        // Action name click — open the component submenu for that action
         this._content.querySelectorAll('.nav-action-name').forEach((nameEl) => {
             const item = nameEl.closest('.nav-action-item');
             if (item) {
-                nameEl.onclick = () => this._toggleActionExpanded(item.dataset.actionName);
+                nameEl.onclick = () => this._toggleSubmenuFor(item.dataset.actionName, view);
             }
         });
 
-        // Filter input — live search by action name or component name/identifier
+        // Filter input — live search by action name
         const filterInput = this._content.querySelector('#nav-actions-filter');
         if (filterInput) {
             filterInput.value = this._filterQuery || '';
@@ -422,58 +443,6 @@ export class NavActionsPanel {
             });
             this._applyFilter();
         }
-
-        if (!this._onActionClick) return;
-
-        // Build component-to-action map for detecting grayed components
-        // Defensive: ensure _crossActionSelections is a Map
-        const actionCrossMap = this._crossActionSelections instanceof Map
-            ? this._crossActionSelections
-            : new Map(this._crossActionSelections || []);
-
-        const componentToActionMap = new Map();
-        for (const [actionName, compSet] of actionCrossMap) {
-            if (compSet instanceof Set) {
-                for (const compId of compSet) {
-                    componentToActionMap.set(compId, actionName);
-                }
-            }
-        }
-
-        this._content.querySelectorAll('.nav-component-row').forEach((row) => {
-            row.onclick = () => {
-                const actionName = row.dataset.action;
-                const entityId = row.dataset.entity;
-                const componentId = row.dataset.compId;
-                const componentIdentifier = row.dataset.compIdentifier;
-
-            // Check if this component is grayed (locked to another action)
-            const grayedByAction = componentToActionMap.get(componentId);
-
-            // If grayed (locked to another action), handle conflict resolution
-            const grayedCallback = this._grayedComponentCallback || this._onGrayedComponentClick;
-            if (grayedByAction && grayedCallback) {
-                grayedCallback(grayedByAction, componentId);
-                return;
-            }
-
-            // Call the action click callback for selection toggling
-            // Prefer the new delegated callback (_actionCallback), fall back to legacy (_onActionClick)
-            if (componentId && entityId) {
-                const callback = this._actionCallback || this._onActionClick;
-                if (callback) {
-                    callback(actionName, entityId, componentId, componentIdentifier);
-                }
-            }
-            };
-        });
     }
 
-    /**
-     * Public setter for cross-action selections (used by updateRoom after re-render).
-     * @param {Map<string, Set<string>>} crossActionSelections
-     */
-    setCrossActionSelections(crossActionSelections) {
-        this._crossActionSelections = crossActionSelections;
-    }
 }
