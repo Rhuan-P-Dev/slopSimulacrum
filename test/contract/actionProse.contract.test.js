@@ -121,6 +121,7 @@ describe('the action registry is the only source of action wording', () => {
         expect(actions.length, 'the live registry ships actions').toBeGreaterThan(0);
 
         let direct = 0;
+        const instrumented = [];
         for (const [name, def] of actions) {
             const phrase = def.prose?.verbPhrase;
             expect(typeof phrase, `action "${name}" declares prose.verbPhrase`).toBe('string');
@@ -130,16 +131,45 @@ describe('the action registry is the only source of action wording', () => {
                 expect(typeof def.prose.targetLink, `action "${name}" prose.targetLink is a string`).toBe('string');
                 if (def.prose.targetLink === 'direct') direct += 1;
             }
+            // The instrumental form (`wiki/decisions/action-prose.md`): the base verb
+            // English cannot derive from its own past tense ("threw a punch" -> "throw
+            // a punch", "fired the T1" -> "shoot"), so an act that wants the
+            // "used <part> to <verb> <target>" sentence has to author it. Absent is a
+            // real answer - that act keeps the "…, powered by <part>" clause - but a
+            // declared-and-blank entry is not, exactly like verbPhrase.
+            if (def.prose.instrumental !== undefined) {
+                const ins = def.prose.instrumental;
+                expect(ins, `action "${name}" prose.instrumental is an object`).toBeInstanceOf(Object);
+                expect(typeof ins.verb, `action "${name}" prose.instrumental.verb is a string`).toBe('string');
+                expect(String(ins.verb).trim(), `action "${name}" prose.instrumental.verb is not blank`).toBeTruthy();
+                expect(ins.verb, `action "${name}" instrumental wording is ASCII (CR NAME-1)`).toMatch(/^[\x20-\x7E]+$/);
+                if (ins.targetLink !== undefined) {
+                    expect(typeof ins.targetLink, `action "${name}" prose.instrumental.targetLink is a string`).toBe('string');
+                }
+                instrumented.push(name);
+            }
         }
         // At least one verb takes its target directly, or the whole `direct` rule
         // would be untested by the shipped data ("Adam touched Ball").
         expect(direct, 'a transitive action declares targetLink "direct"').toBeGreaterThan(0);
+        // Which acts speak instrumentally is a decision, not a side effect of the
+        // wording: every one of these acts on a target the sentence can name. A new
+        // entry has to be named here too, so an act cannot start claiming an
+        // instrument on its own.
+        expect(instrumented.sort()).toEqual([
+            'cut', 'droid punch', 'dropItem', 'grab', 'hand shotgun', 'pickUpItem',
+            'placeMachine', 'retrieveMachine', 'shootT1', 'touch'
+        ]);
     });
 
     it('a real round is narrated in those words — never in the fallback', () => {
         const found = punchParagraph(buildMatch().world);
         expect(found, 'a real round narrated the punch').toBeTruthy();
-        expect(found.text).toContain('Adam threw a punch against Ball');
+        // The instrumental shape, from the registry's own base verb: the part that did
+        // it comes first, then what was done, then whom to. The look words live inside
+        // the parenthesis after the part, so the two halves are pinned apart.
+        expect(found.text).toContain('Adam used Male Arm');
+        expect(found.text).toContain('to throw a punch against Ball');
         // "did <action>" is what prose says when the data has nothing; with a
         // complete registry it must not appear in a real paragraph at all.
         expect(found.text).not.toMatch(/\bdid [a-z]/);

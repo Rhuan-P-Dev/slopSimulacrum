@@ -302,6 +302,83 @@ describe('buildRoomProse (narrative prose)', () => {
         );
     });
 
+    it('says "used <part> to <verb>" when the act declares its base verb', () => {
+        // `prose.instrumental` is the action's own data (wiki/decisions/action-prose.md);
+        // which acts declare it is pinned against the live registry, this pins the shape.
+        const text = buildRoomProse({
+            verbOf: (action) => (action === 'droid punch'
+                ? { verbPhrase: 'threw a punch', instrumental: { verb: 'throw a punch' } }
+                : null),
+            roomName: 'start room',
+            entries: [
+                {
+                    actions: {
+                        performed: [
+                            {
+                                name: 'Test Droid',
+                                action: 'droid punch',
+                                target: { id: 't1', name: 'Knife', componentId: null, componentName: null },
+                                used: [ { type: 'blade' }, { type: 'core' } ],
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+        // The same row without the declaration is the clause above, word for word: the
+        // instrumental form is opt-in per act, never inferred from the past tense.
+        expect(text).toBe('In start room, Test Droid used Blade and Core to throw a punch against Knife.');
+    });
+
+    it('inherits the target link, and lets the instrumental verb override it', () => {
+        const clause = (prose, extra = {}) => buildRoomProse({
+            verbOf: (action) => (action === 'an act' ? prose : null),
+            roomName: 'start room',
+            entries: [{
+                actions: {
+                    performed: [
+                        {
+                            name: 'Test Droid',
+                            action: 'an act',
+                            target: { id: 't1', name: 'Knife', componentId: null, componentName: null },
+                            used: [ { type: 'blade' } ],
+                            ...extra,
+                        },
+                    ],
+                },
+            }],
+        });
+        // "touched" takes its target directly, and so does "touch".
+        expect(clause({ verbPhrase: 'touched', targetLink: 'direct', instrumental: { verb: 'touch' } }))
+            .toBe('In start room, Test Droid used Blade to touch Knife.');
+        // "cut something against X" is the old clause; the instrument governs the
+        // target directly, and says so with its own link.
+        expect(clause({ verbPhrase: 'cut something', instrumental: { verb: 'cut', targetLink: 'direct' } }))
+            .toBe('In start room, Test Droid used Blade to cut Knife.');
+        // An act that declares nothing keeps the historical sentence.
+        expect(clause({ verbPhrase: 'did something' }))
+            .toBe('In start room, Test Droid did something against Knife, powered by Blade.');
+    });
+
+    it('needs both halves of the row, and a real declaration', () => {
+        const clause = (row, prose = { verbPhrase: 'threw a punch', instrumental: { verb: 'throw a punch' } }) =>
+            buildRoomProse({
+                verbOf: (action) => (action === 'droid punch' ? prose : null),
+                roomName: 'start room',
+                entries: [{ actions: { performed: [row] } }],
+            });
+        const aimed = { name: 'Test Droid', action: 'droid punch', target: { name: 'Knife' }, used: [ { type: 'blade' } ] };
+        // No part named: there is no instrument to put first.
+        expect(clause({ ...aimed, used: [] }))
+            .toBe('In start room, Test Droid threw a punch against Knife.');
+        // No target: "used Blade to throw a punch" would leave the reader asking at whom.
+        expect(clause({ name: 'Test Droid', action: 'droid punch', used: [ { type: 'blade' } ] }))
+            .toBe('In start room, Test Droid threw a punch, powered by Blade.');
+        // A half-written entry is no entry - the old sentence, not a verbless one.
+        expect(clause(aimed, { verbPhrase: 'threw a punch', instrumental: { verb: '  ' } }))
+            .toBe('In start room, Test Droid threw a punch against Knife, powered by Blade.');
+    });
+
     it('places floor objects at their display coordinates (2 decimals, perception rule)', () => {
         const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',

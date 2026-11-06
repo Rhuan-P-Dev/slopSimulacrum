@@ -142,7 +142,7 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
 
     it('the covered part says what covers it, and not what it is made of', () => {
         const { world } = buildMatch();
-        const found = findParagraph(world, /threw a punch/);
+        const found = findParagraph(world, /used .+ to throw a punch/);
         expect(found, 'a real round narrated the punch').toBeTruthy();
         expect(found.text).toContain(`Male Central Body wearing a T-Shirt (${SHIRT_LOOK})`);
         expect(found.text, 'a covered part does not also reveal the matter under it')
@@ -154,7 +154,7 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
 
     it('a part marked hidesWithParent is behind the cloth over its parent', () => {
         const { world } = buildMatch();
-        const found = findParagraph(world, /threw a punch/);
+        const found = findParagraph(world, /used .+ to throw a punch/);
         expect(found, 'a real round narrated the punch').toBeTruthy();
         const marked = performedRows(world)[0]?.actions?.performed[0]?.body
             ?.find((part) => part.type === MARKED_TYPE);
@@ -185,7 +185,7 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
 
     it('the entity view carries the same clothing clause as the room view', () => {
         const { world, attacker } = buildMatch();
-        const found = findParagraph(world, /threw a punch/);
+        const found = findParagraph(world, /used .+ to throw a punch/);
         expect(found, 'a real round narrated the punch').toBeTruthy();
         const entityProse = world.roundProseController.getEntityProse(attacker, found.round);
         expect(entityProse?.text ?? '', 'the entity paragraph says the same thing')
@@ -229,8 +229,8 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
 
     it('is a pure function of the data: two identically built worlds speak it identically', () => {
         const clause = (text) => text.match(/wearing a T-Shirt \([^)]*\)/)?.[0] ?? null;
-        const first = findParagraph(buildMatch().world, /threw a punch/);
-        const second = findParagraph(buildMatch().world, /threw a punch/);
+        const first = findParagraph(buildMatch().world, /used .+ to throw a punch/);
+        const second = findParagraph(buildMatch().world, /used .+ to throw a punch/);
         expect(first, 'a real round narrated the punch').toBeTruthy();
         expect(clause(first.text), 'the first world said the clothing').toBeTruthy();
         expect(clause(second.text)).toBe(clause(first.text));

@@ -8,7 +8,9 @@
  * the material owner. This file pins the four things that make that true:
  *
  *   - the live path: a real driven round says how the part that threw the punch
- *     looks — "powered by Male Arm (tan, satin)";
+ *     looks, in the instrumental sentence the action data authors — "Adam used
+ *     Male Arm (tan, satin) to throw a punch against Ball"
+ *     (`wiki/decisions/action-prose.md`);
  *   - the entity view carries the same clause as the room view (both prose
  *     entries are wired, not just the room one);
  *   - the default is the old prose: WITHOUT a resolver the same rows render
@@ -80,7 +82,7 @@ function punchParagraph(world) {
     for (let round = 0; round <= 3; round += 1) {
         const prose = world.roundProseController.getRoundProse(round);
         for (const info of Object.values(prose?.rooms || {})) {
-            if (/threw a punch/.test(info.text)) return { round, text: info.text };
+            if (/used .+ to throw a punch/.test(info.text)) return { round, text: info.text };
         }
     }
     return null;
@@ -125,7 +127,9 @@ describe('round prose speaks how the matter looks', () => {
         const first = punchParagraph(buildMatch().world);
         const second = punchParagraph(buildMatch().world);
         expect(first, 'a real round narrated the punch').toBeTruthy();
-        const clause = (text) => text.match(/powered by [^(]*\([^)]*\)/)?.[0] ?? null;
+        // The instrument clause of the live sentence: the part, with its look, before
+        // the verb it did the act with.
+        const clause = (text) => text.match(/used [^(]*\([^)]*\) to throw a punch/)?.[0] ?? null;
         expect(clause(first.text), 'the first world said the look').toBeTruthy();
         expect(clause(second.text)).toBe(clause(first.text));
     });

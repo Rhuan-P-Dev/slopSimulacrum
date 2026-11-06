@@ -284,27 +284,71 @@ const DEFAULT_TARGET_LINK = 'against';
  * unknown value falls back to the default, so a half-written data entry cannot
  * silently drop the target out of the sentence.
  *
+ * `instrumental` is that same data, in the verb's other tense: the base form the
+ * sentence uses when the part comes first — "Adam used Male Arm (pale pink, satin)
+ * to throw a punch against Ball" instead of "Adam threw a punch against Ball,
+ * powered by Male Arm (...)". English does not derive it ("threw a punch" is
+ * "throw a punch", "fired the T1" is "shoot", and neither rule is a rule), so the
+ * act authors it and an act that does not, has no instrumental form. Its own
+ * `targetLink` overrides the act's, because the instrumental verb may govern a
+ * different preposition than the past-tense one ("cut something against X" versus
+ * "used the Knife to cut X"). `wiki/decisions/action-prose.md`.
+ *
  * With no resolver, or for an action whose data declares no wording, the clause
  * degrades to "did <action>": the action happened, only its wording is missing.
  * Never a guessed verb.
  *
  * @param {string|null} action - the action registry key, as the attribution row recorded it
  * @param {((action: string) => Object|null)|null} [verbOf] - action name -> its `prose` block
- * @returns {{ phrase: string, link: string }} `link` is the preposition joining
- *   the target, or '' when the verb takes the target directly
+ * @returns {{ phrase: string, link: string, instrumental: {verb: string, link: string}|null }}
+ *   `link` is the preposition joining the target, or '' when the verb takes the
+ *   target directly; `instrumental` is null unless the act declares the base verb
  */
 function actionWording(action, verbOf = null) {
     const key = action == null ? '' : String(action).trim();
-    if (!key) return { phrase: 'acted', link: DEFAULT_TARGET_LINK };
+    if (!key) return { phrase: 'acted', link: DEFAULT_TARGET_LINK, instrumental: null };
     const prose = typeof verbOf === 'function' ? verbOf(key) : null;
-    if (!prose || typeof prose !== 'object') return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK };
+    if (!prose || typeof prose !== 'object') return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK, instrumental: null };
     const phrase = typeof prose.verbPhrase === 'string' && prose.verbPhrase.trim() !== ''
         ? prose.verbPhrase.trim()
         : null;
-    if (!phrase) return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK };
+    if (!phrase) return { phrase: `did ${key}`, link: DEFAULT_TARGET_LINK, instrumental: null };
     const declared = typeof prose.targetLink === 'string' ? prose.targetLink.trim() : '';
-    const link = declared === 'direct' ? '' : (declared || DEFAULT_TARGET_LINK);
-    return { phrase, link };
+    const link = targetLink(declared, DEFAULT_TARGET_LINK);
+    return { phrase, link, instrumental: instrumentalWording(prose, link) };
+}
+
+/**
+ * One `targetLink` value read the one way both forms read it: `"direct"` takes the
+ * target with no preposition, any other non-empty string is that preposition, and
+ * an empty or absent value keeps `fallback` — a half-written entry must never drop
+ * the target out of the sentence.
+ * @param {string} value - the declared link, already trimmed
+ * @param {string} fallback - the link to keep when nothing was declared
+ * @returns {string}
+ */
+function targetLink(value, fallback) {
+    if (value === 'direct') return '';
+    return value || fallback;
+}
+
+/**
+ * The instrumental form of an act, from its `prose.instrumental` block: the base
+ * verb that follows "used <part> to ...", and how that verb joins its target.
+ * Absent, not false — an act that does not declare one is narrated the way it
+ * always was, with the part named after the verb.
+ * @param {Object} prose - the action's `prose` block
+ * @param {string} inheritedLink - the past-tense form's link, inherited when the
+ *   instrumental block declares none
+ * @returns {{verb: string, link: string}|null}
+ */
+function instrumentalWording(prose, inheritedLink) {
+    const declared = prose.instrumental;
+    if (!declared || typeof declared !== 'object') return null;
+    const verb = typeof declared.verb === 'string' ? declared.verb.trim() : '';
+    if (verb === '') return null;
+    const own = typeof declared.targetLink === 'string' ? declared.targetLink.trim() : '';
+    return { verb, link: targetLink(own, inheritedLink) };
 }
 
 /** A finite number, or null when the value is missing / non-numeric. */
@@ -715,12 +759,23 @@ function entryClauses(entry, looks = looksOf(), { verbOf = null, seen = null, do
         const actor = displayOrGeneric(a?.name, 'an entity');
         const dossier = actorDossier(a, actor, { seen, looks });
         if (dossier && Array.isArray(dossiers)) dossiers.push(dossier);
-        const { phrase, link } = actionWording(a?.action, verbOf);
-        let clause = `${actor} ${phrase}`;
+        const { phrase, link, instrumental } = actionWording(a?.action, verbOf);
         const target = targetPhrase(a?.target);
-        if (target) clause += link ? ` ${link} ${target}` : ` ${target}`;
         const parts = partList(a?.used, looks);
-        if (parts.length) clause += `, powered by ${listNames(parts)}`;
+        let clause;
+        if (instrumental && target && parts.length) {
+            // The instrument first, in the act's own base verb: "Adam used Male Arm
+            // (pale pink, satin) to throw a punch against Ball". It needs both halves
+            // of the row - the part it names and the target it acted on - and the
+            // verb the data authored; without any one of the three this is the clause
+            // below, which is what the world said before this form existed.
+            clause = `${actor} used ${listNames(parts)} to ${instrumental.verb}`
+                + `${instrumental.link ? ` ${instrumental.link}` : ''} ${target}`;
+        } else {
+            clause = `${actor} ${phrase}`;
+            if (target) clause += link ? ` ${link} ${target}` : ` ${target}`;
+            if (parts.length) clause += `, powered by ${listNames(parts)}`;
+        }
         push(clause);
     });
     // Floor items the punch / damage knocked loose, or that appeared on the

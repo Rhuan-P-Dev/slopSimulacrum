@@ -58,6 +58,12 @@ block per action:
   (`Adam touched Ball`, not `Adam did touch against Ball`); any other string is
   that preposition; an empty or unknown value falls back to `"against"`, so a
   half-written data entry cannot delete the target from the sentence.
+- `instrumental` - the same act's **base verb**, the one that follows "used <part>
+  to ...": `{ "verb": "throw a punch" }`, and where the base verb governs a
+  different preposition than the past-tense one, its own `targetLink`
+  (`"cut something against X" versus `"used the Knife to cut X""). Absent means the
+  act has no instrumental form - see §5. English does not derive it, so the act
+  authors it.
 - Without a resolver, or for an action whose data declares nothing, the clause
   degrades to `did <action>`. That is the honest fallback - the act happened, only
   its wording is missing - and never a verb this module invented.
@@ -93,9 +99,13 @@ is complete, only the reading is gross anatomy. A real round now says:
 
 > Adam, with Male Central Body (pale pink, satin, translucent), Male Head (top,
 > pale pink, satin, translucent), ..., Male Leg (frontal right, pale pink, satin,
-> translucent). In The Entrance Hall (300 x 200, ...), Adam threw a punch against
-> Ball, powered by Male Arm (pale pink, satin, translucent), Adam touched Ball, and
+> translucent). In The Entrance Hall (300 x 200, ...), Adam used Male Arm (pale
+> pink, satin, translucent) to throw a punch against Ball, Adam touched Minako, and
 > a Knife appeared.
+>
+> (The act clause in that paragraph is the instrumental form of §5; before it, the
+> same round said "Adam threw a punch against Ball, powered by Male Arm (pale pink,
+> satin, translucent)").
 
 - **Its own sentence.** `assemble` weaves clauses into sentences, which put the
   body list in the middle of the act ("..., and Male Leg (frontal right, ...), Adam
@@ -123,11 +133,54 @@ row. Without either resolver the paragraph is exactly the one this server wrote
 before they existed - which is what the existing byte-pinned prose tests still
 check.
 
+### 5. The instrument comes first: `used <part> to <verb> <target>`
+
+The shape Context asked for - *that entity used component A to perform action X* - is
+what prose now says, for the acts whose data declares the base verb:
+
+> In The Entrance Hall (300 x 200, ...), Adam used Male Arm (pale pink, satin,
+> translucent) to throw a punch against Ball, Adam used Male Mouth (tan, satin) to
+> touch Minako, and a Knife appeared.
+
+`entryClauses` writes that clause when three things are present: the act declared
+`prose.instrumental.verb`, the row named a target, and the row named a part. **One
+missing half falls back to the old clause** - `Adam threw a punch against Ball,`
+`powered by Male Arm` becomes `Adam threw a punch, powered by Male Arm` when no target
+was recorded, and `Adam threw a punch against Ball, powered by Male Arm` stays whole
+when the act declares no base verb. A blank `verb` is no declaration: the old clause,
+never a verbless sentence.
+
+Locomotion is deliberately **not** in this form. A move does not act on anything, so
+the part is not an instrument - it is what the entity moved with, and
+`Minako moved from (2.71, 93.05) to (9.94, 74.40), powered by minakoleg` says that
+plainly. The two clauses are built at different places in the builder and read
+differently on purpose.
+
+Why data and not a base-verb function: English. `threw a punch` is `throw a punch`,
+`fired the T1` is `shoot`, `cut something` is `cut` and drops its `against` - no rule
+lives in this module that could know that, and a guessed verb is the one thing §1
+forbids. The registry already owns the verb, so it owns its second tense.
+
+- Ten of the fourteen shipped acts declare a base verb - the acts that do something TO
+  something. `move`, `dash`, `crossDoor` and `selfHeal` do not, and there is no
+  instrument to name in front of them. `actionProse.contract.test.js` pins that set by
+  name (an act cannot start claiming an instrument on its own) and the shape of every
+  declaration: non-blank ASCII `verb`, string `targetLink` when present.
+- The bytes moved from the tail clause into the verb phrase, which is where a reader -
+  or a pipeline looking for actor -> instrument -> patient - wants them. No new fact
+  enters the sentence and none leaves.
+- The agent's own context is untouched: `LlmContextController._inboundActionLine`
+  still words an act as `<actor> used "<actionKey>" on you` (see Open questions). The
+  observer and the actor agree about the *actor's* instrument in neither direction yet.
+
 ## Consequences
 
 - The shipped data now carries prose. An action whose `prose` block is missing
   says `did <action>` in the observer's paragraph, and the contract test fails at
   the completeness assertion, so the mute case cannot ship silently.
+- An act whose `prose.instrumental` block is missing is narrated the way it always
+  was. Adding the field is a data-only change to one action - which is how the next
+  act that wants the instrumental form gets it.
 - Perception rows grew by one field per action (`body`, 78 short objects for a
   human). This is the in-memory per-room ring (`PERCEPTION_MAX_LIMIT` entries),
   not the persisted world; the cost is bounded by the ring, not by history.

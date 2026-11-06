@@ -117,7 +117,7 @@ function punchParagraph(world) {
     for (let round = 0; round <= 6; round += 1) {
         const prose = world.roundProseController.getRoundProse(round);
         for (const info of Object.values(prose?.rooms || {})) {
-            if (/threw a punch/.test(info.text)) return info.text;
+            if (/used .+ to throw a punch/.test(info.text)) return info.text;
         }
     }
     return '';
