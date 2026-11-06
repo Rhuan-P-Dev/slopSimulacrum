@@ -45,6 +45,11 @@ export const REGISTRY_KINDS = Object.freeze({
     BLUEPRINTS: 'blueprints',
     ENTITY_ATTRIBUTES: 'entityAttributes',
     NPCS: 'npcs',
+    // What a body wears at birth, by blueprint key (the same key a card's saved
+    // body is stored under). The garment itself stays an `inventoryItems`
+    // definition with a `wear.minVolume`; this registry only says who wears it,
+    // and on which component (`src/controllers/logic/OutfitLogic.js`).
+    OUTFITS: 'outfits',
     // Matter: its damage split, its chunk drops, its derived stats.
     MATERIALS: 'materials',
     MATERIAL_DAMAGE_TYPES: 'materialDamageTypes',

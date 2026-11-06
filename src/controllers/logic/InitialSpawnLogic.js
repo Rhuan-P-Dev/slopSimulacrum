@@ -17,6 +17,7 @@
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { getDefinitionFootprint } from '../../utils/definitionVolume.js';
+import { clothedByOutfit } from './OutfitLogic.js';
 
 /**
  * Applies the declarative initial spawns from data/mods/core-world/world.json to a spawned entity.
@@ -88,10 +89,19 @@ function applyInitialSpawns(facade, entityId, spawnConfig) {
         return { applied: 0, failed: entries.length };
     }
 
+    // A body the outfit registry dresses does not also wear the loadout's default
+    // garment: `wear: true` here IS the default clothing, and the designed coat of
+    // one body is not a reason to stack the world's shirt under it. Every other
+    // entry of this loadout (coal, toolbelt, knives) is applied untouched, and the
+    // outfit itself is put on by the same spawn observer, one step later.
+    const spawnEntries = clothedByOutfit(facade, entity)
+        ? entries.filter((entry) => entry?.wear !== true)
+        : entries;
+
     let applied = 0;
     let failed = 0;
 
-    for (const entry of entries) {
+    for (const entry of spawnEntries) {
         try {
             const target = facade._resolveInitialSpawnSlot(entity, entry);
             if (!target) {

@@ -189,11 +189,16 @@ describe('the official dependency graph', () => {
             expect(codeOf(() => modService.disable(overlay.id)), overlay.id).toBeNull();
         }
 
-        // items are held by crafting and by machines; crafting is held by machines. So the
-        // chain has to be unwound from the top, and each refusal says so.
+        // items are held by crafting, by machines and by the outfits that name a garment
+        // (`core-outfits` requires `core-inventory-items`); crafting is held by machines.
+        // So the chain has to be unwound from the top, and each refusal says so.
         expect(codeOf(() => modService.disable('core-inventory-items'))).toBe('MOD_REQUIREMENT_HELD');
         expect(codeOf(() => modService.disable('core-machines'))).toBeNull();
         expect(codeOf(() => modService.disable('core-crafting'))).toBeNull();
+        expect(codeOf(() => modService.disable('core-outfits'))).toBeNull();
+        // With the last holder gone, the item package is reachable - and the world it
+        // leaves behind is one where no body is dressed by outfit, so the spawn
+        // loadouts' default garment is back on duty (`OutfitLogic.clothedByOutfit`).
         expect(codeOf(() => modService.disable('core-inventory-items'))).toBeNull();
 
         // materials are still held by the definitions that name a material.

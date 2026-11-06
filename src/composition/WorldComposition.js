@@ -48,6 +48,7 @@ import DataLoader from '../utils/DataLoader.js';
 import ModService from '../services/ModService.js';
 import { setRegistries as setComponentNamingRegistries } from '../utils/ComponentNaming.js';
 import { narrowVisualBlock } from '../utils/materialLook.js';
+import { validateOutfitRegistry } from '../controllers/logic/OutfitLogic.js';
 import { setRegistries as setEntityAttributeRegistries } from '../utils/EntityAttributeData.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import {
@@ -275,6 +276,12 @@ export function buildWorldState(tickSystem = null, registryStore = null, { modLo
         // other registry reference rather than silently rendering no appearance.
         narrowVisualBlock(def?.visual, `Item "${type}"`);
     }
+    // What a body WEARS is authored data too (registry kind `outfits`): an outfit
+    // naming an item that does not exist, or naming a knife as a garment, fails boot
+    // here rather than dressing every spawned body in a warning line. The same rule
+    // is the classifier's at a mod swap (`CompositionClassifier`), so "what outfit
+    // is valid" stays one claim (`CHG-2`).
+    validateOutfitRegistry(store.read(REGISTRY_KINDS.OUTFITS), inventoryItemRegistry);
 
     Logger.info(`[WorldComposition] Startup validation passed: ${Object.keys(componentRegistry).length} components, ${Object.keys(inventoryItemRegistry).length} inventory items`);
     // Hoisted so the KnowledgeController below can reuse the SAME recipe

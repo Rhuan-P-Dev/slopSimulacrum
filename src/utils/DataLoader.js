@@ -42,6 +42,7 @@ const REGISTRY_SOURCE_PATHS = Object.freeze({
     [REGISTRY_KINDS.BLUEPRINTS]: 'data/mods/core-blueprints/blueprints.json',
     [REGISTRY_KINDS.ENTITY_ATTRIBUTES]: 'data/mods/core-entity-attributes/entityAttributes.json',
     [REGISTRY_KINDS.NPCS]: 'data/mods/core-npcs/npcs.json',
+    [REGISTRY_KINDS.OUTFITS]: 'data/mods/core-outfits/outfits.json',
     [REGISTRY_KINDS.MATERIALS]: 'data/mods/core-materials/materials.json',
     [REGISTRY_KINDS.MATERIAL_DAMAGE_TYPES]: 'data/mods/core-material-damage-types/materialDamageTypes.json',
     [REGISTRY_KINDS.MATERIAL_DROP_RATES]: 'data/mods/core-material-drop-rates/materialDropRates.json',

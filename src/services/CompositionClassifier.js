@@ -44,6 +44,7 @@ import CraftingController from '../controllers/crafting/CraftingController.js';
 import MachineRegistryController from '../controllers/core/MachineRegistryController.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 import { narrowVisualBlock } from '../utils/materialLook.js';
+import { validateOutfitRegistry } from '../controllers/logic/OutfitLogic.js';
 
 /** Where a quarantine applies: one definition, or a registry that cannot be used. */
 export const QUARANTINE_SCOPE = Object.freeze({
@@ -152,6 +153,21 @@ export function classifyComposition(candidate = {}) {
         if (isMetadataKey(key) || !def || def.visual === undefined) continue;
         const reason = failureOf(() => narrowVisualBlock(def.visual, `Item "${key}"`));
         if (reason) quarantine(REGISTRY_KINDS.INVENTORY_ITEMS, key, QUARANTINE_SCOPE.DEFINITION, reason);
+    }
+
+    // ---- 2c. Outfits against the items that survived -----------------------
+    // The outfit's rule is `OutfitLogic.validateOutfitRegistry` - the same call the
+    // composition root makes at boot, so a swap does not get a looser world than a
+    // cold start. Granularity is the blueprint key, which is what a definition IS
+    // here: dropping it leaves that body undressed by outfit, and the spawn readers
+    // then apply their default clothing again (`OutfitLogic.clothedByOutfit`).
+    for (const [key, entries] of Object.entries(valid[REGISTRY_KINDS.OUTFITS] ?? {})) {
+        if (isMetadataKey(key)) continue;
+        const reason = failureOf(() => validateOutfitRegistry(
+            { [key]: entries },
+            valid[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {}
+        ));
+        if (reason) quarantine(REGISTRY_KINDS.OUTFITS, key, QUARANTINE_SCOPE.DEFINITION, reason);
     }
 
     // ---- 3. Recipes against the items that survived ------------------------

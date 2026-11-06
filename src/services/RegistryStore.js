@@ -1,7 +1,8 @@
 /**
  * RegistryStore — the owner of the live world definition.
  *
- * WHY THIS EXISTS. The world is built from 21 JSON registries. Until now each
+ * WHY THIS EXISTS. The world is built from one JSON registry per kind
+ * (`shared/RegistryKinds.js`). Until now each
  * reader named a *path* (`'data/mods/core-components/components.json'`) and captured the
  * parsed object at construction time. That made the world definition immutable
  * in practice: swapping the data underneath a running server would leave the
@@ -58,8 +59,8 @@ export function readRegistryFrom(registries, kind, defaultValue = {}) {
 }
 
 /**
- * The top-level JSON shape every registry has. Verified against all 21 shipped
- * registries: each is a plain object (never an array, never a scalar), which is
+ * The top-level JSON shape every registry has. Verified against every shipped
+ * registry: each is a plain object (never an array, never a scalar), which is
  * what makes the identity-preserving swap possible.
  * @param {unknown} value
  * @returns {boolean}

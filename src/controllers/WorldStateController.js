@@ -17,6 +17,7 @@ import { spawnCards, readCardFiles, spawnSingleCard, buildCardProfile, pickFirst
 import { recreateWorld as recreateWorldLogic, startWorld as startWorldLogic, stopWorld as stopWorldLogic, isWorldRunning as isWorldRunningLogic } from './logic/WorldRecreateLogic.js';
 import { equipItem, unequipItem, transferEquip, getEquippedItems, getAllEquippedItems, getEquippedItem, getEquippedItemByItemId, getEquippedItemForComponent, validateEquippedId } from './logic/EquipLogic.js';
 import { wearItem, getWornItems } from './logic/WearLogic.js';
+import { applyOutfit } from './logic/OutfitLogic.js';
 import { addItemToContainer, removeItemFromContainer, moveItemIntoContainer, moveItemOutOfContainer, getContainerItems } from './logic/ContainerItemLogic.js';
 import { resolveItemStats } from './logic/ItemStatsLogic.js';
 import { buildSubControllersMap, registerSpawnObserver, registerStatChangeListener, registerDamageListener, initializeTurnSystem, initializeEnergyFlow, registerEquippedStatsCallback } from './logic/FacadeInitLogic.js';
@@ -590,6 +591,21 @@ class WorldStateController {
      */
     _applyInitialSpawns(entityId, spawnConfig) {
         return applyInitialSpawns(this, entityId, spawnConfig);
+    }
+
+    /**
+     * FASE 6 shape (facade logic extraction): dresses a just-spawned entity from the
+     * outfit registry (`data/mods/core-outfits`, registry kind `outfits`) — the
+     * garment its blueprint names, on the component that outfit names.
+     * Implementation: src/controllers/logic/OutfitLogic.js (`applyOutfit`). The thin
+     * delegator stays on the class so instance-level spies and direct calls keep
+     * working, like every other extracted spawn method.
+     * @private
+     * @param {string} entityId
+     * @returns {{ applied: number, failed: number }}
+     */
+    _applyOutfit(entityId) {
+        return applyOutfit(this, entityId);
     }
 
     /**

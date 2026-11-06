@@ -69,8 +69,9 @@ committed file, translate it in a separate commit that touches nothing else.
   `wiki/decisions/agent-body-design.md`).
 - **Mods** are data-only packages (JSON fragments in existing registry shapes, no code, no
   new dependency) that can be added, enabled and disabled **at runtime**, applied at the
-  round boundary by build-validate-swap. The shipped world is 21 *official* mods under
-  `data/mods/`. Layout, apply pipeline, override order and the quarantine contract: see
+  round boundary by build-validate-swap. The shipped world is one *official* `core-*` mod
+  package per registry kind under `data/mods/` (a new kind without its package, or the
+  reverse, fails `test/contract/officialMods.contract.test.js`). Layout, apply pipeline, override order and the quarantine contract: see
   `wiki/decisions/mod-system.md`.
 - **Dev dependencies:** `@eslint/js`, `eslint` (v10 flat config),
   `eslint-plugin-unused-imports`, `vitest` (^4) and `@vitest/coverage-v8`. That is all.

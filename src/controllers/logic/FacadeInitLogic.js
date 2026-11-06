@@ -60,6 +60,15 @@ function registerSpawnObserver(facade) {
     // data/mods/core-world/world.json to every spawned entity (data-driven replacement of the
     // former hardcoded spawn items).
     facade.stateEntityController.registerSpawnObserver((entityId) => {
+        // What a body WEARS is a separate claim from what it CARRIES, and it is put
+        // on FIRST: the fit rule is free volume on the component (`WearLogic`), and a
+        // loadout applied first would have spent it - the m1 central body holds the
+        // coal before a shirt could be worn on it. (The same reason the card profile
+        // declares its t-shirt first: "declared first so it lands before the bulkier
+        // items".) The loadout's default garment stands down when the registry
+        // clothes this body - both readers ask `OutfitLogic.clothedByOutfit`, so the
+        // rule is stated once. `data/mods/core-outfits/outfits.json`.
+        facade._applyOutfit(entityId);
         facade._applyInitialSpawns(entityId);
     });
 }

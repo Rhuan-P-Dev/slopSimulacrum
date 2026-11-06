@@ -1,0 +1,12 @@
+{
+    "id": "core-outfits",
+    "version": "1.0.0",
+    "description": "Which garment a body is born wearing, and on which component - keyed by blueprint, so a designed card body and a generic droid are dressed by the same data.",
+    "content": [
+        "outfits"
+    ],
+    "requires": [
+        "core-blueprints",
+        "core-inventory-items"
+    ]
+}

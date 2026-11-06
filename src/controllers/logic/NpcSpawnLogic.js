@@ -18,6 +18,7 @@
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import Logger from '../../utils/Logger.js';
 import { isEnvFlagOn } from '../../utils/Constants.js';
+import { clothedByOutfit } from './OutfitLogic.js';
 
 /**
  * Spawns every NPC declared in data/mods/core-npcs/npcs.json (Feature D, spec §7.2).
@@ -272,7 +273,14 @@ function buildNpcConfig(facade, entry, normalizedAi) {
 
 function applyInitialItems(facade, entityId, entry) {
     const entity = facade.stateEntityController.getEntity(entityId);
-    const items = Array.isArray(entry.initialItems) ? entry.initialItems : [];
+    // The same rule the world.json loadout follows, for this loadout too: an entity
+    // the outfit registry dresses does not also wear the default `wear: true`
+    // garment (the card profile's t-shirt, or an npcs.json entry). The outfit itself
+    // was already put on, one step earlier, by the spawn observer.
+    const declaredItems = Array.isArray(entry.initialItems) ? entry.initialItems : [];
+    const items = clothedByOutfit(facade, entity)
+        ? declaredItems.filter((initialItem) => initialItem?.wear !== true)
+        : declaredItems;
     for (const { item, count: n, equip, wear, contents } of items) {
         const times = Math.max(0, Number(n) || 0);
         // equip: true and wear: true entries are placed on a component that can
