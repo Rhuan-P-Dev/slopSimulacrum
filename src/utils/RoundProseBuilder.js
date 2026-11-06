@@ -295,7 +295,7 @@ function targetPhrase(target) {
  * Display names from `{ type, id }` part rows, in input order.
  *
  * When a `lookOf` resolver is given and answers for a part's material, the name
- * carries how that part looks: "Male Arm (pale pink, satin, translucent)". The
+ * carries how that part looks: "Male Arm (tan, satin)". The
  * resolver is a lookup injected by the caller (`wiki/decisions/visual-stats.md`);
  * this module still reads no world, so the prose stays a pure reader and stays
  * deterministic. WITHOUT a resolver the output is byte-identical to before — a
@@ -319,8 +319,8 @@ function partList(rows, lookOf = null) {
 }
 
 /**
- * One body part as the dossier names it: "Male Arm (left, pale pink, satin,
- * translucent)". Inside the parenthesis the part's own label comes first (WHICH
+ * One body part as the dossier names it: "Male Arm (left, tan, satin)". Inside
+ * the parenthesis the part's own label comes first (WHICH
  * instance — the body has two of most of these), then the look words the
  * material owner supplies. A part with no label and no look says its type alone.
  *
@@ -351,14 +351,14 @@ function bodyPartLabel(part, lookOf) {
     const look = typeof lookOf === 'function' ? lookOf(type) : null;
     if (typeof look === 'string' && look.trim() !== '') bits.push(look.trim());
     // ", " and never joinChunk: the parenthesis is a list of properties ("left,
-    // pale pink, satin"), and "left and pale pink" would read as one of them.
+    // tan"), and "left and tan" would read as one of them.
     return bits.length ? `${label} (${bits.join(', ')})` : label;
 }
 
 /**
  * The dossier clause: who did something, and what they are made of while doing
- * it — "Adam, with Male Central Body (pale pink, satin), Male Head (top, pale
- * pink, satin), Male Arm (left, …), Male Arm (right, …), …".
+ * it — "Adam, with Male Central Body (tan, satin), Male Head (top, tan, satin),
+ * Male Arm (left, …), Male Arm (right, …), …".
  *
  * Only the SHALLOW parts are named — the ones that hang off the body's own root.
  * A human carries 78 components (eight teeth, twenty nails, ten fingers, ten

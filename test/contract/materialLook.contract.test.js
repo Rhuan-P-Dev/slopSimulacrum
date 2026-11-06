@@ -8,11 +8,11 @@
  *
  *   - vocabulary: each shipped material names itself from its own numbers
  *     (wood "brown, rough, grained", iron "grey, brushed metal", coal
- *     "near-black, coarse, with a faint grain", flesh "pale pink, satin,
- *     translucent") — the words a renderer and the prose will agree on;
- *   - naming law: light red is pink, dark orange is brown, low saturation is
- *     grey, hue wraps at 360, and nothing readable means no look at all (the
- *     caller drops the clause rather than inventing one);
+ *     "near-black, coarse, with a faint grain", flesh "tan, satin") — the words a
+ *     renderer and the prose will agree on;
+ *   - naming law: light red is pink, dark orange is brown, mid orange is tan,
+ *     low saturation is grey, hue wraps at 360, and nothing readable means no look
+ *     at all (the caller drops the clause rather than inventing one);
  *   - composition: the DOMINANT material names the part — a 60%-iron knife is
  *     "brushed metal", not an average of iron and wood;
  *   - edge validation (`T-1`): a malformed block, an out-of-range number or an
@@ -48,7 +48,9 @@ describe('materialLook - the vocabulary of a material', () => {
         expect(controller.describeMaterialLook('wood')).toBe('brown, rough, grained');
         expect(controller.describeMaterialLook('iron')).toBe('grey, brushed metal');
         expect(controller.describeMaterialLook('coal')).toBe('near-black, coarse, with a faint grain');
-        expect(controller.describeMaterialLook('flesh')).toBe('pale pink, satin, translucent');
+        // Skin: the weighted mean of the American population (hue 24, lightness
+        // 58), and NOT translucent - light does not pass through a shoulder.
+        expect(controller.describeMaterialLook('flesh')).toBe('tan, satin');
     });
 
     it('speaks English ASCII only (the committed-tree language policy)', () => {
@@ -63,6 +65,18 @@ describe('materialLook - the vocabulary of a material', () => {
         expect(describeVisual({ hue: 0, saturation: 90, lightness: 30 }).color).toBe('dark red');
         expect(describeVisual({ hue: 0, saturation: 40, lightness: 70 }).color).toBe('pale pink');
         expect(describeVisual({ hue: 32, saturation: 45, lightness: 40 }).color).toBe('brown');
+        // Tan is the third word English builds that the wheel does not: mid orange
+        // is a tan, never an "orange". The band is where skin lives, and it is
+        // pinned at both edges so a nudge cannot silently rename every human.
+        expect(describeVisual({ hue: 24, saturation: 42, lightness: 58 }).color).toBe('tan');
+        expect(describeVisual({ hue: 32, saturation: 45, lightness: 52 }).color).toBe('brown');
+        expect(describeVisual({ hue: 24, saturation: 42, lightness: 53 }).color).toBe('tan');
+        expect(describeVisual({ hue: 24, saturation: 42, lightness: 66 }).color).toBe('tan');
+        expect(describeVisual({ hue: 24, saturation: 42, lightness: 67 }).color).toBe('pale orange');
+        // Tan names its own lightness, so it takes no modifier: no "pale tan", and
+        // saturation cannot shout it into a "vivid tan".
+        expect(describeVisual({ hue: 24, saturation: 90, lightness: 58 }).color).toBe('tan');
+        expect(describeVisual({ hue: 24, saturation: 42, lightness: 65 }).color).toBe('tan');
         expect(describeVisual({ hue: 200, saturation: 5, lightness: 80 }).color).toBe('grey');
         expect(describeVisual({ hue: 200, saturation: 4, lightness: 94 }).color).toBe('near-white');
         expect(describeVisual({ hue: 30, saturation: 80, lightness: 5 }).color).toBe('near-black');

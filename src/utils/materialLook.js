@@ -3,6 +3,10 @@
  *
  * Owns the vocabulary and nothing else: hue/saturation/lightness to a colour
  * word, metalness + roughness to a finish, grain and translucency to a clause.
+ *
+ * Three of the colour words are not on the wheel: light red is pink, dark orange
+ * is brown, mid orange is tan. English built them and does not build them back
+ * out of hue and lightness, so the module says them and a renderer agrees.
  * Reads plain objects, writes plain strings: no Node, no DOM, no registry, no
  * world — which is what lets the round-prose builder (its only consumer today)
  * stay the pure reader its own header promises.
@@ -61,6 +65,16 @@ const PALE_LIGHTNESS = 62;
 const PINK_LIGHTNESS = 55;
 /** Dark orange is not "dark orange" — it is brown. At or below, say brown. */
 const BROWN_LIGHTNESS = 52;
+/**
+ * Mid orange is not "orange" either — on a body it is TAN. The band exists
+ * because skin lives in it: measured against real skin samples, every tone from
+ * fair to tan sat at hue 15-45 with a lightness in here, and without this word
+ * the prose called a human "orange" (`wiki/decisions/visual-stats.md`). Below it
+ * is brown, above it the orange is fair enough to name pale.
+ */
+const TAN_LIGHTNESS = 53;
+/** Above this lightness, orange reads as a fair pale orange rather than a tan. */
+const TAN_CEILING = 66;
 
 /** Metal is named by its finish (polished / brushed / dull); below this share it is not metal. */
 const METALLIC_SHARE = 60;
@@ -110,7 +124,7 @@ function hueWord(hue) {
 }
 
 /**
- * The colour word: "near-black", "grey", "brown", "pale pink", "vivid green".
+ * The colour word: "near-black", "grey", "tan", "brown", "pale pink", "vivid green".
  * Null when the visual block says nothing about colour (no lightness to judge,
  * and no hue to name).
  */
@@ -136,10 +150,15 @@ function colorPhrase(visual) {
     const vivid = saturation >= VIVID_SATURATION ? 'vivid' : null;
     const hueNamed = (hue === 'red' && lightness >= PINK_LIGHTNESS) ? 'pink'
         : (hue === 'orange' && lightness <= BROWN_LIGHTNESS) ? 'brown'
-            : hue;
-    const modifier = lightness <= DARK_LIGHTNESS ? 'dark'
-        : lightness >= PALE_LIGHTNESS ? 'pale'
-            : vivid;
+            : (hue === 'orange' && lightness >= TAN_LIGHTNESS && lightness <= TAN_CEILING) ? 'tan'
+                : hue;
+    // Tan names the lightness band it lives in, so it takes no modifier: English
+    // says "dark tan", never "pale tan", and a vivid one is a contradiction. The
+    // bands make the impossible pairs impossible the same way they do for pink.
+    const modifier = hueNamed === 'tan' ? null
+        : lightness <= DARK_LIGHTNESS ? 'dark'
+            : lightness >= PALE_LIGHTNESS ? 'pale'
+                : vivid;
     return modifier ? `${modifier} ${hueNamed}` : hueNamed;
 }
 

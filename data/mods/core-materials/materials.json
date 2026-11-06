@@ -78,13 +78,13 @@
       "heatConduction": 45
     },
     "visual": {
-      "hue": 12,
-      "saturation": 34,
-      "lightness": 68,
+      "hue": 24,
+      "saturation": 42,
+      "lightness": 58,
       "metalness": 4,
       "roughness": 46,
       "grain": 22,
-      "translucency": 58
+      "translucency": 0
     }
   }
 }

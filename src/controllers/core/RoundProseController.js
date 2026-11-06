@@ -319,8 +319,8 @@ class RoundProseController {
     }
 
     /**
-     * The material-look resolver for prose: component type -> look words ("pale
-     * pink, satin, translucent"), or null when there is nothing to resolve with.
+     * The material-look resolver for prose: component type -> look words ("tan,
+     * satin"), or null when there is nothing to resolve with.
      *
      * Built ONCE per request: `getComponentMaterialsByType()` rebuilds and clones
      * the whole composition map, so the paragraph gets a plain lookup per part and

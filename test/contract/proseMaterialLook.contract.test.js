@@ -8,7 +8,7 @@
  * the material owner. This file pins the four things that make that true:
  *
  *   - the live path: a real driven round says how the part that threw the punch
- *     looks — "powered by Male Arm (pale pink, satin, translucent)";
+ *     looks — "powered by Male Arm (tan, satin)";
  *   - the entity view carries the same clause as the room view (both prose
  *     entries are wired, not just the room one);
  *   - the default is the old prose: WITHOUT a resolver the same rows render
@@ -26,7 +26,7 @@ import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { buildRoomProse } from '../../src/utils/RoundProseBuilder.js';
 
-const FLESH_LOOK = 'pale pink, satin, translucent';
+const FLESH_LOOK = 'tan, satin';
 
 /**
  * The one wording the builder-under-test needs when it is driven directly: prose
@@ -118,7 +118,7 @@ describe('round prose speaks how the matter looks', () => {
         // part ("Male Head (top)") while saying nothing about how anything looks, so
         // no look word of the material vocabulary may appear anywhere in it.
         expect(lookless, 'no look word from the material vocabulary is invented')
-            .not.toMatch(/, (satin|translucent|brushed|coarse|grained|near-black)\b/);
+            .not.toMatch(/, (satin|translucent|brushed|coarse|grained|near-black|tan)\b/);
     });
 
     it('the clause is a pure function of the data: two identically built worlds speak it identically', () => {

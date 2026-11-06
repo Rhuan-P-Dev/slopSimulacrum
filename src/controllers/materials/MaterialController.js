@@ -541,8 +541,8 @@ class MaterialController {
     /**
      * The declared look of one material, as English words.
      * @param {string} materialId - A material id (e.g. 'flesh').
-     * @returns {string|null} The look phrase ("pale pink, satin, translucent"), or
-     *          null when the material has no look to say.
+     * @returns {string|null} The look phrase ("tan, satin"), or null when the
+     *          material has no look to say.
      */
     describeMaterialLook(materialId) {
         const described = describeVisual(this.visualRegistry[materialId]);
