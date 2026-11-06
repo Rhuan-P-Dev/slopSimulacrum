@@ -43,6 +43,13 @@ const SHIRT_LOOK = describeVisual(
 const FLESH_LOOK = describeVisual(
     DataLoader.loadRegistry(REGISTRY_KINDS.MATERIALS)?.flesh?.visual
 )?.phrase ?? '';
+/**
+ * The component type the shipped blueprint marks as hiding with its parent
+ * (`["maleBreast", "left", { "hidesWithParent": true }]`), and its display name as
+ * the registry gives it — derived from data, like every other word pinned here.
+ */
+const MARKED_TYPE = 'maleBreast';
+const MARKED_NAME = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)?.[MARKED_TYPE]?.name ?? '';
 
 /**
  * The one wording the builder-under-test needs when driven directly: prose takes
@@ -91,6 +98,19 @@ function buildMatch() {
 }
 
 /**
+ * The action rows a driven round flushed, across every room. The body an actor was
+ * read as lives ON these rows (`PerceptionController._actorBody`), which is what the
+ * claims about coverage are actually about.
+ * @param {Object} world
+ * @returns {Array}
+ */
+function performedRows(world) {
+    return Object.keys(world.getRooms())
+        .flatMap((roomId) => world.getPerceptionDeltasForRoom(roomId, { limit: 50 }))
+        .filter((entry) => entry?.actions?.performed?.length);
+}
+
+/**
  * The paragraph that matches, and the round that carries it. Which round holds it
  * is the turn system's business (rows flush at the round boundary), so the search
  * runs over recent rounds; what is pinned is WHAT the paragraph says.
@@ -132,6 +152,37 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
         expect(found.text).toContain(`Male Arm (left, ${FLESH_LOOK})`);
     });
 
+    it('a part marked hidesWithParent is behind the cloth over its parent', () => {
+        const { world } = buildMatch();
+        const found = findParagraph(world, /threw a punch/);
+        expect(found, 'a real round narrated the punch').toBeTruthy();
+        const marked = performedRows(world)[0]?.actions?.performed[0]?.body
+            ?.find((part) => part.type === MARKED_TYPE);
+        expect(marked, 'the flush wrote the coverage the blueprint marked')
+            .toMatchObject({ covered: true });
+        expect(found.text, 'the part under the shirt is not in the sentence')
+            .not.toContain(MARKED_NAME);
+        // Only the marked mount hides: the head hangs off the same parent and says so.
+        expect(found.text).toContain(`Male Head (top, ${FLESH_LOOK})`);
+    });
+
+    it('the marked part comes back when the cloth comes off', () => {
+        const { world, attacker, victim, advance } = buildMatch();
+        const [shirt] = world.getWornItems(attacker);
+        expect(shirt?.itemType).toBe('tshirt');
+
+        world.unequipItem(attacker, shirt.itemId);
+        world.turnSystemController.queueAction(attacker, 'droid punch', { targetEntityId: victim }, 'player');
+        world.turnSystemController.signalPlanComplete(attacker, 'player');
+        world.turnSystemController.signalPlanComplete(victim, 'player');
+        advance(4);
+
+        const found = findParagraph(world, /unequipped a T-Shirt/);
+        expect(found, 'the round recorded the garment coming off').toBeTruthy();
+        expect(found.text).toContain(`${MARKED_NAME} (left, ${FLESH_LOOK})`);
+        expect(found.text).toContain(`${MARKED_NAME} (right, ${FLESH_LOOK})`);
+    });
+
     it('the entity view carries the same clothing clause as the room view', () => {
         const { world, attacker } = buildMatch();
         const found = findParagraph(world, /threw a punch/);
@@ -163,9 +214,7 @@ describe('round prose renders clothing: the garment is revealed, what it covers 
 
     it('with no look resolvers the clothing is still named — and no appearance is invented', () => {
         const { world } = buildMatch();
-        const rows = Object.keys(world.getRooms())
-            .flatMap((roomId) => world.getPerceptionDeltasForRoom(roomId, { limit: 50 }))
-            .filter((entry) => entry?.actions?.performed?.length);
+        const rows = performedRows(world);
         expect(rows.length, 'the round recorded the action row').toBeGreaterThan(0);
 
         const lookless = buildRoomProse({ entries: rows, roomName: 'The Entrance Hall', room: null, verbOf });

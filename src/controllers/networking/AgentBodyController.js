@@ -533,14 +533,16 @@ class AgentBodyController {
     }
 
     /**
-     * One-line blueprint example from the live blueprint trees.
+     * One-line blueprint example from the live blueprint trees. A mount that
+     * authored options (`[type, slot, { … }]`) is still shown by type and slot: the
+     * example teaches the shape of a body, not every option a joint declares.
      * @param {string} name
      * @param {Array} tree
      * @returns {string}
      */
     _blueprintExampleLine(name, tree) {
         const children = tree.map((child) => {
-            if (Array.isArray(child) && child.length === 2) {
+            if (Array.isArray(child) && child.length >= 2 && typeof child[1] === 'string') {
                 return child[0] + ' (' + child[1] + ')';
             }
             return String(child);

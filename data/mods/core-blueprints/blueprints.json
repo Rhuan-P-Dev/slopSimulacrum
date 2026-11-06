@@ -217,11 +217,17 @@
     ],
     [
       "maleBreast",
-      "left"
+      "left",
+      {
+        "hidesWithParent": true
+      }
     ],
     [
       "maleBreast",
-      "right"
+      "right",
+      {
+        "hidesWithParent": true
+      }
     ],
     [
       "maleArm",

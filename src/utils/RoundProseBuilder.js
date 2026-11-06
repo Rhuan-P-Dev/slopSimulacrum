@@ -472,6 +472,23 @@ function bodyPartIdentifier(part) {
 }
 
 /**
+ * Whether a part's own matter is out of sight: `covered` is the perception flush's
+ * word for a part under cloth worn higher up the body, at a joint that declared it
+ * hides with its parent (`PerceptionController._coveredIds`) — the cloth over the
+ * central body is in front of the breasts hung on it.
+ *
+ * A part wearing something of its own is never covered: the garment is the visible
+ * thing, and its row says what covers it. A row from before coverage could be
+ * narrated carries no `covered` field and reads as bare — which is what the row says.
+ * @param {Object|null} part - one part row of a body
+ * @returns {boolean}
+ */
+function isCovered(part) {
+    if (!part || part.covered !== true) return false;
+    return !(Array.isArray(part.worn) && part.worn.length > 0);
+}
+
+/**
  * The dossier clause: who did something, and what they are made of while doing
  * it — "Adam, with Male Central Body (tan, satin), Male Head (top, tan, satin),
  * Male Arm (left, …), Male Arm (right, …), …".
@@ -495,7 +512,12 @@ function bodyPartIdentifier(part) {
  * actor, and the world is not claiming that.
  *
  * @param {string} actor - the actor's display name (already id-guarded)
- * @param {Array<{ type: string, identifier?: string|null, shallow?: boolean, worn?: Array }>|null} parts
+ * A covered part says nothing about its own matter: it drops out of the sentence
+ * ("Male Head (top, tan, satin), and Male Central Body wearing a T-Shirt (red,
+ * rough)" — the breasts under that cloth are not in it), or it is named by the
+ * garment it wears itself. Coverage never renames a part into a garment.
+ *
+ * @param {Array<{ type: string, identifier?: string|null, shallow?: boolean, covered?: boolean, worn?: Array }>|null} parts
  * @param {LookLookups} looks
  * @returns {string|null}
  */
@@ -503,6 +525,7 @@ function dossierClause(actor, parts, looks) {
     const labels = [];
     (parts || []).forEach((part) => {
         if (part && part.shallow === false) return;
+        if (isCovered(part)) return;
         const label = bodyPartLabel(part, looks);
         if (label) labels.push(label);
     });

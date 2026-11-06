@@ -12,7 +12,38 @@ import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
  * dependsOn: expandBlueprint builds a tree structure with parent
  * references; createEntityFromBlueprint flattens it and resolves
  * `dependsOn: [parentInstanceId]` after ids are generated.
+ *
+ * A mount entry is `["componentType", "slot"]`, and may author a third element —
+ * an options object for THAT mount: `["maleBreast", "left",
+ * { "hidesWithParent": true }]`. It is per mount, not per component type, because
+ * what hangs under whose cloth is a fact about this joint (see `MOUNT_OPTIONS`).
  */
+
+/**
+ * Reads the third element of a blueprint mount entry — the options that mount
+ * authored.
+ *
+ * Anything that is not an object (absent, a string, an array) is read as no
+ * options: the mount is the historical `[type, slot]` pair and nothing is hidden
+ * from it. An object with keys this module does not know is carried through
+ * untouched — a future reader owns its own key, and `expandBlueprint` is not the
+ * arbiter of what the world may record.
+ *
+ * @param {Array} item - one entry of a blueprint array
+ * @returns {Object|null} the mount's options, or null when it authored none
+ */
+function mountOptions(item) {
+    const raw = Array.isArray(item) && item.length > 2 ? item[2] : null;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+/**
+ * The options a flat-list row carries, in the slot AFTER the parent index: the
+ * row stays the `[name, slot, parentIndex]` triple it has always been when the
+ * mount authored nothing, so every existing blueprint expands identically.
+ * @constant
+ */
+const MOUNT_OPTIONS = 3;
 class EntityController {
     constructor(componentController, blueprints = null) {
         this.componentController = componentController;
@@ -26,7 +57,8 @@ class EntityController {
      * Recursively expands a blueprint into a flat list of component definitions.
      * Uses a per-branch visited set to prevent infinite recursion.
      * 
-     * Returns array of [compName, identifier, parentFlatIndex] where
+     * Returns array of [compName, identifier, parentFlatIndex] (plus the mount's
+     * authored options at `MOUNT_OPTIONS`, only when it authored some) where
      * parentFlatIndex is -1 for roots or the absolute index of the parent
      * in the resulting flat list.
      * 
@@ -57,9 +89,12 @@ class EntityController {
                 const [compName, identifier] = item;
                 // Current length = this component's future index
                 const myIndex = result.length;
-                
-                // Add this component with parent reference
-                result.push([compName, identifier, parentFlatIndex]);
+
+                // Add this component with parent reference (and what this mount declared)
+                const row = [compName, identifier, parentFlatIndex];
+                const options = mountOptions(item);
+                if (options) row[MOUNT_OPTIONS] = options;
+                result.push(row);
                 
                 // If the component itself is also a blueprint, expand it
                 if (this.blueprints[compName]) {
@@ -72,7 +107,12 @@ class EntityController {
                     for (let i = myIndex + 1; i < result.length; i++) {
                         const c = result[i];
                         if (Array.isArray(c) && c.length >= 2 && typeof c[1] === 'string') {
-                            result[i] = [c[0], `${c[1]}_${identifier}`, c[2]];
+                            // The rename is about the slot; what the mount itself declared
+                            // (index MOUNT_OPTIONS) survives it, or a rename under a parent
+                            // would quietly un-mark the child.
+                            const renamed = [c[0], `${c[1]}_${identifier}`, c[2]];
+                            if (c.length > MOUNT_OPTIONS) renamed[MOUNT_OPTIONS] = c[MOUNT_OPTIONS];
+                            result[i] = renamed;
                         }
                     }
                 }
@@ -106,13 +146,18 @@ class EntityController {
         const instanceComposition = [];
 
         // First pass: generate all instance ids
-        for (const [compType, identifier] of flattenedComponentsWithParentIndex) {
-            const instanceId = generateCompId();
-            instanceComposition.push({
+        for (const entry of flattenedComponentsWithParentIndex) {
+            const [compType, identifier] = entry;
+            const instance = {
                 type: compType,
                 identifier: identifier,
-                id: instanceId
-            });
+                id: generateCompId()
+            };
+            // What this mount declared about itself travels ON the instance, so a
+            // reader of a live body never re-opens a blueprint to learn what a part
+            // is under. Absent, not false, when the mount authored nothing.
+            if (entry[MOUNT_OPTIONS]?.hidesWithParent === true) instance.hidesWithParent = true;
+            instanceComposition.push(instance);
         }
 
         // Second pass: resolve dependsOn from parent indices

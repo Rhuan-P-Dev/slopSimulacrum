@@ -918,6 +918,40 @@ describe('clothing: the garment is revealed, what it covers is not', () => {
         expect(wornRoom([part])).toContain('Droid Arm (left, brushed metal)');
     });
 
+    /**
+     * `covered` is the fact that cloth worn HIGHER UP the body is in front of this
+     * part: the perception flush writes it where the mount declared
+     * `hidesWithParent` (`PerceptionController._coveredIds`, data authored in
+     * `data/mods/core-blueprints`). The prose only reads the row — it never walks a
+     * body and never decides which part is under whose cloth.
+     */
+    it('a part under cloth worn higher up says nothing about itself', () => {
+        const text = wornRoom([
+            { type: 'centralBall', identifier: 'default', shallow: true, worn: [SHIRT] },
+            { type: 'droidBreast', identifier: 'left', shallow: true, covered: true },
+            { type: 'droidHead', identifier: 'top', shallow: true }
+        ]);
+        expect(text).not.toContain('Droid Breast');
+        // Only the marked part drops out: its neighbour keeps naming its own matter.
+        expect(text).toContain('Droid Head (top, brushed metal)');
+        expect(text).toContain('Central Ball wearing a T-Shirt (red, rough)');
+    });
+
+    it('a covered part that wears something of its own is still in the sentence', () => {
+        // Cloth over cloth: what a garment hides is the part's MATTER, never the
+        // garment hung on that part — an armband over a shirt is visible.
+        const text = wornRoom([
+            { type: 'droidBreast', identifier: 'left', shallow: true, covered: true, worn: [SHIRT] }
+        ]);
+        expect(text).toContain('Droid Breast (left) wearing a T-Shirt (red, rough)');
+    });
+
+    it('a row that was never covered reads exactly as it did before coverage existed', () => {
+        const part = { type: 'droidArm', identifier: 'left', shallow: true };
+        expect(wornRoom([part])).toBe(wornRoom([{ ...part, covered: false }]));
+        expect(wornRoom([part])).toContain('Droid Arm (left, brushed metal)');
+    });
+
     it('the equip clause carries the item\'s look, and degrades to the old sentence without it', () => {
         const entry = {
             kind: 'delta',

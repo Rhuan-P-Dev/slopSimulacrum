@@ -244,3 +244,103 @@ Independent on purpose: that is the whole argument for the item authoring its ow
 that acted, even a clothed one: a used-part row carries no `worn` field, and what threw
 the punch was the arm, whatever is on it. Extending it means dressing the `used` rows too,
 which is a change nobody has asked for yet.
+
+## Amendment - a mount declares that its child hides with its parent
+
+Decision 3 left the shipped world half-dressed. The t-shirt is fitted to `maleCentralBody`
+(`WearLogic`), so the central body read `Male Central Body wearing a T-Shirt (red, rough)` -
+and the two parts hung ON that central body, `Male Breast (left, ...)` and
+`Male Breast (right, ...)`, were still revealed in the same sentence, next to the cloth that
+covers them. The operator asked for the cloth over a part to hide the parts hung under it:
+the chest is covered, and therefore the breasts behind it are not in the sentence.
+
+**This reverses one rejection.** Decision 3 rejected *subtree coverage*. It is reversed;
+what decision 3 rejected was a different mechanism from the one that landed, and the
+difference is the whole reason it is safe here.
+
+1. **The mark is the blueprint's, and it lives on the MOUNT**: a third element of the
+   array entry - `["maleBreast", "left", { "hidesWithParent": true }]`. Per mount, not per
+   component type, because *what hangs under whose cloth* is a fact about this joint: the
+   same component type may hide in one body and not in another. Rejected: a per-type flag
+   (`components.json`), which would hide a `maleBreast` under every parent it is ever
+   mounted to, and an inference from the part's name or slot, which is the disallowed move
+   (`H-4`).
+2. **The instance carries it, not the reader.** `EntityController.expandBlueprint` carries
+   the mount's options through the flatten (and through the parent-slot rename, which
+   would otherwise quietly un-mark a child mounted under a renamed parent), and
+   `createEntityFromBlueprint` writes `hidesWithParent: true` onto the component instance -
+   absent, not false, when the mount authored nothing. A reader of a live body never
+   re-opens a blueprint to learn what a part is under.
+3. **Propagation walks UP from the child, and is opt-in per joint.**
+   `PerceptionController._coveredIds`: a marked part is covered when the part it hangs on
+   wears cloth, or when that part is itself under cloth higher up, so the mark chains to any
+   depth. It is cycle-safe (broken `dependsOn` data stops the walk rather than inventing
+   coverage) and yields an empty set when nothing is worn - an undressed body's rows stay
+   byte-identical to the rows this file wrote before coverage existed.
+4. **The row carries the FACT (`covered: true`), the prose only reads it.** `isCovered`
+   (`RoundProseBuilder`) drops a covered part out of the dossier sentence; it never renames
+   a part into a garment. A part wearing something of its own is never in the covered set -
+   the garment is the visible thing there, and decision 2's `X wearing Y (...)` wording wins
+   for it. The two facts are read in that order by one function, which is the only reader.
+
+**Why this is not the subtree coverage that was rejected.** What was rejected walked DOWN
+from the *garment*, and the shipped t-shirt is the reason: fitted to one component, so a
+walk from it either covered one component (too little) or was widened by the garment's kind
+(arbitrary). The rejection was right about that shape. What landed asks the garment nothing
+at all: each child declares whether it hides behind its own parent, and the walk goes UP
+from the child to the cloth. A garment covering a parent therefore hides exactly the parts
+that declared themselves behind it - no head, no arms, no legs, because those mounts say
+nothing and stay `tan, satin`.
+
+**The other rejected shape stays rejected.** An authored `wear.covers` type list on the item
+was the honest next change under decision 3; it is still worse than what landed. It makes
+every garment enumerate the parts it hides, so each new component type has to be added to
+every garment that would cover it, and a garment author has to know the whole body. The
+mount mark is authored once per joint, and any cloth that reaches the parent hides the child
+- which is also the reason the mark belongs to the blueprint and not to the item registry.
+
+**Shipped, in a driven round** (spawn -> punch -> perception flush -> prose, pinned by
+`test/contract/proseClothingLook.contract.test.js`, words derived from data):
+
+```
+Adam, with Male Central Body wearing a T-Shirt (red, rough), Male Head (top, tan, satin),
+Male Torso (core, tan, satin), Male Arm (left, tan, satin), Male Arm (right, tan, satin),
+Male Genitals (lower, tan, satin), Male Leg (frontal left, tan, satin), and Male Leg
+(frontal right, tan, satin). ... Adam threw a punch against Ball, powered by Male Arm
+(tan, satin) and a Knife appeared.
+```
+
+Both `Male Breast` rows are gone; take the shirt off and they are readable again
+(`Male Breast (left, tan, satin)`). The shipped mark is those two mounts and nothing else -
+`data/mods/core-blueprints/blueprints.json`.
+
+**What got better.**
+
+- Coverage costs one data line per joint. No prose, wear or registry change teaches a new
+  part to hide, and the knowledge sits where the shape of a body already lives.
+- The whole chain is authored data on the mount, so a mod can ship a body whose joints hide
+  differently without touching a line of server code.
+- `AgentBodyController._blueprintExampleLine` had to learn the three-element mount. Before
+  this change it rendered a mount that authored options as `[object Object]` in the body the
+  model is asked to design - a latent break the new data shape would have hit.
+
+**What got worse.**
+
+- A body row now carries TWO coverage facts, `worn` and `covered`, where decision 3 had one.
+  A reader that only reads `worn` sees a bare breast under a shirt. The mitigation is that
+  `isCovered` is the single reader and both fields are documented on `_bodyRecord`; the cost
+  is real for any future reader that hand-rolls the check.
+- A blueprint author can now hide a part from every prose reader, with no error and no log.
+  The mark is visible in the blueprint and nothing validates it - the same standing risk as
+  every other authored shape in the world, now with a visible consequence.
+- `expandBlueprint`'s flat row grew an optional fourth slot (index 3). Rows that authored
+  nothing stay the `[type, slot, parentIndex]` triple they always were, so every existing
+  blueprint expands identically; but a consumer that assumed a fixed length-3 row is now
+  reading a longer array, and `MOUNT_OPTIONS` is the only name for that index.
+
+**The boundary that stays.** Only the marked joints hide. `maleGenitalia` hangs on the same
+covered central body and is NOT marked - whether the cloth over a groin hides what is under
+it is the same question, still unanswered, and it is world data for whoever answers it, not
+a rule here. The `powered by` clause still names the MATTER of the part that acted (a
+used-part row carries no `covered` field), and the agent's own `YOUR BODY` context is still
+untouched (`RP-3`).

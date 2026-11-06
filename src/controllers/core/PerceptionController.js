@@ -887,14 +887,14 @@ class PerceptionController {
     }
 
     /**
-     * The `{ type, identifier, shallow }` rows for one entity's component list, in
-     * that list's own order (the body's order, not an alphabetical one — two worlds
-     * built the same way say the parts in the same order, DETERMINISM).
+     * The `{ type, identifier, shallow, covered }` rows for one entity's component
+     * list, in that list's own order (the body's order, not an alphabetical one —
+     * two worlds built the same way say the parts in the same order, DETERMINISM).
      * @param {Array} components - the entity's live components
      * @param {Map<string, Array<{ type: string|null, name: string|null }>>|null} [wornByComponent]
      *   component id -> the garments worn on it (`_wornByComponent`); absent, no part
-     *   is read as clothed
-     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean, worn?: Array<{ type: string|null, name: string|null }> }>|null}
+     *   is read as clothed, and none as covered
+     * @returns {Array<{ type: string, identifier: string|null, shallow: boolean, covered?: true, worn?: Array<{ type: string|null, name: string|null }> }>|null}
      * @private
      */
     _bodyRecord(components, wornByComponent = null) {
@@ -902,6 +902,7 @@ class PerceptionController {
         for (const comp of components) {
             if (comp && typeof comp.id === 'string' && comp.id) byId.set(comp.id, comp);
         }
+        const covered = this._coveredIds(components, byId, wornByComponent);
         const body = [];
         for (const comp of components) {
             const type = typeof comp?.type === 'string' ? comp.type.trim() : '';
@@ -919,10 +920,67 @@ class PerceptionController {
                 shallow: !parent || !this._bodyParent(parent, byId),
                 // Absent, not null, when nothing covers the part: a bare body's rows
                 // stay exactly the rows they were before clothing could be narrated.
-                ...(worn ? { worn } : {})
+                ...(worn ? { worn } : {}),
+                // This part's matter is out of sight under cloth worn higher up the body,
+                // because its own mount declared it hides with its parent (`_coveredIds`).
+                ...(covered.has(comp?.id) ? { covered: true } : {})
             });
         }
         return body.length ? body : null;
+    }
+
+    /**
+     * Which parts are under cloth worn HIGHER UP the body: a part whose mount
+     * declares `hidesWithParent` shares its parent's fate — a breast hung on the
+     * central body is behind whatever covers the central body, without the garment
+     * having to name it.
+     *
+     * The mark is the blueprint's, on the mount (`data/mods/core-blueprints`, read
+     * onto the instance by `EntityController.createEntityFromBlueprint`), so which
+     * part hides under whose parent is authored world data, never a guess from
+     * component names. Propagation is therefore opt-in per joint, and it chains:
+     * a marked part under a marked part is covered when the cloth reaches the top
+     * of the chain. A part wearing a garment of its own is never in this set — the
+     * garment is the visible thing, and the row already says what covers it.
+     *
+     * Nothing worn, nothing covered: an undressed body yields an empty set and its
+     * rows are byte-identical to the rows this file wrote before coverage existed.
+     *
+     * @param {Array} components - the entity's live components
+     * @param {Map<string, Object>} byId - the same list keyed by component id
+     * @param {Map<string, Array>|null} wornByComponent - component id -> garments on it
+     * @returns {Set<string>} ids of parts under someone else's cloth
+     * @private
+     */
+    _coveredIds(components, byId, wornByComponent) {
+        const covered = new Set();
+        if (!wornByComponent || wornByComponent.size === 0) return covered;
+        // id -> computed, so a long chain is walked once. A `dependsOn` cycle is
+        // broken data: the walk stops rather than claiming coverage it cannot see.
+        const answer = new Map();
+
+        const hiddenUnderCloth = (comp, walking) => {
+            const id = typeof comp?.id === 'string' ? comp.id : '';
+            if (!id) return false;
+            if (answer.has(id)) return answer.get(id);
+            if (walking.has(id)) return false;
+            walking.add(id);
+            const parent = this._bodyParent(comp, byId);
+            // The parent hides its own matter when it wears cloth, or when it is itself
+            // under cloth higher up (`hiddenUnderCloth`, which is what makes it chain).
+            const parentCovered = parent
+                ? (wornByComponent.has(parent.id) || hiddenUnderCloth(parent, walking))
+                : false;
+            const result = parentCovered && comp.hidesWithParent === true;
+            answer.set(id, result);
+            return result;
+        };
+
+        for (const comp of components) {
+            if (!comp || wornByComponent.has(comp.id)) continue;
+            if (hiddenUnderCloth(comp, new Set())) covered.add(comp.id);
+        }
+        return covered;
     }
 
     /**
