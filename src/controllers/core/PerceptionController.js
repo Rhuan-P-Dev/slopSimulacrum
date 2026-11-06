@@ -1050,7 +1050,7 @@ class PerceptionController {
     /**
      * Resolves a recorded action target (the ids the attribution store kept)
      * into display fields for the performed row: `{ id, name, componentId,
-     * componentName }`, or null when the action had no entity/component target
+     * componentName, componentType }`, or null when the action had no entity/component target
      * (spatial actions) or nothing is usable.
      *
      * Names are resolved HERE, at flush time, against the current world — they
@@ -1066,7 +1066,7 @@ class PerceptionController {
      * @private
      * @param {{entityId?: string|null, componentId?: string|null}|null|undefined} target - the store record's target (ids only)
      * @param {import('../../utils/DeltaDiff.js').RoomSnapshot} current - the room snapshot just read
-     * @returns {{id: string|null, name: string|null, componentId: string|null, componentName: string|null}|null}
+     * @returns {{id: string|null, name: string|null, componentId: string|null, componentName: string|null, componentType: string|null}|null}
      */
     _resolvePerceivedTarget(target, current) {
         if (!target || (target.entityId == null && target.componentId == null)) return null;
@@ -1085,6 +1085,11 @@ class PerceptionController {
             const comp = current?.entities?.[out.id]?.components?.[out.componentId]
                 ?? this._facade?.getComponent?.(out.componentId)
                 ?? null;
+            // The TYPE travels next to the display name. `componentName` is already
+            // prettified ("Male Mouth"), and the reader that says how a part looks
+            // speaks recipe keys - so without the type here, prose could name the part
+            // it was aimed at but never say what its matter looks like.
+            out.componentType = typeof comp?.type === 'string' ? comp.type : null;
             out.componentName = componentTypeName(comp?.type ?? null);
         }
         if (out.id == null && out.componentId == null) return null;

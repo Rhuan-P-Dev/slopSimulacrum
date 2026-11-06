@@ -31,6 +31,8 @@ import { buildWorldState } from '../../src/composition/WorldComposition.js';
 import { UniversalTickSystem } from '../../src/utils/UniversalTickSystem.js';
 import { MAX_TICKS_PER_SECOND } from '../../src/utils/Constants.js';
 import { buildRoomProse } from '../../src/utils/RoundProseBuilder.js';
+import DataLoader from '../../src/utils/DataLoader.js';
+import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
 
 /**
  * The wording prose would read from the registry, for the one case below that
@@ -271,5 +273,68 @@ describe('the actor body is recorded on the act, and prose reads it off the row'
         const dossier = (text) => text.match(/Adam, with [^.]*\./)?.[0] ?? null;
         expect(dossier(first.text), 'the first world said the body').toBeTruthy();
         expect(dossier(second.text)).toBe(dossier(first.text));
+    });
+});
+
+describe('the sentence names WHICH part of the target the act was aimed at', () => {
+    /**
+     * Adam touches one sensitive part of Eve, through a real round. The part is
+     * DERIVED from the live sensitivity table (the touch mechanic raises pleasure on a
+     * part listed there, and the owner must carry the meter), never typed here.
+     * @returns {{ world: Object, part: Object }}
+     */
+    function buildTouchMatch() {
+        const sensitive = DataLoader.loadRegistry(REGISTRY_KINDS.SENSITIVE_PARTS) || {};
+        const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
+        const { worldStateController: world } = buildWorldState(tick);
+        const room = world.roomsController.getUidByLogicalId('start_room');
+        const attacker = world.stateEntityController.spawnEntity('maleDroid', room, { name: 'Adam' });
+        const victim = world.stateEntityController.spawnEntity('femaleDroid', room, { name: 'Eve' });
+        world.stateEntityController.updateEntitySpatial(attacker, { x: 0, y: 0 });
+        world.stateEntityController.updateEntitySpatial(victim, { x: 30, y: 0 });
+        world.onDamageDropListener._randomFn = () => 1;
+        Object.values(world.stateEntityController.entities)
+            .filter((entity) => entity.isNPC === true)
+            .forEach((npc) => world.despawnEntity(npc.id));
+        const part = world.stateEntityController.entities[victim].components
+            .find((comp) => sensitive[comp.type] !== undefined);
+        tick.currentTick = 0;
+        world.turnSystemController.onTick();
+        world.turnSystemController.queueAction(attacker, 'touch',
+            { targetEntityId: victim, targetComponentId: part.id }, 'player');
+        world.turnSystemController.signalPlanComplete(attacker, 'player');
+        world.turnSystemController.signalPlanComplete(victim, 'player');
+        for (let tickNumber = 1; tickNumber <= 4; tickNumber += 1) {
+            tick.currentTick = tickNumber;
+            world.turnSystemController.onTick();
+        }
+        return { world, part };
+    }
+
+    it('the row keeps the part, its type, and its name', () => {
+        // The TYPE is the half the writer had to add: the display name is prettified
+        // ("Male Mouth") and the look lookup speaks recipe keys.
+        const { world, part } = buildTouchMatch();
+        const rows = performedRows(world).filter((row) => row.action === 'touch');
+        expect(rows.length, 'the round recorded the touch').toBeGreaterThan(0);
+        expect(rows[0].target?.componentType, 'the row names the part type').toBe(part.type);
+        expect(rows[0].target?.componentName, 'and a display name for it').toBeTruthy();
+        expect(rows[0].target?.name, 'and for the entity that owns it').toBe('Eve');
+    });
+
+    it('a real round says whose part it was, and never an id', () => {
+        const { world, part } = buildTouchMatch();
+        const recipes = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS) || {};
+        const partName = recipes[part.type]?.name ?? part.type;
+        let text = '';
+        for (let round = 0; round <= 4; round += 1) {
+            const prose = world.roundProseController.getRoundProse(round);
+            for (const info of Object.values(prose?.rooms || {})) {
+                if (info.text.includes("Eve's ")) text = info.text;
+            }
+        }
+        expect(text, 'a real round named the part of Eve that was touched').toBeTruthy();
+        expect(text).toContain(`Eve's ${partName}`);
+        expect(text, 'a component instance id is not a part name').not.toMatch(/comp-[0-9a-f]{8}/i);
     });
 });

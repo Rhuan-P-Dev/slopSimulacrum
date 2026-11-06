@@ -416,6 +416,70 @@ describe('buildRoomProse (narrative prose)', () => {
             .toBe('In start room, Test Droid threw a punch against Rival.');
     });
 
+    // --- The target is named with the part the act was aimed at -----------------
+    // The row carries BOTH halves (the writer resolves `name` for the entity and
+    // `componentName`/`componentType` for the part it hit) - the sentence used to say
+    // only the first, so "touched Minako" hid which part the record named.
+    const touchOf = (target, lookOf = undefined) => buildRoomProse({
+        verbOf: (action) => (action === 'touch'
+            ? { verbPhrase: 'touched', targetLink: 'direct', instrumental: { verb: 'touch' } }
+            : { verbPhrase: 'threw a punch' }),
+        roomName: 'start room',
+        room: null,
+        ...(lookOf === undefined ? {} : { lookOf }),
+        entries: [{
+            actions: {
+                performed: [{
+                    name: 'Test Droid',
+                    action: 'touch',
+                    target,
+                    used: [ { type: 'maleMouth' } ],
+                }],
+            },
+        }],
+    });
+
+    it('says whose part it was, and how the matter looks', () => {
+        expect(touchOf(
+            { name: 'Minako', componentName: 'Minako Torso', componentType: 'minakotorso' },
+            (type) => (type === 'minakotorso' ? 'tan, satin' : null)
+        )).toBe("In start room, Test Droid used Male Mouth to touch Minako's Minako Torso (tan, satin).");
+    });
+
+    it('a name already ending in s takes the apostrophe alone', () => {
+        expect(touchOf({ name: 'Boss', componentName: 'Droid Head' }))
+            .toBe('In start room, Test Droid used Male Mouth to touch Boss\' Droid Head.');
+    });
+
+    it('a part with no owner reads on its own — and an id never becomes a possessive', () => {
+        expect(touchOf({ name: null, componentName: 'Knife' }))
+            .toBe('In start room, Test Droid used Male Mouth to touch Knife.');
+        expect(touchOf({ name: 'ent-1f0a2b3c-4d5e', componentName: 'Knife' }))
+            .toBe('In start room, Test Droid used Male Mouth to touch Knife.');
+    });
+
+    it('the historical clause names the part too, behind its link', () => {
+        const text = buildRoomProse({
+            verbOf: (action) => (action === 'droid punch' ? { verbPhrase: 'threw a punch' } : null),
+            roomName: 'start room',
+            entries: [{
+                actions: {
+                    performed: [{
+                        name: 'Test Droid',
+                        action: 'droid punch',
+                        target: { name: 'Rival', componentName: 'Central Ball' },
+                        used: [ { type: 'maleArm' } ],
+                    }],
+                },
+            }],
+        });
+        // The instrument still trails the sentence for an act with no base verb; what
+        // changed is that the target now says WHICH part.
+        expect(text).toBe(
+            "In start room, Test Droid threw a punch against Rival's Central Ball, powered by Male Arm."
+        );
+    });
+
     it('places floor objects at their display coordinates (2 decimals, perception rule)', () => {
         const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',

@@ -182,6 +182,32 @@ forbids. The registry already owns the verb, so it owns its second tense.
   still words an act as `<actor> used "<actionKey>" on you` (see Open questions). The
   observer and the actor agree about the *actor's* instrument in neither direction yet.
 
+### 6. The target is named with the part the act was aimed at
+
+`an entity used Male Mouth (tan, satin) to touch Minako` named the owner and dropped
+the part the row already carried. Prose says whose part it was:
+
+> ... an entity used Male Mouth (tan, satin) to touch Minako's minakotorso (tan, ...), ...
+
+The whole point is that the row knew and the sentence did not: the attribution store
+resolved the target component (`componentId`, `componentName`) at the flush, and
+`targetPhrase` read only the entity name.
+
+- The **look** of the target part is why the perception row grew a field. The writer
+  resolves `componentName` as a display name (`"Male Mouth"` is no key anything can
+  look up), while the look lookup speaks recipe keys - so `_resolvePerceivedTarget`
+  now records `componentType` beside it. Nothing is stored: names are still resolved
+  at flush time, the attribution store keeps ids only.
+- The possessive is chosen by rule and rewrites nothing: `Minako` -> `Minako's`, a
+  name that already ends in `s` -> `Boss'`. ASCII apostrophe, no typographic one.
+- A part with no owner still reads on its own, and an owner whose "name" is really an
+  id is dropped rather than printed - the same rule the rest of the module holds.
+- What the part is **called** stays the recipe's business. Minako's own components
+  carry `name: "minakotorso"` (the design wrote the key as the name), so the sentence
+  says `minakotorso`, and her dossier says `minakobody`. Left as authored, by the
+  operator's decision: prose reads whatever `name` the recipe gives, and renaming them
+  is a data edit in `core-components`, not a prose rule.
+
 ## Consequences
 
 - The shipped data now carries prose. An action whose `prose` block is missing

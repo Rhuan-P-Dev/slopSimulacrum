@@ -406,18 +406,40 @@ function valuePhrase(from, to) {
 }
 
 /**
- * Display name for an action's target (from the attribution store's resolved
- * `{ id, name, componentId, componentName }`), or null when nothing usable.
- * @param {Object|null} target
+ * Display phrase for an action's target: whom the act was aimed at, and WHICH of
+ * its parts it landed on - `<Owner>'s <part> (<look words>)`.
+ *
+ * The row has both halves (`name` for the entity, `componentName` for the part, and
+ * the `componentType` the look is read with). Naming only the owner hid a fact the
+ * row knew: "an entity used Male Mouth to touch Minako" never said which part, while
+ * the record said it was her torso.
+ *
+ * A part with no owner reads on its own (`the Knife`), and an owner whose "name" is
+ * really an id is dropped rather than printed - a raw id in a sentence is neither a
+ * name nor a part.
+ * @param {Object|null} target - the row's resolved target
+ * @param {LookLookups} [looks] - how a part's matter looks (see `looksOf`)
  * @returns {string|null}
  */
-function targetPhrase(target) {
+function targetPhrase(target, looks = looksOf()) {
     if (!target || typeof target !== 'object') return null;
-    let phrase = target.name ? displayOrGeneric(target.name, '') : null;
-    if (!phrase && target.componentName) {
-        phrase = componentTypeName(target.componentName) ?? target.componentName;
-    }
-    return phrase ? phrase : null;
+    const owner = target.name ? displayOrGeneric(target.name, '') : null;
+    const named = typeof target.componentName === 'string' ? target.componentName.trim() : '';
+    if (named === '') return owner || null;
+    const look = lookWords(looks.component, target.componentType);
+    const part = look ? `${named} (${look})` : named;
+    return owner ? `${possessive(owner)} ${part}` : part;
+}
+
+/**
+ * The English possessive of a display name, ASCII and chosen by rule: `Minako` ->
+ * `Minako's`, a name that already ends in `s` -> `Boss'`. The name itself is never
+ * rewritten - only the apostrophe is picked.
+ * @param {string} name - the owner's display name
+ * @returns {string}
+ */
+function possessive(name) {
+    return /[sS]$/.test(name) ? `${name}'` : `${name}'s`;
 }
 
 /**
@@ -766,7 +788,7 @@ function entryClauses(entry, looks = looksOf(), { verbOf = null, seen = null, do
         const dossier = actorDossier(a, actor, { seen, looks });
         if (dossier && Array.isArray(dossiers)) dossiers.push(dossier);
         const { phrase, link, instrumental } = actionWording(a?.action, verbOf);
-        const target = targetPhrase(a?.target);
+        const target = targetPhrase(a?.target, looks);
         const parts = partList(a?.used, looks);
         let clause;
         if (instrumental && target && parts.length) {
