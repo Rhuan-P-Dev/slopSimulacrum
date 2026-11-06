@@ -1,6 +1,23 @@
 {
   "_comment": "What a body wears at birth. Keyed by BLUEPRINT key - the same key `core-blueprints` stores the body under, which for a card designed in the 'Create Agent Body' tab is the card's display name. Each entry is { \"item\": <inventoryItems key>, \"component\": <component type of this body> }: the garment is worn on the FIRST component instance of that type, through WearLogic (pure volume fit - the component must have the item's `wear.minVolume` of free volume), and a garment that does not fit is a warning, never a failed spawn. An item named here must exist in `core-inventory-items` AND declare `wear.minVolume`; a body named here is read at spawn only, so an entry naming a component the body does not have is simply not worn. WHEN A BLUEPRINT HAS AN OUTFIT, the default clothing of the spawn loadouts (`wear: true` in `core-world` initialSpawns and in `core-npcs` / card-profile initialItems) is NOT applied - the outfit is what this body wears, and a body does not wear the world's default shirt underneath its own coat. Every other loadout entry (coal, toolbelt, knives) is untouched. Read by `src/controllers/logic/OutfitLogic.js`; validated at boot; written by the 'Create Agent Body' Save. The seed entry below is not new behaviour: the generic droid wore the shipped t-shirt on its central body before this file existed, and still does.",
   "m1Droid": [
-    { "item": "tshirt", "component": "m1CentralBody" }
+    {
+      "item": "tshirt",
+      "component": "m1CentralBody"
+    }
+  ],
+  "Minako": [
+    {
+      "item": "blackBra",
+      "component": "minakotorso"
+    },
+    {
+      "item": "blackPanties",
+      "component": "minakoHips"
+    },
+    {
+      "item": "blackChoker",
+      "component": "minakoNeck"
+    }
   ]
 }

@@ -589,7 +589,16 @@ describe('WorldStateController.getAll() shape', () => {
             expect(typeOf(entity.components)).toBe('array');
             expect(entity.components.length).toBeGreaterThan(0);
             for (const comp of entity.components) {
-                expect(keysOf(comp)).toEqual(['dependsOn', 'id', 'identifier', 'type']);
+                // `hidesWithParent` is the one optional key: a component carries it only
+                // because the MOUNT it was hung on authored it, and then only as `true` —
+                // the mark is absent, never `false`. Both halves are pinned, so a mark
+                // spreading onto every component, or a component marking itself, still
+                // fails here. (Minako, a card NPC in the boot cast, is the shipped body
+                // whose mounts carry it.)
+                const marked = Object.prototype.hasOwnProperty.call(comp, 'hidesWithParent');
+                if (marked) expect(comp.hidesWithParent).toBe(true);
+                expect(keysOf(comp).filter((key) => key !== 'hidesWithParent'))
+                    .toEqual(['dependsOn', 'id', 'identifier', 'type']);
                 expect(typeOf(comp.id)).toBe('string');
                 expect(typeOf(comp.type)).toBe('string');
                 expect(typeOf(comp.identifier)).toBe('string');

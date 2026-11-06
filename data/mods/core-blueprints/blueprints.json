@@ -184,7 +184,7 @@
       "frontal"
     ],
     [
-      "minakochoker",
+      "minakoNeck",
       "neck"
     ]
   ],
@@ -617,6 +617,35 @@
     [
       "femaleNail",
       "tip"
+    ]
+  ],
+  "minakotorso": [
+    [
+      "minakoBust",
+      "chest",
+      {
+        "hidesWithParent": true
+      }
+    ],
+    [
+      "minakoHips",
+      "lower"
+    ]
+  ],
+  "minakoHips": [
+    [
+      "femaleGenitals",
+      "base",
+      {
+        "hidesWithParent": true
+      }
+    ],
+    [
+      "minakoBubbles",
+      "rear",
+      {
+        "hidesWithParent": true
+      }
     ]
   ]
 }

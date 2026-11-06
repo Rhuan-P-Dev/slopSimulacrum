@@ -100,17 +100,26 @@ describe('blueprint mount options', () => {
             .forEach((comp) => expect(comp.hidesWithParent).toBeUndefined());
     });
 
-    it('is the shipped mark, and only it: the male breasts on the male central body', () => {
-        // Authored world data, pinned as a list. A silent second mark would hide a
+    it('is the shipped mark, listed in full: the male breasts and Minako', () => {
+        // Authored world data, pinned as a list. A silent extra mark would hide a
         // body part the prose was never asked to hide; a lost one would uncover a
         // part this data says is under cloth.
+        //
+        // The three on Minako are not hand-authored: the "Create Agent Body" design
+        // hung her bust, her genitals and her bubbles behind the black bra and the
+        // black panties she is born wearing, and the Save wrote the marks the
+        // operator's tick boxes left on. A fourth mark anywhere in the shipped world
+        // still has to be named here before it can hide anything.
         const blueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
         const marked = Object.entries(blueprints)
             .filter(([name]) => !name.startsWith('_'))
             .flatMap(([name, tree]) => markedMounts(tree).map((type) => `${name}/${type}`));
         expect(marked).toEqual([
             'maleCentralBody/maleBreast',
-            'maleCentralBody/maleBreast'
+            'maleCentralBody/maleBreast',
+            'minakotorso/minakoBust',
+            'minakoHips/femaleGenitals',
+            'minakoHips/minakoBubbles'
         ]);
     });
 });
