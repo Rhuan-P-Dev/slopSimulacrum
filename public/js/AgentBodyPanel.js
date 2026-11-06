@@ -240,7 +240,11 @@ export class AgentBodyPanel {
         this._saveButton.disabled = true;
         this._setStatus('Saving the body to the world…');
         try {
-            const result = await this._postSave(design.body);
+            // `_workingDesign` IS the design — `structuredClone(payload.body)` was
+            // unwrapped when the working copy was taken. Unwrapping a second time
+            // posted `undefined` (an empty request body), and the server answered
+            // that the design has no blueprintId, no rationale and no structure.
+            const result = await this._postSave(design);
             const overwrote = (result.blueprintOverwritten || []).length;
             const added = (result.newComponents || []).length;
             this._setStatus(
