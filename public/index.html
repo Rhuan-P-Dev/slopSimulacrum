@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="css/agent-view.css">
     <link rel="stylesheet" href="css/round-prose.css">
     <link rel="stylesheet" href="css/agent-body.css">
+    <link rel="stylesheet" href="css/system.css">
     <link rel="stylesheet" href="css/menu.css">
 </head>
 <body>
@@ -65,6 +66,7 @@
             <button id="btn-round-prose" class="config-btn" title="Round Prose — read a range of rounds (dev tab)">📜</button>
             <button id="btn-view" class="config-btn" title="View — inspect any entity, component, or item in this room">🔍</button>
             <button id="btn-agent-body" class="config-btn" title="Agent Body — design a character body from a card (dev)">🦾</button>
+            <button id="btn-system" class="config-btn" title="System — tell the world what you want it to contain (dev)">🛠️</button>
         </div>
     </div>
 
@@ -307,6 +309,26 @@
         <div id="agent-body-controls" class="agent-body-controls"></div>
         <div id="agent-body-content" class="agent-body-content">
             <p class="agent-body-placeholder">No design yet. Pick a card and press Design body.</p>
+        </div>
+    </div>
+
+    <!-- Floating Overlay: System (author the world from a wish — dev tab) -->
+    <div id="system-overlay" class="overlay-panel" style="display:none;">
+        <div class="overlay-header">
+            <h3 style="margin: 0;">🛠️ System</h3>
+            <button class="overlay-close-btn">✕</button>
+        </div>
+        <div id="system-transcript" class="system-transcript">
+            <p class="system-placeholder">Say what you want the world to contain. The System reads the live definition through its own tools, then puts a data-only mod package on the table — nothing is written until you press Write mod, and the world takes a package only at the next round boundary (Mods).</p>
+        </div>
+        <p id="system-status" class="system-status"></p>
+        <div class="system-composer">
+            <textarea id="system-input" class="system-input" rows="3" spellcheck="false"
+                      placeholder="What should exist? (Enter sends, Shift+Enter is a new line)"></textarea>
+            <div class="system-composer-actions">
+                <button id="system-send" class="system-btn system-btn-primary" type="button">Ask</button>
+                <button id="system-new" class="system-btn" type="button" title="Forget this conversation and start a new one">New chat</button>
+            </div>
         </div>
     </div>
 

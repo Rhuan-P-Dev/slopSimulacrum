@@ -3,6 +3,8 @@ import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
 import LLMAgentController from './controllers/networking/LLMAgentController.js';
 import AgentBodyController from './controllers/networking/AgentBodyController.js';
+import WorldAuthoringController from './controllers/networking/WorldAuthoringController.js';
+import ModPackageWriter from './services/ModPackageWriter.js';
 import NpcAIController from './controllers/ai/NpcAIController.js';
 import { buildWorldState } from './composition/WorldComposition.js';
 import SocketLifecycleController from './controllers/networking/SocketLifecycleController.js';
@@ -28,7 +30,7 @@ const tickSystem = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
 const llmController = new LLMController();
 // FASE 5: the world state graph (facade + all sub-controllers) is built by the
 // composition root, which handles topological construction and facade injection.
-const { worldStateController, subControllers, modService } = buildWorldState(tickSystem);
+const { worldStateController, subControllers, modService, registryStore } = buildWorldState(tickSystem);
 
 // 4. Initialize broadcast service
 const broadcastService = new WorldStateBroadcastService(io, worldStateController);
@@ -95,6 +97,19 @@ worldStateController.llmAgentController = llmAgentController;
 //     /llm/chat — no second timeout knob.
 const agentBodyController = new AgentBodyController({ llmController });
 worldStateController.agentBodyController = agentBodyController;
+
+// 7g. "The System" (the System tab): the operator says what they want the world to
+// contain, the System reads the live definition through tools and proposes a data-only
+// mod package. Fourth LLM prompt kind, `system-authoring` (RP-1/RP-2), and judgment-only
+// like the body designer: a proposal becomes a package only on the operator's write
+// click, and the world takes a package only at the round boundary (CR B-2 keeps every
+// provider call behind the LLM seam; wiki/decisions/system-authoring.md).
+const worldAuthoringController = new WorldAuthoringController({
+    llmController,
+    registryStore,
+    writer: new ModPackageWriter()
+});
+worldStateController.worldAuthoringController = worldAuthoringController;
 
 // Build the deterministic AI brain (outside composition root — spec §A6).
 const npcAIController = new NpcAIController({

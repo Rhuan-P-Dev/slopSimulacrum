@@ -34,6 +34,7 @@ import ObjectViewer from './ObjectViewer.js';
 import { AgentViewPanel } from './AgentViewPanel.js';
 import { RoundProsePanel } from './RoundProsePanel.js';
 import { AgentBodyPanel } from './AgentBodyPanel.js';
+import { SystemPanel } from './SystemPanel.js';
 import { AppMenu } from './AppMenu.js';
 import { OverlayManager } from './OverlayManager.js';
 import { TurnController } from './TurnController.js';
@@ -123,6 +124,10 @@ export class ClientApp {
         // Agent Body: dev tab that asks the LLM to design a body from a
         // character card (judgment-only — no write-back to the world).
         this.agentBody = new AgentBodyPanel();
+        // System: the dev tab where an operator says what the world should contain and the
+        // System authors a data-only mod package (server prompt kind `system-authoring`).
+        // Nothing is written until the Write mod click, and applying stays a Mods action.
+        this.systemPanel = new SystemPanel();
         // The top menu and its two full-screen views (create world, mods). Owned by
         // AppMenu, not OverlayManager: these are not windows inside the world, they
         // are the launcher in front of it, and they must not compete with the
@@ -727,6 +732,9 @@ export class ClientApp {
             // Agent Body (no numeric shortcut): body designer — explicit Design
             // body click (one LLM call per click), no auto-run on open.
             this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body', null);
+            // System (no numeric shortcut — only 1-4 are wired): one provider turn per Ask
+            // click, so nothing fires on open (wiki/decisions/system-authoring.md).
+            this.overlayManager.register('system', this.systemPanel, 'btn-system', null);
 
             // Drop selector is NOT registered with OverlayManager — it only opens from inventory clicks
             // and has its own show/hide lifecycle

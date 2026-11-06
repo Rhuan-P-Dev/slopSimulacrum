@@ -262,6 +262,21 @@ first round of the world you then create.
 The paths carry no `/api` prefix: routes are mounted at `/`, same as the rest of the
 server (`src/routes/index.js`).
 
+### Who writes a package
+
+Nothing in `/mods/*` writes package content — those routes read, enable, disable, reorder
+and apply. A package gets written by one of two dev surfaces, and both are judgment-only:
+
+- `POST /agent-body/save` writes the body a designer produced into the **official** `core-*`
+  packages (`wiki/decisions/agent-body-design.md`).
+- `POST /system/write` writes what the System proposed in a chat session into a **new**
+  third-party package, `system-<slug>` (`/system/chat` is the conversation,
+  `GET /system/history/:sessionId` what it holds). It never touches a `core-*` file, never
+  takes a package body from the client, and never applies: the answer says
+  `applied: false, appliesVia: "POST /mods/apply"`. `system-` is reserved by the same rule
+  that reserves `core-` (`SEC-7`), and the writer refuses anything else.
+  See `wiki/decisions/system-authoring.md`.
+
 ## From the browser (the launcher)
 
 The page opens on a launcher with two entries, and neither of them is a settings drawer
@@ -296,6 +311,12 @@ non-throwing composition classifier behind the plan's `quarantine` report, the
 enable / disable applied at the round boundary, package dependencies (`requires`: resolution,
 blocked reporting, and the `409` refusals), the eight endpoints above, and the launcher in
 the browser (menu, mod manager, card picker for a new world).
+
+Also built, in the same package shape and by the same rules: an operator can *ask* for
+content. The System tab (`/system/chat`, a fourth LLM prompt kind) reads the live definition
+through tools, proposes a package, and `POST /system/write` writes it as a `system-*`
+package here — validated before the bytes, rescanned after, applied by `/mods/apply` like
+any other third-party package (`wiki/decisions/system-authoring.md`).
 
 Not built:
 

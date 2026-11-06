@@ -73,6 +73,14 @@ committed file, translate it in a separate commit that touches nothing else.
   recipes, blueprints (with the `hidesWithParent` mount mark), garments into
   `core-inventory-items` and the body's outfit into `core-outfits` — each file backed
   up first. See `wiki/decisions/agent-body-design.md` and `wiki/decisions/outfits.md`.
+  The fourth kind is **`system-authoring`** (`WorldAuthoringController`, `/system/chat`,
+  the dev tab "System"): an operator wish, four tools that read the live definition
+  (`list_registries`, `read_registry`, `find_definitions`) and one terminal `propose_mod`.
+  Judgment-only like the designer — a proposal is held in the session, and the explicit
+  `/system/write` (a `sessionId` and nothing else) is what writes a **new** `system-*`
+  package under `data/mods/` through `ModPackageWriter`. Never a `core-*` file, never the
+  world structure kinds (`rooms`, `world`, `worldRules`, `worldObjects`), and never an
+  apply: applying stays `POST /mods/apply`. See `wiki/decisions/system-authoring.md`.
 - **Mods** are data-only packages (JSON fragments in existing registry shapes, no code, no
   new dependency) that can be added, enabled and disabled **at runtime**, applied at the
   round boundary by build-validate-swap. The shipped world is one *official* `core-*` mod

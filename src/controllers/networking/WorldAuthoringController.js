@@ -1,0 +1,771 @@
+/**
+ * WorldAuthoringController — "the System" behind the System tab: it listens to what the
+ * operator wants and authors the data-only mod package that would make it so.
+ *
+ * This is the fourth LLM prompt kind (`RP-1`), named **`system-authoring`** and versioned
+ * (`RP-2`, `PROMPT_VERSION` below — a prompt change is a bump here, never an edit of the
+ * prompt text somewhere else). It is judgment only: nothing reaches disk while the
+ * conversation runs. A turn may end with a *proposal*, and the proposal becomes a package
+ * only when the operator calls `writeProposal` — the click in the System tab — which
+ * re-validates and writes through `ModPackageWriter`. Applying it is not this module's
+ * business either: `ModService` swaps a definition at the round boundary and nowhere else
+ * (`wiki/decisions/mod-system.md`, decision 4).
+ *
+ * HOW A TURN RUNS (an agent loop, the precedent being `LLMAgentController`):
+ *   1. the operator's wish is appended to the session history,
+ *   2. `LLMController.chatFull` is called with the tool set, `tool_choice: 'auto'`,
+ *   3. every `tool_calls` entry is executed here and answered as a `tool` message,
+ *   4. the loop repeats until the model answers with plain text or the iteration cap is
+ *      reached,
+ *   5. only the wish and the model's final sentence go into the history (see HISTORY
+ *      below); the tool traffic goes to the caller as `toolLog`.
+ *
+ * WHY TOOLS AND NOT A DUMP OF THE WORLD IN THE PROMPT: the model has to *check* before it
+ * cites a material, a component or an item id. Guessing an id is the failure mode this
+ * whole feature would ship — read first, then propose, and a rejected proposal comes back
+ * as the validator's own rule list so the model can correct it inside the same turn.
+ *
+ * HISTORY, and what it costs. The world runs for hours and this conversation is paid for
+ * per message, so the policy is stated rather than incidental (`RP-3`): keep the last
+ * `MAX_HISTORY_MESSAGES` messages (user wishes and assistant replies, alternating), drop
+ * the oldest, and log every trim with how many were dropped. Tool traffic is never replayed
+ * — an accepted proposal is remembered as one line, which is what the next turn needs to
+ * know. Sessions live in memory only, bounded to `MAX_SESSIONS` (the oldest-used one is
+ * evicted, `A-7`); a restart clears them, and the operator's packages on disk do not.
+ *
+ * WHAT IT DOES NOT DO. It never fetches the provider itself (`B-2` — `LLMController` is
+ * the one seam), it never writes a file (`ModPackageWriter` does, through the data seam),
+ * it never applies or enables anything (`ModService` does), and it never touches the
+ * shipped `core-*` content or the world structure kinds (see `WorldProposalValidator`).
+ * Cancellation: the seam owns the one deadline for a provider call (`E-5`,
+ * `wiki/decisions/llm-transport.md`), so this controller adds no second timeout knob —
+ * exactly the stance `/llm/chat` and `AgentBodyController` take.
+ *
+ * @module WorldAuthoringController
+ */
+
+import crypto from 'crypto';
+import { performance } from 'node:perf_hooks';
+import Logger from '../../utils/Logger.js';
+import { GameError } from '../../utils/CustomErrors.js';
+import { REGISTRY_KIND_LIST } from '../../../shared/RegistryKinds.js';
+import {
+    validateProposal,
+    ProposalValidationError,
+    AUTHORABLE_KINDS,
+    NON_AUTHORABLE_KINDS,
+    PROPOSAL_LIMITS
+} from '../../services/WorldProposalValidator.js';
+import { LLM_DEFAULT_MAX_TOKENS } from '../../utils/Constants.js';
+// Imported for the model name only (`OBS-3` logs which model answered); the seam owns
+// that resolution — env `LLM_MODEL` over the Constants default — and this module never
+// calls it. `AgentBodyController` reads the same static for the same reason.
+import LLMController from './LLMController.js';
+
+/** The RP-1 prompt kind. */
+export const PROMPT_KIND = 'system-authoring';
+/** The RP-2 version of that prompt. Bump on any change to `_buildSystemPrompt`. */
+export const PROMPT_VERSION = '1.0.0';
+
+/**
+ * Per-call token cap. 10x the global default, the same reasoning as
+ * `LLM_AGENT_BODY_MAX_TOKENS`: a reasoning model spends its budget on thinking before it
+ * spends any on the answer, and a small cap truncates the turn mid-reasoning (finishReason
+ * "length"). The duration cap stays the seam's (`LLM_TIMEOUT_MS`) — no second knob.
+ */
+export const LLM_SYSTEM_AUTHORING_MAX_TOKENS = LLM_DEFAULT_MAX_TOKENS * 10;
+
+/** Sampling: an author reads data and writes JSON, not prose. */
+export const LLM_SYSTEM_AUTHORING_TEMPERATURE = 0.4;
+
+/**
+ * Provider calls one chat turn may make. Measured, not guessed: the first live run against
+ * the configured model spent six calls reading registries one at a time and never reached a
+ * proposal — a cap that stops a model before it can answer is a broken feature, not a
+ * saving. This is room to read a handful of registries, propose, be refused once, fix it,
+ * and still answer in prose. The per-turn cost guard is the route's rate limit (`SEC-9`).
+ */
+export const MAX_TOOL_ITERATIONS = 12;
+
+/** Sessions held in memory at once (`A-7`). */
+export const MAX_SESSIONS = 16;
+
+/** Messages kept per session, wishes and replies (`RP-3`). */
+export const MAX_HISTORY_MESSAGES = 24;
+
+/** One operator message. */
+export const MAX_MESSAGE_CHARS = 4000;
+
+/** What one tool result may say. Beyond this the read is truncated, with a marker. */
+export const MAX_TOOL_RESULT_CHARS = 12_000;
+
+/** Keys a `read_registry` listing returns before saying `truncated`. */
+export const MAX_KEYS_PER_READ = 60;
+
+/** Hits a `find_definitions` search returns before saying `truncated`. */
+export const MAX_SEARCH_HITS = 25;
+
+/** The tool names this controller answers. Anything else is a bad call, not a feature. */
+const TOOL_NAMES = Object.freeze(['list_registries', 'read_registry', 'find_definitions', 'propose_mod']);
+
+/** Codes this module raises (the route maps them to statuses). */
+export const SYSTEM_ERROR_CODES = Object.freeze({
+    SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
+    PROPOSAL_NOT_SET: 'PROPOSAL_NOT_SET'
+});
+
+/**
+ * No session with that id. A client that lost its id gets a new one from the next
+ * `handleChat`, not a silent restart of the conversation (`E-1`: expected failure, typed).
+ */
+export class SessionNotFoundError extends GameError {
+    /** @param {string} sessionId */
+    constructor(sessionId) {
+        super(`No System session with id "${sessionId}"`, SYSTEM_ERROR_CODES.SESSION_NOT_FOUND);
+        this.name = 'SessionNotFoundError';
+    }
+}
+
+/**
+ * The operator asked to write a package, but this session holds no proposal. Expected, so
+ * it is a value the route answers with 409 — not a 500 for a click that came too early.
+ */
+export class ProposalNotSetError extends GameError {
+    /** @param {string} sessionId */
+    constructor(sessionId) {
+        super(`Session "${sessionId}" has no proposal to write`, SYSTEM_ERROR_CODES.PROPOSAL_NOT_SET);
+        this.name = 'ProposalNotSetError';
+    }
+}
+
+/**
+ * @typedef {Object} AuthoringTurn
+ * @property {string} sessionId
+ * @property {string|null} reply - the model's final text, or null when it ran out of
+ *   iterations without answering (the tool log says what it read).
+ * @property {Object|null} proposal - the frozen proposal this turn produced, if any
+ * @property {Array<Object>} toolLog - one entry per tool call: name, args, ok, detail
+ * @property {Object} meta - promptKind, promptVersion, model, iterations, latencyMs,
+ *   finishReason, sessionMessages, systemPrompt
+ */
+
+export class WorldAuthoringController {
+    /**
+     * @param {Object} deps
+     * @param {import('./LLMController.js').LLMController} deps.llmController - the LLM seam (`B-2`)
+     * @param {import('../../services/RegistryStore.js').RegistryStore} deps.registryStore - the live definition the tools read
+     * @param {import('../../services/ModPackageWriter.js').ModPackageWriter} deps.writer - the package writer (used only by `writeProposal`)
+     * @param {typeof validateProposal} [deps.validator] - injectable for tests
+     * @param {string} [deps.model] - model id for the call and the report; absent means
+     *   whatever the seam is configured with (env `LLM_MODEL`)
+     * @param {() => string} [deps.nowIso] - `D-1`, `D-3`: the clock is not read directly
+     */
+    constructor({ llmController, registryStore, writer, validator = validateProposal, model = null, nowIso = null }) {
+        if (!llmController || typeof llmController.chatFull !== 'function') {
+            throw new TypeError('WorldAuthoringController: llmController (with chatFull) is required');
+        }
+        if (!registryStore || typeof registryStore.read !== 'function') {
+            throw new TypeError('WorldAuthoringController: registryStore is required');
+        }
+        if (!writer || typeof writer.writePackage !== 'function') {
+            throw new TypeError('WorldAuthoringController: writer (with writePackage) is required');
+        }
+        this.llmController = llmController;
+        this.registryStore = registryStore;
+        this.writer = writer;
+        this.validator = validator;
+        this.model = typeof model === 'string' && model.length > 0 ? model : null;
+        this.nowIso = nowIso ?? (() => new Date().toISOString());
+        /** @private {Map<string, {messages: Array<Object>, proposal: Object|null, updatedAt: string, toolCalls: number}>} */
+        this._sessions = new Map();
+    }
+
+    // ================================================================
+    // Public surface
+    // ================================================================
+
+    /**
+     * One turn of the conversation: read the world through tools, answer, maybe propose.
+     *
+     * @param {Object} input
+     * @param {string} [input.sessionId] - an existing session; a new one is minted at the
+     *   edge with `crypto.randomUUID()` when absent (`D-2`)
+     * @param {string} input.message - the operator's wish, narrowed by the route
+     * @returns {Promise<AuthoringTurn>}
+     * @throws {import('../../utils/CustomErrors.js').LLMError} from the seam
+     */
+    async handleChat({ sessionId = null, message = '' } = {}) {
+        const session = this._sessionFor(sessionId);
+        const wish = String(message ?? '').trim();
+
+        this._appendMessage(session, 'user', wish);
+        const messages = [...session.messages];
+        const toolLog = [];
+        let reply = null;
+        let iterations = 0;
+        let finishReason = null;
+        let lastModel = null;
+        const startedAt = performance.now();
+
+        while (iterations < MAX_TOOL_ITERATIONS) {
+            iterations++;
+            const sentAt = performance.now();
+            const answer = await this.llmController.chatFull(messages, {
+                // No model override: the seam's default is the configured one.
+                model: this.model ?? undefined,
+                system: this._buildSystemPrompt(),
+                tools: this._buildTools(),
+                // Never "required": a forced tool call is what turns a weak model into a
+                // loop (the reason `LLMAgentController` settled on "auto" — and here, with
+                // no world action to take, an answer in prose is always legal anyway).
+                tool_choice: 'auto',
+                temperature: LLM_SYSTEM_AUTHORING_TEMPERATURE,
+                max_tokens: LLM_SYSTEM_AUTHORING_MAX_TOKENS
+            });
+            lastModel = answer?.model ?? lastModel;
+            finishReason = answer?.finishReason ?? finishReason;
+            const toolCalls = Array.isArray(answer?.toolCalls) ? answer.toolCalls : [];
+            Logger.info('[WorldAuthoring] provider call', {
+                promptKind: PROMPT_KIND,
+                promptVersion: PROMPT_VERSION,
+                iteration: iterations,
+                finishReason,
+                toolCallCount: toolCalls.length,
+                contentChars: typeof answer?.content === 'string' ? answer.content.length : 0,
+                latencyMs: Math.round(performance.now() - sentAt)
+            });
+
+            if (toolCalls.length === 0) {
+                reply = typeof answer?.content === 'string' ? answer.content.trim() : '';
+                messages.push({ role: 'assistant', content: reply });
+                break;
+            }
+
+            // The assistant turn and its answers, in the order the protocol requires
+            // (`LLMController._validateMessages`: assistant with tool_calls, then one
+            // `tool` message per call id).
+            messages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
+            for (const call of toolCalls) {
+                const outcome = this._runTool(call, session, toolLog, MAX_TOOL_ITERATIONS - iterations);
+                messages.push({ role: 'tool', tool_call_id: call.id ?? '', content: outcome.payload });
+            }
+        }
+
+        const stoppedAtToolCap = reply === null;
+        if (stoppedAtToolCap) {
+            // The cap was reached with the model still working. Say so rather than
+            // inventing a summary — an empty answer with the tool log is honest.
+            Logger.warn(
+                `[WorldAuthoring] turn stopped at the ${MAX_TOOL_ITERATIONS}-call cap `
+                + `without an answer; ${toolLog.length} tool call(s) ran`
+            );
+        }
+
+        this._appendMessage(session, 'assistant', reply ?? '(stopped after the tool-call limit without an answer.)');
+        if (session.proposal) {
+            // The one line the next turn needs: a proposal exists, and what it is.
+            session.messages.push({
+                role: 'assistant',
+                content: `[proposal on the table: ${session.proposal.packageId}, ${session.proposal.stats.kinds} kind(s), `
+                    + `${session.proposal.stats.definitions} definition(s), ${session.proposal.overrides.length} overriding]`
+            });
+        }
+        this._trim(session);
+        session.updatedAt = this.nowIso();
+
+        return Object.freeze({
+            sessionId: session.id,
+            reply,
+            proposal: session.proposal,
+            toolLog: Object.freeze(toolLog),
+            meta: Object.freeze({
+                promptKind: PROMPT_KIND,
+                promptVersion: PROMPT_VERSION,
+                model: lastModel ?? LLMController.DEFAULT_MODEL,
+                iterations,
+                finishReason,
+                latencyMs: Math.round(performance.now() - startedAt),
+                sessionMessages: session.messages.length,
+                // The operator's client needs to know the difference between "the model had
+                // nothing to say" and "the model ran out of budget".
+                stoppedAtToolCap,
+                // The prompt is the product of a judgment feature: the operator tunes it
+                // from here (the same reason `agent-body-design` returns its prompt).
+                systemPrompt: this._buildSystemPrompt()
+            })
+        });
+    }
+
+    /**
+     * What the session holds: the conversation and the proposal on the table, if any.
+     * @param {string} sessionId
+     * @returns {{ sessionId: string, messages: Array<Object>, proposal: Object|null, updatedAt: string }}
+     * @throws {SessionNotFoundError}
+     */
+    getHistory(sessionId) {
+        const session = this._sessions.get(String(sessionId ?? ''));
+        if (!session) throw new SessionNotFoundError(String(sessionId ?? ''));
+        return Object.freeze({
+            sessionId: session.id,
+            messages: Object.freeze(session.messages.map((entry) => Object.freeze({ ...entry }))),
+            proposal: session.proposal,
+            updatedAt: session.updatedAt
+        });
+    }
+
+    /**
+     * The operator's click: turn this session's proposal into a package on disk.
+     *
+     * Re-validated, never trusted from the earlier answer (`T-1`): the live definition may
+     * have moved (an apply, another operator's edit), and an override that was not there
+     * when the model proposed must be reported now. The write is what it says — a package
+     * in `data/mods/`, not a changed world. The caller (`systemRoutes`) rescans the package
+     * directory and answers where it applies.
+     *
+     * @param {string} sessionId
+     * @returns {Promise<Object>} the `ModPackageWriter` report, plus the proposal summary
+     * @throws {SessionNotFoundError} | {ProposalNotSetError} | {ProposalValidationError}
+     */
+    async writeProposal(sessionId) {
+        const session = this._sessions.get(String(sessionId ?? ''));
+        if (!session) throw new SessionNotFoundError(String(sessionId ?? ''));
+        if (!session.proposal) throw new ProposalNotSetError(session.id);
+
+        const proposal = this.validator(session.proposal, { registryStore: this.registryStore });
+        const report = await Promise.resolve(this.writer.writePackage({
+            id: proposal.packageId,
+            version: proposal.version,
+            description: proposal.description,
+            content: proposal.content
+        }));
+
+        // Remember it happened, in the conversation: the next wish is usually a refinement
+        // of what was just written, and the model should know the package already exists.
+        this._appendMessage(session, 'assistant', `[written: ${report.packageId} (${report.dir}) — ${report.content.join(', ')}; not applied yet]`);
+        this._trim(session);
+        session.updatedAt = this.nowIso();
+
+        return Object.freeze({
+            ...report,
+            rationale: proposal.rationale,
+            added: proposal.added,
+            overrides: proposal.overrides
+        });
+    }
+
+    /** How many sessions this process is holding. Read by the tests, and by nobody else. */
+    sessionCount() {
+        return this._sessions.size;
+    }
+
+    // ================================================================
+    // Sessions
+    // ================================================================
+
+    /**
+     * The session for `sessionId`, or a new one. The id is minted here because this is
+     * the edge (`D-2`); a client that sends a non-existent id gets a fresh session rather
+     * than an error, because a reloaded tab cannot know whether the server survived.
+     * @private
+     * @param {string|null} sessionId
+     * @returns {{ id: string, messages: Array<Object>, proposal: Object|null, updatedAt: string }}
+     */
+    _sessionFor(sessionId) {
+        const id = typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : crypto.randomUUID();
+        const existing = this._sessions.get(id);
+        if (existing) {
+            this._sessions.delete(id);
+            this._sessions.set(id, existing);
+            return existing;
+        }
+        const session = { id, messages: [], proposal: null, updatedAt: this.nowIso() };
+        this._sessions.set(id, session);
+        // Oldest-used eviction, and a log line when it costs somebody their conversation.
+        // `.keys()` and not `const [id] = this._sessions`: destructuring a Map yields its
+        // first ENTRY (a `[key, value]` array), and `delete(array)` deletes nothing — an
+        // eviction loop that never evicts is an out-of-memory loop (`A-7`, and the test
+        // that found this one).
+        while (this._sessions.size > MAX_SESSIONS) {
+            const evictedId = this._sessions.keys().next().value;
+            if (evictedId === undefined) break;
+            this._sessions.delete(evictedId);
+            Logger.warn(`[WorldAuthoring] session "${evictedId}" evicted (${MAX_SESSIONS} in memory)`);
+        }
+        return session;
+    }
+
+    /**
+     * Append one message to the session history (`RP-3`: wishes and replies only).
+     * @private
+     * @param {Object} session
+     * @param {'user'|'assistant'} role
+     * @param {string} content
+     */
+    _appendMessage(session, role, content) {
+        session.messages.push({ role, content });
+    }
+
+    /**
+     * Keep the history inside `MAX_HISTORY_MESSAGES` by dropping the oldest.
+     *
+     * The policy is the boring one and it is stated in the log: keep system (rebuilt every
+     * call, never stored), keep the newest messages, drop the oldest. The persona is never
+     * silently dropped — there is no persona here, only the wish/reply alternation.
+     * @private
+     * @param {Object} session
+     */
+    _trim(session) {
+        const dropped = session.messages.length - MAX_HISTORY_MESSAGES;
+        if (dropped <= 0) return;
+        session.messages.splice(0, dropped);
+        Logger.info(`[WorldAuthoring] history trimmed for session "${session.id}": dropped ${dropped} oldest message(s)`);
+    }
+
+    // ================================================================
+    // Tools
+    // ================================================================
+
+    /**
+     * The tool set: three reads of the live definition and one terminal `propose_mod`.
+     * Deliberately small (`B-6`) — the model that needs twenty tools is a design that has
+     * not found its four yet.
+     * @private
+     * @returns {Array<Object>} OpenAI-compatible tool definitions
+     */
+    _buildTools() {
+        const kindEnum = REGISTRY_KIND_LIST;
+        return [
+            {
+                type: 'function',
+                function: {
+                    name: 'list_registries',
+                    description: 'List every registry of the world definition with how many definitions it holds and whether this System may author into it. Call this before reading anything, so you read what matters.',
+                    parameters: { type: 'object', properties: {}, required: [] }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'read_registry',
+                    description: 'Read one registry. Without "key" it answers with the keys it holds; with "key" it answers with that one definition, exactly as the world reads it. Never cite an id you have not seen here.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            kind: { type: 'string', enum: kindEnum, description: 'The registry kind to read.' },
+                            key: { type: 'string', description: 'Optional: one definition key to fetch in full.' }
+                        },
+                        required: ['kind']
+                    }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'find_definitions',
+                    description: 'Search definition keys and values for a text fragment (case-insensitive substring), optionally within one kind. Answers with kind/key/name matches, not whole definitions.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            text: { type: 'string', description: 'The fragment to look for.' },
+                            kind: { type: 'string', enum: kindEnum, description: 'Optional: limit the search to one kind.' }
+                        },
+                        required: ['text']
+                    }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'propose_mod',
+                    description: 'Put a data-only mod package on the table. This is the only way to change the world from here, and it writes nothing: the operator reads the proposal and decides. A proposal that breaks a rule comes back with that rule list — fix it and propose again.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            packageId: {
+                                type: 'string',
+                                description: `A short lowercase slug (letters, digits, dash). The server owns the identity: it becomes "${PROPOSAL_LIMITS.PACKAGE_ID_PREFIX}<slug>".`
+                            },
+                            description: { type: 'string', description: 'One sentence for the manifest: what this package adds.' },
+                            rationale: { type: 'string', description: 'Why this content answers what the operator asked, in the operator\'s terms.' },
+                            content: {
+                                type: 'object',
+                                description: `Registry kind -> { key: definition }. Only authorable kinds; the world structure kinds (${NON_AUTHORABLE_KINDS.join(', ')}) are refused.`,
+                                additionalProperties: { type: 'object' }
+                            }
+                        },
+                        required: ['packageId', 'description', 'content']
+                    }
+                }
+            }
+        ];
+    }
+
+    /**
+     * Execute one tool call, record it in the log, and produce its `tool` message.
+     *
+     * Every failure is an ANSWER, not a throw: a model that gets "no such kind" as data
+     * corrects itself, and one that gets a 500 does not exist in this conversation (`E-1`).
+     * @private
+     * @param {Object} call - `{ id, function: { name, arguments } }`
+     * @param {Object} session
+     * @param {Array<Object>} toolLog
+     * @param {number} callsRemaining - provider calls left in this turn (told to the model:
+     *   a budget it cannot see is a budget it will waste — the live run read every registry
+     *   and never proposed)
+     * @returns {{ payload: string, ok: boolean, detail: string }}
+     */
+    _runTool(call, session, toolLog, callsRemaining = 0) {
+        const name = call?.function?.name ?? '';
+        const args = this._parseArgs(call?.function?.arguments);
+
+        if (!TOOL_NAMES.includes(name)) {
+            return this._recordTool(toolLog, { name, args, ok: false, detail: 'unknown tool' },
+                { error: `Unknown tool "${name}". Available: ${TOOL_NAMES.join(', ')}.` }, callsRemaining);
+        }
+
+        try {
+            if (name === 'list_registries') return this._recordTool(toolLog, { name, args, ok: true }, this._toolListRegistries(), callsRemaining);
+            if (name === 'read_registry') return this._recordTool(toolLog, { name, args, ok: true }, this._toolReadRegistry(args), callsRemaining);
+            if (name === 'find_definitions') return this._recordTool(toolLog, { name, args, ok: true }, this._toolFindDefinitions(args), callsRemaining);
+            // `propose_mod` answering is not the proposal being accepted: a refusal is a
+            // result, and the operator's tool log must read "refused: <rules>", not "ok".
+            const result = this._toolProposeMod(args, session);
+            const rejected = result?.ok === false;
+            return this._recordTool(toolLog, {
+                name,
+                args,
+                ok: !rejected,
+                detail: rejected ? (result.errors ?? []).join('; ') : ''
+            }, result, callsRemaining);
+        } catch (error) {
+            const detail = error?.message ?? String(error);
+            return this._recordTool(toolLog, { name, args, ok: false, detail }, { error: detail }, callsRemaining);
+        }
+    }
+
+    /**
+     * Serialise one tool result (bounded, `SEC-2`) and append the log entry. The remaining
+     * call budget travels with every answer, because the model is the one that has to spend
+     * it.
+     * @private
+     */
+    _recordTool(toolLog, entry, result, callsRemaining = 0) {
+        const body = (result && typeof result === 'object' && !Array.isArray(result))
+            ? { ...result, callsRemaining }
+            : { result, callsRemaining };
+        let payload = JSON.stringify(body);
+        if (payload.length > MAX_TOOL_RESULT_CHARS) {
+            payload = JSON.stringify({
+                truncated: true,
+                limitChars: MAX_TOOL_RESULT_CHARS,
+                note: 'The result is larger than one tool answer may be. Ask for less (a key, one kind, a narrower search).',
+                head: payload.slice(0, MAX_TOOL_RESULT_CHARS - 200)
+            });
+        }
+        toolLog.push({ ...entry, resultChars: payload.length });
+        return { payload, ok: entry.ok, detail: entry.detail ?? '' };
+    }
+
+    /**
+     * `tool_calls[].function.arguments` is a JSON string by contract; a model that sends
+     * a broken one gets the parse error back as data (`T-1`), never a crash of the turn.
+     * @private
+     * @param {unknown} raw
+     * @returns {Object}
+     */
+    _parseArgs(raw) {
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+        if (typeof raw !== 'string' || raw.trim().length === 0) return {};
+        try {
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return { __parseError: error?.message ?? 'arguments are not valid JSON' };
+        }
+    }
+
+    /** @private */
+    _toolListRegistries() {
+        const registries = REGISTRY_KIND_LIST.map((kind) => ({
+            kind,
+            definitions: this._keysOf(kind).length,
+            authorable: AUTHORABLE_KINDS.includes(kind)
+        }));
+        return { registries, authorableKinds: [...AUTHORABLE_KINDS], refusedKinds: [...NON_AUTHORABLE_KINDS] };
+    }
+
+    /** @private */
+    _toolReadRegistry(args) {
+        if (args.__parseError) throw new Error(args.__parseError);
+        const kind = typeof args.kind === 'string' ? args.kind : '';
+        if (!REGISTRY_KIND_LIST.includes(kind)) {
+            throw new Error(`"${kind}" is not a registry kind. Call list_registries for the vocabulary.`);
+        }
+        const content = this._registry(kind);
+        const keys = Object.keys(content);
+        if (typeof args.key === 'string' && args.key.length > 0) {
+            if (!Object.prototype.hasOwnProperty.call(content, args.key)) {
+                throw new Error(`No "${args.key}" in registry "${kind}". Read the keys first.`);
+            }
+            return { kind, key: args.key, definition: content[args.key] };
+        }
+        const shown = keys.slice(0, MAX_KEYS_PER_READ);
+        const sampleKey = keys.find((key) => Object.prototype.hasOwnProperty.call(content, key));
+        return {
+            kind,
+            total: keys.length,
+            keys: shown,
+            truncated: keys.length > shown.length,
+            // One real definition rides along with the key list. The live run showed why:
+            // a model that sees only names spends a second call per kind to learn the shape,
+            // and the call budget is the scarce thing here.
+            sample: sampleKey ? { key: sampleKey, definition: content[sampleKey] } : null
+        };
+    }
+
+    /** @private */
+    _toolFindDefinitions(args) {
+        if (args.__parseError) throw new Error(args.__parseError);
+        const text = typeof args.text === 'string' ? args.text.trim().toLowerCase() : '';
+        if (text.length < 2) throw new Error('"text" needs at least 2 characters.');
+        const scope = typeof args.kind === 'string' && args.kind.length > 0 ? [args.kind] : REGISTRY_KIND_LIST;
+        const hits = [];
+        for (const kind of scope) {
+            const content = this._registry(kind);
+            for (const [key, value] of Object.entries(content)) {
+                const hay = `${key} ${JSON.stringify(value) ?? ''}`.toLowerCase();
+                if (!hay.includes(text)) continue;
+                hits.push({ kind, key, name: this._labelOf(value) });
+                if (hits.length >= MAX_SEARCH_HITS) {
+                    return { query: text, hits, truncated: true };
+                }
+            }
+        }
+        return { query: text, hits, truncated: false };
+    }
+
+    /**
+     * Validate the proposal and, if it stands, put it on the table for the operator.
+     * A rejection is the rule list — the model reads it and proposes again in this turn.
+     * @private
+     * @param {Object} args
+     * @param {Object} session
+     * @returns {Object} tool result
+     */
+    _toolProposeMod(args, session) {
+        if (args.__parseError) throw new Error(args.__parseError);
+        try {
+            const proposal = this.validator(
+                {
+                    packageId: args.packageId,
+                    description: args.description,
+                    rationale: args.rationale,
+                    content: args.content
+                },
+                { registryStore: this.registryStore }
+            );
+            session.proposal = proposal;
+            return {
+                ok: true,
+                proposal: {
+                    packageId: proposal.packageId,
+                    kinds: Object.keys(proposal.content),
+                    definitions: proposal.stats.definitions,
+                    added: proposal.added,
+                    overrides: proposal.overrides
+                },
+                note: 'The proposal is on the table. Nothing is written until the operator clicks Write. Tell the operator what you proposed and what it overrides.'
+            };
+        } catch (error) {
+            if (error instanceof ProposalValidationError) {
+                return { ok: false, errors: error.errors, note: 'Fix these and call propose_mod again.' };
+            }
+            throw error;
+        }
+    }
+
+    // ================================================================
+    // Reading the live definition (through the store, never through disk)
+    // ================================================================
+
+    /** @private */
+    _registry(kind) {
+        if (!this.registryStore.has(kind)) return {};
+        const content = this.registryStore.read(kind);
+        return content && typeof content === 'object' && !Array.isArray(content) ? content : {};
+    }
+
+    /** @private */
+    _keysOf(kind) {
+        return Object.keys(this._registry(kind));
+    }
+
+    /**
+     * The human label of a definition, when it has one — a search hit that says only the
+     * key is half an answer.
+     * @private
+     * @param {unknown} value
+     * @returns {string|null}
+     */
+    _labelOf(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const label = value.name ?? value.description ?? null;
+        return typeof label === 'string' ? label.slice(0, 120) : null;
+    }
+
+    // ================================================================
+    // The prompt (kind `system-authoring`, version PROMPT_VERSION — RP-1, RP-2)
+    // ================================================================
+
+    /**
+     * System message: who is speaking, what it may author, how to work, and what it must
+     * never assume. The vocabulary is NOT inlined — the tools are how it gets read (`B-6`,
+     * `RP-3`), and a model that reads answers with ids that exist.
+     * @private
+     * @returns {string}
+     */
+    _buildSystemPrompt() {
+        return [
+            `You are the System (${PROMPT_KIND} v${PROMPT_VERSION}) of a persistent, data-driven world simulation.`,
+            'The operator tells you what they want the world to contain; you author the DATA that makes it so.',
+            '',
+            'WHAT YOU AUTHOR. Data-only mod packages: one directory under data/mods/ with a mod.json manifest and',
+            'one <kind>.json per registry you contribute. You never write code, you never edit the shipped core-*',
+            'packages, and you never change the world structure kinds: ' + NON_AUTHORABLE_KINDS.join(', ') + '.',
+            'Authorable kinds: ' + AUTHORABLE_KINDS.join(', ') + '.',
+            '',
+            'HOW YOU WORK.',
+            `You have ${MAX_TOOL_ITERATIONS} provider calls this turn, and every tool answer tells you how many are left.`,
+            'Spend them well: two or three reads is plenty. A listing already carries one real definition as',
+            '`sample`, which is usually all of the shape you need.',
+            '1. Read before you write. list_registries once, then read_registry / find_definitions. Never cite a',
+            '   component, material, organ, item, action or key you have not seen in this conversation.',
+            '2. Reuse what exists. A wish is usually met by adding one item, one recipe or one machine over the',
+            '   existing matter and component vocabulary, not by inventing a private world of new kinds.',
+            '3. Propose EARLY. Call propose_mod once you have seen the kinds you need; do not read every',
+            '   registry first. A proposal that is refused answers with its rule list — fix it and call it again,',
+            '   still in this turn. A turn that ends with no proposal tells the operator nothing.',
+            '4. Then answer in plain prose: what you proposed, which keys you added, what it shadows if anything,',
+            '   and what you could not do. The operator reads that answer before anything is written.',
+            '',
+            'THE DATA CONTRACT.',
+            '- content is { registryKind: { key: definition } }; the key is the identifier the world reads.',
+            '- Follow the shape of the definitions you read: a component recipe is form + materials (fractions that',
+            '  sum to 1.0) + internalComponents; an item is a small component; a crafting recipe is inputs/outputs.',
+            '  Copy the shape from what is already there — do not invent a schema.',
+            '- Redefining a key that already exists is legal (a package shadows the official one) but it must be',
+            '  deliberate, and you must say so in your answer.',
+            '- Keep it small: the shortest content that does the job. Caps exist and a big proposal is refused.',
+            '',
+            'WHAT YOU DO NOT DO.',
+            '- You do not apply anything. A proposal becomes a package only by the operator\'s click, and the world',
+            '  takes it at the next round boundary. Never claim the world has changed.',
+            '- You do not touch a running entity, an inventory or a turn. You author definitions, nothing else.',
+            '- If the wish is really about the map, the world rules or the props, say plainly that the System does',
+            '  not author those, and say what a content-level alternative would be.',
+            '- If the wish is impossible with data alone, say so. No silent approximations.'
+        ].join('\n');
+    }
+}
+
+export default WorldAuthoringController;

@@ -247,6 +247,44 @@ class DataLoader {
     }
 
     /**
+     * True when a path inside the data tree exists.
+     *
+     * WHY THIS IS NOT `loadJsonSafe(path, null) !== null`: asking "is it there?" by
+     * reading it logs an ERROR on every absent first write (`loadJson` logs before
+     * `loadJsonSafe` degrades), and a package write that has to create its first file
+     * would scream about a file it is about to make. Existence is its own question, so it
+     * gets its own seam call.
+     * @param {string} relativePath - Path relative to the project root.
+     * @returns {boolean}
+     */
+    static exists(relativePath) {
+        return fs.existsSync(path.resolve(__dirname, '..', '..', relativePath));
+    }
+
+    /**
+     * Creates a directory (and any missing parent) inside the data tree.
+     *
+     * WHY THIS IS HERE AND NOT IN THE CALLER. A new mod package is a directory
+     * before it is a file, and `cr/no-direct-file-read` (CR B-3) keeps `fs` out of
+     * every other module: the package writer asks the seam for the directory rather
+     * than importing `fs` itself, so the seam stays the one place that touches the
+     * disk (`wiki/decisions/mod-system.md`, `CR B-3b`). It is recursive, because a
+     * package directory has exactly one level to create and a missing parent is a
+     * real first-write case, not a bug.
+     *
+     * The path is resolved the same way every other seam path is, from a caller that
+     * must already have validated its own segment (a mod id is matched against
+     * `MOD_ID_PATTERN` before it reaches here — `SEC-7`).
+     * @param {string} relativePath - Path relative to the project root.
+     * @returns {string} the relative path created.
+     */
+    static ensureDir(relativePath) {
+        const absolutePath = path.resolve(__dirname, '..', '..', relativePath);
+        fs.mkdirSync(absolutePath, { recursive: true });
+        return relativePath;
+    }
+
+    /**
      * Copies one data file to another (used for timestamped pre-write backups).
      * Returns the destination relative path.
      * @param {string} fromRelative - Source path relative to the project root.
