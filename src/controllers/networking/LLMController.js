@@ -9,6 +9,67 @@ import {
     LLM_LOG_TRUNCATION_CHARS
 } from '../../utils/Constants.js';
 
+/** How deep the cause projection walks before stopping (guards a cyclic chain). */
+const MAX_CAUSE_DEPTH = 2;
+/** How many sibling errors of an `AggregateError` are logged. */
+const MAX_AGGREGATE_CAUSES = 3;
+/** Socket fields that identify *which* endpoint failed. */
+const CAUSE_SOCKET_FIELDS = ['syscall', 'address', 'port'];
+
+/**
+ * Projects one link of an error chain into JSON-safe log detail (OBS-1).
+ *
+ * `fetch` rejects with a bare `TypeError: fetch failed` for *every* transport
+ * cause: connection refused, a socket reset mid-response, and the transport
+ * header timeout (`UND_ERR_HEADERS_TIMEOUT`, which the Node client applies at
+ * ~300s regardless of `LLM_TIMEOUT_MS`) all look identical at that level. Only
+ * `error.cause` says which one happened, so the log line carries the projected
+ * cause instead of the bare `fetch failed`.
+ *
+ * This shapes the LOG only. The thrown `LLMError.message` is the downstream
+ * contract and stays byte-identical; the error object itself already carries
+ * the cause.
+ * @param {unknown} cause - a link of the chain (`error.cause`), any shape.
+ * @param {number} depth - recursion depth; 0 is the direct cause.
+ * @returns {Object|null} plain detail with the fields that exist, or null when
+ *   this link says nothing (then nothing is added to the log).
+ */
+function projectErrorCause(cause, depth = 0) {
+    if (!cause || typeof cause !== 'object' || depth > MAX_CAUSE_DEPTH) {
+        return null;
+    }
+
+    const detail = {};
+    if (typeof cause.name === 'string' && cause.name) detail.name = cause.name;
+    if (typeof cause.code === 'string' && cause.code) detail.code = cause.code;
+    if (typeof cause.message === 'string' && cause.message) {
+        detail.message = cause.message.length > LLM_LOG_TRUNCATION_CHARS
+            ? `${cause.message.slice(0, LLM_LOG_TRUNCATION_CHARS)}...`
+            : cause.message;
+    }
+    // Which socket failed: the answer when `localhost` resolves to ::1 while the
+    // backend listens on IPv4 only (ECONNREFUSED on one family, not the other).
+    for (const field of CAUSE_SOCKET_FIELDS) {
+        if (cause[field] !== undefined && cause[field] !== null) detail[field] = cause[field];
+    }
+
+    // A happy-eyeballs failure wraps every attempt in an AggregateError
+    // (`errors`); a transport timeout wraps its own reason in `cause`. Either
+    // way, one more link is worth logging, capped by MAX_CAUSE_DEPTH.
+    if (Array.isArray(cause.errors) && cause.errors.length > 0) {
+        const reasons = cause.errors
+            .slice(0, MAX_AGGREGATE_CAUSES)
+            .map((nested) => projectErrorCause(nested, depth + 1))
+            .filter(Boolean);
+        if (reasons.length > 0) detail.causes = reasons;
+    } else {
+        const nested = projectErrorCause(cause.cause, depth + 1);
+        if (nested) detail.causes = nested;
+    }
+
+    return Object.keys(detail).length > 0 ? detail : null;
+}
+
 /**
  * LLMController handles all communication with the Large Language Model backend.
  * It abstracts the HTTP requests and ensures that the communication follows
@@ -53,6 +114,16 @@ import {
  *                   Values that are not positive finite numbers fall back to
  *                   the default.
  *                   Default: 30000
+ *
+ * ---------------------------------------------------------------------------
+ * FAILURE LOGGING
+ * ---------------------------------------------------------------------------
+ * A transport failure is logged with its cause as structured context, because
+ * `fetch failed` on its own does not say whether the backend refused the
+ * connection, reset it mid-response, or hit the transport header timeout.
+ * `LLM_TIMEOUT` (our own budget, `LLM_TIMEOUT_MS`) and `LLM_HTTP_ERROR` (a
+ * status the backend returned) are separate branches and are logged as before.
+ * ---------------------------------------------------------------------------
  *
  * Values are read from process.env at request time (cheap getters), so the
  * controller never captures a stale environment at construction.
@@ -326,7 +397,7 @@ class LLMController {
                 Logger.error(`[LLMController] Request timed out after ${timeout}ms`);
                 throw new LLMError(`LLM request timed out after ${timeout}ms`, 'LLM_TIMEOUT');
             }
-            Logger.error(`[LLMController] Communication failure: ${error.message}`);
+            Logger.error(`[LLMController] Communication failure: ${error.message}`, projectErrorCause(error.cause));
             throw new LLMError(`LLM communication failure: ${error.message}`, 'LLM_REQUEST_ERROR', error);
         } finally {
             clearTimeout(timeoutId);

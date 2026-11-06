@@ -16,8 +16,10 @@
  * @module test/unit/LLMController.chatFull
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import LLMController from '../../src/controllers/networking/LLMController.js';
+import Logger from '../../src/utils/Logger.js';
+import { LLM_LOG_TRUNCATION_CHARS } from '../../src/utils/Constants.js';
 
 /** Builds a Response-like object from a JSON payload. */
 function jsonResponse(data, { status = 200, statusText = 'OK' } = {}) {
@@ -184,6 +186,92 @@ describe('LLMController.chatFull (Feature C, spec §6.1)', () => {
 
         await expect(llm.chatFull([{ role: 'user', content: 'hi' }], { timeout_ms: 1 }))
             .rejects.toMatchObject({ code: 'LLM_TIMEOUT' });
+    });
+});
+
+describe('LLMController transport failure logging (OBS-1)', () => {
+    const llm = new LLMController();
+    let errorSpy;
+
+    beforeEach(() => {
+        errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    /** Stubs `fetch` to reject with `error`, then runs one call and returns its error. */
+    async function failWith(error) {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(error));
+        return llm.chatFull([{ role: 'user', content: 'hi' }]).catch((thrown) => thrown);
+    }
+
+    /** The context object the failure line was logged with. */
+    function loggedContext() {
+        const call = errorSpy.mock.calls.find(([message]) =>
+            message.startsWith('[LLMController] Communication failure'));
+        return call && call[1];
+    }
+
+    it('logs the transport header timeout that "fetch failed" is hiding', async () => {
+        const headersTimeout = new Error('Headers Timeout Error');
+        headersTimeout.name = 'HeadersTimeoutError';
+        headersTimeout.code = 'UND_ERR_HEADERS_TIMEOUT';
+        const boom = new TypeError('fetch failed', { cause: headersTimeout });
+
+        const error = await failWith(boom);
+
+        // Downstream contract untouched: same code, same message, cause still attached.
+        expect(error).toMatchObject({
+            code: 'LLM_REQUEST_ERROR',
+            message: 'LLM communication failure: fetch failed'
+        });
+        expect(error.cause).toBe(boom);
+        // The log line says what actually happened, not just "fetch failed".
+        expect(errorSpy).toHaveBeenCalledWith(
+            '[LLMController] Communication failure: fetch failed',
+            { name: 'HeadersTimeoutError', code: 'UND_ERR_HEADERS_TIMEOUT', message: 'Headers Timeout Error' }
+        );
+    });
+
+    it('logs which address refused when the attempts were wrapped in an AggregateError', async () => {
+        const refused = (address) => {
+            const err = new Error(`connect ECONNREFUSED ${address}:6030`);
+            err.code = 'ECONNREFUSED';
+            err.syscall = 'connect';
+            err.address = address;
+            err.port = 6030;
+            return err;
+        };
+        const aggregate = new AggregateError([refused('::1'), refused('127.0.0.1')], 'All connections failed');
+
+        await failWith(new TypeError('fetch failed', { cause: aggregate }));
+
+        expect(loggedContext()).toMatchObject({
+            name: 'AggregateError',
+            causes: [
+                { code: 'ECONNREFUSED', syscall: 'connect', address: '::1', port: 6030 },
+                { code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 6030 }
+            ]
+        });
+    });
+
+    it('adds no context when the error carries no cause', async () => {
+        await failWith(new TypeError('fetch failed'));
+
+        expect(loggedContext()).toBe(null);
+    });
+
+    it('truncates a cause message to the log truncation budget', async () => {
+        const noisy = new Error('x'.repeat(LLM_LOG_TRUNCATION_CHARS + 100));
+        noisy.name = 'NoisyError';
+
+        await failWith(new TypeError('fetch failed', { cause: noisy }));
+
+        const { message } = loggedContext();
+        expect(message.length).toBeLessThanOrEqual(LLM_LOG_TRUNCATION_CHARS + 3);
+        expect(message.endsWith('...')).toBe(true);
     });
 });
 
