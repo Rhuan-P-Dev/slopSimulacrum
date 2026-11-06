@@ -442,7 +442,13 @@ function partList(rows, looks = looksOf()) {
     const names = [];
     (rows || []).forEach((row) => {
         if (!row || typeof row !== 'object') return;
-        const type = row.type ?? row.id;
+        // A part is named by its TYPE. An instance id is not a type, and
+        // `componentTypeName` prettifies ANY unknown key, so the id this used to fall
+        // back to printed itself ("Comp-3f1a…") whenever the writer could not resolve
+        // the part — which is the normal case for an action that attributed a
+        // component the actor does not own (the part touched ON the victim). A part
+        // prose cannot name says nothing; it never surfaces a raw id.
+        const type = typeof row.type === 'string' ? row.type : null;
         const t = componentTypeName(type);
         if (!t) return;
         const look = lookWords(looks.component, type);

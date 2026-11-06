@@ -166,6 +166,15 @@ forbids. The registry already owns the verb, so it owns its second tense.
   instrument to name in front of them. `actionProse.contract.test.js` pins that set by
   name (an act cannot start claiming an instrument on its own) and the shape of every
   declaration: non-blank ASCII `verb`, string `targetLink` when present.
+- A part the row cannot name contributes nothing. `touch` attributes the part
+  touched, which belongs to the **victim**, so the writer records `type: null` for it
+  (`PerceptionController` looks the id up in the actor's own components) - and
+  `componentTypeName` prettifies *any* unknown key, so a part named by its instance id
+  printed the id itself: `Adam used Comp-da4a543c-… to touch Minako`. `partList` now
+  names a part by its **type** or not at all, which holds the "raw ids never surface"
+  invariant this module already claims. The attribution question - should the touched
+  part be credited as the instrument at all, or the part that touched - is a separate
+  decision in `ConsequenceDispatcher`, untouched here.
 - The bytes moved from the tail clause into the verb phrase, which is where a reader -
   or a pipeline looking for actor -> instrument -> patient - wants them. No new fact
   enters the sentence and none leaves.

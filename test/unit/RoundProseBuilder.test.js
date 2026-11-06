@@ -379,6 +379,43 @@ describe('buildRoomProse (narrative prose)', () => {
             .toBe('In start room, Test Droid threw a punch against Knife, powered by Blade.');
     });
 
+    it('names no part it cannot name — an instance id never reaches the sentence', () => {
+        // `touch` attributes the part touched, which belongs to the VICTIM, so the
+        // writer resolves no type for it (PerceptionController looks the id up in the
+        // ACTOR's components and records `type: null`). componentTypeName prettifies any
+        // unknown key, so naming a part by its id printed the id itself.
+        const clause = (row, prose) => buildRoomProse({
+            verbOf: (action) => (action === row.action ? prose : null),
+            roomName: 'start room',
+            entries: [{ actions: { performed: [row] } }],
+        });
+        const ins = { verbPhrase: 'touched', targetLink: 'direct', instrumental: { verb: 'touch' } };
+        expect(clause({
+            name: 'Test Droid',
+            action: 'touch',
+            target: { name: 'Rival' },
+            used: [
+                { type: null, id: 'comp-0b8e4a71-33ca-4d5e-9e0e-1f0a2b3c4d5e' },
+                { type: 'maleMouth', id: 'comp-11111111' },
+            ],
+        }, ins)).toBe('In start room, Test Droid used Male Mouth to touch Rival.');
+        // Nothing resolves: the verb survives, the instrument clause does not happen.
+        expect(clause({
+            name: 'Test Droid',
+            action: 'touch',
+            target: { name: 'Rival' },
+            used: [ { type: null, id: 'comp-0b8e4a71-33ca-4d5e-9e0e-1f0a2b3c4d5e' } ],
+        }, ins)).toBe('In start room, Test Droid touched Rival.');
+        // The same guard on the historical clause, for an act with no base verb.
+        expect(clause({
+            name: 'Test Droid',
+            action: 'droid punch',
+            target: { name: 'Rival' },
+            used: [ { type: null, id: 'Comp-0B8E4A71-33CA-4D5E' } ],
+        }, { verbPhrase: 'threw a punch' }))
+            .toBe('In start room, Test Droid threw a punch against Rival.');
+    });
+
     it('places floor objects at their display coordinates (2 decimals, perception rule)', () => {
         const text = buildRoomProse({ verbOf,
             roomName: 'The Entrance Hall',
