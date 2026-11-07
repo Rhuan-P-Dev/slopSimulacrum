@@ -148,61 +148,6 @@
   "knifeGenerator": [
     "generatorCore"
   ],
-  "minakobody": [
-    [
-      "minakohead",
-      "top"
-    ],
-    [
-      "minakotorso",
-      "core"
-    ],
-    [
-      "minakoarm",
-      "left"
-    ],
-    [
-      "minakoarm",
-      "right"
-    ],
-    [
-      "minakoleg",
-      "frontal_left"
-    ],
-    [
-      "minakoleg",
-      "frontal_right"
-    ]
-  ],
-  "minakohead": [
-    [
-      "minakohair",
-      "top"
-    ],
-    [
-      "minakoeyes",
-      "frontal"
-    ],
-    [
-      "minakoNeck",
-      "neck"
-    ]
-  ],
-  "minakoarm": [
-    [
-      "minakohand",
-      "top_hand"
-    ]
-  ],
-  "minakoleg": [
-    [
-      "minakofoot",
-      "bottom"
-    ]
-  ],
-  "Minako": [
-    "minakobody"
-  ],
   "maleDroid": [
     "maleCentralBody"
   ],
@@ -617,35 +562,6 @@
     [
       "femaleNail",
       "tip"
-    ]
-  ],
-  "minakotorso": [
-    [
-      "minakoBust",
-      "chest",
-      {
-        "hidesWithParent": true
-      }
-    ],
-    [
-      "minakoHips",
-      "lower"
-    ]
-  ],
-  "minakoHips": [
-    [
-      "femaleGenitals",
-      "base",
-      {
-        "hidesWithParent": true
-      }
-    ],
-    [
-      "minakoBubbles",
-      "rear",
-      {
-        "hidesWithParent": true
-      }
     ]
   ]
 }

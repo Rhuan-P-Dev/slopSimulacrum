@@ -5,19 +5,5 @@
       "item": "tshirt",
       "component": "m1CentralBody"
     }
-  ],
-  "Minako": [
-    {
-      "item": "blackBra",
-      "component": "minakotorso"
-    },
-    {
-      "item": "blackPanties",
-      "component": "minakoHips"
-    },
-    {
-      "item": "blackChoker",
-      "component": "minakoNeck"
-    }
   ]
 }
