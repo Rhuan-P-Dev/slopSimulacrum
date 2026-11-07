@@ -12,17 +12,23 @@
  *      against the vocabulary (body tree + new component recipes),
  *   4. returns a frozen design with the prompt captured for inspection (meta);
  *      the blueprint id is the card's display name (name field, stem fallback) —
- *      the model does not choose it; saveDesign persists that design into data/
- *      and spawnCards later match the world's droid type to the card by name.
- *   5. persists a validated design (saveDesign) into data/ so a generated body
- *      becomes real: new component recipes are merged into components.json and
- *      the body tree is written to blueprints.json, overwriting any blueprint
- *      entry it redefines (the droid-type pointer + each component's sub-tree).
- *      A timestamped backup of each written file is taken before the update.
+ *      the model does not choose it; saveDesign persists that design as a mod
+ *      package and spawnCards later match the world's droid type to the card by name.
+ *   5. persists a validated design (saveDesign) as ONE data-only mod package,
+ *      `data/mods/body-<slug>/`, through `ModPackageWriter`: the body tree as the
+ *      `blueprints` kind (the droid-type pointer + each component's sub-tree), the
+ *      invented part recipes as `components`, the garments as `inventoryItems`, and
+ *      what the body wears as `outfits`. The official `core-*` packages are NEVER
+ *      written — a designed body is an overlay next to the shipped world, and
+ *      disabling the package is what undoes it. Every file a rewrite replaces is
+ *      backed up by the writer before it is touched.
  *
  * designBody itself stays display-only (it never writes); persistence is the
  * explicit saveDesign action, which re-validates and then writes through the
- * data seam (CR B-3). The LLM cost-guard still applies to designBody: per-IP
+ * data seam (CR B-3). Writing a package and changing the world are two acts: this
+ * module never enables, orders or applies anything (`ModService` owns those), so a
+ * saved body reaches a running world only through `POST /mods/apply`. The LLM
+ * cost-guard still applies to designBody: per-IP
  * rate limiter in src/routes/agentBodyRoutes.js (SEC-9) and the named token
  * budget (`LLM_AGENT_BODY_MAX_TOKENS`, 10x the global `LLM_DEFAULT_MAX_TOKENS`),
  * because the precision reasoning model counts thinking tokens against that cap
@@ -34,8 +40,8 @@
  * shape the live world already reads to take a part out of the round prose when
  * the part it hangs on is covered (`PerceptionController._coveredIds`).
  * A designed body can also arrive dressed: `garments` are new wearable item recipes
- * (written to the item registry) and `outfit` says what is worn, on which component of
- * THIS body (written to the outfit registry, kind `outfits`). SPEAKING about clothing
+ * (the package's `inventoryItems` kind) and `outfit` says what is worn, on which component
+ * of THIS body (the package's `outfits` kind). SPEAKING about clothing
  * is itself the claim: an authored empty outfit means born wearing nothing, while
  * saying nothing leaves the world's default clothing in force
  * (`src/controllers/logic/OutfitLogic.js`). See wiki/decisions/agent-body-design.md
@@ -47,6 +53,7 @@
 import LLMController from './LLMController.js';
 import Logger from '../../utils/Logger.js';
 import DataLoader from '../../utils/DataLoader.js';
+import ModPackageWriter, { DEFAULT_PACKAGE_VERSION } from '../../services/ModPackageWriter.js';
 import { LLM_DEFAULT_MAX_TOKENS, LLM_DEFAULT_TEMPERATURE } from '../../utils/Constants.js';
 import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
@@ -100,15 +107,23 @@ const MATERIAL_FRACTION_TOLERANCE = 0.005;
  */
 const LLM_AGENT_BODY_MAX_TOKENS = LLM_DEFAULT_MAX_TOKENS * 10;
 
-// Files the save action (saveDesign) persists to (CR B-3: writes go only through
-// this module's DataLoader seam, never raw fs). The paths come from the seam's
-// kind table, so this module never names a data file itself. A designed body
-// touches four of them: its parts, its tree, the garments it invented, and what
-// it wears.
-const COMPONENTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.COMPONENTS);
-const BLUEPRINTS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.BLUEPRINTS);
-const ITEMS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.INVENTORY_ITEMS);
-const OUTFITS_FILE = DataLoader.registrySourcePath(REGISTRY_KINDS.OUTFITS);
+/**
+ * What a saved body is called on disk: `data/mods/body-<slug>/`. The prefix marks the
+ * package as the output of THIS feature (a hand-written overlay like `minako-appearance`
+ * keeps its own name), and `ModPackageWriter` refuses the reserved `core-` prefix, so a
+ * designed body can never be written into the shipped world.
+ */
+const PACKAGE_ID_PREFIX = 'body-';
+/**
+ * `MOD_ID_PATTERN` caps a package id at 64 characters, so the slug gets what is left
+ * after the prefix. Truncating is deliberate: a card display name is prose ("Minako,
+ * seamstress of the lower ward"), and a package directory never inherits a paragraph.
+ */
+const PACKAGE_SLUG_MAX_CHARS = 64 - PACKAGE_ID_PREFIX.length;
+/** A slug the writer will accept: one lowercase segment of letters, digits and dashes. */
+const PACKAGE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+/** The `x.y.z` the writer wrote last time, so a rewrite can advance the patch number. */
+const PACKAGE_VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 
 /**
  * Bounds on the two arrays a design may invent (`A-7`: nothing in this feature is
@@ -123,19 +138,6 @@ const MAX_OUTFIT_ENTRIES = 8;
  * not an identifier.
  */
 const MAX_GARMENT_LABEL_CHARS = 64;
-
-/**
- * What `saveDesign` reports each written file under. The key is the name of the
- * backup in the result (`backups.items`), not the registry kind: a design speaks of
- * garments and an outfit, and the operator reads this, not the kind table.
- * @type {Object.<string, string>}
- */
-const DATA_FILE_LABELS = Object.freeze({
-    [COMPONENTS_FILE]: 'components',
-    [BLUEPRINTS_FILE]: 'blueprints',
-    [ITEMS_FILE]: 'items',
-    [OUTFITS_FILE]: 'outfits'
-});
 
 /**
  * Thrown when cardId does not match any card PNG under data/cards/.
@@ -207,15 +209,22 @@ function cardName(card, cardId) {
 
 class AgentBodyController {
     /**
-     * @param {{ llmController: { chatFull: (messages: object[], options?: object) => Promise<object> } }} options
+     * @param {{ llmController: { chatFull: (messages: object[], options?: object) => Promise<object> }, packageWriter?: { writePackage: (spec: object) => object, readManifest: (id: string) => object|null, packageDir: (id: string) => string } }} options
      *   - options.llmController: the LLM seam (CR B-2). The caller's own LLMController
      *     instance is injected so provider config follows the host process.
+     *   - options.packageWriter: `ModPackageWriter` by default. It is the module that owns
+     *     putting package bytes on disk, so it is injected rather than reimplemented here;
+     *     a test hands in a spy and sees exactly the package the design became.
      */
-    constructor({ llmController }) {
+    constructor({ llmController, packageWriter = new ModPackageWriter() }) {
         if (!llmController || typeof llmController.chatFull !== 'function') {
             throw new TypeError('AgentBodyController: "llmController" must expose chatFull (the LLM seam, CR B-2)');
         }
+        if (!packageWriter || typeof packageWriter.writePackage !== 'function') {
+            throw new TypeError('AgentBodyController: "packageWriter" must expose writePackage (the package seam, CR B-3)');
+        }
         this.llmController = llmController;
+        this.packageWriter = packageWriter;
         // Vocabulary is loaded once per process (B-3 data seam; data files are
         // static within a run). Frozen so the prompt is stable across calls.
         this.components = this._loadComponents();
@@ -336,41 +345,59 @@ class AgentBodyController {
 
     /**
      * saveDesign — the "Save" action. Re-validates the design against the live
-     * vocabulary and persists it into the world:
-     *   - new component recipes are merged into data/mods/core-components/components.json
-     *     (an existing recipe is never overwritten);
-     *   - the body tree is written into data/mods/core-blueprints/blueprints.json as the
-     *     droid-type pointer plus every component's sub-tree under its own key.
-     *     Every blueprint entry the design touches is overwritten (a droid id
-     *     reusing an existing one, or a part redefining its sub-tree, changes
-     *     the live world) — this is the explicit, operator-confirmed side-effect.
-     *     A timestamped backup of each written file is taken before the write
-     *     so the change is always recoverable.
-     * Writes go through the data seam (CR B-3). A reload / restart of a running
-     * world is what makes the new blueprint visible; this method only writes data.
+     * vocabulary and writes it as ONE data-only mod package, `data/mods/body-<slug>/`
+     * (slug derived from the card display name — see `_packageIdFor`). The official
+     * `core-*` packages are never written: a designed body is an overlay beside the
+     * shipped world, and undoing it is disabling the package, not restoring a file.
      *
-     *   - a design that invented garments merges them into
-     *     data/mods/core-inventory-items/inventoryItems.json (an existing recipe is
-     *     never overwritten);
-     *   - a design that SPOKE about clothing writes this body's outfit into
-     *     data/mods/core-outfits/outfits.json under the same blueprint key — the
-     *     card's own previous outfit is overwritten, which is what re-designing a
-     *     card means, and an authored empty outfit means born wearing nothing. A
-     *     design that said nothing leaves the file alone.
+     * What the package carries, one kind per thing the design authored:
+     *   - `blueprints`: the body tree — the droid-type pointer plus every component's
+     *     sub-tree under its own key. Whatever the design redefines of an existing body
+     *     is restated here, which is what re-designing a card means;
+     *   - `components`: only the recipes the design INVENTED. A recipe the shipped
+     *     registry already publishes is left out, so the package never shadows official
+     *     content with a copy of it;
+     *   - `inventoryItems`: only the garments the design invented (same rule);
+     *   - `outfits`: present only when the design SPOKE about clothing, keyed by the
+     *     same blueprint key as the body. An authored EMPTY list means born wearing
+     *     nothing; saying nothing leaves the world's default clothing in force.
+     * A kind with nothing in it is omitted, because `ModPackageWriter` refuses an empty
+     * one — a package says only what this design authored.
+     *
+     * Rewriting the same card rewrites the same package (the writer backs up every file
+     * it replaces) and advances the manifest patch version, so `GET /mods` can tell a
+     * first save from a redesign.
+     *
+     * This writes bytes; it does not change the world. Enabling, ordering and applying
+     * belong to `ModService`, and a running world takes the body at
+     * `POST /mods/apply` (or at the next round boundary once a change is pending).
+     * Writes go through the data seam (CR B-3): this method touches no `fs` and names no
+     * official data file.
      *
      * @param {Object} design - { blueprintId, rationale, structure, components, garments, outfit }
      *   (may be the frozen body from designBody, or raw model-shape JSON).
      * @returns {{
      *   saved: boolean,
+     *   packageId: string,
+     *   dir: string,
+     *   version: string,
+     *   description: string,
+     *   created: boolean,
+     *   content: string[],
+     *   files: string[],
+     *   overwritten: string[],
+     *   backups: string[],
      *   blueprintId: string,
      *   newComponents: string[],
      *   newItems: string[],
      *   outfitWritten: boolean,
      *   blueprintWritten: string[],
-     *   blueprintOverwritten: string[],
-     *   backups: { components: string, blueprints: string, items?: string, outfits?: string }
+     *   overlapsOfficial: Array<{ kind: string, key: string }>
      * }}
-     * @throws {DesignValidationError}
+     * @throws {DesignValidationError} the design failed validation, or its display name
+     *   has no ASCII letters or digits to name a package from.
+     * @throws {import('../../utils/CustomErrors.js').GameError} one of
+     *   `PACKAGE_WRITE_ERROR_CODES`, when the writer refuses the package it was handed.
      */
     async saveDesign(design) {
         const designCard = (design && typeof design.blueprintId === 'string' && design.blueprintId) || 'save';
@@ -386,67 +413,37 @@ class AgentBodyController {
         // Flatten for persistence (the distinct-droid-type guard already ran in
         // _validateDesign).
         const { entries } = this._flattenTree(normalized);
+        const { content, overlapsOfficial } = this._packageContent(normalized, entries);
+        const packageId = this._packageIdFor(normalized.blueprintId);
 
-        // Re-read the live data files (source of truth; the in-memory vocab is
-        // frozen at boot) and merge the design on top of the current content.
-        const freshComponents = DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS);
-        const freshBlueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
+        const report = this.packageWriter.writePackage({
+            id: packageId,
+            version: this._nextPackageVersion(packageId),
+            description: 'Body designed from the "' + normalized.blueprintId
+                + '" character card in the "Create Agent Body" dev tab.',
+            content
+        });
 
-        const nextComponents = this._mergeComponentRecipes(freshComponents, normalized.components || []);
-        const blueprintWritten = Object.keys(entries);
-        const blueprintOverwritten = blueprintWritten.filter((key) => key in freshBlueprints);
-
-        // A designed body can also arrive dressed. The garments are new ITEM recipes
-        // (`core-inventory-items`, never overwriting one that exists) and the outfit
-        // is the claim of what this body wears (`core-outfits`, keyed by the same
-        // blueprint key — so the card's own previous outfit is overwritten, which is
-        // what re-designing a card means). Both writes are optional, and each file is
-        // backed up before it is touched, like the other two.
-        const writes = [
-            { file: COMPONENTS_FILE, content: nextComponents },
-            { file: BLUEPRINTS_FILE, content: Object.assign({}, freshBlueprints, entries) }
-        ];
-        if (normalized.garments && normalized.garments.length > 0) {
-            writes.push({
-                file: ITEMS_FILE,
-                content: this._mergeGarmentRecipes(DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS), normalized.garments)
-            });
-        }
-        // Present means the design SPOKE about clothing; absent means it said nothing
-        // and the world's default clothing still applies to this body (`OutfitLogic`).
-        // An authored EMPTY list is written as an empty list: born wearing nothing.
-        if (Array.isArray(normalized.outfit)) {
-            writes.push({
-                file: OUTFITS_FILE,
-                content: Object.assign({}, DataLoader.loadRegistry(REGISTRY_KINDS.OUTFITS), {
-                    [normalized.blueprintId]: normalized.outfit.map((entry) => ({ item: entry.item, component: entry.component }))
-                })
-            });
-        }
-
-        // Take a pre-write backup of each file we are about to update, then write
-        // (atomic per file, through the data seam).
-        const backups = {};
-        for (const write of writes) {
-            const kind = DATA_FILE_LABELS[write.file];
-            backups[kind] = DataLoader.copyFile(write.file, this._backupPath(write.file));
-        }
-        for (const write of writes) {
-            await DataLoader.saveJson(write.file, write.content);
-        }
+        Logger.info(`[AgentBodyController] design "${normalized.blueprintId}" written as package ` 
+            + `"${report.packageId}" (${report.content.join(', ')})${report.created ? '' : ', rewritten'}` 
+            + `${overlapsOfficial.length ? `; ${overlapsOfficial.length} key(s) the official packages also define` : ''}` 
+            + '; not applied');
 
         return Object.freeze({
-            saved: true,
+            // saved, packageId, dir, version, description, content, files, created,
+            // overwritten, backups — the writer's own report of the bytes it put down.
+            ...report,
             blueprintId: normalized.blueprintId,
-            newComponents: [...new Set((normalized.components || []).map((c) => c.name))],
-            newItems: [...new Set((normalized.garments || []).map((g) => g.name))],
+            newComponents: Object.keys(content[REGISTRY_KINDS.COMPONENTS] ?? {}),
+            newItems: Object.keys(content[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {}),
             // True when the design SPOKE about clothing (even `outfit: []` = born
             // wearing nothing). False means no claim was made and the world's default
             // clothing still applies to this body.
             outfitWritten: Array.isArray(normalized.outfit),
-            blueprintWritten,
-            blueprintOverwritten,
-            backups
+            // Every blueprint key this package defines: the droid-type pointer plus one
+            // per component of this body that has children.
+            blueprintWritten: Object.keys(entries),
+            overlapsOfficial
         });
     }
 
@@ -508,22 +505,126 @@ class AgentBodyController {
     }
 
     /**
-     * Merge new component recipes into the registry. Never overwrites an
-     * existing recipe: names colliding with built-ins are rejected by
-     * _validateDesign, and a name present in the loaded file (built-in or from
-     * a previous save) is preserved as-is.
+     * The package this design becomes: one entry per kind it actually authored.
+     *
+     * The two recipe kinds are filtered against the OFFICIAL registry, which is the
+     * rule the save always had (a design never redefines a shipped recipe —
+     * `_validateDesign` rejects the name outright): restating one in the package would
+     * shadow official content with a copy of it, and a copy is the one definition that
+     * cannot be maintained. The blueprint and outfit kinds are written as authored,
+     * because redefining an existing body IS the act of redesigning a card — those are
+     * reported in `overlapsOfficial` instead of filtered away.
      *
      * @private
-     * @param {Object} current - freshly loaded components.json (may include a
-     *   "_comment" key, which is preserved verbatim).
-     * @param {Array<{ name: string, form: object, materials: Array, internalComponents: Array, energyCapacity?: number }>} recipes
-     * @returns {Object} the merged registry.
+     * @param {Object} normalized - the narrowed design.
+     * @param {Object<string, Array>} entries - the flattened blueprint entries.
+     * @returns {{ content: Object.<string, Object>, overlapsOfficial: Array<{ kind: string, key: string }> }}
      */
-    _mergeComponentRecipes(current, recipes) {
-        const next = Object.assign({}, current);
+    _packageContent(normalized, entries) {
+        const officialBlueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
+        const content = { [REGISTRY_KINDS.BLUEPRINTS]: entries };
+        const overlapsOfficial = Object.keys(entries)
+            .filter((key) => key in officialBlueprints)
+            .map((key) => ({ kind: REGISTRY_KINDS.BLUEPRINTS, key }));
+
+        const components = this._newComponentRecipes(
+            normalized.components || [],
+            DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)
+        );
+        if (Object.keys(components).length > 0) {
+            content[REGISTRY_KINDS.COMPONENTS] = components;
+        }
+
+        const garments = this._newGarmentRecipes(
+            normalized.garments || [],
+            DataLoader.loadRegistry(REGISTRY_KINDS.INVENTORY_ITEMS)
+        );
+        if (Object.keys(garments).length > 0) {
+            content[REGISTRY_KINDS.INVENTORY_ITEMS] = garments;
+        }
+
+        // Present means the design SPOKE about clothing; absent means it said nothing
+        // and the world's default clothing still applies to this body (`OutfitLogic`).
+        // An authored EMPTY list is written as an empty list: born wearing nothing.
+        if (Array.isArray(normalized.outfit)) {
+            const outfit = { [normalized.blueprintId]: normalized.outfit.map((entry) => ({ item: entry.item, component: entry.component })) };
+            content[REGISTRY_KINDS.OUTFITS] = outfit;
+            if (normalized.blueprintId in DataLoader.loadRegistry(REGISTRY_KINDS.OUTFITS)) {
+                overlapsOfficial.push({ kind: REGISTRY_KINDS.OUTFITS, key: normalized.blueprintId });
+            }
+        }
+
+        return { content, overlapsOfficial };
+    }
+
+    /**
+     * The package id for one designed body: `body-<slug>` of the card display name.
+     *
+     * The display name is prose and the id is a path segment (`SEC-7`), so it is
+     * folded, not trusted: diacritics folded out (an accented `e` becomes a plain `e`),
+     * anything that is not a letter or a digit becomes a single dash, the tail cut at the length
+     * `MOD_ID_PATTERN` allows. A name with nothing ASCII in it is a refusal, not an
+     * invented fallback: silently sharing a package with another card is worse than a
+     * save that says what it could not name.
+     *
+     * Two cards whose names fold to the same slug therefore share a package — the
+     * second save replaces the first's files and the writer backs them up. The card
+     * display name is also how `spawnCards` matches a body to a card, so two names that
+     * fold alike are already the same character to the world.
+     *
+     * @private
+     * @param {string} blueprintId - the card's display name (the server sets it, RP-1).
+     * @returns {string}
+     * @throws {DesignValidationError} the folded name is not a usable id segment.
+     */
+    _packageIdFor(blueprintId) {
+        const slug = String(blueprintId)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+/, '')
+            .slice(0, PACKAGE_SLUG_MAX_CHARS)
+            .replace(/-+$/, '');
+        if (!PACKAGE_SLUG_PATTERN.test(slug)) {
+            throw new DesignValidationError(blueprintId, [
+                `"${blueprintId}" has no ASCII letters or digits to name the package from`
+            ]);
+        }
+        return PACKAGE_ID_PREFIX + slug;
+    }
+
+    /**
+     * The version this write should carry: the writer's default for a package that does
+     * not exist yet, otherwise its patch number advanced. A rewrite that left the
+     * version alone would be indistinguishable in the Mods panel from the save that
+     * created it (`P-6`).
+     * @private
+     * @param {string} packageId
+     * @returns {string}
+     */
+    _nextPackageVersion(packageId) {
+        const manifest = this.packageWriter.readManifest(packageId);
+        const previous = (manifest && typeof manifest.version === 'string') ? manifest.version : '';
+        const parts = PACKAGE_VERSION_PATTERN.exec(previous);
+        if (!parts) return DEFAULT_PACKAGE_VERSION;
+        return `${parts[1]}.${parts[2]}.${Number(parts[3]) + 1}`;
+    }
+
+    /**
+     * The component recipes this package carries: the design's inventions that the
+     * official registry does not already publish.
+     *
+     * @private
+     * @param {Array<{ name: string, form: object, materials: Array, internalComponents: Array, energyCapacity?: number }>} recipes - the design's invented recipes.
+     * @param {Object} official - freshly loaded official components registry.
+     * @returns {Object} the recipes keyed by name, ready to be `components.json`.
+     */
+    _newComponentRecipes(recipes, official) {
+        const recipesByName = {};
         recipes.forEach((recipe) => {
             if (!recipe || typeof recipe !== 'object' || typeof recipe.name !== 'string') return;
-            if (recipe.name in next) return; // already present: keep whatever is there
+            if (recipe.name in official) return; // shipped recipe: never restated by the package
 
             const entry = {
                 name: recipe.name,
@@ -534,30 +635,30 @@ class AgentBodyController {
             if (recipe.energyCapacity !== undefined) {
                 entry.energyCapacity = recipe.energyCapacity;
             }
-            next[recipe.name] = entry;
+            recipesByName[recipe.name] = entry;
         });
-        return next;
+        return recipesByName;
     }
 
     /**
-     * Merge new garment recipes into the item registry. Never overwrites an existing
-     * recipe (a name colliding with a shipped item is rejected by `_validateGarments`
-     * before this runs; a name from a previous save is preserved as-is). The written
-     * entry is a plain item recipe: matter, volume, organs (none), and the `wear`
-     * block that makes it a garment — `WearLogic` needs nothing else, and
-     * `validateOutfitRegistry` at the next boot checks the claim again.
+     * The garment recipes this package carries — the design's inventions that the
+     * official item registry does not already publish (a name colliding with a shipped
+     * item is rejected by `_validateGarments` before this runs). The written entry is a
+     * plain item recipe: matter, volume, organs (none), and the `wear` block that makes
+     * it a garment — `WearLogic` needs nothing else, and `validateOutfitRegistry` at the
+     * next boot checks the claim again.
      *
      * @private
-     * @param {Object} current - freshly loaded inventoryItems.json (`_comment` preserved).
      * @param {Array<Object>} garments - narrowed garment recipes.
-     * @returns {Object} the merged registry.
+     * @param {Object} official - freshly loaded official inventoryItems registry.
+     * @returns {Object} the recipes keyed by name, ready to be `inventoryItems.json`.
      */
-    _mergeGarmentRecipes(current, garments) {
-        const next = Object.assign({}, current);
+    _newGarmentRecipes(garments, official) {
+        const recipesByName = {};
         garments.forEach((garment) => {
             if (!garment || typeof garment.name !== 'string') return;
-            if (garment.name in next) return; // already present: keep whatever is there
-            next[garment.name] = {
+            if (garment.name in official) return; // shipped item: never restated by the package
+            recipesByName[garment.name] = {
                 name: garment.displayName || garment.name,
                 description: 'A garment authored from a character card in the Create Agent Body dev tab.',
                 form: { volume: garment.form.volume },
@@ -567,17 +668,7 @@ class AgentBodyController {
                 ...(garment.visual ? { visual: garment.visual } : {})
             };
         });
-        return next;
-    }
-
-    /**
-     * Timestamped sibling path for a pre-write backup (e.g. data/foo.json.bak-1713099876543).
-     * @private
-     * @param {string} relativePath
-     * @returns {string}
-     */
-    _backupPath(relativePath) {
-        return relativePath + '.bak-' + String(Date.now());
+        return recipesByName;
     }
 
     // ================================================================

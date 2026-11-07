@@ -100,26 +100,26 @@ describe('blueprint mount options', () => {
             .forEach((comp) => expect(comp.hidesWithParent).toBeUndefined());
     });
 
-    it('is the shipped mark, listed in full: the male breasts and Minako', () => {
+    it('is the shipped mark, listed in full: the male breasts, twice', () => {
         // Authored world data, pinned as a list. A silent extra mark would hide a
         // body part the prose was never asked to hide; a lost one would uncover a
         // part this data says is under cloth.
         //
-        // The three on Minako are not hand-authored: the "Create Agent Body" design
-        // hung her bust, her genitals and her bubbles behind the black bra and the
-        // black panties she is born wearing, and the Save wrote the marks the
-        // operator's tick boxes left on. A fourth mark anywhere in the shipped world
-        // still has to be named here before it can hide anything.
+        // Minako's three marks are not in this list any more, and that is the point:
+        // a designed body is written as its own mod package (`AgentBodyController
+        // .saveDesign`), not into the official blueprints, so the marks the operator
+        // ticked live in that package and disappear with it when it is disabled. The
+        // shape they are written in is pinned where it is written
+        // (test/unit/AgentBodyController.test.js), because a package under data/mods/
+        // is user content this repository does not ship. A fourth mark anywhere in the
+        // official world still has to be named here before it can hide anything.
         const blueprints = DataLoader.loadRegistry(REGISTRY_KINDS.BLUEPRINTS);
         const marked = Object.entries(blueprints)
             .filter(([name]) => !name.startsWith('_'))
             .flatMap(([name, tree]) => markedMounts(tree).map((type) => `${name}/${type}`));
         expect(marked).toEqual([
             'maleCentralBody/maleBreast',
-            'maleCentralBody/maleBreast',
-            'minakotorso/minakoBust',
-            'minakoHips/femaleGenitals',
-            'minakoHips/minakoBubbles'
+            'maleCentralBody/maleBreast'
         ]);
     });
 });

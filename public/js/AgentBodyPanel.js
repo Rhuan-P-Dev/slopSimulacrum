@@ -10,9 +10,9 @@
  *     new-component recipes, LLM call meta, and the captured prompts.
  *   - the one-shot "Save" action (POST /agent-body/save), enabled only after a
  *     design has been rendered: sends the last design's body to the server to
- *     be persisted into the world (blueprint registry + component recipes).
- *     The server re-validates and decides on collisions (overwrite, with a
- *     timestamped backup); a reload makes the new blueprint visible.
+ *     be written as one mod package (`data/mods/body-<slug>/`). The server re-validates
+ *     and the official data files are never touched. Writing the package is not applying
+ *     it: the status line names the package and says applying is the Mods panel's act.
  *   - the tree is editable in one place: each non-root node carries a "hides with
  *     parent" tick box, the mount mark the world reads to keep a part out of the
  *     round prose while the part it hangs on is under cloth. Save posts the
@@ -74,7 +74,7 @@ export class AgentBodyPanel {
             '<span class="agent-body-label" title="Choose the character card">Card:</span>' +
             '<select id="agent-body-picker" class="agent-body-picker" title="Choose the character card"></select>' +
             '<button id="agent-body-design-button" class="agent-body-btn" type="button" title="Ask the LLM to design a body for this card">Design body</button>' +
-            '<button id="agent-body-save-button" class="agent-body-btn" type="button" title="Persist the last designed body to the world data files">Save</button>';
+            '<button id="agent-body-save-button" class="agent-body-btn" type="button" title="Write the last designed body as a mod package (apply it in the Mods panel)">Save</button>';
 
         this._picker = this._controls.querySelector('#agent-body-picker');
         this._designButton = this._controls.querySelector('#agent-body-design-button');
@@ -238,19 +238,25 @@ export class AgentBodyPanel {
         if (!design || typeof design !== 'object') return;
         this._saveInFlight = true;
         this._saveButton.disabled = true;
-        this._setStatus('Saving the body to the world…');
+        this._setStatus('Writing the body as a mod package…');
         try {
             // `_workingDesign` IS the design — `structuredClone(payload.body)` was
             // unwrapped when the working copy was taken. Unwrapping a second time
             // posted `undefined` (an empty request body), and the server answered
             // that the design has no blueprintId, no rationale and no structure.
             const result = await this._postSave(design);
-            const overwrote = (result.blueprintOverwritten || []).length;
             const added = (result.newComponents || []).length;
+            const shadows = (result.overlapsOfficial || []).length;
+            // The package exists; the world has not moved. Saying "reloaded to see it
+            // live" would be a lie about an act nobody performed.
             this._setStatus(
-                'Saved "' + result.blueprintId + '". ' + overwrote +
-                ' part definition(s) overwritten, ' + added +
-                ' new component added. Reload to see it live.'
+                'Wrote "' + result.blueprintId + '" as ' + result.packageId + ' (' +
+                (result.content || []).join(', ') + '), ' + added + ' new component(s). ' +
+                (shadows > 0
+                    ? shadows + ' definition(s) the official packages also define - move ' +
+                      result.packageId + ' above them in the Mods stack for those to win. '
+                    : '') +
+                'Apply it in the Mods panel to put the body in the world.'
             );
         } catch (err) {
             const message = (err && err.message) ? err.message : String(err);

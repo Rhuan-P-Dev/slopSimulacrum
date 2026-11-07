@@ -265,10 +265,18 @@ server (`src/routes/index.js`).
 ### Who writes a package
 
 Nothing in `/mods/*` writes package content — those routes read, enable, disable, reorder
-and apply. A package gets written by one of two dev surfaces, and both are judgment-only:
+and apply. A package gets written by one of two dev surfaces. Both are judgment-only, both
+write a **third-party** package and never a `core-*` file, and neither applies what it
+wrote:
 
-- `POST /agent-body/save` writes the body a designer produced into the **official** `core-*`
-  packages (`wiki/decisions/agent-body-design.md`).
+- `POST /agent-body/save` writes the body a designer produced as one new package,
+  `body-<slug>` — the slug comes from the card display name, and re-saving the same card
+  rewrites the same package (a backup of every file the rewrite replaces, manifest version
+  stepped). It carries only what the design authored: `blueprints`, `components`,
+  `inventoryItems`, `outfits`. Because the writer does not order anything, a package that
+  redefines a key the official set also publishes needs its stack position moved above
+  `core-` before it wins; the save reports those keys as `overlapsOfficial`. See
+  `wiki/decisions/agent-body-design.md`.
 - `POST /system/write` writes what the System proposed in a chat session into a **new**
   third-party package, `system-<slug>` (`/system/chat` is the conversation,
   `GET /system/history/:sessionId` what it holds). It never touches a `core-*` file, never

@@ -228,22 +228,29 @@ describe('agentBodyRoutes', () => {
         }
     });
     // ------------------------------------------------------- POST /agent-body/save
-    it('POST /agent-body/save with a valid design → 200 echoing the controller result', async () => {
+    it('POST /agent-body/save with a valid design → 200 with the package report, applied: false', async () => {
         const saved = {
             saved: true,
+            packageId: 'body-minakorunner',
+            dir: 'data/mods/body-minakorunner',
+            version: '1.0.0',
+            created: true,
+            content: ['components', 'blueprints'],
+            files: ['data/mods/body-minakorunner/components.json', 'data/mods/body-minakorunner/blueprints.json'],
+            overwritten: [],
+            backups: [],
             blueprintId: 'minakoRunner',
             newComponents: ['parcelStrap'],
+            newItems: [],
+            outfitWritten: false,
             blueprintWritten: ['minakoRunner', 'm1CentralBody', 'm1Leg'],
-            blueprintOverwritten: ['m1CentralBody', 'm1Leg'],
-            backups: {
-                components: 'data/mods/core-components/components.json.bak-1',
-                blueprints: 'data/mods/core-blueprints/blueprints.json.bak-1'
-            }
+            overlapsOfficial: [{ kind: 'blueprints', key: 'm1CentralBody' }]
         };
+        const rescan = vi.fn(() => ({ mods: [{ id: 'body-minakorunner' }, { id: 'core-world' }, { id: 'core-npcs' }], invalid: [] }));
         const { worldStateController } = makeDesignerStub({
             saveDesign: vi.fn(() => Promise.resolve(saved))
         });
-        const app = buildApp({ worldStateController });
+        const app = buildApp({ worldStateController, modService: { rescan } });
         const server = await new Promise((resolve) => {
             const s = app.listen(0);
             resolve(s);
@@ -262,8 +269,43 @@ describe('agentBodyRoutes', () => {
             });
             const body = await resp.json();
             expect(resp.status).toBe(200);
-            expect(body).toEqual(saved);
+            // The controller's report, plus the two fields the route owns: writing a
+            // package is not applying it, and the mods view was refreshed so the new row
+            // is visible without another click.
+            expect(body).toEqual({
+                ...saved,
+                applied: false,
+                appliesVia: 'POST /mods/apply',
+                scanned: { installed: 3, rejected: 0 }
+            });
             expect(worldStateController.agentBodyController.saveDesign).toHaveBeenCalledWith(design);
+            expect(rescan).toHaveBeenCalledTimes(1);
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST /agent-body/save when the writer refuses the package → 422 with the MOD_PACKAGE code', async () => {
+        const writerError = new Error('ModPackageWriter: package "body-x" would write 300000 bytes, over the 200000 limit');
+        writerError.code = 'MOD_PACKAGE_TOO_LARGE';
+        const { worldStateController } = makeDesignerStub({
+            saveDesign: vi.fn(() => Promise.reject(writerError))
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blueprintId: 'x', rationale: 'r', structure: { component: 'm1CentralBody' } })
+            });
+            const body = await resp.json();
+            expect(resp.status).toBe(422);
+            expect(body.error.code).toBe('MOD_PACKAGE_TOO_LARGE');
         } finally {
             server.close();
         }

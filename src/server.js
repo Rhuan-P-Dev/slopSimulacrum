@@ -90,8 +90,9 @@ const llmAgentController = new LLMAgentController({
 worldStateController.llmAgentController = llmAgentController;
 
 // 7f. "Create Agent Body" (dev feature, Feature A — the new LLM prompt kind
-//     `agent-body-design`, versioned; RP-1/RP-2). Judgment-only: the designer
-//     writes nothing to data/ (wiki/decisions/agent-body-design.md). One LLM
+//     `agent-body-design`, versioned; RP-1/RP-2). Designing is judgment-only; the
+//     explicit Save writes the design as one mod package under data/mods/ and never
+//     touches the official `core-*` files (wiki/decisions/agent-body-design.md). One LLM
 //     call per design request, rate-limited in the route (SEC-9); provider
 //     timeout is the seam's REQUEST_TIMEOUT_MS (env LLM_TIMEOUT_MS), same as
 //     /llm/chat — no second timeout knob.

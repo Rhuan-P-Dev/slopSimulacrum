@@ -254,10 +254,10 @@ world rather than trusted:
   the same design or one of the WEARABLE ITEMS listed in the prompt (the item registry,
   filtered to those declaring `wear.minVolume`); the component must appear in this
   body's tree. Bounds: 8 garments, 8 entries (nothing in this feature is unbounded).
-- **The Save writes four files**, each backed up first: components, blueprints, the
-  garment recipes into `core-inventory-items`, and this body's outfit into
-  `core-outfits` under the same blueprint key. Designing a body and dressing it are two
-  writes keyed by one thing.
+- **The Save writes the garment recipes and the outfit row under the same blueprint key**
+  as the body. Designing a body and dressing it are two writes keyed by one thing. (Where
+  those bytes live changed afterwards: the Save no longer writes the official packages —
+  see the last amendment of this note.)
 - **Saying nothing is not the same as saying "nothing".** The normalized design carries
   `outfit` ONLY when the model authored the array. An authored `[]` is written as `[]`,
   which the world reads as "born wearing nothing, and the spawn loadout's default shirt
@@ -285,3 +285,94 @@ built from the shipped registries plus one designed garment and outfit speaks
 and goes silent about the male breasts the shipped mounts mark as hanging behind that
 parent.
 
+
+## Amendment - the Save writes a mod package, not the official data
+
+Date: 2026-11-07 (recorded in the commit that implements this)
+
+### Context
+
+Until now `saveDesign` merged its way into the shipped world: new part recipes into
+`core-components`, the body tree into `core-blueprints` (overwriting the sub-tree of every
+part it touched), garments into `core-inventory-items`, the outfit into `core-outfits`.
+That made a card designed in a dev tab an edit of the official content, which has three
+costs the mod system was built to avoid: undoing one body means restoring a data file by
+hand from a `.bak-*` sibling, the change is invisible in the Mods view (which speaks about
+packages, not about edits inside one), and a designed body cannot be carried between installs
+as the unit it is. The repository already had the right tool: `ModPackageWriter`, the module
+`/system/write` uses for a `system-<slug>` package.
+
+### Decision
+
+- **One package per card, named after the card.** `data/mods/body-<slug>/`, the slug folded
+  out of the card display name (diacritics folded, anything that is not a letter or a digit
+  becomes one dash, tail cut at the length `MOD_ID_PATTERN` allows) and prefixed `body-`.
+  The prefix is the feature's mark on the stack, the same way `system-` marks the authoring
+  tab's output; `core-` is refused by the writer and cannot be reached from here.
+  Re-saving a card rewrites the same package, steps the manifest patch version, and the
+  writer backs up every file the rewrite replaces. A display name with no ASCII letters or
+  digits is a refusal (`BODY_DESIGN_INVALID`), not an invented fallback id: silently sharing
+  a package with another card is worse than a save that says what it could not name.
+- **The package carries only what this design authored**, one file per kind: `blueprints`
+  (the droid-type pointer plus one key per part of this body that has children), `components`
+  and `inventoryItems` (only the recipes the design invented - restating a shipped recipe
+  would shadow official content with a copy of it, and a copy is the one definition nobody
+  maintains), `outfits` (present only when the design spoke about clothing; an authored `[]`
+  still means born wearing nothing). A kind with nothing in it is omitted, because the writer
+  refuses an empty one and "said nothing" must not become "authored nothing".
+- **Nothing is ordered and nothing is applied.** `loadorder.json` is untouched, the world
+  moves only at `POST /mods/apply`. The answer carries `applied: false`, `appliesVia` and a
+  fresh mods `scanned` count, the same shape `/system/write` settled on. The honest
+  consequence: a package that redefines a key the official set still publishes composes
+  BELOW it at the default load order and loses, so the save reports those keys as
+  `overlapsOfficial` and the panel says to move the package above them in the Mods stack.
+  A silent loss dressed up as a successful save is the failure this report exists to prevent.
+- **Minako's designed body moved out of the official set** in the commit after this one:
+  the 7 blueprint keys, 4 component recipes, 3 garments and 1 outfit row the Save had
+  written into `core-*` are gone from there and live in `data/mods/body-minako/`. The set
+  deleted is exactly the set a save of that design writes, which is what keeps the load
+  order question moot for her: after the move nothing in `core-*` defines those keys, so the
+  package is their only provider wherever it composes. Verified by merging the official set
+  plus the new package and diffing it against `HEAD`'s `core-*`, key for key, in all four
+  kinds.
+
+### Consequences
+
+- The `core-*` set is authored content again. A designed body is an overlay, and `POST
+  /mods/:id/disable` is the undo - no `.bak-*` spelunking, no reload of a data file.
+- A body's package is **local**: `data/mods/*` is gitignored except `core-*/`, so a designed
+  body does not ship with the repository and CI never sees it. `test/unit/entityController.mountOptions.test.js`
+  therefore pins only the official marks (the male breasts) now; the mark SHAPE is pinned
+  where it is written, in `test/unit/AgentBodyController.test.js`, which instantiates the
+  written blueprint with the real `EntityController`.
+- A card whose display name needs no change still rewrites the same package forever; two
+  cards whose names fold to the same slug share one package (and already collide, because
+  `spawnCards` matches a body to a card by that same display name).
+- The designer's vocabulary is still the shipped one (`DataLoader.loadRegistry`): a design
+  does not see a previously saved body package unless the world has applied it.
+
+### Rejected
+
+- **Registering the package above the official stack in `loadorder.json`.** It would make
+  every save quietly win against shipped content, and `ModService` - not the writer, not the
+  designer - is the owner of the stack. The report names the overlap instead.
+- **Keeping the official merge and adding a package on top.** Two sources for one body, and
+  the first one wins silently.
+- **A new package per save (`body-minako-2`).** Every version would sit in the stack
+  shadowing the same keys, and only one of them can win.
+- **Deleting the `minako*` component recipes too** (the flesh anatomy shipped before the
+  designer existed). They are not shadowed by anything the package writes, and
+  `test/contract/fleshAnatomy.contract.test.js` pins them as the humanoid flesh vocabulary.
+
+### Verified
+
+`npm run check` green. Unit: the save writes one package under `data/mods/body-<slug>/` and
+asks the seam for no `data/mods/core-*` path at all; the blueprint file holds this body and
+not the world; an absent garment/outfit kind is absent, not empty; an authored empty outfit
+is written; a rewrite reuses the id, steps to `1.0.1`, backs up both files and writes
+`mod.json` last; the folding of accented and punctuated names and the refusal of a name with
+nothing ASCII in it; `overlapsOfficial` names the official keys the package shadows and only
+those; a design refused by validation writes nothing. Route: `applied: false` + `appliesVia`
++ a rescanned mods count, and a `MOD_PACKAGE_*` refusal answers 422 with its own code. Panel:
+the status line names the package and points at the Mods panel, and says so when something
+is shadowed.

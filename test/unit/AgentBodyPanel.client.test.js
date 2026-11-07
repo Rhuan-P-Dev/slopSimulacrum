@@ -50,12 +50,31 @@ function panelWithWorkingDesign(design) {
     return panel;
 }
 
-/** Stubs fetch with a successful save response and returns the spy. */
-function stubSaveOk() {
+/**
+ * Stubs fetch with a successful save response and returns the spy. The payload is the
+ * package report the server answers with now: a directory under data/mods/, the kinds it
+ * carries, and nothing about the world having changed.
+ * @param {Object} [overrides] - fields to change for one case (e.g. a shadowing overlap).
+ * @returns {Function}
+ */
+function stubSaveOk(overrides = {}) {
     return vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ saved: true, blueprintId: 'Vespera', blueprintOverwritten: [], newComponents: [] })
+        json: async () => ({
+            saved: true,
+            packageId: 'body-vespera',
+            dir: 'data/mods/body-vespera',
+            version: '1.0.0',
+            created: true,
+            content: ['blueprints'],
+            blueprintId: 'Vespera',
+            newComponents: [],
+            overlapsOfficial: [],
+            applied: false,
+            appliesVia: 'POST /mods/apply',
+            ...overrides
+        })
     });
 }
 
@@ -86,6 +105,34 @@ describe('AgentBodyPanel.save (what Save posts)', () => {
         expect(posted.rationale).toBeTruthy();
         expect(posted.structure.component).toBe('torso');
         expect(posted).toEqual(design);
+    });
+
+    it('names the package it wrote and points at the Mods panel, because writing is not applying', async () => {
+        const statuses = [];
+        const panel = panelWithWorkingDesign(designFixture());
+        panel._setStatus = (text) => statuses.push(text);
+        vi.stubGlobal('fetch', stubSaveOk());
+
+        await panel._save();
+
+        expect(statuses.at(-1)).toContain('body-vespera');
+        expect(statuses.at(-1)).toContain('Apply it in the Mods panel');
+        // No claim that the world moved: nothing here reloads or applies anything.
+        expect(statuses.at(-1)).not.toMatch(/reload/i);
+    });
+
+    it('says so when the package shadows a definition the official packages also define', async () => {
+        const statuses = [];
+        const panel = panelWithWorkingDesign(designFixture());
+        panel._setStatus = (text) => statuses.push(text);
+        vi.stubGlobal('fetch', stubSaveOk({
+            overlapsOfficial: [{ kind: 'blueprints', key: 'torso' }]
+        }));
+
+        await panel._save();
+
+        expect(statuses.at(-1)).toContain('1 definition(s) the official packages also define');
+        expect(statuses.at(-1)).toContain('above them in the Mods stack');
     });
 
     it('carries the operator tick-box edit on the tree into the saved design', async () => {

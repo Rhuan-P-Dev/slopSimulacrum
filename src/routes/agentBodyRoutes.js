@@ -6,16 +6,25 @@
  * GET    /agent-body/cards          -> { cards: [{cardId, name, description, personality}] }
  * POST   /agent-body/create         -> { card, body, meta }
  *         body: { cardId: string (1..128 chars, no extension) }
- * POST   /agent-body/save           -> { saved, blueprintId, newComponents,
- *         blueprintWritten, blueprintOverwritten, backups }
- *         body: { blueprintId, rationale, structure, components? } (a design object)
+ * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
+ *         backups, blueprintId, newComponents, newItems, outfitWritten, blueprintWritten,
+ *         overlapsOfficial, applied: false, appliesVia, scanned }
+ *         body: { blueprintId, rationale, structure, components?, garments?, outfit? }
+ *   The save writes ONE data-only mod package (`data/mods/body-<slug>/`) and nothing
+ *   else: the official `core-*` files are never touched, and applying is a separate act
+ *   (`POST /mods/apply`), so the answer says `applied: false` rather than implying the
+ *   world moved. The route rescans after the write so `GET /mods` can speak about the new
+ *   package without another click (same shape as `/system/write`).
  *
  * Errors (CR H-1/H-2 — every error has a machine-readable `code` in the
  * `{ error: { code, message } }` envelope):
  *   400 { code: 'CARD_ID_REQUIRED' }             cardId missing / wrong type
  *   400 { code: 'SAVE_PAYLOAD_INVALID' }         save body missing / not an object
  *   404 { code: 'CARD_NOT_FOUND' }               no card PNG with that id
- *   422 { code: 'BODY_DESIGN_INVALID' }          model output / saved design failed validation
+ *   422 { code: 'BODY_DESIGN_INVALID' }          model output / saved design failed validation,
+ *                                                or its name yields no package id
+ *   422 { code: MOD_PACKAGE_* }                  the writer refused the package (id, kind,
+ *                                                size, non-data key)
  *   502 { code: LLM_ERROR_CODES.* }              provider failure (create only)
  *   503 { code: 'AGENT_BODY_CONTROLLER_NOT_WIRED' } feature not built (boot-order guard)
  *
@@ -27,6 +36,7 @@
  */
 
 import { CardNotFoundError, DesignValidationError } from '../controllers/networking/AgentBodyController.js';
+import { PACKAGE_WRITE_ERROR_CODES } from '../services/ModPackageWriter.js';
 import { LLMError } from '../utils/CustomErrors.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
 import { sendRouteError } from '../utils/routeError.js';
@@ -43,7 +53,13 @@ const saveRouteLimiter = createRateLimiter({
 	name: 'agent-body-save-route'
 });
 
-export function register(router, { worldStateController }) {
+/**
+ * Every code the package writer can refuse with. The list is taken from the writer, so a
+ * code added there is answered here too instead of falling through to a 500 (`CR H-2`).
+ */
+const PACKAGE_ERROR_CODES = Object.freeze(Object.values(PACKAGE_WRITE_ERROR_CODES));
+
+export function register(router, { worldStateController, modService }) {
 
 	/**
 	 * Resolves the designer from the facade, or emits a 503 when it is absent
@@ -155,7 +171,20 @@ export function register(router, { worldStateController }) {
 			}
 			try {
 				const result = await designer.saveDesign(body);
-				res.json(result);
+				// The package directory changed, so what the mod service believes is installed
+				// is stale. A rescan reads disk and mutates nothing — it is what lets the Mods
+				// panel show the new row without another click.
+				const scan = typeof modService?.rescan === 'function' ? modService.rescan() : null;
+				res.json({
+					...result,
+					// Writing a package and changing the world are two acts. The body lands at
+					// the next apply, never here.
+					applied: false,
+					appliesVia: 'POST /mods/apply',
+					scanned: scan
+						? { installed: scan.mods.length, rejected: scan.invalid.length }
+						: null
+				});
 				return;
 			} catch (designError) {
 				if (designError instanceof DesignValidationError) {
@@ -164,6 +193,12 @@ export function register(router, { worldStateController }) {
 							code: designError.code,
 							message: 'The saved design failed validation: ' + designError.errors.join('; ')
 						}
+					});
+					return;
+				}
+				if (designError?.code && PACKAGE_ERROR_CODES.includes(designError.code)) {
+					res.status(422).json({
+						error: { code: designError.code, message: designError.message }
 					});
 					return;
 				}

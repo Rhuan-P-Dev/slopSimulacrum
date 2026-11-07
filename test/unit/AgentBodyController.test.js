@@ -12,7 +12,6 @@
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs/promises';
-import * as fsSync from 'node:fs';
 import path from 'node:path';
 import DataLoader from '../../src/utils/DataLoader.js';
 import { REGISTRY_KINDS } from '../../shared/RegistryKinds.js';
@@ -28,6 +27,7 @@ import AgentBodyController, {
     LLM_AGENT_BODY_MAX_TOKENS
 } from '../../src/controllers/networking/AgentBodyController.js';
 import { LLMError } from '../../src/utils/CustomErrors.js';
+import ModPackageWriter from '../../src/services/ModPackageWriter.js';
 import { LLM_DEFAULT_TEMPERATURE } from '../../src/utils/Constants.js';
 
 const CARDS_DIR = path.resolve('data/cards');
@@ -611,147 +611,85 @@ describe('AgentBodyController', () => {
         });
     });
 
-    describe('saveDesign (the "Save" action — persists a validated design)', () => {
-        const SAVE_BLUEPRINTS_FILE = 'data/mods/core-blueprints/blueprints.json';
-        const SAVE_COMPONENTS_FILE = 'data/mods/core-components/components.json';
-        const SAVE_ITEMS_FILE = 'data/mods/core-inventory-items/inventoryItems.json';
-        const SAVE_OUTFITS_FILE = 'data/mods/core-outfits/outfits.json';
+    describe('saveDesign (the "Save" action - writes one mod package, never the official data)', () => {
+        const PACKAGE_DIR = 'data/mods/body-minakorunner';
 
-        // Every saveDesign here runs against a disposable scratch copy of the world
-        // data, so the committed data files are never written to by the suite.
-        // saveDesign persists through DataLoader's static save/copy/load seam;
-        // those are patched here to route the two data files into the scratch dir
-        // (the backups land there too). The scratch copy is seeded from the current
-        // real data on each test.
-        let scratchDir = '';
-        let scratchBlueprints = '';
-        let scratchComponents = '';
-        let scratchItems = '';
-        let scratchOutfits = '';
-        let loadSpy = null;
-        let saveSpy = null;
-        let copySpy = null;
+        /**
+         * The save runs over a REAL `ModPackageWriter` whose data seam is an in-memory
+         * store (TST-8: a test's fake is a module, not a global; TST-1: the writer is a
+         * collaborator, not a spy on internals). Nothing here writes a file, and "the
+         * official packages were not touched" is answered by the list of paths the store
+         * was asked to write - a question with a yes/no answer, not an assumption.
+         *
+         * The clock is injected for the backup suffix (`D-1`): a test that asserts a
+         * backup path asks for the time, it does not read it.
+         */
+        function makeSaveHarness() {
+            const files = new Map();
+            const written = [];
+            const dataLoader = {
+                exists: (relativePath) => files.has(relativePath),
+                loadJsonSafe: (relativePath, fallback) => (files.has(relativePath) ? JSON.parse(files.get(relativePath)) : fallback),
+                saveJson: (relativePath, data) => {
+                    files.set(relativePath, JSON.stringify(data));
+                    written.push(relativePath);
+                },
+                copyFile: (from, to) => {
+                    if (files.has(from)) files.set(to, files.get(from));
+                    return to;
+                },
+                ensureDir: () => undefined
+            };
+            const writer = new ModPackageWriter({ dataLoader, backupStamp: () => 1700000000000 });
+            return {
+                writer,
+                written,
+                has: (relativePath) => files.has(relativePath),
+                read: (relativePath) => JSON.parse(files.get(relativePath)),
+                controller: new AgentBodyController({
+                    llmController: makeFakeLlmController(),
+                    packageWriter: writer
+                })
+            };
+        }
 
-        function seedScratch() {
-            scratchDir = fsSync.mkdtempSync(path.join(process.cwd(), 'data', 'scratch-save-design-'));
-            scratchBlueprints = path.join(scratchDir, 'blueprints.json');
-            scratchComponents = path.join(scratchDir, 'components.json');
-            scratchItems = path.join(scratchDir, 'inventoryItems.json');
-            scratchOutfits = path.join(scratchDir, 'outfits.json');
-            fsSync.mkdirSync(scratchDir, { recursive: true });
-            fsSync.copyFileSync(path.resolve(SAVE_BLUEPRINTS_FILE), scratchBlueprints);
-            fsSync.copyFileSync(path.resolve(SAVE_COMPONENTS_FILE), scratchComponents);
-            fsSync.copyFileSync(path.resolve(SAVE_ITEMS_FILE), scratchItems);
-            fsSync.copyFileSync(path.resolve(SAVE_OUTFITS_FILE), scratchOutfits);
-            const realLoad = DataLoader.loadJsonSafe.bind(DataLoader);
-            const realSave = DataLoader.saveJson.bind(DataLoader);
-            const realCopy = DataLoader.copyFile.bind(DataLoader);
-            loadSpy = vi.spyOn(DataLoader, 'loadJsonSafe').mockImplementation((rel, fallback) => {
-                if (rel === SAVE_COMPONENTS_FILE) return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
-                if (rel === SAVE_BLUEPRINTS_FILE) return JSON.parse(fsSync.readFileSync(scratchBlueprints, 'utf8'));
-                if (rel === SAVE_ITEMS_FILE) return JSON.parse(fsSync.readFileSync(scratchItems, 'utf8'));
-                if (rel === SAVE_OUTFITS_FILE) return JSON.parse(fsSync.readFileSync(scratchOutfits, 'utf8'));
-                return realLoad(rel, fallback);
+        it('writes the body as one package and never writes an official file', async () => {
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(HAPPY_BODY);
+
+            expect(result.saved).toBe(true);
+            expect(result.blueprintId).toBe('minakoRunner');
+            expect(result.packageId).toBe('body-minakorunner');
+            expect(result.dir).toBe(PACKAGE_DIR);
+            expect(result.created).toBe(true);
+            expect(result.version).toBe('1.0.0');
+            expect(result.newComponents).toEqual(['parcelStrap']);
+            expect(result.outfitWritten).toBe(false);
+            expect(harness.written.some((p) => p.startsWith('data/mods/core-')), 'official data is never written').toBe(false);
+
+            // The manifest is what the Mods panel reads: the id, the kinds it carries, and
+            // a sentence naming where the body came from.
+            expect(harness.read(`${PACKAGE_DIR}/mod.json`)).toMatchObject({
+                id: 'body-minakorunner',
+                version: '1.0.0',
+                content: ['components', 'blueprints']
             });
-            saveSpy = vi.spyOn(DataLoader, 'saveJson').mockImplementation((rel, data) => {
-                const json = JSON.stringify(data, null, 2) + '\n';
-                if (rel === SAVE_COMPONENTS_FILE) {
-                    fsSync.writeFileSync(scratchComponents, json, 'utf8');
-                    return undefined;
-                }
-                if (rel === SAVE_BLUEPRINTS_FILE) {
-                    fsSync.writeFileSync(scratchBlueprints, json, 'utf8');
-                    return undefined;
-                }
-                if (rel === SAVE_ITEMS_FILE) {
-                    fsSync.writeFileSync(scratchItems, json, 'utf8');
-                    return undefined;
-                }
-                if (rel === SAVE_OUTFITS_FILE) {
-                    fsSync.writeFileSync(scratchOutfits, json, 'utf8');
-                    return undefined;
-                }
-                return realSave(rel, data);
-            });
-            copySpy = vi.spyOn(DataLoader, 'copyFile').mockImplementation((from, to) => {
-                const destName = path.basename(to);
-                if (from === SAVE_COMPONENTS_FILE) {
-                    fsSync.copyFileSync(scratchComponents, path.join(scratchDir, destName));
-                    return to;
-                }
-                if (from === SAVE_BLUEPRINTS_FILE) {
-                    fsSync.copyFileSync(scratchBlueprints, path.join(scratchDir, destName));
-                    return to;
-                }
-                if (from === SAVE_ITEMS_FILE) {
-                    fsSync.copyFileSync(scratchItems, path.join(scratchDir, destName));
-                    return to;
-                }
-                if (from === SAVE_OUTFITS_FILE) {
-                    fsSync.copyFileSync(scratchOutfits, path.join(scratchDir, destName));
-                    return to;
-                }
-                return realCopy(from, to);
-            });
-        }
+            expect(harness.read(`${PACKAGE_DIR}/mod.json`).description).toContain('minakoRunner');
 
-        function cleanupScratch() {
-            if (loadSpy) { loadSpy.mockRestore(); loadSpy = null; }
-            if (saveSpy) { saveSpy.mockRestore(); saveSpy = null; }
-            if (copySpy) { copySpy.mockRestore(); copySpy = null; }
-            if (scratchDir) {
-                fsSync.rmSync(scratchDir, { recursive: true, force: true });
-                scratchDir = '';
-                scratchBlueprints = '';
-                scratchComponents = '';
-                scratchItems = '';
-                scratchOutfits = '';
-            }
-        }
-
-        function readScratchBlueprints() {
-            return JSON.parse(fsSync.readFileSync(scratchBlueprints, 'utf8'));
-        }
-        function readScratchComponents() {
-            return JSON.parse(fsSync.readFileSync(scratchComponents, 'utf8'));
-        }
-        function readScratchItems() {
-            return JSON.parse(fsSync.readFileSync(scratchItems, 'utf8'));
-        }
-        function readScratchOutfits() {
-            return JSON.parse(fsSync.readFileSync(scratchOutfits, 'utf8'));
-        }
-
-        it('writes a brand-new droid key + a new component into the world files and takes pre-write backups', async () => {
-            seedScratch();
-            try {
-                const result = await controller.saveDesign(HAPPY_BODY);
-                expect(result.saved).toBe(true);
-                expect(result.blueprintId).toBe('minakoRunner');
-                expect(result.newComponents).toEqual(['parcelStrap']);
-                expect(result.blueprintWritten).toEqual(
-                    expect.arrayContaining(['minakoRunner', 'm1CentralBody', 'm1Leg'])
-                );
-                // minakoRunner is new; m1CentralBody + m1Leg already existed -> overwritten.
-                expect(result.blueprintOverwritten).toEqual(
-                    expect.arrayContaining(['m1CentralBody', 'm1Leg'])
-                );
-                expect(result.blueprintOverwritten).not.toContain('minakoRunner');
-                expect(typeof result.backups.blueprints).toBe('string');
-                expect(typeof result.backups.components).toBe('string');
-
-                const bl = readScratchBlueprints();
-                expect(bl.minakoRunner).toEqual(['m1CentralBody']);
-                expect(bl.m1CentralBody).toEqual([
+            // The package carries THIS body, not the world: no merge with the official
+            // registry, so disabling it is what undoes the design.
+            expect(harness.read(`${PACKAGE_DIR}/blueprints.json`)).toEqual({
+                minakoRunner: ['m1CentralBody'],
+                m1CentralBody: [
                     'm1Head',
                     ['m1Leg', 'frontal_left'],
                     ['m1Leg', 'frontal_right'],
                     ['m1Toe', 'back']
-                ]);
-                expect(bl.m1Leg).toEqual([['m1Toe', 'left']]);
-
-                const cm = readScratchComponents();
-                expect(cm.parcelStrap).toEqual({
+                ],
+                m1Leg: [['m1Toe', 'left']]
+            });
+            expect(harness.read(`${PACKAGE_DIR}/components.json`)).toEqual({
+                parcelStrap: {
                     name: 'parcelStrap',
                     form: { volume: 3, position: { x: 2, y: 1 } },
                     materials: [
@@ -760,16 +698,20 @@ describe('AgentBodyController', () => {
                     ],
                     internalComponents: ['thinkCore'],
                     energyCapacity: 10
-                });
+                }
+            });
+        });
 
-                // A pre-write backup of each touched file was created (timestamped
-                // sibling) in the scratch dir.
-                const scratchFiles = fsSync.readdirSync(scratchDir);
-                expect(scratchFiles.some((f) => /blueprints\.json\.bak-\d+/.test(f))).toBe(true);
-                expect(scratchFiles.some((f) => /components\.json\.bak-\d+/.test(f))).toBe(true);
-            } finally {
-                cleanupScratch();
-            }
+        it('reports the official keys the package shadows, and only those', async () => {
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(HAPPY_BODY);
+
+            // Redefining a part sub-tree IS redesigning a card, so it is written and
+            // reported - not filtered away. `minakoRunner` is new, so it shadows nothing.
+            const shadowedKeys = result.overlapsOfficial.map((overlap) => overlap.key);
+            expect(shadowedKeys).toEqual(expect.arrayContaining(['m1CentralBody', 'm1Leg']));
+            expect(shadowedKeys).not.toContain('minakoRunner');
+            expect(result.overlapsOfficial.every((overlap) => overlap.kind === REGISTRY_KINDS.BLUEPRINTS)).toBe(true);
         });
 
         it('writes a mount mark as the third element of the mount, in the shape the world reads', async () => {
@@ -780,37 +722,33 @@ describe('AgentBodyController', () => {
             // itself would have given it - never invent a body position to carry a mark.
             design.structure.children[0].hidesWithParent = true;  // m1Head, no slot
             design.structure.children[3].hidesWithParent = true;  // m1Toe, 'back'
-            seedScratch();
-            try {
-                await controller.saveDesign(design);
+            const harness = makeSaveHarness();
+            await harness.controller.saveDesign(design);
 
-                const bl = readScratchBlueprints();
-                expect(bl.m1CentralBody).toEqual([
-                    ['m1Head', 'default', { hidesWithParent: true }],
-                    ['m1Leg', 'frontal_left'],
-                    ['m1Leg', 'frontal_right'],
-                    ['m1Toe', 'back', { hidesWithParent: true }]
-                ]);
+            const bl = harness.read(`${PACKAGE_DIR}/blueprints.json`);
+            expect(bl.m1CentralBody).toEqual([
+                ['m1Head', 'default', { hidesWithParent: true }],
+                ['m1Leg', 'frontal_left'],
+                ['m1Leg', 'frontal_right'],
+                ['m1Toe', 'back', { hidesWithParent: true }]
+            ]);
 
-                // The shape the design WRITES is the shape the live world READS:
-                // instantiate the saved blueprint with the real EntityController,
-                // over the saved file - not over a row this test typed by hand.
-                const spawned = new EntityController(
-                    new ComponentController(
-                        new ComponentStatsController(),
-                        new TraitsController({}),
-                        DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)
-                    ),
-                    bl
-                ).createEntityFromBlueprint('minakoRunner');
-                expect(spawned.components.filter((c) => c.hidesWithParent === true).map((c) => c.type).sort())
-                    .toEqual(['m1Head', 'm1Toe']);
-            } finally {
-                cleanupScratch();
-            }
+            // The shape the design WRITES is the shape the live world READS:
+            // instantiate the saved blueprint with the real EntityController, over
+            // the written file - not over a row this test typed by hand.
+            const spawned = new EntityController(
+                new ComponentController(
+                    new ComponentStatsController(),
+                    new TraitsController({}),
+                    DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)
+                ),
+                bl
+            ).createEntityFromBlueprint('minakoRunner');
+            expect(spawned.components.filter((c) => c.hidesWithParent === true).map((c) => c.type).sort())
+                .toEqual(['m1Head', 'm1Toe']);
         });
 
-        it('writes a designed garment into the item registry and its outfit into the outfit registry', async () => {
+        it('carries the invented garment and the outfit as their own kinds of the same package', async () => {
             const design = structuredClone(HAPPY_BODY);
             design.garments = [{
                 name: 'courierCloak',
@@ -821,70 +759,104 @@ describe('AgentBodyController', () => {
                 visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
             }];
             design.outfit = [{ item: 'courierCloak', component: 'm1CentralBody' }];
-            seedScratch();
-            try {
-                const result = await controller.saveDesign(design);
-                expect(result.newItems).toEqual(['courierCloak']);
-                expect(result.outfitWritten).toBe(true);
-                expect(typeof result.backups.items).toBe('string');
-                expect(typeof result.backups.outfits).toBe('string');
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(design);
 
-                const items = readScratchItems();
-                expect(items.courierCloak).toMatchObject({
+            expect(result.newItems).toEqual(['courierCloak']);
+            expect(result.outfitWritten).toBe(true);
+            expect(harness.read(`${PACKAGE_DIR}/inventoryItems.json`)).toEqual({
+                courierCloak: {
                     // The prose speaks the display name, not the registry key.
                     name: 'Ash-Cloaked Courier Mantle',
+                    description: 'A garment authored from a character card in the Create Agent Body dev tab.',
                     form: { volume: 4 },
+                    materials: [{ material: 'wood', fraction: 1 }],
+                    internalComponents: [],
                     wear: { minVolume: 2 },
                     visual: { hue: 210, saturation: 40, lightness: 22, metalness: 0, roughness: 80 }
-                });
-                expect(items.tshirt, 'an existing recipe is never touched').toBeDefined();
-
-                // Same key the body was written under: designing it and dressing it are
-                // two writes keyed by one thing (`wiki/decisions/outfits.md`).
-                expect(readScratchOutfits().minakoRunner).toEqual([
-                    { item: 'courierCloak', component: 'm1CentralBody' }
-                ]);
-            } finally {
-                cleanupScratch();
-            }
+                }
+            });
+            // Same key the body was written under: designing it and dressing it are
+            // two writes keyed by one thing (`wiki/decisions/outfits.md`).
+            expect(harness.read(`${PACKAGE_DIR}/outfits.json`)).toEqual({
+                minakoRunner: [{ item: 'courierCloak', component: 'm1CentralBody' }]
+            });
+            expect(harness.written.some((p) => p.startsWith('data/mods/core-')), 'official items and outfits are never written').toBe(false);
         });
 
-        it('leaves the clothing files alone when the design said nothing about clothing', async () => {
-            seedScratch();
-            try {
-                const result = await controller.saveDesign(HAPPY_BODY);
-                expect(result.newItems).toEqual([]);
-                expect(result.outfitWritten).toBe(false);
-                expect(result.backups.items, 'no garment, no items backup').toBeUndefined();
-                expect(result.backups.outfits, 'no clothing claim, no outfits backup').toBeUndefined();
-                expect(readScratchItems()).toEqual(
-                    JSON.parse(fsSync.readFileSync(path.resolve(SAVE_ITEMS_FILE), 'utf8'))
-                );
-                expect(readScratchOutfits()).toEqual(
-                    JSON.parse(fsSync.readFileSync(path.resolve(SAVE_OUTFITS_FILE), 'utf8'))
-                );
-            } finally {
-                cleanupScratch();
-            }
+        it('omits the clothing kinds entirely when the design said nothing about clothing', async () => {
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(HAPPY_BODY);
+
+            expect(result.newItems).toEqual([]);
+            expect(result.outfitWritten).toBe(false);
+            // An absent kind is not an empty kind: `ModPackageWriter` refuses an empty
+            // one, and "said nothing" must not become "authored nothing".
+            expect(harness.has(`${PACKAGE_DIR}/inventoryItems.json`)).toBe(false);
+            expect(harness.has(`${PACKAGE_DIR}/outfits.json`)).toBe(false);
         });
 
         it('writes an authored EMPTY outfit: born wearing nothing is a claim, not an absence', async () => {
             const design = structuredClone(HAPPY_BODY);
             design.outfit = [];
-            seedScratch();
-            try {
-                const result = await controller.saveDesign(design);
-                expect(result.outfitWritten).toBe(true);
-                expect(readScratchOutfits().minakoRunner).toEqual([]);
-                // An empty list under the key is what the world reads as "clothed by the
-                // registry, wearing nothing", so the spawn default stands down.
-                expect(readScratchOutfits().m1Droid, 'the shipped seed is untouched').toBeDefined();
-            } finally {
-                cleanupScratch();
-            }
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(design);
+
+            expect(result.outfitWritten).toBe(true);
+            // An empty list under the key is what the world reads as "clothed by the
+            // registry, wearing nothing", so the spawn default stands down.
+            expect(harness.read(`${PACKAGE_DIR}/outfits.json`)).toEqual({ minakoRunner: [] });
+        });
+
+        it('rewrites the same card as the same package, with a backup and a version step', async () => {
+            const harness = makeSaveHarness();
+            const first = await harness.controller.saveDesign(HAPPY_BODY);
+            const before = harness.written.length;
+
+            const second = await harness.controller.saveDesign(HAPPY_BODY);
+
+            expect(second.packageId).toBe(first.packageId);
+            expect(second.created).toBe(false);
+            expect(second.version).toBe('1.0.1');
+            // Every file the rewrite replaces was copied aside first, so a redesign is
+            // undoable by hand - the writer's rule, not a second one invented here.
+            expect(second.overwritten).toEqual(expect.arrayContaining(['components', 'blueprints']));
+            expect(second.backups).toEqual([
+                `${PACKAGE_DIR}/components.json.bak-1700000000000`,
+                `${PACKAGE_DIR}/blueprints.json.bak-1700000000000`
+            ]);
+            expect(harness.written.slice(before)).toEqual([
+                `${PACKAGE_DIR}/components.json`,
+                `${PACKAGE_DIR}/blueprints.json`,
+                `${PACKAGE_DIR}/mod.json`
+            ]);
+        });
+
+        it('folds a card display name into a package id, and refuses one with nothing to fold', async () => {
+            const harness = makeSaveHarness();
+            const folded = async (blueprintId) => {
+                const design = structuredClone(HAPPY_BODY);
+                design.blueprintId = blueprintId;
+                const saved = await harness.controller.saveDesign(design);
+                return saved.packageId;
+            };
+
+            expect(await folded('Minako, Seamstress of the Ward!')).toBe('body-minako-seamstress-of-the-ward');
+            // Escapes, not literals: the source stays ASCII (CR NAME-1) while the NAME the
+            // world speaks still carries its accents. NFD splits the glyph into a base
+            // letter plus a combining mark, which is what makes the fold possible.
+            expect(await folded('Ana\u00efse')).toBe('body-anaise');
+            expect(await folded('  M\u00fcnako  ')).toBe('body-munako');
+
+            const design = structuredClone(HAPPY_BODY);
+            design.blueprintId = '\u2665\u2665';
+            const error = await awaitThrown(harness.controller.saveDesign(design));
+            expect(error).toBeInstanceOf(DesignValidationError);
+            expect(error.errors[0]).toContain('no ASCII letters or digits to name the package from');
         });
 
         it('rejects a blueprintId that is a sub-tree part (droid type must be a distinct key)', async () => {
+            const harness = makeSaveHarness();
             const design = {
                 blueprintId: 'm1CentralBody',
                 rationale: 'Reuse the part name as the droid type (must be rejected).',
@@ -895,20 +867,14 @@ describe('AgentBodyController', () => {
                 },
                 components: []
             };
-            seedScratch();
-            let error;
-            try {
-                await controller.saveDesign(design);
-            } catch (e) {
-                error = e;
-            } finally {
-                cleanupScratch();
-            }
+            const error = await awaitThrown(harness.controller.saveDesign(design));
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.errors[0]).toContain('must not be the name of any component used in the body tree');
+            expect(harness.written, 'a refused design writes nothing at all').toEqual([]);
         });
 
         it('rejects a design referencing a component that is neither in the catalog nor proposed', async () => {
+            const harness = makeSaveHarness();
             const design = {
                 blueprintId: 'ghostDroid',
                 rationale: 'Uses a part that does not exist in the catalog.',
@@ -919,17 +885,10 @@ describe('AgentBodyController', () => {
                 },
                 components: []
             };
-            seedScratch();
-            let error;
-            try {
-                await controller.saveDesign(design);
-            } catch (e) {
-                error = e;
-            } finally {
-                cleanupScratch();
-            }
+            const error = await awaitThrown(harness.controller.saveDesign(design));
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.message).toMatch(/unknown component/);
+            expect(harness.written, 'a refused design writes nothing at all').toEqual([]);
         });
     });
 });

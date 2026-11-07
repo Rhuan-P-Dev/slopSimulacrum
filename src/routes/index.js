@@ -25,8 +25,9 @@ import { register as registerObjectInspectRoutes } from './objectInspectRoutes.j
 // at the boundary (id prefix → kind; 400 otherwise).
 import { register as registerViewRoutes } from './viewRoutes.js';
 // Feature A (Create Agent Body, dev tab): body-designer from a character card
-// (RP-1 prompt kind `agent-body-design` in AgentBodyController). Judgment-only: the
-// designer writes nothing to data/.
+// (RP-1 prompt kind `agent-body-design` in AgentBodyController). Designing is
+// judgment-only; the explicit Save writes one mod package under data/mods/ and never the
+// official `core-*` files, so it needs the mod service to rescan what is installed.
 import { register as registerAgentBodyRoutes } from './agentBodyRoutes.js';
 // Mod packages: GET /mods, POST /mods/rescan, POST /mods/plan. Read-only over the
 // package directory (data/mods/) — the apply point is a separate change. Dependency
@@ -86,7 +87,7 @@ export function registerRoutes(app, llmController, worldStateController, broadca
 	registerKnowledgeRoutes(router, { worldStateController });
 	registerObjectInspectRoutes(router, { worldStateController });
 	registerViewRoutes(router, { worldStateController });
-	registerAgentBodyRoutes(router, { worldStateController });
+	registerAgentBodyRoutes(router, { worldStateController, modService });
 	registerModRoutes(router, { modService });
 	registerSystemRoutes(router, { worldStateController, modService });
 

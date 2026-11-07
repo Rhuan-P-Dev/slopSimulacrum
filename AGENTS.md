@@ -69,10 +69,13 @@ committed file, translate it in a separate commit that touches nothing else.
   `/llm/chat`), the NPC agent round (round runner + tool subcalls, `LLMAgentController`),
   and `agent-body-design` (`AgentBodyController`, `/agent-body/create`, the dev tab
   "Create Agent Body"). Design is judgment-only; the separate, explicit
-  `/agent-body/save` writes the design into the official mod packages — component
-  recipes, blueprints (with the `hidesWithParent` mount mark), garments into
-  `core-inventory-items` and the body's outfit into `core-outfits` — each file backed
-  up first. See `wiki/decisions/agent-body-design.md` and `wiki/decisions/outfits.md`.
+  `/agent-body/save` writes the design as **one new mod package** `body-<slug>` (slug of
+  the card display name, rewritten in place, every replaced file backed up) carrying the
+  kinds the design authored — `blueprints` (with the `hidesWithParent` mount mark),
+  `components`, `inventoryItems` and `outfits`. It never writes a `core-*` file, never
+  touches `loadorder.json` and never applies: the answer says
+  `applied: false, appliesVia: "POST /mods/apply"`. See
+  `wiki/decisions/agent-body-design.md` and `wiki/decisions/outfits.md`.
   The fourth kind is **`system-authoring`** (`WorldAuthoringController`, `/system/chat`,
   the dev tab "System"): an operator wish, four tools that read the live definition
   (`list_registries`, `read_registry`, `find_definitions`) and one terminal `propose_mod`.
