@@ -18,6 +18,7 @@ import {
 } from '../../src/controllers/networking/AgentBodyController.js';
 import {
     CardNotFoundError as RelationshipCardNotFoundError,
+    CardNotReadableError,
     CardUserTokenAbsentError,
     RelationshipJudgmentError
 } from '../../src/controllers/networking/CardUserRelationshipController.js';
@@ -684,6 +685,29 @@ describe('agentBodyRoutes: card user-relationship', () => {
             expect(resp.status).toBe(422);
             expect(body.error.code).toBe('CARD_USER_TOKEN_ABSENT');
             expect(body.error.message).toContain('{{user}}');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 422 CARD_NOT_READABLE when the card file exists but is not a usable character card', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new CardNotReadableError('broken', 'no chara metadata in the file');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/broken/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(422);
+            expect(body.error.code).toBe('CARD_NOT_READABLE');
+            expect(body.error.message).toContain('not a usable character card');
         } finally {
             server.close();
         }

@@ -4,10 +4,11 @@
  * the only files in the tree that may import `fs`; nothing outside the seam
  * touches the disk).
  *
- * A judged relationship is persisted NEXT TO the card's PNG as
+ * A judged relationship is persisted NEXT TO the card's image file as
  * `<card stem>.user-relationship.json` inside `data/cards/` (for example
- * `Connie Maheswaran-75538.user-relationship.json` next to the PNG of the same
- * stem). The PNG itself is never written — the repository's language policy
+ * `Connie Maheswaran-75538.user-relationship.json` next to the image of the
+ * same stem). The card file itself is never written — the repository's
+ * language policy
  * (AGENTS.md, "Language policy (hard rule)") forbids touching card files — and
  * the world definition (`data/mods/`) is untouched (CR B-2). The sidecar is
  * derived data: the owner is the judgment feature
@@ -35,6 +36,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Logger from './Logger.js';
+import { CARD_IMAGE_EXTS } from './CardImageTypes.js';
 
 /** The sidecar file-name suffix (the card stem precedes it). */
 export const SIDECAR_SUFFIX = '.user-relationship.json';
@@ -80,7 +82,7 @@ export function listCardFileNames(cardDir) {
         }
         throw err;
     }
-    return names.filter((n) => typeof n === 'string' && n.toLowerCase().endsWith('.png'));
+    return names.filter((n) => typeof n === 'string' && CARD_IMAGE_EXTS.has(path.extname(n).toLowerCase()));
 }
 
 /**

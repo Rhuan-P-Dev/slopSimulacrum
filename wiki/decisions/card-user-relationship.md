@@ -44,8 +44,9 @@ route, never triggered by a load or a refresh.
 - **Output shape (owner's choice — free-form, not a fixed vocabulary):** a
   free-form label (at most 3 words / 48 characters) plus one short free-form
   sentence (at most 200 characters). A closed list cannot cover the range of
-  relationships a free-form persona can claim; the validator enforces shape
-  and length at the boundary (T-1), never vocabulary. The answer is fenced to
+  relationships a free-form persona can claim; the validator enforces shape,
+  the word cap and the character caps at the boundary (T-1) — never
+  vocabulary. The answer is fenced to
   `max_tokens: 16000` and sent with **no `temperature`** — the seam's explicit
   `null` opt-out leaves the field off the payload, so the provider's own
   sampling default applies (RP-3). The provider is a reasoning model and its
@@ -56,23 +57,31 @@ route, never triggered by a load or a refresh.
   answer is a clean, retryable `422 RELATIONSHIP_JUDGMENT_INVALID`, never a
   silent partial write.
 - **Persistence: a sidecar next to the card, never the card itself.** The
-  verdict is written as `<card stem>.user-relationship.json` beside the PNG in
-  `data/cards/`, through a new data-seam module
+  verdict is written as `<card stem>.user-relationship.json` beside the card
+  image in `data/cards/` — the card can be any of the gallery's six image
+  extensions, the same set the spawn listing accepts (single source of
+  truth: `src/utils/CardImageTypes.js`) — through a new data-seam module
   (`src/utils/CardRelationshipStore.js` — the fourth `DATA_SEAM_FS_FILES`
   entry, CR B-3; atomic tmp-then-rename, P-3). Record shape (versioned, P-1):
   `{ version, cardId, name, personaHash, judgedAt, { label, summary } }` —
-  `judgedAt` is UTC ISO-8601 (P-6). The PNG is never written (the language
-  policy, AGENTS.md) and the world definition (`data/mods/`) is untouched
-  (CR B-2): the sidecar is derived data, and the world never reads it.
+  `judgedAt` is UTC ISO-8601 (P-6). The card file is never written (the
+  language policy, AGENTS.md) and the world definition (`data/mods/`) is
+  untouched (CR B-2): the sidecar is derived data, and the world never reads
+  it.
 - **Invalidation:** `personaHash` is a sha-256 of the display name and the
   effective persona the verdict was judged from (D-1 — pure, no clock). A
   replaced card file changes the hash, so a stale verdict is not served.
   Housekeeping runs on the *command* (each judgment), not on a read (CR
-  API-1): sidecars whose PNG no longer exists (deleted or renamed card) are
-  deleted on that occasion — derived data is deleted, not kept (CHG-6; it is
+  API-1): sidecars whose card image no longer exists (deleted or renamed
+  card) are deleted on that occasion, and a sidecar whose persona hash no
+  longer matches the card on disk (replaced in place, same stem) is deleted
+  before the fresh verdict is written — derived data is deleted, not kept
+  (CHG-6; it is
   not user content, P-7).
 - **Error codes** (route header, CR H-2): `400 CARD_ID_REQUIRED`,
-  `404 CARD_NOT_FOUND`, `422 CARD_USER_TOKEN_ABSENT`,
+  `404 CARD_NOT_FOUND`, `422 CARD_NOT_READABLE` (the file exists but carries
+  no usable character payload — a data mistake the operator can fix),
+  `422 CARD_USER_TOKEN_ABSENT`,
   `422 RELATIONSHIP_JUDGMENT_INVALID` (naming the violated rules, E-4),
   `502 LLM_ERROR_CODES.*`, and the `503 CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED`
   boot-order guard.

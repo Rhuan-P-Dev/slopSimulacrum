@@ -17,8 +17,9 @@
  *         relationship the card's character has with its {{user}}; the verdict is persisted as a
  *         sidecar next to the card's PNG (never into the PNG — the repository's language policy —
  *         and never into the world definition). 422 CARD_USER_TOKEN_ABSENT when the card's
- *         effective persona carries no {{user}} token; 422 RELATIONSHIP_JUDGMENT_INVALID when the
- *         model's answer fails validation.
+ *         effective persona carries no {{user}} token; 422 CARD_NOT_READABLE when the card
+ *         file exists but carries no usable character payload; 422 RELATIONSHIP_JUDGMENT_INVALID
+ *         when the model's answer fails validation.
  * POST   /agent-body/create         -> { card, body, meta }
  *         body: { cardId: string (1..128 chars, no extension) }
  * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
@@ -40,6 +41,8 @@
  *                                                or its name yields no package id
  *   422 { code: 'CARD_USER_TOKEN_ABSENT' }       judge only: the card's effective persona has no
  *                                                {{user}} token, so there is no relationship to judge
+ *   422 { code: 'CARD_NOT_READABLE' }            judge only: the card file exists but carries no
+ *                                               usable character payload (a data mistake the operator can fix)
  *   422 { code: 'RELATIONSHIP_JUDGMENT_INVALID' } judge only: the model's judgment failed validation
  *   422 { code: MOD_PACKAGE_* }                  the writer refused the package (id, kind,
  *                                                size, non-data key)
@@ -59,6 +62,7 @@
 import { CardNotFoundError, DesignValidationError, MAX_CARD_ID_LENGTH } from '../controllers/networking/AgentBodyController.js';
 import {
 	CardNotFoundError as RelationshipCardNotFoundError,
+	CardNotReadableError,
 	CardUserTokenAbsentError,
 	RelationshipJudgmentError
 } from '../controllers/networking/CardUserRelationshipController.js';
@@ -230,11 +234,13 @@ export function register(router, { worldStateController, modService }) {
 	/**
 	 * Judge one card's relationship with its {{user}}: one LLM call (prompt
 	 * kind `card-user-relationship`, the fifth, RP-1) whose verdict is written
-	 * as a sidecar next to the card's PNG. The judge's cost guard is the
+	 * as a sidecar next to the card's image. The judge's cost guard is the
 	 * limiter on this route (SEC-9); the provider timeout is the LLM seam's.
+	 * The segment is used raw, exactly like the sibling image route: a stem
+	 * with surrounding whitespace is a legitimate card id, so no trim.
 	 */
 	router.post('/agent-body/cards/:cardId/user-relationship', relationshipRouteLimiter, async (req, res) => {
-		const cardId = (typeof req.params?.cardId === 'string') ? req.params.cardId.trim() : '';
+		const cardId = (typeof req.params?.cardId === 'string') ? req.params.cardId : '';
 		if (cardId.length === 0 || cardId.length > MAX_CARD_ID_LENGTH) {
 			res.status(400).json({
 				error: {
@@ -262,6 +268,15 @@ export function register(router, { worldStateController, modService }) {
 				return;
 			}
 			if (judgeError instanceof CardUserTokenAbsentError) {
+				res.status(422).json({
+					error: {
+						code: judgeError.code,
+						message: judgeError.message
+					}
+				});
+				return;
+			}
+			if (judgeError instanceof CardNotReadableError) {
 				res.status(422).json({
 					error: {
 						code: judgeError.code,

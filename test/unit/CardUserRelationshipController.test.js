@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import CardUserRelationshipController, {
     CardNotFoundError,
+    CardNotReadableError,
     CardUserTokenAbsentError,
     RelationshipJudgmentError,
     personaHashFor,
@@ -24,6 +25,7 @@ import CardUserRelationshipController, {
     PROMPT_VERSION,
     LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS,
     RELATIONSHIP_LABEL_MAX_CHARS,
+    RELATIONSHIP_LABEL_MAX_WORDS,
     RELATIONSHIP_SUMMARY_MAX_CHARS
 } from '../../src/controllers/networking/CardUserRelationshipController.js';
 import { LLMError } from '../../src/utils/CustomErrors.js';
@@ -127,6 +129,21 @@ beforeAll(async () => {
         personality: '',
         description: DESC_PERSONA
     });
+    // The trimmed-name case: surrounding whitespace in the display name is
+    // stripped before the prompt is built and the persona hash is computed.
+    await writeCard('padded.png', {
+        name: '  Padded  ',
+        personality: 'I adore {{user}} and would cross the world to sit beside {{user}}.',
+        description: 'a padded card'
+    });
+    // The raw-stem case: a card file whose name carries surrounding
+    // whitespace. The judge's id is the raw stem (no trim — the same rule the
+    // image route serves), so it must find this card by the raw id.
+    await writeCard(' raw stem .png', {
+        name: 'Raw Stem',
+        personality: 'I adore {{user}} and would cross the world to sit beside {{user}}.',
+        description: 'a raw-stem card'
+    });
     llm = makeFakeLlm();
     controller = new CardUserRelationshipController({ llmController: llm, cardDir: tmpDir });
 });
@@ -219,6 +236,29 @@ describe('CardUserRelationshipController', () => {
         expect(record.personaHash).toBe(personaHashFor('Desc', DESC_PERSONA));
     });
 
+    it('trims the display name before building the prompt and fingerprinting the persona', async () => {
+        llm.chatFull.mockClear();
+        await controller.judgeCardUserRelationship('padded');
+        const [messages] = llm.chatFull.mock.calls[0];
+        expect(messages[1].content).toContain('Character name: Padded');
+        expect(messages[1].content).not.toContain('Character name:   Padded  '); // the untrimmed form is absent
+        const record = JSON.parse(fs.readFileSync(path.join(tmpDir, 'padded.user-relationship.json'), 'utf8'));
+        expect(record.name).toBe('Padded');
+        expect(record.personaHash).toBe(personaHashFor('Padded', 'I adore {{user}} and would cross the world to sit beside {{user}}.'));
+    });
+
+    it('judges a card whose file stem carries surrounding whitespace (the id is the raw stem, no trim)', async () => {
+        llm.chatFull.mockClear();
+        await controller.judgeCardUserRelationship(' raw stem ');
+        const [messages] = llm.chatFull.mock.calls[0];
+        expect(messages[1].content).toContain('Character name: Raw Stem');
+        const sidecar = path.join(tmpDir, ' raw stem .user-relationship.json');
+        expect(fs.existsSync(sidecar)).toBe(true);
+        const record = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
+        expect(record.cardId).toBe(' raw stem ');
+        expect(record.name).toBe('Raw Stem');
+    });
+
     // ------------------------------------------------------------ invalidation
     it('does not serve a judgment whose persona moved on, and a re-judge rewrites the sidecar', async () => {
         await controller.judgeCardUserRelationship('nova');
@@ -286,6 +326,21 @@ describe('CardUserRelationshipController', () => {
             .rejects.toThrow(RelationshipJudgmentError);
     });
 
+    it('rejects a present-but-unreadable card (422 CARD_NOT_READABLE), without an LLM call', async () => {
+        llm.chatFull.mockClear();
+        // A PNG that exists but carries no usable character payload.
+        fs.writeFileSync(path.join(tmpDir, 'broken.png'), buildCardPng({}));
+        try {
+            await controller.judgeCardUserRelationship('broken');
+        } catch (err) {
+            expect(err).toBeInstanceOf(CardNotReadableError);
+            expect(err.code).toBe('CARD_NOT_READABLE');
+        }
+        expect(llm.chatFull).not.toHaveBeenCalled();
+        // No sidecar was written for a card that cannot be judged.
+        expect(fs.existsSync(path.join(tmpDir, 'broken.user-relationship.json'))).toBe(false);
+    });
+
     it('propagates the LLM seam error untouched (the route maps it to 502)', async () => {
         const providerFailure = new LLMError('provider unreachable', 'LLM_UNAVAILABLE');
         llm.chatFull.mockRejectedValueOnce(providerFailure);
@@ -334,6 +389,20 @@ describe('CardUserRelationshipController', () => {
                 expect(err.errors.length).toBe(2);
                 expect(err.errors.join('; ')).toContain(String(RELATIONSHIP_LABEL_MAX_CHARS));
                 expect(err.errors.join('; ')).toContain('summary');
+            }
+        });
+
+        it('rejects a label that exceeds the word cap, naming the rule', async () => {
+            answerWith(JSON.stringify({
+                label: 'a very long label here',
+                summary: 'One sentence grounding the judgment.'
+            }));
+            try {
+                await controller.judgeCardUserRelationship('nova');
+                throw new Error('expected a RelationshipJudgmentError');
+            } catch (err) {
+                expect(err).toBeInstanceOf(RelationshipJudgmentError);
+                expect(err.errors).toContain(`"label" must be at most ${RELATIONSHIP_LABEL_MAX_WORDS} words`);
             }
         });
 

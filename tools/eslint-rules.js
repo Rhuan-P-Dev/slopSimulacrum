@@ -33,6 +33,7 @@ const FS_SPEC_RE = /^(?:node:)?(?:fs\/promises|fs)$/i;
 const DEFAULT_ALLOWED_FS_FILES = [
     'src/utils/DataLoader.js',
     'src/utils/PngCharaReader.js',
+    'src/utils/CardRelationshipStore.js',
     'src/controllers/logic/CardSpawnLogic.js',
 ];
 

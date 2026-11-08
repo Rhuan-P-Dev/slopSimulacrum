@@ -47,17 +47,21 @@ export function cardImageSrc(cardId) {
 }
 
 /**
- * The `{{user}}` token in a card prompt (the same string CreateWorldPanel
- * matches, `cardHasUserPlaceholder` - a deliberate mirror, CHG-2): a card
- * whose prompt carries no token has no relationship to judge, so the row's
- * control renders locked and grayed.
- * @param {{personality?: string, description?: string}} card
+ * The `{{user}}` token in the card's *effective* prompt — a mirror of the
+ * server's judgment rule (and of `CreateWorldPanel.cardHasUserPlaceholder`,
+ * CHG-2): the world gives the character the first non-empty of `personality`
+ * then `description` (trimmed); a card whose effective prompt carries no
+ * literal `{{user}}` token has no relationship to judge, so the row's control
+ * renders locked and grayed.
+ * @param {{personality?: string, description?: string}|null|undefined} card - a
+ *   row of `GET /agent-body/cards`.
  * @returns {boolean}
  */
 export function cardHasUserPlaceholder(card) {
-    const p = (card && typeof card.personality === 'string') ? card.personality : '';
-    const d = (card && typeof card.description === 'string') ? card.description : '';
-    return p.includes('{{user}}') || d.includes('{{user}}');
+    const personality = card && typeof card.personality === 'string' ? card.personality.trim() : '';
+    const description = card && typeof card.description === 'string' ? card.description.trim() : '';
+    const persona = personality !== '' ? personality : description;
+    return persona.includes('{{user}}');
 }
 
 /**

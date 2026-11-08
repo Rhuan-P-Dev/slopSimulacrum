@@ -111,10 +111,17 @@ describe('renderCardGrid', () => {
 });
 
 describe('cardHasUserPlaceholder', () => {
-    it('finds the token in the personality or the description (the Create-World mirror)', () => {
+    it('mirrors the server effective-persona rule (token in the effective prompt, not an OR)', () => {
+        // token in the personality (first field) -> the effective prompt carries it
         expect(cardHasUserPlaceholder({ personality: 'I adore {{user}}' })).toBe(true);
+        // token only in the description (personality empty) -> falls through to description
         expect(cardHasUserPlaceholder({ description: 'He loathes {{user}}' })).toBe(true);
+        // discriminative: token in the description, but a non-empty, token-less
+        // personality -> personality is the effective prompt (trimmed) and carries no token
+        expect(cardHasUserPlaceholder({ personality: 'no token here', description: 'loves {{user}}' })).toBe(false);
+        // no token anywhere
         expect(cardHasUserPlaceholder({ personality: 'none', description: 'none' })).toBe(false);
+        // empty fields
         expect(cardHasUserPlaceholder({})).toBe(false);
     });
 });

@@ -32,9 +32,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Logger from '../../utils/Logger.js';
 import { readCharaCard } from '../../utils/PngCharaReader.js';
+import { CARD_IMAGE_EXTS } from '../../utils/CardImageTypes.js';
 
 const CARD_BLUEPRINT = 'm1Droid';
-const CARD_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
 /**
  * Default profile applied to every card when the embedded payload is missing

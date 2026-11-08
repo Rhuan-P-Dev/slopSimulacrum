@@ -14,7 +14,9 @@
  * carries no literal `{{user}}` token cannot be judged: this controller
  * throws `CardUserTokenAbsentError` and the route answers 422
  * `CARD_USER_TOKEN_ABSENT` (the same rule the Create-World `{{user}}`
- * binding applies, mirrored server-side per TST-9).
+ * binding applies, mirrored server-side per TST-9). A card file that exists
+ * but carries no usable character payload throws `CardNotReadableError`
+ * (route: 422 `CARD_NOT_READABLE`) — a data mistake the operator can fix.
  *
  * The judgment is persisted as a JSON sidecar NEXT TO the card's PNG
  * (`<card stem>.user-relationship.json` inside `data/cards/`, through the
@@ -29,8 +31,11 @@
  *
  * Cost guard (SEC-9, the agent-body-design precedent): one LLM call per
  * explicit operator click, rate-limited in the route. The answer is small by
- * contract — a free-form label plus one short sentence (owner decision,
- * wiki/decisions/card-user-relationship.md) — and `max_tokens` is capped to
+ * contract — a free-form label (at most 3 words, 48 characters) plus one
+ * short sentence (at most 200 characters), owner decision,
+ * wiki/decisions/card-user-relationship.md — with the word and character
+ * caps enforced at the boundary (T-1, E-4), not just asked for — and `max_tokens`
+ * is capped to
  * match. The provider timeout is the LLM seam's (env `LLM_TIMEOUT_MS`);
  * there is no second knob (CR A-5).
  *
@@ -95,6 +100,27 @@ export class CardUserTokenAbsentError extends Error {
     }
 }
 
+/**
+ * A card file that exists but carries no usable character payload (a wrong
+ * file type, a corrupt file, or a valid file with no character metadata):
+ * the operator can fix the file, so this is a data/caller mistake (4xx), not
+ * an internal one (E-1, E-7). The route maps it to 422 `CARD_NOT_READABLE`.
+ */
+export class CardNotReadableError extends Error {
+    /**
+     * @param {string} cardId
+     * @param {string} [reason] - The reader's reason the file is not a card
+     *   (path-safe: `readCharaCard` reports its reason, never the path).
+     */
+    constructor(cardId, reason = 'no usable character payload') {
+        super(
+            `The card file for "${cardId}" is present but not a usable character card (${reason}); there is nothing to judge`
+        );
+        this.name = 'CardNotReadableError';
+        this.code = 'CARD_NOT_READABLE';
+    }
+}
+
 export class RelationshipJudgmentError extends Error {
     /**
      * @param {string} cardId
@@ -124,6 +150,12 @@ export const MAX_CARD_ID_LENGTH = 128;
 
 /** Label bound: a short free-form label (owner decision — no fixed vocabulary). */
 export const RELATIONSHIP_LABEL_MAX_CHARS = 48;
+
+/**
+ * Label word-bound (owner decision — the same 3 words the prompt names as the
+ * limit). Enforced at the boundary, not just asked for (T-1, E-4).
+ */
+export const RELATIONSHIP_LABEL_MAX_WORDS = 3;
 
 /** Summary bound: ONE short sentence (owner decision). */
 export const RELATIONSHIP_SUMMARY_MAX_CHARS = 200;
@@ -195,7 +227,7 @@ export default class CardUserRelationshipController {
                 continue; // an unknown version: not served, not interpreted
             }
             const persona = this._effectivePersona(card);
-            const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name : cardId;
+            const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name.trim() : cardId;
             if (typeof record.personaHash !== 'string' || record.personaHash !== personaHashFor(name, persona)) {
                 continue; // the card on disk is not the one that was judged
             }
@@ -218,15 +250,22 @@ export default class CardUserRelationshipController {
      * are named below and in the system prompt itself), validation of the
      * answer, and the sidecar write. Frozen result; the route shape mirrors
      * it one-to-one.
-     * @param {string} cardId - The card id (the PNG file stem, 1-128 chars).
+     * @param {string} cardId - The card id: the card file stem, raw, 1-128
+     *   chars (no trim — a stem with surrounding whitespace is a legitimate
+     *   id, the same as the image route serves it).
      * @returns {Promise<{card: {cardId: string, name: string}, relationship: {label: string, summary: string}, judgedAt: string, meta: {promptKind: string, promptVersion: string, model: string|null, finishReason: string|null, latencyMs: number}}>}
      * @throws {CardNotFoundError} no card file matches the id (route: 404)
+     * @throws {CardNotReadableError} the file exists but carries no usable character payload (route: 422)
      * @throws {CardUserTokenAbsentError} the effective persona has no {{user}} (route: 422)
      * @throws {RelationshipJudgmentError} the model answer failed validation (route: 422)
      * @throws {LLMError} the seam's typed provider error (route: 502)
      */
     async judgeCardUserRelationship(cardId) {
-        const id = typeof cardId === 'string' ? cardId.trim() : '';
+        // Raw id, no trim: a card file whose name carries leading or trailing
+        // whitespace is a legitimate card, and the gallery and the image
+        // route both use the raw stem — trimming here would let a card that
+        // lists and serves its image 404 on the judge.
+        const id = typeof cardId === 'string' ? cardId : '';
         if (id === '' || id.length > MAX_CARD_ID_LENGTH) {
             // Backstop (the route pre-validates the same bound, CR E-1): a
             // malformed id is a caller mistake, so it maps to 4xx, not 5xx.
@@ -256,7 +295,7 @@ export default class CardUserRelationshipController {
             throw new CardNotFoundError(id);
         }
         if (card === null) {
-            throw new Error(`Card file ${cardFileName} is not readable as a character card: ${readFailure}`);
+            throw new CardNotReadableError(id, readFailure);
         }
 
         const persona = this._effectivePersona(card);
@@ -264,7 +303,7 @@ export default class CardUserRelationshipController {
             throw new CardUserTokenAbsentError(id);
         }
 
-        const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name : id;
+        const name = typeof card.name === 'string' && card.name.trim() !== '' ? card.name.trim() : id;
         const messages = [
             { role: 'system', content: this._buildSystemPrompt() },
             { role: 'user', content: this._buildUserPrompt(name, persona) }
@@ -291,6 +330,13 @@ export default class CardUserRelationshipController {
                 summary: judgment.summary
             }
         };
+        // A stale verdict at this path (a previous judgment of a persona that
+        // no longer exists on disk) must not survive the re-write: delete it
+        // first, then the atomic tmp->rename writes the fresh verdict (P-3, CHG-6
+        // — derived data is deleted, not kept). The delete is a no-op when
+        // nothing is there and is synchronous, so nothing can read the sidecar
+        // half-replaced.
+        deleteCardUserRelationshipFile(sidecarPathFor(this._cardDir, cardFileName));
         writeCardUserRelationshipFile(sidecarPathFor(this._cardDir, cardFileName), record);
         this._sweepOrphanSidecars(cardFiles);
 
@@ -416,8 +462,13 @@ export default class CardUserRelationshipController {
         const label = typeof parsed.label === 'string' ? parsed.label.trim() : '';
         if (label === '') {
             violations.push('"label" must be a non-empty string');
-        } else if (label.length > RELATIONSHIP_LABEL_MAX_CHARS) {
-            violations.push(`"label" must be at most ${RELATIONSHIP_LABEL_MAX_CHARS} characters`);
+        } else {
+            if (label.length > RELATIONSHIP_LABEL_MAX_CHARS) {
+                violations.push(`"label" must be at most ${RELATIONSHIP_LABEL_MAX_CHARS} characters`);
+            }
+            if (label.split(/\s+/).filter(Boolean).length > RELATIONSHIP_LABEL_MAX_WORDS) {
+                violations.push(`"label" must be at most ${RELATIONSHIP_LABEL_MAX_WORDS} words`);
+            }
         }
         const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
         if (summary === '') {
