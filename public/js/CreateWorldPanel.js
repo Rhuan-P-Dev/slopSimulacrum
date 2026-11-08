@@ -23,6 +23,13 @@
  * selected, because a binding only reaches a card that actually spawns. The
  * server validates and applies the binding; this view only offers it.
  *
+ * The control is also grayed and locked for a card whose prompt carries no
+ * `{{user}}` token at all (`cardHasUserPlaceholder` below): there is nothing for
+ * a binding to act on, so offering one would be the client inventing a rule the
+ * server cannot apply. The check mirrors the server exactly - the effective
+ * persona (`buildCardProfile`: personality, else description, else the token-free
+ * default) and the literal token the prompt substitution matches.
+ *
  * The card list is `/agent-body/cards` - the same read the Agent Body overlay
  * uses. One endpoint, two panels: the fields are the same ones (a card's id is
  * the file's basename either way), and a second list endpoint would be a second
@@ -162,6 +169,12 @@ export class CreateWorldPanel {
                 .filter((other) => other.cardId !== card.cardId)
                 .map((other) => '<option value="' + escapeText(other.cardId) + '">' + escapeText(other.name || other.cardId) + '</option>')
                 .join('');
+            // A card whose prompt carries no {{user}} token gets the control
+            // grayed and locked for its whole life in the list (css: --locked).
+            const hasUser = cardHasUserPlaceholder(card);
+            const userTitle = hasUser
+                ? 'Whom this card treats as its {{user}}. Applies only while the card is selected to spawn.'
+                : 'This card\'s prompt carries no {{user}} token, so there is nothing to bind.';
             return '' +
                 '<div class="cw-row">' +
                 '<label class="cw-pick">' +
@@ -170,7 +183,7 @@ export class CreateWorldPanel {
                 '<span class="cw-id">' + escapeText(card.cardId) + '</span>' +
                 '<span class="cw-desc">' + escapeText(description) + (card.description?.length > 140 ? '...' : '') + '</span>' +
                 '</label>' +
-                '<label class="cw-user" title="Whom this card treats as its {{user}}. Applies only while the card is selected to spawn.">' +
+                '<label class="cw-user' + (hasUser ? '' : ' cw-user--locked') + '" title="' + userTitle + '">' +
                 '<span class="cw-user-label">its {{user}} is</span>' +
                 '<select class="cw-user-select">' +
                 '<option value="">(no binding: leave {{user}} as-is)</option>' +
@@ -192,16 +205,20 @@ export class CreateWorldPanel {
     }
 
     /**
-     * @private Enable the row's {{user}} selector only while the card is selected
-     * to spawn: a binding is applied at the card's spawn, so an unselected card
-     * has nowhere to receive one. The selected value is kept, so toggling the
-     * box back on restores the operator's earlier choice.
+     * @private Keep the row's {{user}} selector in step with its row. A locked
+     * control (the card's prompt carries no {{user}} token) stays disabled
+     * whatever the checkbox says: there is nothing to bind. Otherwise the
+     * selector is enabled only while the card is selected to spawn: a binding is
+     * applied at the card's spawn, so an unselected card has nowhere to receive
+     * one. The selected value is kept either way, so toggling the box back on
+     * restores the operator's earlier choice.
      */
     _syncUserSelect(box) {
         const row = box.closest('.cw-row');
         if (!row) return;
+        const user = row.querySelector('.cw-user');
         const sel = row.querySelector('.cw-user-select');
-        if (sel) sel.disabled = !box.checked;
+        if (sel) sel.disabled = (user && user.classList.contains('cw-user--locked')) || !box.checked;
     }
 
     /** @private Flip every checkbox and their {{user}} selectors. */
@@ -246,6 +263,24 @@ export class CreateWorldPanel {
         this._status.textContent = text;
         this._status.className = `sim-status sim-status--${tone}`;
     }
+}
+
+/**
+ * Whether a card's prompt can carry a `{{user}}` binding - the client-side
+ * mirror of the server's effective persona. The agent's system prompt renders
+ * the personality when the card has one, otherwise the description
+ * (`buildCardProfile`), and the world-create substitution acts on that exact
+ * string with the LITERAL `{{user}}` token (`LLMAgentController`); the default
+ * profile carries no token, so a card with neither field cannot have one.
+ * @param {{personality?: string, description?: string}|null|undefined} card - a
+ *   row of `GET /agent-body/cards`.
+ * @returns {boolean} true when the prompt the agent would get carries the token.
+ */
+export function cardHasUserPlaceholder(card) {
+    const personality = card && typeof card.personality === 'string' ? card.personality.trim() : '';
+    const description = card && typeof card.description === 'string' ? card.description.trim() : '';
+    const persona = personality !== '' ? personality : description;
+    return persona.includes('{{user}}');
 }
 
 /**

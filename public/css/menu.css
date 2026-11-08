@@ -255,6 +255,12 @@
 
 .cw-user-select:disabled { opacity: 0.4; }
 
+/* A card whose prompt carries no {{user}} token: there is nothing for a binding
+   to act on, so the whole control is grayed and locked (the --locked class is
+   applied by CreateWorldPanel from cardHasUserPlaceholder). */
+.cw-user--locked .cw-user-label { opacity: 0.45; }
+.cw-user--locked .cw-user-select { opacity: 0.45; cursor: not-allowed; }
+
 .cw-name { color: var(--neon-green); }
 .cw-id { color: var(--text-dim); font-size: 0.85em; }
 .cw-desc { color: var(--text-dim); font-size: 0.82em; }
