@@ -39,7 +39,7 @@
     <div id="app-menu">
         <span id="menu-brand" class="app-menu-brand" title="Back to the launcher">SIMULACRUM</span>
         <button id="btn-menu-create-world" class="app-menu-btn" type="button" title="Build a new world from the cards on disk">Create world</button>
-        <button id="btn-menu-cards" class="app-menu-btn" type="button" title="See the character cards on disk: their art, name and description">Cards</button>
+        <button id="btn-menu-cards" class="app-menu-btn" type="button" title="See the character cards on disk: their art, name, description and judged {{user}} relationship">Cards</button>
         <button id="btn-menu-mods" class="app-menu-btn" type="button" title="See and manage the installed mod packages">Mods</button>
     </div>
 
@@ -420,7 +420,7 @@
         <div class="sim-screen-inner">
             <div class="sim-screen-head">
                 <h2 class="sim-screen-title">Cards</h2>
-                <span class="sim-screen-note">The PNGs in <code>data/cards/</code>, each with the character its metadata carries. Drop a card file in that directory and refresh to see it here.</span>
+                <span class="sim-screen-note">The PNGs in <code>data/cards/</code>, each with the character its metadata carries. Drop a card file in that directory and refresh to see it here. Each card can also carry a judged relationship to its <code>{{user}}</code>: the row's button asks the LLM, and the verdict is saved next to the card.</span>
                 <button id="btn-cards-close" class="sim-btn sim-btn-ghost" type="button">Close</button>
             </div>
             <div class="sim-screen-foot">

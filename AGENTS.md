@@ -84,6 +84,16 @@ committed file, translate it in a separate commit that touches nothing else.
   package under `data/mods/` through `ModPackageWriter`. Never a `core-*` file, never the
   world structure kinds (`rooms`, `world`, `worldRules`, `worldObjects`), and never an
   apply: applying stays `POST /mods/apply`. See `wiki/decisions/system-authoring.md`.
+  The fifth kind is **`card-user-relationship`** (`CardUserRelationshipController`,
+  `/agent-body/cards/:cardId/user-relationship`, the per-card button on the dev tab
+  "Cards"): the LLM judges which relationship the card's character has with its
+  `{{user}}` placeholder, from the card's effective persona (a card whose persona has
+  no `{{user}}` token gets 422 `CARD_USER_TOKEN_ABSENT`). The verdict — a free-form
+  label plus one short sentence — is persisted as a sidecar
+  `<stem>.user-relationship.json` next to the card's PNG (never into the PNG, per the
+  language policy; never into the world definition; invalidated by a persona-hash
+  check, orphaned sidecars deleted on the judgment command). One LLM call per explicit
+  click, rate-limited in the route. See `wiki/decisions/card-user-relationship.md`.
 - **Mods** are data-only packages (JSON fragments in existing registry shapes, no code, no
   new dependency) that can be added, enabled and disabled **at runtime**, applied at the
   round boundary by build-validate-swap. The shipped world is one *official* `core-*` mod

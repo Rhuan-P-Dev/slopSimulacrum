@@ -16,6 +16,11 @@ import {
     CardNotFoundError,
     DesignValidationError
 } from '../../src/controllers/networking/AgentBodyController.js';
+import {
+    CardNotFoundError as RelationshipCardNotFoundError,
+    CardUserTokenAbsentError,
+    RelationshipJudgmentError
+} from '../../src/controllers/networking/CardUserRelationshipController.js';
 import { register } from '../../src/routes/agentBodyRoutes.js';
 
 /**
@@ -516,6 +521,254 @@ describe('agentBodyRoutes', () => {
                 body: JSON.stringify({ blueprintId: 'x', rationale: 'r', structure: { component: 'a' } })
             });
             expect(resp.status).toBe(500);
+        } finally {
+            server.close();
+        }
+    });
+});
+
+// ----------------------------------------------------- card {{user}} relationship
+
+describe('agentBodyRoutes: card user-relationship', () => {
+    /**
+     * A stub of the relationship-judge facade attachment (same shape the
+     * routes read; the judge is stubbed per TST-2, real provider behavior is
+     * the live smoke test).
+     */
+    function makeJudgeStub(options = {}) {
+        const judge = {
+            listCardUserRelationships: vi.fn(() => ({
+                nova: {
+                    label: 'devoted partner',
+                    summary: 'Nova adores {{user}}.',
+                    judgedAt: '2026-07-20T12:00:00.000Z'
+                }
+            })),
+            judgeCardUserRelationship: vi.fn()
+        };
+        Object.assign(judge, options);
+        return { worldStateController: { cardUserRelationshipController: judge }, judge };
+    }
+
+    it('GET /agent-body/cards/user-relationships → 200 with { relationships } from the controller', async () => {
+        const { worldStateController, judge } = makeJudgeStub();
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/user-relationships`);
+            const body = await resp.json();
+            expect(resp.status).toBe(200);
+            expect(body).toEqual({
+                relationships: {
+                    nova: {
+                        label: 'devoted partner',
+                        summary: 'Nova adores {{user}}.',
+                        judgedAt: '2026-07-20T12:00:00.000Z'
+                    }
+                }
+            });
+            expect(judge.listCardUserRelationships).toHaveBeenCalledTimes(1);
+        } finally {
+            server.close();
+        }
+    });
+
+    it('GET /agent-body/cards/user-relationships → 503 CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED when the controller is absent', async () => {
+        const app = buildApp({ worldStateController: {} });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/user-relationships`);
+            const body = await resp.json();
+            expect(resp.status).toBe(503);
+            expect(body.error.code).toBe('CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST /agent-body/cards/:cardId/user-relationship → 200 with the frozen judgment', async () => {
+        const result = {
+            card: { cardId: 'nova', name: 'Nova' },
+            relationship: { label: 'devoted partner', summary: 'Nova adores {{user}}.' },
+            judgedAt: '2026-07-20T12:00:00.000Z',
+            meta: { promptKind: 'card-user-relationship', promptVersion: '1.0.0', model: 'fake', finishReason: 'stop', latencyMs: 42 }
+        };
+        const { worldStateController, judge } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async (id) => {
+                expect(id).toBe('nova');
+                return result;
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(200);
+            expect(body).toEqual(result);
+            expect(judge.judgeCardUserRelationship).toHaveBeenCalledTimes(1);
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 400 CARD_ID_REQUIRED when the segment is over the length bound', async () => {
+        const { worldStateController, judge } = makeJudgeStub({ judgeCardUserRelationship: vi.fn() });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const tooLong = 'a'.repeat(129);
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/${tooLong}/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(400);
+            expect(body.error.code).toBe('CARD_ID_REQUIRED');
+            expect(judge.judgeCardUserRelationship).not.toHaveBeenCalled();
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 404 CARD_NOT_FOUND when no card file matches', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new RelationshipCardNotFoundError('no-such-card');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/no-such-card/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(404);
+            expect(body.error.code).toBe('CARD_NOT_FOUND');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 422 CARD_USER_TOKEN_ABSENT when the persona has no {{user}} token', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new CardUserTokenAbsentError('quiet');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/quiet/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(422);
+            expect(body.error.code).toBe('CARD_USER_TOKEN_ABSENT');
+            expect(body.error.message).toContain('{{user}}');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 422 RELATIONSHIP_JUDGMENT_INVALID naming the violated rules', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new RelationshipJudgmentError('nova', ['"label" must be a non-empty string', '"summary" must be at most 200 characters']);
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(422);
+            expect(body.error.code).toBe('RELATIONSHIP_JUDGMENT_INVALID');
+            expect(body.error.message).toContain('label');
+            expect(body.error.message).toContain('summary');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 502 with the LLM error code on a provider failure', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new LLMError('provider unreachable', 'LLM_UNAVAILABLE');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(502);
+            expect(body.error.code).toBe('LLM_UNAVAILABLE');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 503 when the judge is absent', async () => {
+        const app = buildApp({ worldStateController: {} });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(503);
+            expect(body.error.code).toBe('CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('POST user-relationship → 500 (route contract) when the judge throws something else', async () => {
+        const { worldStateController } = makeJudgeStub({
+            judgeCardUserRelationship: vi.fn(async () => {
+                throw new Error('disk exploded');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/user-relationship`, { method: 'POST' });
+            const body = await resp.json();
+            expect(resp.status).toBe(500);
+            expect(body.error).toBe('Internal Server Error');
         } finally {
             server.close();
         }

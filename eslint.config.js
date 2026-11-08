@@ -18,11 +18,13 @@ for (const name of [
 }
 
 // Data seam (CR B-3): the only files that may import `fs`. Keep in sync with
-// the fs imports in src/utils/DataLoader.js and the PNG reader. The same list
-// is the default of the cr/no-direct-file-read rule (tools/eslint-rules.js).
+// the fs imports in src/utils/DataLoader.js, the PNG reader and the card
+// sidecar store. The same list is the default of the cr/no-direct-file-read
+// rule (tools/eslint-rules.js).
 const DATA_SEAM_FS_FILES = [
   "src/utils/DataLoader.js",
   "src/utils/PngCharaReader.js",
+  "src/utils/CardRelationshipStore.js",
   "src/controllers/logic/CardSpawnLogic.js",
 ];
 

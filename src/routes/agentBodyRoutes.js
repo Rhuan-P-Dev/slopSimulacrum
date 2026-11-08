@@ -4,10 +4,21 @@
  * see wiki/decisions/agent-body-design.md).
  *
  * GET    /agent-body/cards                -> { cards: [{cardId, name, description, personality}] }
+ * GET    /agent-body/cards/user-relationships -> { relationships: { [cardId]: { label, summary, judgedAt } } }
+ *                                           the judged {{user}} relationship per card, read from the
+ *                                           sidecar next to each PNG (fresh ones only — a replaced
+ *                                           card's stale verdict is not served).
  * GET    /agent-body/cards/:cardId/image  -> binary image body (image/png, image/jpeg, ...); the card
  *                                           art, served to the Cards screen's <img>. 400 when the
  *                                           path segment is missing or over 128 chars, 404
  *                                           CARD_NOT_FOUND when no card file has that stem.
+ * POST   /agent-body/cards/:cardId/user-relationship -> { card, relationship, judgedAt, meta }
+ *         one LLM call (the fifth prompt kind, `card-user-relationship`, RP-1) judging which
+ *         relationship the card's character has with its {{user}}; the verdict is persisted as a
+ *         sidecar next to the card's PNG (never into the PNG — the repository's language policy —
+ *         and never into the world definition). 422 CARD_USER_TOKEN_ABSENT when the card's
+ *         effective persona carries no {{user}} token; 422 RELATIONSHIP_JUDGMENT_INVALID when the
+ *         model's answer fails validation.
  * POST   /agent-body/create         -> { card, body, meta }
  *         body: { cardId: string (1..128 chars, no extension) }
  * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
@@ -27,19 +38,30 @@
  *   404 { code: 'CARD_NOT_FOUND' }               no card PNG with that id
  *   422 { code: 'BODY_DESIGN_INVALID' }          model output / saved design failed validation,
  *                                                or its name yields no package id
+ *   422 { code: 'CARD_USER_TOKEN_ABSENT' }       judge only: the card's effective persona has no
+ *                                                {{user}} token, so there is no relationship to judge
+ *   422 { code: 'RELATIONSHIP_JUDGMENT_INVALID' } judge only: the model's judgment failed validation
  *   422 { code: MOD_PACKAGE_* }                  the writer refused the package (id, kind,
  *                                                size, non-data key)
- *   502 { code: LLM_ERROR_CODES.* }              provider failure (create only)
+ *   502 { code: LLM_ERROR_CODES.* }              provider failure (create and judge)
  *   503 { code: 'AGENT_BODY_CONTROLLER_NOT_WIRED' } feature not built (boot-order guard)
+ *   503 { code: 'CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED' } judge/list not built (boot-order guard)
  *
  * Cost guard (SEC-9): at most 20 designs per minute per IP (create) — one LLM call
  * per POST, same rate-limit shape as /llm/chat. Save has its own budget (20 per
- * minute per IP) since it writes data files, though it makes no LLM call.
+ * minute per IP) since it writes data files, though it makes no LLM call. The
+ * judge route has its own budget as well (20 per minute per IP): one LLM call
+ * per POST, answered by a small JSON object by contract.
  *
  * @module src/routes/agentBodyRoutes
  */
 
 import { CardNotFoundError, DesignValidationError, MAX_CARD_ID_LENGTH } from '../controllers/networking/AgentBodyController.js';
+import {
+	CardNotFoundError as RelationshipCardNotFoundError,
+	CardUserTokenAbsentError,
+	RelationshipJudgmentError
+} from '../controllers/networking/CardUserRelationshipController.js';
 import { PACKAGE_WRITE_ERROR_CODES } from '../services/ModPackageWriter.js';
 import { LLMError } from '../utils/CustomErrors.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
@@ -55,6 +77,12 @@ const saveRouteLimiter = createRateLimiter({
 	windowMs: 60000,
 	max: 20,
 	name: 'agent-body-save-route'
+});
+
+const relationshipRouteLimiter = createRateLimiter({
+	windowMs: 60000,
+	max: 20,
+	name: 'card-user-relationship-route'
 });
 
 /**
@@ -116,6 +144,29 @@ export function register(router, { worldStateController, modService }) {
 		return designer;
 	}
 
+	/**
+	 * Resolves the relationship judge from the facade, or emits a 503 when it
+	 * is absent (boot-order guard, same shape as the /llm routes).
+	 *
+	 * @param {import('express').Request} req - unused; kept for signature symmetry.
+	 * @param {import('express').Response} res
+	 * @returns {import('../controllers/networking/CardUserRelationshipController.js').default|null}
+	 */
+	function relationshipControllerOrError(req, res) {
+		void req;
+		const judge = worldStateController?.cardUserRelationshipController;
+		if (!judge || typeof judge.judgeCardUserRelationship !== 'function') {
+			res.status(503).json({
+				error: {
+					code: 'CARD_USER_RELATIONSHIP_CONTROLLER_NOT_WIRED',
+					message: 'The card user-relationship controller is not wired to this server'
+				}
+			});
+			return null;
+		}
+		return judge;
+	}
+
 	router.get('/agent-body/cards', (req, res) => {
 		void req;
 		try {
@@ -126,6 +177,25 @@ export function register(router, { worldStateController, modService }) {
 			res.json({ cards: designer.listCards() });
 		} catch (error) {
 			sendRouteError(error, res, '/agent-body/cards');
+		}
+	});
+
+	/**
+	 * The judged {{user}} relationship per card (read-only; the sidecar is
+	 * written by the POST below, never here — CR API-1). A card whose persona
+	 * moved on since its judgment has no entry: the stale sidecar is not
+	 * served (the controller checks the persona hash).
+	 */
+	router.get('/agent-body/cards/user-relationships', (req, res) => {
+		void req;
+		try {
+			const judge = relationshipControllerOrError(req, res);
+			if (!judge) {
+				return;
+			}
+			res.json({ relationships: judge.listCardUserRelationships() });
+		} catch (error) {
+			sendRouteError(error, res, '/agent-body/cards/user-relationships');
 		}
 	});
 
@@ -155,6 +225,71 @@ export function register(router, { worldStateController, modService }) {
 			return;
 		}
 		serveCardImage(designer, cardId, res);
+	});
+
+	/**
+	 * Judge one card's relationship with its {{user}}: one LLM call (prompt
+	 * kind `card-user-relationship`, the fifth, RP-1) whose verdict is written
+	 * as a sidecar next to the card's PNG. The judge's cost guard is the
+	 * limiter on this route (SEC-9); the provider timeout is the LLM seam's.
+	 */
+	router.post('/agent-body/cards/:cardId/user-relationship', relationshipRouteLimiter, async (req, res) => {
+		const cardId = (typeof req.params?.cardId === 'string') ? req.params.cardId.trim() : '';
+		if (cardId.length === 0 || cardId.length > MAX_CARD_ID_LENGTH) {
+			res.status(400).json({
+				error: {
+					code: 'CARD_ID_REQUIRED',
+					message: 'POST /agent-body/cards/:cardId/user-relationship requires a "cardId" path segment (1-' + MAX_CARD_ID_LENGTH + ' chars, no extension)'
+				}
+			});
+			return;
+		}
+		try {
+			const judge = relationshipControllerOrError(req, res);
+			if (!judge) {
+				return;
+			}
+			const result = await judge.judgeCardUserRelationship(cardId);
+			res.json(result);
+		} catch (judgeError) {
+			if (judgeError instanceof RelationshipCardNotFoundError) {
+				res.status(404).json({
+					error: {
+						code: judgeError.code,
+						message: judgeError.message
+					}
+				});
+				return;
+			}
+			if (judgeError instanceof CardUserTokenAbsentError) {
+				res.status(422).json({
+					error: {
+						code: judgeError.code,
+						message: judgeError.message
+					}
+				});
+				return;
+			}
+			if (judgeError instanceof RelationshipJudgmentError) {
+				res.status(422).json({
+					error: {
+						code: judgeError.code,
+						message: judgeError.message
+					}
+				});
+				return;
+			}
+			if (judgeError instanceof LLMError) {
+				res.status(502).json({
+					error: {
+						code: judgeError.code,
+						message: 'The LLM call for this relationship judgment failed; try again when the provider is reachable'
+					}
+				});
+				return;
+			}
+			sendRouteError(judgeError, res, '/agent-body/cards/:cardId/user-relationship');
+		}
 	});
 
 	router.post('/agent-body/create', designRouteLimiter, async (req, res) => {

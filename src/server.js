@@ -3,6 +3,7 @@ import bootstrapServer from './utils/serverBootstrap.js';
 import LLMController from './controllers/networking/LLMController.js';
 import LLMAgentController from './controllers/networking/LLMAgentController.js';
 import AgentBodyController from './controllers/networking/AgentBodyController.js';
+import CardUserRelationshipController from './controllers/networking/CardUserRelationshipController.js';
 import WorldAuthoringController from './controllers/networking/WorldAuthoringController.js';
 import ModPackageWriter from './services/ModPackageWriter.js';
 import NpcAIController from './controllers/ai/NpcAIController.js';
@@ -111,6 +112,15 @@ const worldAuthoringController = new WorldAuthoringController({
     writer: new ModPackageWriter()
 });
 worldStateController.worldAuthoringController = worldAuthoringController;
+
+// 7h. The card's {{user}} relationship (the Cards tab): the fifth LLM prompt
+//     kind `card-user-relationship` (RP-1/RP-2). One LLM call per explicit
+//     operator click (SEC-9, rate-limited in the route); the verdict is
+//     persisted as a sidecar next to the card's PNG — never into the PNG
+//     itself (the language policy) and never into the world definition
+//     (wiki/decisions/card-user-relationship.md).
+const cardUserRelationshipController = new CardUserRelationshipController({ llmController });
+worldStateController.cardUserRelationshipController = cardUserRelationshipController;
 
 // Build the deterministic AI brain (outside composition root — spec §A6).
 const npcAIController = new NpcAIController({

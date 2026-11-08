@@ -62,7 +62,15 @@ const crNoDirectFileRead = {
         ],
     },
     create(context) {
-        const options = context.options || {};
+        // ESLint passes rule options as an ARRAY of option objects (one per
+        // extra argument after the severity): the config's
+        // `["error", { allowedFiles: [...] }]` arrives as `[{ allowedFiles }]`.
+        // Read the first element as the options object - reading
+        // `context.options.allowedFiles` directly found nothing on the array
+        // and silently fell back to the defaults, which is how the config's
+        // override stopped working.
+        const first = Array.isArray(context.options) ? context.options[0] : context.options;
+        const options = first && typeof first === 'object' ? first : {};
         const allowedFiles = Array.isArray(options.allowedFiles)
             ? options.allowedFiles
             : DEFAULT_ALLOWED_FS_FILES;
