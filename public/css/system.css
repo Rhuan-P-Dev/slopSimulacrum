@@ -247,3 +247,78 @@
     gap: 8px;
     justify-content: flex-end;
 }
+
+/* The live actions on the table: the thing the Execute button acts on. Amber (caution)
+ * because, unlike a mod package, they mutate the running world as soon as run. */
+.system-plan {
+    margin-top: 8px;
+    border: 1px solid var(--neon-amber, #ffb347);
+    border-radius: 4px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.system-plan-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.system-plan-title {
+    color: var(--neon-amber, #ffb347);
+    font-weight: bold;
+    font-size: 0.85em;
+}
+
+.system-plan-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: monospace;
+    font-size: 0.75em;
+    color: var(--text-main, #eaeaea);
+    margin: 0 0 6px 0;
+    max-height: 240px;
+    overflow: auto;
+}
+
+.system-plan-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    line-height: 1.4;
+}
+
+.system-plan-action-op {
+    color: var(--neon-amber, #ffb347);
+    font-weight: bold;
+}
+
+.system-plan-action-params {
+    color: var(--text-dim, #aaa);
+    white-space: pre-wrap;
+}
+
+.system-plan-note {
+    color: var(--text-dim, #aaa);
+    font-size: 0.75em;
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* The one button that mutates the live world: danger, not the authoring green. */
+.system-btn-danger {
+    border-color: var(--neon-red, #ff4d4d);
+}
+
+.system-btn-danger:hover:not(:disabled) {
+    background: rgba(255, 77, 77, 0.12);
+}
+
+.system-btn-danger:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

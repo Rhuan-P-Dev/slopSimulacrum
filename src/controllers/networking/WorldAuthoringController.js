@@ -57,6 +57,7 @@ import {
     PROPOSAL_LIMITS
 } from '../../services/WorldProposalValidator.js';
 import { LLM_DEFAULT_MAX_TOKENS } from '../../utils/Constants.js';
+import { OPERATION_NAMES } from '../../services/WorldOperatorService.js';
 // Imported for the model name only (`OBS-3` logs which model answered); the seam owns
 // that resolution — env `LLM_MODEL` over the Constants default — and this module never
 // calls it. `AgentBodyController` reads the same static for the same reason.
@@ -65,7 +66,7 @@ import LLMController from './LLMController.js';
 /** The RP-1 prompt kind. */
 export const PROMPT_KIND = 'system-authoring';
 /** The RP-2 version of that prompt. Bump on any change to `_buildSystemPrompt`. */
-export const PROMPT_VERSION = '1.0.0';
+export const PROMPT_VERSION = '2.0.0';
 
 /**
  * Per-call token cap. 10x the global default, the same reasoning as
@@ -105,13 +106,24 @@ export const MAX_KEYS_PER_READ = 60;
 /** Hits a `find_definitions` search returns before saying `truncated`. */
 export const MAX_SEARCH_HITS = 25;
 
+/**
+ * Maximum live actions one session may hold in its plan before new ones are refused.
+ * The plan is per-session and outlives a single turn (it runs only when the operator
+ * clicks Execute), so it needs its own bound (`A-7`) beyond `MAX_TOOL_ITERATIONS`.
+ */
+export const MAX_ACTIONS_PER_SESSION = 64;
+
 /** The tool names this controller answers. Anything else is a bad call, not a feature. */
-const TOOL_NAMES = Object.freeze(['list_registries', 'read_registry', 'find_definitions', 'propose_mod']);
+const TOOL_NAMES = Object.freeze([
+    'list_registries', 'read_registry', 'find_definitions', 'propose_mod',
+    'list_entities', 'inspect_entity', 'list_rooms', 'propose_action'
+]);
 
 /** Codes this module raises (the route maps them to statuses). */
 export const SYSTEM_ERROR_CODES = Object.freeze({
     SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
-    PROPOSAL_NOT_SET: 'PROPOSAL_NOT_SET'
+    PROPOSAL_NOT_SET: 'PROPOSAL_NOT_SET',
+    ACTION_NOT_SET: 'ACTION_NOT_SET'
 });
 
 /**
@@ -139,11 +151,25 @@ export class ProposalNotSetError extends GameError {
 }
 
 /**
+ * The operator asked to execute a plan, but this session holds no actions. Expected, so
+ * it is a value the route answers with 409 — not a 500 for a click that came too early.
+ */
+export class ActionsNotSetError extends GameError {
+    /** @param {string} sessionId */
+    constructor(sessionId) {
+        super(`Session "${sessionId}" has no actions to execute`, SYSTEM_ERROR_CODES.ACTION_NOT_SET);
+        this.name = 'ActionsNotSetError';
+    }
+}
+
+/**
  * @typedef {Object} AuthoringTurn
  * @property {string} sessionId
  * @property {string|null} reply - the model's final text, or null when it ran out of
  *   iterations without answering (the tool log says what it read).
  * @property {Object|null} proposal - the frozen proposal this turn produced, if any
+ * @property {Array<Object>} actions - the live-action plan held for this session (run by
+ *   the operator via `executeActions`); empty when none are on the table.
  * @property {Array<Object>} toolLog - one entry per tool call: name, args, ok, detail
  * @property {Object} meta - promptKind, promptVersion, model, iterations, latencyMs,
  *   finishReason, sessionMessages, systemPrompt
@@ -155,12 +181,13 @@ export class WorldAuthoringController {
      * @param {import('./LLMController.js').LLMController} deps.llmController - the LLM seam (`B-2`)
      * @param {import('../../services/RegistryStore.js').RegistryStore} deps.registryStore - the live definition the tools read
      * @param {import('../../services/ModPackageWriter.js').ModPackageWriter} deps.writer - the package writer (used only by `writeProposal`)
+     * @param {import('../../services/WorldOperatorService.js').WorldOperatorService} deps.operatorService - the live-operator engine for the action plan (reads + executes the world)
      * @param {typeof validateProposal} [deps.validator] - injectable for tests
      * @param {string} [deps.model] - model id for the call and the report; absent means
      *   whatever the seam is configured with (env `LLM_MODEL`)
      * @param {() => string} [deps.nowIso] - `D-1`, `D-3`: the clock is not read directly
      */
-    constructor({ llmController, registryStore, writer, validator = validateProposal, model = null, nowIso = null }) {
+    constructor({ llmController, registryStore, writer, operatorService, validator = validateProposal, model = null, nowIso = null }) {
         if (!llmController || typeof llmController.chatFull !== 'function') {
             throw new TypeError('WorldAuthoringController: llmController (with chatFull) is required');
         }
@@ -170,14 +197,43 @@ export class WorldAuthoringController {
         if (!writer || typeof writer.writePackage !== 'function') {
             throw new TypeError('WorldAuthoringController: writer (with writePackage) is required');
         }
+        // `operatorService` is the live-world half of the feature; the definition-authoring
+        // flow does not need it, so it may be omitted (null-tolerance, the same pattern as
+        // `modService`). When present it is validated; when absent the live-action methods
+        // throw `OperatorServiceNotWiredError`, and the execute/clear routes answer 500 for
+        // it (a 503 is only raised for a missing *authoring* controller, via `authoringOrError`).
+        // In the shipped server the operator is always wired, so this path is unreachable.
+        if (operatorService && typeof operatorService.validateAction !== 'function') {
+            throw new TypeError('WorldAuthoringController: operatorService must expose validateAction/executeActions');
+        }
         this.llmController = llmController;
         this.registryStore = registryStore;
         this.writer = writer;
+        this.operatorService = operatorService ?? null;
         this.validator = validator;
         this.model = typeof model === 'string' && model.length > 0 ? model : null;
         this.nowIso = nowIso ?? (() => new Date().toISOString());
-        /** @private {Map<string, {messages: Array<Object>, proposal: Object|null, updatedAt: string, toolCalls: number}>} */
+        /** @private {Map<string, {messages: Array<Object>, proposal: Object|null, actions: Array<Object>, updatedAt: string}>} */
         this._sessions = new Map();
+    }
+
+    /**
+     * The live-world half (operator service) may be absent from a deployment that built
+     * the authoring controller without it. Every live path fails loudly with one message,
+     * never an obscure `TypeError`, and the routes/log answer "not wired" rather than a
+     * blank 500. In the shipped server this always resolves to a real service.
+     * @private
+     * @returns {WorldOperatorService}
+     */
+    _requireOperator() {
+        if (!this.operatorService) {
+            const error = new Error(
+                'WorldAuthoringController: the operator service (live-world actions) is not wired'
+            );
+            error.name = 'OperatorServiceNotWiredError';
+            throw error;
+        }
+        return this.operatorService;
     }
 
     // ================================================================
@@ -261,13 +317,20 @@ export class WorldAuthoringController {
             );
         }
 
-        this._appendMessage(session, 'assistant', reply ?? '(stopped after the tool-call limit without an answer.)');
+        // The model's answer, or an honest note that it stopped at the tool cap.
+        this._appendMessage(session, 'assistant',
+            reply ?? '(stopped after the tool-call limit without an answer.)');
+        // One-line context markers for the next turn: what is already on the table.
         if (session.proposal) {
-            // The one line the next turn needs: a proposal exists, and what it is.
             session.messages.push({
                 role: 'assistant',
-                content: `[proposal on the table: ${session.proposal.packageId}, ${session.proposal.stats.kinds} kind(s), `
-                    + `${session.proposal.stats.definitions} definition(s), ${session.proposal.overrides.length} overriding]`
+                content: `[proposal on the table: ${session.proposal.packageId}, ${session.proposal.stats.kinds} kind(s), ${session.proposal.stats.definitions} definition(s), ${session.proposal.overrides.length} overriding]`
+            });
+        }
+        if (session.actions.length > 0) {
+            session.messages.push({
+                role: 'assistant',
+                content: `[actions on the table: ${session.actions.length}. The operator may Execute them (POST /system/execute — they mutate the world now) or Clear the plan. Tell the operator what each does.]`
             });
         }
         this._trim(session);
@@ -277,6 +340,7 @@ export class WorldAuthoringController {
             sessionId: session.id,
             reply,
             proposal: session.proposal,
+            actions: Object.freeze(session.actions.map((action) => Object.freeze(action))),
             toolLog: Object.freeze(toolLog),
             meta: Object.freeze({
                 promptKind: PROMPT_KIND,
@@ -309,8 +373,49 @@ export class WorldAuthoringController {
             sessionId: session.id,
             messages: Object.freeze(session.messages.map((entry) => Object.freeze({ ...entry }))),
             proposal: session.proposal,
+            actions: Object.freeze(session.actions.map((action) => Object.freeze(action))),
             updatedAt: session.updatedAt
         });
+    }
+
+    /**
+     * What is on the table: the live plan (empty when none) and the proposal, if any.
+     * A cheap, read-only read so the client can render its Execute/Clear buttons without
+     * a write call (`GET /system/status`): the plan is per-session and outlives the turn
+     * that proposed it, so a reloaded tab reads it back here as well as from the chat
+     * response.
+     * @param {string} sessionId
+     * @returns {{ sessionId: string, actions: Array<Object>, proposal: Object|null, updatedAt: string }}
+     * @throws {SessionNotFoundError}
+     */
+    getPlanStatus(sessionId) {
+        const session = this._sessions.get(String(sessionId ?? ''));
+        if (!session) throw new SessionNotFoundError(String(sessionId ?? ''));
+        return Object.freeze({
+            sessionId: session.id,
+            actions: Object.freeze(session.actions.map((action) => Object.freeze(action))),
+            proposal: session.proposal,
+            updatedAt: session.updatedAt
+        });
+    }
+
+    /**
+     * The operator's discard (`POST /system/clear`): erase the session's plan without
+     * executing anything. A discard never touches the world — nothing on the table has
+     * been applied — and an empty plan is a harmless no-op (answered `cleared: false`
+     * instead of a 409; the operator may click the button out of habit).
+     * @param {string} sessionId
+     * @returns {{ sessionId: string, cleared: boolean }} - `cleared` is true when at
+     *   least one action left the table; false when the plan was already empty.
+     * @throws {SessionNotFoundError}
+     */
+    clearPlan(sessionId) {
+        const session = this._sessions.get(String(sessionId ?? ''));
+        if (!session) throw new SessionNotFoundError(String(sessionId ?? ''));
+        const cleared = session.actions.length > 0;
+        session.actions = [];
+        session.updatedAt = this.nowIso();
+        return Object.freeze({ sessionId: session.id, cleared });
     }
 
     /**
@@ -353,6 +458,41 @@ export class WorldAuthoringController {
         });
     }
 
+    /**
+     * The operator's click to run the session's plan of live actions.
+     *
+     * Re-validates each action against the *current* world (`T-1`) — the world may have
+     * moved between the propose (a chat turn) and the click. Executes in order; a failing
+     * action is reported and the rest still runs. Clears the plan and records what
+     * landed so the next turn knows. The mutation is immediate (unlike `writeProposal`,
+     * which defers to the round boundary).
+     *
+     * @param {string} sessionId
+     * @returns {{ executed: number, results: Array<{operation, summary, status, error?, result?}> }}
+     * @throws {SessionNotFoundError} | {ActionsNotSetError}
+     */
+    executeActions(sessionId) {
+        const session = this._sessions.get(String(sessionId ?? ''));
+        if (!session) throw new SessionNotFoundError(String(sessionId ?? ''));
+        if (session.actions.length === 0) throw new ActionsNotSetError(session.id);
+        const operator = this._requireOperator();
+        const report = operator.executeActions(session.actions);
+        session.actions = [];
+
+        // Remember it in the conversation: the next wish is usually a refinement of what
+        // was just done, and the model should know which actions landed.
+        this._appendMessage(session, 'assistant',
+            `[executed ${report.executed} action(s): `
+            + report.results.map((r) => `${r.status} (${r.summary ?? r.operation ?? 'no summary'})`).join('; ') + ']');
+        this._trim(session);
+        session.updatedAt = this.nowIso();
+
+        return Object.freeze({
+            executed: report.executed,
+            results: Object.freeze(report.results.map((result) => Object.freeze(result)))
+        });
+    }
+
     /** How many sessions this process is holding. Read by the tests, and by nobody else. */
     sessionCount() {
         return this._sessions.size;
@@ -378,7 +518,7 @@ export class WorldAuthoringController {
             this._sessions.set(id, existing);
             return existing;
         }
-        const session = { id, messages: [], proposal: null, updatedAt: this.nowIso() };
+        const session = { id, messages: [], proposal: null, actions: [], updatedAt: this.nowIso() };
         this._sessions.set(id, session);
         // Oldest-used eviction, and a log line when it costs somebody their conversation.
         // `.keys()` and not `const [id] = this._sessions`: destructuring a Map yields its
@@ -496,6 +636,51 @@ export class WorldAuthoringController {
                         required: ['packageId', 'description', 'content']
                     }
                 }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'list_entities',
+                    description: 'List every LIVE entity in the world (not a definition): id, name, blueprint, room. Use it to find the entity you want to act on, then inspect_entity it.',
+                    parameters: { type: 'object', properties: {}, required: [] }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'inspect_entity',
+                    description: 'Read one LIVE entity: its components (with current stats, including Physical.existence), its organs, its items, and its room. This is how you target "this entity\'s Physical.existence". Call it after list_entities, before propose_action.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            entityId: { type: 'string', description: 'The entity id to read (from list_entities).' }
+                        },
+                        required: ['entityId']
+                    }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'list_rooms',
+                    description: 'List every LIVE room (id, name, width, height). Use it to name a valid target room for move_entity or place_machine.',
+                    parameters: { type: 'object', properties: {}, required: [] }
+                }
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'propose_action',
+                    description: 'Propose a LIVE action for the operator to execute (POST /system/execute). Name an `operation` and free-form `params`; the server resolves ids and checks them against the running world. It writes nothing and executes nothing — the operator runs the whole plan with Execute. Rejections come back as a rule list; fix them and propose again. Available operations: ' + OPERATION_NAMES.join(', ') + '.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            operation: { type: 'string', enum: OPERATION_NAMES, description: 'Which live operation to request.' },
+                            params: { type: 'object', description: 'The operation\'s free-form parameters. Their shape depends on the operation; the server validates them, so name the values precisely.' }
+                        },
+                        required: ['operation', 'params']
+                    }
+                }
             }
         ];
     }
@@ -527,6 +712,21 @@ export class WorldAuthoringController {
             if (name === 'list_registries') return this._recordTool(toolLog, { name, args, ok: true }, this._toolListRegistries(), callsRemaining);
             if (name === 'read_registry') return this._recordTool(toolLog, { name, args, ok: true }, this._toolReadRegistry(args), callsRemaining);
             if (name === 'find_definitions') return this._recordTool(toolLog, { name, args, ok: true }, this._toolFindDefinitions(args), callsRemaining);
+            if (name === 'list_entities') return this._recordTool(toolLog, { name, args, ok: true }, this._toolListEntities(), callsRemaining);
+            if (name === 'inspect_entity') return this._recordTool(toolLog, { name, args, ok: true }, this._toolInspectEntity(args), callsRemaining);
+            if (name === 'list_rooms') return this._recordTool(toolLog, { name, args, ok: true }, this._toolListRooms(), callsRemaining);
+            if (name === 'propose_action') {
+                // An action is on the table only once the operator clicks Execute; the
+                // refusal is the rule list, so the model corrects it inside this turn.
+                const actionResult = this._toolProposeAction(args, session);
+                const actionRejected = actionResult?.ok === false;
+                return this._recordTool(toolLog, {
+                    name,
+                    args,
+                    ok: !actionRejected,
+                    detail: actionRejected ? (actionResult.errors ?? []).join('; ') : ''
+                }, actionResult, callsRemaining);
+            }
             // `propose_mod` answering is not the proposal being accepted: a refusal is a
             // result, and the operator's tool log must read "refused: <rules>", not "ok".
             const result = this._toolProposeMod(args, session);
@@ -684,6 +884,69 @@ export class WorldAuthoringController {
         }
     }
 
+    /** @private */
+    _toolListEntities() {
+        const operator = this._requireOperator();
+        return { live: true, ...operator.listEntities() };
+    }
+
+    /** @private */
+    _toolInspectEntity(args) {
+        if (args.__parseError) throw new Error(args.__parseError);
+        const entityId = typeof args.entityId === 'string' ? args.entityId.trim() : '';
+        if (entityId.length === 0) throw new Error('"entityId" is required.');
+        const operator = this._requireOperator();
+        const entity = operator.inspectEntity(entityId);
+        if (!entity) {
+            throw new Error(`No entity "${entityId}". Call list_entities for the live world.`);
+        }
+        return { live: true, entity };
+    }
+
+    /** @private */
+    _toolListRooms() {
+        const operator = this._requireOperator();
+        return { live: true, ...operator.listRooms() };
+    }
+
+    /**
+     * Propose one live action. The model names an operation and free-form params; the
+     * operator service validates them against the *live* world and, if they stand, puts
+     * the action on the session's plan. Nothing is executed by the proposal — the operator
+     * runs the whole plan with Execute (POST /system/execute). A rejection answers with the
+     * rule list; fix it and propose again.
+     * @private
+     * @param {Object} args
+     * @param {Object} session
+     * @returns {Object} tool result
+     */
+    _toolProposeAction(args, session) {
+        if (args.__parseError) throw new Error(args.__parseError);
+        const operation = typeof args.operation === 'string' ? args.operation.trim() : '';
+        const operator = this._requireOperator();
+        const validation = operator.validateAction(operation, args.params ?? null);
+        if (!validation.ok) {
+            return {
+                ok: false,
+                errors: validation.errors,
+                note: 'Fix these and call propose_action again.'
+            };
+        }
+        if (session.actions.length >= MAX_ACTIONS_PER_SESSION) {
+            return {
+                ok: false,
+                errors: [`The plan already holds ${session.actions.length} actions (cap ${MAX_ACTIONS_PER_SESSION}). Tell the operator to Execute (run) or Clear the plan before proposing more.`]
+            };
+        }
+        const action = { id: crypto.randomUUID(), ...validation.intent };
+        session.actions.push(action);
+        return {
+            ok: true,
+            action: { operation: action.operation, summary: action.summary },
+            note: 'The action is on the table. Nothing is executed yet: the operator runs the plan via Execute (POST /system/execute). Tell the operator what you added.'
+        };
+    }
+
     // ================================================================
     // Reading the live definition (through the store, never through disk)
     // ================================================================
@@ -726,46 +989,40 @@ export class WorldAuthoringController {
      */
     _buildSystemPrompt() {
         return [
-            `You are the System (${PROMPT_KIND} v${PROMPT_VERSION}) of a persistent, data-driven world simulation.`,
-            'The operator tells you what they want the world to contain; you author the DATA that makes it so.',
+            `You are the System (${PROMPT_KIND} v${PROMPT_VERSION}) of a persistent, data-driven world simulation. You have two levers: (a) author a data-only mod package (persistent definitions, applied at the next round boundary), and (b) propose a LIVE plan of actions that mutates the running world when the operator clicks Execute (POST /system/execute).`,
+            'The operator tells you what they want. For each ask, decide whether it is a DEFINITION change (author a package) or a RUNTIME change (propose live actions), or both, and say in your answer which lever you used.',
             '',
-            'WHAT YOU AUTHOR. Data-only mod packages: one directory under data/mods/ with a mod.json manifest and',
-            'one <kind>.json per registry you contribute. You never write code, you never edit the shipped core-*',
-            'packages, and you never change the world structure kinds: ' + NON_AUTHORABLE_KINDS.join(', ') + '.',
-            'Authorable kinds: ' + AUTHORABLE_KINDS.join(', ') + '.',
+            `AUTHOR definitions (persist; applied at the round boundary). Read the live definition with list_registries / read_registry / find_definitions, then propose_mod. You never write code, never edit the shipped core-* packages, and never change the world structure kinds: ${NON_AUTHORABLE_KINDS.join(', ')}. Authorable kinds: ${AUTHORABLE_KINDS.join(', ')}. This changes what the world is built from, not the running world.`,
+            `ACT on the running world (immediate). See the live state with list_entities / inspect_entity / list_rooms, then propose_action to put an action on the table. The operator runs the plan with Execute; each action is re-validated and executed in order against the current world. A proposal changes nothing by itself.`,
             '',
             'HOW YOU WORK.',
-            `You have ${MAX_TOOL_ITERATIONS} provider calls this turn, and every tool answer tells you how many are left.`,
-            'Spend them well: two or three reads is plenty. A listing already carries one real definition as',
-            '`sample`, which is usually all of the shape you need.',
-            '1. Read before you write. list_registries once, then read_registry / find_definitions. Never cite a',
-            '   component, material, organ, item, action or key you have not seen in this conversation.',
-            '2. Reuse what exists. A wish is usually met by adding one item, one recipe or one machine over the',
-            '   existing matter and component vocabulary, not by inventing a private world of new kinds.',
-            '3. Propose EARLY. Call propose_mod once you have seen the kinds you need; do not read every',
-            '   registry first. A proposal that is refused answers with its rule list — fix it and call it again,',
-            '   still in this turn. A turn that ends with no proposal tells the operator nothing.',
-            '4. Then answer in plain prose: what you proposed, which keys you added, what it shadows if anything,',
-            '   and what you could not do. The operator reads that answer before anything is written.',
+            `You have ${MAX_TOOL_ITERATIONS} provider calls this turn, and every tool answer says how many are left.`,
+            'Spend them well: a couple of reads is plenty. A registry listing already carries one real definition as `sample` (for authoring); inspect_entity carries the live stats an action needs (e.g. Physical.existence).',
+            '1. Read before you act. For authoring, read the definition; for an action, inspect the live entity and its components. Never cite an id or stat name you have not seen.',
+            '2. Reuse what exists. Author over the existing vocabulary; for actions, target entities and components the operator actually has.',
+            '3. Propose EARLY — propose_mod for definitions, propose_action for live changes. A refusal answers with its rule list; fix it and call the same tool again, still in this turn.',
+            '4. Then answer in plain prose: what you did and which button the operator must click next (Write for a package, Execute for actions). The operator reads that before any click.',
             '',
-            'THE DATA CONTRACT.',
+            'AUTHORING DATA CONTRACT.',
             '- content is { registryKind: { key: definition } }; the key is the identifier the world reads.',
-            '- Follow the shape of the definitions you read: a component recipe is form + materials (fractions that',
-            '  sum to 1.0) + internalComponents; an item is a small component; a crafting recipe is inputs/outputs.',
-            '  Copy the shape from what is already there — do not invent a schema.',
-            '- Redefining a key that already exists is legal (a package shadows the official one) but it must be',
-            '  deliberate, and you must say so in your answer.',
-            '- Keep it small: the shortest content that does the job. Caps exist and a big proposal is refused.',
+            '- Follow the shape of the definitions you read; copy it from what is already there, do not invent a schema.',
+            '- Redefining a key that exists is legal (a package shadows the official one) but must be deliberate; say so.',
+            '- Keep it small: the shortest content that does the job. Caps exist; a big proposal is refused.',
+            '',
+            'LIVE-ACTION CONTRACT.',
+            '- An action is an operation (a fixed menu, see the propose_action tool) plus free-form params; the server resolves ids and checks them against the live world and live definitions. Never invent ids or stat names you have not seen via inspect_entity or read_registry.',
+            '- A plan is per-session and outlives this turn. The operator runs it (Execute) or discards it (Clear). Never claim an action has run — the operator must click Execute. After Execute each action answers with a result; if one fails, report it and propose a fix.',
+            '- Setting Physical.existence to 0 leaves a component gone in place (its matter vanishes, dependents cascade). remove_component also spills, cascades, cleans up and may eliminate the entity. Choose the one the operator asked for.',
+            '- A machine is carried as an item. place_machine materialises it in the world (consumes the item); retrieve_machine brings a placed machine back into the holder.',
             '',
             'WHAT YOU DO NOT DO.',
-            '- You do not apply anything. A proposal becomes a package only by the operator\'s click, and the world',
-            '  takes it at the next round boundary. Never claim the world has changed.',
-            '- You do not touch a running entity, an inventory or a turn. You author definitions, nothing else.',
-            '- If the wish is really about the map, the world rules or the props, say plainly that the System does',
-            '  not author those, and say what a content-level alternative would be.',
-            '- If the wish is impossible with data alone, say so. No silent approximations.'
+            '- You do not apply or enable anything. A proposal becomes a package only by the operator Write click, and the world takes it at the next round boundary.',
+            '- You do not run actions. A live action executes only when the operator clicks Execute; you propose, the operator runs.',
+            '- Your only levers are propose_mod (definitions) and propose_action (the live plan). Nothing else changes the world.',
+            '- If the wish really is about the map, the world rules or the props themselves, say plainly the System does not author those, and say what a content-level alternative would be.',
+            '- If the wish is impossible with the live tools or with data, say so. No silent approximations.',
+            '',
         ].join('\n');
-    }
-}
+    }}
 
 export default WorldAuthoringController;

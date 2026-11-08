@@ -942,6 +942,36 @@ class WorldStateController {
     }
 
     /**
+     * Set one component stat to an absolute value, checking the component belongs
+     * to the given entity against the live world before delegating to the existing
+     * component-controller write path (which carries the damage/broadcast side-effects).
+     *
+     * This is the one facade member the System operator console needs (see wiki/decisions/system-live-operator.md):
+     * it is deliberately narrow and idempotent, so a live mutation can be expressed as
+     * "entity + component + trait + stat + value" without the caller resolving the component.
+     * @param {string} entityId - the entity that owns the component.
+     * @param {string} componentId - the component whose stat is set.
+     * @param {string} traitId - e.g. 'Physical'.
+     * @param {string} statName - e.g. 'existence'.
+     * @param {number} value - the absolute value to set.
+     * @returns {boolean} true when the stat was written.
+     */
+    setComponentStat(entityId, componentId, traitId, statName, value) {
+        const entity = this.getEntity(entityId);
+        if (!entity) {
+            return false;
+        }
+        const ids = (entity.components || []).map((c) => (c && typeof c === 'object' ? c.id : null)).filter(Boolean);
+        if (!ids.includes(componentId)) {
+            return false;
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return false;
+        }
+        return this.componentController.updateComponentStat(componentId, traitId, statName, value);
+    }
+
+    /**
      * Opens an energy-flow broadcast scope (wiki/subMDs/systems/energy_flow.md)
      *
      * Called by the EnergyFlowController at the start of one flow turn. While

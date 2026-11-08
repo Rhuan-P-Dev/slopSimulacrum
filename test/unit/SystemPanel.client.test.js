@@ -335,3 +335,145 @@ describe('SystemPanel.send (one turn)', () => {
         expect(stored['system.sessionId']).toBeUndefined();
     });
 });
+
+// =========================================================================
+// (a4) Execute / Clear — what the operator actually sees after a run
+// =========================================================================
+
+describe('SystemPanel.execute (what the Execute click reports)', () => {
+    function panelWithPlan(sessionId, plan = []) {
+        const panel = panelWith({ sessionId });
+        panel._plan = [...plan];
+        panel._status = { textContent: '', className: '' };
+        panel._entries = [];
+        panel._inFlight = false;
+        return panel;
+    }
+
+    it('counts success/failure by the server\'s `status` key — all ok means applied and resets the local plan', async () => {
+        const fetchSpy = vi.fn()
+            .mockResolvedValueOnce(jsonResponse(200, {
+                executed: 2,
+                results: [
+                    { operation: 'set_component_stat', summary: 'set Physical.existence -> 0.75', status: 'ok', result: true },
+                    { operation: 'set_entity_stat', summary: 'set Pleasure.pleasure -> 15', status: 'ok', result: true }
+                ]
+            }))
+            .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const panel = panelWithPlan('ses-7', [{ operation: 'set_component_stat' }, { operation: 'set_entity_stat' }]);
+        await panel._execute();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(2); // execute POST + status re-read in finally
+        expect(postedBody(fetchSpy)).toEqual({ sessionId: 'ses-7' });
+        expect(panel._status.textContent).toBe('2 action(s) applied. Changes are live now.');
+        expect(panel._plan).toEqual([]);
+        expect(panel._entries.at(-1).role).toBe('system');
+        expect(panel._entries.at(-1).text).toBe(
+            'Executed 2 action(s) on the live world:\nok     set Physical.existence -> 0.75\nok     set Pleasure.pleasure -> 15\n\nRe-open the droid(s) you changed to see the change.');
+    });
+
+    it('a partially failed run reports the exact number of failures with each refused row marked fail', async () => {
+        const fetchSpy = vi.fn()
+            .mockResolvedValueOnce(jsonResponse(200, {
+                executed: 1,
+                results: [
+                    { operation: 'set_component_stat', summary: 'set Physical.existence -> 0.75', status: 'ok', result: true },
+                    { operation: 'set_entity_stat', summary: 'set Pleasure.pleasure -> 15', status: 'error', error: 'No entity attribute "Pleasure.pleasure" for this entity. Known: none. For component stats, use set_component_stat with a component id.' }
+                ]
+            }))
+            .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const panel = panelWithPlan('ses-7', [{ operation: 'set_component_stat' }, { operation: 'set_entity_stat' }]);
+        await panel._execute();
+
+        expect(panel._status.textContent).toContain('1 of 2 action(s) applied; 1 refused');
+        const entryText = panel._entries.at(-1).text;
+        expect(entryText).toContain('Executed 2 action(s) on the live world:');
+        expect(entryText).toContain('fail  set Pleasure.pleasure -> 15');
+        expect(entryText).toContain('No entity attribute "Pleasure.pleasure"');
+        expect(panel._plan).toEqual([]);
+    });
+
+    it('a failed click re-reads the status endpoint so no stale plan card lingers', async () => {
+        const fetchSpy = vi.fn()
+            .mockRejectedValueOnce(new Error('network fell over'))
+            .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const panel = panelWithPlan('ses-7', [{ operation: 'set_entity_stat' }]);
+        await panel._execute();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(String(fetchSpy.mock.calls[1][0])).toContain('/system/status/');
+        expect(panel._status.className).toContain('system-status-error');
+        // the re-read is fire-and-forget — wait for the local plan to settle on the
+        // server state before asserting the card went away
+        await vi.waitFor(() => expect(panel._plan).toEqual([]));
+    });
+
+    describe('SystemPanel.clearPlan (what the Clear button reports)', () => {
+        it('passes the server report through — cleared true or false — and resets the local plan', async () => {
+            const fetchSpy = vi.fn()
+                .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', cleared: true }))
+                .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            const panel = panelWithPlan('ses-7', [{ operation: 'set_entity_stat' }]);
+            await panel._clearPlan();
+
+            expect(postedBody(fetchSpy)).toEqual({ sessionId: 'ses-7' });
+            expect(panel._status.textContent).toBe('Plan cleared. No change was made to the world.');
+            expect(panel._plan).toEqual([]);
+        });
+
+        it('a server-side empty table reports cleared false with its own message', async () => {
+            const fetchSpy = vi.fn()
+                .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', cleared: false }))
+                .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            const panel = panelWithPlan('ses-7', [{ operation: 'set_entity_stat' }]);
+            await panel._clearPlan();
+
+            expect(panel._status.textContent).toBe('Nothing to clear — no plan on the table.');
+            expect(panel._plan).toEqual([]);
+        });
+
+        it('a failed clear re-reads the status endpoint like execute', async () => {
+            const fetchSpy = vi.fn()
+                .mockRejectedValueOnce(new Error('network fell over'))
+                .mockResolvedValueOnce(jsonResponse(200, { sessionId: 'ses-7', actions: [], proposal: null }));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            const panel = panelWithPlan('ses-7', [{ operation: 'set_entity_stat' }]);
+            await panel._clearPlan();
+
+            expect(fetchSpy).toHaveBeenCalledTimes(2);
+            expect(String(fetchSpy.mock.calls[1][0])).toContain('/system/status/');
+            expect(panel._status.className).toContain('system-status-error');
+        });
+    });
+});
+
+describe('SystemPanel.plan card (rendering)', () => {
+    it('renders the server-generated summary in the plan action row, not just the operation name', () => {
+        vi.stubGlobal('document', { createElement: (tag) => makeElement(tag) });
+        const panel = panelWith({ sessionId: 'ses-7' });
+        panel._plan = [{
+            operation: 'set_component_stat',
+            summary: 'set component comp-1 (entity ent-1) Physical.existence -> 0.75',
+            params: { entityId: 'ent-1', componentId: 'comp-1' }
+        }];
+        const card = panel._renderLivePlanCard();
+        expect(card).not.toBeNull();
+        const title = findByClass(card, 'system-plan-title')[0] ?? null;
+        expect(title?.textContent).toBe('1 live action(s) on the table');
+        const op = findByClass(card, 'system-plan-action-op')[0] ?? null;
+        expect(op?.textContent).toBe('set component comp-1 (entity ent-1) Physical.existence -> 0.75');
+        const params = findByClass(card, 'system-plan-action-params')[0] ?? null;
+        expect(params?.textContent).toContain('"entityId"');
+    });
+});
