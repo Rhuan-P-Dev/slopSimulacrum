@@ -553,6 +553,84 @@ describe('AgentBodyController', () => {
             expect(err.errors.some((e) => e.includes('teleportOrb'))).toBe(true);
         });
 
+        it('authors its own organs: a proposed organ a component references survives validation', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{
+                name: 'courierWeb',
+                displayName: 'Courier Web',
+                grants: { 'Physical.strength': 70 },
+                grantsFlags: ['conductive'],
+                volume: 1
+            }];
+            // A component of this body names the organ the design invented.
+            design.components[0].internalComponents = ['courierWeb'];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+
+            const result = await controller.designBody(MINAKO_STEM);
+
+            expect(result.body.internalComponents).toEqual([{ name: 'courierWeb', displayName: 'Courier Web', grants: { 'Physical.strength': 70 }, grantsFlags: ['conductive'], volume: 1 }]);
+            // A design that invents no organs normalizes to an empty list, not an absence:
+            // downstream code (the save) iterates it unconditionally.
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            const noOrgans = await controller.designBody(MINAKO_STEM);
+            expect(noOrgans.body.internalComponents).toEqual([]);
+        });
+
+        it('rejects a designer organ that collides with an organ the world already has', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{ name: 'thinkCore', volume: 1, grants: { 'Mind.think_level': 5 } }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.errors.join(' ')).toMatch(/collides with an organ the world already has/);
+        });
+
+        it('rejects a designer organ grant outside the closed function-stat vocabulary', async () => {
+            // mass is a MATTER-derived stat; an organ that granted it would give a stat a
+            // second source and break one-source-per-stat derivation.
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{ name: 'massGland', volume: 1, grants: { 'Physical.mass': 5 } }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.errors.join(' ')).toMatch(/is not grantable by an organ/);
+        });
+
+        it('rejects a designer organ that grants no stat and marks no flag (inert)', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{ name: 'hollowShell', displayName: 'Hollow Shell', volume: 1 }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.errors.join(' ')).toMatch(/grants no stat and marks no flag/);
+        });
+
+        it('rejects a designer organ that carries a per-turn effect (a designer organ is static)', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{
+                name: 'regenNode',
+                volume: 1,
+                grants: { 'Physical.strength': 5 },
+                overTime: [{ type: 'restoreExistence', intervalTurns: 5, existenceGainPerInterval: 0.02, salvageConsumedPerInterval: 1 }]
+            }];
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
+            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            expect(err).toBeInstanceOf(DesignValidationError);
+            expect(err.errors.join(' ')).toMatch(/designer organ is static/);
+        });
+
+        it('says in the prompt what a designer organ is: static grants over a closed vocabulary', async () => {
+            fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
+            await controller.designBody(MINAKO_STEM);
+
+            const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
+            expect(system).toContain('"internalComponents"');
+            expect(system, 'the organ field is named the designer\'s own organs').toContain('the designer\'s own ICs');
+            expect(system, 'only the four function stats are grantable').toContain('Physical.strength');
+            expect(system, 'flags come from the world\'s closed set').toContain('conductive');
+            expect(system, 'an organ that grants nothing is rejected').toMatch(/at least a grant or a flag/);
+        });
+
         it('rejects a missing or empty rationale', async () => {
             fakeLlm.chatFull.mockResolvedValue({
                 content: JSON.stringify({
@@ -821,6 +899,46 @@ describe('AgentBodyController', () => {
                 novaRunner: [{ item: 'courierCloak', component: 'm1CentralBody' }]
             });
             expect(harness.written.some((p) => p.startsWith('data/mods/core-')), 'official items and outfits are never written').toBe(false);
+        });
+
+        it('writes the designer\'s own organ as its own kind of the package, referenced by its component', async () => {
+            const design = structuredClone(HAPPY_BODY);
+            design.internalComponents = [{
+                name: 'courierWeb',
+                displayName: 'Courier Web',
+                grants: { 'Physical.strength': 70 },
+                grantsFlags: ['conductive'],
+                volume: 1
+            }];
+            design.components[0].internalComponents = ['courierWeb'];
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(design);
+
+            expect(result.newOrgans).toEqual(['courierWeb']);
+            // The written entry follows the world's IC definition shape (the `name` field is
+            // the display name, the key is the type id - the convention the official file uses):
+            // the IC registry accepts it as-is at POST /mods/apply.
+            expect(harness.read(`${PACKAGE_DIR}/internalComponents.json`)).toEqual({
+                courierWeb: {
+                    name: 'Courier Web',
+                    volume: 1,
+                    grants: { 'Physical.strength': 70 },
+                    grantsFlags: ['conductive']
+                }
+            });
+            // The component that names the organ keeps the reference in the written recipe.
+            expect(harness.read(`${PACKAGE_DIR}/components.json`).parcelStrap.internalComponents).toEqual(['courierWeb']);
+            expect(harness.written.some((p) => p.startsWith('data/mods/core-')), 'the official organ file is never written').toBe(false);
+        });
+
+        it('omits the organ kind entirely when the design proposed no organs', async () => {
+            const harness = makeSaveHarness();
+            const result = await harness.controller.saveDesign(HAPPY_BODY);
+
+            expect(result.newOrgans).toEqual([]);
+            // An absent kind is not an empty kind: ModPackageWriter refuses an empty one, and
+            // "invented no organs" must not become "authored an empty registry".
+            expect(harness.has(`${PACKAGE_DIR}/internalComponents.json`)).toBe(false);
         });
 
         it('omits the clothing kinds entirely when the design said nothing about clothing', async () => {

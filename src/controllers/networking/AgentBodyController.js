@@ -9,7 +9,8 @@
  *   2. calls the provider through the injected LLMController (the sole LLM
  *      seam, CR B-2 — this controller never fetches the provider itself),
  *   3. parses the response (tolerating a markdown code fence) and validates it
- *      against the vocabulary (body tree + new component recipes),
+ *      against the vocabulary (body tree + new component recipes + new organs the
+ *      designer invents),
  *   4. returns a frozen design with the prompt captured for inspection (meta);
  *      the blueprint id is the card's display name (name field, stem fallback) —
  *      the model does not choose it; saveDesign persists that design as a mod
@@ -17,8 +18,9 @@
  *   5. persists a validated design (saveDesign) as ONE data-only mod package,
  *      `data/mods/body-<slug>/`, through `ModPackageWriter`: the body tree as the
  *      `blueprints` kind (the droid-type pointer + each component's sub-tree), the
- *      invented part recipes as `components`, the garments as `inventoryItems`, and
- *      what the body wears as `outfits`. The official `core-*` packages are NEVER
+ *      invented part recipes as `components`, the new organs as
+ *      `internalComponents`, the garments as `inventoryItems`, and what the body
+ *      wears as `outfits`. The official `core-*` packages are NEVER
  *      written — a designed body is an overlay next to the shipped world, and
  *      disabling the package is what undoes it. Every file a rewrite replaces is
  *      backed up by the writer before it is touched.
@@ -67,6 +69,7 @@ import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
 import { readCharaCard, readCardFileBytes } from '../../utils/PngCharaReader.js';
 import path from 'node:path';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
+import { FLAG_NAMES, STAT_NAMES, TRAIT_GROUPS, flatKey } from '../../../shared/StatVocabulary.js';
 import { narrowVisualBlock } from '../../utils/materialLook.js';
 import { performance } from 'node:perf_hooks';
 
@@ -87,8 +90,17 @@ const PROMPT_KIND = 'agent-body-design';
  * `wiki/decisions/outfits.md`). An authored `outfit` is a claim the save honors even
  * when it is empty (`[]` = born wearing nothing, and the world's default clothing
  * stands down); omitting the field says nothing, so the default stays in force.
+ * v1.5.0 — the designer also authors its own organs (internal components): a new
+ * top-level field `internalComponents` carries new organ definitions — a closed,
+ * static shape (name, optional displayName, grants over the four grantable function
+ * stats, optional flags, volume). A component's `internalComponents` may reference
+ * an organ the design proposed, not only a shipped one. The Save writes the proposed
+ * organs as the package's `internalComponents` kind; they install on the components
+ * that declare them, at spawn. Per-turn effects remain the world's: a designer
+ * organ grants and marks, and that is all (amendment in
+ * wiki/decisions/agent-body-design.md).
  */
-const PROMPT_VERSION = '1.4.0';
+const PROMPT_VERSION = '1.5.0';
 const SLUG_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
 /**
  * The identifier `entityController.expandBlueprint` itself gives a mount that
@@ -162,6 +174,37 @@ const MAX_OUTFIT_ENTRIES = 8;
  * not an identifier.
  */
 const MAX_GARMENT_LABEL_CHARS = 64;
+/**
+ * New organs a design may propose (`A-7`: nothing in this feature is unbounded).
+ * A designer organ is a registry row - one name the world does not have yet - so
+ * the same "more than any card has ever needed" ceiling as garments applies; past
+ * eight, the design is not describing a character.
+ */
+const MAX_IC_RECIPES = 8;
+/**
+ * The closed vocabulary a designer organ may GRANT: the four function stats the
+ * world derives from organs (`StatVocabulary` "FUNCTION"), nothing else. A grant
+ * outside this set would give a host a stat that matter and form do not own,
+ * breaking the one-source-per-stat invariant.
+ */
+const GRANTABLE_STAT_KEYS = Object.freeze([
+    flatKey(TRAIT_GROUPS.PHYSICAL, STAT_NAMES.STRENGTH),
+    flatKey(TRAIT_GROUPS.MOVEMENT, STAT_NAMES.MOVE),
+    flatKey(TRAIT_GROUPS.MANIPULATION, STAT_NAMES.FINE_CONTROLS),
+    flatKey(TRAIT_GROUPS.MIND, STAT_NAMES.THINK_LEVEL)
+]);
+/**
+ * The closed vocabulary a designer organ may MARK: the world's flags
+ * (`StatVocabulary.FLAG_NAMES`). Granting a flag is how the world's organs
+ * `corrosiveGland` and `sensitiveNerve` mark their host; a designer organ marks
+ * through the same channel.
+ */
+const GRANTABLE_FLAGS = Object.freeze(Object.values(FLAG_NAMES));
+/**
+ * A designer organ's spoken name may be at most this many chars (same bound as the
+ * garments: a display string, not an identifier).
+ */
+const MAX_IC_LABEL_CHARS = 64;
 
 /**
  * Thrown when cardId does not match any card PNG under data/cards/.
@@ -324,7 +367,7 @@ class AgentBodyController {
      * @param {string} cardId - stem of a card PNG under data/cards/ (no extension).
      * @returns {Promise<{
      *   card: {cardId: string, name: string, description: string, personality: string},
-     *   body: {blueprintId: string, rationale: string, structure: object, components: Array, garments: Array, outfit?: Array},
+     *   body: {blueprintId: string, rationale: string, structure: object, components: Array, garments: Array, internalComponents: Array, outfit?: Array},
      *   meta: {promptKind: string, promptVersion: string, promptMessages: Array, model: string, finishReason: string, latencyMs: number}
      * }>}
      * @throws {CardNotFoundError} - no card PNG matches cardId.
@@ -378,7 +421,7 @@ class AgentBodyController {
             '[AgentBodyController] ' + PROMPT_KIND + ' v' + PROMPT_VERSION +
             ' for card "' + cardId + '": blueprint "' + design.blueprintId +
             '" (' + this._countNodes(design.structure) + ' body nodes, ' + design.components.length + ' new recipes, ' +
-            design.garments.length + ' new garments, ' +
+            design.garments.length + ' new garments, ' + design.internalComponents.length + ' new organs, ' +
             (Array.isArray(design.outfit) ? design.outfit.length + ' outfit entry(ies)' : 'no clothing claim') + '), ' +
             systemPrompt.length + ' char system prompt, ' + userPrompt.length + ' char user prompt, ' + latencyMs + ' ms',
             { promptKind: PROMPT_KIND, promptVersion: PROMPT_VERSION }
@@ -417,6 +460,11 @@ class AgentBodyController {
      *     registry already publishes is left out, so the package never shadows official
      *     content with a copy of it;
      *   - `inventoryItems`: only the garments the design invented (same rule);
+     *   - `internalComponents`: only the organs the design INVENTED. A type the shipped
+     *     registry already publishes is left out, so the package never shadows official
+     *     content with a copy of it. Written in the world's IC shape — key = type id,
+     *     `name` = display name, static `grants`/`grantsFlags`/`volume`, no `overTime`,
+     *     no install gate; it installs on the components that name the organ, at spawn.
      *   - `outfits`: present only when the design SPOKE about clothing, keyed by the
      *     same blueprint key as the body. An authored EMPTY list means born wearing
      *     nothing; saying nothing leaves the world's default clothing in force.
@@ -433,8 +481,9 @@ class AgentBodyController {
      * Writes go through the data seam (CR B-3): this method touches no `fs` and names no
      * official data file.
      *
-     * @param {Object} design - { blueprintId, rationale, structure, components, garments, outfit }
-     *   (may be the frozen body from designBody, or raw model-shape JSON).
+     * @param {Object} design - { blueprintId, rationale, structure, components,
+     *   garments, internalComponents, outfit } (may be the frozen body from
+     *   designBody, or raw model-shape JSON).
      * @returns {{
      *   saved: boolean,
      *   packageId: string,
@@ -448,6 +497,7 @@ class AgentBodyController {
      *   backups: string[],
      *   blueprintId: string,
      *   newComponents: string[],
+     *   newOrgans: string[],
      *   newItems: string[],
      *   outfitWritten: boolean,
      *   blueprintWritten: string[],
@@ -494,6 +544,7 @@ class AgentBodyController {
             ...report,
             blueprintId: normalized.blueprintId,
             newComponents: Object.keys(content[REGISTRY_KINDS.COMPONENTS] ?? {}),
+            newOrgans: Object.keys(content[REGISTRY_KINDS.INTERNAL_COMPONENTS] ?? {}),
             newItems: Object.keys(content[REGISTRY_KINDS.INVENTORY_ITEMS] ?? {}),
             // True when the design SPOKE about clothing (even `outfit: []` = born
             // wearing nothing). False means no claim was made and the world's default
@@ -600,6 +651,14 @@ class AgentBodyController {
         );
         if (Object.keys(garments).length > 0) {
             content[REGISTRY_KINDS.INVENTORY_ITEMS] = garments;
+        }
+
+        const organs = this._newOrganRecipes(
+            normalized.internalComponents || [],
+            DataLoader.loadRegistry(REGISTRY_KINDS.INTERNAL_COMPONENTS)
+        );
+        if (Object.keys(organs).length > 0) {
+            content[REGISTRY_KINDS.INTERNAL_COMPONENTS] = organs;
         }
 
         // Present means the design SPOKE about clothing; absent means it said nothing
@@ -730,6 +789,42 @@ class AgentBodyController {
         return recipesByName;
     }
 
+    /**
+     * The organ definitions this package carries - the designer's own internal
+     * components, the static claims `_validateDesign` already narrowed (name, display
+     * name, volume, grants over the closed stat vocabulary, optional flags). A
+     * name colliding with a shipped organ is rejected by `_validateDesign` before
+     * this runs, so the filter here is a belt against a hand-edited design that
+     * slipped a shipped organ into the list: restating one in the package would
+     * shadow official content with a copy of it.
+     *
+     * The written entry follows the world's IC definition shape (the `name` field is
+     * the display name, the key is the type id - the same convention
+     * `data/mods/core-internal-components/internalComponents.json` uses), so the IC
+     * registry accepts it as-is at `POST /mods/apply`. It carries NO `overTime`, no
+     * install gate and no `weight`: a designer organ installs only where a component
+     * declares it, and its function is the grant it carries.
+     *
+     * @private
+     * @param {Array<Object>} organs - narrowed organ definitions.
+     * @param {Object} official - freshly loaded official internalComponents registry.
+     * @returns {Object} the definitions keyed by type id, ready to be `internalComponents.json`.
+     */
+    _newOrganRecipes(organs, official) {
+        const recipesByName = {};
+        organs.forEach((organ) => {
+            if (!organ || typeof organ.name !== 'string') return;
+            if (organ.name in official) return; // shipped organ: never restated by the package
+            recipesByName[organ.name] = {
+                name: organ.displayName || organ.name,
+                volume: organ.volume,
+                ...((organ.grants && Object.keys(organ.grants).length > 0) ? { grants: organ.grants } : {}),
+                ...((organ.grantsFlags && organ.grantsFlags.length > 0) ? { grantsFlags: organ.grantsFlags } : {})
+            };
+        });
+        return recipesByName;
+    }
+
     // ================================================================
     // Prompt building (agent-body-design kind; RP-2 versioned in the prompt
     // itself — the model sees the version header)
@@ -792,9 +887,16 @@ class AgentBodyController {
             '  { "name": "<unique id, letters and digits only>",\n' +
             '    "form": { "volume": <positive integer 1..40>, "position": { "x": <integer>, "y": <integer> } },\n' +
             '    "materials": [ { "material": "<one of the AVAILABLE MATERIALS>", "fraction": <number> } ],\n' +
-            '    "internalComponents": [ "<one of the AVAILABLE ORGANS>" ] or omitted,\n' +
+            '    "internalComponents": [ "<one of the AVAILABLE ORGANS, or a NEW organ you propose in the top-level "internalComponents" field below>" ] or omitted,\n' +
             '    "energyCapacity": <integer >= 0> or omitted }\n' +
             '  Material fractions within each new recipe must sum to exactly 1.0.\n' +
+            '- "internalComponents": the NEW organs you invent for this character (the designer\'s own ICs) - a top-level array of organ definitions. An organ is what makes a component functional: a STATIC claim, not a machine. It grants stats and/or marks flags, and it does nothing between turns (no fuel, no repair, no item making, no per-turn effect - that half belongs to the world\'s organs and is not authorable here). An organ that grants no stat and marks no flag is inert, like a component without an organ, so give each one at least a grant or a flag. Each new organ:\n' +
+            '  { "name": "<new id, letters and digits only, 1..31; NOT one the world already has>",\n' +
+            '    "displayName": "<what the world calls it in a sentence; optional>",\n' +
+            '    "grants": { "<stat key>": <number> },       // from ONLY: Physical.strength, Movement.move, Manipulation.fine_controls, Mind.think_level\n' +
+            '    "grantsFlags": ["<flag>"],                 // from ONLY: flammable, conductive, corrosive, sensitive\n' +
+            '    "volume": <positive integer 1..40> }\n' +
+            '  "grants" and "grantsFlags" are both optional, but at least one must be non-empty. At most ' + MAX_IC_RECIPES + ' new organs. A component uses a proposed organ exactly as it uses a world organ: by naming it in its own "internalComponents" - so every component that needs function names the organ that gives it.\n' +
             '- "garments": NEW wearable ITEMS you invent for this character - a cloak, a hood, a harness, a wrapped bandage, a ceremonial sash. A garment is a thing the character CARRIES and WEARS: it is never a node of "structure" and never a component. Each new garment:\n' +
             '  { "name": "<unique id, letters and digits only>",\n' +
             '    "displayName": "<what the world calls it in a sentence, e.g. Rune-Stitched Cloak; optional>",\n' +
@@ -806,11 +908,11 @@ class AgentBodyController {
             '- "outfit": what this body is BORN WEARING, as a list of { "item": "<one of your garments, or one of the WEARABLE ITEMS below>", "component": "<a component name that appears in your structure>" }. Author it for a character described dressed, and pair the garment with the mounts you marked "hidesWithParent" - the cloth is what hides them. Send [] when the character wears nothing at all; leaving the field out means you said nothing about clothing, which is NOT the same claim.\n\n' +
             'RULES\n' +
             '1. Every "component" in "structure" must be either an AVAILABLE COMPONENT (exactly as named below) or a NEW COMPONENT you define in "components".\n' +
-            '2. "internalComponents" of a new recipe may only use AVAILABLE ORGANS.\n' +
+            '2. A new recipe\'s "internalComponents" may use AVAILABLE ORGANS or ORGANS you PROPOSE in the top-level "internalComponents" field - nothing else.\n' +
             '3. The body is named after the card — you do NOT choose a blueprint id. Omit "blueprintId" from your JSON; the server sets it to the card\'s display name.\n' +
             '4. Keep the body compact: at most ' + MAX_BODY_NODES + ' component nodes in the tree.\n' +
             '5. "hidesWithParent" is a fact about THIS joint in THIS body, not about the component type: the same part may hide under the cloth of one body and not under another. Use it sparingly, and only where a garment would really be in front of the part.\n' +
-            '6. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy). The new component recipes are the judgment — the material and organ vocabulary stays fixed so the world remains deterministic.\n' +
+            '6. Make the body recognizable as THIS card, not a generic M1 droid: invent NEW components to express the character\'s defining traits (its name, role, temperament, signature equipment, unique anatomy) - and give them the NEW organs that make those parts do anything. The materials, the grantable stats and the flags stay a closed vocabulary; which organs exist is the judgment, and how organs act is the world\'s.\n' +
             '7. A garment is not a body part: never name a garment in "structure", and never name a component in "outfit".\n' +
             '8. Every "outfit" entry names a component that appears in the body tree, and a WEARABLE item - one you proposed in "garments" or one listed below.\n\n' +
             'AVAILABLE COMPONENTS (' + Object.keys(this.components).length + ' types):\n' +
@@ -956,7 +1058,7 @@ class AgentBodyController {
      * Validates the model design and normalizes it to a frozen shape. Rules
      * (the ones the prompt states):
      *   1. every body-tree component is available or proposed in "components";
-     *   2. new-recipe organs are available organs;
+     *   2. new-recipe organs are available organs or organs this design proposes;
      *   3. the blueprintId is valid for its path (a model-chosen unique slug, or
      *      a non-empty string when card-derived via { cardNameId }); a card-derived
      *      id may reuse the card's own previously-saved body;
@@ -1031,6 +1133,92 @@ class AgentBodyController {
             errors.push('the body tree has ' + structureRefs.length + ' nodes (max ' + MAX_BODY_NODES + ')');
         }
 
+        // New organs (the designer's own internal components): static claims - grants
+        // over the closed stat vocabulary, optional flags, a volume. Their names are
+        // proposed here, so a component's "internalComponents" may reference them
+        // alongside the shipped organs.
+        const rawOrgans = raw.internalComponents;
+        const organs = [];
+        const proposedOrganNames = new Set();
+        if (rawOrgans === undefined || rawOrgans === null) {
+            organs.length = 0;
+        } else {
+            if (!Array.isArray(rawOrgans)) {
+                errors.push('"internalComponents" must be an array of new organ definitions');
+            } else if (rawOrgans.length > MAX_IC_RECIPES) {
+                errors.push('"internalComponents" has ' + rawOrgans.length + ' entries (max ' + MAX_IC_RECIPES + ')');
+            } else {
+                rawOrgans.forEach((organ, index) => {
+                    const at = '"internalComponents[' + index + ']'; // leading quote only; field names go inside
+                    if (!organ || typeof organ !== 'object' || Array.isArray(organ)) {
+                        errors.push(at + '"] must be an organ object');
+                        return;
+                    }
+                    const name = organ.name;
+                    if (!isSlug(name)) {
+                        errors.push(at + '.name" must be an id (letters and digits only, 1-31 chars)');
+                        return;
+                    }
+                    if (this.organs[name]) {
+                        errors.push(at + '.name" "' + name + '" collides with an organ the world already has');
+                        return;
+                    }
+                    if (proposedOrganNames.has(name)) {
+                        errors.push(at + '.name" "' + name + '" is already proposed by this design');
+                        return;
+                    }
+                    let displayName = name;
+                    if (organ.displayName !== undefined) {
+                        if (typeof organ.displayName !== 'string') {
+                            errors.push(at + '.displayName" must be a string');
+                            return;
+                        }
+                        const label = organ.displayName.trim();
+                        if (label.length === 0) {
+                            errors.push(at + '.displayName" must be a non-empty string');
+                            return;
+                        }
+                        if (label.length > MAX_IC_LABEL_CHARS) {
+                            errors.push(at + '.displayName" must be at most ' + MAX_IC_LABEL_CHARS + ' characters');
+                            return;
+                        }
+                        displayName = label;
+                    }
+                    // A designer organ is a STATIC definition: grants and flags only.
+                    // Everything else (overTime, install gates, target types) belongs
+                    // to the world; a per-turn effect carried by a design's organ
+                    // would be a loop the save cannot see.
+                    const foreignKey = Object.keys(organ).find((key) =>
+                        !['name', 'displayName', 'grants', 'grantsFlags', 'volume'].includes(key));
+                    if (foreignKey !== undefined) {
+                        errors.push(at + '"] carries "' + foreignKey + '": a designer organ is static (grants and flags only)');
+                        return;
+                    }
+                    const grants = this._validateOrganGrants(organ.grants, at, errors);
+                    if (grants === null) return;
+                    const flags = this._validateOrganFlags(organ.grantsFlags, at, errors);
+                    if (flags === null) return;
+                    if (Object.keys(grants).length === 0 && flags.length === 0) {
+                        errors.push(at + '"] grants no stat and marks no flag (would be inert, like a component without an organ)');
+                        return;
+                    }
+                    if (!Number.isInteger(organ.volume) || organ.volume < 1 || organ.volume > 40) {
+                        errors.push(at + '.volume" must be an integer in 1..40');
+                        return;
+                    }
+                    proposedOrganNames.add(name);
+                    const narrowed = {
+                        name: name,
+                        displayName: displayName,
+                        volume: organ.volume
+                    };
+                    if (Object.keys(grants).length > 0) narrowed.grants = grants;
+                    if (flags.length > 0) narrowed.grantsFlags = flags;
+                    organs.push(narrowed);
+                });
+            }
+        }
+
         // new component recipes.
         const rawComponents = raw.components;
         const components = [];
@@ -1078,9 +1266,10 @@ class AgentBodyController {
                             const organName = typeof ic === 'string'
                                 ? ic
                                 : (ic && typeof ic === 'object' && typeof ic.type === 'string' ? ic.type : null);
-                            if (!organName || !this.organs[organName]) {
+                            if (!organName || (!this.organs[organName] && !proposedOrganNames.has(organName))) {
                                 errors.push(
-                                    '"components[' + index + '].internalComponents[' + ii + ']" "' + String(organName) + '" is not an available organ');
+                                    '"components[' + index + '].internalComponents[' + ii + ']" "' + String(organName) +
+                                    '" is not an available organ and not proposed in "internalComponents"');
                             }
                         });
                     }
@@ -1134,6 +1323,7 @@ class AgentBodyController {
             structure,
             components: normalizedComponents,
             garments,
+            internalComponents: organs,
             outfit,
             outfitDeclared: Array.isArray(raw.outfit)
         });
@@ -1231,6 +1421,71 @@ class AgentBodyController {
             errors.push(at + ' fractions sum to ' + fractionSum + ' (must sum to 1.0)');
         }
         return materials.map((m) => ({ material: m ? m.material : undefined, fraction: m ? m.fraction : undefined }));
+    }
+
+    /**
+     * The stat contributions a designer organ grants. A designer organ is a
+     * FUNCTION source: it grants only the four function stats the world derives
+     * from organs (the `StatVocabulary` FUNCTION set), keyed in the `Group.stat`
+     * wire form. Anything else - matter stats, volume, energy, a made-up key -
+     * would give a stat a second source and break one-source-per-stat derivation,
+     * so it is refused here, before the definition ever reaches the IC registry.
+     *
+     * @param {Object|undefined} rawGrants
+     * @param {string} at - where it came from, for the error text: the index-qualified identifier with its leading quote but no trailing quote, so field names are appended inside the quotes.
+     * @param {string[]} errors - collector.
+     * @returns {Object|null} the narrowed `{ [statKey]: number }`, or `null` when
+     *   the shape is wrong (the caller stops on `null`).
+     * @private
+     */
+    _validateOrganGrants(rawGrants, at, errors) {
+        if (rawGrants === undefined || rawGrants === null) return {};
+        if (typeof rawGrants !== 'object' || Array.isArray(rawGrants)) {
+            errors.push(at + '.grants" must be an object of stat key to number');
+            return null;
+        }
+        const narrowed = {};
+        for (const [key, value] of Object.entries(rawGrants)) {
+            if (!GRANTABLE_STAT_KEYS.includes(key)) {
+                errors.push(at + '.grants" key "' + String(key) + '" is not grantable by an organ (allowed: ' + GRANTABLE_STAT_KEYS.join(', ') + ')');
+                continue;
+            }
+            if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+                errors.push(at + '.grants"["' + key + '"] must be a number >= 0');
+                continue;
+            }
+            narrowed[key] = value;
+        }
+        return narrowed;
+    }
+
+    /**
+     * The flags a designer organ marks on its host - the world's closed flag
+     * vocabulary (`StatVocabulary.FLAG_NAMES`). Marking a flag is how the shipped
+     * organs `corrosiveGland` and `sensitiveNerve` gate their host; a designer
+     * organ marks through the same channel and no other.
+     *
+     * @param {Array|undefined} rawFlags
+     * @param {string} at - where it came from, for the error text: the index-qualified identifier with its leading quote but no trailing quote, so field names are appended inside the quotes.
+     * @param {string[]} errors - collector.
+     * @returns {Array<string>|null} the narrowed flag list, or `null` on a shape error.
+     * @private
+     */
+    _validateOrganFlags(rawFlags, at, errors) {
+        if (rawFlags === undefined || rawFlags === null) return [];
+        if (!Array.isArray(rawFlags)) {
+            errors.push(at + '.grantsFlags" must be an array of flag names');
+            return null;
+        }
+        const narrowed = [];
+        rawFlags.forEach((flag, i) => {
+            if (typeof flag !== 'string' || !GRANTABLE_FLAGS.includes(flag)) {
+                errors.push(at + '.grantsFlags[' + i + ']" "' + String(flag) + '" is not a known flag (allowed: ' + GRANTABLE_FLAGS.join(', ') + ')');
+                return;
+            }
+            if (!narrowed.includes(flag)) narrowed.push(flag);
+        });
+        return narrowed;
     }
 
     /**
@@ -1370,13 +1625,19 @@ class AgentBodyController {
      * Takes one object because the design now carries six things (`CHG-4`).
      * @private
      */
-    _normalizeDesign({ blueprintId, rationale, structure, components, garments, outfit, outfitDeclared }) {
+    /**
+     * The canonical frozen shape of a validated design, what `designBody` returns
+     * and what `saveDesign` accepts. The organs list is always present: `[]` means
+     * the design invented no organs, so downstream code can iterate it unconditionally.
+     */
+    _normalizeDesign({ blueprintId, rationale, structure, components, garments, internalComponents, outfit, outfitDeclared }) {
         return Object.freeze({
             blueprintId: blueprintId,
             rationale: rationale,
             structure: this._normalizeTree(structure),
             components: components,
             garments: garments,
+            internalComponents: internalComponents,
             // Absent, not empty, when the design said nothing about clothing: the
             // world distinguishes "this body wears nothing" (`outfit: []`) from "this
             // body was never dressed by a design" (no key at all), and the design

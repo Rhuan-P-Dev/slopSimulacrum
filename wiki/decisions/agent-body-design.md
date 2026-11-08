@@ -391,3 +391,56 @@ those; a design refused by validation writes nothing. Route: `applied: false` + 
 + a rescanned mods count, and a `MOD_PACKAGE_*` refusal answers 422 with its own code. Panel:
 the status line names the package and points at the Mods panel, and says so when something
 is shadowed.
+
+## Amendment — the designer authors its own organs (prompt v1.5.0)
+
+**What was missing.** A body a design created could be born dead. The world's rule is that
+a part is only capable because it *carries* an organ (`InternalComponentController._applyGrants`
+writes the host's function stats; the component recipe declares the organ, the organ carries
+the grant). But a design could only *reference* the organs the world already had. A new part
+invented to express a character could declare no function of its own — and the designer could
+not give it one, because the organ vocabulary was the world's, and an organ is a world
+registry entry, not a design field. The body could look like the card and still do nothing.
+
+**The decision.** A new top-level field, `internalComponents`, carries the organs the
+designer invents, and a component recipe may name a proposed organ exactly as it names a
+shipped one (`_validateDesign` accepts a proposed name the design itself proposed, next to
+the available ones, in a component's `internalComponents`):
+
+- A designer organ is a **static** claim: `name` (a fresh id, `1..31`, never a key the world
+  already has, never repeated in the design), an optional `displayName`, `volume` (`1..40`),
+  `grants` (only the four function stats the world derives from organs — `Physical.strength`,
+  `Movement.move`, `Manipulation.fine_controls`, `Mind.think_level` — nothing that matter and
+  form already own, or one-source-per-stat derivation breaks), and `grantsFlags` (the world's
+  closed `FLAG_NAMES` set, the same channel `corrosiveGland` and `sensitiveNerve` use). At
+  least one of `grants` / `grantsFlags` must be non-empty — an organ with neither is inert, a
+  part without a part. Anything else (`overTime`, an install gate, a target type) is refused:
+  a per-turn effect is the world's, and the save cannot see a loop it did not write. A bound
+  caps the list (`MAX_IC_RECIPES`).
+- The **Save** writes the proposed organs as the package's `internalComponents` kind — the
+  fifth file of the `body-<slug>` package, in the world's IC definition shape (`name` is the
+  display name, the key is the type id), no `overTime`, no install gate. No organ proposed,
+  no file: an absent kind, not an empty one. `saveDesign` reports them as `newOrgans`.
+- **The install is the world's, and the designer's organ goes through the same gate.** An
+  organ has no install policy of its own; it lands only where a component names it, at spawn.
+  That is what makes a designer organ safe: it cannot reach a part it is not declared on, and
+  it cannot act between turns.
+
+**What this does NOT do.** It does not let a design grant a stat the world derives another
+way (matter, form, energy) — only the four function stats — and it does not move the organ's
+per-turn machinery into the designer's hands. The vocabulary of what an organ *may* grant and
+mark stays closed (`A-7`); the judgment is which organs exist, not how organs act.
+
+**Verified.** `npm run check`; unit (`test/unit/AgentBodyController.test.js`): a proposed organ a
+component references survives validation and is written as the package's `internalComponents`
+kind, and a design that invents none writes no such file; a colliding name, a grant outside the
+four, an inert organ and a per-turn `overTime` are all refused; the prompt names the field and
+the closed vocabularies. Contract (`test/contract/designOrganInstall.contract.test.js`):
+a world built from the shipped registries plus one designed organ, a component that names it
+and a leaf that names nothing — the organ installs on the naming component at spawn, grants the
+function stat at the authored value and marks the flag, and the control component stays bare.
+The fit is the world's, not a flat default: the world's install gate
+(`InternalComponentController.autoInstallOnEntitySpawn`) measures the host's real
+`form.volume`, so a 20-volume organ lands on a 20-volume host while a 30-volume one stays out
+of it (a fit regression test in this file pins both). The shape the design writes is the
+shape the world reads.
