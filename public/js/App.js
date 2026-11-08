@@ -127,10 +127,10 @@ export class ClientApp {
         // System authors a data-only mod package (server prompt kind `system-authoring`).
         // Nothing is written until the Write mod click, and applying stays a Mods action.
         this.systemPanel = new SystemPanel();
-        // The top menu and its two full-screen views (create world, mods). Owned by
-        // AppMenu, not OverlayManager: these are not windows inside the world, they
-        // are the launcher in front of it, and they must not compete with the
-        // overlay windows for visibility.
+        // The top menu and its full-screen views (create world, cards, mods) plus the
+        // launcher that fronts them. Owned by AppMenu, not OverlayManager: these are not
+        // windows inside the world, they are the launcher in front of it, and they must not
+        // compete with the overlay windows for visibility.
         this.appMenu = new AppMenu();
 
         // 5. Socket connection (must be before EventDispatcher)

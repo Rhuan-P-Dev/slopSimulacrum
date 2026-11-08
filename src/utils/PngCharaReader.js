@@ -1,12 +1,13 @@
 /**
- * PngCharaReader — reads the embedded character-card payload out of the PNG
- * side channel.
+ * PngCharaReader — reads character cards from their PNG files.
  *
  * A "card" in this project is a PNG image (the art) whose `tEXt`/`iTXt`
  * metadata chunk carries the actual character data: a base64-encoded JSON
  * document (Chub.ai/botbooru `chara_card_v2` spec). The world engine only
  * needs that embedded JSON (name, description, personality, ...) — the pixel
- * data is irrelevant to simulation, so it is deliberately ignored.
+ * data is irrelevant to simulation, so `readCharaCard` discards it. The
+ * gallery route in the browser needs the art itself, so `readCardFileBytes`
+ * is its complement: raw file bytes out, no side-channel decoding.
  *
  * Why a dedicated utility rather than `DataLoader` or in-controller parsing:
  *   - The payload is not a standalone JSON file; it is byte-embedded inside a
@@ -198,4 +199,26 @@ export function readCharaCard(filePath) {
         }
     }
     return { success: false, card: null, error: 'No character payload found in the PNG metadata side channel.' };
+}
+
+/**
+ * Reads the raw file bytes of a card (the pixel art itself, not the embedded
+ * identity). `readCharaCard` deliberately throws away the art after pulling out
+ * the side-channel payload, because the world engine does not need pixels. The
+ * card gallery (`src/routes/agentBodyRoutes.js`) serves the art to a browser
+ * `<img>`, so this is the complementary read: bytes out, no decoding of the
+ * metadata side channel.
+ *
+ * @param {string} filePath - Absolute (or process-relative) path to a card file.
+ * @returns {Buffer} Raw file bytes, ready to be sent with a matching content type.
+ * @throws {Error} when the file cannot be read (missing or corrupt), named after
+ *   the operation (`CR E-3`): the caller maps this to a server error instead of
+ *   answering an empty image.
+ */
+export function readCardFileBytes(filePath) {
+    try {
+        return fs.readFileSync(filePath);
+    } catch (error) {
+        throw new Error('Could not read card image from ' + filePath + ': ' + error.message, { cause: error });
+    }
 }

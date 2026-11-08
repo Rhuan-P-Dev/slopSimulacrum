@@ -1,5 +1,5 @@
 /*
- * menu.css - the top menu, the launcher, and the two full-screen views.
+ * menu.css - the top menu, the launcher, and the full-screen views.
  *
  * The bar is the only permanent chrome this client has that is not a panel: it
  * stays where the config bar used to be reachable from, and the views it opens
@@ -225,6 +225,63 @@
 .cw-id { color: var(--text-dim); font-size: 0.85em; }
 .cw-desc { color: var(--text-dim); font-size: 0.82em; }
 .cw-empty { color: var(--text-dim); padding: 10px; }
+
+/* ------------------------------------------------------------------------ cards */
+
+/* One row per card: the art (the PNG itself, fetched by the <img>), then the
+ * name and the description the card's metadata carries. The art is square so a
+ * grid of rows of any source size stays regular, and object-fit: contain so
+ * the card is never cropped: it is a character portrait, not a banner. */
+.cards-stack { border-left: 1px solid #222; }
+
+/* The gallery's outer container: the header row and the card rows beneath it. */
+.cards-gallery { display: flex; flex-direction: column; gap: 10px; }
+
+.cards-row {
+    display: grid;
+    grid-template-columns: 384px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 10px 8px;
+    border-bottom: 1px solid #1f1f1f;
+}
+
+.cards-row:last-child { border-bottom: none; }
+.cards-row:hover { background: #121212; }
+
+.cards-photo {
+    width: 384px;
+    height: 384px;
+    object-fit: contain;
+    border: 1px solid #2a2a2a;
+    background: #0d0d0d;
+}
+
+/* On a narrow viewport the fixed 384px art would overflow the row. Shrink it
+ * (and the grid column to match) so the portrait scales down instead of
+ * blowing out the layout; `object-fit: contain` keeps the card uncropped.
+ * The column tracks the photo's width via `auto` so the two stay in sync. */
+@media (max-width: 560px) {
+    .cards-row {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+    .cards-photo {
+        width: 128px;
+        height: 128px;
+    }
+}
+
+.cards-row-main { min-width: 0; }
+.cards-id { color: var(--neon-green); font-weight: bold; }
+.cards-desc { color: var(--text-dim); font-size: 0.85em; margin-top: 4px; }
+/* The absence, said rather than left as a blank hole. */
+.cards-desc--none { font-style: italic; opacity: 0.6; }
+.cards-h {
+    font-size: 1em;
+    color: var(--text-main);
+    margin: 0 0 6px;
+}
+.cards-empty { color: var(--text-dim); padding: 10px; }
 
 /* ----------------------------------------------------------------------- mods */
 

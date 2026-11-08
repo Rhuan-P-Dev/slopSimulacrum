@@ -210,6 +210,45 @@ describe('AgentBodyController', () => {
         });
     });
 
+    // ================================================================ readCardImage
+    describe('readCardImage', () => {
+        it('returns the raw file bytes with the content type of the file extension', async () => {
+            const expected = await fs.readFile(path.join(CARDS_DIR, NOVA_STEM + '.png'));
+            const { bytes, mimeType } = controller.readCardImage(NOVA_STEM);
+            expect(bytes.equals(expected)).toBe(true);
+            expect(mimeType).toBe('image/png');
+        });
+
+        it('throws CardNotFoundError when no card file matches the id', () => {
+            let thrown = null;
+            try {
+                controller.readCardImage('no-such-card');
+            } catch (error) {
+                thrown = error;
+            }
+            expect(thrown).toBeInstanceOf(CardNotFoundError);
+        });
+
+        it('reads the cards-directory listing once and reuses it for every card (no N+1 dir read)', () => {
+            // The Cards screen fetches one image per card; each read matches the
+            // id against the on-disk listing. A fresh readdirSync yields a FRESH
+            // array, so returning the SAME array reference for two per-card reads
+            // is the mechanical proof that _listCardFiles cached the listing and
+            // the second read did not re-read the directory (the N+1 this exists
+            // to remove). The data-seam readCardFiles import is spied at the
+            // controller-method level here (readCardImage -> _listCardFiles),
+            // because a module-level vi.mock of the data seam would be
+            // over-instrumentation for a dev-tab perf guard.
+            const spy = vi.spyOn(controller, '_listCardFiles');
+            controller.readCardImage(NOVA_STEM);
+            controller.readCardImage(QUIET_STEM);
+            expect(spy).toHaveBeenCalledTimes(2);
+            // Both reads returned the identical (cached) listing object.
+            expect(spy.mock.results[0].value).toBe(spy.mock.results[1].value);
+            spy.mockRestore();
+        });
+    });
+
     // ============================================================= designBody
     describe('designBody', () => {
         it('returns a validated design with the prompt captured in meta (happy path)', async () => {

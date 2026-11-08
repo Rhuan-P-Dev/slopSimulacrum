@@ -17,6 +17,10 @@
  *      holds belongs to the world that just ended;
  *   6. a status read that fails is said out loud, and does not light up a button
  *      whose outcome nobody knows.
+ *   7. the Cards screen is one fetch per open: opening it re-fetches the list
+ *      from the server (the directory is truth — a card dropped since the last
+ *      view appears) and it is closed by its own close button, which returns to
+ *      the launcher (not the world).
  *
  * No jsdom (the suite has none): the page is a handful of element doubles and a
  * `fetch` that answers like `worldRoutes`. Nothing here tests the server - it
@@ -27,14 +31,19 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AppMenu } from '../../public/js/AppMenu.js';
+import { CardsPanel } from '../../public/js/CardsPanel.js';
 
-/** The element ids `AppMenu.init()` looks for. */
+/** The element ids `AppMenu.init()` looks for (the four full-screen views and
+ * the bar/launcher controls it binds). */
 const IDS = [
-    'launcher-screen', 'create-world-screen', 'mods-screen',
-    'menu-brand', 'btn-menu-create-world', 'btn-menu-mods',
+    'launcher-screen', 'create-world-screen', 'cards-screen', 'mods-screen',
+    'menu-brand', 'btn-menu-create-world', 'btn-menu-cards', 'btn-menu-mods',
     'btn-launcher-create', 'btn-launcher-mods', 'btn-launcher-enter', 'btn-launcher-stop',
-    'btn-create-world-close', 'btn-mods-close', 'launcher-status'
+    'btn-create-world-close', 'btn-cards-close', 'btn-mods-close', 'launcher-status'
 ];
+
+/** The element ids the card gallery view reads (its own content/status/refresh). */
+const CARD_IDS = ['cards-content', 'cards-status', 'btn-cards-refresh'];;
 
 /** A DOM element small enough to reason about: text, disabled, display, click. */
 function makeElement(id) {
@@ -56,16 +65,18 @@ function jsonResponse(body, status = 200) {
 }
 
 /**
- * Install a page: element doubles, a `fetch` that answers `/world-state` and
- * `/world/stop` from the given facts, and a reload counter.
+ * Install a page: element doubles, a `fetch` that answers `/world-state`,
+ * `/agent-body/cards` and `/world/stop` from the given facts, and a reload
+ * counter.
  * @param {Object} [world]
  * @param {boolean} [world.running]
  * @param {Object} [world.entities] - The entity map the state carries.
  * @param {number} [world.round]
  * @param {boolean} [world.stateFails] - Answer 500 to the status read.
+ * @param {Array} [cards] - What `/agent-body/cards` answers.
  */
-function installPage({ running = false, entities = {}, round = 0, stateFails = false } = {}) {
-    const els = new Map(IDS.map((id) => [id, makeElement(id)]));
+function installPage({ running = false, entities = {}, round = 0, stateFails = false, cards = [] } = {}) {
+    const els = new Map([...IDS, ...CARD_IDS].map((id) => [id, makeElement(id)]));
     /** @type {Array<{url: string, method: string}>} */
     const requests = [];
     globalThis.document = {
@@ -87,6 +98,9 @@ function installPage({ running = false, entities = {}, round = 0, stateFails = f
         }
         if (url === '/world/stop' && options.method === 'POST') {
             return jsonResponse({ success: true, despawned: Object.keys(entities).length, running: false });
+        }
+        if (url === '/agent-body/cards') {
+            return jsonResponse({ cards });
         }
         return jsonResponse({}, 404);
     };
@@ -219,5 +233,68 @@ describe('Stop world', () => {
         expect(window.location.reloads).toBe(0);
         expect(els.get('btn-launcher-stop').disabled).toBe(false);
         expect(els.get('launcher-status').textContent).toMatch(/could not read/i);
+    });
+});
+
+describe('the Cards screen (open/close)', () => {
+    // Each test installs a fresh page, then a fresh AppMenu over it, then
+    // inits: init() reads the launcher's close-button handler off the page's
+    // element doubles, so the page must exist before the menu is wired.
+
+    it('fetches the card list from the server every time it opens (the directory is truth, not a page cache)', async () => {
+        const page = installPage({
+            cards: [{ cardId: 'nova', name: 'Nova', description: 'a small fox courier', personality: '' }]
+        });
+        const menu = new AppMenu();
+        menu.init();
+        await settle();
+
+        // Open, close, open again: the gallery re-fetches on each open, so a
+        // card the operator dropped since the last view is seen without a
+        // reload.
+        menu.open('cards');
+        await settle();
+        menu.open('launcher');
+        menu.open('cards');
+        await settle();
+
+        expect(page.requests.filter((r) => r.url === '/agent-body/cards')).toHaveLength(2);
+        // The fetched cards render into the card panel AppMenu built lazily
+        // (`_cards`), which holds the last server answer in its own `_cards`.
+        expect(menu._cards).toBeInstanceOf(CardsPanel);
+        expect(menu._cards._cards).toHaveLength(1);
+        expect(menu._cards._cards[0].name).toBe('Nova');
+    });
+
+    it('is closed by its own close button and returns to the launcher, not the world', async () => {
+        const page = installPage({ cards: [] });
+        const menu = new AppMenu();
+        menu.init();
+        await settle();
+
+        menu.open('cards');
+        await settle();
+        expect(menu._openScreen).toBe('cards');
+
+        page.els.get('btn-cards-close').click();
+
+        // Close goes back to the launcher screen, not straight into the world.
+        expect(menu._openScreen).toBe('launcher');
+    });
+
+    it('survives a failed card-list fetch (the panel says so instead of throwing)', async () => {
+        const page = installPage({});
+        // Make the card-list fetch reject, like a down server.
+        globalThis.fetch = async () => { throw new Error('network down'); };
+        const menu = new AppMenu();
+        menu.init();
+        await settle();
+
+        // No throw escapes; the launcher is back and the panel is usable.
+        menu.open('cards');
+        await settle();
+        expect(menu._openScreen).toBe('cards');
+        page.els.get('btn-cards-close').click();
+        expect(menu._openScreen).toBe('launcher');
     });
 });

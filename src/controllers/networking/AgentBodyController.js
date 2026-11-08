@@ -47,6 +47,14 @@
  * (`src/controllers/logic/OutfitLogic.js`). See wiki/decisions/agent-body-design.md
  * and wiki/decisions/outfits.md.
  *
+ * The cards-directory listing is read lazily and held on the instance
+ * (`this._cardFiles`): the Cards screen fetches one image per card and every
+ * read is matched against that listing, so opening it costs one `readdirSync`
+ * no matter how many cards it holds. `listCards` refreshes the cache (the
+ * listing is read-only truth when the gallery opens); the per-card reads
+ * (`readCardImage`, `designBody`) reuse it, which removes the one-dir-read
+ * per-card N+1 the gallery used to run.
+ *
  * @module src/controllers/networking/AgentBodyController
  */
 
@@ -56,7 +64,8 @@ import DataLoader from '../../utils/DataLoader.js';
 import ModPackageWriter, { DEFAULT_PACKAGE_VERSION } from '../../services/ModPackageWriter.js';
 import { LLM_DEFAULT_MAX_TOKENS, LLM_DEFAULT_TEMPERATURE } from '../../utils/Constants.js';
 import { readCardFiles } from '../../controllers/logic/CardSpawnLogic.js';
-import { readCharaCard } from '../../utils/PngCharaReader.js';
+import { readCharaCard, readCardFileBytes } from '../../utils/PngCharaReader.js';
+import path from 'node:path';
 import { REGISTRY_KINDS } from '../../../shared/RegistryKinds.js';
 import { narrowVisualBlock } from '../../utils/materialLook.js';
 import { performance } from 'node:perf_hooks';
@@ -92,6 +101,21 @@ const MAX_BODY_NODES = 16;
 const MAX_TREE_DEPTH = 8;
 const MAX_CARD_ID_LENGTH = 128;
 const MATERIAL_FRACTION_TOLERANCE = 0.005;
+
+/**
+ * Content type for each image extension `readCardFiles` accepts (CARD_IMAGE_EXTS
+ * in src/controllers/logic/CardSpawnLogic.js). Frozen read-only table (`T-8`):
+ * the route reads `mimeType` from the controller answer and sends it to the
+ * browser; it is a routing detail, never world state.
+ */
+const IMAGE_CONTENT_TYPES = Object.freeze({
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    bmp: 'image/bmp'
+});
 
 /**
  * Per-call token cap for the agent-body-design prompt: 10x the global
@@ -174,7 +198,7 @@ class DesignValidationError extends Error {
     }
 }
 
-export { CardNotFoundError, DesignValidationError, PROMPT_KIND, PROMPT_VERSION, LLM_AGENT_BODY_MAX_TOKENS };
+export { CardNotFoundError, DesignValidationError, PROMPT_KIND, PROMPT_VERSION, LLM_AGENT_BODY_MAX_TOKENS, MAX_CARD_ID_LENGTH };
 
 /**
  * True for the identifier shapes used in the world (component names, blueprint
@@ -232,6 +256,10 @@ class AgentBodyController {
         this.organs = this._loadOrgans();
         this.items = this._loadItems();
         this.existingBlueprints = this._loadBlueprints();
+        // The cards-directory listing, read lazily (see the module note): the
+        // gallery fetches one image per card, so the per-card reads must not
+        // each re-read the directory. `null` until the first read.
+        this._cardFiles = null;
     }
 
     // ================================================================
@@ -244,7 +272,11 @@ class AgentBodyController {
      * @returns {Array<{cardId: string, name: string, description: string, personality: string}>}
      */
     listCards() {
-        const files = readCardFiles();
+        // The gallery is read-only truth: opening it re-reads the directory, so a
+        // card the operator just dropped is seen (and the cache the per-card
+        // image reads reuse is the one that is up to date).
+        this._cardFiles = null;
+        const files = this._listCardFiles();
         return files.map((file) => {
             const result = readCharaCard(file.fullPath);
             const card = (result.success && result.card && typeof result.card === 'object') ? result.card : null;
@@ -255,6 +287,33 @@ class AgentBodyController {
                 personality: cardString(card, 'personality')
             };
         });
+    }
+
+    /**
+     * Raw image bytes of the card matching the given stem — the art itself, not
+     * the embedded identity. Reads through the data seam (CR B-3); the
+     * returned `mimeType` matches the file's extension so the route sends a
+     * correct `Content-Type` instead of guessing.
+     *
+     * The path never comes from raw request input: `cardId` is matched exactly
+     * against the listing of `data/cards/`, and the bytes are read from the
+     * `fullPath` that listing owns (`SEC-7` — a traversal in the request is just
+     * a non-match; the file path stays inside the base dir by construction).
+     *
+     * @param {string} cardId - stem of a card file under data/cards/ (no extension).
+     * @returns {{ bytes: Buffer, mimeType: string }} the file bytes and their
+     *   content type (one of the card image types, `IMAGE_CONTENT_TYPES`, or an
+     *   `application/octet-stream` fallback for an unknown extension).
+     * @throws {CardNotFoundError} - when no card file matches the id.
+     */
+    readCardImage(cardId) {
+        const file = this._listCardFiles().find((f) => f.cardId === cardId);
+        if (!file) {
+            throw new CardNotFoundError(cardId);
+        }
+        const bytes = readCardFileBytes(file.fullPath);
+        const ext = path.extname(file.fullPath).toLowerCase().slice(1);
+        return { bytes, mimeType: IMAGE_CONTENT_TYPES[ext] || 'application/octet-stream' };
     }
 
     /**
@@ -277,7 +336,7 @@ class AgentBodyController {
             throw new DesignValidationError(String(cardId == null ? 'cardId' : cardId), ['cardId must be a string of 1-128 characters']);
         }
 
-        const file = readCardFiles().find((f) => f.cardId === cardId);
+        const file = this._listCardFiles().find((f) => f.cardId === cardId);
         if (!file) {
             throw new CardNotFoundError(cardId);
         }
@@ -675,6 +734,23 @@ class AgentBodyController {
     // Prompt building (agent-body-design kind; RP-2 versioned in the prompt
     // itself — the model sees the version header)
     // ================================================================
+
+    /**
+     * The cards-directory listing, read once per view and cached on the
+     * instance (`this._cardFiles`). The Cards screen fetches one image per
+     * card, and every read is matched against this listing, so one
+     * `readdirSync` per gallery open instead of one per card. `listCards`
+     * clears the cache before reading (the gallery re-reads the directory on
+     * open); the per-card readers (`readCardImage`, `designBody`) reuse it.
+     * @private
+     * @returns {Array<{fullPath: string, cardId: string}>}
+     */
+    _listCardFiles() {
+        if (this._cardFiles === null) {
+            this._cardFiles = readCardFiles();
+        }
+        return this._cardFiles;
+    }
 
     /**
      * System message: role, anatomy facts, output schema, rules, and the full

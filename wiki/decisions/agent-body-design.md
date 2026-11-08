@@ -61,6 +61,21 @@ Constraints that shaped the design (all from `CODE_RULES.md`):
 - Routes:
   - `GET /agent-body/cards` → `{ cards: [{ cardId, name, description, personality }] }`
     (read-only card list from `data/cards/`; no LLM call).
+  - `GET /agent-body/cards/:cardId/image` → the card's own bytes with the
+    content type of its file extension (`image/png`, `image/jpeg`, ...),
+    `Content-Length` and `Cache-Control: no-store` (the art changes on disk
+    when the user drops a new file). 400 `CARD_ID_REQUIRED` (segment missing or
+    over 128 chars); 404 `CARD_NOT_FOUND`; 500 (the shared route contract) when the read
+    fails for any other reason (a disk error, not a missing card); 503
+    `AGENT_BODY_CONTROLLER_NOT_WIRED`.
+    The id is matched against the cards-directory listing, so a traversal in the
+    request is a non-match, not a path (SEC-7); the bytes come from the data seam
+    (`readCardFileBytes` in `src/utils/PngCharaReader.js`, B-3). The listing is read
+    once per gallery open and cached on the controller instance (`_listCardFiles`),
+    so the per-card reads reuse it instead of re-reading the directory each time
+    (`listCards` refreshes the cache on open). Served to the Cards menu tab's gallery
+    (`public/js/CardsPanel.js`), which pairs each row's photo with the name and
+    description the same listing carries. No LLM call.
   - `POST /agent-body/create` with body `{ cardId }` (1..128 chars, stem, no
     extension) → 200 `{ card, body, meta }` with `meta = { promptKind,
     promptVersion, promptMessages (captured, dev inspection), model, finishReason,

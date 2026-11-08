@@ -99,6 +99,124 @@ describe('agentBodyRoutes', () => {
         }
     });
 
+    // ------------------------------------------------ GET /agent-body/cards/:cardId/image
+    it('GET /agent-body/cards/:cardId/image → 200 with the bytes, the controller\'s content type and no-store', async () => {
+        const bytes = Buffer.from('\x89PNG fake bytes');
+        const { worldStateController, designer } = makeDesignerStub({
+            readCardImage: vi.fn(() => ({ bytes, mimeType: 'image/png' }))
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/image`);
+            const body = Buffer.from(await resp.arrayBuffer());
+            expect(resp.status).toBe(200);
+            expect(resp.headers.get('content-type')).toBe('image/png');
+            expect(resp.headers.get('content-length')).toBe(String(bytes.length));
+            expect(resp.headers.get('cache-control')).toBe('no-store');
+            expect(body.equals(bytes)).toBe(true);
+            expect(designer.readCardImage).toHaveBeenCalledWith('nova');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('GET /agent-body/cards/:cardId/image → 404 CARD_NOT_FOUND when no card file matches', async () => {
+        const { worldStateController } = makeDesignerStub({
+            readCardImage: vi.fn(() => {
+                throw new CardNotFoundError('no-such-card');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/no-such-card/image`);
+            const body = await resp.json();
+            expect(resp.status).toBe(404);
+            expect(body.error.code).toBe('CARD_NOT_FOUND');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('GET /agent-body/cards/:cardId/image → 400 CARD_ID_REQUIRED when the segment is over the length bound', async () => {
+        const { worldStateController, designer } = makeDesignerStub({
+            readCardImage: vi.fn()
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const tooLong = 'a'.repeat(129);
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/${tooLong}/image`);
+            const body = await resp.json();
+            expect(resp.status).toBe(400);
+            expect(body.error.code).toBe('CARD_ID_REQUIRED');
+            expect(designer.readCardImage).not.toHaveBeenCalled();
+        } finally {
+            server.close();
+        }
+    });
+
+    it('GET /agent-body/cards/:cardId/image → 503 AGENT_BODY_CONTROLLER_NOT_WIRED when the controller is absent', async () => {
+        const app = buildApp({ worldStateController: {} });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/image`);
+            const body = await resp.json();
+            expect(resp.status).toBe(503);
+            expect(body.error.code).toBe('AGENT_BODY_CONTROLLER_NOT_WIRED');
+        } finally {
+            server.close();
+        }
+    });
+
+    it('GET /agent-body/cards/:cardId/image → 500 (route contract) when the read fails and is not a CardNotFoundError', async () => {
+        // A read failure that is not a missing card (e.g. the disk) is a 500
+        // with the shared route contract, never a coded 4xx: the controller
+        // threw something other than CardNotFoundError, so the endpoint falls
+        // through to sendRouteError.
+        const { worldStateController } = makeDesignerStub({
+            readCardImage: vi.fn(() => {
+                throw new Error('disk exploded');
+            })
+        });
+        const app = buildApp({ worldStateController });
+        const server = await new Promise((resolve) => {
+            const s = app.listen(0);
+            resolve(s);
+        });
+        try {
+            const port = server.address().port;
+            const resp = await fetch(`http://localhost:${port}/agent-body/cards/nova/image`);
+            const body = await resp.json();
+            expect(resp.status).toBe(500);
+            expect(body.error).toBe('Internal Server Error');
+            // The detail (the exception message) is exposed outside production
+            // (the routeError contract); vitest runs with NODE_ENV=test.
+            if (process.env.NODE_ENV !== 'production') {
+                expect(body.details).toContain('disk exploded');
+            }
+        } finally {
+            server.close();
+        }
+    });
+
     // ----------------------------------------------------- POST /agent-body/create
     it('POST /agent-body/create → 400 CARD_ID_REQUIRED without a cardId in the body', async () => {
         const { worldStateController } = makeDesignerStub();

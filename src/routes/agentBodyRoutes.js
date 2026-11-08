@@ -3,7 +3,11 @@
  * `agent-body-design`, implemented in src/controllers/networking/AgentBodyController.js;
  * see wiki/decisions/agent-body-design.md).
  *
- * GET    /agent-body/cards          -> { cards: [{cardId, name, description, personality}] }
+ * GET    /agent-body/cards                -> { cards: [{cardId, name, description, personality}] }
+ * GET    /agent-body/cards/:cardId/image  -> binary image body (image/png, image/jpeg, ...); the card
+ *                                           art, served to the Cards screen's <img>. 400 when the
+ *                                           path segment is missing or over 128 chars, 404
+ *                                           CARD_NOT_FOUND when no card file has that stem.
  * POST   /agent-body/create         -> { card, body, meta }
  *         body: { cardId: string (1..128 chars, no extension) }
  * POST   /agent-body/save           -> { saved, packageId, dir, version, content, created,
@@ -35,7 +39,7 @@
  * @module src/routes/agentBodyRoutes
  */
 
-import { CardNotFoundError, DesignValidationError } from '../controllers/networking/AgentBodyController.js';
+import { CardNotFoundError, DesignValidationError, MAX_CARD_ID_LENGTH } from '../controllers/networking/AgentBodyController.js';
 import { PACKAGE_WRITE_ERROR_CODES } from '../services/ModPackageWriter.js';
 import { LLMError } from '../utils/CustomErrors.js';
 import { createRateLimiter } from '../utils/rateLimiter.js';
@@ -58,6 +62,33 @@ const saveRouteLimiter = createRateLimiter({
  * code added there is answered here too instead of falling through to a 500 (`CR H-2`).
  */
 const PACKAGE_ERROR_CODES = Object.freeze(Object.values(PACKAGE_WRITE_ERROR_CODES));
+
+/**
+ * The per-card image is an asset, not a JSON answer: the bytes go straight out
+ * with the image `Content-Type` and `Content-Length`. `Cache-Control: no-store`
+ * because a card's art can change on disk (the user drops a new file) and a
+ * stale cached <img> would then lie about what the card says.
+ */
+function serveCardImage(designer, cardId, res) {
+	try {
+		const { bytes, mimeType } = designer.readCardImage(cardId);
+		res.set('Content-Type', mimeType);
+		res.set('Content-Length', String(bytes.length));
+		res.set('Cache-Control', 'no-store');
+		res.send(bytes);
+	} catch (error) {
+		if (error instanceof CardNotFoundError) {
+			res.status(404).json({
+				error: {
+					code: error.code,
+					message: error.message
+				}
+			});
+			return;
+		}
+		sendRouteError(error, res, '/agent-body/cards/:cardId/image');
+	}
+}
 
 export function register(router, { worldStateController, modService }) {
 
@@ -96,6 +127,34 @@ export function register(router, { worldStateController, modService }) {
 		} catch (error) {
 			sendRouteError(error, res, '/agent-body/cards');
 		}
+	});
+
+	/**
+	 * The card art itself (its PNG/JPEG/WebP file under data/cards/), served to
+	 * the Cards screen's <img> — one per card, fetched by the browser. The stem
+	 * is matched against the on-disk listing, so a traversal in the request is
+	 * just a non-match (SEC-7); the bytes are read by the seam (B-3), never from
+	 * a path built out of the raw request.
+	 */
+	router.get('/agent-body/cards/:cardId/image', (req, res) => {
+		const cardId = (typeof req.params?.cardId === 'string') ? req.params.cardId : '';
+		// A missing or absurdly long segment is not a card id (CR E-7: caller
+		// mistake -> 4xx); it stays out of a 404 echo. The listing match is what
+		// actually decides 200 vs 404.
+		if (cardId.length === 0 || cardId.length > MAX_CARD_ID_LENGTH) {
+			res.status(400).json({
+				error: {
+					code: 'CARD_ID_REQUIRED',
+					message: 'GET /agent-body/cards/:cardId/image requires a "cardId" path segment (1-' + MAX_CARD_ID_LENGTH + ' chars, no extension)'
+				}
+			});
+			return;
+		}
+		const designer = designerOrError(req, res);
+		if (!designer) {
+			return;
+		}
+		serveCardImage(designer, cardId, res);
 	});
 
 	router.post('/agent-body/create', designRouteLimiter, async (req, res) => {

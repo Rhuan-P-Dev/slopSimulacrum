@@ -1,11 +1,12 @@
 /**
- * AppMenu - the top menu bar and the two full-screen views behind it.
+ * AppMenu - the top menu bar and the full-screen views behind it.
  *
- * The bar carries the brand and the two entry points the world is managed from:
- * **Create world** (choose the cards that populate it) and **Mods** (see and
- * manage the installed packages). The views are full-screen: this is a launcher,
- * not a settings drawer - you come here to decide something about the world, and
- * you leave by entering it.
+ * The bar carries the brand and the entry points the world is managed from:
+ * **Create world** (choose the cards that populate it), **Cards** (the gallery
+ * of the character cards on disk: their art, name and description) and **Mods**
+ * (see and manage the installed packages). The views are full-screen: this is a
+ * launcher, not a settings drawer - you come here to decide something about the
+ * world, and you leave by entering it.
  *
  * WHAT THIS DOES NOT DO. It runs no rules. "Create world" is one POST to
  * `/world/create` and "apply a mod" is one POST to `/mods/apply`; the server
@@ -34,12 +35,14 @@
  */
 import ClientLogger from '/utils/ClientLogger.js';
 import { CreateWorldPanel } from './CreateWorldPanel.js';
+import { CardsPanel } from './CardsPanel.js';
 import { ModsPanel } from './ModsPanel.js';
 
 /** The views this menu knows, in the order the launcher offers them. */
 const SCREENS = {
     launcher: 'launcher-screen',
     'create-world': 'create-world-screen',
+    cards: 'cards-screen',
     mods: 'mods-screen'
 };
 
@@ -72,6 +75,8 @@ export class AppMenu {
         this._els = {};
         /** @private */
         this._createWorld = null;
+        /** @private */
+        this._cards = null;
         /** @private */
         this._mods = null;
         /** @private {boolean} whether there is something to look at. */
@@ -109,12 +114,14 @@ export class AppMenu {
 
         this._bind('menu-brand', () => this.open('launcher'));
         this._bind('btn-menu-create-world', () => this.open('create-world'));
+        this._bind('btn-menu-cards', () => this.open('cards'));
         this._bind('btn-menu-mods', () => this.open('mods'));
         this._bind('btn-launcher-create', () => this.open('create-world'));
         this._bind('btn-launcher-mods', () => this.open('mods'));
         this._bind('btn-launcher-enter', () => this.close());
         this._bind('btn-launcher-stop', () => this._stopWorld());
         this._bind('btn-create-world-close', () => this.close());
+        this._bind('btn-cards-close', () => this.close());
         this._bind('btn-mods-close', () => this.close());
 
         document.addEventListener('keydown', (event) => {
@@ -134,7 +141,7 @@ export class AppMenu {
     /**
      * Show one view, hiding the others. `null` (or an unknown name) shows none,
      * which is the game.
-     * @param {string|null} name - `launcher` | `create-world` | `mods` | null.
+     * @param {string|null} name - `launcher` | `create-world` | `cards` | `mods` | null.
      */
     open(name) {
         for (const [key, el] of Object.entries(this._els)) {
@@ -144,10 +151,13 @@ export class AppMenu {
         if (!this._openScreen) return;
 
         // A view is only built the first time it is opened, and it refreshes
-        // every time: the world and the package directory are things an operator
-        // changes from outside this page, so a cached render is a lie about now.
+        // every time: the world, the package directory and the cards on disk
+        // are things an operator changes from outside this page, so a cached
+        // render is a lie about now.
         if (name === 'create-world') {
             this._ensureCreateWorld().refresh();
+        } else if (name === 'cards') {
+            this._ensureCards().refresh();
         } else if (name === 'mods') {
             this._ensureMods().refresh();
         } else if (name === 'launcher') {
@@ -189,6 +199,18 @@ export class AppMenu {
             });
         }
         return this._createWorld;
+    }
+
+    /** @private Lazily build the card gallery view (its own module). */
+    _ensureCards() {
+        if (!this._cards) {
+            this._cards = new CardsPanel({
+                contentEl: document.getElementById('cards-content'),
+                statusEl: document.getElementById('cards-status'),
+                refreshEl: document.getElementById('btn-cards-refresh')
+            });
+        }
+        return this._cards;
     }
 
     /** @private Lazily build the mod-manager view (its own module). */

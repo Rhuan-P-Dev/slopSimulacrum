@@ -32,12 +32,14 @@
 <body>
     <div id="status" class="loading">Connecting to world state...</div>
 
-    <!-- TOP: the menu. The brand and the two things an operator does to the world
-         itself: create it, and manage the mods that define it. Everything else on
-         this page is a window into a world that is already running. -->
+    <!-- TOP: the menu. The brand and the things an operator does to the world
+         itself: create it, look at the cards on disk, and manage the mods that
+         define it. Everything else on this page is a window into a world that is
+         already running. -->
     <div id="app-menu">
         <span id="menu-brand" class="app-menu-brand" title="Back to the launcher">SIMULACRUM</span>
         <button id="btn-menu-create-world" class="app-menu-btn" type="button" title="Build a new world from the cards on disk">Create world</button>
+        <button id="btn-menu-cards" class="app-menu-btn" type="button" title="See the character cards on disk: their art, name and description">Cards</button>
         <button id="btn-menu-mods" class="app-menu-btn" type="button" title="See and manage the installed mod packages">Mods</button>
     </div>
 
@@ -408,6 +410,24 @@
                 <p id="mods-status" class="sim-status sim-status--dim"></p>
             </div>
             <div id="mods-content"></div>
+        </div>
+    </div>
+
+    <!-- CARDS: the character cards on disk, as the server lists them: the art
+         (the PNG itself), the name and the description from the PNG's metadata.
+         Display only - the server decides what a card is. -->
+    <div id="cards-screen" class="sim-screen" style="display:none;">
+        <div class="sim-screen-inner">
+            <div class="sim-screen-head">
+                <h2 class="sim-screen-title">Cards</h2>
+                <span class="sim-screen-note">The PNGs in <code>data/cards/</code>, each with the character its metadata carries. Drop a card file in that directory and refresh to see it here.</span>
+                <button id="btn-cards-close" class="sim-btn sim-btn-ghost" type="button">Close</button>
+            </div>
+            <div class="sim-screen-foot">
+                <button id="btn-cards-refresh" class="sim-btn sim-btn-small" type="button">Refresh</button>
+                <p id="cards-status" class="sim-status sim-status--dim"></p>
+            </div>
+            <div id="cards-content"></div>
         </div>
     </div>
 
