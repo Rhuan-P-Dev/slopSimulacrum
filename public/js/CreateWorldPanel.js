@@ -16,6 +16,13 @@
  *     it; hiding that behind a disabled button would be the client inventing a
  *     rule the server does not have.
  *
+ * A third, per-card control: the **its {{user}} is** selector binds a card's `{{user}}`
+ * placeholder to another card so that card's agent thinks its user is the target
+ * (`wiki/decisions/card-user-mapping.md`). The target may be any card file on
+ * disk, not just a selected one; the control is disabled for a card that is not
+ * selected, because a binding only reaches a card that actually spawns. The
+ * server validates and applies the binding; this view only offers it.
+ *
  * The card list is `/agent-body/cards` - the same read the Agent Body overlay
  * uses. One endpoint, two panels: the fields are the same ones (a card's id is
  * the file's basename either way), and a second list endpoint would be a second
@@ -84,23 +91,31 @@ export class CreateWorldPanel {
     async submit() {
         if (this._busy) return;
         const cardIds = this._selectedIds();
+        const users = this._selectedUsers();
         this._busy = true;
         this._submit.disabled = true;
-        this._setStatus(`Creating a world with ${cardIds.length} card(s)...`, 'dim');
+        const bindingLine = Object.keys(users).length ? `, ${Object.keys(users).length} user binding(s)` : '';
+        this._setStatus(`Creating a world with ${cardIds.length} card(s)${bindingLine}...`, 'dim');
         try {
+            // `users` is sent only when a binding was made: the server treats an
+            // absent field as "no binding", so an empty object would be noise.
+            const body = { cardIds };
+            if (Object.keys(users).length) body.users = users;
             const res = await fetch('/world/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cardIds })
+                body: JSON.stringify(body)
             });
             const payload = await readJson(res);
             if (!res.ok) throw new Error(payload?.error?.message || `create failed (${res.status})`);
             const spawned = payload.cards?.spawned ?? 0;
             const total = payload.cards?.total ?? 0;
+            const applied = payload.cards?.users ? Object.keys(payload.cards.users).length : 0;
+            const appliedLine = applied ? `, ${applied} user binding(s) applied` : '';
             // `running` is in the answer because it is the point of the button:
             // before this request the server was idle, and now it is simulating.
             this._setStatus(
-                `World ${payload.running === false ? 'created (no round is running)' : 'created and running'}: ${payload.despawned ?? 0} entity(ies) removed, ${spawned}/${total} card(s) spawned, round ${payload.round}.`,
+                `World ${payload.running === false ? 'created (no round is running)' : 'created and running'}: ${payload.despawned ?? 0} entity(ies) removed, ${spawned}/${total} card(s) spawned${appliedLine}, round ${payload.round}.`,
                 'ok'
             );
             setTimeout(() => this._onCreated(), RELOAD_DELAY_MS);
@@ -140,23 +155,60 @@ export class CreateWorldPanel {
         }
         this._list.innerHTML = this._cards.map((card) => {
             const description = String(card.description || '').replace(/\s+/g, ' ').slice(0, 140);
+            // The target of the binding may be any card file on disk, so the
+            // options list every card except the row's own (self-binding is a
+            // UI mistake; the server stays lenient and accepts it if sent).
+            const userOptions = this._cards
+                .filter((other) => other.cardId !== card.cardId)
+                .map((other) => '<option value="' + escapeText(other.cardId) + '">' + escapeText(other.name || other.cardId) + '</option>')
+                .join('');
             return '' +
-                '<label class="cw-row" title="' + escapeText(card.firstMessage || '') + '">' +
+                '<div class="cw-row">' +
+                '<label class="cw-pick">' +
                 '<input type="checkbox" class="cw-check" value="' + escapeText(card.cardId) + '" checked>' +
                 '<span class="cw-name">' + escapeText(card.name || card.cardId) + '</span>' +
                 '<span class="cw-id">' + escapeText(card.cardId) + '</span>' +
                 '<span class="cw-desc">' + escapeText(description) + (card.description?.length > 140 ? '...' : '') + '</span>' +
-                '</label>';
+                '</label>' +
+                '<label class="cw-user" title="Whom this card treats as its {{user}}. Applies only while the card is selected to spawn.">' +
+                '<span class="cw-user-label">its {{user}} is</span>' +
+                '<select class="cw-user-select">' +
+                '<option value="">(no binding: leave {{user}} as-is)</option>' +
+                userOptions +
+                '</select>' +
+                '</label>' +
+                '</div>';
         }).join('');
         for (const box of this._list.querySelectorAll('.cw-check')) {
-            box.addEventListener('change', () => this._setStatus(this._countLine(), 'dim'));
+            this._syncUserSelect(box);
+            box.addEventListener('change', () => {
+                this._syncUserSelect(box);
+                this._setStatus(this._countLine(), 'dim');
+            });
+        }
+        for (const sel of this._list.querySelectorAll('.cw-user-select')) {
+            sel.addEventListener('change', () => this._setStatus(this._countLine(), 'dim'));
         }
     }
 
-    /** @private Flip every checkbox. */
+    /**
+     * @private Enable the row's {{user}} selector only while the card is selected
+     * to spawn: a binding is applied at the card's spawn, so an unselected card
+     * has nowhere to receive one. The selected value is kept, so toggling the
+     * box back on restores the operator's earlier choice.
+     */
+    _syncUserSelect(box) {
+        const row = box.closest('.cw-row');
+        if (!row) return;
+        const sel = row.querySelector('.cw-user-select');
+        if (sel) sel.disabled = !box.checked;
+    }
+
+    /** @private Flip every checkbox and their {{user}} selectors. */
     _setAll(checked) {
         for (const box of this._list.querySelectorAll('.cw-check')) {
             box.checked = checked;
+            this._syncUserSelect(box);
         }
         this._setStatus(this._countLine(), 'dim');
     }
@@ -164,6 +216,21 @@ export class CreateWorldPanel {
     /** @returns {string[]} the card ids currently checked. */
     _selectedIds() {
         return [...this._list.querySelectorAll('.cw-check')].filter((box) => box.checked).map((box) => box.value);
+    }
+
+    /**
+     * @returns {Object<string, string>} the {{user}} bindings to send: for each
+     * selected card that has a target chosen, `{ [cardId]: targetCardId }`.
+     */
+    _selectedUsers() {
+        const users = {};
+        for (const row of this._list.querySelectorAll('.cw-row')) {
+            const box = row.querySelector('.cw-check');
+            const sel = row.querySelector('.cw-user-select');
+            if (!box || !sel || !box.checked) continue;
+            if (sel.value) users[box.value] = sel.value;
+        }
+        return users;
     }
 
     /** @returns {string} the "N of M selected" line. */

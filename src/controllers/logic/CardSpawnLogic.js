@@ -91,10 +91,21 @@ const CARD_DEFAULT_PROFILE = {
  * `readCardFiles()` order - so a chosen subset spawns in the same relative
  * order as the full set would (`CR D-1`: the population must not depend on the
  * order the browser happened to send the checkboxes in).
+ *
+ * `options.users` is the card user mapping (`wiki/decisions/card-user-mapping.md`):
+ * a validated `{ [cardId]: cardId }` object binding some cards' `{{user}}`
+ * placeholder to another card, so the bound card's agent thinks its user is the
+ * target card. Each target's display name is resolved once here and handed to
+ * the spawn (see `resolveUserNames`); absent it is boot behavior (no binding).
+ * When any binding lands on a spawned card the report carries a `users` object
+ * (source card id -> `{ cardId, name }` of the bound target) so the caller can
+ * confirm what was applied; when none land the key is absent, keeping the
+ * report shape byte-identical to before for an unbound world.
  * @private
- * @param {{ only?: string[] }} [options] - `only`: card ids to spawn (absent ->
- *   every card file).
- * @returns {{ total: number, spawned: number, entities: Array<{cardId: string, entityId: string}> }}
+ * @param {{ only?: string[], users?: Object<string, string> }} [options] -
+ *   `only`: card ids to spawn (absent -> every card file). `users`: the
+ *   validated user mapping (absent -> no binding).
+ * @returns {{ total: number, spawned: number, entities: Array<{cardId: string, entityId: string}>, users?: Object<string, {cardId: string, name: string}> }}
  */
 function spawnCards(facade, options = {}) {
     const all = facade._readCardFiles();
@@ -107,13 +118,65 @@ function spawnCards(facade, options = {}) {
         Logger.info('[WorldStateController] No card files to spawn in data/cards/.');
         return { total: 0, spawned: 0, entities: [] };
     }
+    const userByName = resolveUserNames(facade, all, options.users);
     const entities = [];
+    const appliedUsers = {};
     for (const cardFile of cardFiles) {
-        const entityId = facade._spawnSingleCard(cardFile);
-        if (entityId !== null) entities.push({ cardId: cardFile.cardId, entityId });
+        const user = userByName ? (userByName.get(cardFile.cardId) || null) : null;
+        const entityId = facade._spawnSingleCard(cardFile, user);
+        if (entityId !== null) {
+            entities.push({ cardId: cardFile.cardId, entityId });
+            if (user) appliedUsers[cardFile.cardId] = { cardId: user.cardId, name: user.name };
+        }
     }
     Logger.info(`[WorldStateController] ${entities.length}/${cardFiles.length} card NPC(s) spawned from data/cards/ (generic blueprint ${CARD_BLUEPRINT} - or a card's own saved body when one exists).`);
-    return { total: cardFiles.length, spawned: entities.length, entities };
+    const report = { total: cardFiles.length, spawned: entities.length, entities };
+    if (Object.keys(appliedUsers).length > 0) report.users = appliedUsers;
+    return report;
+}
+
+/**
+ * Resolves the display names of the cards a user mapping points at.
+ *
+ * `users` is the validated `{ [cardId]: cardId }` binding (`WorldRecreateLogic`
+ * owns that validation): the key is the card whose `{{user}}` is rewritten, the
+ * value is the card it becomes. This returns a map of source card id to
+ * `{ cardId, name }` for the target, where `name` is the target card's display
+ * name read from its embedded payload - or the target card id itself when the
+ * payload is missing or unreadable, so one bad file never aborts the world (the
+ * same graceful degradation a spawn applies).
+ *
+ * Each distinct target is read at most once per call: a mapping that points many
+ * cards at the same target reads that target's PNG once, not once per source.
+ * This runs only at world creation (never per round), so the reads stay off the
+ * hot path (`CR PERF-4`).
+ * @private
+ * @param {WorldStateController} _facade - unused; kept for the uniform call shape.
+ * @param {Array<{fullPath: string, cardId: string}>} all - the full card listing.
+ * @param {Object<string, string>|undefined} users - the validated user mapping.
+ * @returns {Map<string, {cardId: string, name: string}>|null} source -> target,
+ *   or null when there is no mapping.
+ */
+function resolveUserNames(_facade, all, users) {
+    if (!users || typeof users !== 'object' || Array.isArray(users)) return null;
+    const fullPathById = new Map(all.map((file) => [file.cardId, file.fullPath]));
+    const targetByName = new Map();
+    for (const targetId of Object.values(users)) {
+        if (targetByName.has(targetId)) continue;
+        let name = targetId;
+        const fullPath = fullPathById.get(targetId);
+        if (fullPath) {
+            const payload = readCharaCard(fullPath);
+            const card = payload.success ? payload.card : null;
+            if (card && typeof card.name === 'string' && card.name.trim() !== '') name = card.name.trim();
+        } else {
+            Logger.warn(`[WorldStateController] user mapping target "${targetId}" has no card file - using the id as the name.`);
+        }
+        targetByName.set(targetId, { cardId: targetId, name });
+    }
+    const bySource = new Map();
+    for (const [sourceId, targetId] of Object.entries(users)) bySource.set(sourceId, targetByName.get(targetId));
+    return bySource;
 }
 
 /**
@@ -151,10 +214,12 @@ function readCardFiles(_facade) {
  * file stem as the display name, so the entity still spawns (never fails).
  * @private
  * @param {{fullPath: string, cardId: string}} cardFile
+ * @param {{cardId: string, name: string}|null} [user] - the card this one's
+ *   `{{user}}` is bound to (id + resolved display name); absent -> no binding.
  * @returns {string|null} the spawned entity id, or null when nothing
  *     could be spawned from this file.
  */
-function spawnSingleCard(facade, cardFile) {
+function spawnSingleCard(facade, cardFile, user = null) {
     const payload = readCharaCard(cardFile.fullPath);
     const card = payload.success ? payload.card : null;
     const displayName = (card && typeof card.name === 'string' && card.name.trim() !== '')
@@ -178,6 +243,14 @@ function spawnSingleCard(facade, cardFile) {
         // agent (hasDeterministicBrain is false). The per-entity
         // personality/caps above are what the LLM prompt renders.
     };
+    // Card user mapping (wiki/decisions/card-user-mapping.md): when this card's
+    // `{{user}}` is bound to another card, remember the bound card id and its
+    // resolved display name so the agent prompt can substitute the placeholder
+    // (`LLMAgentController._buildSystemPrompt`).
+    if (user) {
+        npcConfig.userCardId = user.cardId;
+        npcConfig.userName = user.name;
+    }
     try {
         const entityId = facade.stateEntityController.spawnEntity(blueprint, room.uid, {
             isNPC: true,

@@ -48,8 +48,18 @@ function makeFacade({ onDisk = ['Nova', 'Rin'], entities = ['ent-1', 'ent-2'], p
         initializeWorld: (options) => {
             const ids = options?.cardIds;
             record('initializeWorld', ids === undefined ? 'all' : ids.join('+'));
+            if (options?.users) record('initializeUsers', { ...options.users });
             const list = ids === undefined ? onDisk : ids;
-            return { total: list.length, spawned: list.length, entities: list.map((cardId) => ({ cardId, entityId: `entity-${cardId}` })) };
+            const report = { total: list.length, spawned: list.length, entities: list.map((cardId) => ({ cardId, entityId: `entity-${cardId}` })) };
+            // Mirror the spawn report's shape: the applied bindings resolved to
+            // { cardId, name }, as the real initializeWorld/spawnCards produce.
+            if (options?.users) {
+                report.users = {};
+                for (const [cardId, targetId] of Object.entries(options.users)) {
+                    report.users[cardId] = { cardId: targetId, name: targetId };
+                }
+            }
+            return report;
         },
         // What the capability scan is handed. The double does not model a re-seeded
         // population, so the scan is recorded without a count - the claim here is that
@@ -178,6 +188,63 @@ describe('recreateWorld: refusing before anything is destroyed', () => {
 
         expect(facade.calls).toContainEqual(['initializeWorld', 'Nova']);
         expect(result.cards.total).toBe(1);
+    });
+});
+
+describe('recreateWorld: the card user mapping ({{user}} -> another card)', () => {
+    it('passes the validated mapping to the seeding and echoes it in the report', () => {
+        const facade = makeFacade({ onDisk: ['Nova', 'Rin'] });
+
+        const result = recreateWorld(facade, { cardIds: ['Nova', 'Rin'], users: { Nova: 'Rin' } });
+
+        expect(facade.calls).toContainEqual(['initializeWorld', 'Nova+Rin']);
+        expect(facade.calls).toContainEqual(['initializeUsers', { Nova: 'Rin' }]);
+        expect(result.cards.users).toEqual({ Nova: { cardId: 'Rin', name: 'Rin' } });
+    });
+
+    it('treats an absent or null users the same as no binding', () => {
+        for (const users of [undefined, null]) {
+            const facade = makeFacade({ onDisk: ['Nova', 'Rin'] });
+
+            const result = recreateWorld(facade, { cardIds: ['Nova'], users });
+
+            expect(facade.calls.filter((call) => call[0] === 'initializeUsers')).toEqual([]);
+            expect(result.cards.users).toBeUndefined();
+        }
+    });
+
+    it('refuses a users that is not an object of strings, before any mutation', () => {
+        for (const bad of ['Nova', 42, ['Nova'], { Nova: 'Rin', X: 5 }, { Nova: null }, { Nova: {} }]) {
+            const facade = makeFacade({ onDisk: ['Nova', 'Rin'] });
+
+            const error = thrown(() => recreateWorld(facade, { cardIds: ['Nova'], users: bad }));
+
+            expect(error.code, `for ${JSON.stringify(bad)}`).toBe(WORLD_CREATE_ERROR_CODES.USER_MAP_INVALID);
+            expect(facade.calls).toEqual([]);
+        }
+    });
+
+    it('refuses an empty, blank, over-long, or path-shaped binding side', () => {
+        for (const bad of [{ Nova: '' }, { Nova: '   ' }, { '': 'Rin' }, { Nova: 'a'.repeat(129) }, { Nova: '../x' }, { '../x': 'Rin' }]) {
+            const facade = makeFacade({ onDisk: ['Nova', 'Rin'] });
+
+            const error = thrown(() => recreateWorld(facade, { cardIds: ['Nova'], users: bad }));
+
+            expect(error.code, `for ${JSON.stringify(bad)}`).toBe(WORLD_CREATE_ERROR_CODES.USER_MAP_INVALID);
+            expect(facade.calls).toEqual([]);
+        }
+    });
+
+    it('refuses a binding whose key or value names no card file, and despawns nothing', () => {
+        for (const bad of [{ Nova: 'Ghost' }, { Ghost: 'Rin' }]) {
+            const facade = makeFacade({ onDisk: ['Nova', 'Rin'] });
+
+            const error = thrown(() => recreateWorld(facade, { cardIds: ['Nova'], users: bad }));
+
+            expect(error.code, `for ${JSON.stringify(bad)}`).toBe(WORLD_CREATE_ERROR_CODES.USER_UNKNOWN);
+            expect(error.message).toContain('Ghost');
+            expect(facade.calls).toEqual([]);
+        }
     });
 });
 

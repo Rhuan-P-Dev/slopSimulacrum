@@ -1236,7 +1236,16 @@ class LLMAgentController {
     _buildSystemPrompt(npc, roomName) {
         const config = npc.config || {};
         const displayName = config.displayName || npc.entity.name || 'NPC';
-        const personality = config.personality || 'You are a friendly droid. Keep replies short.';
+        let personality = config.personality || 'You are a friendly droid. Keep replies short.';
+        // Card user mapping (wiki/decisions/card-user-mapping.md): a card whose
+        // `{{user}}` was bound to another card at world create carries the target's
+        // resolved display name here; the placeholder is replaced so the agent talks
+        // to that card's name instead of a literal template token. A card with no
+        // binding keeps the placeholder verbatim (it was never meant to resolve), so
+        // an unbound prompt stays byte-identical to before.
+        if (typeof config.userName === 'string' && config.userName.trim() !== '') {
+            personality = personality.split('{{user}}').join(config.userName.trim());
+        }
         const objective = typeof config.objective === 'string' ? config.objective.trim() : '';
         const maxActions = this._asPositiveInt(config.maxWorldActionsPerRound, DEFAULT_MAX_WORLD_ACTIONS_PER_ROUND);
         const rawMaxChatPrompt = config.maxChatMessagesPerRound;

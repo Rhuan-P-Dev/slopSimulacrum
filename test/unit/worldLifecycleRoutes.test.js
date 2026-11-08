@@ -40,8 +40,18 @@ function makeFacade({ running = false, throwOn = null } = {}) {
         getAll: () => ({ rooms: { 'room-1': { id: 'room-1' } }, entities: {}, turns: { roundNumber: 3 } }),
         startWorld: (options) => {
             calls.push(`startWorld:${(options?.cardIds ?? []).join('+') || 'all'}`);
+            if (options?.users) {
+                calls.push(`users:${Object.entries(options.users).map(([k, v]) => `${k}->${v}`).join(',')}`);
+            }
             if (throwOn) throw throwOn;
-            return { despawned: 0, cards: { total: 1, spawned: 1, entities: [] }, round: 3, running: true };
+            const cards = { total: 1, spawned: 1, entities: [] };
+            if (options?.users) {
+                cards.users = {};
+                for (const [k, v] of Object.entries(options.users)) {
+                    cards.users[k] = { cardId: v, name: v };
+                }
+            }
+            return { despawned: 0, cards, round: 3, running: true };
         },
         stopWorld: () => {
             calls.push('stopWorld');
@@ -114,6 +124,44 @@ describe('POST /world/create', () => {
         expect(res.status).toBe(200);
         expect(res.body.running).toBe(true);
         expect(res.body.cards.spawned).toBe(1);
+    });
+});
+
+describe('POST /world/create: the card user binding', () => {
+    it('passes the users mapping to startWorld and echoes it in the response', async () => {
+        const facade = makeFacade();
+        const client = await withServer(facade);
+
+        const res = await client.post('/world/create', { cardIds: ['Nova', 'Rin'], users: { Nova: 'Rin' } });
+        await client.close();
+
+        expect(facade.calls).toEqual(['startWorld:Nova+Rin', 'users:Nova->Rin']);
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.cards.users).toEqual({ Nova: { cardId: 'Rin', name: 'Rin' } });
+    });
+
+    it('answers 400 with the code when the user mapping is malformed', async () => {
+        const facade = makeFacade({ throwOn: new GameError('the users value is not a card id', 'WORLD_CREATE_USER_MAP_INVALID') });
+        const client = await withServer(facade);
+
+        const res = await client.post('/world/create', { cardIds: ['Nova'], users: { Nova: 'Rin' } });
+        await client.close();
+
+        expect(res.status).toBe(400);
+        expect(res.body.success).toBe(false);
+        expect(res.body.error.code).toBe('WORLD_CREATE_USER_MAP_INVALID');
+    });
+
+    it('answers 400 with the code when a binding names an unknown card', async () => {
+        const facade = makeFacade({ throwOn: new GameError('no card file in data/cards/ for user binding: Ghost', 'WORLD_CREATE_USER_UNKNOWN') });
+        const client = await withServer(facade);
+
+        const res = await client.post('/world/create', { cardIds: ['Nova'], users: { Nova: 'Ghost' } });
+        await client.close();
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('WORLD_CREATE_USER_UNKNOWN');
     });
 });
 

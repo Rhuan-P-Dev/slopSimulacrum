@@ -210,16 +210,50 @@
 
 .cw-row {
     display: grid;
-    grid-template-columns: 18px minmax(110px, 1fr) minmax(90px, 1fr) 3fr;
+    grid-template-columns: 1fr 240px;
     gap: 10px;
     align-items: center;
     padding: 6px 8px;
     border-bottom: 1px solid #1f1f1f;
-    cursor: pointer;
 }
 
 .cw-row:hover { background: #121212; }
 .cw-row:last-child { border-bottom: none; }
+
+/* The pick side: the checkbox and the card's identity. This used to be the whole
+   row (one clickable <label>); it is now its own <label> so the {{user}} selector
+   on the right can be used without toggling the checkbox. */
+.cw-pick {
+    display: grid;
+    grid-template-columns: 18px minmax(110px, 1fr) minmax(90px, 1fr) 3fr;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    cursor: pointer;
+}
+
+/* The {{user}} binding: a short caption plus a selector over every other card. */
+.cw-user {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+}
+
+.cw-user-label { color: var(--text-dim); font-size: 0.82em; white-space: nowrap; }
+
+.cw-user-select {
+    min-width: 0;
+    padding: 2px 4px;
+    font-size: 0.85em;
+    color: #ccc;
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 3px;
+}
+
+.cw-user-select:disabled { opacity: 0.4; }
 
 .cw-name { color: var(--neon-green); }
 .cw-id { color: var(--text-dim); font-size: 0.85em; }

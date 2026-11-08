@@ -22,9 +22,9 @@ const createWorldLimiter = createRateLimiter({ windowMs: 60000, max: 5, name: 'w
 const stopWorldLimiter = createRateLimiter({ windowMs: 60000, max: 5, name: 'world-stop-route' });
 
 /**
- * Every refusal `recreateWorld()` raises is about the requested cards, before
- * anything was destroyed - so all three are a 400 about the body, not a conflict
- * with the world.
+ * Every refusal `recreateWorld()` raises is about the requested cards (or the
+ * user bindings) before anything was destroyed - so all of them are a 400
+ * about the body, not a conflict with the world.
  */
 const WORLD_CREATE_STATUS = Object.fromEntries(
     Object.values(WORLD_CREATE_ERROR_CODES).map((code) => [code, 400])
@@ -276,9 +276,15 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * log) is cleared, and the map is seeded again the way boot seeds it - static
 	 * props, data-driven NPCs, then the cards named in the request.
 	 *
-	 * Body: `{ cardIds?: string[] }`. Absent or null means every card in
-	 * `data/cards/` (the boot behavior); an array means exactly those card ids, and
-	 * `[]` means an unpopulated world.
+	 * Body: `{ cardIds?: string[], users?: { [cardId]: cardId } }`.
+	 * `cardIds` - absent or null means every card in `data/cards/` (the boot
+	 * behavior); an array means exactly those card ids, and `[]` means an
+	 * unpopulated world.
+	 * `users` - the card user mapping (`wiki/decisions/card-user-mapping.md`):
+	 * bind a card's `{{user}}` placeholder to another card so that card's agent
+	 * thinks its user is the target. The key is the bound card, the value the
+	 * target; both must name a card file in `data/cards/` (the target need not
+	 * be among the spawned cards). Absent or null means no binding.
 	 *
 	 * What it is NOT: not a mod change (the world definition in the store is
 	 * untouched - that is `/mods/apply`), and not a round reset. The round counter
@@ -290,17 +296,22 @@ export function register(router, { worldStateController, broadcastService }) {
 	 * succeeds nothing ticks, no round runs and the LLM provider is never called.
 	 * `POST /world/stop` returns the process to that state.
 	 *
-	 * Response: `{ success: true, despawned, cards: { total, spawned, entities },
-	 * round, running }`. `cards.entities` maps each spawned card id to its entity id,
-	 * so the operator can find the droid they just chose, and `running: true` is the
-	 * tick actually going. Unknown card ids are refused with a 400 naming them -
-	 * before anything is destroyed and before the tick is started, so a typo cannot
-	 * empty a running world on its way to an error message.
+	 * Response: `{ success: true, despawned, cards: { total, spawned, entities,
+	 * users? }, round, running }`. `cards.entities` maps each spawned card id to
+	 * its entity id, so the operator can find the droid they just chose; `cards.users`
+	 * (present only when a binding landed on a spawned card) maps each bound card id
+	 * to the `{ cardId, name }` of the card its `{{user}}` now is, so the operator can
+	 * confirm what was applied. `running: true` is the tick actually going. Unknown
+	 * card ids - in `cardIds` or in either end of a `users` binding - are refused
+	 * with a 400 naming them - before anything is destroyed and before the tick is
+	 * started, so a typo cannot empty a running world on its way to an error message.
 	 */
 	router.post('/world/create', createWorldLimiter, (req, res) => {
 		try {
-			const cardIds = req.body && Object.hasOwn(req.body, 'cardIds') ? req.body.cardIds : null;
-			const result = worldStateController.startWorld({ cardIds });
+			const body = req.body || {};
+			const cardIds = Object.hasOwn(body, 'cardIds') ? body.cardIds : null;
+			const users = Object.hasOwn(body, 'users') ? body.users : null;
+			const result = worldStateController.startWorld({ cardIds, users });
 			if (broadcastService) broadcastService.broadcast();
 			res.json({ success: true, ...result });
 		} catch (error) {

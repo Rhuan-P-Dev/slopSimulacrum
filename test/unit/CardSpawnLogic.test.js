@@ -150,6 +150,28 @@ describe('CardSpawnLogic', () => {
             expect(id).toBe(null);
             expect(facade.stateEntityController.spawnEntity).not.toHaveBeenCalled();
         });
+
+        it('spawns a bound card with the resolved user in its npcConfig', async () => {
+            readCharaCard.mockReturnValue(novaCard());
+            const facade = makeFacade({ Nova: ['m1CentralBody'] });
+
+            await spawnSingleCard(facade, CARD_FILE, { cardId: 'Rin', name: 'Rin' });
+
+            const profile = facade.stateEntityController.spawnEntity.mock.calls[0][2];
+            expect(profile.npcConfig.userCardId).toBe('Rin');
+            expect(profile.npcConfig.userName).toBe('Rin');
+        });
+
+        it('spawns an unbound card with no user fields in its npcConfig', async () => {
+            readCharaCard.mockReturnValue(novaCard());
+            const facade = makeFacade({ Nova: ['m1CentralBody'] });
+
+            await spawnSingleCard(facade, CARD_FILE);
+
+            const profile = facade.stateEntityController.spawnEntity.mock.calls[0][2];
+            expect(profile.npcConfig.userCardId).toBeUndefined();
+            expect(profile.npcConfig.userName).toBeUndefined();
+        });
     });
 
     /**
@@ -204,6 +226,65 @@ describe('CardSpawnLogic', () => {
             const report = spawnCards(facade);
             expect(report.total).toBe(2);
             expect(report.entities).toEqual([{ cardId: 'b', entityId: 'entity-b' }]);
+        });
+    });
+
+    describe('spawnCards with a user mapping ({{user}} -> another card)', () => {
+        /**
+         * A facade whose spawn spy records the user handed to each card, and
+         * whose listing is the ids we name.
+         * @param {string[]} cardIds
+         */
+        function bindingFacade(cardIds) {
+            const seen = [];
+            return {
+                seen,
+                _readCardFiles: () => cardIds.map((cardId) => ({ cardId, fullPath: `data/cards/${cardId}.png` })),
+                _spawnSingleCard: (cardFile, user) => {
+                    seen.push({ cardId: cardFile.cardId, user });
+                    return `entity-${cardFile.cardId}`;
+                }
+            };
+        }
+
+        /** Resolve a target's display name from the controlled reader. */
+        function mockTargetNames() {
+            readCharaCard.mockImplementation((fullPath) => {
+                const id = String(fullPath).split('/').pop().replace(/\.png$/, '');
+                return { success: true, card: { name: `Name-${id}`, personality: 'p', description: 'd' } };
+            });
+        }
+
+        it('hands each bound card its resolved target name and reports the applied bindings', () => {
+            mockTargetNames();
+            const facade = bindingFacade(['a', 'b']);
+
+            const report = spawnCards(facade, { only: ['a', 'b'], users: { a: 'b' } });
+
+            expect(facade.seen).toEqual([
+                { cardId: 'a', user: { cardId: 'b', name: 'Name-b' } },
+                { cardId: 'b', user: null }
+            ]);
+            expect(report.users).toEqual({ a: { cardId: 'b', name: 'Name-b' } });
+        });
+
+        it('leaves the report without a users key when nothing was bound', () => {
+            const facade = bindingFacade(['a', 'b']);
+
+            const report = spawnCards(facade, { only: ['a', 'b'] });
+
+            expect(report.users).toBeUndefined();
+        });
+
+        it('resolves a shared target once, even when several cards bind to it', () => {
+            mockTargetNames();
+            const facade = bindingFacade(['a', 'b', 'c']);
+
+            const report = spawnCards(facade, { only: ['a', 'b', 'c'], users: { a: 'c', b: 'c' } });
+
+            const readsOfC = readCharaCard.mock.calls.filter(([p]) => String(p).endsWith('c.png')).length;
+            expect(readsOfC).toBe(1);
+            expect(report.users).toEqual({ a: { cardId: 'c', name: 'Name-c' }, b: { cardId: 'c', name: 'Name-c' } });
         });
     });
 });

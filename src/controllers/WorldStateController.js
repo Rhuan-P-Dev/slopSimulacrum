@@ -260,7 +260,10 @@ class WorldStateController {
      * @param {string[]} [options.cardIds] - Cards to spawn (absent -> every card
      *   file). Validated by the caller (`WorldRecreateLogic`); this method does
      *   not re-validate, it seeds.
-     * @returns {{total: number, spawned: number, entities: Array}} the card-spawn report.
+     * @param {Object<string, string>} [options.users] - The validated card user
+     *   mapping (`{ cardId: cardId }`) binding some cards' `{{user}}` to another
+     *   card (`wiki/decisions/card-user-mapping.md`). Absent -> no binding (boot).
+     * @returns {{total: number, spawned: number, entities: Array, users?: Object}} the card-spawn report.
      */
     initializeWorld(options = {}) {
         // Static world objects (props) declared in data/mods/core-world-objects/worldObjects.json are
@@ -273,7 +276,7 @@ class WorldStateController {
         this._spawnNpcs();
         // Card droids (data/cards/ → LLM M1 NPCs, random room + point):
         // spawned alongside the registry NPCs so a new PNG auto-appears on boot.
-        const cards = this._spawnCards({ only: options.cardIds });
+        const cards = this._spawnCards({ only: options.cardIds, users: options.users });
 
         // Perception: a freshly initialized world has no meaningful "since last
         // observation" history — reset the observer's per-room snapshots and
@@ -444,8 +447,8 @@ class WorldStateController {
      * delegator stays on the class so instance-level spies/mocks and direct
      * calls (tests) keep working unchanged.
      * @private
-     * @param {{only?: string[]}} [options]
-     * @returns {{total: number, spawned: number, entities: Array}}
+     * @param {{only?: string[], users?: Object<string, string>}} [options]
+     * @returns {{total: number, spawned: number, entities: Array, users?: Object}}
      */
     _spawnCards(options = {}) {
         return spawnCards(this, options);
@@ -520,11 +523,13 @@ class WorldStateController {
      * calls (tests) keep working unchanged.
      * @private
      * @param {{fullPath: string, cardId: string}} cardFile
+     * @param {{cardId: string, name: string}|null} [user] - the card this one's
+     *   `{{user}}` is bound to (id + resolved display name); absent -> no binding.
      * @returns {string|null} the spawned entity id, or null when nothing
      *     could be spawned from this file.
      */
-    _spawnSingleCard(cardFile) {
-        return spawnSingleCard(this, cardFile);
+    _spawnSingleCard(cardFile, user = null) {
+        return spawnSingleCard(this, cardFile, user);
     }
 
     /**

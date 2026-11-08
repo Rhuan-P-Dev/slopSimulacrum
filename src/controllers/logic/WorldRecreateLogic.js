@@ -78,7 +78,9 @@ export const MAX_CARDS_PER_WORLD = 100;
 export const WORLD_CREATE_ERROR_CODES = {
     CARD_ID_INVALID: 'WORLD_CREATE_CARD_ID_INVALID',
     CARD_UNKNOWN: 'WORLD_CREATE_CARD_UNKNOWN',
-    TOO_MANY_CARDS: 'WORLD_CREATE_TOO_MANY_CARDS'
+    TOO_MANY_CARDS: 'WORLD_CREATE_TOO_MANY_CARDS',
+    USER_MAP_INVALID: 'WORLD_CREATE_USER_MAP_INVALID',
+    USER_UNKNOWN: 'WORLD_CREATE_USER_UNKNOWN'
 };
 
 /** How many unknown ids an error names before saying "and N more". */
@@ -135,6 +137,72 @@ function resolveSelection(listCardFiles, cardIds) {
         );
     }
     return { all: false, ids };
+}
+
+/**
+ * Turn the request's `users` into a validated card user mapping.
+ *
+ * `users` binds some cards' `{{user}}` placeholder to another card:
+ * `{ [cardId]: cardId }`, where the key is the card whose `{{user}}` is
+ * rewritten and the value is the card that `{{user}}` becomes. Absent or null
+ * means "no bindings" (the boot behavior); a value that is not a plain object
+ * of string -> string is a caller error. Every key and every value must name a
+ * card file on disk, so a typo in either end is refused before the world is
+ * touched - the same rule the card selection gets, applied to both ends of the
+ * binding (`wiki/decisions/card-user-mapping.md`).
+ *
+ * The number of bindings is bounded by the body size limit and by the on-disk
+ * check (a key and a value that do not name a file are refused), so no separate
+ * count cap is needed; the per-entry shape rule is what keeps a bad value from
+ * reaching the spawn.
+ *
+ * @param {Function} listCardFiles - `() => Array<{cardId: string}>` (the seam's
+ *   card listing, injected so this stays about validation, not about files).
+ * @param {*} users - The request value.
+ * @returns {Object<string, string>|null} the validated mapping, or null for "no bindings".
+ * @throws {GameError} WORLD_CREATE_USER_MAP_INVALID | WORLD_CREATE_USER_UNKNOWN
+ */
+function resolveUserMap(listCardFiles, users) {
+    if (users === undefined || users === null) return null;
+    if (typeof users !== 'object' || Array.isArray(users)) {
+        throw new GameError(
+            '"users" must be an object mapping a card id to the card id its {{user}} becomes (or absent for none)',
+            WORLD_CREATE_ERROR_CODES.USER_MAP_INVALID
+        );
+    }
+    const mapping = {};
+    for (const [rawKey, rawValue] of Object.entries(users)) {
+        const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+        const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+        if (
+            !key || !value
+            || key.length > MAX_CARD_ID_LENGTH || value.length > MAX_CARD_ID_LENGTH
+            || key.includes('/') || key.includes('\\')
+            || value.includes('/') || value.includes('\\')
+        ) {
+            throw new GameError(
+                `"${String(rawValue).slice(0, 40)}" is not a user binding (both sides must be 1-${MAX_CARD_ID_LENGTH}-character card ids, no path separator)`,
+                WORLD_CREATE_ERROR_CODES.USER_MAP_INVALID
+            );
+        }
+        mapping[key] = value;
+    }
+
+    const onDisk = new Set(listCardFiles().map((file) => file.cardId));
+    const unknown = new Set();
+    for (const [key, value] of Object.entries(mapping)) {
+        if (!onDisk.has(key)) unknown.add(key);
+        if (!onDisk.has(value)) unknown.add(value);
+    }
+    if (unknown.size > 0) {
+        const named = [...unknown].sort().slice(0, MAX_UNKNOWN_NAMED).join(', ');
+        const more = unknown.size > MAX_UNKNOWN_NAMED ? ` (+${unknown.size - MAX_UNKNOWN_NAMED} more)` : '';
+        throw new GameError(
+            `no card file in data/cards/ for user binding: ${named}${more}`,
+            WORLD_CREATE_ERROR_CODES.USER_UNKNOWN
+        );
+    }
+    return mapping;
 }
 
 /**
@@ -209,25 +277,37 @@ function rescanCapabilities(facade) {
  * @param {string[]} [options.cardIds] - Cards to populate the world with.
  *   Absent or null: every card in `data/cards/` (the boot behavior). An empty
  *   array: no cards at all.
- * @returns {{ despawned: number, cards: {total: number, spawned: number, entities: Array<{cardId: string, entityId: string}>}, round: number|null }}
+ * @param {Object<string, string>} [options.users] - The card user mapping
+ *   (`{ cardId: cardId }`) binding some cards' `{{user}}` to another card
+ *   (`wiki/decisions/card-user-mapping.md`). Absent or null: no binding.
+ * @returns {{ despawned: number, cards: {total: number, spawned: number, entities: Array<{cardId: string, entityId: string}>, users?: Object}, round: number|null }}
  * @throws {GameError} WORLD_CREATE_CARD_ID_INVALID | WORLD_CREATE_CARD_UNKNOWN
- *   | WORLD_CREATE_TOO_MANY_CARDS - always before any mutation.
+ *   | WORLD_CREATE_TOO_MANY_CARDS | WORLD_CREATE_USER_MAP_INVALID
+ *   | WORLD_CREATE_USER_UNKNOWN - always before any mutation.
  */
 export function recreateWorld(facade, options = {}) {
-    const selection = resolveSelection(() => facade._readCardFiles(), options.cardIds);
+    const listCardFiles = () => facade._readCardFiles();
+    const selection = resolveSelection(listCardFiles, options.cardIds);
+    const users = resolveUserMap(listCardFiles, options.users);
 
     const despawned = despawnAllEntities(facade);
     clearRuntimeResidue(facade);
 
     // One seeding order for a world, boot and create both. `cardIds: null`
-    // re-seeds every card; a list seeds the chosen ones.
-    const seeded = facade.initializeWorld(selection.all ? {} : { cardIds: selection.ids });
+    // re-seeds every card; a list seeds the chosen ones. `users` (when present)
+    // rides down to the card spawn, which resolves each target's name.
+    const initOptions = {};
+    if (!selection.all) initOptions.cardIds = selection.ids;
+    if (users) initOptions.users = users;
+    const seeded = facade.initializeWorld(initOptions);
     rescanCapabilities(facade);
 
     const round = facade.turnSystemController?.getRoundState?.()?.roundNumber ?? null;
     Logger.info(
         `[WorldRecreate] new world: ${despawned} entity(ies) removed, `
-        + `${seeded?.spawned ?? 0}/${seeded?.total ?? 0} card(s) spawned (round ${round ?? 'not started'}).`
+        + `${seeded?.spawned ?? 0}/${seeded?.total ?? 0} card(s) spawned`
+        + (users ? `, ${Object.keys(users).length} user binding(s) applied` : '')
+        + ` (round ${round ?? 'not started'}).`
     );
     return { despawned, cards: seeded, round };
 }
@@ -251,6 +331,8 @@ export function isWorldRunning(facade) {
  * @param {Object} facade - The `WorldStateController` (the one the server runs).
  * @param {Object} [options] - Passed through to `recreateWorld`.
  * @param {string[]} [options.cardIds] - Cards to populate the world with.
+ * @param {Object<string, string>} [options.users] - Card user mapping
+ *   (`{ cardId: cardId }`) binding some cards' `{{user}}` to another card.
  * @returns {{ despawned: number, cards: Object, round: number|null, running: boolean }}
  * @throws {GameError} the `WORLD_CREATE_ERROR_CODES` of `recreateWorld`, before
  *   anything is destroyed and before the tick is started.
