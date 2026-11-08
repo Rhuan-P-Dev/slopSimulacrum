@@ -391,8 +391,12 @@ class InternalComponentController {
                 if (componentVolumeProvider) {
                     hostVolume = componentVolumeProvider(component.type);
                 } else {
-                    // Fallback: use default assumption
-                    hostVolume = DEFAULT_HOST_VOLUME_FALLBACK;
+                    // Resolve the host's real volume from its component recipe
+                    // (form.volume), falling back to the flat assumption only when
+                    // the definition lacks one. Before this the flat fallback meant any
+                    // organ with volume > 10 never installed, even on a large host; the
+                    // fit check now uses the component's actual volume.
+                    hostVolume = this.componentDefinitions[component.type]?.form?.volume ?? DEFAULT_HOST_VOLUME_FALLBACK;
                 }
 
                 if (hostVolume < volume) {
