@@ -47,7 +47,6 @@ import { RoomChatController } from './RoomChatController.js';
 import { InTextPanel } from './InTextPanel.js';
 import { HintManager } from './HintManager.js';
 import MaterialRegistry from './MaterialRegistry.js';
-import ViewPanel from './ViewPanel.js';
 import IdResolver from '/utils/IdResolver.js';
 import ClientLogger from '/utils/ClientLogger.js';
 import { resolveRange } from '../../shared/RangeResolver.js';
@@ -203,14 +202,6 @@ export class ClientApp {
             handleError: (err) => this.errorController.handleError(err),
             getEntityId: () => this.worldState?.getMyEntityId?.() || this.worldState?.getActiveDroid?.()?.id || null
         });
-
-        // 10c. View tab (GET /view/:id inspector) — lists this room's
-        // entities + dropped items and fetches the view payload for any
-        // typed id (list click or pasted form). No OverlayManager showData
-        // callback: it owns its own live fetch and stays in step with each
-        // world broadcast (syncWorldState) — same live contract as Object
-        // Viewer / Agent View.
-        this.viewPanel = new ViewPanel();
 
         // 10. Overlay manager (replaces ConfigBarManager)
         this.overlayManager = new OverlayManager();
@@ -726,9 +717,6 @@ export class ClientApp {
             // on interaction, and via the live-round refresh hook below.
             this.overlayManager.register('round-prose', this.roundProse, 'btn-round-prose', null);
 
-            // View tab (no numeric shortcut — only '1'–'4' are wired in
-            // OverlayManager): list this room's objects or paste any typed id.
-            this.overlayManager.register('view', this.viewPanel, 'btn-view', null);
             // Agent Body (no numeric shortcut): body designer — explicit Design
             // body click (one LLM call per click), no auto-run on open.
             this.overlayManager.register('agent-body', this.agentBody, 'btn-agent-body', null);
@@ -863,12 +851,6 @@ export class ClientApp {
             // from what's drawn. Pure read: never mutates state, never
             // sends messages.
             this.inTextPanel?.update(this.worldState.getState(), droid);
-
-            // Keep the View tab in step with the broadcast: re-list this
-            // room's objects (entities + dropped items move every turn) and
-            // re-fetch the selected id's payload while open (live data, same
-            // contract as Object Viewer / Agent View).
-            this.viewPanel?.syncWorldState(this.worldState.getState(), droid?.location || null);
 
             // Re-render entities and components with callbacks
             if (droid) {
