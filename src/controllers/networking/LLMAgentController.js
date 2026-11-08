@@ -8,8 +8,9 @@
  *   3. call LLMController.chatFull with the generated tool set
  *      (execute_action + toApproach, plus speak_in_room when chat is enabled,
  *      use_instinct when instincts exist, craft/get_crafts when the NPC
- *      has a recipe registry, and equip_item / unequip_item for what it
- *      carries and wears), tool_choice "auto", and a
+ *      has a recipe registry, and equip_item / unequip_item for what it carries
+ *      and wears, plus move_item to shift it between its own components),
+ *      tool_choice "auto", and a
  *      per-NPC system prompt — PROTOCOL B: the native tool call is the ONLY
  *      output protocol (no JSON-in-content; the dual mode that briefly ran
  *      here is what produced the scaffold-loop incident, spec §6.4);
@@ -292,6 +293,7 @@ class LLMAgentController {
             crafts: [],
             equips: [],
             unequips: [],
+            moves: [],
             error: null
         };
 
@@ -739,6 +741,49 @@ class LLMAgentController {
                     }
                 }
 
+                // Dispatch move calls (move_item tool): one carried or equipped
+                // item goes from one of the NPC's own components to another.
+                // Counts as a world action (maxActions), like craft/equip/unequip.
+                for (const call of parsed.moves) {
+                    const itemType = typeof call.args?.itemType === 'string' ? call.args.itemType : '';
+                    if (executedActions >= maxActions) {
+                        const detail = `max world actions per round reached (${maxActions})`;
+                        result.moves.push({ itemType, success: false, detail });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'move_item', success: false, detail });
+                        if (!actionableFailure) actionableFailure = { call, error: detail };
+                        continue;
+                    }
+
+                    const validation = this._prevalidateMoveItem(npcEntityId, call.args);
+                    if (!validation.ok) {
+                        result.moves.push({ itemType, success: false, detail: validation.error });
+                        this._recordImmediateOutcome(npcEntityId, { actionName: 'move_item', success: false, detail: validation.error });
+                        if (!actionableFailure) actionableFailure = { call, error: validation.error };
+                        continue;
+                    }
+
+                    const dispatch = this._dispatchMoveItem(npcEntityId, validation.params);
+                    executedActions += 1;
+                    result.moves.push({
+                        itemType: dispatch.itemType,
+                        itemId: dispatch.itemId,
+                        fromComponentId: dispatch.fromComponentId,
+                        toComponentId: dispatch.toComponentId,
+                        kind: dispatch.kind,
+                        queued: dispatch.queued,
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    this._recordImmediateOutcome(npcEntityId, {
+                        actionName: 'move_item',
+                        success: dispatch.success,
+                        detail: dispatch.detail
+                    });
+                    if (!dispatch.success && !actionableFailure) {
+                        actionableFailure = { call, error: dispatch.detail || 'move failed' };
+                    }
+                }
+
                 // 9. Discovery payloads: get_actions / get_instincts / get_crafts
                 //    return the formatted list directly — the tool result IS the
                 //    list (one per call, built from the live registry / instinct
@@ -786,6 +831,7 @@ class LLMAgentController {
                     parsed.crafts.length > 0 ||
                     parsed.equips.length > 0 ||
                     parsed.unequips.length > 0 ||
+                    parsed.moves.length > 0 ||
                     parsed.discoveries.length > 0 ||
                     parsed.done;
 
@@ -883,7 +929,9 @@ class LLMAgentController {
      * a door named by the CURRENT room's connections; `equip_item` /
      * `unequip_item` put one carried item on the body and take one off again,
      * and they are also the clothing tools — a worn item IS an equipped entry
-     * (WearLogic), so there is no second pair for clothes; `craft` takes a recipe
+     * (WearLogic), so there is no second pair for clothes; `move_item` shifts
+     * a carried or equipped item to another one of the body's own components
+     * (an equipped item re-equips under the fit rule); `craft` takes a recipe
      * id, the named ingredient multiset, and the component that receives the
      * outputs — pre-validation runs against the live recipe registry and the
      * component's holdings before the real transaction; `use_instinct` is
@@ -1028,6 +1076,23 @@ class LLMAgentController {
             }
         };
 
+        const moveItemTool = {
+            type: 'function',
+            function: {
+                name: 'move_item',
+                description: 'Move one item you have to another component of your own droid body: a carried item, or an equipped one (which re-equips on the new component under the fit rule). Pass the item type exactly as your Inventory line shows it, the comp-… it is currently on, and the comp-… that will carry it. It must fit the destination (free volume). Never invent an item id — name the type and the components.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        itemType: { type: 'string', description: 'Item type from your Inventory line (e.g. "knife", "tshirt").' },
+                        fromComponentId: { type: 'string', description: 'The comp-… component currently hosting the item, from your Inventory line.' },
+                        toComponentId: { type: 'string', description: 'The comp-… component that will host the item after the move, from your Inventory line.' }
+                    },
+                    required: ['itemType', 'fromComponentId', 'toComponentId']
+                }
+            }
+        };
+
         const getActions = {
             type: 'function',
             function: {
@@ -1131,9 +1196,9 @@ class LLMAgentController {
         };
 
         // Order: discovery tools first (read at round start), action tools
-        // (move toward → leave the room → craft → put on / take off), chat,
-        // instincts, and the round-end done tool last.
-        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool, useDoor, equipItemTool, unequipItemTool];
+        // (move toward → leave the room → craft → put on / take off → shift
+        // between components), chat, instincts, and the round-end done tool last.
+        const tools = [getActions, getInstincts, getCrafts, executeAction, toApproach, craftTool, useDoor, equipItemTool, unequipItemTool, moveItemTool];
         if (includeChat) {
             tools.push(speakInRoom);
         }
@@ -1212,6 +1277,7 @@ class LLMAgentController {
             '- You may call toApproach { targetEntityId: "ent-..." } to move toward an entity in your current room as far as possible this round (one full move step, capped by your movement stat). Name only the target — the server resolves where it is. It does not cross rooms: to enter another room call use_door with a door name from your Exits line.',
             '- Leave a room with the use_door tool only: pass the door name exactly as your Exits line shows it — that line also prints each door\'s position, and you must be standing at the door to cross it, so walk there with move first. You cannot name the destination room — the door decides it.',
             '- Put a carried item on with the equip_item tool (its type from your Inventory line, plus the comp-… carrying it) and take an equipped one off with unequip_item (type only). Those are also how you dress: a worn item is just an equipped one, and it fits a component with enough free volume. Never invent an item id — name the type.',
+            '- Shift an item between your own components with the move_item tool: a carried one, or an equipped one (which re-equips on the new component under the same fit rule). Name the item type plus the comp-… it is on and the comp-… that will hold it; the destination must have free volume for it. It still counts toward your per-round action budget.',
             ...(maxChat > 0 ? ['- Keep chat messages under 25 words, in character, no fourth-wall breaks.'] : []),
             '',
             'How you respond:',
@@ -1682,7 +1748,7 @@ class LLMAgentController {
      * failure for retry purposes via args.__malformed).
      *
      * @param {Object} message - The raw choices[0].message.
-     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, doors: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, equips: Array<{id: string, args: Object}>, unequips: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
+     * @returns {{ speaks: Array<{id: string, args: Object}>, actions: Array<{id: string, args: Object}>, instincts: Array<{id: string, args: Object}>, approaches: Array<{id: string, args: Object}>, doors: Array<{id: string, args: Object}>, crafts: Array<{id: string, args: Object}>, equips: Array<{id: string, args: Object}>, unequips: Array<{id: string, args: Object}>, moves: Array<{id: string, args: Object}>, discoveries: Array<{id: string, kind: string, args: Object}>, done: boolean, prose: string|null }}
      * @private
      */
     _parseToolCalls(message) {
@@ -1694,6 +1760,7 @@ class LLMAgentController {
         const crafts = [];
         const equips = [];
         const unequips = [];
+        const moves = [];
         const discoveries = [];
         // Did the model call the done tool? (no args; the call itself is the
         // round-end signal — spec §6.5.)
@@ -1738,6 +1805,7 @@ class LLMAgentController {
             else if (name === 'craft') crafts.push(entry);
             else if (name === 'equip_item') equips.push(entry);
             else if (name === 'unequip_item') unequips.push(entry);
+            else if (name === 'move_item') moves.push(entry);
             else if (name === 'get_actions') {
                 const filter = entry.args.filter;
                 discoveries.push({
@@ -1765,7 +1833,7 @@ class LLMAgentController {
             // Unknown tool names: ignored (the schema is closed; the model is
             // told "respond ONLY with tool calls" from the known set).
         }
-        return { speaks, actions, instincts, approaches, doors, crafts, equips, unequips, discoveries, done, prose };
+        return { speaks, actions, instincts, approaches, doors, crafts, equips, unequips, moves, discoveries, done, prose };
     }
 
     // =========================================================================
@@ -2643,6 +2711,196 @@ class LLMAgentController {
     }
 
     /**
+     * Pre-execution validation for one move_item call, against the live world
+     * (the model only names a type + two of its own comp-…; the server resolves
+     * the concrete instance — SEC-4, the entity's inventory is the allow-list):
+     *   - `itemType` a bounded, non-empty string; `fromComponentId` and
+     *     `toComponentId` comp-… ids belonging to the ACTING NPC (a move is a
+     *     self-transaction, so no other body's part can be named);
+     *   - the two components are the NPC's own, and distinct from each other.
+     *   - the NPC actually holds an item of that type on the source. Resolution
+     *     is "equipped-on-source wins": an equipped entry on the source is the
+     *     unambiguous, move-safe one (a moved carried copy without its equipped
+     *     entry would strand a stale one); it falls back to the directly-carried
+     *     copy on the source.
+     *   - same-component is a no-op, rejected with a clear "already on" hint.
+     *   - destination volume (carried moves) and fit/strength (equipped moves)
+     *     are NOT re-checked here: they come back from the world's own doors
+     *     (facade.moveItemInEntity / facade.transferEquip), so the failure the
+     *     model reads is the world's word — single source of truth.
+     * @param {string} npcEntityId
+     * @param {Object} args - parsed move_item args ({ itemType, fromComponentId,
+     *   toComponentId }).
+     * @returns {{ ok: true, params: { itemId, itemType, fromComponentId, toComponentId, kind } } | { ok: false, error }}
+     * @private
+     */
+    _prevalidateMoveItem(npcEntityId, args) {
+        if (!args || typeof args !== 'object') {
+            return { ok: false, error: 'malformed tool arguments' };
+        }
+        if (args.__malformed) {
+            return { ok: false, error: args.__malformed };
+        }
+
+        const itemType = args.itemType;
+        if (typeof itemType !== 'string' || itemType.trim() === '') {
+            return { ok: false, error: 'missing "itemType"' };
+        }
+        if (itemType.length > ITEM_TYPE_MAX_LENGTH) {
+            return { ok: false, error: `itemType too long (${ITEM_TYPE_MAX_LENGTH} chars max)` };
+        }
+
+        const fromComponentId = args.fromComponentId;
+        if (typeof fromComponentId !== 'string' || fromComponentId.trim() === '') {
+            return { ok: false, error: 'missing "fromComponentId"' };
+        }
+        if (!IdResolver.isCompId(fromComponentId)) {
+            return { ok: false, error: `invalid id format: fromComponentId="${fromComponentId}"` };
+        }
+
+        const toComponentId = args.toComponentId;
+        if (typeof toComponentId !== 'string' || toComponentId.trim() === '') {
+            return { ok: false, error: 'missing "toComponentId"' };
+        }
+        if (!IdResolver.isCompId(toComponentId)) {
+            return { ok: false, error: `invalid id format: toComponentId="${toComponentId}"` };
+        }
+
+        const self = this.worldStateController?.getEntity?.(npcEntityId);
+        if (!self) return { ok: false, error: 'actor entity not found' };
+        const ownComponents = (self.components || []).map(c => c && c.id);
+        if (!ownComponents.includes(fromComponentId)) {
+            return { ok: false, error: `component "${fromComponentId}" not found on entity "${npcEntityId}"` };
+        }
+        if (!ownComponents.includes(toComponentId)) {
+            return { ok: false, error: `component "${toComponentId}" not found on entity "${npcEntityId}"` };
+        }
+
+        // Resolve the source instance: an equipped entry on the source wins (it
+        // is the unambiguous, move-safe one — an equipped item also lives in
+        // `entity.items`, so picking a carried copy first would strand a stale
+        // equipped entry); otherwise the directly-carried copy on the source.
+        const equippedEntry = (this.worldStateController?.getEquippedItems?.(npcEntityId) || [])
+            .find(eq => eq && eq.itemType === itemType && eq.componentId === fromComponentId);
+        if (equippedEntry) {
+            if (fromComponentId === toComponentId) {
+                return {
+                    ok: false,
+                    error: `"${itemType}" is already on ${fromComponentId} — name a different destination`
+                };
+            }
+            return {
+                ok: true,
+                params: {
+                    itemId: equippedEntry.itemId,
+                    itemType,
+                    fromComponentId,
+                    toComponentId,
+                    kind: 'equipped'
+                }
+            };
+        }
+
+        const hosted = this._itemsOn(npcEntityId, fromComponentId);
+        const carried = hosted.find(item => item.type === itemType);
+        if (!carried) {
+            return {
+                ok: false,
+                error: hosted.length > 0
+                    ? `no "${itemType}" carried on ${fromComponentId} (it holds: ${hosted.map(item => item.type).join(', ')})`
+                    : `no "${itemType}" carried on ${fromComponentId} (that component carries nothing)`
+            };
+        }
+        if (fromComponentId === toComponentId) {
+            return {
+                ok: false,
+                error: `"${itemType}" is already on ${fromComponentId} — name a different destination`
+            };
+        }
+
+        return {
+            ok: true,
+            params: {
+                itemId: carried.id,
+                itemType,
+                fromComponentId,
+                toComponentId,
+                kind: 'carried'
+            }
+        };
+    }
+
+    /**
+     * Dispatches one validated move under the craft/equip turn discipline: a move
+     * is a self-transaction (no external action), so it is never queued onto the
+     * turn system — it runs only in a turn world's planning window, is dropped in
+     * every other phase (mirroring `_dispatchEquip` / `_dispatchUnequip`), and runs immediately in non-
+     * turn worlds.
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateMoveItem
+     * @returns {{ itemId, itemType, fromComponentId, toComponentId, kind, queued, success, detail }}
+     * @private
+     */
+    _dispatchMoveItem(npcEntityId, params) {
+        const turns = this.turnSystemController;
+        const phase = turns?.getRoundState?.()?.phase;
+        const turnsActive = turns && phase !== undefined;
+        if (turnsActive && phase === TURN_PHASES.PLANNING) {
+            return this._executeMoveItem(npcEntityId, params);
+        }
+        if (turnsActive) {
+            const detail = 'planning window closed';
+            Logger.info(`[LLMAgent] ${npcEntityId}: LLM response landed in phase "${phase}" — planning window closed, move "${params.itemType}" dropped (no immediate execution in a turn world).`);
+            return { ...params, queued: false, success: false, detail };
+        }
+        // Immediate fallback (non-turn worlds / tests only).
+        return this._executeMoveItem(npcEntityId, params);
+    }
+
+    /**
+     * Runs the move transaction. An equipped item goes through the world's hand-
+     * over-hand swap door (facade.transferEquip: unequip + re-equip under the fit
+     * rule, with rollback if the new component rejects it). Everything else goes
+     * through the plain in-entity move (facade.moveItemInEntity). This method
+     * only chooses the door and reports the world's own word; it owns no rules
+     * of its own.
+     * @param {string} npcEntityId
+     * @param {Object} params - From _prevalidateMoveItem
+     * @returns {{ itemId, itemType, fromComponentId, toComponentId, kind, queued, success, detail }}
+     * @private
+     */
+    _executeMoveItem(npcEntityId, params) {
+        const base = { ...params, queued: false };
+        try {
+            const exec = params.kind === 'equipped'
+                ? this.worldStateController?.transferEquip?.(
+                    npcEntityId, params.itemId, params.itemType,
+                    params.fromComponentId, params.toComponentId
+                )
+                : this.worldStateController?.moveItemInEntity?.(
+                    npcEntityId, params.itemId, params.toComponentId, npcEntityId
+                );
+            if (exec?.success) {
+                return {
+                    ...base,
+                    success: true,
+                    detail: exec.message
+                        || (params.kind === 'equipped'
+                            ? `moved "${params.itemType}" from ${params.fromComponentId} to ${params.toComponentId} (re-equipped)`
+                            : `moved "${params.itemType}" from ${params.fromComponentId} to ${params.toComponentId}`)
+                };
+            }
+            return {
+                ...base,
+                success: false,
+                detail: exec?.message || exec?.error || (params.kind === 'equipped' ? 'transferEquip failed' : 'moveItemInEntity failed')
+            };
+        } catch (err) {
+            return { ...base, success: false, detail: err?.message || String(err) };
+        }
+    }
+
+    /**
      * Capture Point B (spec §4.2): records an immediate outcome for the NPC
      * agent's short-term memory. Used for pre-validation failures, queue
      * rejections, and late-LLM-response drops. Best-effort — must never throw.
@@ -2932,6 +3190,18 @@ class LLMAgentController {
 
         (parsed.unequips || []).forEach((call, idx) => {
             const entry = (result.unequips || [])[idx];
+            results.push({
+                id: call.id,
+                success: entry ? Boolean(entry.success) : false,
+                detail: entry ? entry.detail : undefined
+            });
+        });
+
+        // move_item: one result entry per call, in call order, detail on
+        // success — the model must be replayed where the item now sits, same
+        // convention as use_door.
+        (parsed.moves || []).forEach((call, idx) => {
+            const entry = (result.moves || [])[idx];
             results.push({
                 id: call.id,
                 success: entry ? Boolean(entry.success) : false,

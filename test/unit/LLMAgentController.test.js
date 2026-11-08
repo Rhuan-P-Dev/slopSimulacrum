@@ -3261,3 +3261,217 @@ describe('equip_item / unequip_item tools (gear and clothing, one pair)', () => 
         expect(results[0]).toMatchObject({ success: true, detail: 'Wore "T-Shirt" on Hand (comp-hand-1).' });
     });
 });
+
+// =========================================================================
+// MOVE (the move_item tool). Shifts one item between the NPC's OWN components:
+// a carried item goes through `moveItemInEntity`; an equipped one goes through
+// the hand-over-hand `transferEquip` door (unequip + re-equip under the fit
+// rule). Pre-validation is against the live world (the entity's inventory is
+// the allow-list, SEC-4); the world's own failure words are the model's; same
+// discipline as craft/equip (turn planning window, maxActions, registry resolve).
+// =========================================================================
+
+describe('move_item tool (shift between own components)', () => {
+    /**
+     * A world whose NPC owns two components and carries an item on the source;
+     * the move doors (`moveItemInEntity` / `transferEquip`) are recorded so the
+     * routing (which door was knocked on, with which resolved instance) is what
+     * the assertions read.
+     */
+    function makeMoveWorld({
+        items = { 'comp-hand-1': [{ id: 'item-knife-1', type: 'knife' }] },
+        equipped = [],
+        maxActions = 4,
+        moveResult = { success: true },
+        transferResult = { success: true },
+    } = {}) {
+        const npc = {
+            ...NPC,
+            components: [{ id: 'comp-hand-1', type: 'hand' }, { id: 'comp-core-1', type: 'centralBall' }],
+            npcConfig: { maxWorldActionsPerRound: maxActions }
+        };
+        const world = makeWorld();
+        world.getEntity = () => npc;
+        world.getEntityItems = () => items;
+        world.getEquippedItems = () => equipped.map((eq) => ({ ...eq }));
+        const moveCalls = [];
+        const transferCalls = [];
+        world.moveItemInEntity = (entityId, itemId, toComponentId, actorEntityId) => {
+            moveCalls.push({ entityId, itemId, toComponentId, actorEntityId });
+            return moveResult;
+        };
+        world.transferEquip = (entityId, itemId, itemType, fromComponentId, toComponentId) => {
+            transferCalls.push({ entityId, itemId, itemType, fromComponentId, toComponentId });
+            return transferResult;
+        };
+        world.__moveCalls = moveCalls;
+        world.__transferCalls = transferCalls;
+        return world;
+    }
+
+    /** One move_item call, then done (the round ends at once). */
+    function moveMessage(args) {
+        return toolMessage([
+            { name: 'move_item', args: JSON.stringify(args) },
+            { name: 'done', args: JSON.stringify({ note: 'Done.' }) }
+        ]);
+    }
+
+    async function runMove(world, message, turns = makeTurns()) {
+        const { agent } = makeAgent({ world, turns, chatFullImpl: () => ({
+            content: null, toolCalls: [], finishReason: 'tool_calls', message
+        }) });
+        return { agent, result: await agent.runRound(NPC_ID, 0) };
+    }
+
+    it('shifts a carried item between two of the NPC\'s own components (moveItemInEntity door)', async () => {
+        const world = makeMoveWorld();
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }));
+        expect(result.error).toBeNull();
+        expect(world.__moveCalls).toHaveLength(1);
+        expect(world.__moveCalls[0]).toEqual({
+            entityId: NPC_ID, itemId: 'item-knife-1', toComponentId: 'comp-core-1', actorEntityId: NPC_ID
+        });
+        expect(world.__transferCalls).toHaveLength(0); // carried: never the equip door
+        expect(result.moves[0]).toMatchObject({
+            itemType: 'knife', itemId: 'item-knife-1', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1', kind: 'carried', queued: false, success: true
+        });
+        expect(result.moves[0].detail).toBe('moved "knife" from comp-hand-1 to comp-core-1');
+    });
+
+    it('shifts an equipped item between components via transferEquip (the fit-rule door, not a plain move)', async () => {
+        const world = makeMoveWorld({
+            equipped: [{ eqId: 'eq-knife-1', itemId: 'item-knife-1', itemType: 'knife', componentId: 'comp-hand-1' }]
+        });
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }));
+        expect(result.error).toBeNull();
+        expect(world.__transferCalls).toHaveLength(1);
+        expect(world.__transferCalls[0]).toEqual({
+            entityId: NPC_ID, itemId: 'item-knife-1', itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1'
+        });
+        expect(world.__moveCalls).toHaveLength(0); // equipped: never the plain-move door
+        expect(result.moves[0]).toMatchObject({ kind: 'equipped', queued: false, success: true });
+        expect(result.moves[0].detail).toBe('moved "knife" from comp-hand-1 to comp-core-1 (re-equipped)');
+    });
+
+    it('surfaces the world\'s own volume/fit failure instead of re-checking it', async () => {
+        const world = makeMoveWorld({
+            maxActions: 1,
+            moveResult: { success: false, message: 'Destination comp-core-1 has no free volume for the item.' },
+            transferResult: { success: false, message: 'INSUFFICIENT_STAT: comp-core-1 lacks the strength' }
+        });
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }));
+        expect(world.__moveCalls).toHaveLength(1); // carried: the move reached the plain door
+        expect(world.__transferCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({
+            kind: 'carried', itemId: 'item-knife-1', success: false
+        });
+        // The detail is the WORLD's own word (single source of truth) — pre-validation
+        // lets a carried move reach the door and does NOT re-check volume itself.
+        expect(result.moves[0].detail).toBe('Destination comp-core-1 has no free volume for the item.');
+    });
+
+    it('rejects a move with no item of that type on the source (names what IS held)', async () => {
+        const world = makeMoveWorld({ items: { 'comp-hand-1': [{ id: 'item-axe-1', type: 'axe' }] } });
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }));
+        expect(world.__moveCalls).toHaveLength(0);
+        expect(world.__transferCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({ itemType: 'knife', success: false });
+        expect(result.moves[0].detail).toBe('no "knife" carried on comp-hand-1 (it holds: axe)');
+    });
+
+    it('rejects a foreign source component (not owned by the actor) with a clear not-found hint', async () => {
+        const world = makeMoveWorld();
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-leg-1', toComponentId: 'comp-core-1' }));
+        expect(world.__moveCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({ itemType: 'knife', success: false });
+        expect(result.moves[0].detail).toBe('component "comp-leg-1" not found on entity "ent-npc-0001"');
+    });
+
+    it('rejects a move that names the same component twice (a no-op)', async () => {
+        const world = makeMoveWorld();
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-hand-1' }));
+        expect(world.__moveCalls).toHaveLength(0);
+        expect(world.__transferCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({ itemType: 'knife', success: false });
+        expect(result.moves[0].detail).toBe('"knife" is already on comp-hand-1 \u2014 name a different destination');
+    });
+
+    it('rejects a malformed call (bad id format) before the world is touched', async () => {
+        const world = makeMoveWorld();
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'hand-1', toComponentId: 'comp-core-1' }));
+        expect(world.__moveCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({ itemType: 'knife', success: false });
+        expect(result.moves[0].detail).toBe('invalid id format: fromComponentId="hand-1"');
+    });
+
+    it('resolves the instance by registry type only \u2014 the model names type + components, the server picks the id', async () => {
+        const world = makeMoveWorld();
+        await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }));
+        expect(world.__moveCalls[0].itemId).toBe('item-knife-1'); // server-resolved, not model-named
+    });
+
+    it('drops the move when the turn world is outside the planning window', async () => {
+        const world = makeMoveWorld();
+        const { result } = await runMove(world, moveMessage({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }), makeTurns({ phase: 'resolution' }));
+        expect(world.__moveCalls).toHaveLength(0);
+        expect(world.__transferCalls).toHaveLength(0);
+        expect(result.moves[0]).toMatchObject({ itemType: 'knife', queued: false, success: false });
+        expect(result.moves[0].detail).toBe('planning window closed');
+    });
+
+    it('offers move_item to the model, with the own-body / fit / free-volume guidance and all three named params', () => {
+        const world = makeMoveWorld();
+        const { agent } = makeAgent({ world });
+        const move = agent._buildTools().find((t) => t.function.name === 'move_item');
+        expect(move).not.toBeUndefined();
+        expect(Object.keys(move.function.parameters.properties)).toEqual(['itemType', 'fromComponentId', 'toComponentId']);
+        expect(move.function.parameters.required).toEqual(['itemType', 'fromComponentId', 'toComponentId']);
+        expect(move.function.description).toMatch(/comp-\u2026/);
+        expect(move.function.description).toMatch(/re-equips/);
+        expect(move.function.description).toMatch(/free volume/);
+    });
+
+    it('rejects the second move when the per-round world-action cap is already spent (a move counts as one world action, like craft/equip)', async () => {
+        const world = makeMoveWorld({ maxActions: 1 });
+        const turns = makeTurns();
+        let callCount = 0;
+        const { agent } = makeAgent({
+            world,
+            turns,
+            chatFullImpl: () => {
+                callCount += 1;
+                // First response asks for two moves (the second hits the cap);
+                // once the model is fed the cap failure it gives up with done.
+                if (callCount >= 2) {
+                    return { content: null, toolCalls: [], finishReason: 'tool_calls', message: toolMessage([{ name: 'done', args: '{}' }]) };
+                }
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'tool_calls',
+                    message: toolMessage([
+                        { name: 'move_item', args: JSON.stringify({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }) },
+                        { name: 'move_item', args: JSON.stringify({ itemType: 'knife', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1' }) }
+                    ])
+                };
+            }
+        });
+
+        const result = await agent.runRound(NPC_ID, 0);
+
+        expect(callCount).toBe(2); // two moves, then done after the cap feedback
+        expect(world.__moveCalls).toHaveLength(1); // only the first move reached the plain door
+        expect(world.__transferCalls).toHaveLength(0);
+        expect(result.error).toBeNull();
+        expect(result.moves).toHaveLength(2);
+        expect(result.moves[0]).toMatchObject({
+            itemType: 'knife', itemId: 'item-knife-1', fromComponentId: 'comp-hand-1', toComponentId: 'comp-core-1', kind: 'carried', queued: false, success: true
+        });
+        expect(result.moves[0].detail).toBe('moved "knife" from comp-hand-1 to comp-core-1');
+        expect(result.moves[1]).toMatchObject({ itemType: 'knife', success: false });
+        expect(result.moves[1].detail).toBe('max world actions per round reached (1)');
+        expect(result.done).toBe(true);
+        expect(result.iterations).toBe(2);
+    });
+});
