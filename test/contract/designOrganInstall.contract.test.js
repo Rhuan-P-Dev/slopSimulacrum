@@ -56,7 +56,7 @@ const [GRANTED_TRAIT, GRANTED_NAME] = GRANTED_STAT.split('.');
  * The body this file spawns. The root component declares the designer organ; the
  * leaf child names no organ and is the control (it stays bare).
  */
-const BODY = 'minakoRunner';
+const BODY = 'courierRunner';
 const ROOT_COMPONENT = 'webbedTorso';
 const LEAF_COMPONENT = 'plainLimb';
 // Fit-semantics fixture: two hosts of the same size (HOST_VOLUME). One names a
@@ -145,7 +145,7 @@ function buildOrgansMatch(blueprint = BODY) {
     const tick = new UniversalTickSystem(MAX_TICKS_PER_SECOND);
     const { worldStateController: world } = buildWorldState(tick, store);
     const room = world.roomsController.getUidByLogicalId('start_room');
-    const actor = world.stateEntityController.spawnEntity(blueprint, room, { name: 'Minako' });
+    const actor = world.stateEntityController.spawnEntity(blueprint, room, { name: 'Runner' });
     return { world, actor };
 }
 
