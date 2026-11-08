@@ -566,13 +566,13 @@ describe('AgentBodyController', () => {
             design.components[0].internalComponents = ['courierWeb'];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
 
-            const result = await controller.designBody(MINAKO_STEM);
+            const result = await controller.designBody(NOVA_STEM);
 
             expect(result.body.internalComponents).toEqual([{ name: 'courierWeb', displayName: 'Courier Web', grants: { 'Physical.strength': 70 }, grantsFlags: ['conductive'], volume: 1 }]);
             // A design that invents no organs normalizes to an empty list, not an absence:
             // downstream code (the save) iterates it unconditionally.
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            const noOrgans = await controller.designBody(MINAKO_STEM);
+            const noOrgans = await controller.designBody(NOVA_STEM);
             expect(noOrgans.body.internalComponents).toEqual([]);
         });
 
@@ -580,7 +580,7 @@ describe('AgentBodyController', () => {
             const design = structuredClone(HAPPY_BODY);
             design.internalComponents = [{ name: 'thinkCore', volume: 1, grants: { 'Mind.think_level': 5 } }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(DesignValidationError);
             expect(err.errors.join(' ')).toMatch(/collides with an organ the world already has/);
         });
@@ -591,7 +591,7 @@ describe('AgentBodyController', () => {
             const design = structuredClone(HAPPY_BODY);
             design.internalComponents = [{ name: 'massGland', volume: 1, grants: { 'Physical.mass': 5 } }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(DesignValidationError);
             expect(err.errors.join(' ')).toMatch(/is not grantable by an organ/);
         });
@@ -600,7 +600,7 @@ describe('AgentBodyController', () => {
             const design = structuredClone(HAPPY_BODY);
             design.internalComponents = [{ name: 'hollowShell', displayName: 'Hollow Shell', volume: 1 }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(DesignValidationError);
             expect(err.errors.join(' ')).toMatch(/grants no stat and marks no flag/);
         });
@@ -614,14 +614,14 @@ describe('AgentBodyController', () => {
                 overTime: [{ type: 'restoreExistence', intervalTurns: 5, existenceGainPerInterval: 0.02, salvageConsumedPerInterval: 1 }]
             }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(DesignValidationError);
             expect(err.errors.join(' ')).toMatch(/designer organ is static/);
         });
 
         it('says in the prompt what a designer organ is: static grants over a closed vocabulary', async () => {
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            await controller.designBody(MINAKO_STEM);
+            await controller.designBody(NOVA_STEM);
 
             const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
             expect(system).toContain('"internalComponents"');
