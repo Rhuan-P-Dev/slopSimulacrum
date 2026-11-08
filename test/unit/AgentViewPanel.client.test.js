@@ -30,7 +30,7 @@ describe('AgentViewPanel — the exact request section', () => {
         const html = panel()._lastRequestSection({
             lastRequest: {
                 round: 7,
-                system: 'You are Minako.',
+                system: 'You are Nova.',
                 messages: [
                     { role: 'user', content: 'round 6: the earlier anchor' },
                     {
@@ -50,7 +50,7 @@ describe('AgentViewPanel — the exact request section', () => {
         expect(html).toContain('tool_call move');
         expect(html).toContain('dx');
         expect(html).toContain('content: null (tool-call message)');
-        expect(html).toContain('You are Minako.');
+        expect(html).toContain('You are Nova.');
         expect(html).toContain('>user<');
         expect(html).toContain('#4/4');
     });
@@ -102,10 +102,10 @@ describe('AgentViewPanel — the panel never shows a context without saying what
         return sink.innerHTML;
     };
 
-    const CONTEXT_TEXT = 'said in this room this round (round 9):\nMinako: hi';
+    const CONTEXT_TEXT = 'said in this room this round (round 9):\nNova: hi';
     const base = {
         entityId: 'ent-1',
-        name: 'Minako',
+        name: 'Nova',
         room: { id: 'room-main', name: 'The Entrance Hall' },
         context: { text: CONTEXT_TEXT, stats: { chars: 42, budgetChars: 8000 } }
     };
@@ -117,14 +117,14 @@ describe('AgentViewPanel — the panel never shows a context without saying what
             lastRequest: {
                 round: 9,
                 system: 'SYS',
-                messages: [{ role: 'user', content: 'round 9\n\n=== YOUR STATE ===\nName: Minako' }]
+                messages: [{ role: 'user', content: 'round 9\n\n=== YOUR STATE ===\nName: Nova' }]
             }
         });
         expect(html).toContain('Last request to the LLM (round 9)');
         expect(html).toContain('=== YOUR STATE ===');
         // The live composition is not shown beside it: two context blocks, one of
         // them sent to nobody, is the confusion this panel already had.
-        expect(html).not.toContain('Minako: hi');
+        expect(html).not.toContain('Nova: hi');
         expect(html).not.toContain('recomposed now — NOT sent');
         // And the standalone system prompt yields to the copy inside the request.
         expect(html).not.toContain('System Prompt (recomputed now)');
@@ -140,7 +140,7 @@ describe('AgentViewPanel — the panel never shows a context without saying what
         const html = render({ ...base, systemPrompt: 'SYS', lastRequest: null });
         expect(html).toContain('a restart empties it');
         expect(html).toContain('Context (recomposed now — NOT sent to any agent)');
-        expect(html).toContain('Minako: hi');
+        expect(html).toContain('Nova: hi');
         expect(html).toContain('context 42 chars');
         expect(html).toContain('No model received this');
         // Never the old title, which claimed the composition WAS the narrative.
@@ -154,11 +154,11 @@ describe('AgentViewPanel — the panel never shows a context without saying what
         const html = render({ ...base, systemPrompt: 'SYS' });
         expect(html).toContain('older than this view');
         expect(html).toContain('Restart the server');
-        expect(html).toContain('Minako: hi');
+        expect(html).toContain('Nova: hi');
     });
 
     it('no request and no context says so plainly, without inventing a section', () => {
-        const html = render({ entityId: 'ent-1', name: 'Minako', systemPrompt: null, lastRequest: null });
+        const html = render({ entityId: 'ent-1', name: 'Nova', systemPrompt: null, lastRequest: null });
         expect(html).toContain('The transcript is in memory');
         expect(html).not.toContain('<pre');
     });

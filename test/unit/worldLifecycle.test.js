@@ -59,7 +59,7 @@ function makeTick(running = false) {
  * @param {string[]} [options.entities] - Entity ids currently alive.
  * @param {Object} [options.tick] - The tick double to mount (`null` = no tick at all).
  */
-function makeWorld({ onDisk = ['Minako'], entities = ['ent-1', 'ent-2'], tick = makeTick() } = {}) {
+function makeWorld({ onDisk = ['Nova'], entities = ['ent-1', 'ent-2'], tick = makeTick() } = {}) {
     /** @type {string[]} every call, in order; tick calls are prefixed `tick.`. */
     const calls = [];
     const record = (...args) => calls.push(args.join(' '));
@@ -108,7 +108,7 @@ describe('startWorld', () => {
         const facade = makeWorld();
 
         // When the operator creates a world.
-        const result = startWorld(facade, { cardIds: ['Minako'] });
+        const result = startWorld(facade, { cardIds: ['Nova'] });
 
         // Then the old population and the dead world's memory go first, the world
         // is seeded, its capabilities rescanned, and only then is the tick started.
@@ -118,7 +118,7 @@ describe('startWorld', () => {
             'dropped 0',
             'clearChat',
             'clearEvents',
-            'seed Minako',
+            'seed Nova',
             'rescan',
             'tick.start'
         ]);
@@ -129,7 +129,7 @@ describe('startWorld', () => {
 
     it('refuses an unknown card without starting anything at all', () => {
         // Given a request that names a card the seam does not have.
-        const facade = makeWorld({ onDisk: ['Minako'] });
+        const facade = makeWorld({ onDisk: ['Nova'] });
 
         const error = thrown(() => startWorld(facade, { cardIds: ['Nobody'] }));
 
@@ -158,11 +158,11 @@ describe('startWorld', () => {
         const facade = makeWorld({ tick: null });
 
         // When a world is created.
-        const result = startWorld(facade, { cardIds: ['Minako'] });
+        const result = startWorld(facade, { cardIds: ['Nova'] });
 
         // Then the population exists and `running` is honestly false - nobody will
         // advance rounds, and saying otherwise would be a lie about the world.
-        expect(facade.calls).toContain('seed Minako');
+        expect(facade.calls).toContain('seed Nova');
         expect(result.running).toBe(false);
     });
 });

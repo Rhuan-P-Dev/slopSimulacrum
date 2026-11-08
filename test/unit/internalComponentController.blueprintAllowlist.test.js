@@ -4,7 +4,7 @@
  * Pins which entity blueprints an organ may install on, and reproduces the
  * "humanoid droid is born paralyzed" defect: the humanoid recipes declare their
  * function organs (`maleArm: ["strengthCore"]`, `maleLeg: ["moveCore"]`, same for
- * the female body and for the card body `minakoarm`/`minakoleg`), but the organ
+ * the female body), but the organ
  * definitions carried an allowlist of blueprint keys that stopped at the older
  * bodies. The gate in `autoInstallOnEntitySpawn` compares the entity's TOP-LEVEL
  * blueprint key, so a recipe declaration with a missing key is silently vetoed —
@@ -71,11 +71,6 @@ const m1Limbs = () => ([
     { id: 'comp-leg-left', type: 'm1Leg', identifier: 'left' },
 ]);
 
-const cardLimbs = () => ([
-    { id: 'comp-arm-left', type: 'minakoarm', identifier: 'left' },
-    { id: 'comp-leg-left', type: 'minakoleg', identifier: 'left' },
-]);
-
 describe('InternalComponentController organ install gate (targetBlueprintTypes)', () => {
     it('installs the strength and locomotion organs the humanoid recipes declare', () => {
         expect(installedOrganTypes('maleDroid', humanoidLimbs())).toEqual(['moveCore', 'strengthCore']);
@@ -87,13 +82,6 @@ describe('InternalComponentController organ install gate (targetBlueprintTypes)'
             { id: 'comp-leg-left', type: 'femaleLeg', identifier: 'left' },
         ]);
         expect(installedOrganTypes('femaleDroid', femaleLimbs())).toEqual(['moveCore', 'strengthCore']);
-    });
-
-    it('installs them for a card body blueprint, keyed by the card display name', () => {
-        // Card bodies are registered under the card's display name (see
-        // CardSpawnLogic.blueprintForCard), so the allowlist has to name that key
-        // too, or every designed body spawns without strength or movement.
-        expect(installedOrganTypes('Minako', cardLimbs())).toEqual(['moveCore', 'strengthCore']);
     });
 
     it('still installs them for the legacy m1Droid blueprint key', () => {

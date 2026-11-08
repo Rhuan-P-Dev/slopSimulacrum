@@ -17,8 +17,8 @@
  * entity's top-level blueprint key is missing. Matter stats (existence, sharpness,
  * mass) are derived from the material, so `cut` / `shootT1` / `touch` kept working;
  * function stats exist ONLY where an organ installed, so every strength- or
- * movement-gated action lost all of its components. Same veto hit the card body
- * blueprint, whose key is the card's display name.
+ * movement-gated action lost all of its components. The female humanoid (femaleArm /
+ * femaleLeg) is the same regression in the other body, so both families are pinned.
  *
  * @module test/contract/humanoidSpawnCapabilities.contract
  */
@@ -87,11 +87,11 @@ describe('Spawned humanoid body keeps its function stats (real world, data-drive
         }
     });
 
-    it('grants the same organs to a card body blueprint (keyed by display name)', () => {
-        // A card body is a blueprint registered under the card's display name, so a
-        // hand-maintained allowlist has to name it as well; the shipped example is
-        // the committed `Minako` body (minakoarm / minakoleg declare the organs).
-        const { entityId, entity, moveComponents, strengthComponents } = spawnAndCensus('Minako');
+    it('grants the same organs to the female humanoid droid', () => {
+        // The female body declares the same organs (femaleArm -> strengthCore,
+        // femaleLeg -> moveCore); the allowlist must name the femaleDroid key or
+        // the body spawns unable to move or punch, like the male regression above.
+        const { entityId, entity, moveComponents, strengthComponents } = spawnAndCensus('femaleDroid');
 
         expect(entity.components.length).toBeGreaterThan(1);
         expect(moveComponents).toBeGreaterThan(0);

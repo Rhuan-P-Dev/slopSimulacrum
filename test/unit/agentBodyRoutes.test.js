@@ -25,8 +25,8 @@ function makeDesignerStub(options = {}) {
     const designer = {
         listCards: vi.fn(() => [
             {
-                cardId: 'minako',
-                name: 'Minako',
+                cardId: 'nova',
+                name: 'Nova',
                 description: 'small fox courier',
                 personality: 'helpful'
             }
@@ -67,8 +67,8 @@ describe('agentBodyRoutes', () => {
             expect(body).toEqual({
                 cards: [
                     {
-                        cardId: 'minako',
-                        name: 'Minako',
+                        cardId: 'nova',
+                        name: 'Nova',
                         description: 'small fox courier',
                         personality: 'helpful'
                     }
@@ -148,7 +148,7 @@ describe('agentBodyRoutes', () => {
     it('POST /agent-body/create → 422 BODY_DESIGN_INVALID with the rule list in the message', async () => {
         const { worldStateController, designer } = makeDesignerStub();
         designer.designBody.mockRejectedValueOnce(
-            new DesignValidationError('minako', ['bad structure', 'missing rationale'])
+            new DesignValidationError('nova', ['bad structure', 'missing rationale'])
         );
         const app = buildApp({ worldStateController });
         const server = await new Promise((resolve) => {
@@ -160,7 +160,7 @@ describe('agentBodyRoutes', () => {
             const resp = await fetch(`http://localhost:${port}/agent-body/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cardId: 'minako' })
+                body: JSON.stringify({ cardId: 'nova' })
             });
             const body = await resp.json();
             expect(resp.status).toBe(422);
@@ -188,7 +188,7 @@ describe('agentBodyRoutes', () => {
             const resp = await fetch(`http://localhost:${port}/agent-body/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cardId: 'minako' })
+                body: JSON.stringify({ cardId: 'nova' })
             });
             const body = await resp.json();
             expect(resp.status).toBe(502);
@@ -201,8 +201,8 @@ describe('agentBodyRoutes', () => {
     it('POST /agent-body/create → 200 echoing { card, body, meta } on success', async () => {
         const { worldStateController, designer } = makeDesignerStub();
         const design = {
-            card: { cardId: 'minako', name: 'Minako', description: 'x', personality: 'y' },
-            body: { blueprintId: 'minakoRunner', rationale: 'fits her job', structure: { component: 'm1Head' }, components: [] },
+            card: { cardId: 'nova', name: 'Nova', description: 'x', personality: 'y' },
+            body: { blueprintId: 'novaRunner', rationale: 'fits her job', structure: { component: 'm1Head' }, components: [] },
             meta: { promptKind: 'agent-body-design', promptVersion: '1.0.0', model: 'test-model', finishReason: 'stop', latencyMs: 1200 }
         };
         designer.designBody.mockResolvedValueOnce(design);
@@ -216,13 +216,13 @@ describe('agentBodyRoutes', () => {
             const resp = await fetch(`http://localhost:${port}/agent-body/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cardId: 'minako' })
+                body: JSON.stringify({ cardId: 'nova' })
             });
             const body = await resp.json();
             expect(resp.status).toBe(200);
             expect(body).toEqual(design);
             expect(designer.designBody).toHaveBeenCalledTimes(1);
-            expect(designer.designBody).toHaveBeenCalledWith('minako');
+            expect(designer.designBody).toHaveBeenCalledWith('nova');
         } finally {
             server.close();
         }
@@ -231,22 +231,22 @@ describe('agentBodyRoutes', () => {
     it('POST /agent-body/save with a valid design → 200 with the package report, applied: false', async () => {
         const saved = {
             saved: true,
-            packageId: 'body-minakorunner',
-            dir: 'data/mods/body-minakorunner',
+            packageId: 'body-novarunner',
+            dir: 'data/mods/body-novarunner',
             version: '1.0.0',
             created: true,
             content: ['components', 'blueprints'],
-            files: ['data/mods/body-minakorunner/components.json', 'data/mods/body-minakorunner/blueprints.json'],
+            files: ['data/mods/body-novarunner/components.json', 'data/mods/body-novarunner/blueprints.json'],
             overwritten: [],
             backups: [],
-            blueprintId: 'minakoRunner',
+            blueprintId: 'novaRunner',
             newComponents: ['parcelStrap'],
             newItems: [],
             outfitWritten: false,
-            blueprintWritten: ['minakoRunner', 'm1CentralBody', 'm1Leg'],
+            blueprintWritten: ['novaRunner', 'm1CentralBody', 'm1Leg'],
             overlapsOfficial: [{ kind: 'blueprints', key: 'm1CentralBody' }]
         };
-        const rescan = vi.fn(() => ({ mods: [{ id: 'body-minakorunner' }, { id: 'core-world' }, { id: 'core-npcs' }], invalid: [] }));
+        const rescan = vi.fn(() => ({ mods: [{ id: 'body-novarunner' }, { id: 'core-world' }, { id: 'core-npcs' }], invalid: [] }));
         const { worldStateController } = makeDesignerStub({
             saveDesign: vi.fn(() => Promise.resolve(saved))
         });
@@ -258,7 +258,7 @@ describe('agentBodyRoutes', () => {
         try {
             const port = server.address().port;
             const design = {
-                blueprintId: 'minakoRunner',
+                blueprintId: 'novaRunner',
                 rationale: 'Save this droid.',
                 structure: { component: 'm1CentralBody' }
             };
@@ -314,7 +314,7 @@ describe('agentBodyRoutes', () => {
     it('POST /agent-body/save with a DesignValidationError → 422 with code + rule list', async () => {
         const { worldStateController } = makeDesignerStub({
             saveDesign: vi.fn(() => Promise.reject(
-                new DesignValidationError('minakoRunner', ['missing rationale', 'bad structure'])
+                new DesignValidationError('novaRunner', ['missing rationale', 'bad structure'])
             ))
         });
         const app = buildApp({ worldStateController });

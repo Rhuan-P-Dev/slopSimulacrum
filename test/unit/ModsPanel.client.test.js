@@ -49,19 +49,19 @@ const rowOrder = (html) => [...html.matchAll(/data-row="([^"]+)"/g)].map((m) => 
 describe('the mod package list', () => {
     const stack = [
         mod('core-materials', 0),
-        mod('minako-sensitive-parts', 21, { official: false, requires: ['core-components', 'core-ghost'] }),
+        mod('extra-sensitive-parts', 21, { official: false, requires: ['core-components', 'core-ghost'] }),
         mod('core-components', 12, { requires: ['core-materials', 'core-off'] }),
         mod('core-off', 5, { enabled: false })
     ];
 
     it('reads as a stack: load order ascending, id as the tie-break', () => {
         expect(rowOrder(renderPackageList({ mods: stack })))
-            .toEqual(['core-materials', 'core-off', 'core-components', 'minako-sensitive-parts']);
+            .toEqual(['core-materials', 'core-off', 'core-components', 'extra-sensitive-parts']);
     });
 
     it('offers the alphabet without pretending it is a fact about the world', () => {
         expect(rowOrder(renderPackageList({ mods: stack, sortMode: SORT_NAME })))
-            .toEqual(['core-components', 'core-materials', 'core-off', 'minako-sensitive-parts']);
+            .toEqual(['core-components', 'core-materials', 'core-off', 'extra-sensitive-parts']);
         // The control says which of the two is on screen.
         expect(renderPackageList({ mods: stack })).toContain('in stack order');
         expect(renderPackageList({ mods: stack, sortMode: SORT_NAME })).toContain('in alphabetical order');
@@ -147,15 +147,15 @@ describe('the mod package list', () => {
         const plan = {
             fromVersion: 7,
             shadowed: [
-                { kind: 'components', key: 'minakotorso', from: 'core-components', to: 'minako-sensitive-parts' },
-                { kind: 'components', key: 'minakohead', from: 'core-components', to: 'minako-sensitive-parts' }
+                { kind: 'components', key: 'extraTorso', from: 'core-components', to: 'extra-sensitive-parts' },
+                { kind: 'components', key: 'extraHead', from: 'core-components', to: 'extra-sensitive-parts' }
             ]
         };
 
         it('group the plan per package, in both directions', () => {
             const index = shadowIndex(plan);
-            expect(index.over.get('minako-sensitive-parts')).toBe(2);
-            expect([...index.under.get('core-components')]).toEqual(['minako-sensitive-parts']);
+            expect(index.over.get('extra-sensitive-parts')).toBe(2);
+            expect([...index.under.get('core-components')]).toEqual(['extra-sensitive-parts']);
             expect(shadowIndex(null).over.size).toBe(0);
         });
 
@@ -168,7 +168,7 @@ describe('the mod package list', () => {
 
             const marked = renderPackageList({ mods: stack, plan });
             expect(marked).toContain('wins 2 shared key(s)');
-            expect(marked).toContain('overlaid by minako-sensitive-parts');
+            expect(marked).toContain('overlaid by extra-sensitive-parts');
             expect(marked).toContain('Markers from the plan against v7');
         });
     });
