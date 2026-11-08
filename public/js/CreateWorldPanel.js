@@ -8,13 +8,13 @@
  * refusal that names an unknown card id before anything is destroyed.
  *
  * Two choices live here, and both are UI choices, not rules:
- *   - everything is selected by default, because "create a world" has meant
- *     "spawn every card on disk" since this server booted; deselecting is the
- *     exception an operator is here to make.
- *   - an empty selection is allowed and says so. A world with props and no cards
- *     is a real thing to want (a clean room to test in), and the server accepts
- *     it; hiding that behind a disabled button would be the client inventing a
- *     rule the server does not have.
+ *   - nothing is selected by default: a create starts from an empty room and
+ *     the operator ticks who enters (owner call 2026-07-12, superseding the
+ *     old "every card selected" default, which stays one All-click away).
+ *   - an empty selection is allowed and says so: a world with props and no
+ *     cards is a real thing to want (a clean room to test in), and the
+ *     server accepts it; hiding that behind a disabled button would be the
+ *     client inventing a rule the server does not have.
  *
  * A third, per-card control: the **its {{user}} is** selector binds a card's `{{user}}`
  * placeholder to another card so that card's agent thinks its user is the target
@@ -153,7 +153,7 @@ export class CreateWorldPanel {
         this._content.appendChild(this._list);
     }
 
-    /** @private Draw one row per card, all checked. */
+    /** @private Draw one row per card, all unchecked: the create starts empty. */
     _renderCards() {
         if (!this._cards.length) {
             this._list.innerHTML = '<p class="cw-empty">No card files in <code>data/cards/</code>. Drop a PNG (SillyTavern-style card) there and press Reload.</p>';
@@ -178,7 +178,7 @@ export class CreateWorldPanel {
             return '' +
                 '<div class="cw-row">' +
                 '<label class="cw-pick">' +
-                '<input type="checkbox" class="cw-check" value="' + escapeText(card.cardId) + '" checked>' +
+                '<input type="checkbox" class="cw-check" value="' + escapeText(card.cardId) + '">' +
                 '<span class="cw-name">' + escapeText(card.name || card.cardId) + '</span>' +
                 '<span class="cw-id">' + escapeText(card.cardId) + '</span>' +
                 '<span class="cw-desc">' + escapeText(description) + (card.description?.length > 140 ? '...' : '') + '</span>' +
