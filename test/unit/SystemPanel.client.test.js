@@ -316,6 +316,69 @@ describe('SystemPanel.send (one turn)', () => {
         expect(findButton(panel._transcript).disabled).toBe(true);
     });
 
+    it('paints the bounded tool answer under each successful call, and keeps failures as their message', async () => {
+        const stored = {};
+        vi.stubGlobal('sessionStorage', {
+            getItem: (k) => stored[k] ?? null,
+            setItem: (k, v) => { stored[k] = v; },
+            removeItem: (k) => { delete stored[k]; }
+        });
+        vi.stubGlobal('document', { createElement: (tag) => makeElement(tag) });
+
+        const listAnswer = JSON.stringify({ kinds: ['materials', 'components'], callsRemaining: 11 });
+        const truncatedEnvelope = JSON.stringify({
+            truncated: true,
+            limitChars: 12_000,
+            note: 'too big to send whole',
+            head: '{"kind":"components","keys":["a"'
+        });
+        const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(200, {
+            sessionId: 'ses-43',
+            reply: 'The workshop is east, behind the door.',
+            proposal: null,
+            toolLog: [
+                {
+                    name: 'list_registries',
+                    args: {},
+                    ok: true,
+                    result: listAnswer,
+                    resultChars: listAnswer.length
+                },
+                {
+                    name: 'propose_mod',
+                    args: { packageId: 'bad' },
+                    ok: false,
+                    detail: 'world structure kinds are not yours to rewrite'
+                },
+                {
+                    name: 'read_registry',
+                    args: { kind: 'components' },
+                    ok: true,
+                    result: truncatedEnvelope,
+                    resultChars: truncatedEnvelope.length
+                }
+            ],
+            meta: { model: 'gpt-4o-mini', iterations: 4 }
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const panel = panelWith({ input: 'find a door' });
+        panel._transcript = makeElement('div');
+        panel._status = { textContent: '', className: '' };
+        await panel._send();
+
+        expect(panel._entries).toHaveLength(2);
+        const log = findByClass(panel._transcript, 'system-tool-log')[0];
+        expect(log, 'the tool log should be painted under the system message').toBeTruthy();
+        const blocks = findByClass(log, 'system-tool-result');
+        // Two results: the two successful calls; the refusal stays its detail line.
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].textContent).toContain('materials');
+        expect(blocks[0].textContent).toContain('callsRemaining');
+        expect(blocks[0].textContent).not.toContain('truncated');
+        expect(blocks[1].textContent).toContain('truncated');
+    });
+
     it('New chat drops the session id and the proposal', async () => {
         const stored = { 'system.sessionId': 'ses-1' };
         vi.stubGlobal('sessionStorage', {

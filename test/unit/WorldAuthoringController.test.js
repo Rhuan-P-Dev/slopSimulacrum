@@ -25,6 +25,7 @@ import WorldAuthoringController, {
     PROMPT_KIND,
     PROMPT_VERSION,
     MAX_TOOL_ITERATIONS,
+    MAX_TOOL_RESULT_CHARS,
     MAX_SESSIONS,
     MAX_HISTORY_MESSAGES,
     SessionNotFoundError,
@@ -156,6 +157,58 @@ describe('WorldAuthoringController.handleChat — the loop', () => {
         expect(turn.meta.stoppedAtToolCap).toBe(false);
         // Nothing was written: a conversation writes nothing (`the whole point`).
         expect(turn.proposal).toBeNull();
+    });
+
+    it('each toolLog entry carries the bounded answer the model was answered with, unchanged from the wire', async () => {
+        const seam = makeSeam([
+            toolAnswer('list_registries', {}),
+            proseAnswer('Read enough.')
+        ]);
+        const controller = new WorldAuthoringController({
+            llmController: seam,
+            registryStore: makeStore(),
+            writer: makeWriterSpy()
+        });
+
+        const turn = await controller.handleChat({ message: 'read the room' });
+
+        expect(turn.toolLog).toHaveLength(1);
+        const entry = turn.toolLog[0];
+        expect(entry.result).toBeTypeOf('string');
+        expect(entry.resultChars).toBe(entry.result.length);
+        expect(JSON.parse(entry.result).callsRemaining).toBe(MAX_TOOL_ITERATIONS - 1);
+        // One copy, both ways: the log field is the exact tool message on the wire.
+        expect(seam.calls[1].messages[2]).toMatchObject({ role: 'tool', tool_call_id: 'call-1' });
+        expect(seam.calls[1].messages[2].content).toBe(entry.result);
+    });
+
+    it('truncates over-limit tool answers and hands the client the truncated envelope', async () => {
+        const store = new RegistryStore({
+            [REGISTRY_KINDS.COMPONENTS]: {
+                big: { name: 'Big', form: {}, materials: [], description: 'x'.repeat(13_000) },
+                ...Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`comp-${String(i)}`])),
+            }
+        });
+        const seam = makeSeam([
+            toolAnswer('read_registry', { kind: REGISTRY_KINDS.COMPONENTS }, 'call-2'),
+            proseAnswer('Saw enough.')
+        ]);
+        const controller = new WorldAuthoringController({
+            llmController: seam,
+            registryStore: store,
+            writer: makeWriterSpy()
+        });
+
+        const turn = await controller.handleChat({ message: 'read components' });
+
+        const entry = turn.toolLog[0];
+        expect(entry.result).toBeTypeOf('string');
+        expect(entry.resultChars).toBe(entry.result.length);
+        const answer = JSON.parse(entry.result);
+        expect(answer.truncated).toBe(true);
+        expect(answer.limitChars).toBe(MAX_TOOL_RESULT_CHARS);
+        expect(answer.head).toHaveLength(MAX_TOOL_RESULT_CHARS - 200);
+        expect(entry.resultChars).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS + 512);
     });
 
     it('stops at the iteration cap and says so instead of inventing an answer', async () => {

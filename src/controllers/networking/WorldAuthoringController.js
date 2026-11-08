@@ -144,7 +144,8 @@ export class ProposalNotSetError extends GameError {
  * @property {string|null} reply - the model's final text, or null when it ran out of
  *   iterations without answering (the tool log says what it read).
  * @property {Object|null} proposal - the frozen proposal this turn produced, if any
- * @property {Array<Object>} toolLog - one entry per tool call: name, args, ok, detail
+ * @property {Array<Object>} toolLog - one entry per tool call: name, args, ok, detail,
+ *   result (the bounded JSON string the model was answered with), resultChars
  * @property {Object} meta - promptKind, promptVersion, model, iterations, latencyMs,
  *   finishReason, sessionMessages, systemPrompt
  */
@@ -562,7 +563,10 @@ export class WorldAuthoringController {
                 head: payload.slice(0, MAX_TOOL_RESULT_CHARS - 200)
             });
         }
-        toolLog.push({ ...entry, resultChars: payload.length });
+        // `result` is the exact bounded string the model was answered with - one copy,
+        // both ways (the wire tool message and the operator's log). The client renders it;
+        // the `SEC-2` cap already holds the size down.
+        toolLog.push({ ...entry, resultChars: payload.length, result: payload });
         return { payload, ok: entry.ok, detail: entry.detail ?? '' };
     }
 

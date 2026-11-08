@@ -115,6 +115,35 @@
     color: var(--neon-red, #ff4d4d);
 }
 
+/* The successful call's answer: collapsed, one result block per call, full width.
+   The payload is the bounded string the model was answered with; rendered as
+   textContent only (no model text becomes markup). */
+.system-tool-result {
+    margin-top: 2px;
+    color: var(--text-dim, #aaa);
+}
+
+.system-tool-result summary {
+    cursor: pointer;
+    font-size: 0.75em;
+}
+
+.system-tool-result pre {
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 160px;
+    overflow: auto;
+    font-family: monospace;
+    font-size: 0.72em;
+    line-height: 1.35;
+    color: var(--text-dim, #aaa);
+    background: var(--bg-black, #0a0a0a);
+    border: 1px solid var(--config-bar-border, #333);
+    border-radius: 3px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* The proposal on the table: the thing the Write button acts on. */
 .system-proposal {
     margin-top: 8px;

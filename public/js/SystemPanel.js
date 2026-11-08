@@ -386,8 +386,52 @@ export class SystemPanel {
             detail.textContent = call.ok ? `${call.resultChars ?? 0} chars` : (call.detail || 'refused');
             line.append(name, detail);
             details.appendChild(line);
+            // A failed call's `detail` line is its message; only successful calls get a
+            // result block, since their bounded answer is what the operator reads.
+            const resultBlock = this._toolResultBlock(call);
+            if (resultBlock) details.appendChild(resultBlock);
         }
         return details;
+    }
+
+    /**
+     * One result block under a successful call: the bounded JSON answer the server
+     * gave the model, shown so the operator reads what the System actually read, not
+     * just "N chars". Collapsed: the call line remains the log, the block is the
+     * detail. A payload that fails to parse (a server bug) renders raw — display
+     * data, never executed (no model text becomes markup, module header).
+     * @private
+     * @param {Object} call - one toolLog entry
+     * @returns {HTMLElement|null}
+     */
+    _toolResultBlock(call) {
+        const result = (call && typeof call.result === 'string' && call.result.length > 0) ? call.result : null;
+        if (!result) return null;
+        const block = document.createElement('details');
+        block.className = 'system-tool-result';
+        const summary = document.createElement('summary');
+        const charsText = (call.resultChars ?? result.length) + ' chars';
+        let bodyText = result;
+        let summaryText;
+        try {
+            const parsed = JSON.parse(result);
+            if (parsed && typeof parsed === 'object') {
+                bodyText = JSON.stringify(parsed, null, 1);
+                summaryText = (parsed.truncated === true)
+                    ? 'result — truncated (head kept)'
+                    : 'result (' + charsText + ')';
+            } else {
+                bodyText = String(parsed);
+                summaryText = 'result (' + charsText + ')';
+            }
+        } catch {
+            summaryText = 'result (' + charsText + ')';
+        }
+        summary.textContent = summaryText;
+        const pre = document.createElement('pre');
+        pre.textContent = bodyText;
+        block.append(summary, pre);
+        return block;
     }
 
     /**
