@@ -41,33 +41,33 @@ function makeFacade(blueprints) {
         _roomRandomPoint: vi.fn(() => ({ x: 1, y: 1 })),
         _applyInitialItems: vi.fn(),
         stateEntityController: {
-            spawnEntity: vi.fn(() => 'entity-minako'),
+            spawnEntity: vi.fn(() => 'entity-nova'),
             updateEntitySpatial: vi.fn()
         }
     };
 }
 
-// A card payload readCharaCard would return for "Minako".
-function minakoCard() {
+// A card payload readCharaCard would return for "Nova".
+function novaCard() {
     return {
         success: true,
         card: {
-            name: 'Minako',
+            name: 'Nova',
             personality: 'friendly',
             description: 'small fox courier'
         }
     };
 }
 
-const CARD_FILE = { fullPath: 'data/cards/minako.png', cardId: 'minako' };
+const CARD_FILE = { fullPath: 'data/cards/nova.png', cardId: 'nova' };
 
 describe('CardSpawnLogic', () => {
     describe('blueprintForCard', () => {
         it('returns the card display name when a same-named blueprint exists', () => {
             const facade = {
-                entityController: { getBlueprints: vi.fn(() => ({ Minako: ['m1CentralBody'] })) }
+                entityController: { getBlueprints: vi.fn(() => ({ Nova: ['m1CentralBody'] })) }
             };
-            expect(blueprintForCard(facade, 'Minako')).toBe('Minako');
+            expect(blueprintForCard(facade, 'Nova')).toBe('Nova');
         });
 
         it('falls back to the generic blueprint when no same-named blueprint exists', () => {
@@ -79,12 +79,12 @@ describe('CardSpawnLogic', () => {
                     }))
                 }
             };
-            expect(blueprintForCard(facade, 'Minako')).toBe('m1Droid');
+            expect(blueprintForCard(facade, 'Nova')).toBe('m1Droid');
         });
 
         it('falls back when displayName is empty, null, or undefined', () => {
             const facade = {
-                entityController: { getBlueprints: vi.fn(() => ({ Minako: ['m1CentralBody'] })) }
+                entityController: { getBlueprints: vi.fn(() => ({ Nova: ['m1CentralBody'] })) }
             };
             expect(blueprintForCard(facade, '')).toBe('m1Droid');
             expect(blueprintForCard(facade, null)).toBe('m1Droid');
@@ -92,15 +92,15 @@ describe('CardSpawnLogic', () => {
         });
 
         it('falls back when the facade has no usable entityController (light test double)', () => {
-            expect(blueprintForCard({}, 'Minako')).toBe('m1Droid');
-            expect(blueprintForCard({ entityController: {} }, 'Minako')).toBe('m1Droid');
+            expect(blueprintForCard({}, 'Nova')).toBe('m1Droid');
+            expect(blueprintForCard({ entityController: {} }, 'Nova')).toBe('m1Droid');
         });
 
         it('matches by exact name (case-sensitive)', () => {
             const facade = {
-                entityController: { getBlueprints: vi.fn(() => ({ Minako: ['m1CentralBody'] })) }
+                entityController: { getBlueprints: vi.fn(() => ({ Nova: ['m1CentralBody'] })) }
             };
-            expect(blueprintForCard(facade, 'minako')).toBe('m1Droid');
+            expect(blueprintForCard(facade, 'nova')).toBe('m1Droid');
         });
     });
 
@@ -110,15 +110,15 @@ describe('CardSpawnLogic', () => {
         });
 
         it('spawns with the card\'s own body when a same-named blueprint exists', async () => {
-            readCharaCard.mockReturnValue(minakoCard());
-            const facade = makeFacade({ Minako: ['m1CentralBody'], m1Droid: ['m1CentralBody'] });
+            readCharaCard.mockReturnValue(novaCard());
+            const facade = makeFacade({ Nova: ['m1CentralBody'], m1Droid: ['m1CentralBody'] });
 
             const id = await spawnSingleCard(facade, CARD_FILE);
 
-            expect(id).toBe('entity-minako');
+            expect(id).toBe('entity-nova');
             // The entity is spawned with the card-named body, not the generic one.
             expect(facade.stateEntityController.spawnEntity).toHaveBeenCalledWith(
-                'Minako',
+                'Nova',
                 'r1',
                 expect.anything()
             );
@@ -127,12 +127,12 @@ describe('CardSpawnLogic', () => {
         });
 
         it('falls back to the generic blueprint when no same-named body exists', async () => {
-            readCharaCard.mockReturnValue(minakoCard());
+            readCharaCard.mockReturnValue(novaCard());
             const facade = makeFacade({ m1Droid: ['m1CentralBody'] });
 
             const id = await spawnSingleCard(facade, CARD_FILE);
 
-            expect(id).toBe('entity-minako');
+            expect(id).toBe('entity-nova');
             expect(facade.stateEntityController.spawnEntity).toHaveBeenCalledWith(
                 'm1Droid',
                 'r1',
@@ -141,7 +141,7 @@ describe('CardSpawnLogic', () => {
         });
 
         it('skips the card (returns null) when there is no spawnable room', async () => {
-            readCharaCard.mockReturnValue(minakoCard());
+            readCharaCard.mockReturnValue(novaCard());
             const facade = makeFacade({ m1Droid: ['m1CentralBody'] });
             facade._pickFirstSpawnRoom.mockReturnValue(null);
 

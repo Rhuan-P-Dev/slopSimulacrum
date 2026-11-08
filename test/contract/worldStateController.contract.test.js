@@ -587,8 +587,7 @@ describe('WorldStateController.getAll() shape', () => {
                 // because the MOUNT it was hung on authored it, and then only as `true` —
                 // the mark is absent, never `false`. Both halves are pinned, so a mark
                 // spreading onto every component, or a component marking itself, still
-                // fails here. (Minako, a card NPC in the boot cast, is the shipped body
-                // whose mounts carry it.)
+                // fails here.
                 const marked = Object.prototype.hasOwnProperty.call(comp, 'hidesWithParent');
                 if (marked) expect(comp.hidesWithParent).toBe(true);
                 expect(keysOf(comp).filter((key) => key !== 'hidesWithParent'))

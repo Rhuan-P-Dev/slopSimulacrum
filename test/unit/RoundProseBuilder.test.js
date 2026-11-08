@@ -419,7 +419,7 @@ describe('buildRoomProse (narrative prose)', () => {
     // --- The target is named with the part the act was aimed at -----------------
     // The row carries BOTH halves (the writer resolves `name` for the entity and
     // `componentName`/`componentType` for the part it hit) - the sentence used to say
-    // only the first, so "touched Minako" hid which part the record named.
+    // only the first, so the line hid which part the record named.
     const touchOf = (target, lookOf = undefined) => buildRoomProse({
         verbOf: (action) => (action === 'touch'
             ? { verbPhrase: 'touched', targetLink: 'direct', instrumental: { verb: 'touch' } }
@@ -441,9 +441,9 @@ describe('buildRoomProse (narrative prose)', () => {
 
     it('says whose part it was, and how the matter looks', () => {
         expect(touchOf(
-            { name: 'Minako', componentName: 'Minako Torso', componentType: 'minakotorso' },
-            (type) => (type === 'minakotorso' ? 'tan, satin' : null)
-        )).toBe("In start room, Test Droid used Male Mouth to touch Minako's Minako Torso (tan, satin).");
+            { name: 'Nova', componentName: 'Nova Torso', componentType: 'novaTorso' },
+            (type) => (type === 'novaTorso' ? 'tan, satin' : null)
+        )).toBe("In start room, Test Droid used Male Mouth to touch Nova's Nova Torso (tan, satin).");
     });
 
     it('a name already ending in s takes the apostrophe alone', () => {

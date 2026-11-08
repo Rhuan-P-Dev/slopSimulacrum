@@ -31,7 +31,7 @@ import ModPackageWriter from '../../src/services/ModPackageWriter.js';
 import { LLM_DEFAULT_TEMPERATURE } from '../../src/utils/Constants.js';
 
 const CARDS_DIR = path.resolve('data/cards');
-const MINAKO_STEM = 'minako';
+const NOVA_STEM = 'nova';
 const QUIET_STEM = 'quiet';
 let originalLlmModel;
 
@@ -86,8 +86,8 @@ function buildCardPng(cardData) {
  * exist in the catalog; one new recipe with valid fractions and a valid organ).
  */
 const HAPPY_BODY = {
-    blueprintId: 'minakoRunner',
-    rationale: 'A slim iron frame with light legs fits Minako, an errand runner: fast enough for the back alleys, sturdy enough to carry parcels. A single think core keeps the mind quiet enough to watch the route.',
+    blueprintId: 'novaRunner',
+    rationale: 'A slim iron frame with light legs fits Nova, an errand runner: fast enough for the back alleys, sturdy enough to carry parcels. A single think core keeps the mind quiet enough to watch the route.',
     structure: {
         component: 'm1CentralBody',
         slot: null,
@@ -146,9 +146,9 @@ describe('AgentBodyController', () => {
         await fs.mkdir(CARDS_DIR, { recursive: true });
         // Full-metadata card (happy path).
         await fs.writeFile(
-            path.join(CARDS_DIR, MINAKO_STEM + '.png'),
+            path.join(CARDS_DIR, NOVA_STEM + '.png'),
             buildCardPng({
-                name: 'Minako',
+                name: 'Nova',
                 description: 'A small fox-like courier droid that runs jobs across the town. Likes the smell of coal and hates the rain.',
                 personality: 'Helpful but clumsy. Asks for permission before moving other things.'
             })
@@ -169,7 +169,7 @@ describe('AgentBodyController', () => {
     });
 
     afterAll(async () => {
-        for (const stem of [MINAKO_STEM, QUIET_STEM]) {
+        for (const stem of [NOVA_STEM, QUIET_STEM]) {
             await fs.rm(path.join(CARDS_DIR, stem + '.png'), { force: true });
         }
         // Restore the env so the suite leaves the world as it found it.
@@ -186,13 +186,13 @@ describe('AgentBodyController', () => {
     describe('listCards', () => {
         it('surfaces name, description and personality from the embedded payload', async () => {
             const cards = controller.listCards();
-            const minako = cards.find((c) => c.cardId === MINAKO_STEM);
+            const nova = cards.find((c) => c.cardId === NOVA_STEM);
             expect(cards).toContainEqual(
-                expect.objectContaining({ cardId: MINAKO_STEM, name: 'Minako' })
+                expect.objectContaining({ cardId: NOVA_STEM, name: 'Nova' })
             );
-            expect(minako).toMatchObject({
-                cardId: MINAKO_STEM,
-                name: 'Minako',
+            expect(nova).toMatchObject({
+                cardId: NOVA_STEM,
+                name: 'Nova',
                 description: 'A small fox-like courier droid that runs jobs across the town. Likes the smell of coal and hates the rain.',
                 personality: 'Helpful but clumsy. Asks for permission before moving other things.'
             });
@@ -217,15 +217,15 @@ describe('AgentBodyController', () => {
                 content: JSON.stringify(HAPPY_BODY),
                 finishReason: 'stop'
             });
-            const result = await controller.designBody(MINAKO_STEM);
+            const result = await controller.designBody(NOVA_STEM);
 
             expect(result.card).toEqual({
-                cardId: MINAKO_STEM,
-                name: 'Minako',
+                cardId: NOVA_STEM,
+                name: 'Nova',
                 description: 'A small fox-like courier droid that runs jobs across the town. Likes the smell of coal and hates the rain.',
                 personality: 'Helpful but clumsy. Asks for permission before moving other things.'
             });
-            expect(result.body.blueprintId).toBe('Minako');
+            expect(result.body.blueprintId).toBe('Nova');
             expect(result.body.rationale).toBeDefined();
             expect(Object.isFrozen(result.body)).toBe(true);
             expect(Object.isFrozen(result.body.structure)).toBe(true);
@@ -253,7 +253,7 @@ describe('AgentBodyController', () => {
             expect(messages[0].content).toContain('ANATOMY FACTS');
             expect(messages[0].content).toContain('AVAILABLE COMPONENTS');
             expect(messages[0].content).toContain('m1CentralBody');
-            expect(messages[1].content).toContain('Minako');
+            expect(messages[1].content).toContain('Nova');
             expect(options.temperature).toBe(LLM_DEFAULT_TEMPERATURE);
             expect(options.max_tokens).toBe(LLM_AGENT_BODY_MAX_TOKENS);
         });
@@ -263,8 +263,8 @@ describe('AgentBodyController', () => {
                 content: '```json\n' + JSON.stringify(HAPPY_BODY) + '\n```',
                 finishReason: 'complete'
             });
-            const result = await controller.designBody(MINAKO_STEM);
-            expect(result.body.blueprintId).toBe('Minako');
+            const result = await controller.designBody(NOVA_STEM);
+            expect(result.body.blueprintId).toBe('Nova');
         });
 
         it('uses the card stem as fallback identity when the card has no metadata', async () => {
@@ -306,7 +306,7 @@ describe('AgentBodyController', () => {
             design.outfit = [{ item: 'courierCloak', component: 'm1CentralBody' }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
 
-            const result = await controller.designBody(MINAKO_STEM);
+            const result = await controller.designBody(NOVA_STEM);
 
             expect(result.body.garments).toEqual([{
                 name: 'courierCloak',
@@ -323,7 +323,7 @@ describe('AgentBodyController', () => {
             const design = structuredClone(HAPPY_BODY);
             design.outfit = [{ item: 'tshirt', component: 'm1CentralBody' }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-            const worn = await controller.designBody(MINAKO_STEM);
+            const worn = await controller.designBody(NOVA_STEM);
             expect(worn.body.outfit).toEqual([{ item: 'tshirt', component: 'm1CentralBody' }]);
 
             // Empty is a claim; absent is not. The distinction decides at spawn whether
@@ -331,11 +331,11 @@ describe('AgentBodyController', () => {
             const naked = structuredClone(HAPPY_BODY);
             naked.outfit = [];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(naked), finishReason: 'stop' });
-            const dressedByAnEmptyList = await controller.designBody(MINAKO_STEM);
+            const dressedByAnEmptyList = await controller.designBody(NOVA_STEM);
             expect(dressedByAnEmptyList.body.outfit).toEqual([]);
 
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            const saidNothing = await controller.designBody(MINAKO_STEM);
+            const saidNothing = await controller.designBody(NOVA_STEM);
             expect(saidNothing.body.outfit, 'a design that never spoke authors no clothing claim')
                 .toBeUndefined();
         });
@@ -351,7 +351,7 @@ describe('AgentBodyController', () => {
                 const design = structuredClone(HAPPY_BODY);
                 design.garments = [garment];
                 fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
-                const error = await awaitThrown(controller.designBody(MINAKO_STEM));
+                const error = await awaitThrown(controller.designBody(NOVA_STEM));
                 expect(error, garment.name).toBeInstanceOf(DesignValidationError);
                 expect(error.errors.join(' ')).toMatch(match);
             }
@@ -362,20 +362,20 @@ describe('AgentBodyController', () => {
             wrongPart.garments = [{ name: 'cloak', form: { volume: 2 }, materials: [{ material: 'wood', fraction: 1 }], wear: { minVolume: 2 } }];
             wrongPart.outfit = [{ item: 'cloak', component: 'maleTorso' }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(wrongPart), finishReason: 'stop' });
-            const partError = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const partError = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(partError).toBeInstanceOf(DesignValidationError);
             expect(partError.errors.join(' ')).toMatch(/is not a component of this body/);
 
             const knife = structuredClone(HAPPY_BODY);
             knife.outfit = [{ item: 'knife', component: 'm1CentralBody' }];
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(knife), finishReason: 'stop' });
-            const itemError = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const itemError = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(itemError.errors.join(' ')).toMatch(/not a wearable item/);
         });
 
         it('tells the model about garments, the outfit, and what the world already has to wear', async () => {
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            await controller.designBody(MINAKO_STEM);
+            await controller.designBody(NOVA_STEM);
 
             const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
             expect(system).toContain('"garments"');
@@ -392,7 +392,7 @@ describe('AgentBodyController', () => {
             design.structure.children[1].hidesWithParent = true;
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
 
-            const result = await controller.designBody(MINAKO_STEM);
+            const result = await controller.designBody(NOVA_STEM);
 
             const marked = result.body.structure.children[1];
             expect(marked.component).toBe('m1Leg');
@@ -410,7 +410,7 @@ describe('AgentBodyController', () => {
             design.structure.children[1].hidesWithParent = 'yes';
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(design), finishReason: 'stop' });
 
-            const error = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const error = await awaitThrown(controller.designBody(NOVA_STEM));
 
             expect(error).toBeInstanceOf(DesignValidationError);
             expect(error.errors.join(' ')).toMatch(/hidesWithParent/);
@@ -418,7 +418,7 @@ describe('AgentBodyController', () => {
 
         it('says in the prompt what the mark means and where it belongs', async () => {
             fakeLlm.chatFull.mockResolvedValue({ content: JSON.stringify(HAPPY_BODY), finishReason: 'stop' });
-            await controller.designBody(MINAKO_STEM);
+            await controller.designBody(NOVA_STEM);
 
             const system = fakeLlm.chatFull.mock.calls.at(-1)[0][0].content;
             expect(system).toContain('"hidesWithParent"');
@@ -445,16 +445,16 @@ describe('AgentBodyController', () => {
                 content: 'sorry, i cannot build bodies',
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(DesignValidationError);
             expect(err.code).toBe('BODY_DESIGN_INVALID');
             expect(err.errors).toContain('the design was not a JSON object');
-            expect(err.message).toContain('card "minako"');
+            expect(err.message).toContain('card "nova"');
         });
 
         it('rejects when the model output is a JSON array', async () => {
             fakeLlm.chatFull.mockResolvedValue({ content: '[1, 2, 3]', finishReason: 'stop' });
-            await expect(controller.designBody(MINAKO_STEM)).rejects.toThrow();
+            await expect(controller.designBody(NOVA_STEM)).rejects.toThrow();
         });
 
         it('rejects component nodes that are not available or proposed', async () => {
@@ -466,7 +466,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('unknown component(s) in the body tree: wingBlade'))).toBe(true);
         });
 
@@ -489,7 +489,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('must sum to 1.0'))).toBe(true);
         });
 
@@ -510,7 +510,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('teleportOrb'))).toBe(true);
         });
 
@@ -522,7 +522,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('"rationale" must be a non-empty string'))).toBe(true);
         });
 
@@ -536,10 +536,10 @@ describe('AgentBodyController', () => {
                 finishReason: 'stop'
             });
             // The model chose 'm1Droid' (an existing blueprint). That id is NOT
-            // used — designBody replaces it with the card display name ('Minako'),
+            // used — designBody replaces it with the card display name ('Nova'),
             // so there is no collision with the existing 'm1Droid' blueprint.
-            const result = await controller.designBody(MINAKO_STEM);
-            expect(result.body.blueprintId).toBe('Minako');
+            const result = await controller.designBody(NOVA_STEM);
+            expect(result.body.blueprintId).toBe('Nova');
         });
 
         it('rejects trees with more than the node cap', async () => {
@@ -558,7 +558,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('18 nodes'))).toBe(true);
         });
 
@@ -575,7 +575,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('body-tree slot must be null or a non-empty string'))).toBe(true);
         });
 
@@ -595,7 +595,7 @@ describe('AgentBodyController', () => {
                 }),
                 finishReason: 'stop'
             });
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err.errors.some((e) => e.includes('collides with an existing or previously proposed component'))).toBe(true);
         });
 
@@ -603,7 +603,7 @@ describe('AgentBodyController', () => {
             fakeLlm.chatFull.mockRejectedValueOnce(
                 new LLMError('LLM request timed out after 3000000ms', 'LLM_TIMEOUT')
             );
-            const err = await awaitThrown(controller.designBody(MINAKO_STEM));
+            const err = await awaitThrown(controller.designBody(NOVA_STEM));
             expect(err).toBeInstanceOf(LLMError);
             expect(err.code).toBe('LLM_TIMEOUT');
             // The seam error must pass through untouched (no masking).
@@ -612,7 +612,7 @@ describe('AgentBodyController', () => {
     });
 
     describe('saveDesign (the "Save" action - writes one mod package, never the official data)', () => {
-        const PACKAGE_DIR = 'data/mods/body-minakorunner';
+        const PACKAGE_DIR = 'data/mods/body-novarunner';
 
         /**
          * The save runs over a REAL `ModPackageWriter` whose data seam is an in-memory
@@ -658,8 +658,8 @@ describe('AgentBodyController', () => {
             const result = await harness.controller.saveDesign(HAPPY_BODY);
 
             expect(result.saved).toBe(true);
-            expect(result.blueprintId).toBe('minakoRunner');
-            expect(result.packageId).toBe('body-minakorunner');
+            expect(result.blueprintId).toBe('novaRunner');
+            expect(result.packageId).toBe('body-novarunner');
             expect(result.dir).toBe(PACKAGE_DIR);
             expect(result.created).toBe(true);
             expect(result.version).toBe('1.0.0');
@@ -670,16 +670,16 @@ describe('AgentBodyController', () => {
             // The manifest is what the Mods panel reads: the id, the kinds it carries, and
             // a sentence naming where the body came from.
             expect(harness.read(`${PACKAGE_DIR}/mod.json`)).toMatchObject({
-                id: 'body-minakorunner',
+                id: 'body-novarunner',
                 version: '1.0.0',
                 content: ['components', 'blueprints']
             });
-            expect(harness.read(`${PACKAGE_DIR}/mod.json`).description).toContain('minakoRunner');
+            expect(harness.read(`${PACKAGE_DIR}/mod.json`).description).toContain('novaRunner');
 
             // The package carries THIS body, not the world: no merge with the official
             // registry, so disabling it is what undoes the design.
             expect(harness.read(`${PACKAGE_DIR}/blueprints.json`)).toEqual({
-                minakoRunner: ['m1CentralBody'],
+                novaRunner: ['m1CentralBody'],
                 m1CentralBody: [
                     'm1Head',
                     ['m1Leg', 'frontal_left'],
@@ -707,10 +707,10 @@ describe('AgentBodyController', () => {
             const result = await harness.controller.saveDesign(HAPPY_BODY);
 
             // Redefining a part sub-tree IS redesigning a card, so it is written and
-            // reported - not filtered away. `minakoRunner` is new, so it shadows nothing.
+            // reported - not filtered away. `novaRunner` is new, so it shadows nothing.
             const shadowedKeys = result.overlapsOfficial.map((overlap) => overlap.key);
             expect(shadowedKeys).toEqual(expect.arrayContaining(['m1CentralBody', 'm1Leg']));
-            expect(shadowedKeys).not.toContain('minakoRunner');
+            expect(shadowedKeys).not.toContain('novaRunner');
             expect(result.overlapsOfficial.every((overlap) => overlap.kind === REGISTRY_KINDS.BLUEPRINTS)).toBe(true);
         });
 
@@ -743,7 +743,7 @@ describe('AgentBodyController', () => {
                     DataLoader.loadRegistry(REGISTRY_KINDS.COMPONENTS)
                 ),
                 bl
-            ).createEntityFromBlueprint('minakoRunner');
+            ).createEntityFromBlueprint('novaRunner');
             expect(spawned.components.filter((c) => c.hidesWithParent === true).map((c) => c.type).sort())
                 .toEqual(['m1Head', 'm1Toe']);
         });
@@ -779,7 +779,7 @@ describe('AgentBodyController', () => {
             // Same key the body was written under: designing it and dressing it are
             // two writes keyed by one thing (`wiki/decisions/outfits.md`).
             expect(harness.read(`${PACKAGE_DIR}/outfits.json`)).toEqual({
-                minakoRunner: [{ item: 'courierCloak', component: 'm1CentralBody' }]
+                novaRunner: [{ item: 'courierCloak', component: 'm1CentralBody' }]
             });
             expect(harness.written.some((p) => p.startsWith('data/mods/core-')), 'official items and outfits are never written').toBe(false);
         });
@@ -805,7 +805,7 @@ describe('AgentBodyController', () => {
             expect(result.outfitWritten).toBe(true);
             // An empty list under the key is what the world reads as "clothed by the
             // registry, wearing nothing", so the spawn default stands down.
-            expect(harness.read(`${PACKAGE_DIR}/outfits.json`)).toEqual({ minakoRunner: [] });
+            expect(harness.read(`${PACKAGE_DIR}/outfits.json`)).toEqual({ novaRunner: [] });
         });
 
         it('rewrites the same card as the same package, with a backup and a version step', async () => {
@@ -841,12 +841,12 @@ describe('AgentBodyController', () => {
                 return saved.packageId;
             };
 
-            expect(await folded('Minako, Seamstress of the Ward!')).toBe('body-minako-seamstress-of-the-ward');
+            expect(await folded('Nova, Seamstress of the Ward!')).toBe('body-nova-seamstress-of-the-ward');
             // Escapes, not literals: the source stays ASCII (CR NAME-1) while the NAME the
             // world speaks still carries its accents. NFD splits the glyph into a base
             // letter plus a combining mark, which is what makes the fold possible.
             expect(await folded('Ana\u00efse')).toBe('body-anaise');
-            expect(await folded('  M\u00fcnako  ')).toBe('body-munako');
+            expect(await folded('  M\u00fcller  ')).toBe('body-muller');
 
             const design = structuredClone(HAPPY_BODY);
             design.blueprintId = '\u2665\u2665';

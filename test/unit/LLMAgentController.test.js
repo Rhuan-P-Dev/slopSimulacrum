@@ -586,7 +586,7 @@ describe('LLMAgentController.runRound (Feature C, spec §6.8)', () => {
         // function. If _dispatchSpeak detaches it (const f =
         // facade.sendRoomChat; f(...)), that read runs with `this === undefined`
         // (strict mode) and the round dies with AGENT_INTERNAL_ERROR — the
-        // exact shape of the Minako chat-loss incident (the player route calls
+        // exact shape of the chat-loss incident (the player route calls
         // the method bound and worked; only the NPC path detached it).
         world.sendRoomChat = function (args) {
             if (!this.roomChatController) {

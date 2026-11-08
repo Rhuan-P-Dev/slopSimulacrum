@@ -2742,7 +2742,7 @@ class LLMAgentController {
         // The call MUST stay bound to the facade: the method reads `this.
         // roomChatController` internally, and detaching it (const f =
         // facade.sendRoomChat; f(...)) loses `this` (undefined in strict
-        // mode) and throws — the 2026-10-21 Minako chat-loss incident.
+        // mode) and throws — the 2026-10-21 chat-loss incident.
         const facade = this.worldStateController;
         if (typeof facade?.sendRoomChat !== 'function' || !entity?.location) {
             return { success: false, code: 'ROOM_CHAT_UNAVAILABLE', error: 'room chat layer is not available' };

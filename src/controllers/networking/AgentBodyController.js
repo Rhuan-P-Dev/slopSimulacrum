@@ -109,14 +109,14 @@ const LLM_AGENT_BODY_MAX_TOKENS = LLM_DEFAULT_MAX_TOKENS * 10;
 
 /**
  * What a saved body is called on disk: `data/mods/body-<slug>/`. The prefix marks the
- * package as the output of THIS feature (a hand-written overlay like `minako-appearance`
+ * package as the output of THIS feature (a hand-written overlay like `custom-appearance`
  * keeps its own name), and `ModPackageWriter` refuses the reserved `core-` prefix, so a
  * designed body can never be written into the shipped world.
  */
 const PACKAGE_ID_PREFIX = 'body-';
 /**
  * `MOD_ID_PATTERN` caps a package id at 64 characters, so the slug gets what is left
- * after the prefix. Truncating is deliberate: a card display name is prose ("Minako,
+ * after the prefix. Truncating is deliberate: a card display name is prose ("Nova,
  * seamstress of the lower ward"), and a package directory never inherits a paragraph.
  */
 const PACKAGE_SLUG_MAX_CHARS = 64 - PACKAGE_ID_PREFIX.length;

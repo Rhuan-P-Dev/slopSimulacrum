@@ -105,7 +105,7 @@ describe('blueprint mount options', () => {
         // body part the prose was never asked to hide; a lost one would uncover a
         // part this data says is under cloth.
         //
-        // Minako's three marks are not in this list any more, and that is the point:
+        // A designed body's marks are not in this list, and that is the point:
         // a designed body is written as its own mod package (`AgentBodyController
         // .saveDesign`), not into the official blueprints, so the marks the operator
         // ticked live in that package and disappear with it when it is disabled. The

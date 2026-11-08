@@ -411,8 +411,8 @@ function valuePhrase(from, to) {
  *
  * The row has both halves (`name` for the entity, `componentName` for the part, and
  * the `componentType` the look is read with). Naming only the owner hid a fact the
- * row knew: "an entity used Male Mouth to touch Minako" never said which part, while
- * the record said it was her torso.
+ * row knew: "an entity used Male Mouth to touch the target" never said which part,
+ * while the record said it was the target's torso.
  *
  * A part with no owner reads on its own (`the Knife`), and an owner whose "name" is
  * really an id is dropped rather than printed - a raw id in a sentence is neither a
@@ -432,8 +432,8 @@ function targetPhrase(target, looks = looksOf()) {
 }
 
 /**
- * The English possessive of a display name, ASCII and chosen by rule: `Minako` ->
- * `Minako's`, a name that already ends in `s` -> `Boss'`. The name itself is never
+ * The English possessive of a display name, ASCII and chosen by rule: `Nova` ->
+ * `Nova's`, a name that already ends in `s` -> `Boss'`. The name itself is never
  * rewritten - only the apostrophe is picked.
  * @param {string} name - the owner's display name
  * @returns {string}

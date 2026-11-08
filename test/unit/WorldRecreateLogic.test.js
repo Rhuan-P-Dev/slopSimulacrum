@@ -36,7 +36,7 @@ import {
  * @param {string[]} [options.entities] - The entity ids currently alive.
  * @param {boolean} [options.partial] - A world built without chat / events / actions.
  */
-function makeFacade({ onDisk = ['Minako', 'Rin'], entities = ['ent-1', 'ent-2'], partial = false } = {}) {
+function makeFacade({ onDisk = ['Nova', 'Rin'], entities = ['ent-1', 'ent-2'], partial = false } = {}) {
     const calls = [];
     const record = (...args) => calls.push(args);
     const facade = {
@@ -78,7 +78,7 @@ function thrown(fn) {
 describe('recreateWorld: the order a new world is built in', () => {
     it('despawns, clears the old world, seeds, and rescans - in that order', () => {
         const facade = makeFacade();
-        const result = recreateWorld(facade, { cardIds: ['Minako'] });
+        const result = recreateWorld(facade, { cardIds: ['Nova'] });
 
         expect(facade.calls).toEqual([
             ['despawn', 'ent-1'],
@@ -86,12 +86,12 @@ describe('recreateWorld: the order a new world is built in', () => {
             ['dropped', 0],
             ['clearChat'],
             ['clearEvents'],
-            ['initializeWorld', 'Minako'],
+            ['initializeWorld', 'Nova'],
             ['rescan']
         ]);
         expect(result.despawned).toBe(2);
         expect(result.cards).toMatchObject({ total: 1, spawned: 1 });
-        expect(result.cards.entities).toEqual([{ cardId: 'Minako', entityId: 'entity-Minako' }]);
+        expect(result.cards.entities).toEqual([{ cardId: 'Nova', entityId: 'entity-Nova' }]);
     });
 
     it('hands the seeding the whole set when the request named no cards', () => {
@@ -139,7 +139,7 @@ describe('recreateWorld: the order a new world is built in', () => {
 describe('recreateWorld: refusing before anything is destroyed', () => {
     it('refuses a card id with no file, naming it, and despawns nothing', () => {
         const facade = makeFacade();
-        const error = thrown(() => recreateWorld(facade, { cardIds: ['Minako', 'Ghost'] }));
+        const error = thrown(() => recreateWorld(facade, { cardIds: ['Nova', 'Ghost'] }));
 
         expect(error.code).toBe(WORLD_CREATE_ERROR_CODES.CARD_UNKNOWN);
         expect(error.message).toContain('Ghost');
@@ -148,7 +148,7 @@ describe('recreateWorld: refusing before anything is destroyed', () => {
 
     it('refuses a cardIds that is not a list', () => {
         const facade = makeFacade();
-        const error = thrown(() => recreateWorld(facade, { cardIds: 'Minako' }));
+        const error = thrown(() => recreateWorld(facade, { cardIds: 'Nova' }));
 
         expect(error.code).toBe(WORLD_CREATE_ERROR_CODES.CARD_ID_INVALID);
         expect(facade.calls).toEqual([]);
@@ -174,9 +174,9 @@ describe('recreateWorld: refusing before anything is destroyed', () => {
 
     it('sends a repeated card once: the same card twice is one card', () => {
         const facade = makeFacade();
-        const result = recreateWorld(facade, { cardIds: ['Minako', 'Minako', 'Minako'] });
+        const result = recreateWorld(facade, { cardIds: ['Nova', 'Nova', 'Nova'] });
 
-        expect(facade.calls).toContainEqual(['initializeWorld', 'Minako']);
+        expect(facade.calls).toContainEqual(['initializeWorld', 'Nova']);
         expect(result.cards.total).toBe(1);
     });
 });

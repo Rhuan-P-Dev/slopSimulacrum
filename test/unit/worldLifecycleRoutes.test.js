@@ -105,12 +105,12 @@ describe('POST /world/create', () => {
         const facade = makeFacade();
         const client = await withServer(facade);
 
-        const res = await client.post('/world/create', { cardIds: ['Minako'] });
+        const res = await client.post('/world/create', { cardIds: ['Nova'] });
         await client.close();
 
         // The route must reach `startWorld`; `recreateWorld` would leave the world
         // built and nothing advancing it.
-        expect(facade.calls).toEqual(['startWorld:Minako']);
+        expect(facade.calls).toEqual(['startWorld:Nova']);
         expect(res.status).toBe(200);
         expect(res.body.running).toBe(true);
         expect(res.body.cards.spawned).toBe(1);

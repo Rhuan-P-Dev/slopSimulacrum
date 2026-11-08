@@ -1277,12 +1277,12 @@ describe('LlmContextController (context renderer)', () => {
     });
 
     it('YOUR WORLD: "now in this room" lines carry the LIVE targeting ids (entity + first existence component)', () => {
-        // Regression: the Minako/tree incident (2026-10-21) — the model kept
-        // cutting a stale tree id it remembered from an earlier round
-        // ("Target entity … not found") because the context showed the tree
-        // with no id at all and ids regenerate on respawn. The line must
-        // always carry the CURRENT entity id (targetEntityId actions) and
-        // the body component id (targetingType "component" actions, e.g. cut).
+        // Regression: a stale-id incident — the model kept cutting a stale
+        // tree id it remembered from an earlier round ("Target entity … not
+        // found") because the context showed the tree with no id at all and ids
+        // regenerate on respawn. The line must always carry the CURRENT entity id
+        // (targetEntityId actions) and the body component id (targetingType
+        // "component" actions, e.g. cut).
         const liveCtrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
         liveCtrl.setWorldStateController(makeWorld());
         const { text } = liveCtrl.buildContext('ent-self');
@@ -1343,7 +1343,7 @@ describe('LlmContextController (context renderer)', () => {
             const ctrl = new LlmContextController({ actionRegistry: ACTION_REGISTRY });
             ctrl.setWorldStateController(worldWithActions([onYou({
                 used: [{ type: 'maleArm', id: 'comp-arm-l' }, { type: 'maleArm', id: 'comp-arm-r' }],
-                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-body', componentName: 'minakoBody' }
+                target: { id: 'ent-self', name: 'ent-self', componentId: 'comp-body', componentName: 'Torso' }
             })], {
                 'ent-same': {
                     id: 'ent-same',
@@ -1362,7 +1362,7 @@ describe('LlmContextController (context renderer)', () => {
 
             const { text, data } = ctrl.buildContext('ent-self');
             expect(sectionOf(text)).toContain(
-                '- Rover used "droid punch" on you (hit: minakoBody, used: 1x left maleArm, 1x right maleArm)'
+                '- Rover used "droid punch" on you (hit: Torso, used: 1x left maleArm, 1x right maleArm)'
             );
             expect(sectionOf(text)).not.toContain('2x maleArm');
             expect(data.happenedToYou[0].usedComponents).toEqual([

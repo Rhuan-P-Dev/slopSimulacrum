@@ -43,8 +43,7 @@
  * targetEntityId actions; its first existence-bearing component id for
  * targetingType "component" actions like cut) — rebuilt from the world
  * every round, because ids regenerate on respawn and any older copy in the
- * transcript is stale (the Minako/tree "target entity not found" incident,
- * 2026-10-21).
+ * transcript is stale (the "target entity not found" regression, 2026-10-21).
  *
  * The section headers are stable and deliberate (prompt engineering):
  *   === YOUR STATE ===, === HINTS ===,
@@ -1072,8 +1071,8 @@ class LlmContextController {
         const facade = this.worldStateController;
         // The brain read is keyed by (entity, room); the room read takes the
         // room alone. .call(facade, …): these facade methods read `this`
-        // internally — detaching them loses it (the 2026-10-21 Minako
-        // chat-loss incident).
+        // internally — detaching them loses it (the 2026-10-21 chat-loss
+        // incident).
         const read = observe ? facade.getAgentRoomPerception : facade.getPerceptionDeltasForRoom;
         if (typeof read !== 'function') return [];
         try {
@@ -1163,7 +1162,7 @@ class LlmContextController {
      * never from a stored copy, because ids and bodies change between the blow
      * and the reading. Two cases carry no label, both honest rather than
      * invented: a root component whose blueprint label is `default` (m1Head,
-     * minakoBody has no side), and a component the actor no longer has
+     * centralBall have no side), and a component the actor no longer has
      * (destroyed since) — which arm threw the punch is then unknown.
      *
      * @param {string} actorId - the entity that performed the action
@@ -1219,9 +1218,9 @@ class LlmContextController {
      * The target here is the reading agent itself (this section filters to the
      * rows aimed at it), so the component hangs off its own body list. The
      * label is honest in the same three ways: it never invents a side for a
-     * root component (m1Head, minakobody, centralBall — no position, `default`
-     * or no identifier, renders unchanged as `hit: Droid Head` / `hit:
-     * minakobody`), it strips the meaningless `default_` token of a composed
+     * root component (m1Head, centralBall — no position, `default` or no
+     * identifier, renders unchanged as `hit: Droid Head` / `hit: Central
+     * Ball`), it strips the meaningless `default_` token of a composed
      * label, and it is null when the recorded component no longer exists
      * (the blow is still true; the body it struck has already been rebuilt). The
      * rendered form is `hit: <name> (<side>)` — the same shape the body block
@@ -1269,7 +1268,7 @@ class LlmContextController {
      * the part it hit (with the side that tells which component it was) and the
      * components that powered it when they are known — the attribution the
      * perception row already carries, never a guess:
-     * `(hit: minakoLeg (frontal_left), used: 1x left maleArm, 1x right maleArm)`
+     * `(hit: M1 Leg (frontal_left), used: 1x left maleArm, 1x right maleArm)`
      * and the unchanged `(hit: Droid Head, used: 1x left droidHand, 1x right
      * droidHand)` when the hit component has no side. The target side uses the
      * same body-block shape `type (label)` (`_hitComponentSide`), so a local
@@ -1566,7 +1565,7 @@ class LlmContextController {
                 // component id (targetingType "component" actions like cut).
                 // Rebuilt from the world every round — ids regenerate on
                 // respawn, so the model must target from this line, never from
-                // a stale transcript copy (the Minako/tree incident).
+                // a stale transcript copy (the "target entity not found" incident).
                 const targetIds = e.id
                     ? ` [ent: ${e.id}${e.existence?.id ? ` | target comp: ${e.existence.id}` : ''}]`
                     : '';

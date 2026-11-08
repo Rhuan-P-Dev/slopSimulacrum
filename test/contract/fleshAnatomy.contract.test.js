@@ -13,9 +13,9 @@
  *   - derivation: a pure-flesh recipe yields the flesh resistances, mass = 1.05 x volume,
  *     the `conductive` flag (wet tissue: 70 >= the 60 threshold) and NOT `flammable`
  *     (55 < 60 — a body is not a torch);
- *   - anatomy: every humanoid body recipe (male*, female*, minako*) is 100% flesh,
- *     except the hard parts (hair, eyebrows, eyes, teeth, nails) and Minako's choker,
- *     which are not flesh tissue and keep their shipped matter;
+ *   - anatomy: every humanoid body recipe (male*, female*) is 100% flesh,
+ *     except the hard parts (hair, eyebrows, eyes, teeth, nails), which are not
+ *     flesh tissue and keep their shipped matter;
  *   - scope: nothing that is not a humanoid body became flesh (droids, the tree, items);
  *   - wiring: flesh carries BOTH derived per-material entries — a damage-type split
  *     summing to 100 and a chunk-drop balance — so a bare fist delivers blunt trauma
@@ -49,17 +49,16 @@ const MATERIAL_PROPERTIES = [
 ];
 
 /** The blueprint families that make up a humanoid body in the shipped world. */
-const HUMANOID_PREFIXES = ['male', 'female', 'minako'];
+const HUMANOID_PREFIXES = ['male', 'female'];
 
 /**
  * Humanoid recipes that are deliberately NOT flesh: keratin (hair, eyebrows, nails),
- * enamel (teeth), the eyeballs, and one worn accessory. They keep the matter they
- * shipped with — this change is about the body's soft tissue, not about renaming bone.
+ * enamel (teeth), and the eyeballs. They keep the matter they shipped with — this
+ * change is about the body's soft tissue, not about renaming bone.
  */
 const HARD_PARTS = [
     'maleHair', 'maleEyebrow', 'maleEye', 'maleTooth', 'maleNail',
     'femaleHair', 'femaleEyebrow', 'femaleEye', 'femaleTooth', 'femaleNail',
-    'minakohair', 'minakoeyes', 'minakochoker',
 ];
 
 const recipes = DataLoader.loadJsonSafe('data/mods/core-components/components.json', {});
@@ -129,7 +128,7 @@ describe('flesh - the humanoid bodies built out of it', () => {
         }
     });
 
-    it('leaves the hard parts and the worn choker their own matter', () => {
+    it('leaves the hard parts their own matter', () => {
         for (const type of HARD_PARTS) {
             const composition = recipes[type].materials.map((m) => m.material);
             expect(composition, `${type} is not flesh tissue`).not.toContain(FLESH);
