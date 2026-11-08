@@ -122,6 +122,21 @@ describe('LLMController.chatFull (Feature C, spec §6.1)', () => {
         expect(init).not.toHaveProperty('bodyTimeout');
     });
 
+    // The temperature opt-out: absent keeps the seam's own default on the
+    // wire; an explicit `null` takes the field off the payload entirely, so
+    // the provider's own sampling default applies (the card-relationship
+    // judgment sends `null` on its reasoning backend).
+    it('temperature: null omits the field from the payload; absent still sends the seam default', async () => {
+        const transport = vi.fn().mockResolvedValue(jsonResponse(PLAIN_RESPONSE));
+        const controller = controllerWithTransport(transport);
+
+        await controller.chatFull([{ role: 'user', content: 'go' }], { temperature: null });
+        expect(JSON.parse(transport.mock.calls[0][1].body)).not.toHaveProperty('temperature');
+
+        await controller.chatFull([{ role: 'user', content: 'go' }]);
+        expect(JSON.parse(transport.mock.calls[1][1].body).temperature).toBe(LLMController.DEFAULT_TEMPERATURE);
+    });
+
     // The reasoning switch. The kwarg spelling is the one llama.cpp honours;
     // `reasoning_effort` and a `thinking` kwarg are accepted with a 200 and ignored,
     // which is why nothing else is sent (wiki/decisions/llm-agent-thinking.md).

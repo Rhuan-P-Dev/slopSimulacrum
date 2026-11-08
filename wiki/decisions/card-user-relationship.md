@@ -34,17 +34,27 @@ route, never triggered by a load or a refresh.
 - **Judgment basis:** the card's *effective persona* — the exact precedence
   the spawn uses (`CardSpawnLogic.buildCardProfile`: non-empty `personality`
   wins, then `description`, then the built-in default, each trimmed), because
-  that is the text the NPC would actually carry. A card whose effective
-  persona carries no literal `{{user}}` token cannot be judged:
-  `422 CARD_USER_TOKEN_ABSENT`.
+  that is the text the NPC would actually carry. The prompt gets that persona
+  **in full, uncapped**: the LLM is a local reasoning model with ample
+  context, and a trimmed copy degrades the judgment (the operator saw it on a
+  long card and asked for the full text; the token check and the persona hash
+  always ran on the full text, so nothing about the verdict's grounding
+  changes). A card whose effective persona carries no literal `{{user}}` token
+  cannot be judged: `422 CARD_USER_TOKEN_ABSENT`.
 - **Output shape (owner's choice — free-form, not a fixed vocabulary):** a
   free-form label (at most 3 words / 48 characters) plus one short free-form
   sentence (at most 200 characters). A closed list cannot cover the range of
   relationships a free-form persona can claim; the validator enforces shape
   and length at the boundary (T-1), never vocabulary. The answer is fenced to
-  `max_tokens: 160` and run at `temperature: 0.2` (RP-3): a rambling or
-  truncated answer is a clean, retryable `422 RELATIONSHIP_JUDGMENT_INVALID`,
-  never a silent partial write.
+  `max_tokens: 16000` and sent with **no `temperature`** — the seam's explicit
+  `null` opt-out leaves the field off the payload, so the provider's own
+  sampling default applies (RP-3). The provider is a reasoning model and its
+  `reasoning_content` counts against the answer budget: the original 160 was
+  eaten entirely by reasoning before the JSON could fit (`finishReason:
+  "length"`, empty answer), so the budget got 100x headroom while the answer's
+  real fence stays the label/summary validator — a rambling or truncated
+  answer is a clean, retryable `422 RELATIONSHIP_JUDGMENT_INVALID`, never a
+  silent partial write.
 - **Persistence: a sidecar next to the card, never the card itself.** The
   verdict is written as `<card stem>.user-relationship.json` beside the PNG in
   `data/cards/`, through a new data-seam module
@@ -87,8 +97,9 @@ route, never triggered by a load or a refresh.
 ## Consequences
 
 - Cost: one LLM call per click, bounded by the route limiter (20/min/IP) and
-  the small answer budget; the provider timeout stays the LLM seam's single
-  knob (CR A-5).
+  the 16k-token answer budget (the reasoning model's thinking counts against
+  it, and the sampling is the provider's own — no `temperature` is sent);
+  the provider timeout stays the LLM seam's single knob (CR A-5).
 - The judgment is a property of the card file on disk, not of a world spawn:
   the world does not consume it. It is a dev/display aid for the operator —
   the actual `{{user}}` binding stays the `card-user-mapping` one.

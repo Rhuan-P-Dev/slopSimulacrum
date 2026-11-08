@@ -22,7 +22,6 @@ import CardUserRelationshipController, {
     personaHashFor,
     PROMPT_KIND,
     PROMPT_VERSION,
-    LLM_CARD_USER_RELATIONSHIP_TEMPERATURE,
     LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS,
     RELATIONSHIP_LABEL_MAX_CHARS,
     RELATIONSHIP_SUMMARY_MAX_CHARS
@@ -171,8 +170,8 @@ describe('CardUserRelationshipController', () => {
         expect(llm.chatFull).toHaveBeenCalledTimes(1);
         const [messages, options] = llm.chatFull.mock.calls[0];
         expect(options).toEqual({
-            temperature: LLM_CARD_USER_RELATIONSHIP_TEMPERATURE,
-            max_tokens: LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS
+            max_tokens: LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS,
+            temperature: null
         });
         expect(messages[0].role).toBe('system');
         expect(messages[0].content).toContain(PROMPT_KIND);

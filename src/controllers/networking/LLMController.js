@@ -239,7 +239,12 @@ class LLMController {
      *   `system`, `user`, `assistant`, `tool` (agent multi-turn replay, §6.1.4).
      * @param {Object} [options]
      * @param {string} [options.model] - The model ID to use.
-     * @param {number} [options.temperature] - Sampling temperature (0.0 to 2.0).
+     * @param {number|null} [options.temperature] - Sampling temperature
+     *   (0.0 to 2.0). `null` is an explicit opt-out: the field is not sent
+     *   and the provider's own default applies (absent still means the
+     *   seam's DEFAULT_TEMPERATURE). The card-relationship judgment sends
+     *   `null` because on its reasoning backend the sampling is the
+     *   provider's to own (wiki/decisions/card-user-relationship.md).
      * @param {number} [options.max_tokens] - Maximum number of tokens to generate.
      * @param {string} [options.system] - Optional system prompt. When provided,
      *   it is prepended to the conversation as the first `{ role: 'system' }`
@@ -282,10 +287,18 @@ class LLMController {
         const payload = {
             model: options.model || LLMController.DEFAULT_MODEL,
             messages: finalMessages,
-            temperature: options.temperature !== undefined ? options.temperature : LLMController.DEFAULT_TEMPERATURE,
             max_tokens: options.max_tokens || LLMController.DEFAULT_MAX_TOKENS,
             stream: false
         };
+        // Sampling temperature. Absent means the seam's own default; an
+        // explicit `null` is the opt-out — the field is left off the payload
+        // entirely, so the provider's own default applies (the same
+        // absent-versus-explicit distinction as the thinking switch below).
+        if (options.temperature !== null) {
+            payload.temperature = options.temperature !== undefined
+                ? options.temperature
+                : LLMController.DEFAULT_TEMPERATURE;
+        }
 
         // Optional agentic parameters (OpenAI-compatible passthrough).
         if (Array.isArray(options.tools) && options.tools.length > 0) {

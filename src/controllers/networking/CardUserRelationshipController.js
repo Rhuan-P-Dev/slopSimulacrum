@@ -129,26 +129,18 @@ export const RELATIONSHIP_LABEL_MAX_CHARS = 48;
 export const RELATIONSHIP_SUMMARY_MAX_CHARS = 200;
 
 /**
- * Persona bound for the prompt (RP-3 token budget): the judgment grounds on
- * the persona text; over this many characters the prompt gets the first part
- * (the token check and the persona hash always use the full text — only the
- * prompt copy is trimmed, and the trim is logged, OBS-3).
+ * Judgment answer budget (RP-3). The provider behind this endpoint is a
+ * reasoning model, and the reasoning it emits (`reasoning_content`) counts
+ * against this budget — the original 160 was eaten entirely by reasoning, so
+ * the JSON answer came back empty with `finishReason: "length"`. 100x
+ * headroom (16000) lets the reasoning run and the answer still fit; the
+ * answer itself stays fenced by the label/summary validator (T-1), so a
+ * rambling or truncated answer is a clean 422 the operator can retry, not a
+ * silent partial write. No `temperature` is sent for this call — the seam's
+ * explicit `null` opt-out leaves the sampling to the provider (see the
+ * `chatFull` site below).
  */
-export const RELATIONSHIP_PERSONA_MAX_CHARS = 2000;
-
-/**
- * Judgment temperature (RP-3): low on purpose — this is a constrained
- * judgment with a strict output contract, not a creative call.
- */
-export const LLM_CARD_USER_RELATIONSHIP_TEMPERATURE = 0.2;
-
-/**
- * Judgment answer budget (RP-3): the answer is a small JSON object by
- * contract (a label and one short sentence); 160 tokens bounds the cost of a
- * rambling model and turns a truncated answer into a clean 422 the operator
- * can retry, not a silent partial write.
- */
-export const LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS = 160;
+export const LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS = 16000;
 
 /**
  * @param {Object} deps
@@ -279,8 +271,10 @@ export default class CardUserRelationshipController {
         ];
         const startedAt = performance.now();
         const completion = await this._llm.chatFull(messages, {
-            temperature: LLM_CARD_USER_RELATIONSHIP_TEMPERATURE,
-            max_tokens: LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS
+            max_tokens: LLM_CARD_USER_RELATIONSHIP_MAX_TOKENS,
+            // `temperature: null` is the seam's explicit opt-out: the field
+            // is not sent, so the provider's own sampling default applies.
+            temperature: null
         });
         const latencyMs = Math.round(performance.now() - startedAt);
 
@@ -367,20 +361,19 @@ export default class CardUserRelationshipController {
     }
 
     /**
-     * The user prompt: the card's name and its effective persona. The persona
-     * is copied trimmed to `RELATIONSHIP_PERSONA_MAX_CHARS` (RP-3) — the token
-     * check and the persona hash already ran on the full text, so a trim only
-     * bounds the prompt; it is logged, not hidden (OBS-3).
+     * The user prompt: the card's name and its effective persona, in full —
+     * no cap. The LLM behind this endpoint is a local reasoning model with
+     * ample context, and a truncated persona degrades the judgment (the
+     * operator saw exactly that on a long card); the token check and the
+     * persona hash always ran on the full text, so nothing about the
+     * verdict's grounding changes.
      * @private
      * @param {string} name
      * @param {string} persona
      * @returns {string}
      */
     _buildUserPrompt(name, persona) {
-        if (persona.length > RELATIONSHIP_PERSONA_MAX_CHARS) {
-            Logger.info(`card-user-relationship prompt: persona trimmed from ${persona.length} to ${RELATIONSHIP_PERSONA_MAX_CHARS} characters for card "${name}"`);
-        }
-        return `Character name: ${name}\n\nPersona text:\n${persona.slice(0, RELATIONSHIP_PERSONA_MAX_CHARS)}`;
+        return `Character name: ${name}\n\nPersona text:\n${persona}`;
     }
 
     /**
