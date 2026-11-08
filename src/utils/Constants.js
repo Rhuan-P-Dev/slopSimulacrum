@@ -367,7 +367,7 @@ export const LLM_DEFAULT_MODEL = 'gpt-3.5-turbo';
  * own lower temperature — see LLMAgentController).
  * @type {number}
  */
-export const LLM_DEFAULT_TEMPERATURE = 0.7;
+export const LLM_DEFAULT_TEMPERATURE = 1;
 
 /**
  * Default maximum completion tokens per LLM call.

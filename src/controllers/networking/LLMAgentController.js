@@ -75,7 +75,7 @@ const LLM_ROUND_TIMEOUT_MS = 450000;
  * opt-in. */
 const LLM_ROUND_MAX_TOKENS = 51200;
 /**
- * Per-call sampling temperature — deliberately below the global 0.7 default
+ * Per-call sampling temperature — deliberately below the global 1 default
  * (LLMController.DEFAULT_TEMPERATURE): a protocol-B round is a constrained
  * choice (one of a small fixed tool set, or silence) and 0.7 is the drift
  * zone where small local models started looping (the scaffold-loop incident
